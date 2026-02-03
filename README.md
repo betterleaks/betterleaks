@@ -1,15 +1,5 @@
 # Betterleaks
 
-```
-  ○
-  ○
-  ●
-  ○
-```
-
-[license]: ./LICENSE
-[![License][badge-license]][license]
-
 ~~Gitleaks is a tool for **detecting** secrets like passwords, API keys, and tokens in git repos, files, and whatever else you wanna throw at it via `stdin`. If you wanna learn more about how the detection engine works check out this blog: [Regex is (almost) all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need).~~
 
 This is the Betterleaks branch that is fully compatible with the gitleaks v8 library. It's a copy of v8 + some renames. This branch is intended to be used as an option for those who want a Gitleaks v8.30.0 compatible API. This branch will be maintained with minor patches from time to time.
@@ -22,7 +12,7 @@ This is the Betterleaks branch that is fully compatible with the gitleaks v8 lib
   ○
   ○
   ●
-  ○  betterleaks v0.x.0
+  ○  betterleaks v0.0.0
 
 
 
