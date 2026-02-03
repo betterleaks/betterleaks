@@ -60,17 +60,17 @@ Flags:
   -c, --config string                 config file path
                                       order of precedence:
                                       1. --config/-c
-                                      2. env var GITLEAKS_CONFIG
-                                      3. env var GITLEAKS_CONFIG_TOML with the file content
-                                      4. (target path)/.gitleaks.toml
-                                      If none of the four options are used, then gitleaks will use the default config
+                                      2. env var BETTERLEAKS_CONFIG or GITLEAKS_CONFIG
+                                      3. env var BETTERLEAKS_CONFIG_TOML or GITLEAKS_CONFIG_TOML with the file content
+                                      4. (target path)/.betterleaks.toml or .gitleaks.toml
+                                      If none of the four options are used, then the default config will be used
       --diagnostics string            enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof
       --diagnostics-dir string        directory to store diagnostics output files when not using http mode (defaults to current directory)
       --enable-rule strings           only enable specific rules by id
       --exit-code int                 exit code when leaks have been encountered (default 1)
-  -i, --gitleaks-ignore-path string   path to .gitleaksignore file or folder containing one (default ".")
-  -h, --help                          help for gitleaks
-      --ignore-gitleaks-allow         ignore gitleaks:allow comments
+  -i, --gitleaks-ignore-path string   path to .betterleaksignore or .gitleaksignore file or folder containing one (default ".")
+  -h, --help                          help for betterleaks
+      --ignore-gitleaks-allow         ignore betterleaks:allow and gitleaks:allow comments
   -l, --log-level string              log level (trace, debug, info, warn, error, fatal) (default "info")
       --max-archive-depth int         allow scanning into nested archives up to this depth (default "0", no archive traversal is done)
       --max-decode-depth int          allow recursive decoding up to this depth (default "0", no decoding is done)
@@ -81,11 +81,11 @@ Flags:
   -f, --report-format string          output format (json, csv, junit, sarif, template)
   -r, --report-path string            report file
       --report-template string        template file used to generate the report (implies --report-format=template)
-      --timeout int                   set a timeout for gitleaks commands in seconds (default "0", no timeout is set)
+      --timeout int                   set a timeout for betterleaks commands in seconds (default "0", no timeout is set)
   -v, --verbose                       show verbose output from scan
-      --version                       version for gitleaks
+      --version                       version for betterleaks
 
-Use "gitleaks [command] --help" for more information about a command.
+Use "betterleaks [command] --help" for more information about a command.
 ```
 
 ### Commands
@@ -98,67 +98,69 @@ There are three scanning modes: `git`, `dir`, and `stdin`.
 
 #### Git
 
-The `git` command lets you scan local git repos. Under the hood, gitleaks uses the `git log -p` command to scan patches.
+The `git` command lets you scan local git repos. Under the hood, betterleaks uses the `git log -p` command to scan patches.
 You can configure the behavior of `git log -p` with the `log-opts` option.
-For example, if you wanted to run gitleaks on a range of commits you could use the following
-command: `gitleaks git -v --log-opts="--all commitA..commitB" path_to_repo`. See the [git log](https://git-scm.com/docs/git-log) documentation for more information.
-If there is no target specified as a positional argument, then gitleaks will attempt to scan the current working directory as a git repo.
+For example, if you wanted to run betterleaks on a range of commits you could use the following
+command: `betterleaks git -v --log-opts="--all commitA..commitB" path_to_repo`. See the [git log](https://git-scm.com/docs/git-log) documentation for more information.
+If there is no target specified as a positional argument, then betterleaks will attempt to scan the current working directory as a git repo.
 
 #### Dir
 
-The `dir` (aliases include `files`, `directory`) command lets you scan directories and files. Example: `gitleaks dir -v path_to_directory_or_file`.
-If there is no target specified as a positional argument, then gitleaks will scan the current working directory.
+The `dir` (aliases include `files`, `directory`) command lets you scan directories and files. Example: `betterleaks dir -v path_to_directory_or_file`.
+If there is no target specified as a positional argument, then betterleaks will scan the current working directory.
 
 #### Stdin
 
-You can also stream data to gitleaks with the `stdin` command. Example: `cat some_file | gitleaks -v stdin`
+You can also stream data to betterleaks with the `stdin` command. Example: `cat some_file | betterleaks -v stdin`
 
 ### Creating a baseline
 
 When scanning large repositories or repositories with a long history, it can be convenient to use a baseline. When using a baseline,
-gitleaks will ignore any old findings that are present in the baseline. A baseline can be any gitleaks report. To create a gitleaks report, run gitleaks with the `--report-path` parameter.
+betterleaks will ignore any old findings that are present in the baseline. A baseline can be any betterleaks report. To create a report, run betterleaks with the `--report-path` parameter.
 
 ```
-gitleaks git --report-path gitleaks-report.json # This will save the report in a file called gitleaks-report.json
+betterleaks git --report-path betterleaks-report.json # This will save the report in a file called betterleaks-report.json
 ```
 
 Once as baseline is created it can be applied when running the detect command again:
 
 ```
-gitleaks git --baseline-path gitleaks-report.json --report-path findings.json
+betterleaks git --baseline-path betterleaks-report.json --report-path findings.json
 ```
 
 After running the detect command with the --baseline-path parameter, report output (findings.json) will only contain new issues.
 
 ## Pre-Commit hook
 
-You can run Gitleaks as a pre-commit hook by copying the example `pre-commit.py` script into
+You can run Betterleaks as a pre-commit hook by copying the example `pre-commit.py` script into
 your `.git/hooks/` directory.
 
 ## Load Configuration
+
+Betterleaks supports both `betterleaks` and `gitleaks` naming conventions for backwards compatibility. The `betterleaks` variants take precedence.
 
 The order of precedence is:
 
 1. `--config/-c` option:
       ```bash
-      gitleaks git --config /home/dev/customgitleaks.toml .
+      betterleaks git --config /home/dev/customconfig.toml .
       ```
-2. Environment variable `GITLEAKS_CONFIG` with the file path:
+2. Environment variable `BETTERLEAKS_CONFIG` or `GITLEAKS_CONFIG` with the file path:
       ```bash
-      export GITLEAKS_CONFIG="/home/dev/customgitleaks.toml"
-      gitleaks git .
+      export BETTERLEAKS_CONFIG="/home/dev/customconfig.toml"
+      betterleaks git .
       ```
-3. Environment variable `GITLEAKS_CONFIG_TOML` with the file content:
+3. Environment variable `BETTERLEAKS_CONFIG_TOML` or `GITLEAKS_CONFIG_TOML` with the file content:
       ```bash
-      export GITLEAKS_CONFIG_TOML=`cat customgitleaks.toml`
-      gitleaks git .
+      export BETTERLEAKS_CONFIG_TOML=`cat customconfig.toml`
+      betterleaks git .
       ```
-4. A `.gitleaks.toml` file within the target path:
+4. A `.betterleaks.toml` or `.gitleaks.toml` file within the target path:
       ```bash
-      gitleaks git .
+      betterleaks git .
       ```
 
-If none of the four options are used, then gitleaks will use the default config.
+If none of the four options are used, then the default config will be used.
 
 ## Configuration
 
@@ -408,20 +410,20 @@ fragment = section of data gitleaks is looking at
 
 <details><summary>Some final quick thoughts on composite rules.</summary>This is an experimental feature! It's subject to change so don't go sellin' a new B2B SaaS feature built ontop of this feature. Scan type (git vs dir) based context is interesting. I'm monitoring the situation. Composite rules might not be super useful for git scans because gitleaks only looks at additions in the git history. It could be useful to scan non-additions in git history for `required` rules. Oh, right this is a readme, I'll shut up now.</details>
 
-#### gitleaks:allow
+#### betterleaks:allow / gitleaks:allow
 
-If you are knowingly committing a test secret that gitleaks will catch you can add a `gitleaks:allow` comment to that line which will instruct gitleaks
+If you are knowingly committing a test secret that betterleaks will catch you can add a `betterleaks:allow` (or `gitleaks:allow` for backwards compatibility) comment to that line which will instruct betterleaks
 to ignore that secret. Ex:
 
 ```
 class CustomClass:
-    discord_client_secret = '8dyfuiRyq=vVc3RRr_edRk-fK__JItpZ'  #gitleaks:allow
+    discord_client_secret = '8dyfuiRyq=vVc3RRr_edRk-fK__JItpZ'  #betterleaks:allow
 
 ```
 
-#### .gitleaksignore
+#### .betterleaksignore / .gitleaksignore
 
-You can ignore specific findings by creating a `.gitleaksignore` file at the root of your repo. In release v8.10.0 Gitleaks added a `Fingerprint` value to the Gitleaks report. Each leak, or finding, has a Fingerprint that uniquely identifies a secret. Add this fingerprint to the `.gitleaksignore` file to ignore that specific secret. See Gitleaks' [.gitleaksignore](https://github.com/gitleaks/gitleaks/blob/master/.gitleaksignore) for an example. Note: this feature is experimental and is subject to change in the future.
+You can ignore specific findings by creating a `.betterleaksignore` (or `.gitleaksignore` for backwards compatibility) file at the root of your repo. In release v8.10.0 a `Fingerprint` value was added to the report. Each leak, or finding, has a Fingerprint that uniquely identifies a secret. Add this fingerprint to the ignore file to ignore that specific secret. See the [.gitleaksignore](https://github.com/gitleaks/gitleaks/blob/master/.gitleaksignore) for an example. Note: this feature is experimental and is subject to change in the future.
 
 #### Decoding
 
@@ -493,7 +495,7 @@ are supported.
 
 #### Reporting
 
-Gitleaks has built-in support for several report formats: [`json`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/json_simple.json), [`csv`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/csv_simple.csv?plain=1), [`junit`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/junit_simple.xml), and [`sarif`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/sarif_simple.sarif).
+Betterleaks has built-in support for several report formats: [`json`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/json_simple.json), [`csv`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/csv_simple.csv?plain=1), [`junit`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/junit_simple.xml), and [`sarif`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/sarif_simple.sarif).
 
 If none of these formats fit your need, you can create your own report format with a [Go `text/template` .tmpl file](https://www.digitalocean.com/community/tutorials/how-to-use-templates-in-go#step-4-writing-a-template) and the `--report-template` flag. The template can use [extended functionality from the `Masterminds/sprig` template library](https://masterminds.github.io/sprig/).
 
@@ -529,7 +531,7 @@ For example, the following template provides a custom JSON output:
 
 Usage:
 ```sh
-$ gitleaks dir ~/leaky-repo/ --report-path "report.json" --report-format template --report-template testdata/report/jsonextra.tmpl
+$ betterleaks dir ~/leaky-repo/ --report-path "report.json" --report-format template --report-template testdata/report/jsonextra.tmpl
 ```
 
 ## Exit Codes
