@@ -11,7 +11,7 @@
 # Rules instruct gitleaks on what should be considered a secret.
 # Allowlists instruct gitleaks on what is allowed, i.e. not a secret.
 
-title = "gitleaks config"
+title = "betterleaks config"
 
 # minVersion indicates the minimum Gitleaks version required to use this config.
 # If the running version is older, a warning will be logged and not all

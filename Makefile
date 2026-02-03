@@ -1,8 +1,8 @@
 .PHONY: test test-cover failfast profile clean format build
 
-PKG=github.com/zricethezav/gitleaks
+PKG=github.com/betterleaks/betterleaks
 VERSION := `git fetch --tags && git tag | sort -V | tail -1`
-LDFLAGS=-ldflags "-X=github.com/zricethezav/gitleaks/v8/version.Version=$(VERSION)"
+LDFLAGS=-ldflags "-X=github.com/betterleaks/betterleaks/version.Version=$(VERSION)"
 COVER=--cover --coverprofile=cover.out
 
 test-cover:
@@ -31,7 +31,7 @@ clean:
 	find . -type f -name '*.out' -delete
 
 profile: build
-	./scripts/profile.sh './gitleaks' '.'
+	./scripts/profile.sh './betterleaks' '.'
 
 config/gitleaks.toml: $(wildcard cmd/generate/config/**/*)
 	go generate ./...

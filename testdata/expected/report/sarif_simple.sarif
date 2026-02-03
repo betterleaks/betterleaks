@@ -5,7 +5,7 @@
   {
    "tool": {
     "driver": {
-     "name": "gitleaks",
+     "name": "betterleaks",
      "semanticVersion": "v8.0.0",
      "informationUri": "https://github.com/gitleaks/gitleaks",
      "rules": [

@@ -10,7 +10,7 @@ import (
 
 func main() {
 	// this block sets up a go routine to listen for an interrupt signal
-	// which will immediately exit gitleaks
+	// which will immediately exit betterleaks
 	stopChan := make(chan os.Signal, 1)
 	signal.Notify(stopChan, os.Interrupt)
 	go listenForInterrupt(stopChan)

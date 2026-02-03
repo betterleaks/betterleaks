@@ -1,20 +1,20 @@
 // The `detect` and `protect` command is now deprecated. Here are some equivalent commands
 // to help guide you.
 
-// OLD CMD: gitleaks detect --source={repo}
-// NEW CMD: gitleaks git {repo}
+// OLD CMD: betterleaks detect --source={repo}
+// NEW CMD: betterleaks git {repo}
 
-// OLD CMD: gitleaks protect --source={repo}
-// NEW CMD: gitleaks git --pre-commit {repo}
+// OLD CMD: betterleaks protect --source={repo}
+// NEW CMD: betterleaks git --pre-commit {repo}
 
-// OLD  CMD: gitleaks protect --staged --source={repo}
-// NEW CMD: gitleaks git --pre-commit --staged {repo}
+// OLD  CMD: betterleaks protect --staged --source={repo}
+// NEW CMD: betterleaks git --pre-commit --staged {repo}
 
-// OLD CMD: gitleaks detect --no-git --source={repo}
-// NEW CMD: gitleaks directory {directory/file}
+// OLD CMD: betterleaks detect --no-git --source={repo}
+// NEW CMD: betterleaks directory {directory/file}
 
-// OLD CMD: gitleaks detect --no-git --pipe
-// NEW CMD: gitleaks stdin
+// OLD CMD: betterleaks detect --no-git --pipe
+// NEW CMD: betterleaks stdin
 
 package cmd
 
@@ -33,7 +33,7 @@ import (
 func init() {
 	rootCmd.AddCommand(detectCmd)
 	detectCmd.Flags().Bool("no-git", false, "treat git repo as a regular directory and scan those files, --log-opts has no effect on the scan when --no-git is set")
-	detectCmd.Flags().Bool("pipe", false, "scan input from stdin, ex: `cat some_file | gitleaks detect --pipe`")
+	detectCmd.Flags().Bool("pipe", false, "scan input from stdin, ex: `cat some_file | betterleaks detect --pipe`")
 	detectCmd.Flags().Bool("follow-symlinks", false, "scan files that are symlinks to other files")
 	detectCmd.Flags().StringP("source", "s", ".", "path to source")
 	detectCmd.Flags().String("log-opts", "", "git log options")

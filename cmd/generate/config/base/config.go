@@ -10,7 +10,7 @@ import (
 
 func CreateGlobalConfig() config.Config {
 	return config.Config{
-		Title: "gitleaks config",
+		Title: "betterleaks config",
 		Allowlists: []*config.Allowlist{
 			{
 				Description: "global allow lists",
