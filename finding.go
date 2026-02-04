@@ -20,6 +20,9 @@ type Finding struct {
 
 	Line string `json:"-"`
 
+	// DecodedLine is the fully decoded line content, used for allowlist matching.
+	DecodedLine string `json:"-"`
+
 	Match string
 
 	// Captured secret

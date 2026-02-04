@@ -40,7 +40,7 @@ type Pipeline struct {
 // ProcessFragment filters, scans, and produces finding for a single fragment.
 // This is the channel-free API for processing fragments directly.
 func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fragment) ([]betterleaks.Finding, error) {
-	if !config.FragmentAllowed(&p.Config, fragment) {
+	if !p.Config.FragmentAllowed(fragment) {
 		return nil, nil
 	}
 
@@ -54,6 +54,7 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 	for _, match := range matches {
 		rule := p.Config.Rules[match.RuleID]
 		finding := CreateFinding(fragment, match, rule)
+		finding.DecodedLine = match.FullDecodedLine
 
 		// check entropy if applicable
 		if rule.Entropy != 0.0 {
@@ -62,7 +63,7 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 			}
 		}
 
-		if !config.FindingAllowed(&p.Config, *finding, match.FullDecodedLine, rule) {
+		if !p.Config.FindingAllowed(*finding, rule) {
 			continue
 		}
 		if newLineIndices == nil {

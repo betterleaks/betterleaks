@@ -140,9 +140,6 @@ type Allowlist struct {
 	// validated is an internal flag to track whether `Validate()` has been called.
 	validated bool
 
-	// commitMap is a normalized version of Commits, used for efficiency purposes.
-	// TODO: possible optimizations so that both short and long hashes work.
-	commitMap    map[string]struct{}
 	regexPat     *regexp.Regexp
 	stopwordTrie *ahocorasick.Trie
 	// resourceMap is indexed by [source][key] and contains combined regex patterns.
@@ -165,14 +162,14 @@ func (a *Allowlist) Validate() error {
 	}
 
 	// Deduplicate commits and stopwords.
+	var uniqueCommits map[string]struct{}
 	if len(a.Commits) > 0 {
-		uniqueCommits := make(map[string]struct{})
+		uniqueCommits = make(map[string]struct{})
 		for _, commit := range a.Commits {
 			// Commits are case-insensitive.
 			uniqueCommits[strings.TrimSpace(strings.ToLower(commit))] = struct{}{}
 		}
 		a.Commits = maps.Keys(uniqueCommits)
-		a.commitMap = uniqueCommits
 	}
 	if len(a.StopWords) > 0 {
 		uniqueStopwords := make(map[string]struct{})
@@ -204,7 +201,7 @@ func (a *Allowlist) Validate() error {
 	// Convert Commits to ResourceMatchers (source="git", key="commit_sha").
 	if len(a.Commits) > 0 {
 		var commitPatterns []*regexp.Regexp
-		for commit := range a.commitMap {
+		for commit := range uniqueCommits {
 			commitPatterns = append(commitPatterns, regexp.MustCompile(`(?i)^`+stdregexp.QuoteMeta(commit)+`$`))
 		}
 		a.Resources = append(a.Resources, &ResourceMatcher{
@@ -359,10 +356,10 @@ func (m *ResourceMatcher) matchesSource(source string) bool {
 	return false
 }
 
-// FragmentAllowed returns true if this allowlist matches the given resource context.
+// fragmentAllowed returns true if this allowlist matches the given resource context.
 // Only evaluates resource-level checks since content is not available at fragment level.
 // In AND mode, returns false if content-based checks (regexes/stopwords) are required.
-func (a *Allowlist) FragmentAllowed(source string, metadata map[string]string) bool {
+func (a *Allowlist) fragmentAllowed(source string, metadata map[string]string) bool {
 	if a == nil {
 		return false
 	}
@@ -378,11 +375,11 @@ func (a *Allowlist) FragmentAllowed(source string, metadata map[string]string) b
 	return resourceAllowed
 }
 
-// FindingAllowed returns true if this allowlist matches the given finding context.
+// findingAllowed returns true if this allowlist matches the given finding context.
 // Evaluates all checks: resources, regexes, and stopwords.
 // The regexTarget parameter is the resolved string to test regexes against
 // (secret, match, or line depending on RegexTarget).
-func (a *Allowlist) FindingAllowed(regexTarget, secret, source string, metadata map[string]string) bool {
+func (a *Allowlist) findingAllowed(regexTarget, secret, source string, metadata map[string]string) bool {
 	if a == nil {
 		return false
 	}
@@ -433,42 +430,51 @@ func (a *Allowlist) ContainsStopWord(s string) (bool, string) {
 	return false, ""
 }
 
-func FragmentAllowed(cfg *Config, fragment betterleaks.Fragment) bool {
+// FragmentAllowed returns true if the fragment should be scanned (not allowlisted).
+// Returns false if the fragment matches any global allowlist.
+func (c *Config) FragmentAllowed(fragment betterleaks.Fragment) bool {
 	if fragment.Path != "" {
-		if fragment.Path == cfg.Path {
+		if fragment.Path == c.Path {
 			logging.Trace().Msg("skipping file: matches config or baseline path")
 			return false
 		}
 	}
 
-	source, metadata := resourceContext(fragment.Resource)
-	for _, a := range cfg.Allowlists {
-		if a.FragmentAllowed(source, metadata) {
+	var source string
+	var metadata map[string]string
+	if fragment.Resource != nil {
+		source = fragment.Resource.Source
+		metadata = fragment.Resource.Metadata
+	}
+
+	for _, a := range c.Allowlists {
+		if a.fragmentAllowed(source, metadata) {
 			return false
 		}
 	}
 	return true
 }
 
-// FindingAllowed returns true if the finding should be reported.
-// It checks entropy, global allowlists, and rule-level allowlists.
-func FindingAllowed(cfg *Config, finding betterleaks.Finding, decodedLine string, rule Rule) bool {
-	if rule.Entropy != 0.0 {
-		if finding.Entropy <= rule.Entropy {
-			return false
-		}
+// FindingAllowed returns true if the finding should be reported (not allowlisted).
+// It checks global allowlists and rule-level allowlists.
+// Uses finding.DecodedLine for regex target resolution.
+func (c *Config) FindingAllowed(finding betterleaks.Finding, rule Rule) bool {
+	var source string
+	var metadata map[string]string
+	if finding.Fragment != nil && finding.Fragment.Resource != nil {
+		source = finding.Fragment.Resource.Source
+		metadata = finding.Fragment.Resource.Metadata
 	}
 
-	source, metadata := resourceContext(finding.Fragment.Resource)
-	for _, a := range cfg.Allowlists {
-		regexTarget := resolveRegexTarget(a.RegexTarget, finding, decodedLine)
-		if a.FindingAllowed(regexTarget, finding.Secret, source, metadata) {
+	for _, a := range c.Allowlists {
+		regexTarget := resolveRegexTarget(a.RegexTarget, finding)
+		if a.findingAllowed(regexTarget, finding.Secret, source, metadata) {
 			return false
 		}
 	}
 	for _, a := range rule.Allowlists {
-		regexTarget := resolveRegexTarget(a.RegexTarget, finding, decodedLine)
-		if a.FindingAllowed(regexTarget, finding.Secret, source, metadata) {
+		regexTarget := resolveRegexTarget(a.RegexTarget, finding)
+		if a.findingAllowed(regexTarget, finding.Secret, source, metadata) {
 			return false
 		}
 	}
@@ -477,20 +483,13 @@ func FindingAllowed(cfg *Config, finding betterleaks.Finding, decodedLine string
 }
 
 // resolveRegexTarget picks the string to test regexes against based on the allowlist's RegexTarget.
-func resolveRegexTarget(target string, finding betterleaks.Finding, line string) string {
+func resolveRegexTarget(target string, finding betterleaks.Finding) string {
 	switch target {
 	case "match":
 		return finding.Match
 	case "line":
-		return line
+		return finding.DecodedLine
 	default:
 		return finding.Secret
 	}
-}
-
-func resourceContext(r *betterleaks.Resource) (string, map[string]string) {
-	if r == nil {
-		return "", nil
-	}
-	return r.Source, r.Metadata
 }
