@@ -6,7 +6,6 @@ import (
 
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/fatih/semgroup"
 )
@@ -41,7 +40,7 @@ type Pipeline struct {
 // ProcessFragment filters, scans, and produces finding for a single fragment.
 // This is the channel-free API for processing fragments directly.
 func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fragment) ([]betterleaks.Finding, error) {
-	if !FragmentAllowed(&p.Config, fragment) {
+	if !config.FragmentAllowed(&p.Config, fragment) {
 		return nil, nil
 	}
 
@@ -54,14 +53,22 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 	var newLineIndices [][]int
 	for _, match := range matches {
 		rule := p.Config.Rules[match.RuleID]
-		finding := betterleaks.CreateFinding(fragment, match, rule)
-		if !FindingAllowed(&p.Config, *finding, match.FullDecodedLine, rule) {
+		finding := CreateFinding(fragment, match, rule)
+
+		// check entropy if applicable
+		if rule.Entropy != 0.0 {
+			if finding.Entropy <= rule.Entropy {
+				continue
+			}
+		}
+
+		if !config.FindingAllowed(&p.Config, *finding, match.FullDecodedLine, rule) {
 			continue
 		}
 		if newLineIndices == nil {
 			newLineIndices = newLineRegexp.FindAllStringIndex(fragment.Raw, -1)
 		}
-		betterleaks.AddLocationToFinding(finding, fragment, match, newLineIndices)
+		AddLocationToFinding(finding, fragment, match, newLineIndices)
 		findings = append(findings, *finding)
 	}
 
@@ -125,67 +132,4 @@ func NewPipeline(cfg config.Config, src betterleaks.Source, scanner Scanner) *Pi
 		Source:  src,
 		Scanner: scanner,
 	}
-}
-
-// TODO FragmentAllowed and FindingAllowed should probably be moved to config
-func FragmentAllowed(cfg *config.Config, fragment betterleaks.Fragment) bool {
-	if fragment.Path != "" {
-		if fragment.Path == cfg.Path {
-			logging.Trace().Msg("skipping file: matches config or baseline path")
-			return false
-		}
-	}
-
-	source, metadata := resourceContext(fragment.Resource)
-	for _, a := range cfg.Allowlists {
-		if a.FragmentAllowed(source, metadata) {
-			return false
-		}
-	}
-	return true
-}
-
-// FindingAllowed returns true if the finding should be reported.
-// It checks entropy, global allowlists, and rule-level allowlists.
-func FindingAllowed(cfg *config.Config, finding betterleaks.Finding, decodedLine string, rule config.Rule) bool {
-	if rule.Entropy != 0.0 {
-		if finding.Entropy <= rule.Entropy {
-			return false
-		}
-	}
-
-	source, metadata := resourceContext(finding.Fragment.Resource)
-	for _, a := range cfg.Allowlists {
-		regexTarget := resolveRegexTarget(a.RegexTarget, finding, decodedLine)
-		if a.FindingAllowed(regexTarget, finding.Secret, source, metadata) {
-			return false
-		}
-	}
-	for _, a := range rule.Allowlists {
-		regexTarget := resolveRegexTarget(a.RegexTarget, finding, decodedLine)
-		if a.FindingAllowed(regexTarget, finding.Secret, source, metadata) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// resolveRegexTarget picks the string to test regexes against based on the allowlist's RegexTarget.
-func resolveRegexTarget(target string, finding betterleaks.Finding, line string) string {
-	switch target {
-	case "match":
-		return finding.Match
-	case "line":
-		return line
-	default:
-		return finding.Secret
-	}
-}
-
-func resourceContext(r *betterleaks.Resource) (string, map[string]string) {
-	if r == nil {
-		return "", nil
-	}
-	return r.Source, r.Metadata
 }

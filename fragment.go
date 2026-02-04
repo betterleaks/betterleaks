@@ -12,3 +12,11 @@ type Fragment struct {
 
 	Resource *Resource
 }
+
+// ResourceContext returns the source type and metadata for allowlist matching.
+func (f *Fragment) ResourceContext() (string, map[string]string) {
+	if f == nil || f.Resource == nil {
+		return "", nil
+	}
+	return f.Resource.Source, f.Resource.Metadata
+}

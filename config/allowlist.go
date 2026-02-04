@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
+	"github.com/betterleaks/betterleaks"
+	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"golang.org/x/exp/maps"
 )
@@ -429,4 +431,66 @@ func (a *Allowlist) ContainsStopWord(s string) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+func FragmentAllowed(cfg *Config, fragment betterleaks.Fragment) bool {
+	if fragment.Path != "" {
+		if fragment.Path == cfg.Path {
+			logging.Trace().Msg("skipping file: matches config or baseline path")
+			return false
+		}
+	}
+
+	source, metadata := resourceContext(fragment.Resource)
+	for _, a := range cfg.Allowlists {
+		if a.FragmentAllowed(source, metadata) {
+			return false
+		}
+	}
+	return true
+}
+
+// FindingAllowed returns true if the finding should be reported.
+// It checks entropy, global allowlists, and rule-level allowlists.
+func FindingAllowed(cfg *Config, finding betterleaks.Finding, decodedLine string, rule Rule) bool {
+	if rule.Entropy != 0.0 {
+		if finding.Entropy <= rule.Entropy {
+			return false
+		}
+	}
+
+	source, metadata := resourceContext(finding.Fragment.Resource)
+	for _, a := range cfg.Allowlists {
+		regexTarget := resolveRegexTarget(a.RegexTarget, finding, decodedLine)
+		if a.FindingAllowed(regexTarget, finding.Secret, source, metadata) {
+			return false
+		}
+	}
+	for _, a := range rule.Allowlists {
+		regexTarget := resolveRegexTarget(a.RegexTarget, finding, decodedLine)
+		if a.FindingAllowed(regexTarget, finding.Secret, source, metadata) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// resolveRegexTarget picks the string to test regexes against based on the allowlist's RegexTarget.
+func resolveRegexTarget(target string, finding betterleaks.Finding, line string) string {
+	switch target {
+	case "match":
+		return finding.Match
+	case "line":
+		return line
+	default:
+		return finding.Secret
+	}
+}
+
+func resourceContext(r *betterleaks.Resource) (string, map[string]string) {
+	if r == nil {
+		return "", nil
+	}
+	return r.Source, r.Metadata
 }

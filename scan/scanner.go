@@ -6,8 +6,8 @@ import (
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/betterleaks/betterleaks"
-	"github.com/betterleaks/betterleaks/codec"
 	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/scan/codec"
 	"github.com/fatih/semgroup"
 	"golang.org/x/exp/maps"
 )

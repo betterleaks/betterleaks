@@ -3,10 +3,12 @@ package scan
 import (
 	// "encoding/json"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 
 	"github.com/betterleaks/betterleaks"
+	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	sources2 "github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
@@ -235,4 +237,152 @@ func printFinding(f betterleaks.Finding, noColor bool) {
 
 	f.PrintRequiredFindings()
 	fmt.Println("")
+}
+
+// CreateFinding creates a Finding from a fragment, match, and rule without
+// computing location data. Call HydrateFindingLocation after filtering to add
+// line/column information.
+func CreateFinding(fragment betterleaks.Fragment, match betterleaks.Match, rule config.Rule) *betterleaks.Finding {
+	secret := extractSecret(rule, match.MatchString)
+	entropy := shannonEntropy(secret)
+
+	return &betterleaks.Finding{
+		RuleID:      match.RuleID,
+		Match:       match.MatchString,
+		Secret:      secret,
+		Entropy:     entropy,
+		File:        fragment.Path,
+		SymlinkFile: fragment.Resource.Get(betterleaks.MetaSymlinkFile),
+		Commit:      fragment.Resource.Get(betterleaks.MetaCommitSHA),
+		Author:      fragment.Resource.Get(betterleaks.MetaAuthorName),
+		Email:       fragment.Resource.Get(betterleaks.MetaAuthorEmail),
+		Date:        fragment.Resource.Get(betterleaks.MetaCommitDate),
+		Message:     fragment.Resource.Get(betterleaks.MetaCommitMessage),
+		Line:        match.FullDecodedLine,
+		Fragment:    &fragment,
+		Tags:        match.MetaTags,
+	}
+}
+
+// AddLocationToFinding populates location fields on a finding.
+func AddLocationToFinding(finding *betterleaks.Finding, fragment betterleaks.Fragment, match betterleaks.Match, newLineIndices [][]int) {
+	loc := location(newLineIndices, fragment.Raw, []int{match.MatchStart, match.MatchEnd})
+	finding.StartLine = loc.startLine
+	finding.EndLine = loc.endLine
+	finding.StartColumn = loc.startColumn
+	finding.EndColumn = loc.endColumn
+}
+
+func extractSecret(r config.Rule, matchedString string) string {
+	if r.Regex == nil {
+		return matchedString
+	}
+	groups := r.Regex.FindStringSubmatch(matchedString)
+	if len(groups) >= 2 {
+		if r.SecretGroup > 0 {
+			if len(groups) <= r.SecretGroup {
+				return ""
+			}
+			return groups[r.SecretGroup]
+		} else {
+			for _, s := range groups[1:] {
+				if len(s) > 0 {
+					return s
+				}
+			}
+		}
+	}
+	return matchedString
+}
+
+// shannonEntropy calculates the entropy of data using the formula defined here:
+// https://en.wiktionary.org/wiki/Shannon_entropy
+func shannonEntropy(data string) float64 {
+	if data == "" {
+		return 0
+	}
+
+	charCounts := make(map[rune]int)
+	for _, char := range data {
+		charCounts[char]++
+	}
+
+	invLength := 1.0 / float64(len(data))
+	var entropy float64
+	for _, count := range charCounts {
+		freq := float64(count) * invLength
+		entropy -= freq * math.Log2(freq)
+	}
+
+	return entropy
+}
+
+// Location represents a location in a file
+type Location struct {
+	startLine      int
+	endLine        int
+	startColumn    int
+	endColumn      int
+	startLineIndex int
+	endLineIndex   int
+}
+
+func location(newlineIndices [][]int, raw string, matchIndex []int) Location {
+	var (
+		prevNewLine int
+		location    Location
+		lineSet     bool
+		_lineNum    int
+	)
+
+	start := matchIndex[0]
+	end := matchIndex[1]
+
+	location.startLineIndex = 0
+
+	if len(newlineIndices) == 0 {
+		newlineIndices = [][]int{
+			{len(raw), len(raw) + 1},
+		}
+	}
+
+	for lineNum, pair := range newlineIndices {
+		_lineNum = lineNum
+		newLineByteIndex := pair[0]
+		if prevNewLine <= start && start < newLineByteIndex {
+			lineSet = true
+			location.startLine = lineNum
+			location.endLine = lineNum
+			location.startColumn = (start - prevNewLine) + 1
+			location.startLineIndex = prevNewLine
+			location.endLineIndex = newLineByteIndex
+		}
+		if prevNewLine < end && end <= newLineByteIndex {
+			location.endLine = lineNum
+			location.endColumn = (end - prevNewLine)
+			location.endLineIndex = newLineByteIndex
+		}
+
+		prevNewLine = pair[0]
+	}
+
+	if !lineSet {
+		location.startColumn = (start - prevNewLine) + 1
+		location.endColumn = (end - prevNewLine)
+		location.startLine = _lineNum + 1
+		location.endLine = _lineNum + 1
+
+		i := 0
+		for end+i < len(raw) {
+			if raw[end+i] == '\n' {
+				break
+			}
+			if raw[end+i] == '\r' {
+				break
+			}
+			i++
+		}
+		location.endLineIndex = end + i
+	}
+	return location
 }
