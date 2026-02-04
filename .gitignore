@@ -7,10 +7,9 @@
 *.DS_STORE
 *.idea
 *.got
-gitleaks
-betterleaks
 build
 profile
+betterleaks
 
 # configs
 .gitleaks.toml

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/mholt/archives"
@@ -35,17 +36,17 @@ func isArchive(ctx context.Context, path string) bool {
 
 // shouldSkipPath checks a path against all the allowlists to see if it can
 // be skipped
-func shouldSkipPath(cfg *config.Config, path string) bool {
+func shouldSkipPath(cfg *config.Config, source string, path string) bool {
 	if cfg == nil {
 		logging.Trace().Str("path", path).Msg("not skipping path because config is nil")
 		return false
 	}
 
 	for _, a := range cfg.Allowlists {
-		if a.PathAllowed(path) ||
+		if a.ResourceKeyAllowed(source, betterleaks.MetaPath, path) ||
 			// TODO: Remove this in v9.
 			// This is an awkward hack to mitigate https://github.com/gitleaks/gitleaks/issues/1641.
-			(isWindows && a.PathAllowed(filepath.ToSlash(path))) {
+			(isWindows && a.ResourceKeyAllowed(source, betterleaks.MetaPath, filepath.ToSlash(path))) {
 			return true
 		}
 	}
@@ -107,11 +108,11 @@ func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *byt
 		}
 
 		// Stop growing the buffer if it reaches maxSize
-		if (peekBuf.Len() - n) >= maxPeekSize {
+		if peekBuf.Len()-n >= maxPeekSize {
 			break
 		}
 
-		// Read additional data into a temporary buffer
+		// Read next byte.
 		b, err := r.ReadByte()
 		if err != nil {
 			if err == io.EOF {

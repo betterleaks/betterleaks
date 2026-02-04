@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 )
 
@@ -12,9 +13,9 @@ type SarifReporter struct {
 	OrderedRules []config.Rule
 }
 
-var _ Reporter = (*SarifReporter)(nil)
+var _ betterleaks.Reporter = (*SarifReporter)(nil)
 
-func (r *SarifReporter) Write(w io.WriteCloser, findings []Finding) error {
+func (r *SarifReporter) Write(w io.WriteCloser, findings []betterleaks.Finding) error {
 	sarif := Sarif{
 		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
 		Version: "2.1.0",
@@ -26,7 +27,7 @@ func (r *SarifReporter) Write(w io.WriteCloser, findings []Finding) error {
 	return encoder.Encode(sarif)
 }
 
-func (r *SarifReporter) getRuns(findings []Finding) []Runs {
+func (r *SarifReporter) getRuns(findings []betterleaks.Finding) []Runs {
 	return []Runs{
 		{
 			Tool:    r.getTool(),
@@ -71,7 +72,7 @@ func (r *SarifReporter) getRules() []Rules {
 	return rules
 }
 
-func messageText(f Finding) string {
+func messageText(f betterleaks.Finding) string {
 	if f.Commit == "" {
 		return fmt.Sprintf("%s has detected secret for file %s.", f.RuleID, f.File)
 	}
@@ -80,7 +81,7 @@ func messageText(f Finding) string {
 
 }
 
-func getResults(findings []Finding) []Results {
+func getResults(findings []betterleaks.Finding) []Results {
 	results := []Results{}
 	for _, f := range findings {
 		r := Results{
@@ -107,7 +108,7 @@ func getResults(findings []Finding) []Results {
 	return results
 }
 
-func getLocation(f Finding) []Locations {
+func getLocation(f betterleaks.Finding) []Locations {
 	uri := f.File
 	if f.SymlinkFile != "" {
 		uri = f.SymlinkFile

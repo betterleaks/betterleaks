@@ -1,7 +1,7 @@
 title = "override a built-in rule's entropy"
 
 [extend]
-path = "../testdata/config/simple.toml"
+path = "../../testdata/config/simple.toml"
 
 [[rules]]
 id = "aws-access-key"

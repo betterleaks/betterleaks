@@ -1,10 +1,11 @@
 module github.com/betterleaks/betterleaks
 
-go 1.24.11
+go 1.25.4
 
 require (
 	github.com/BobuSumisu/aho-corasick v1.0.3
 	github.com/Masterminds/sprig/v3 v3.3.0
+	github.com/charlievieth/fastwalk v1.0.14
 	github.com/charmbracelet/lipgloss v0.5.0
 	github.com/fatih/semgroup v1.2.0
 	github.com/gitleaks/go-gitdiff v0.9.1

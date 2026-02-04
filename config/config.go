@@ -4,15 +4,14 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
-	gv "github.com/hashicorp/go-version"
-	"github.com/spf13/viper"
-
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
-	"github.com/betterleaks/betterleaks/version"
+	gv "github.com/hashicorp/go-version"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -57,7 +56,8 @@ type ViperConfig struct {
 
 	Allowlists []*viperGlobalAllowlist
 
-	MinVersion string
+	MinVersion     string
+	currentVersion string
 
 	configPath string
 }
@@ -76,6 +76,7 @@ type viperRuleAllowlist struct {
 	RegexTarget string
 	Regexes     []string
 	StopWords   []string
+	Resources   []string
 }
 
 type viperGlobalAllowlist struct {
@@ -91,10 +92,16 @@ type Config struct {
 	Description string
 	Rules       map[string]Rule
 	Keywords    map[string]struct{}
+	// KeywordToRules maps each keyword to the rule IDs that use it
+	KeywordToRules map[string][]string
+	// NoKeywordRules contains rule IDs for rules that have no keywords (must always be checked)
+	NoKeywordRules []string
 	// used to keep sarif results consistent
 	OrderedRules []string
 	Allowlists   []*Allowlist
 	MinVersion   string
+
+	currentVersion string
 }
 
 // Extend is a struct that allows users to define how they want their
@@ -106,9 +113,15 @@ type Extend struct {
 	DisabledRules []string
 }
 
+func (vc *ViperConfig) SetCurrentVersion(currentVersion string) {
+	vc.currentVersion = currentVersion
+}
+
 func (vc *ViperConfig) Translate() (Config, error) {
 	var (
 		keywords       = make(map[string]struct{})
+		keywordToRules = make(map[string][]string)
+		noKeywordRules []string
 		orderedRules   []string
 		rulesMap       = make(map[string]Rule)
 		ruleAllowlists = make(map[string][]*Allowlist)
@@ -128,10 +141,14 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		}
 		if vr.Keywords == nil {
 			vr.Keywords = []string{}
+			noKeywordRules = append(noKeywordRules, vr.ID)
+		} else if len(vr.Keywords) == 0 {
+			noKeywordRules = append(noKeywordRules, vr.ID)
 		} else {
 			for i, k := range vr.Keywords {
 				keyword := strings.ToLower(k)
 				keywords[keyword] = struct{}{}
+				keywordToRules[keyword] = append(keywordToRules[keyword], vr.ID)
 				vr.Keywords[i] = keyword
 			}
 		}
@@ -195,13 +212,16 @@ func (vc *ViperConfig) Translate() (Config, error) {
 
 	// Assemble the config.
 	c := Config{
-		Title:        vc.Title,
-		Description:  vc.Description,
-		Extend:       vc.Extend,
-		Rules:        rulesMap,
-		Keywords:     keywords,
-		OrderedRules: orderedRules,
-		MinVersion:   vc.MinVersion,
+		Title:          vc.Title,
+		Description:    vc.Description,
+		Extend:         vc.Extend,
+		Rules:          rulesMap,
+		Keywords:       keywords,
+		KeywordToRules: keywordToRules,
+		NoKeywordRules: noKeywordRules,
+		OrderedRules:   orderedRules,
+		MinVersion:     vc.MinVersion,
+		currentVersion: vc.currentVersion,
 	}
 
 	if extendDepth > 0 {
@@ -213,7 +233,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		c.Path = viper.ConfigFileUsed()
 	}
 
-	if err := validateMinVersion(c.MinVersion, c.Path); err != nil {
+	if err := validateMinVersion(c.MinVersion, c.currentVersion, c.Path); err != nil {
 		return Config{}, err
 	}
 
@@ -280,17 +300,17 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	return c, nil
 }
 
-func validateMinVersion(minVer string, configPath string) error {
+func validateMinVersion(minVer, currentVer, configPath string) error {
 	if minVer == "" {
 		logging.Debug().Str("config path", configPath).
 			Msg("no minVersion specified in config... consider adding minVersion to ensure compatibility.")
 		return nil
 	}
 
-	if version.Version == version.DefaultMsg {
-		logging.Debug().
+	if currentVer == "" && minVer != "" {
+		logging.Warn().
 			Str("required", minVer).
-			Msg("dev build, skipping config version check.")
+			Msg("current version not set, skipping config version check.")
 		return nil
 	}
 
@@ -299,7 +319,7 @@ func validateMinVersion(minVer string, configPath string) error {
 		return fmt.Errorf("invalid minVersion '%s': %w", minVer, err)
 	}
 
-	currentSemVer, err := gv.NewSemver(version.Version)
+	currentSemVer, err := gv.NewSemver(currentVer)
 	if err != nil {
 		return fmt.Errorf("unable to parse current version: %w", err)
 	}
@@ -307,7 +327,7 @@ func validateMinVersion(minVer string, configPath string) error {
 	if currentSemVer.LessThan(minSemVer) {
 		logging.Warn().
 			Str("required", minVer).
-			Str("current", version.Version).
+			Str("current", currentVer).
 			Str("config path", configPath).
 			Msg("config requires a newer Gitleaks version...")
 	}
@@ -347,6 +367,15 @@ func (vc *ViperConfig) parseAllowlist(a *viperRuleAllowlist) (*Allowlist, error)
 		allowlistPaths = append(allowlistPaths, regexp.MustCompile(a))
 	}
 
+	var resourceMatchers []*ResourceMatcher
+	for _, r := range a.Resources {
+		rm, err := ParseResourceMatcher(r)
+		if err != nil {
+			return nil, err
+		}
+		resourceMatchers = append(resourceMatchers, rm)
+	}
+
 	allowlist := &Allowlist{
 		Description:    a.Description,
 		MatchCondition: matchCondition,
@@ -355,6 +384,7 @@ func (vc *ViperConfig) parseAllowlist(a *viperRuleAllowlist) (*Allowlist, error)
 		RegexTarget:    regexTarget,
 		Regexes:        allowlistRegexes,
 		StopWords:      a.StopWords,
+		Resources:      resourceMatchers,
 	}
 	if err := allowlist.Validate(); err != nil {
 		return nil, err
@@ -382,6 +412,7 @@ func (c *Config) extendDefault(parent *ViperConfig) error {
 	if err := viper.Unmarshal(&defaultViperConfig); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 	}
+	defaultViperConfig.SetCurrentVersion(c.currentVersion)
 	cfg, err := defaultViperConfig.Translate()
 	if err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
@@ -405,6 +436,7 @@ func (c *Config) extendPath(parent *ViperConfig) error {
 
 	extensionViperConfig.configPath = c.Extend.Path
 	logging.Debug().Msgf("extending config with %s", c.Extend.Path)
+	extensionViperConfig.SetCurrentVersion(c.currentVersion)
 	cfg, err := extensionViperConfig.Translate()
 	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
@@ -451,8 +483,13 @@ func (c *Config) extend(extensionConfig Config) {
 		if !ok {
 			// Rule doesn't exist, add it to the config.
 			c.Rules[ruleID] = baseRule
-			for _, k := range baseRule.Keywords {
-				c.Keywords[k] = struct{}{}
+			if len(baseRule.Keywords) == 0 {
+				c.NoKeywordRules = append(c.NoKeywordRules, ruleID)
+			} else {
+				for _, k := range baseRule.Keywords {
+					c.Keywords[k] = struct{}{}
+					c.KeywordToRules[k] = append(c.KeywordToRules[k], ruleID)
+				}
 			}
 			c.OrderedRules = append(c.OrderedRules, ruleID)
 		} else {
@@ -478,6 +515,10 @@ func (c *Config) extend(extensionConfig Config) {
 			// The keywords from the base rule and the extended rule must be merged into the global keywords list
 			for _, k := range baseRule.Keywords {
 				c.Keywords[k] = struct{}{}
+				// Only add to KeywordToRules if not already present for this rule
+				if !slices.Contains(c.KeywordToRules[k], ruleID) {
+					c.KeywordToRules[k] = append(c.KeywordToRules[k], ruleID)
+				}
 			}
 			c.Rules[ruleID] = baseRule
 		}
@@ -488,5 +529,4 @@ func (c *Config) extend(extensionConfig Config) {
 
 	// sort to keep extended rules in order
 	sort.Strings(c.OrderedRules)
-	return
 }

@@ -1,8 +1,6 @@
 .PHONY: test test-cover failfast profile clean format build
 
 PKG=github.com/betterleaks/betterleaks
-VERSION := `git fetch --tags && git tag | sort -V | tail -1`
-LDFLAGS=-ldflags "-X=github.com/betterleaks/betterleaks/version.Version=$(VERSION)"
 COVER=--cover --coverprofile=cover.out
 
 test-cover:
@@ -12,26 +10,30 @@ test-cover:
 format:
 	go fmt ./...
 
-test: config/gitleaks.toml format
+test: config format
 	go test -v ./... --race $(PKG)
 
 failfast: format
 	go test -failfast ./...
 
-build: config/gitleaks.toml format
+build: config format
 	go mod tidy
-	go build $(LDFLAGS)
+	mkdir -p dist
+	go build $(LDFLAGS) -o dist/gitleaks compat/gitleaks/main.go
+
+betterleaks: config format
+	go build -tags gore2regex $(LDFLAGS) -o betterleaks cmd/betterleaks/main.go
 
 lint:
 	golangci-lint run
 
 clean:
-	rm -rf profile
+	rm -rf profile dist
 	find . -type f -name '*.got.*' -delete
 	find . -type f -name '*.out' -delete
 
 profile: build
-	./scripts/profile.sh './betterleaks' '.'
+	./scripts/profile.sh './gitleaks' '.'
 
-config/gitleaks.toml: $(wildcard cmd/generate/config/**/*)
+internal/config/gitleaks.toml: $(wildcard internal/config/generate/**/*)
 	go generate ./...

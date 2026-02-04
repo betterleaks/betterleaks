@@ -15,12 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fatih/semgroup"
-	"github.com/gitleaks/go-gitdiff/gitdiff"
-
-	"github.com/betterleaks/betterleaks/cmd/scm"
+	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/sources/scm"
+	"github.com/fatih/semgroup"
+	"github.com/gitleaks/go-gitdiff/gitdiff"
 )
 
 var quotedOptPattern = regexp.MustCompile(`^(?:"[^"]+"|'[^']+')$`)
@@ -270,7 +270,7 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 	}
 }
 
-// RemoteInfo provides the info needed for reconstructing links from findings
+// RemoteInfo provides the info needed for reconstructing links from finding
 type RemoteInfo struct {
 	Platform scm.Platform
 	Url      string
@@ -285,18 +285,8 @@ type Git struct {
 	MaxArchiveDepth int
 }
 
-// CommitInfo captures metadata about the commit
-type CommitInfo struct {
-	AuthorEmail string
-	AuthorName  string
-	Date        string
-	Message     string
-	Remote      *RemoteInfo
-	SHA         string
-}
-
 // Fragments yields fragments from a git repo
-func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *Git) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) error {
 	defer func() {
 		if err := s.Cmd.Wait(); err != nil {
 			logging.Debug().Err(err).Str("cmd", s.Cmd.String()).Msg("command aborted")
@@ -335,26 +325,34 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 			// Check if commit is allowed
 			commitSHA := ""
-			var commitInfo *CommitInfo
+			var resource *betterleaks.Resource
 			if gitdiffFile.PatchHeader != nil {
 				commitSHA = gitdiffFile.PatchHeader.SHA
 				for _, a := range s.Config.Allowlists {
-					if ok, c := a.CommitAllowed(gitdiffFile.PatchHeader.SHA); ok {
-						logging.Trace().Str("allowed-commit", c).Msg("skipping commit: global allowlist")
+					if a.ResourceKeyAllowed("git", betterleaks.MetaCommitSHA, commitSHA) {
+						logging.Trace().Str("allowed-commit", commitSHA).Msg("skipping commit: global allowlist")
 						continue
 					}
 				}
 
-				commitInfo = &CommitInfo{
-					Date:    gitdiffFile.PatchHeader.AuthorDate.UTC().Format(time.RFC3339),
-					Message: gitdiffFile.PatchHeader.Message(),
-					Remote:  s.Remote,
-					SHA:     commitSHA,
+				meta := map[string]string{
+					betterleaks.MetaPath:          gitdiffFile.NewName,
+					betterleaks.MetaCommitSHA:     commitSHA,
+					betterleaks.MetaCommitDate:    gitdiffFile.PatchHeader.AuthorDate.UTC().Format(time.RFC3339),
+					betterleaks.MetaCommitMessage: gitdiffFile.PatchHeader.Message(),
 				}
 
 				if gitdiffFile.PatchHeader.Author != nil {
-					commitInfo.AuthorName = gitdiffFile.PatchHeader.Author.Name
-					commitInfo.AuthorEmail = gitdiffFile.PatchHeader.Author.Email
+					meta[betterleaks.MetaAuthorName] = gitdiffFile.PatchHeader.Author.Name
+					meta[betterleaks.MetaAuthorEmail] = gitdiffFile.PatchHeader.Author.Email
+				}
+
+				resource = &betterleaks.Resource{
+					ID:       commitSHA,
+					Path:     gitdiffFile.NewName,
+					Kind:     betterleaks.GitPatchContent,
+					Source:   "git",
+					Metadata: meta,
 				}
 			}
 
@@ -374,12 +372,12 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 						Path:            gitdiffFile.NewName,
 						MaxArchiveDepth: s.MaxArchiveDepth,
 						Config:          s.Config,
+						Source:          "git",
 					}
 
 					// enrich and yield fragments
-					err = file.Fragments(ctx, func(fragment Fragment, err error) error {
-						fragment.CommitSHA = commitSHA
-						fragment.CommitInfo = commitInfo
+					err = file.Fragments(ctx, func(fragment betterleaks.Fragment, err error) error {
+						fragment.Resource = resource
 						return yield(fragment, err)
 					})
 
@@ -396,12 +394,11 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 						return nil
 					}
 
-					fragment := Fragment{
-						CommitSHA:  commitSHA,
-						FilePath:   gitdiffFile.NewName,
-						Raw:        textFragment.Raw(gitdiff.OpAdd),
-						StartLine:  int(textFragment.NewPosition),
-						CommitInfo: commitInfo,
+					fragment := betterleaks.Fragment{
+						Raw:       textFragment.Raw(gitdiff.OpAdd),
+						Path:      gitdiffFile.NewName,
+						StartLine: int(textFragment.NewPosition),
+						Resource:  resource,
 					}
 
 					if err := yield(fragment, nil); err != nil {
@@ -417,7 +414,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				break
 			}
 
-			return yield(Fragment{}, err)
+			return yield(betterleaks.Fragment{}, err)
 		}
 	}
 
@@ -458,7 +455,7 @@ func NewRemoteInfoContext(ctx context.Context, platform scm.Platform, source str
 		if platform == scm.UnknownPlatform {
 			logging.Info().
 				Str("host", remoteUrl.Hostname()).
-				Msg("Unknown SCM platform. Use --platform to include links in findings.")
+				Msg("Unknown SCM platform. Use --platform to include links in finding.")
 		} else {
 			logging.Debug().
 				Str("host", remoteUrl.Hostname()).

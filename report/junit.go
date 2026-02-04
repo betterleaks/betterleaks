@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+
+	"github.com/betterleaks/betterleaks"
 )
 
 type JunitReporter struct {
 }
 
-var _ Reporter = (*JunitReporter)(nil)
+var _ betterleaks.Reporter = (*JunitReporter)(nil)
 
-func (r *JunitReporter) Write(w io.WriteCloser, findings []Finding) error {
+func (r *JunitReporter) Write(w io.WriteCloser, findings []betterleaks.Finding) error {
 	testSuites := TestSuites{
 		TestSuites: getTestSuites(findings),
 	}
@@ -24,11 +26,11 @@ func (r *JunitReporter) Write(w io.WriteCloser, findings []Finding) error {
 	return encoder.Encode(testSuites)
 }
 
-func getTestSuites(findings []Finding) []TestSuite {
+func getTestSuites(findings []betterleaks.Finding) []TestSuite {
 	return []TestSuite{
 		{
 			Failures:  strconv.Itoa(len(findings)),
-			Name:      "betterleaks",
+			Name:      "gitleaks",
 			Tests:     strconv.Itoa(len(findings)),
 			TestCases: getTestCases(findings),
 			Time:      "",
@@ -36,7 +38,7 @@ func getTestSuites(findings []Finding) []TestSuite {
 	}
 }
 
-func getTestCases(findings []Finding) []TestCase {
+func getTestCases(findings []betterleaks.Finding) []TestCase {
 	testCases := []TestCase{}
 	for _, f := range findings {
 		testCase := TestCase{
@@ -51,7 +53,7 @@ func getTestCases(findings []Finding) []TestCase {
 	return testCases
 }
 
-func getFailure(f Finding) Failure {
+func getFailure(f betterleaks.Finding) Failure {
 	return Failure{
 		Data:    getData(f),
 		Message: getMessage(f),
@@ -59,7 +61,7 @@ func getFailure(f Finding) Failure {
 	}
 }
 
-func getData(f Finding) string {
+func getData(f betterleaks.Finding) string {
 	data, err := json.MarshalIndent(f, "", "\t")
 	if err != nil {
 		fmt.Println(err)
@@ -68,7 +70,7 @@ func getData(f Finding) string {
 	return string(data)
 }
 
-func getMessage(f Finding) string {
+func getMessage(f betterleaks.Finding) string {
 	if f.Commit == "" {
 		return fmt.Sprintf("%s has detected a secret in file %s, line %s.", f.RuleID, f.File, strconv.Itoa(f.StartLine))
 	}

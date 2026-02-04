@@ -1,12 +1,12 @@
 package cmd
 
 import (
-	"time"
+	"fmt"
 
-	"github.com/spf13/cobra"
-
-	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/scan"
 	"github.com/betterleaks/betterleaks/sources"
+	"github.com/fatih/semgroup"
+	"github.com/spf13/cobra"
 )
 
 func init() {
@@ -33,42 +33,29 @@ func runDirectory(cmd *cobra.Command, args []string) {
 
 	initConfig(source)
 	initDiagnostics()
-	var err error
 
 	// setup config (aka, the thing that defines rules)
 	cfg := Config(cmd)
 
-	// start timer
-	start := time.Now()
+	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
+	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 
-	detector := Detector(cmd, cfg, source)
-
-	// set follow symlinks flag
-	if detector.FollowSymlinks, err = cmd.Flags().GetBool("follow-symlinks"); err != nil {
-		logging.Fatal().Err(err).Send()
+	src := &sources.Files{
+		Config:          &cfg,
+		FollowSymlinks:  followSymlinks,
+		MaxFileSize:     maxTargetMegaBytes * 1_000_000,
+		Path:            source,
+		Sema:            semgroup.NewGroup(cmd.Context(), 10),
+		MaxArchiveDepth: maxArchiveDepth,
 	}
 
-	// set exit code
-	exitCode, err := cmd.Flags().GetInt("exit-code")
+	scanner := scan.NewScanner(cmd.Context(), &cfg, 0, false, 10)
+
+	p := scan.NewPipeline(cfg, src, *scanner)
+	findings, err := p.Run(cmd.Context())
 	if err != nil {
-		logging.Fatal().Err(err).Msg("could not get exit code")
+		return
 	}
-
-	findings, err := detector.DetectSource(
-		cmd.Context(),
-		&sources.Files{
-			Config:          &cfg,
-			FollowSymlinks:  detector.FollowSymlinks,
-			MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
-			Path:            source,
-			Sema:            detector.Sema,
-			MaxArchiveDepth: detector.MaxArchiveDepth,
-		},
-	)
-
-	if err != nil {
-		logging.Error().Err(err).Msg("failed scan directory")
-	}
-
-	findingSummaryAndExit(detector, findings, exitCode, start, err)
+	fmt.Println(len(findings))
 }

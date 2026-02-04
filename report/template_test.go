@@ -5,13 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	findings2 "github.com/betterleaks/betterleaks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWriteTemplate(t *testing.T) {
 	tests := []struct {
-		findings       []Finding
+		findings       []findings2.Finding
 		testReportName string
 		expected       string
 		wantEmpty      bool
@@ -19,7 +20,7 @@ func TestWriteTemplate(t *testing.T) {
 		{
 			testReportName: "markdown",
 			expected:       filepath.Join(expectPath, "report", "template_markdown.md"),
-			findings: []Finding{
+			findings: []findings2.Finding{
 				{
 
 					RuleID:      "test-rule",
@@ -43,7 +44,7 @@ func TestWriteTemplate(t *testing.T) {
 		{
 			testReportName: "jsonextra",
 			expected:       filepath.Join(expectPath, "report", "template_jsonextra.json"),
-			findings: []Finding{
+			findings: []findings2.Finding{
 				{
 
 					RuleID:      "test-rule",

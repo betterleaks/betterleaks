@@ -5,14 +5,16 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/betterleaks/betterleaks"
 )
 
 type CsvReporter struct {
 }
 
-var _ Reporter = (*CsvReporter)(nil)
+var _ betterleaks.Reporter = (*CsvReporter)(nil)
 
-func (r *CsvReporter) Write(w io.WriteCloser, findings []Finding) error {
+func (r *CsvReporter) Write(w io.WriteCloser, findings []betterleaks.Finding) error {
 	if len(findings) == 0 {
 		return nil
 	}

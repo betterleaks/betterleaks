@@ -2,13 +2,86 @@ package config
 
 import (
 	"errors"
+	"fmt"
+	stdregexp "regexp"
 	"strings"
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
-	"golang.org/x/exp/maps"
-
 	"github.com/betterleaks/betterleaks/regexp"
+	"golang.org/x/exp/maps"
 )
+
+// ResourceMatcher matches a resource metadata key against a regex pattern.
+// Parsed from "source:key:pattern" strings, e.g.:
+//   - "git:author_email:.*@noreply\.github\.com"
+//   - "[git,file]:path:vendor/.*"
+//   - "*:path:\.env"
+type ResourceMatcher struct {
+	Sources []string // nil means wildcard (match any source)
+	Key     string
+	Pattern *regexp.Regexp
+}
+
+// ParseResourceMatcher parses a resource matcher string into a ResourceMatcher.
+// Supported formats:
+//   - "source:key:pattern"             — single source
+//   - "[source1,source2]:key:pattern"  — multiple sources
+//   - "*:key:pattern"                  — all sources (wildcard)
+func ParseResourceMatcher(s string) (*ResourceMatcher, error) {
+	var sources []string
+	var rest string
+
+	if strings.HasPrefix(s, "[") {
+		// Multi-source: "[source1,source2]:key:pattern"
+		closeBracket := strings.Index(s, "]")
+		if closeBracket < 0 {
+			return nil, fmt.Errorf("invalid resource matcher %q: unclosed bracket", s)
+		}
+		inner := s[1:closeBracket]
+		if inner == "" {
+			return nil, fmt.Errorf("invalid resource matcher %q: empty source list", s)
+		}
+		for _, src := range strings.Split(inner, ",") {
+			src = strings.TrimSpace(src)
+			if src == "" {
+				return nil, fmt.Errorf("invalid resource matcher %q: empty source in list", s)
+			}
+			sources = append(sources, src)
+		}
+		// Expect "]:key:pattern"
+		if closeBracket+1 >= len(s) || s[closeBracket+1] != ':' {
+			return nil, fmt.Errorf("invalid resource matcher %q: expected \":\" after \"]\"", s)
+		}
+		rest = s[closeBracket+2:]
+	} else {
+		// Single source or wildcard: "source:key:pattern" / "*:key:pattern"
+		firstColon := strings.Index(s, ":")
+		if firstColon <= 0 {
+			return nil, fmt.Errorf("invalid resource matcher %q: expected \"source:key:pattern\"", s)
+		}
+		src := s[:firstColon]
+		if src != "*" {
+			sources = []string{src}
+		}
+		// sources remains nil for wildcard
+		rest = s[firstColon+1:]
+	}
+
+	// rest is "key:pattern"
+	colonIdx := strings.Index(rest, ":")
+	if colonIdx <= 0 {
+		return nil, fmt.Errorf("invalid resource matcher %q: expected \"source:key:pattern\"", s)
+	}
+	key := rest[:colonIdx]
+	pattern := rest[colonIdx+1:]
+
+	if pattern == "" {
+		return nil, fmt.Errorf("invalid resource matcher %q: pattern cannot be empty", s)
+	}
+
+	re := regexp.MustCompile(pattern)
+	return &ResourceMatcher{Sources: sources, Key: key, Pattern: re}, nil
+}
 
 type AllowlistMatchCondition int
 
@@ -56,6 +129,12 @@ type Allowlist struct {
 	// Regexes slice.
 	StopWords []string
 
+	// Resources is a slice of resource matchers in "source:key:pattern" format.
+	// These match against Resource.Metadata values using OR logic. For example:
+	//   "git:author_email:dependabot.*"
+	//   "*:path:vendor/.*"
+	Resources []*ResourceMatcher
+
 	// validated is an internal flag to track whether `Validate()` has been called.
 	validated bool
 
@@ -63,8 +142,10 @@ type Allowlist struct {
 	// TODO: possible optimizations so that both short and long hashes work.
 	commitMap    map[string]struct{}
 	regexPat     *regexp.Regexp
-	pathPat      *regexp.Regexp
 	stopwordTrie *ahocorasick.Trie
+	// resourceMap is indexed by [source][key] and contains combined regex patterns.
+	// The wildcard source "*" is stored as an empty string key.
+	resourceMap map[string]map[string]*regexp.Regexp
 }
 
 func (a *Allowlist) Validate() error {
@@ -76,8 +157,9 @@ func (a *Allowlist) Validate() error {
 	if len(a.Commits) == 0 &&
 		len(a.Paths) == 0 &&
 		len(a.Regexes) == 0 &&
-		len(a.StopWords) == 0 {
-		return errors.New("must contain at least one check for: commits, paths, regexes, or stopwords")
+		len(a.StopWords) == 0 &&
+		len(a.Resources) == 0 {
+		return errors.New("must contain at least one check for: commits, paths, regexes, stopwords, or resources")
 	}
 
 	// Deduplicate commits and stopwords.
@@ -101,48 +183,70 @@ func (a *Allowlist) Validate() error {
 		a.stopwordTrie = ahocorasick.NewTrieBuilder().AddStrings(values).Build()
 	}
 
-	// Combine patterns into a single expression.
-	if len(a.Paths) > 0 {
-		a.pathPat = joinRegexOr(a.Paths)
-	}
+	// Combine regex patterns into a single expression.
 	if len(a.Regexes) > 0 {
 		a.regexPat = joinRegexOr(a.Regexes)
 	}
 
-	a.validated = true
-	return nil
-}
-
-// CommitAllowed returns true if the commit is allowed to be ignored.
-func (a *Allowlist) CommitAllowed(c string) (bool, string) {
-	if a == nil || c == "" {
-		return false, ""
+	// Convert Paths to ResourceMatchers (wildcard source, key="path").
+	// This unifies path filtering through the resource matching path.
+	if len(a.Paths) > 0 {
+		pathPat := joinRegexOr(a.Paths)
+		a.Resources = append(a.Resources, &ResourceMatcher{
+			Sources: nil, // wildcard
+			Key:     "path",
+			Pattern: pathPat,
+		})
 	}
-	if a.commitMap != nil {
-		if _, ok := a.commitMap[strings.ToLower(c)]; ok {
-			return true, ""
+
+	// Convert Commits to ResourceMatchers (source="git", key="commit_sha").
+	if len(a.Commits) > 0 {
+		var commitPatterns []*regexp.Regexp
+		for commit := range a.commitMap {
+			commitPatterns = append(commitPatterns, regexp.MustCompile(`(?i)^`+stdregexp.QuoteMeta(commit)+`$`))
 		}
-	} else if len(a.Commits) > 0 {
-		for _, commit := range a.Commits {
-			if commit == c {
-				return true, c
+		a.Resources = append(a.Resources, &ResourceMatcher{
+			Sources: nil, // wildcard — commits could come from any git-like source
+			Key:     "commit_sha",
+			Pattern: joinRegexOr(commitPatterns),
+		})
+	}
+
+	// Build resourceMap for efficient lookup by [source][key].
+	if len(a.Resources) > 0 {
+		// Group patterns by source and key.
+		type sourceKey struct {
+			source string // empty string for wildcard
+			key    string
+		}
+		grouped := make(map[sourceKey][]*regexp.Regexp)
+
+		for _, rm := range a.Resources {
+			if rm.Sources == nil {
+				// Wildcard source - store with empty string key.
+				sk := sourceKey{source: "", key: rm.Key}
+				grouped[sk] = append(grouped[sk], rm.Pattern)
+			} else {
+				// Specific sources.
+				for _, src := range rm.Sources {
+					sk := sourceKey{source: src, key: rm.Key}
+					grouped[sk] = append(grouped[sk], rm.Pattern)
+				}
 			}
 		}
-	}
-	return false, ""
-}
 
-// PathAllowed returns true if the path is allowed to be ignored.
-func (a *Allowlist) PathAllowed(path string) bool {
-	if a == nil || path == "" {
-		return false
+		// Combine patterns for each [source][key] combination.
+		a.resourceMap = make(map[string]map[string]*regexp.Regexp)
+		for sk, patterns := range grouped {
+			if a.resourceMap[sk.source] == nil {
+				a.resourceMap[sk.source] = make(map[string]*regexp.Regexp)
+			}
+			a.resourceMap[sk.source][sk.key] = joinRegexOr(patterns)
+		}
 	}
-	if a.pathPat != nil {
-		return a.pathPat.MatchString(path)
-	} else if len(a.Paths) > 0 {
-		return anyRegexMatch(path, a.Paths)
-	}
-	return false
+
+	a.validated = true
+	return nil
 }
 
 // RegexAllowed returns true if the regex is allowed to be ignored.
@@ -156,6 +260,155 @@ func (a *Allowlist) RegexAllowed(secret string) bool {
 		return anyRegexMatch(secret, a.Regexes)
 	}
 	return false
+}
+
+// ResourceAllowed returns true if any resource matcher matches (OR logic).
+func (a *Allowlist) ResourceAllowed(source string, metadata map[string]string) bool {
+	if a == nil || len(a.Resources) == 0 || metadata == nil {
+		return false
+	}
+
+	// Fast path: use the pre-compiled resourceMap if available.
+	if a.resourceMap != nil {
+		// Check wildcard patterns first (empty string key).
+		if wildcardKeys := a.resourceMap[""]; wildcardKeys != nil {
+			for key, pattern := range wildcardKeys {
+				if val, ok := metadata[key]; ok && pattern.MatchString(val) {
+					return true
+				}
+			}
+		}
+
+		// Check source-specific patterns.
+		if sourceKeys := a.resourceMap[source]; sourceKeys != nil {
+			for key, pattern := range sourceKeys {
+				if val, ok := metadata[key]; ok && pattern.MatchString(val) {
+					return true
+				}
+			}
+		}
+
+		return false
+	}
+
+	// Fallback: iterate through Resources (for unvalidated allowlists).
+	for _, m := range a.Resources {
+		if !m.matchesSource(source) {
+			continue
+		}
+		val, ok := metadata[m.Key]
+		if ok && m.Pattern.MatchString(val) {
+			return true
+		}
+	}
+	return false
+}
+
+// ResourceKeyAllowed returns true if any resource matcher matches the given
+// source and single key/value pair. This is useful for early-exit checks
+// during enumeration when full metadata is not yet available.
+func (a *Allowlist) ResourceKeyAllowed(source, key, value string) bool {
+	if a == nil || len(a.Resources) == 0 || value == "" {
+		return false
+	}
+
+	// Fast path: use the pre-compiled resourceMap if available.
+	if a.resourceMap != nil {
+		// Check wildcard patterns first (empty string key).
+		if wildcardKeys := a.resourceMap[""]; wildcardKeys != nil {
+			if pattern, ok := wildcardKeys[key]; ok && pattern.MatchString(value) {
+				return true
+			}
+		}
+
+		// Check source-specific patterns.
+		if sourceKeys := a.resourceMap[source]; sourceKeys != nil {
+			if pattern, ok := sourceKeys[key]; ok && pattern.MatchString(value) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	// Fallback: iterate through Resources (for unvalidated allowlists).
+	for _, m := range a.Resources {
+		if !m.matchesSource(source) {
+			continue
+		}
+		if m.Key == key && m.Pattern.MatchString(value) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesSource returns true if the given source matches this matcher.
+// A nil Sources slice means wildcard (match any source).
+func (m *ResourceMatcher) matchesSource(source string) bool {
+	if m.Sources == nil {
+		return true
+	}
+	for _, s := range m.Sources {
+		if s == source {
+			return true
+		}
+	}
+	return false
+}
+
+// FragmentAllowed returns true if this allowlist matches the given resource context.
+// Only evaluates resource-level checks since content is not available at fragment level.
+// In AND mode, returns false if content-based checks (regexes/stopwords) are required.
+func (a *Allowlist) FragmentAllowed(source string, metadata map[string]string) bool {
+	if a == nil {
+		return false
+	}
+	resourceAllowed := a.ResourceAllowed(source, metadata)
+
+	if a.MatchCondition == AllowlistMatchAnd {
+		// Can't satisfy AND if content checks are required but unavailable.
+		if len(a.Regexes) > 0 || len(a.StopWords) > 0 {
+			return false
+		}
+		return len(a.Resources) > 0 && resourceAllowed
+	}
+	return resourceAllowed
+}
+
+// FindingAllowed returns true if this allowlist matches the given finding context.
+// Evaluates all checks: resources, regexes, and stopwords.
+// The regexTarget parameter is the resolved string to test regexes against
+// (secret, match, or line depending on RegexTarget).
+func (a *Allowlist) FindingAllowed(regexTarget, secret, source string, metadata map[string]string) bool {
+	if a == nil {
+		return false
+	}
+
+	resourceAllowed := a.ResourceAllowed(source, metadata)
+	regexAllowed := a.RegexAllowed(regexTarget)
+	containsStopword, _ := a.ContainsStopWord(secret)
+
+	if a.MatchCondition == AllowlistMatchAnd {
+		var checks []bool
+		if len(a.Regexes) > 0 {
+			checks = append(checks, regexAllowed)
+		}
+		if len(a.StopWords) > 0 {
+			checks = append(checks, containsStopword)
+		}
+		if len(a.Resources) > 0 {
+			checks = append(checks, resourceAllowed)
+		}
+		for _, c := range checks {
+			if !c {
+				return false
+			}
+		}
+		return len(checks) > 0
+	}
+
+	return regexAllowed || containsStopword || resourceAllowed
 }
 
 func (a *Allowlist) ContainsStopWord(s string) (bool, string) {

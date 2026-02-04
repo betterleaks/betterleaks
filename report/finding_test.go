@@ -3,17 +3,19 @@ package report
 import (
 	"testing"
 
+	"github.com/betterleaks/betterleaks"
+	findings2 "github.com/betterleaks/betterleaks/finding"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestRedact(t *testing.T) {
 	tests := []struct {
-		findings []Finding
+		findings []betterleaks.Finding
 		redact   bool
 	}{
 		{
 			redact: true,
-			findings: []Finding{
+			findings: []betterleaks.Finding{
 				{
 					Match:  "line containing secret",
 					Secret: "secret",
@@ -32,23 +34,23 @@ func TestRedact(t *testing.T) {
 func TestMask(t *testing.T) {
 
 	tests := map[string]struct {
-		finding Finding
+		finding betterleaks.Finding
 		percent uint
-		expect  Finding
+		expect  betterleaks.Finding
 	}{
 		"normal secret": {
-			finding: Finding{Match: "line containing secret", Secret: "secret"},
-			expect:  Finding{Match: "line containing se...", Secret: "se..."},
+			finding: betterleaks.Finding{Match: "line containing secret", Secret: "secret"},
+			expect:  betterleaks.Finding{Match: "line containing se...", Secret: "se..."},
 			percent: 75,
 		},
 		"empty secret": {
-			finding: Finding{Match: "line containing", Secret: ""},
-			expect:  Finding{Match: "line containing", Secret: ""},
+			finding: betterleaks.Finding{Match: "line containing", Secret: ""},
+			expect:  betterleaks.Finding{Match: "line containing", Secret: ""},
 			percent: 75,
 		},
 		"short secret": {
-			finding: Finding{Match: "line containing", Secret: "ss"},
-			expect:  Finding{Match: "line containing", Secret: "..."},
+			finding: betterleaks.Finding{Match: "line containing", Secret: "ss"},
+			expect:  betterleaks.Finding{Match: "line containing", Secret: "..."},
 			percent: 75,
 		},
 	}
@@ -77,7 +79,7 @@ func TestMaskSecret(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := maskSecret(test.secret, test.percent)
+			got := findings2.maskSecret(test.secret, test.percent)
 			assert.Equal(t, test.expect, got)
 		})
 	}

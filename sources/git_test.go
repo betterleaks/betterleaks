@@ -3,9 +3,9 @@ package sources
 // TODO: commenting out this test for now because it's flaky. Alternatives to consider to get this working:
 // -- use `git stash` instead of `restore()`
 
-// const repoBasePath = "../../testdata/repos/"
+// const repoBasePath = "../../../testdata/repos/"
 
-// const expectPath = "../../testdata/expected/"
+// const expectPath = "../../../testdata/expected/"
 
 // func TestGitLog(t *testing.T) {
 // 	tests := []struct {
@@ -127,7 +127,7 @@ package sources
 // }
 
 // func moveDotGit(from, to string) error {
-// 	repoDirs, err := os.ReadDir("../../testdata/repos")
+// 	repoDirs, err := os.ReadDir("../../../testdata/repos")
 // 	if err != nil {
 // 		return err
 // 	}

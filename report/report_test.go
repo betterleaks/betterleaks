@@ -5,12 +5,13 @@ import (
 	"strings"
 	"testing"
 
+	findings2 "github.com/betterleaks/betterleaks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-const expectPath = "../testdata/expected/"
-const templatePath = "../testdata/report/"
+const expectPath = "../../testdata/expected/"
+const templatePath = "../../testdata/report/"
 
 func TestWriteStdout(t *testing.T) {
 	// Arrange
@@ -18,7 +19,7 @@ func TestWriteStdout(t *testing.T) {
 	buf := testWriter{
 		bytes.NewBuffer(nil),
 	}
-	findings := []Finding{
+	findings := []findings2.Finding{
 		{
 			RuleID: "test-rule",
 		},

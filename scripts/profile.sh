@@ -1,15 +1,15 @@
 #! /usr/bin/env bash
 # NAME
-#     profile.sh - generate betterleaks profile data
+#     profile.sh - generate gitleaks profile data
 #
 # USAGE
-#     profile.sh <betterleaks-path> <benchmark-repo-path>
+#     profile.sh <gitleaks-path> <benchmark-repo-path>
 #
 # DESCRIPTION
-#     Generates profile data for tuning betterleaks performance under ./profile/<timestamp>
+#     Generates profile data for tuning gitleaks performance under ./profile/<timestamp>
 #
 #			Options:
-#     	<betterleaks-path>    - betterleaks binary to profile
+#     	<gitleaks-path>       - gitleaks binary to profile
 #     	<benchmark-repo-path> - git repo to run profile against
 #
 # SEE ALSO
@@ -18,9 +18,9 @@
 #     https://www.youtube.com/watch?v=nok0aYiGiYA
 #
 set -euo pipefail
-betterleaks_path="$1"
+gitleaks_path="$1"
 test_repo_path="$2"
-base_scan_cmd="${betterleaks_path} --exit-code=0 --max-decode-depth 8"
+base_scan_cmd="${gitleaks_path} --exit-code=0 --max-decode-depth 8"
 base_profile_dir="profile/$(date +%s)"
 
 log() {
@@ -71,7 +71,7 @@ do
 		then
 			echo "      view: go tool trace ${profile_file}"
 		else
-			echo "      view: go tool pprof -http=localhost: ${betterleaks_path} ${profile_file}"
+			echo "      view: go tool pprof -http=localhost: ${gitleaks_path} ${profile_file}"
 		fi
 	done
 done

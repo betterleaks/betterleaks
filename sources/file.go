@@ -9,16 +9,47 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	"github.com/betterleaks/betterleaks"
+	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/logging"
 	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
 	"github.com/rs/zerolog"
-
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/logging"
 )
 
-const defaultBufferSize = 100 * 1_000 // 100kb
+// DefaultBufferSize is the default size for read buffers (100KB)
+const DefaultBufferSize = 100 * 1_000
+
+// bufferPool is a sync.Pool for reusing read buffers to reduce GC pressure.
+// The pool is initialized with the default buffer size, but callers can
+// configure a different size via the BufferSize field on File/Files sources.
+var bufferPool = sync.Pool{
+	New: func() any {
+		return make([]byte, DefaultBufferSize)
+	},
+}
+
+// getBuffer returns a buffer from the pool, resizing if necessary to match
+// the requested size. This reduces allocations when scanning many files.
+func getBuffer(size int) []byte {
+	buf := bufferPool.Get().([]byte)
+	if cap(buf) < size {
+		// Buffer too small, allocate a new one of the right size
+		return make([]byte, size)
+	}
+	return buf[:size]
+}
+
+// putBuffer returns a buffer to the pool for reuse.
+func putBuffer(buf []byte) {
+	// Only return buffers that aren't too large (avoid memory bloat)
+	if cap(buf) <= 1024*1024 { // 1MB max
+		bufferPool.Put(buf)
+	}
+}
+
 const InnerPathSeparator = "!"
 
 type seekReaderAt interface {
@@ -39,6 +70,8 @@ type File struct {
 	// Config is the gitleaks config used for shouldSkipPath. If not set, then
 	// shouldSkipPath is ignored
 	Config *config.Config
+	// Source is the source type name (e.g. "file", "git") used for resource matching.
+	Source string
 	// outerPaths is the list of container paths (e.g. archives) that lead to
 	// this file
 	outerPaths []string
@@ -46,10 +79,12 @@ type File struct {
 	MaxArchiveDepth int
 	// archiveDepth is the current archive nesting depth
 	archiveDepth int
+	// ownsBuffer indicates whether this File owns its buffer and should return it to the pool
+	ownsBuffer bool
 }
 
 // Fragments yields fragments for the this source
-func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *File) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) error {
 	format, _, err := archives.Identify(ctx, s.Path, nil)
 	// Process the file as an archive if there's no error && Identify returns
 	// a format; but if there's an error or no format, just swallow the error
@@ -87,7 +122,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 }
 
 // extractorFragments recursively crawls archives and yields fragments
-func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield FragmentsFunc) error {
+func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield betterleaks.FragmentsFunc) error {
 	if _, isSeekReaderAt := reader.(seekReaderAt); !isSeekReaderAt {
 		switch extractor.(type) {
 		case archives.SevenZip, archives.Zip:
@@ -124,7 +159,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		defer innerReader.Close()
 		path := filepath.Clean(d.NameInArchive)
 
-		if s.Config != nil && shouldSkipPath(s.Config, path) {
+		if s.Config != nil && shouldSkipPath(s.Config, s.Source, path) {
 			logging.Debug().Str("path", s.FullPath()).Msg("skipping file: global allowlist")
 			return nil
 		}
@@ -147,7 +182,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 }
 
 // decompressorFragments recursively crawls archives and yields fragments
-func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) error {
+func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield betterleaks.FragmentsFunc) error {
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
 		logging.Error().Str("path", s.FullPath()).Msg("could read compressed file")
@@ -164,10 +199,19 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 }
 
 // fileFragments reads the file into fragments to yield
-func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield FragmentsFunc) error {
-	// Create a buffer if the caller hasn't provided one
+func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield betterleaks.FragmentsFunc) error {
+	// Create a buffer if the caller hasn't provided one, using the pool
 	if s.Buffer == nil {
-		s.Buffer = make([]byte, defaultBufferSize)
+		s.Buffer = getBuffer(DefaultBufferSize)
+		s.ownsBuffer = true
+	}
+	// Return buffer to pool when done (only if we own it)
+	if s.ownsBuffer {
+		defer func() {
+			putBuffer(s.Buffer)
+			s.Buffer = nil
+			s.ownsBuffer = false
+		}()
 	}
 
 	totalLines := 0
@@ -176,8 +220,8 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			fragment := Fragment{
-				FilePath: s.FullPath(),
+			fragment := betterleaks.Fragment{
+				Path: s.FullPath(),
 			}
 
 			n, err := reader.Read(s.Buffer)
@@ -223,14 +267,24 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 			// Count the number of newlines in this chunk
 			totalLines += strings.Count(fragment.Raw, "\n")
 
-			if len(s.Symlink) > 0 {
-				fragment.SymlinkFile = s.Symlink
+			meta := map[string]string{
+				betterleaks.MetaPath: fragment.Path,
 			}
-
+			if len(s.Symlink) > 0 {
+				meta[betterleaks.MetaSymlinkFile] = s.Symlink
+			}
 			if isWindows {
-				fragment.FilePath = filepath.ToSlash(fragment.FilePath)
-				fragment.SymlinkFile = filepath.ToSlash(s.Symlink)
-				fragment.WindowsFilePath = s.FullPath()
+				fragment.Path = filepath.ToSlash(fragment.Path)
+				if len(s.Symlink) > 0 {
+					meta[betterleaks.MetaSymlinkFile] = filepath.ToSlash(s.Symlink)
+				}
+				meta[betterleaks.MetaWindowsFilePath] = s.FullPath()
+			}
+			fragment.Resource = &betterleaks.Resource{
+				Path:     fragment.Path,
+				Kind:     betterleaks.FileContent,
+				Source:   s.Source,
+				Metadata: meta,
 			}
 
 			// log errors but continue since there's content

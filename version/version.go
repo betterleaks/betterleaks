@@ -1,5 +1,4 @@
 package version
 
-// these two gotta be the same
-var DefaultMsg = "version is set by build process"
-var Version = "version is set by build process"
+// Version is pinned to mark the compatibility of this compat package
+const Version = "8.30.0"

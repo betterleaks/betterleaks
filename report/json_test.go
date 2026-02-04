@@ -5,11 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/betterleaks/betterleaks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-var simpleFinding = Finding{
+var simpleFinding = betterleaks.Finding{
 	Description: "",
 	RuleID:      "test-rule",
 	Match:       "line containing secret",
@@ -30,7 +31,7 @@ var simpleFinding = Finding{
 
 func TestWriteJSON(t *testing.T) {
 	tests := []struct {
-		findings       []Finding
+		findings       []betterleaks.Finding
 		testReportName string
 		expected       string
 		wantEmpty      bool
@@ -38,14 +39,14 @@ func TestWriteJSON(t *testing.T) {
 		{
 			testReportName: "simple",
 			expected:       filepath.Join(expectPath, "report", "json_simple.json"),
-			findings: []Finding{
+			findings: []betterleaks.Finding{
 				simpleFinding,
 			}},
 		{
 
 			testReportName: "empty",
 			expected:       filepath.Join(expectPath, "report", "empty.json"),
-			findings:       []Finding{}},
+			findings:       []betterleaks.Finding{}},
 	}
 
 	reporter := JsonReporter{}

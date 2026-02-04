@@ -4,11 +4,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/betterleaks/betterleaks/regexp"
 )
 
 func TestCommitAllowed(t *testing.T) {
@@ -40,7 +39,8 @@ func TestCommitAllowed(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		isAllowed, _ := tt.allowlist.CommitAllowed(tt.commit)
+		_ = tt.allowlist.Validate()
+		isAllowed := tt.allowlist.ResourceKeyAllowed("git", "commit_sha", tt.commit)
 		assert.Equal(t, tt.commitAllowed, isAllowed)
 	}
 }
@@ -93,7 +93,8 @@ func TestPathAllowed(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		assert.Equal(t, tt.pathAllowed, tt.allowlist.PathAllowed(tt.path))
+		_ = tt.allowlist.Validate()
+		assert.Equal(t, tt.pathAllowed, tt.allowlist.ResourceKeyAllowed("file", "path", tt.path))
 	}
 }
 
@@ -105,7 +106,7 @@ func TestValidate(t *testing.T) {
 	}{
 		"empty conditions": {
 			input:   Allowlist{},
-			wantErr: errors.New("must contain at least one check for: commits, paths, regexes, or stopwords"),
+			wantErr: errors.New("must contain at least one check for: commits, paths, regexes, stopwords, or resources"),
 		},
 		"deduplicated commits and stopwords": {
 			input: Allowlist{
@@ -149,11 +150,256 @@ func TestValidate(t *testing.T) {
 				cmp.Comparer(regexComparer),
 				cmpopts.SortSlices(arrayComparer),
 				cmpopts.IgnoreUnexported(Allowlist{}),
+				cmpopts.IgnoreFields(Allowlist{}, "Resources"),
 			}
 		)
 		if diff := cmp.Diff(tt.expected, tt.input, opts); diff != "" {
 			t.Errorf("diff: (-want +got)\n%s", diff)
 		}
+	}
+}
+
+func TestParseResourceMatcher(t *testing.T) {
+	tests := []struct {
+		input       string
+		wantSources []string
+		wantKey     string
+		wantPattern string
+		wantErr     bool
+	}{
+		// Single source
+		{"git:author_email:.*@test\\.com", []string{"git"}, "author_email", ".*@test\\.com", false},
+		{"github:user:dependabot.*", []string{"github"}, "user", "dependabot.*", false},
+		{"s3:bucket:my-bucket-.*", []string{"s3"}, "bucket", "my-bucket-.*", false},
+
+		// Pattern with colons
+		{"git:url:https://example\\.com:8080", []string{"git"}, "url", "https://example\\.com:8080", false},
+
+		// Multi-source
+		{"[git,file]:path:vendor/.*", []string{"git", "file"}, "path", "vendor/.*", false},
+		{"[git, file]:path:vendor/.*", []string{"git", "file"}, "path", "vendor/.*", false},
+
+		// Wildcard
+		{"*:path:\\.env", nil, "path", "\\.env", false},
+
+		// Invalid cases
+		{"key:pattern", nil, "", "", true},        // only one colon
+		{"git:key:", nil, "", "", true},           // empty pattern
+		{"git::pattern", nil, "", "", true},       // empty key
+		{":key:pattern", nil, "", "", true},       // empty source
+		{"no-colon", nil, "", "", true},           // no colon at all
+		{"one:colon", nil, "", "", true},          // only one colon
+		{"[]:key:pattern", nil, "", "", true},     // empty bracket list
+		{"[git,]:key:pattern", nil, "", "", true}, // trailing comma
+		{"[git:key:pattern", nil, "", "", true},   // unclosed bracket
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			rm, err := ParseResourceMatcher(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			assert.Equal(t, tt.wantSources, rm.Sources)
+			if rm.Key != tt.wantKey {
+				t.Errorf("Key = %q, want %q", rm.Key, tt.wantKey)
+			}
+			if rm.Pattern.String() != tt.wantPattern {
+				t.Errorf("Pattern = %q, want %q", rm.Pattern.String(), tt.wantPattern)
+			}
+		})
+	}
+}
+
+func TestResourceAllowed(t *testing.T) {
+	tests := []struct {
+		name     string
+		matchers []*ResourceMatcher
+		source   string
+		metadata map[string]string
+		want     bool
+	}{
+		{
+			name: "source and key match",
+			matchers: []*ResourceMatcher{
+				{Sources: []string{"git"}, Key: "author_email", Pattern: regexp.MustCompile(`dependabot.*`)},
+			},
+			source:   "git",
+			metadata: map[string]string{"author_email": "dependabot[bot]@users.noreply.github.com"},
+			want:     true,
+		},
+		{
+			name: "source does not match",
+			matchers: []*ResourceMatcher{
+				{Sources: []string{"github"}, Key: "author_email", Pattern: regexp.MustCompile(`dependabot.*`)},
+			},
+			source:   "git",
+			metadata: map[string]string{"author_email": "dependabot[bot]@users.noreply.github.com"},
+			want:     false,
+		},
+		{
+			name: "wildcard source matches any",
+			matchers: []*ResourceMatcher{
+				{Sources: nil, Key: "author_email", Pattern: regexp.MustCompile(`dependabot.*`)},
+			},
+			source:   "git",
+			metadata: map[string]string{"author_email": "dependabot[bot]@users.noreply.github.com"},
+			want:     true,
+		},
+		{
+			name: "multi-source matches one of listed",
+			matchers: []*ResourceMatcher{
+				{Sources: []string{"git", "file"}, Key: "path", Pattern: regexp.MustCompile(`vendor/.*`)},
+			},
+			source:   "file",
+			metadata: map[string]string{"path": "vendor/lib/foo.go"},
+			want:     true,
+		},
+		{
+			name: "multi-source no match",
+			matchers: []*ResourceMatcher{
+				{Sources: []string{"git", "file"}, Key: "path", Pattern: regexp.MustCompile(`vendor/.*`)},
+			},
+			source:   "s3",
+			metadata: map[string]string{"path": "vendor/lib/foo.go"},
+			want:     false,
+		},
+		{
+			name: "key not in metadata",
+			matchers: []*ResourceMatcher{
+				{Sources: []string{"git"}, Key: "nonexistent", Pattern: regexp.MustCompile(`.*`)},
+			},
+			source:   "git",
+			metadata: map[string]string{"author_email": "test@test.com"},
+			want:     false,
+		},
+		{
+			name: "pattern does not match",
+			matchers: []*ResourceMatcher{
+				{Sources: []string{"git"}, Key: "author_email", Pattern: regexp.MustCompile(`^admin@`)},
+			},
+			source:   "git",
+			metadata: map[string]string{"author_email": "user@example.com"},
+			want:     false,
+		},
+		{
+			name: "multiple matchers both match (OR)",
+			matchers: []*ResourceMatcher{
+				{Sources: []string{"git"}, Key: "author_email", Pattern: regexp.MustCompile(`.*@example\.com`)},
+				{Sources: []string{"git"}, Key: "commit_sha", Pattern: regexp.MustCompile(`abc.*`)},
+			},
+			source: "git",
+			metadata: map[string]string{
+				"author_email": "user@example.com",
+				"commit_sha":   "abc123",
+			},
+			want: true,
+		},
+		{
+			name: "multiple matchers one matches (OR)",
+			matchers: []*ResourceMatcher{
+				{Sources: []string{"git"}, Key: "author_email", Pattern: regexp.MustCompile(`.*@example\.com`)},
+				{Sources: []string{"git"}, Key: "commit_sha", Pattern: regexp.MustCompile(`xyz.*`)},
+			},
+			source: "git",
+			metadata: map[string]string{
+				"author_email": "user@example.com",
+				"commit_sha":   "abc123",
+			},
+			want: true,
+		},
+		{
+			name: "multiple matchers none match",
+			matchers: []*ResourceMatcher{
+				{Sources: []string{"git"}, Key: "author_email", Pattern: regexp.MustCompile(`^admin@`)},
+				{Sources: []string{"git"}, Key: "commit_sha", Pattern: regexp.MustCompile(`xyz.*`)},
+			},
+			source: "git",
+			metadata: map[string]string{
+				"author_email": "user@example.com",
+				"commit_sha":   "abc123",
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &Allowlist{Resources: tt.matchers}
+			assert.Equal(t, tt.want, a.ResourceAllowed(tt.source, tt.metadata))
+		})
+	}
+}
+
+func TestResourceKeyAllowed(t *testing.T) {
+	tests := []struct {
+		name     string
+		matchers []*ResourceMatcher
+		source   string
+		key      string
+		value    string
+		want     bool
+	}{
+		{
+			name:     "match",
+			matchers: []*ResourceMatcher{{Sources: []string{"file"}, Key: "path", Pattern: regexp.MustCompile(`node_modules`)}},
+			source:   "file",
+			key:      "path",
+			value:    "node_modules/foo/bar.js",
+			want:     true,
+		},
+		{
+			name:     "source mismatch",
+			matchers: []*ResourceMatcher{{Sources: []string{"git"}, Key: "path", Pattern: regexp.MustCompile(`node_modules`)}},
+			source:   "file",
+			key:      "path",
+			value:    "node_modules/foo/bar.js",
+			want:     false,
+		},
+		{
+			name:     "key mismatch",
+			matchers: []*ResourceMatcher{{Sources: []string{"file"}, Key: "author_email", Pattern: regexp.MustCompile(`.*`)}},
+			source:   "file",
+			key:      "path",
+			value:    "some/path",
+			want:     false,
+		},
+		{
+			name:     "wildcard source",
+			matchers: []*ResourceMatcher{{Sources: nil, Key: "path", Pattern: regexp.MustCompile(`vendor/`)}},
+			source:   "git",
+			key:      "path",
+			value:    "vendor/lib/foo.go",
+			want:     true,
+		},
+		{
+			name:     "multi-source match",
+			matchers: []*ResourceMatcher{{Sources: []string{"git", "file"}, Key: "path", Pattern: regexp.MustCompile(`\.lock$`)}},
+			source:   "file",
+			key:      "path",
+			value:    "yarn.lock",
+			want:     true,
+		},
+		{
+			name:     "empty value",
+			matchers: []*ResourceMatcher{{Sources: nil, Key: "path", Pattern: regexp.MustCompile(`.*`)}},
+			source:   "file",
+			key:      "path",
+			value:    "",
+			want:     false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &Allowlist{Resources: tt.matchers}
+			assert.Equal(t, tt.want, a.ResourceKeyAllowed(tt.source, tt.key, tt.value))
+		})
 	}
 }
 
@@ -268,14 +514,14 @@ var benchCommitAllowlist = func() *Allowlist {
 
 func BenchmarkCommitAllowed(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		ok, _ := benchCommitAllowlist.CommitAllowed("d0dbe09bb150bbd5bb4b85adc273df87350e7e6c")
+		ok := benchCommitAllowlist.ResourceKeyAllowed("git", "commit_sha", "d0dbe09bb150bbd5bb4b85adc273df87350e7e6c")
 		assert.True(b, ok)
 	}
 }
 
 func BenchmarkCommitNotAllowed(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		ok, _ := benchCommitAllowlist.CommitAllowed("5fe58bf0b0be1735ad27aa6053b56323a905c223")
+		ok := benchCommitAllowlist.ResourceKeyAllowed("git", "commit_sha", "5fe58bf0b0be1735ad27aa6053b56323a905c223")
 		assert.False(b, ok)
 	}
 }
@@ -367,14 +613,14 @@ var benchPathAllowlist = func() *Allowlist {
 
 func BenchmarkPathAllowed(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		ok := benchPathAllowlist.PathAllowed(`src/main/resources/static/js/jquery-ui-1.10.4.min.js`)
+		ok := benchPathAllowlist.ResourceKeyAllowed("file", "path", `src/main/resources/static/js/jquery-ui-1.10.4.min.js`)
 		assert.True(b, ok)
 	}
 }
 
 func BenchmarkPathNotAllowed(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		ok := benchPathAllowlist.PathAllowed(`azure_scale_templates/sub_modules/vpc_template/inputs.auto.tfvars.json_backup`)
+		ok := benchPathAllowlist.ResourceKeyAllowed("file", "path", `azure_scale_templates/sub_modules/vpc_template/inputs.auto.tfvars.json_backup`)
 		assert.False(b, ok)
 	}
 }

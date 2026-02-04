@@ -16,12 +16,12 @@ Fill out the template as best you can. Make sure your tests pass. If you see a
 PR that isn't one you opened and want it introduced in the next release,
 give it a :thumbsup: on the PR description.
 
-## Adding new Betterleaks rules
+## Adding new Gitleaks rules
 
-If you want to add a new rule to the [default configuration](config/gitleaks.toml) then follow these steps.
+If you want to add a new rule to the [default Gitleaks configuration](https://github.com/betterleaks/betterleaks/blob/main/internal/config/gitleaks.toml) then follow these steps.
 
-1. Create a `cmd/generate/config/rules/{provider}.go` file.
-   This file is used to generate a new rule.
+1. Create a `internal/config/generate/rules/{provider}.go` file.
+   This file is used to generate a new Gitleaks rule.
    Let's look at `beamer.go` for example. Comments have been added for context.
 
    ```golang
@@ -60,7 +60,7 @@ If you want to add a new rule to the [default configuration](config/gitleaks.tom
    This file should be fairly self-explanatory except for a few items;
    regex and secret generation. To help with maintence, _most_ rules should
    be uniform. The functions,
-   `GenerateSemiGenericRegex` and `GenerateUniqueTokenRegex` (in `cmd/generate/config/rules/rule.go`) will generate rules
+   [`GenerateSemiGenericRegex`](https://github.com/betterleaks/betterleaks/blob/main/internal/config/generate/rules/rule.go#L31) and [`GenerateUniqueTokenRegex`](https://github.com/betterleaks/betterleaks/blob/main/internal/config/generate/rules/rule.go#L44) will generate rules
    that follow defined patterns.
 
    The function signatures look like this:
@@ -74,7 +74,7 @@ If you want to add a new rule to the [default configuration](config/gitleaks.tom
    `GenerateSemiGenericRegex` accepts a list of identifiers, a regex, and a boolean indicating whether the pattern should be case-insensitive.
    The list of identifiers _should_ match the list of `Keywords` in the rule
    definition above. Both `identifiers` in the `GenerateSemiGenericRegex`
-   function _and_ `Keywords` act as filters for Betterleaks telling the program
+   function _and_ `Keywords` act as filters for Gitleaks telling the program
    "_at least one of these strings must be present to be considered a leak_"
 
    `GenerateUniqueTokenRegex` just accepts a regex and a boolean indicating whether the pattern should be case-insensitive. If you are writing a rule for a
@@ -91,7 +91,7 @@ If you want to add a new rule to the [default configuration](config/gitleaks.tom
    validation part. You can use `generateSampleSecret` to create a secret for the
    true positives (`tps` in the example above) used in `validate`.
 
-1. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
+1. Update `internal/config/generate/main.go`. Extend `configRules` slice with
    the `rules.Beamer(),` in `main()`. Try and keep
    this alphabetically pretty please.
 

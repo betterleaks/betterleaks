@@ -1,6 +1,6 @@
 # This file has been auto-generated. Do not edit manually.
 # If you would like to contribute new rules, please use
-# cmd/generate/config/main.go and follow the contributing guidelines
+# internal/config/generate/config/main.go and follow the contributing guidelines
 # at https://github.com/gitleaks/gitleaks/blob/master/CONTRIBUTING.md
 #
 # How the hell does secret scanning work? Read this:
@@ -11,7 +11,7 @@
 # Rules instruct gitleaks on what should be considered a secret.
 # Allowlists instruct gitleaks on what is allowed, i.e. not a secret.
 
-title = "betterleaks config"
+title = "gitleaks config"
 
 # minVersion indicates the minimum Gitleaks version required to use this config.
 # If the running version is older, a warning will be logged and not all
@@ -21,33 +21,34 @@ minVersion = "v8.25.0"
 # TODO: change to [[allowlists]]
 [allowlist]
 description = "global allow lists"
-paths = [
-    '''gitleaks\.toml''',
-    '''(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$''',
-    '''(?i)\.(?:eot|[ot]tf|woff2?)$''',
-    '''(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf)$''',
-    '''go\.(?:mod|sum|work(?:\.sum)?)$''',
-    '''(?:^|/)vendor/modules\.txt$''',
-    '''(?:^|/)vendor/(?:github\.com|golang\.org/x|google\.golang\.org|gopkg\.in|istio\.io|k8s\.io|sigs\.k8s\.io)(?:/.*)?$''',
-    '''(?:^|/)gradlew(?:\.bat)?$''',
-    '''(?:^|/)gradle\.lockfile$''',
-    '''(?:^|/)mvnw(?:\.cmd)?$''',
-    '''(?:^|/)\.mvn/wrapper/MavenWrapperDownloader\.java$''',
-    '''(?:^|/)node_modules(?:/.*)?$''',
-    '''(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$''',
-    '''(?:^|/)bower_components(?:/.*)?$''',
-    '''(?:^|/)(?:angular|bootstrap|jquery(?:-?ui)?|plotly|swagger-?ui)[a-zA-Z0-9.-]*(?:\.min)?\.js(?:\.map)?$''',
-    '''(?:^|/)javascript\.json$''',
-    '''(?:^|/)(?:Pipfile|poetry)\.lock$''',
-    '''(?i)(?:^|/)(?:v?env|virtualenv)/lib(?:64)?(?:/.*)?$''',
-    '''(?i)(?:^|/)(?:lib(?:64)?/python[23](?:\.\d{1,2})+|python/[23](?:\.\d{1,2})+/lib(?:64)?)(?:/.*)?$''',
-    '''(?i)(?:^|/)[a-z0-9_.]+-[0-9.]+\.dist-info(?:/.+)?$''',
-    '''(?:^|/)vendor/(?:bundle|ruby)(?:/.*?)?$''',
-    '''\.gem$''',
-    '''verification-metadata\.xml''',
-    '''Database.refactorlog''',
-    '''(?:^|/)\.git$''',
+resources = [
+    '''*:path:gitleaks\.toml''',
+    '''*:path:(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$''',
+    '''*:path:(?i)\.(?:eot|[ot]tf|woff2?)$''',
+    '''*:path:(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf)$''',
+    '''*:path:go\.(?:mod|sum|work(?:\.sum)?)$''',
+    '''*:path:(?:^|/)vendor/modules\.txt$''',
+    '''*:path:(?:^|/)vendor/(?:github\.com|golang\.org/x|google\.golang\.org|gopkg\.in|istio\.io|k8s\.io|sigs\.k8s\.io)(?:/.*)?$''',
+    '''*:path:(?:^|/)gradlew(?:\.bat)?$''',
+    '''*:path:(?:^|/)gradle\.lockfile$''',
+    '''*:path:(?:^|/)mvnw(?:\.cmd)?$''',
+    '''*:path:(?:^|/)\.mvn/wrapper/MavenWrapperDownloader\.java$''',
+    '''*:path:(?:^|/)node_modules(?:/.*)?$''',
+    '''*:path:(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$''',
+    '''*:path:(?:^|/)bower_components(?:/.*)?$''',
+    '''*:path:(?:^|/)(?:angular|bootstrap|jquery(?:-?ui)?|plotly|swagger-?ui)[a-zA-Z0-9.-]*(?:\.min)?\.js(?:\.map)?$''',
+    '''*:path:(?:^|/)javascript\.json$''',
+    '''*:path:(?:^|/)(?:Pipfile|poetry)\.lock$''',
+    '''*:path:(?i)(?:^|/)(?:v?env|virtualenv)/lib(?:64)?(?:/.*)?$''',
+    '''*:path:(?i)(?:^|/)(?:lib(?:64)?/python[23](?:\.\d{1,2})+|python/[23](?:\.\d{1,2})+/lib(?:64)?)(?:/.*)?$''',
+    '''*:path:(?i)(?:^|/)[a-z0-9_.]+-[0-9.]+\.dist-info(?:/.+)?$''',
+    '''*:path:(?:^|/)vendor/(?:bundle|ruby)(?:/.*?)?$''',
+    '''*:path:\.gem$''',
+    '''*:path:verification-metadata\.xml''',
+    '''*:path:Database.refactorlog''',
+    '''*:path:(?:^|/)\.git$''',
 ]
+
 regexes = [
     '''(?i)^true|false|null$''',
     '''^(?i:a+|b+|c+|d+|e+|f+|g+|h+|i+|j+|k+|l+|m+|n+|o+|p+|q+|r+|s+|t+|u+|v+|w+|x+|y+|z+|\*+|\.+)$''',
@@ -2125,7 +2126,8 @@ regexes = [
     '''LICENSE[^=]*=\s*"[^"]+''',
     '''LIC_FILES_CHKSUM[^=]*=\s*"[^"]+''',
     '''SRC[^=]*=\s*"[a-zA-Z0-9]+''',
-]
+]   
+
 
 [[rules]]
 id = "github-app-token"

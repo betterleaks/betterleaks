@@ -5,13 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	findings2 "github.com/betterleaks/betterleaks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWriteJunit(t *testing.T) {
 	tests := []struct {
-		findings       []Finding
+		findings       []findings2.Finding
 		testReportName string
 		expected       string
 		wantEmpty      bool
@@ -19,7 +20,7 @@ func TestWriteJunit(t *testing.T) {
 		{
 			testReportName: "simple",
 			expected:       filepath.Join(expectPath, "report", "junit_simple.xml"),
-			findings: []Finding{
+			findings: []findings2.Finding{
 				{
 
 					Description: "Test Rule",
@@ -61,7 +62,7 @@ func TestWriteJunit(t *testing.T) {
 		{
 			testReportName: "empty",
 			expected:       filepath.Join(expectPath, "report", "junit_empty.xml"),
-			findings:       []Finding{},
+			findings:       []findings2.Finding{},
 		},
 	}
 

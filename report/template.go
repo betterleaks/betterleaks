@@ -8,13 +8,14 @@ import (
 	"text/template"
 
 	"github.com/Masterminds/sprig/v3"
+	"github.com/betterleaks/betterleaks"
 )
 
 type TemplateReporter struct {
 	template *template.Template
 }
 
-var _ Reporter = (*TemplateReporter)(nil)
+var _ betterleaks.Reporter = (*TemplateReporter)(nil)
 
 func NewTemplateReporter(templatePath string) (*TemplateReporter, error) {
 	if templatePath == "" {
@@ -37,9 +38,9 @@ func NewTemplateReporter(templatePath string) (*TemplateReporter, error) {
 	return &TemplateReporter{template: t}, nil
 }
 
-// writeTemplate renders the findings using the user-provided template.
+// writeTemplate renders the finding using the user-provided template.
 // https://www.digitalocean.com/community/tutorials/how-to-use-templates-in-go
-func (t *TemplateReporter) Write(w io.WriteCloser, findings []Finding) error {
+func (t *TemplateReporter) Write(w io.WriteCloser, findings []betterleaks.Finding) error {
 	if err := t.template.Execute(w, findings); err != nil {
 		return err
 	}
