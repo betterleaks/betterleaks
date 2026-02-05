@@ -73,6 +73,7 @@ func (s *Scanner) IsIgnored(finding betterleaks.Finding) bool {
 // TODO No filtering happens here in theory.
 func (s *Scanner) ScanFragment(ctx context.Context, fragment betterleaks.Fragment) ([]betterleaks.Match, error) {
 	retMatches := []betterleaks.Match{}
+	fmt.Println("Scanning fragment:", fragment.Raw)
 
 	currentRaw := fragment.Raw
 	encodedSegments := []*codec.EncodedSegment{}

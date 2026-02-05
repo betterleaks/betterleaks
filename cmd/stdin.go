@@ -1,6 +1,12 @@
 package cmd
 
 import (
+	"os"
+	"time"
+
+	betterleaks "github.com/betterleaks/betterleaks"
+	"github.com/betterleaks/betterleaks/scan"
+	"github.com/betterleaks/betterleaks/sources"
 	"github.com/spf13/cobra"
 )
 
@@ -15,34 +21,50 @@ var stdInCmd = &cobra.Command{
 }
 
 func runStdIn(cmd *cobra.Command, _ []string) {
-	// // start timer
-	// start := time.Now()
+	// setup config (aka, the thing that defines rules)
+	initConfig(".")
+	initDiagnostics()
 
-	// // setup config (aka, the thing that defines rules)
-	// initConfig(".")
-	// initDiagnostics()
+	cfg := Config(cmd)
 
-	// cfg := Config(cmd)
+	// parse flags
+	noColor := mustGetBoolFlag(cmd, "no-color")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 
-	// // create detector
-	// detector := Detector(cmd, cfg, "")
+	// create a File source that reads from stdin
+	src := &sources.File{
+		Content:         os.Stdin,
+		Path:            "stdin",
+		Config:          &cfg,
+		Source:          "stdin",
+		MaxArchiveDepth: maxArchiveDepth,
+	}
 
-	// // parse flag(s)
-	// exitCode := mustGetIntFlag(cmd, "exit-code")
+	// create scanner
+	scanner := scan.NewScanner(cmd.Context(), &cfg, 0, false, 10)
 
-	// finding, err := detector.DetectSource(
-	// 	cmd.Context(),
-	// 	&sources.File{
-	// 		Content:         os.Stdin,
-	// 		MaxArchiveDepth: detector.MaxArchiveDepth,
-	// 	},
-	// )
+	// load ignore files
+	ignorePath := mustGetStringFlag(cmd, "gitleaks-ignore-path")
+	if altPath := mustGetStringFlag(cmd, "betterleaks-ignore-path"); altPath != "" {
+		ignorePath = altPath
+	}
+	scanner.SetIgnore(scan.LoadIgnoreFiles(ignorePath, "."))
 
-	// if err != nil {
-	// 	// log fatal to exit, no need to continue since a report will not be
-	// 	// generated when scanning from a pipe...for now
-	// 	logging.Fatal().Err(err).Msg("failed scan input from stdin")
-	// }
+	// create pipeline
+	p := scan.NewPipeline(cfg, src, *scanner)
 
-	// findingSummaryAndExit(detector, finding, exitCode, start, err)
+	// run pipeline and collect findings
+	var findings []betterleaks.Finding
+	start := time.Now()
+
+	err := p.Run(cmd.Context(), func(finding betterleaks.Finding, err error) error {
+		if err != nil {
+			return err
+		}
+		scan.PrintFinding(finding, noColor)
+		findings = append(findings, finding)
+		return nil
+	})
+
+	findingSummary(cmd, cfg, findings, start, err)
 }

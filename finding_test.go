@@ -1,4 +1,4 @@
-package report
+package betterleaks_test
 
 import (
 	"testing"
@@ -78,7 +78,7 @@ func TestMaskSecret(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := findings2.maskSecret(test.secret, test.percent)
+			got := betterleaks.MaskSecret(test.secret, test.percent)
 			assert.Equal(t, test.expect, got)
 		})
 	}

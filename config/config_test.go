@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const configPath = "../../testdata/config/"
+const configPath = "../testdata/config/"
 
 var regexComparer = func(x, y *regexp.Regexp) bool {
 	if x == nil || y == nil {
