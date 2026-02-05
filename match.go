@@ -7,6 +7,7 @@ type Match struct {
 	MatchStart      int
 	MatchEnd        int
 	MatchString     string
+	RawLine         string
 	FullDecodedLine string
 
 	// If the match has no pattern (e.g., path-only rules)

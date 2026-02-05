@@ -2,7 +2,9 @@ package scan
 
 import (
 	"context"
+	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
@@ -10,7 +12,10 @@ import (
 	"github.com/fatih/semgroup"
 )
 
-var newLineRegexp = regexp.MustCompile("\n")
+var (
+	newLineRegexp   = regexp.MustCompile("\n")
+	allowSignatures = []string{"gitleaks:allow", "betterleaks:allow"}
+)
 
 type Pipeline struct {
 	// same as it ever was
@@ -35,11 +40,17 @@ type Pipeline struct {
 
 	baseline     []betterleaks.Finding
 	baselinePath string
+	totalBytes   atomic.Uint64
 }
 
 // ProcessFragment filters, scans, and produces finding for a single fragment.
 // This is the channel-free API for processing fragments directly.
 func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fragment) ([]betterleaks.Finding, error) {
+	if fragment.Bytes == nil {
+		p.totalBytes.Add(uint64(len(fragment.Raw)))
+	}
+	p.totalBytes.Add(uint64(len(fragment.Bytes)))
+
 	if !p.Config.FragmentAllowed(fragment) {
 		return nil, nil
 	}
@@ -56,6 +67,13 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 		finding := CreateFinding(fragment, match, rule)
 		finding.DecodedLine = match.FullDecodedLine
 
+		if containsAllowSignature(finding.Line) {
+			// logger.Trace().
+			// 	Str("finding", finding.Secret).
+			// 	Msg("skipping finding: allow signature")
+			continue
+		}
+
 		// check entropy if applicable
 		if rule.Entropy != 0.0 {
 			if finding.Entropy <= rule.Entropy {
@@ -70,6 +88,7 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 			newLineIndices = newLineRegexp.FindAllStringIndex(fragment.Raw, -1)
 		}
 		AddLocationToFinding(finding, fragment, match, newLineIndices)
+		AddFingerprintToFinding(finding)
 		findings = append(findings, *finding)
 	}
 
@@ -108,9 +127,9 @@ func (p *Pipeline) Run(ctx context.Context) ([]betterleaks.Finding, error) {
 			}
 
 			// TODO printing should be done by the caller of `Run`
-			for _, finding := range findings {
-				printFinding(finding, false)
-			}
+			// for _, finding := range findings {
+			// 	// printFinding(finding, false)
+			// }
 			return nil
 		})
 		return nil
@@ -133,4 +152,14 @@ func NewPipeline(cfg config.Config, src betterleaks.Source, scanner Scanner) *Pi
 		Source:  src,
 		Scanner: scanner,
 	}
+}
+
+// containsAllowSignature checks if the line contains any of the allow signatures.
+func containsAllowSignature(line string) bool {
+	for _, sig := range allowSignatures {
+		if strings.Contains(line, sig) {
+			return true
+		}
+	}
+	return false
 }

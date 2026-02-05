@@ -47,10 +47,6 @@ func NewScanner(ctx context.Context, cfg *config.Config, maxDecodeDepth int, ign
 // TODO No filtering happens here in theory.
 func (s *Scanner) ScanFragment(ctx context.Context, fragment betterleaks.Fragment) ([]betterleaks.Match, error) {
 	retMatches := []betterleaks.Match{}
-	// if fragment.Bytes == nil {
-	// 	s.TotalBytes.Add(uint64(len(fragment.Raw)))
-	// }
-	// s.TotalBytes.Add(uint64(len(fragment.Bytes)))
 
 	currentRaw := fragment.Raw
 	encodedSegments := []*codec.EncodedSegment{}
@@ -146,6 +142,8 @@ func (s *Scanner) scanRule(fragment betterleaks.Fragment, currentRaw string, r c
 		rawMatched := strings.Trim(currentRaw[m[0]:m[1]], "\n")
 		var metaTags []string
 		currentLine := ""
+		rawLine := ""
+
 		// Check if the decoded portions of the segment overlap with the match
 		// to see if its potentially a new match
 		if len(encodedSegments) > 0 {
@@ -158,10 +156,18 @@ func (s *Scanner) scanRule(fragment betterleaks.Fragment, currentRaw string, r c
 			m = codec.AdjustMatchIndex(segments, m)
 			metaTags = append(metaTags, codec.Tags(segments)...)
 			currentLine = codec.CurrentLine(segments, currentRaw)
+
+			// Calculate raw matched line from the original (non-decoded) content
+			// using the adjusted match indices. This is used for allow tag checking.
+			rawLine = extractLine(fragment.Raw, m[0], m[1])
 		} else {
 			// Fixes: https://github.com/gitleaks/gitleaks/issues/1352
 			// removes the incorrectly following line that was detected by regex expression '\n'
 			m[1] = m[0] + len(rawMatched)
+
+			// Extract the line containing the match from the raw content
+			rawLine = extractLine(fragment.Raw, m[0], m[1])
+			currentLine = rawLine
 		}
 
 		retMatches = append(retMatches, betterleaks.Match{
@@ -170,9 +176,48 @@ func (s *Scanner) scanRule(fragment betterleaks.Fragment, currentRaw string, r c
 			MatchEnd:        m[1],
 			MatchString:     rawMatched,
 			MetaTags:        metaTags,
+			RawLine:         rawLine,
 			FullDecodedLine: currentLine,
 		})
 	}
 
 	return retMatches
+}
+
+// extractLine extracts the line containing the match from start to end indices.
+// It finds the newline boundaries around the match and returns the full line.
+func extractLine(raw string, start, end int) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	// Clamp indices to valid range
+	if start < 0 {
+		start = 0
+	}
+	if end > len(raw) {
+		end = len(raw)
+	}
+
+	// Find the start of the line (search backwards for newline)
+	lineStart := start
+	for i := start - 1; i >= 0; i-- {
+		if raw[i] == '\n' {
+			lineStart = i + 1
+			break
+		}
+		lineStart = i
+	}
+
+	// Find the end of the line (search forwards for newline)
+	lineEnd := end
+	for i := end; i < len(raw); i++ {
+		if raw[i] == '\n' {
+			lineEnd = i
+			break
+		}
+		lineEnd = i + 1
+	}
+
+	return raw[lineStart:lineEnd]
 }

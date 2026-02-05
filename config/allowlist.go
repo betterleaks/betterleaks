@@ -108,12 +108,6 @@ type Allowlist struct {
 	// MatchCondition determines whether all criteria must match. Defaults to "OR".
 	MatchCondition AllowlistMatchCondition
 
-	// Commits is a slice of commit SHAs that are allowed to be ignored.
-	Commits []string
-
-	// Paths is a slice of path regular expressions that are allowed to be ignored.
-	Paths []*regexp.Regexp
-
 	// Can be `match` or `line`.
 	//
 	// If `match` the _Regexes_ will be tested against the match of the _Rule.Regex_.
@@ -136,6 +130,14 @@ type Allowlist struct {
 	//   "git:author_email:dependabot.*"
 	//   "*:path:vendor/.*"
 	Resources []*ResourceMatcher
+
+	// TODO Deprecate
+	// Commits is a slice of commit SHAs that are allowed to be ignored.
+	Commits []string
+
+	// TODO Deprecate
+	// Paths is a slice of path regular expressions that are allowed to be ignored.
+	Paths []*regexp.Regexp
 
 	// validated is an internal flag to track whether `Validate()` has been called.
 	validated bool

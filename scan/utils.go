@@ -267,8 +267,8 @@ func CreateFinding(fragment betterleaks.Fragment, match betterleaks.Match, rule 
 // AddLocationToFinding populates location fields on a finding.
 func AddLocationToFinding(finding *betterleaks.Finding, fragment betterleaks.Fragment, match betterleaks.Match, newLineIndices [][]int) {
 	loc := location(newLineIndices, fragment.Raw, []int{match.MatchStart, match.MatchEnd})
-	finding.StartLine = loc.startLine
-	finding.EndLine = loc.endLine
+	finding.StartLine = loc.startLine + 1
+	finding.EndLine = loc.endLine + 1
 	finding.StartColumn = loc.startColumn
 	finding.EndColumn = loc.endColumn
 }
@@ -385,4 +385,13 @@ func location(newlineIndices [][]int, raw string, matchIndex []int) Location {
 		location.endLineIndex = end + i
 	}
 	return location
+}
+
+func AddFingerprintToFinding(finding *betterleaks.Finding) {
+	globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.File, finding.RuleID, finding.StartLine)
+	if finding.Commit != "" {
+		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", finding.Commit, finding.File, finding.RuleID, finding.StartLine)
+	} else {
+		finding.Fingerprint = globalFingerprint
+	}
 }
