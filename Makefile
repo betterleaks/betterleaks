@@ -22,6 +22,7 @@ build: config format
 	go build $(LDFLAGS) -o dist/gitleaks compat/gitleaks/main.go
 
 betterleaks: config format
+	# go build -o betterleaks cmd/betterleaks/main.go
 	go build -tags gore2regex $(LDFLAGS) -o betterleaks cmd/betterleaks/main.go
 
 lint:

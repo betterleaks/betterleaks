@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/betterleaks/betterleaks"
 	config2 "github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/version"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -23,7 +26,7 @@ const banner = `
   ○           
   ○           
   ●           
-  ○  betterleaks v0.x.0 
+  ○  betterleaks v0.1.0 
 
 `
 
@@ -82,7 +85,8 @@ func init() {
 	rootCmd.Flag("redact").NoOptDefVal = "100"
 	rootCmd.PersistentFlags().Bool("no-banner", false, "suppress banner")
 	rootCmd.PersistentFlags().StringSlice("enable-rule", []string{}, "only enable specific rules by id")
-	rootCmd.PersistentFlags().StringP("gitleaks-ignore-path", "i", ".", "path to .gitleaksignore file or folder containing one")
+	rootCmd.PersistentFlags().StringP("gitleaks-ignore-path", "i", ".", "path to .gitleaksignore or .betterleaksignore file or folder containing one")
+	rootCmd.PersistentFlags().StringP("betterleaks-ignore-path", "", "", "alias for --gitleaks-ignore-path")
 	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
 	rootCmd.PersistentFlags().Int("max-archive-depth", 0, "allow scanning into nested archives up to this depth (default \"0\", no archive traversal is done)")
 	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for gitleaks commands in seconds (default \"0\", no timeout is set)")
@@ -317,4 +321,119 @@ func mustGetStringFlag(cmd *cobra.Command, name string) string {
 		logging.Fatal().Err(err).Msgf("could not get flag: %s", name)
 	}
 	return value
+}
+
+// getReporter creates a Reporter based on command flags.
+// Returns nil if no report is requested.
+func getReporter(cmd *cobra.Command, cfg config2.Config) betterleaks.Reporter {
+	reportPath := mustGetStringFlag(cmd, "report-path")
+	if reportPath == "" {
+		return nil
+	}
+
+	reportFormat := mustGetStringFlag(cmd, "report-format")
+	reportTemplate := mustGetStringFlag(cmd, "report-template")
+
+	// Template flag implies template format
+	if reportTemplate != "" {
+		reportFormat = "template"
+	}
+
+	// Infer format from file extension if not specified
+	if reportFormat == "" && reportPath != betterleaks.StdoutReportPath {
+		ext := strings.ToLower(filepath.Ext(reportPath))
+		switch ext {
+		case ".json":
+			reportFormat = "json"
+		case ".csv":
+			reportFormat = "csv"
+		case ".xml":
+			reportFormat = "junit"
+		case ".sarif":
+			reportFormat = "sarif"
+		default:
+			reportFormat = "json"
+		}
+	}
+
+	switch reportFormat {
+	case "json", "":
+		return &report.JsonReporter{}
+	case "csv":
+		return &report.CsvReporter{}
+	case "junit":
+		return &report.JunitReporter{}
+	case "sarif":
+		return &report.SarifReporter{OrderedRules: cfg.GetOrderedRules()}
+	case "template":
+		if reportTemplate == "" {
+			logging.Fatal().Msg("--report-template is required when using --report-format=template")
+		}
+		r, err := report.NewTemplateReporter(reportTemplate)
+		if err != nil {
+			logging.Fatal().Err(err).Msg("could not create template reporter")
+		}
+		return r
+	default:
+		logging.Fatal().Msgf("unknown report format: %s", reportFormat)
+		return nil
+	}
+}
+
+// writeReport writes findings to the report file if a reporter is configured.
+func writeReport(reporter betterleaks.Reporter, reportPath string, findings []betterleaks.Finding) error {
+	if reporter == nil {
+		return nil
+	}
+
+	var file io.WriteCloser
+	var err error
+
+	if reportPath == betterleaks.StdoutReportPath {
+		file = os.Stdout
+	} else {
+		file, err = os.Create(reportPath)
+		if err != nil {
+			return fmt.Errorf("could not create report file: %w", err)
+		}
+		defer file.Close()
+	}
+
+	return reporter.Write(file, findings)
+}
+
+// findingSummary logs a summary of the scan results and writes the report.
+func findingSummary(cmd *cobra.Command, cfg config2.Config, findings []betterleaks.Finding, start time.Time, scanErr error) {
+	exitCode := mustGetIntFlag(cmd, "exit-code")
+	reportPath := mustGetStringFlag(cmd, "report-path")
+	reporter := getReporter(cmd, cfg)
+
+	if scanErr == nil {
+		logging.Info().Msgf("scan completed in %s", FormatDuration(time.Since(start)))
+		if len(findings) != 0 {
+			logging.Warn().Msgf("leaks found: %d", len(findings))
+		} else {
+			logging.Info().Msg("no leaks found")
+		}
+	} else {
+		logging.Warn().Msgf("partial scan completed in %s", FormatDuration(time.Since(start)))
+		if len(findings) != 0 {
+			logging.Warn().Msgf("%d leaks found in partial scan", len(findings))
+		} else {
+			logging.Warn().Msg("no leaks found in partial scan")
+		}
+	}
+
+	// Write report if configured
+	if err := writeReport(reporter, reportPath, findings); err != nil {
+		logging.Fatal().Err(err).Msg("failed to write report")
+	}
+
+	if scanErr != nil {
+		os.Exit(1)
+	}
+
+	if len(findings) != 0 {
+		os.Exit(exitCode)
+	}
 }

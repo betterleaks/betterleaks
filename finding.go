@@ -46,7 +46,7 @@ type Finding struct {
 	// unique identifier
 	Fingerprint string
 
-	Fragment *Fragment `json:",omitempty"`
+	Fragment *Fragment `json:"-"`
 
 	// TODO keeping private for now to during experimental phase
 	requiredFindings []*RequiredFinding

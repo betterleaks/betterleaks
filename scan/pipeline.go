@@ -88,6 +88,12 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 		}
 		AddLocationToFinding(finding, fragment, match, newLineIndices)
 		AddFingerprintToFinding(finding)
+
+		// Check if finding is in ignore list
+		if p.Scanner.IsIgnored(*finding) {
+			continue
+		}
+
 		findings = append(findings, *finding)
 	}
 

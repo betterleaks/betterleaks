@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"fmt"
+	"time"
 
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/scan"
@@ -53,21 +53,27 @@ func runDirectory(cmd *cobra.Command, args []string) {
 
 	scanner := scan.NewScanner(cmd.Context(), &cfg, 0, false, 10)
 
+	// Load ignore files
+	ignorePath := mustGetStringFlag(cmd, "gitleaks-ignore-path")
+	if altPath := mustGetStringFlag(cmd, "betterleaks-ignore-path"); altPath != "" {
+		ignorePath = altPath
+	}
+	scanner.SetIgnore(scan.LoadIgnoreFiles(ignorePath, source))
+
 	p := scan.NewPipeline(cfg, src, *scanner)
 
-	var count int
+	var findings []betterleaks.Finding
+	noColor := mustGetBoolFlag(cmd, "no-color")
+	start := time.Now()
 
 	err := p.Run(cmd.Context(), func(finding betterleaks.Finding, err error) error {
 		if err != nil {
 			return err
 		}
-		scan.PrintFinding(finding, false)
-		count++
+		scan.PrintFinding(finding, noColor)
+		findings = append(findings, finding)
 		return nil
 	})
-	if err != nil {
-		return
-	}
 
-	fmt.Println(count)
+	findingSummary(cmd, cfg, findings, start, err)
 }
