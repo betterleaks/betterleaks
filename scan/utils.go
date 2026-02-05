@@ -142,7 +142,8 @@ func filter(fs []betterleaks.Finding, redact uint) []betterleaks.Finding {
 	return retFindings
 }
 
-func printFinding(f betterleaks.Finding, noColor bool) {
+// PrintFinding prints a finding to stdout with optional color formatting.
+func PrintFinding(f betterleaks.Finding, noColor bool) {
 	// trim all whitespace and tabs
 	f.Line = strings.TrimSpace(f.Line)
 	f.Secret = strings.TrimSpace(f.Secret)

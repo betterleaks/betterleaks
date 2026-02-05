@@ -1,6 +1,14 @@
 package cmd
 
 import (
+	"fmt"
+
+	"github.com/betterleaks/betterleaks"
+	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/scan"
+	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/scm"
+	"github.com/fatih/semgroup"
 	"github.com/spf13/cobra"
 )
 
@@ -20,9 +28,6 @@ var gitCmd = &cobra.Command{
 }
 
 func runGit(cmd *cobra.Command, args []string) {
-	// start timer
-	// start := time.Now()
-
 	// grab source
 	source := "."
 	if len(args) == 1 {
@@ -32,59 +37,64 @@ func runGit(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	// setup config (aka, the thing that defines rules)
 	initConfig(source)
 	initDiagnostics()
 
-	// cfg := Config(cmd)
+	cfg := Config(cmd)
 
-	// // create detector
-	// detector := Detector(cmd, cfg, source)
+	// parse flags
+	logOpts := mustGetStringFlag(cmd, "log-opts")
+	staged := mustGetBoolFlag(cmd, "staged")
+	preCommit := mustGetBoolFlag(cmd, "pre-commit")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 
-	// // parse flags
-	// exitCode := mustGetIntFlag(cmd, "exit-code")
-	// logOpts := mustGetStringFlag(cmd, "log-opts")
-	// staged := mustGetBoolFlag(cmd, "staged")
-	// preCommit := mustGetBoolFlag(cmd, "pre-commit")
+	var (
+		err         error
+		gitCmd      *sources.GitCmd
+		scmPlatform scm.Platform
+	)
 
-	// var (
-	// 	finding    []report.Finding
-	// 	err         error
-	// 	gitCmd      *sources.GitCmd
-	// 	scmPlatform scm.Platform
-	// )
+	if preCommit || staged {
+		if gitCmd, err = sources.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
+			logging.Fatal().Err(err).Msg("could not create Git diff cmd")
+		}
+		// Remote info + links are irrelevant for staged changes.
+		scmPlatform = scm.NoPlatform
+	} else {
+		if gitCmd, err = sources.NewGitLogCmdContext(cmd.Context(), source, logOpts); err != nil {
+			logging.Fatal().Err(err).Msg("could not create Git log cmd")
+		}
+		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
+			logging.Fatal().Err(err).Send()
+		}
+	}
 
-	// if preCommit || staged {
-	// 	if gitCmd, err = sources.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
-	// 		logging.Fatal().Err(err).Msg("could not create Git diff cmd")
-	// 	}
-	// 	// Remote info + links are irrelevant for staged changes.
-	// 	scmPlatform = scm.NoPlatform
-	// } else {
-	// 	if gitCmd, err = sources.NewGitLogCmdContext(cmd.Context(), source, logOpts); err != nil {
-	// 		logging.Fatal().Err(err).Msg("could not create Git log cmd")
-	// 	}
-	// 	if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
-	// 		logging.Fatal().Err(err).Send()
-	// 	}
-	// }
+	src := &sources.Git{
+		Cmd:             gitCmd,
+		Config:          &cfg,
+		Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source),
+		Sema:            semgroup.NewGroup(cmd.Context(), 10),
+		MaxArchiveDepth: maxArchiveDepth,
+	}
 
-	// detector := Detector(cmd, cfg, pathToSource)
-	// finding, err = detector.DetectSource(
-	// 	cmd.Context(),
-	// 	&sources.Git{
-	// 		Cmd:             gitCmd,
-	// 		Config:          &detector.Config,
-	// 		Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source),
-	// 		Sema:            detector.Sema,
-	// 		MaxArchiveDepth: detector.MaxArchiveDepth,
-	// 	},
-	// )
+	scanner := scan.NewScanner(cmd.Context(), &cfg, 0, false, 10)
 
-	// if err != nil {
-	// 	// don't exit on error, just log it
-	// 	logging.Error().Err(err).Msg("failed to scan Git repository")
-	// }
+	p := scan.NewPipeline(cfg, src, *scanner)
 
-	// findingSummaryAndExit(detector, finding, exitCode, start, err)
+	var count int
+
+	err = p.Run(cmd.Context(), func(finding betterleaks.Finding, err error) error {
+		if err != nil {
+			return err
+		}
+		scan.PrintFinding(finding, false)
+		count++
+		return nil
+	})
+	if err != nil {
+		logging.Error().Err(err).Msg("failed to scan Git repository")
+		return
+	}
+
+	fmt.Println(count)
 }

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/scan"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/fatih/semgroup"
@@ -53,9 +54,20 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	scanner := scan.NewScanner(cmd.Context(), &cfg, 0, false, 10)
 
 	p := scan.NewPipeline(cfg, src, *scanner)
-	findings, err := p.Run(cmd.Context())
+
+	var count int
+
+	err := p.Run(cmd.Context(), func(finding betterleaks.Finding, err error) error {
+		if err != nil {
+			return err
+		}
+		scan.PrintFinding(finding, false)
+		count++
+		return nil
+	})
 	if err != nil {
 		return
 	}
-	fmt.Println(len(findings))
+
+	fmt.Println(count)
 }

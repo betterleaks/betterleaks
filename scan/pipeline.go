@@ -3,7 +3,6 @@ package scan
 import (
 	"context"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/betterleaks/betterleaks"
@@ -95,13 +94,14 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 	return findings, nil
 }
 
-// Run processes all fragments from the source concurrently and returns all finding.
-func (p *Pipeline) Run(ctx context.Context) ([]betterleaks.Finding, error) {
-	var (
-		mu          sync.Mutex
-		retFindings []betterleaks.Finding
-	)
+// FindingsFunc is the type of function called by Run to yield findings.
+// Returning a non-nil error stops iteration.
+type FindingsFunc func(finding betterleaks.Finding, err error) error
 
+// Run processes all fragments from the source concurrently and yields findings
+// to the provided callback. The callback may be invoked concurrently from
+// multiple goroutines. Returning an error from the callback stops the scan.
+func (p *Pipeline) Run(ctx context.Context, yield FindingsFunc) error {
 	sg := semgroup.NewGroup(ctx, 16)
 	err := p.Source.Fragments(ctx, func(fragment betterleaks.Fragment, err error) error {
 		if err != nil {
@@ -114,35 +114,24 @@ func (p *Pipeline) Run(ctx context.Context) ([]betterleaks.Finding, error) {
 				return err
 			}
 
-			// TODO filtering needs to be done at the fragment level for deduplication and
-			// demoting generic rules in favor of more specific rules. We may want to change this.
+			// filtering at fragment level for deduplication and
+			// demoting generic rules in favor of more specific rules.
 			findings = filter(findings, 0)
 
-			// TODO we should be yielding findings instead of appending to a slice. This avoids
-			// unbounded growth of the findings slice.
-			if len(findings) > 0 {
-				mu.Lock()
-				retFindings = append(retFindings, findings...)
-				mu.Unlock()
-			}
-
-			// TODO printing should be done by the caller of `Run`
 			for _, finding := range findings {
-				printFinding(finding, false)
+				if err := yield(finding, nil); err != nil {
+					return err
+				}
 			}
 			return nil
 		})
 		return nil
 	})
 	if err != nil {
-		return retFindings, err
+		return err
 	}
 
-	if err := sg.Wait(); err != nil {
-		return retFindings, err
-	}
-
-	return retFindings, nil
+	return sg.Wait()
 }
 
 // TODO probably don't need a `New` function here, just define a struct.
