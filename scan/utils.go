@@ -267,8 +267,16 @@ func CreateFinding(fragment betterleaks.Fragment, match betterleaks.Match, rule 
 // AddLocationToFinding populates location fields on a finding.
 func AddLocationToFinding(finding *betterleaks.Finding, fragment betterleaks.Fragment, match betterleaks.Match, newLineIndices [][]int) {
 	loc := location(newLineIndices, fragment.Raw, []int{match.MatchStart, match.MatchEnd})
-	finding.StartLine = loc.startLine + 1
-	finding.EndLine = loc.endLine + 1
+
+	// Account for fragment offset when a resource is split into multiple fragments.
+	// fragment.StartLine is 1-based, so we subtract 1 before adding.
+	fragmentOffset := 0
+	if fragment.StartLine > 0 {
+		fragmentOffset = fragment.StartLine - 1
+	}
+
+	finding.StartLine = loc.startLine + 1 + fragmentOffset
+	finding.EndLine = loc.endLine + 1 + fragmentOffset
 	finding.StartColumn = loc.startColumn
 	finding.EndColumn = loc.endColumn
 }

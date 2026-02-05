@@ -127,9 +127,9 @@ func (p *Pipeline) Run(ctx context.Context) ([]betterleaks.Finding, error) {
 			}
 
 			// TODO printing should be done by the caller of `Run`
-			// for _, finding := range findings {
-			// 	// printFinding(finding, false)
-			// }
+			for _, finding := range findings {
+				printFinding(finding, false)
+			}
 			return nil
 		})
 		return nil
