@@ -69,10 +69,12 @@ func runGit(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	remote := sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source)
+
 	src := &sources.Git{
 		Cmd:             gitCmd,
 		Config:          &cfg,
-		Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source),
+		Remote:          remote,
 		Sema:            semgroup.NewGroup(cmd.Context(), 10),
 		MaxArchiveDepth: maxArchiveDepth,
 	}
@@ -96,6 +98,7 @@ func runGit(cmd *cobra.Command, args []string) {
 		if err != nil {
 			return err
 		}
+		finding.Link = scan.CreateScmLink(remote, finding)
 		scan.PrintFinding(finding, noColor)
 		findings = append(findings, finding)
 		return nil

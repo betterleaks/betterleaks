@@ -109,7 +109,8 @@ func LoadIgnoreFiles(ignorePath string, sourcePath string) map[string]struct{} {
 	return ignore
 }
 
-func createScmLink(remote *sources2.RemoteInfo, finding betterleaks.Finding) string {
+// CreateScmLink generates a link to the finding in the SCM platform (GitHub, GitLab, etc.)
+func CreateScmLink(remote *sources2.RemoteInfo, finding betterleaks.Finding) string {
 	if remote.Platform == scm.UnknownPlatform ||
 		remote.Platform == scm.NoPlatform ||
 		finding.Commit == "" {

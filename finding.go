@@ -13,6 +13,12 @@ type Finding struct {
 	RuleID      string
 	Description string
 
+	// Location Information
+	// Line number _within_ the resource
+	// Then resource info
+	// validation info
+	// required findings info
+
 	StartLine   int
 	EndLine     int
 	StartColumn int

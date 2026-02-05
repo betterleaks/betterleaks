@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/betterleaks/betterleaks"
-	findings2 "github.com/betterleaks/betterleaks/finding"
 	"github.com/stretchr/testify/assert"
 )
 
