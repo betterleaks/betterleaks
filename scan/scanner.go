@@ -60,8 +60,8 @@ func (s *Scanner) IsIgnored(finding betterleaks.Finding) bool {
 		return true
 	}
 	// For git findings, also check global fingerprint (file:rule:line)
-	if finding.Commit != "" {
-		globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.File, finding.RuleID, finding.StartLine)
+	if finding.Metadata[betterleaks.MetaCommitSHA] != "" {
+		globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.Metadata[betterleaks.MetaPath], finding.RuleID, finding.StartLine)
 		if _, ok := s.gitleaksIgnore[globalFingerprint]; ok {
 			return true
 		}
@@ -70,10 +70,8 @@ func (s *Scanner) IsIgnored(finding betterleaks.Finding) bool {
 }
 
 // ScanFragment scans a fragment for secrets and returns any potential finding.
-// TODO No filtering happens here in theory.
 func (s *Scanner) ScanFragment(ctx context.Context, fragment betterleaks.Fragment) ([]betterleaks.Match, error) {
 	retMatches := []betterleaks.Match{}
-	fmt.Println("Scanning fragment:", fragment.Raw)
 
 	currentRaw := fragment.Raw
 	encodedSegments := []*codec.EncodedSegment{}

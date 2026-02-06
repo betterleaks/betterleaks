@@ -1,6 +1,7 @@
 package betterleaks
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -18,41 +19,40 @@ type Finding struct {
 	// Then resource info
 	// validation info
 	// required findings info
-
 	StartLine   int
 	EndLine     int
 	StartColumn int
 	EndColumn   int
 
+	// Line is the full line content containing the finding.
 	Line string `json:"-"`
 
 	// DecodedLine is the fully decoded line content, used for allowlist matching.
 	DecodedLine string `json:"-"`
 
+	// Match is the part of the line that matched the rule
 	Match string
 
 	// Captured secret
 	Secret string
 
-	// File is the name of the file containing the finding
-	File        string
-	SymlinkFile string
-	Commit      string
-	Link        string `json:",omitempty"`
-
 	// Entropy is the shannon entropy of Value
 	Entropy float64
 
-	Author  string
-	Email   string
-	Date    string
-	Message string
-	Tags    []string
+	// Tags are arbitrary labels associated with the finding
+	// Tags can be added by rules or during decoding
+	Tags []string
 
 	// unique identifier
 	Fingerprint string
 
+	// Used for bookkeeping back to the fragment
 	Fragment *Fragment `json:"-"`
+
+	// Metadata holds per-finding metadata copied from the resource at creation
+	// time. Finding-specific augmentations (e.g. SCM link with line numbers) are
+	// stored here so they don't bleed across findings that share a Resource.
+	Metadata map[string]string `json:"-"`
 
 	// TODO keeping private for now to during experimental phase
 	requiredFindings []*RequiredFinding
@@ -80,7 +80,7 @@ func (f *Finding) AddRequiredFindings(afs []*RequiredFinding) {
 
 // Redact removes sensitive information from a finding.
 func (f *Finding) Redact(percent uint) {
-	secret := maskSecret(f.Secret, percent)
+	secret := MaskSecret(f.Secret, percent)
 	if percent >= 100 {
 		secret = "REDACTED"
 	}
@@ -89,7 +89,7 @@ func (f *Finding) Redact(percent uint) {
 	f.Secret = secret
 }
 
-func maskSecret(secret string, percent uint) string {
+func MaskSecret(secret string, percent uint) string {
 	if percent > 100 {
 		percent = 100
 	}
@@ -135,4 +135,94 @@ func (f *Finding) ResourceContext() (string, map[string]string) {
 		return "", nil
 	}
 	return f.Fragment.Resource.Source, f.Fragment.Resource.Metadata
+}
+
+// findingJSON is the JSON representation of a Finding, preserving backward
+// compatibility by flattening resource metadata into top-level fields.
+type findingJSON struct {
+	RuleID      string   `json:"RuleID"`
+	Description string   `json:"Description"`
+	StartLine   int      `json:"StartLine"`
+	EndLine     int      `json:"EndLine"`
+	StartColumn int      `json:"StartColumn"`
+	EndColumn   int      `json:"EndColumn"`
+	Match       string   `json:"Match"`
+	Secret      string   `json:"Secret"`
+	File        string   `json:"File"`
+	SymlinkFile string   `json:"SymlinkFile"`
+	Commit      string   `json:"Commit"`
+	Entropy     float64  `json:"Entropy"`
+	Author      string   `json:"Author"`
+	Email       string   `json:"Email"`
+	Date        string   `json:"Date"`
+	Message     string   `json:"Message"`
+	Tags        []string `json:"Tags"`
+	Fingerprint string   `json:"Fingerprint"`
+	Link        string   `json:"Link,omitempty"`
+}
+
+func (f Finding) MarshalJSON() ([]byte, error) {
+	j := findingJSON{
+		RuleID:      f.RuleID,
+		Description: f.Description,
+		StartLine:   f.StartLine,
+		EndLine:     f.EndLine,
+		StartColumn: f.StartColumn,
+		EndColumn:   f.EndColumn,
+		Match:       f.Match,
+		Secret:      f.Secret,
+		Entropy:     f.Entropy,
+		Tags:        f.Tags,
+		Fingerprint: f.Fingerprint,
+		File:        f.Metadata[MetaPath],
+		SymlinkFile: f.Metadata[MetaSymlinkFile],
+		Commit:      f.Metadata[MetaCommitSHA],
+		Link:        f.Metadata[MetaLink],
+		Author:      f.Metadata[MetaAuthorName],
+		Email:       f.Metadata[MetaAuthorEmail],
+		Date:        f.Metadata[MetaCommitDate],
+		Message:     f.Metadata[MetaCommitMessage],
+	}
+	return json.Marshal(j)
+}
+
+func (f *Finding) UnmarshalJSON(data []byte) error {
+	var j findingJSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+
+	f.RuleID = j.RuleID
+	f.Description = j.Description
+	f.StartLine = j.StartLine
+	f.EndLine = j.EndLine
+	f.StartColumn = j.StartColumn
+	f.EndColumn = j.EndColumn
+	f.Match = j.Match
+	f.Secret = j.Secret
+	f.Entropy = j.Entropy
+	f.Tags = j.Tags
+	f.Fingerprint = j.Fingerprint
+
+	// Reconstruct a synthetic Fragment + Resource from the JSON fields
+	// so that resource.Get() works on deserialized findings (e.g. baselines).
+	meta := map[string]string{
+		MetaPath:          j.File,
+		MetaSymlinkFile:   j.SymlinkFile,
+		MetaCommitSHA:     j.Commit,
+		MetaLink:          j.Link,
+		MetaAuthorName:    j.Author,
+		MetaAuthorEmail:   j.Email,
+		MetaCommitDate:    j.Date,
+		MetaCommitMessage: j.Message,
+	}
+	f.Metadata = meta
+	f.Fragment = &Fragment{
+		Path: j.File,
+		Resource: &Resource{
+			Path:     j.File,
+			Metadata: meta,
+		},
+	}
+	return nil
 }

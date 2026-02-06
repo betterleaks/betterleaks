@@ -342,6 +342,13 @@ func (s *Git) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) er
 					betterleaks.MetaCommitMessage: gitdiffFile.PatchHeader.Message(),
 				}
 
+				if s.Remote != nil {
+					meta[betterleaks.MetaScmPlatform] = s.Remote.Platform.String()
+					if s.Remote.Url != "" {
+						meta[betterleaks.MetaScmRemoteURL] = s.Remote.Url
+					}
+				}
+
 				if gitdiffFile.PatchHeader.Author != nil {
 					meta[betterleaks.MetaAuthorName] = gitdiffFile.PatchHeader.Author.Name
 					meta[betterleaks.MetaAuthorEmail] = gitdiffFile.PatchHeader.Author.Email

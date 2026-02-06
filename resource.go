@@ -10,6 +10,9 @@ const (
 	MetaCommitMessage   = "commit_message"
 	MetaSymlinkFile     = "symlink_file"
 	MetaWindowsFilePath = "windows_file_path"
+	MetaLink            = "link"
+	MetaScmPlatform     = "scm_platform"
+	MetaScmRemoteURL    = "scm_remote_url"
 )
 
 // Resource represents a resource from a source which yields fragments.
@@ -20,7 +23,8 @@ type Resource struct {
 	Kind     ResourceKind
 	SourceID string
 	Source   string // Source type: "git", "file", "s3", "github", etc.
-	// ParentResourceID string
+
+	// TODO ParentResourceID string
 	Metadata map[string]string
 }
 

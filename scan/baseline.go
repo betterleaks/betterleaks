@@ -20,12 +20,12 @@ func IsNew(finding betterleaks.Finding, redact uint, baseline []betterleaks.Find
 			finding.StartColumn == b.StartColumn &&
 			finding.EndColumn == b.EndColumn &&
 			(redact > 0 || (finding.Match == b.Match && finding.Secret == b.Secret)) &&
-			finding.File == b.File &&
-			finding.Commit == b.Commit &&
-			finding.Author == b.Author &&
-			finding.Email == b.Email &&
-			finding.Date == b.Date &&
-			finding.Message == b.Message &&
+			finding.Metadata[betterleaks.MetaPath] == b.Metadata[betterleaks.MetaPath] &&
+			finding.Metadata[betterleaks.MetaCommitSHA] == b.Metadata[betterleaks.MetaCommitSHA] &&
+			finding.Metadata[betterleaks.MetaAuthorName] == b.Metadata[betterleaks.MetaAuthorName] &&
+			finding.Metadata[betterleaks.MetaAuthorEmail] == b.Metadata[betterleaks.MetaAuthorEmail] &&
+			finding.Metadata[betterleaks.MetaCommitDate] == b.Metadata[betterleaks.MetaCommitDate] &&
+			finding.Metadata[betterleaks.MetaCommitMessage] == b.Metadata[betterleaks.MetaCommitMessage] &&
 			// Omit checking finding.Fingerprint - if the format of the fingerprint changes, the users will see unexpected behaviour
 			finding.Entropy == b.Entropy {
 			return false

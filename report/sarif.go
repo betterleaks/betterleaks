@@ -73,18 +73,20 @@ func (r *SarifReporter) getRules() []Rules {
 }
 
 func messageText(f betterleaks.Finding) string {
-	if f.Commit == "" {
-		return fmt.Sprintf("%s has detected secret for file %s.", f.RuleID, f.File)
+	commit := f.Metadata[betterleaks.MetaCommitSHA]
+	file := f.Metadata[betterleaks.MetaPath]
+	if commit == "" {
+		return fmt.Sprintf("%s has detected secret for file %s.", f.RuleID, file)
 	}
 
-	return fmt.Sprintf("%s has detected secret for file %s at commit %s.", f.RuleID, f.File, f.Commit)
+	return fmt.Sprintf("%s has detected secret for file %s at commit %s.", f.RuleID, file, commit)
 
 }
 
 func getResults(findings []betterleaks.Finding) []Results {
 	results := []Results{}
 	for _, f := range findings {
-		r := Results{
+		result := Results{
 			Message: Message{
 				Text: messageText(f),
 			},
@@ -93,25 +95,25 @@ func getResults(findings []betterleaks.Finding) []Results {
 			// This information goes in partial fingerprings until revision
 			// data can be added somewhere else
 			PartialFingerPrints: PartialFingerPrints{
-				CommitSha:     f.Commit,
-				Email:         f.Email,
-				CommitMessage: f.Message,
-				Date:          f.Date,
-				Author:        f.Author,
+				CommitSha:     f.Metadata[betterleaks.MetaCommitSHA],
+				Email:         f.Metadata[betterleaks.MetaAuthorEmail],
+				CommitMessage: f.Metadata[betterleaks.MetaCommitMessage],
+				Date:          f.Metadata[betterleaks.MetaCommitDate],
+				Author:        f.Metadata[betterleaks.MetaAuthorName],
 			},
 			Properties: Properties{
 				Tags: f.Tags,
 			},
 		}
-		results = append(results, r)
+		results = append(results, result)
 	}
 	return results
 }
 
 func getLocation(f betterleaks.Finding) []Locations {
-	uri := f.File
-	if f.SymlinkFile != "" {
-		uri = f.SymlinkFile
+	uri := f.Metadata[betterleaks.MetaPath]
+	if symlink := f.Metadata[betterleaks.MetaSymlinkFile]; symlink != "" {
+		uri = symlink
 	}
 	return []Locations{
 		{

@@ -44,7 +44,7 @@ func getTestCases(findings []betterleaks.Finding) []TestCase {
 		testCase := TestCase{
 			Classname: f.Description,
 			Failure:   getFailure(f),
-			File:      f.File,
+			File:      f.Metadata[betterleaks.MetaPath],
 			Name:      getMessage(f),
 			Time:      "",
 		}
@@ -71,11 +71,13 @@ func getData(f betterleaks.Finding) string {
 }
 
 func getMessage(f betterleaks.Finding) string {
-	if f.Commit == "" {
-		return fmt.Sprintf("%s has detected a secret in file %s, line %s.", f.RuleID, f.File, strconv.Itoa(f.StartLine))
+	commit := f.Metadata[betterleaks.MetaCommitSHA]
+	file := f.Metadata[betterleaks.MetaPath]
+	if commit == "" {
+		return fmt.Sprintf("%s has detected a secret in file %s, line %s.", f.RuleID, file, strconv.Itoa(f.StartLine))
 	}
 
-	return fmt.Sprintf("%s has detected a secret in file %s, line %s, at commit %s.", f.RuleID, f.File, strconv.Itoa(f.StartLine), f.Commit)
+	return fmt.Sprintf("%s has detected a secret in file %s, line %s, at commit %s.", f.RuleID, file, strconv.Itoa(f.StartLine), commit)
 }
 
 type TestSuites struct {

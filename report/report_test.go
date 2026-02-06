@@ -21,7 +21,13 @@ func TestWriteStdout(t *testing.T) {
 	}
 	findings := []betterleaks.Finding{
 		{
-			RuleID: "test-rule",
+			RuleID:   "test-rule",
+			Metadata: map[string]string{},
+			Fragment: &betterleaks.Fragment{
+				Resource: &betterleaks.Resource{
+					Metadata: map[string]string{},
+				},
+			},
 		},
 	}
 

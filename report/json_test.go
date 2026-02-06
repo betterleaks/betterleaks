@@ -19,14 +19,31 @@ var simpleFinding = betterleaks.Finding{
 	EndLine:     2,
 	StartColumn: 1,
 	EndColumn:   2,
-	Message:     "opps",
-	File:        "auth.py",
-	SymlinkFile: "",
-	Commit:      "0000000000000000",
-	Author:      "John Doe",
-	Email:       "johndoe@gmail.com",
-	Date:        "10-19-2003",
 	Tags:        []string{},
+	Metadata: map[string]string{
+		betterleaks.MetaPath:          "auth.py",
+		betterleaks.MetaSymlinkFile:   "",
+		betterleaks.MetaCommitSHA:     "0000000000000000",
+		betterleaks.MetaAuthorName:    "John Doe",
+		betterleaks.MetaAuthorEmail:   "johndoe@gmail.com",
+		betterleaks.MetaCommitDate:    "10-19-2003",
+		betterleaks.MetaCommitMessage: "opps",
+	},
+	Fragment: &betterleaks.Fragment{
+		Path: "auth.py",
+		Resource: &betterleaks.Resource{
+			Path: "auth.py",
+			Metadata: map[string]string{
+				betterleaks.MetaPath:          "auth.py",
+				betterleaks.MetaSymlinkFile:   "",
+				betterleaks.MetaCommitSHA:     "0000000000000000",
+				betterleaks.MetaAuthorName:    "John Doe",
+				betterleaks.MetaAuthorEmail:   "johndoe@gmail.com",
+				betterleaks.MetaCommitDate:    "10-19-2003",
+				betterleaks.MetaCommitMessage: "opps",
+			},
+		},
+	},
 }
 
 func TestWriteJSON(t *testing.T) {

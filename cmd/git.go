@@ -98,7 +98,9 @@ func runGit(cmd *cobra.Command, args []string) {
 		if err != nil {
 			return err
 		}
-		finding.Link = scan.CreateScmLink(remote, finding)
+		if link := scan.CreateScmLink(remote, finding); link != "" {
+			finding.Metadata[betterleaks.MetaLink] = link
+		}
 		scan.PrintFinding(finding, noColor)
 		findings = append(findings, finding)
 		return nil

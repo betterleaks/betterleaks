@@ -10,7 +10,7 @@ import (
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
-	sources2 "github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
 
 	"github.com/charmbracelet/lipgloss"
@@ -23,20 +23,22 @@ var linkCleaner = strings.NewReplacer(
 
 // CreateScmLink generates a link to the finding in the SCM platform (GitHub, GitLab, etc.)
 // TODO find a better home for this
-func CreateScmLink(remote *sources2.RemoteInfo, finding betterleaks.Finding) string {
+func CreateScmLink(remote *sources.RemoteInfo, finding betterleaks.Finding) string {
+	commit := finding.Metadata[betterleaks.MetaCommitSHA]
+	file := finding.Metadata[betterleaks.MetaPath]
 	if remote.Platform == scm.UnknownPlatform ||
 		remote.Platform == scm.NoPlatform ||
-		finding.Commit == "" {
+		commit == "" {
 		return ""
 	}
 
 	// Clean the path.
-	filePath, _, hasInnerPath := strings.Cut(finding.File, sources2.InnerPathSeparator)
+	filePath, _, hasInnerPath := strings.Cut(file, sources.InnerPathSeparator)
 	filePath = linkCleaner.Replace(filePath)
 
 	switch remote.Platform {
 	case scm.GitHubPlatform:
-		link := fmt.Sprintf("%s/blob/%s/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/blob/%s/%s", remote.Url, commit, filePath)
 		if hasInnerPath {
 			return link
 		}
@@ -52,7 +54,7 @@ func CreateScmLink(remote *sources2.RemoteInfo, finding betterleaks.Finding) str
 		}
 		return link
 	case scm.GitLabPlatform:
-		link := fmt.Sprintf("%s/blob/%s/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/blob/%s/%s", remote.Url, commit, filePath)
 		if hasInnerPath {
 			return link
 		}
@@ -64,7 +66,7 @@ func CreateScmLink(remote *sources2.RemoteInfo, finding betterleaks.Finding) str
 		}
 		return link
 	case scm.AzureDevOpsPlatform:
-		link := fmt.Sprintf("%s/commit/%s?path=/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/commit/%s?path=/%s", remote.Url, commit, filePath)
 		// Add line information if applicable
 		if hasInnerPath {
 			return link
@@ -79,7 +81,7 @@ func CreateScmLink(remote *sources2.RemoteInfo, finding betterleaks.Finding) str
 		link += "&lineStartColumn=1&lineEndColumn=10000000&type=2&lineStyle=plain&_a=files"
 		return link
 	case scm.GiteaPlatform:
-		link := fmt.Sprintf("%s/src/commit/%s/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/src/commit/%s/%s", remote.Url, commit, filePath)
 		if hasInnerPath {
 			return link
 		}
@@ -95,7 +97,7 @@ func CreateScmLink(remote *sources2.RemoteInfo, finding betterleaks.Finding) str
 		}
 		return link
 	case scm.BitbucketPlatform:
-		link := fmt.Sprintf("%s/src/%s/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/src/%s/%s", remote.Url, commit, filePath)
 		if hasInnerPath {
 			return link
 		}
@@ -120,7 +122,7 @@ func filter(fs []betterleaks.Finding, redact uint) []betterleaks.Finding {
 		if strings.Contains(strings.ToLower(f.RuleID), "generic") {
 			for _, fPrime := range fs {
 				if f.StartLine == fPrime.StartLine &&
-					f.Commit == fPrime.Commit &&
+					f.Metadata[betterleaks.MetaCommitSHA] == fPrime.Metadata[betterleaks.MetaCommitSHA] &&
 					f.RuleID != fPrime.RuleID &&
 					strings.Contains(fPrime.Secret, f.Secret) &&
 					!strings.Contains(strings.ToLower(fPrime.RuleID), "generic") {
@@ -213,7 +215,10 @@ func PrintFinding(f betterleaks.Finding, noColor bool) {
 	fmt.Printf("%-12s %s\n", "RuleID:", f.RuleID)
 	fmt.Printf("%-12s %f\n", "Entropy:", f.Entropy)
 
-	if f.File == "" {
+	file := f.Metadata[betterleaks.MetaPath]
+	commit := f.Metadata[betterleaks.MetaCommitSHA]
+
+	if file == "" {
 		f.PrintRequiredFindings()
 		fmt.Println("")
 		return
@@ -221,21 +226,21 @@ func PrintFinding(f betterleaks.Finding, noColor bool) {
 	if len(f.Tags) > 0 {
 		fmt.Printf("%-12s %s\n", "Tags:", f.Tags)
 	}
-	fmt.Printf("%-12s %s\n", "File:", f.File)
+	fmt.Printf("%-12s %s\n", "File:", file)
 	fmt.Printf("%-12s %d\n", "Line:", f.StartLine)
-	if f.Commit == "" {
+	if commit == "" {
 		fmt.Printf("%-12s %s\n", "Fingerprint:", f.Fingerprint)
 		f.PrintRequiredFindings()
 		fmt.Println("")
 		return
 	}
-	fmt.Printf("%-12s %s\n", "Commit:", f.Commit)
-	fmt.Printf("%-12s %s\n", "Author:", f.Author)
-	fmt.Printf("%-12s %s\n", "Email:", f.Email)
-	fmt.Printf("%-12s %s\n", "Date:", f.Date)
+	fmt.Printf("%-12s %s\n", "Commit:", commit)
+	fmt.Printf("%-12s %s\n", "Author:", f.Metadata[betterleaks.MetaAuthorName])
+	fmt.Printf("%-12s %s\n", "Email:", f.Metadata[betterleaks.MetaAuthorEmail])
+	fmt.Printf("%-12s %s\n", "Date:", f.Metadata[betterleaks.MetaCommitDate])
 	fmt.Printf("%-12s %s\n", "Fingerprint:", f.Fingerprint)
-	if f.Link != "" {
-		fmt.Printf("%-12s %s\n", "Link:", f.Link)
+	if link := f.Metadata[betterleaks.MetaLink]; link != "" {
+		fmt.Printf("%-12s %s\n", "Link:", link)
 	}
 
 	f.PrintRequiredFindings()
@@ -249,21 +254,25 @@ func CreateFinding(fragment betterleaks.Fragment, match betterleaks.Match, rule 
 	secret := extractSecret(rule, match.MatchString)
 	entropy := shannonEntropy(secret)
 
+	// Copy resource metadata so each finding has its own map.
+	// Finding-specific augmentations (e.g. SCM link) won't bleed across
+	// findings that share the same Resource.
+	meta := make(map[string]string)
+	if fragment.Resource != nil {
+		for k, v := range fragment.Resource.Metadata {
+			meta[k] = v
+		}
+	}
+
 	return &betterleaks.Finding{
-		RuleID:      match.RuleID,
-		Match:       match.MatchString,
-		Secret:      secret,
-		Entropy:     entropy,
-		File:        fragment.Path,
-		SymlinkFile: fragment.Resource.Get(betterleaks.MetaSymlinkFile),
-		Commit:      fragment.Resource.Get(betterleaks.MetaCommitSHA),
-		Author:      fragment.Resource.Get(betterleaks.MetaAuthorName),
-		Email:       fragment.Resource.Get(betterleaks.MetaAuthorEmail),
-		Date:        fragment.Resource.Get(betterleaks.MetaCommitDate),
-		Message:     fragment.Resource.Get(betterleaks.MetaCommitMessage),
-		Line:        match.FullDecodedLine,
-		Fragment:    &fragment,
-		Tags:        match.MetaTags,
+		RuleID:   match.RuleID,
+		Match:    match.MatchString,
+		Secret:   secret,
+		Entropy:  entropy,
+		Line:     match.FullDecodedLine,
+		Fragment: &fragment,
+		Metadata: meta,
+		Tags:     match.MetaTags,
 	}
 }
 
@@ -399,9 +408,12 @@ func location(newlineIndices [][]int, raw string, matchIndex []int) Location {
 }
 
 func AddFingerprintToFinding(finding *betterleaks.Finding) {
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.File, finding.RuleID, finding.StartLine)
-	if finding.Commit != "" {
-		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", finding.Commit, finding.File, finding.RuleID, finding.StartLine)
+	file := finding.Metadata[betterleaks.MetaPath]
+	commit := finding.Metadata[betterleaks.MetaCommitSHA]
+
+	globalFingerprint := fmt.Sprintf("%s:%s:%d", file, finding.RuleID, finding.StartLine)
+	if commit != "" {
+		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", commit, file, finding.RuleID, finding.StartLine)
 	} else {
 		finding.Fingerprint = globalFingerprint
 	}

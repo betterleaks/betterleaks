@@ -41,7 +41,7 @@ func (r *CsvReporter) Write(w io.WriteCloser, findings []betterleaks.Finding) er
 		"Tags",
 	}
 	// A miserable attempt at "omitempty" so tests don't yell at me.
-	if findings[0].Link != "" {
+	if findings[0].Metadata[betterleaks.MetaLink] != "" {
 		columns = append(columns, "Link")
 	}
 
@@ -50,24 +50,24 @@ func (r *CsvReporter) Write(w io.WriteCloser, findings []betterleaks.Finding) er
 	}
 	for _, f := range findings {
 		row := []string{f.RuleID,
-			f.Commit,
-			f.File,
-			f.SymlinkFile,
+			f.Metadata[betterleaks.MetaCommitSHA],
+			f.Metadata[betterleaks.MetaPath],
+			f.Metadata[betterleaks.MetaSymlinkFile],
 			f.Secret,
 			f.Match,
 			strconv.Itoa(f.StartLine),
 			strconv.Itoa(f.EndLine),
 			strconv.Itoa(f.StartColumn),
 			strconv.Itoa(f.EndColumn),
-			f.Author,
-			f.Message,
-			f.Date,
-			f.Email,
+			f.Metadata[betterleaks.MetaAuthorName],
+			f.Metadata[betterleaks.MetaCommitMessage],
+			f.Metadata[betterleaks.MetaCommitDate],
+			f.Metadata[betterleaks.MetaAuthorEmail],
 			f.Fingerprint,
 			strings.Join(f.Tags, " "),
 		}
-		if findings[0].Link != "" {
-			row = append(row, f.Link)
+		if findings[0].Metadata[betterleaks.MetaLink] != "" {
+			row = append(row, f.Metadata[betterleaks.MetaLink])
 		}
 
 		if err = cw.Write(row); err != nil {
