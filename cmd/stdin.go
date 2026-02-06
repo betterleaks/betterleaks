@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	betterleaks "github.com/betterleaks/betterleaks"
+	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/scan"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/spf13/cobra"
