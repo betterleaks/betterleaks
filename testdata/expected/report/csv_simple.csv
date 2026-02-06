@@ -1,2 +1,2 @@
-RuleID,Commit,File,SymlinkFile,Secret,Match,StartLine,EndLine,StartColumn,EndColumn,Author,Message,Date,Email,Fingerprint,Tags
-test-rule,0000000000000000,auth.py,,a secret,line containing secret,1,2,1,2,John Doe,opps,10-19-2003,johndoe@gmail.com,fingerprint,tag1 tag2 tag3
+RuleID,Description,Match,Secret,StartLine,EndLine,StartColumn,EndColumn,Entropy,Tags,Fingerprint,meta:path,meta:symlink_file,meta:commit_sha,meta:author_name,meta:author_email,meta:commit_date,meta:commit_message
+test-rule,,line containing secret,a secret,1,2,1,2,0,tag1 tag2 tag3,fingerprint,auth.py,,0000000000000000,John Doe,johndoe@gmail.com,10-19-2003,opps

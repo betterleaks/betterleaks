@@ -5,9 +5,9 @@
   {
    "tool": {
     "driver": {
-     "name": "betterleaks",
-     "semanticVersion": "v0.1.0",
-     "informationUri": "https://github.com/betterleaks/betterleaks",
+     "name": "gitleaks",
+     "semanticVersion": "v8.0.0",
+     "informationUri": "https://github.com/gitleaks/gitleaks",
      "rules": [
       {
        "id": "aws-access-key",

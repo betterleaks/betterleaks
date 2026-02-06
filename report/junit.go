@@ -30,7 +30,7 @@ func getTestSuites(findings []betterleaks.Finding) []TestSuite {
 	return []TestSuite{
 		{
 			Failures:  strconv.Itoa(len(findings)),
-			Name:      "gitleaks",
+			Name:      "betterleaks",
 			Tests:     strconv.Itoa(len(findings)),
 			TestCases: getTestCases(findings),
 			Time:      "",

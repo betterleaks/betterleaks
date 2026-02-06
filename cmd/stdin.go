@@ -55,13 +55,19 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 
 	// run pipeline and collect findings
 	var findings []betterleaks.Finding
+	legacy := mustGetBoolFlag(cmd, "legacy")
 	start := time.Now()
 
 	err := p.Run(cmd.Context(), func(finding betterleaks.Finding, err error) error {
 		if err != nil {
 			return err
 		}
-		scan.PrintFinding(finding, noColor)
+		// Legacy: use gitleaks-compatible print format.
+		if legacy {
+			scan.LegacyPrintFinding(finding, noColor)
+		} else {
+			scan.PrintFinding(finding, noColor)
+		}
 		findings = append(findings, finding)
 		return nil
 	})

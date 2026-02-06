@@ -90,6 +90,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
 	rootCmd.PersistentFlags().Int("max-archive-depth", 0, "allow scanning into nested archives up to this depth (default \"0\", no archive traversal is done)")
 	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for gitleaks commands in seconds (default \"0\", no timeout is set)")
+	rootCmd.PersistentFlags().Bool("legacy", false, "enable gitleaks-compatible output format for printing and reporting")
 
 	// Add diagnostics flags
 	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
@@ -333,6 +334,7 @@ func getReporter(cmd *cobra.Command, cfg config2.Config) betterleaks.Reporter {
 
 	reportFormat := mustGetStringFlag(cmd, "report-format")
 	reportTemplate := mustGetStringFlag(cmd, "report-template")
+	legacy := mustGetBoolFlag(cmd, "legacy")
 
 	// Template flag implies template format
 	if reportTemplate != "" {
@@ -358,12 +360,28 @@ func getReporter(cmd *cobra.Command, cfg config2.Config) betterleaks.Reporter {
 
 	switch reportFormat {
 	case "json", "":
+		// Legacy: gitleaks-compatible JSON with flattened metadata fields.
+		if legacy {
+			return &report.LegacyJsonReporter{}
+		}
 		return &report.JsonReporter{}
 	case "csv":
+		// Legacy: gitleaks-compatible CSV with fixed columns.
+		if legacy {
+			return &report.LegacyCsvReporter{}
+		}
 		return &report.CsvReporter{}
 	case "junit":
+		// Legacy: gitleaks-compatible JUnit with "gitleaks" test suite name.
+		if legacy {
+			return &report.LegacyJunitReporter{}
+		}
 		return &report.JunitReporter{}
 	case "sarif":
+		// Legacy: gitleaks-compatible SARIF with gitleaks branding.
+		if legacy {
+			return &report.LegacySarifReporter{OrderedRules: cfg.GetOrderedRules()}
+		}
 		return &report.SarifReporter{OrderedRules: cfg.GetOrderedRules()}
 	case "template":
 		if reportTemplate == "" {

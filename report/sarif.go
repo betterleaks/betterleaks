@@ -37,11 +37,12 @@ func (r *SarifReporter) getRuns(findings []betterleaks.Finding) []Runs {
 }
 
 func (r *SarifReporter) getTool() Tool {
+	// New betterleaks branding.
 	tool := Tool{
 		Driver: Driver{
 			Name:            driver,
 			SemanticVersion: version,
-			InformationUri:  "https://github.com/gitleaks/gitleaks",
+			InformationUri:  "https://github.com/betterleaks/betterleaks",
 			Rules:           r.getRules(),
 		},
 	}

@@ -137,28 +137,22 @@ func (f *Finding) ResourceContext() (string, map[string]string) {
 	return f.Fragment.Resource.Source, f.Fragment.Resource.Metadata
 }
 
-// findingJSON is the JSON representation of a Finding, preserving backward
-// compatibility by flattening resource metadata into top-level fields.
+// findingJSON is the new betterleaks JSON representation of a Finding.
+// It includes all metadata key-value pairs rather than flattening a fixed
+// set of gitleaks-specific fields.
 type findingJSON struct {
-	RuleID      string   `json:"RuleID"`
-	Description string   `json:"Description"`
-	StartLine   int      `json:"StartLine"`
-	EndLine     int      `json:"EndLine"`
-	StartColumn int      `json:"StartColumn"`
-	EndColumn   int      `json:"EndColumn"`
-	Match       string   `json:"Match"`
-	Secret      string   `json:"Secret"`
-	File        string   `json:"File"`
-	SymlinkFile string   `json:"SymlinkFile"`
-	Commit      string   `json:"Commit"`
-	Entropy     float64  `json:"Entropy"`
-	Author      string   `json:"Author"`
-	Email       string   `json:"Email"`
-	Date        string   `json:"Date"`
-	Message     string   `json:"Message"`
-	Tags        []string `json:"Tags"`
-	Fingerprint string   `json:"Fingerprint"`
-	Link        string   `json:"Link,omitempty"`
+	RuleID      string            `json:"RuleID"`
+	Description string            `json:"Description"`
+	StartLine   int               `json:"StartLine"`
+	EndLine     int               `json:"EndLine"`
+	StartColumn int               `json:"StartColumn"`
+	EndColumn   int               `json:"EndColumn"`
+	Match       string            `json:"Match"`
+	Secret      string            `json:"Secret"`
+	Entropy     float64           `json:"Entropy"`
+	Tags        []string          `json:"Tags"`
+	Fingerprint string            `json:"Fingerprint"`
+	Metadata    map[string]string `json:"Metadata"`
 }
 
 func (f Finding) MarshalJSON() ([]byte, error) {
@@ -174,55 +168,51 @@ func (f Finding) MarshalJSON() ([]byte, error) {
 		Entropy:     f.Entropy,
 		Tags:        f.Tags,
 		Fingerprint: f.Fingerprint,
-		File:        f.Metadata[MetaPath],
-		SymlinkFile: f.Metadata[MetaSymlinkFile],
-		Commit:      f.Metadata[MetaCommitSHA],
-		Link:        f.Metadata[MetaLink],
-		Author:      f.Metadata[MetaAuthorName],
-		Email:       f.Metadata[MetaAuthorEmail],
-		Date:        f.Metadata[MetaCommitDate],
-		Message:     f.Metadata[MetaCommitMessage],
+		Metadata:    f.Metadata,
 	}
 	return json.Marshal(j)
 }
 
 func (f *Finding) UnmarshalJSON(data []byte) error {
+	// Auto-detect format: try the new betterleaks shape first, then fall back
+	// to the legacy gitleaks shape (for old baselines, etc.).
 	var j findingJSON
 	if err := json.Unmarshal(data, &j); err != nil {
 		return err
 	}
 
-	f.RuleID = j.RuleID
-	f.Description = j.Description
-	f.StartLine = j.StartLine
-	f.EndLine = j.EndLine
-	f.StartColumn = j.StartColumn
-	f.EndColumn = j.EndColumn
-	f.Match = j.Match
-	f.Secret = j.Secret
-	f.Entropy = j.Entropy
-	f.Tags = j.Tags
-	f.Fingerprint = j.Fingerprint
+	// If the new-format "Metadata" field is present and non-nil, use it.
+	if j.Metadata != nil {
+		f.RuleID = j.RuleID
+		f.Description = j.Description
+		f.StartLine = j.StartLine
+		f.EndLine = j.EndLine
+		f.StartColumn = j.StartColumn
+		f.EndColumn = j.EndColumn
+		f.Match = j.Match
+		f.Secret = j.Secret
+		f.Entropy = j.Entropy
+		f.Tags = j.Tags
+		f.Fingerprint = j.Fingerprint
+		f.Metadata = j.Metadata
 
-	// Reconstruct a synthetic Fragment + Resource from the JSON fields
-	// so that resource.Get() works on deserialized findings (e.g. baselines).
-	meta := map[string]string{
-		MetaPath:          j.File,
-		MetaSymlinkFile:   j.SymlinkFile,
-		MetaCommitSHA:     j.Commit,
-		MetaLink:          j.Link,
-		MetaAuthorName:    j.Author,
-		MetaAuthorEmail:   j.Email,
-		MetaCommitDate:    j.Date,
-		MetaCommitMessage: j.Message,
+		// Reconstruct a synthetic Fragment + Resource so code that still
+		// references f.Fragment.Resource continues to work.
+		path := j.Metadata[MetaPath]
+		f.Fragment = &Fragment{
+			Path: path,
+			Resource: &Resource{
+				Path:     path,
+				Metadata: j.Metadata,
+			},
+		}
+		return nil
 	}
-	f.Metadata = meta
-	f.Fragment = &Fragment{
-		Path: j.File,
-		Resource: &Resource{
-			Path:     j.File,
-			Metadata: meta,
-		},
+
+	// Fall back to legacy (gitleaks-compatible) JSON shape.
+	if f.unmarshalLegacyJSON(data) {
+		return nil
 	}
-	return nil
+
+	return fmt.Errorf("could not unmarshal Finding: unrecognized JSON shape")
 }

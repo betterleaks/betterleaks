@@ -8,15 +8,17 @@
   "EndColumn": 2,
   "Match": "line containing secret",
   "Secret": "a secret",
-  "File": "auth.py",
-  "SymlinkFile": "",
-  "Commit": "0000000000000000",
   "Entropy": 0,
-  "Author": "John Doe",
-  "Email": "johndoe@gmail.com",
-  "Date": "10-19-2003",
-  "Message": "opps",
   "Tags": [],
-  "Fingerprint": ""
+  "Fingerprint": "",
+  "Metadata": {
+   "author_email": "johndoe@gmail.com",
+   "author_name": "John Doe",
+   "commit_date": "10-19-2003",
+   "commit_message": "opps",
+   "commit_sha": "0000000000000000",
+   "path": "auth.py",
+   "symlink_file": ""
+  }
  }
 ]

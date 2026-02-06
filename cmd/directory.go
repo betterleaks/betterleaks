@@ -64,13 +64,19 @@ func runDirectory(cmd *cobra.Command, args []string) {
 
 	var findings []betterleaks.Finding
 	noColor := mustGetBoolFlag(cmd, "no-color")
+	legacy := mustGetBoolFlag(cmd, "legacy")
 	start := time.Now()
 
 	err := p.Run(cmd.Context(), func(finding betterleaks.Finding, err error) error {
 		if err != nil {
 			return err
 		}
-		scan.PrintFinding(finding, noColor)
+		// Legacy: use gitleaks-compatible print format.
+		if legacy {
+			scan.LegacyPrintFinding(finding, noColor)
+		} else {
+			scan.PrintFinding(finding, noColor)
+		}
 		findings = append(findings, finding)
 		return nil
 	})
