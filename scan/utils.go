@@ -303,15 +303,3 @@ func location(newlineIndices [][]int, raw string, matchIndex []int) Location {
 	}
 	return location
 }
-
-func AddFingerprintToFinding(finding *betterleaks.Finding) {
-	file := finding.Metadata[betterleaks.MetaPath]
-	commit := finding.Metadata[betterleaks.MetaCommitSHA]
-
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", file, finding.RuleID, finding.StartLine)
-	if commit != "" {
-		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", commit, file, finding.RuleID, finding.StartLine)
-	} else {
-		finding.Fingerprint = globalFingerprint
-	}
-}

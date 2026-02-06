@@ -5,14 +5,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/betterleaks/betterleaks"
 )
 
+// isNewFormatFingerprint checks if a fingerprint uses the new !-delimited format.
+func isNewFormatFingerprint(fp string) bool {
+	return strings.Contains(fp, "!")
+}
+
 func IsNew(finding betterleaks.Finding, redact uint, baseline []betterleaks.Finding) bool {
-	// Explicitly testing each property as it gives significantly better performance in comparison to cmp.Equal(). Drawback is that
-	// the code requires maintenance if/when the Finding struct changes
 	for _, b := range baseline {
+		// Fast path: both have new-format fingerprints
+		if isNewFormatFingerprint(finding.Fingerprint) && isNewFormatFingerprint(b.Fingerprint) {
+			if finding.Fingerprint == b.Fingerprint {
+				return false
+			}
+			continue
+		}
+
+		// Fallback: field-by-field comparison (existing logic, unchanged)
 		if finding.RuleID == b.RuleID &&
 			finding.Description == b.Description &&
 			finding.StartLine == b.StartLine &&
@@ -26,7 +39,6 @@ func IsNew(finding betterleaks.Finding, redact uint, baseline []betterleaks.Find
 			finding.Metadata[betterleaks.MetaAuthorEmail] == b.Metadata[betterleaks.MetaAuthorEmail] &&
 			finding.Metadata[betterleaks.MetaCommitDate] == b.Metadata[betterleaks.MetaCommitDate] &&
 			finding.Metadata[betterleaks.MetaCommitMessage] == b.Metadata[betterleaks.MetaCommitMessage] &&
-			// Omit checking finding.Fingerprint - if the format of the fingerprint changes, the users will see unexpected behaviour
 			finding.Entropy == b.Entropy {
 			return false
 		}

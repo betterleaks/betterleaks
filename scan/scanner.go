@@ -2,7 +2,6 @@ package scan
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
@@ -26,8 +25,8 @@ type Scanner struct {
 	// matching given a set of words (keywords from the rules in the config)
 	prefilter ahocorasick.Trie
 
-	// gitleaksIgnore
-	gitleaksIgnore map[string]struct{}
+	// ignoreSet contains parsed ignore entries for fingerprint-based ignoring
+	ignoreSet *IgnoreSet
 
 	// Sema (https://github.com/fatih/semgroup) controls the concurrency
 	Sema *semgroup.Group
@@ -41,32 +40,20 @@ func NewScanner(ctx context.Context, cfg *config.Config, maxDecodeDepth int, ign
 		prefilter:      *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
 		Sema:           semgroup.NewGroup(ctx, int64(concurrency)),
 		MaxDecodeDepth: maxDecodeDepth,
-		gitleaksIgnore: make(map[string]struct{}),
 	}
 }
 
-// SetIgnore adds fingerprints from the ignore map to the scanner's ignore list.
-func (s *Scanner) SetIgnore(ignore map[string]struct{}) {
-	for k, v := range ignore {
-		s.gitleaksIgnore[k] = v
-	}
+// SetIgnore sets the ignore set for the scanner.
+func (s *Scanner) SetIgnore(set *IgnoreSet) {
+	s.ignoreSet = set
 }
 
-// IsIgnored checks if a finding should be ignored based on its fingerprint.
-// It checks both the full fingerprint and the global fingerprint (without commit).
-func (s *Scanner) IsIgnored(finding betterleaks.Finding) bool {
-	// Check full fingerprint (commit:file:rule:line for git, or file:rule:line for files)
-	if _, ok := s.gitleaksIgnore[finding.Fingerprint]; ok {
-		return true
+// IsIgnored checks if a finding should be ignored based on the ignore set.
+func (s *Scanner) IsIgnored(finding *betterleaks.Finding) bool {
+	if s.ignoreSet == nil {
+		return false
 	}
-	// For git findings, also check global fingerprint (file:rule:line)
-	if finding.Metadata[betterleaks.MetaCommitSHA] != "" {
-		globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.Metadata[betterleaks.MetaPath], finding.RuleID, finding.StartLine)
-		if _, ok := s.gitleaksIgnore[globalFingerprint]; ok {
-			return true
-		}
-	}
-	return false
+	return s.ignoreSet.IsIgnored(finding)
 }
 
 // ScanFragment scans a fragment for secrets and returns any potential finding.

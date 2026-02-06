@@ -87,10 +87,10 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 			newLineIndices = newLineRegexp.FindAllStringIndex(fragment.Raw, -1)
 		}
 		AddLocationToFinding(finding, fragment, match, newLineIndices)
-		AddFingerprintToFinding(finding)
+		betterleaks.AddFingerprintToFinding(finding)
 
 		// Check if finding is in ignore list
-		if p.Scanner.IsIgnored(*finding) {
+		if p.Scanner.IsIgnored(finding) {
 			continue
 		}
 
