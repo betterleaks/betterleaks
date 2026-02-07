@@ -1,0 +1,34 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        platform: [ ubuntu-latest ] #, windows-latest ] (Don't run windows until linux is stable.)
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.25
+
+      - name: Build
+        run: go build
+
+      - name: Set up gotestsum
+        run: |
+          go install gotest.tools/gotestsum@latest
+
+      - name: Test
+        run: |
+          gotestsum --raw-command -- go test -json ./... --race
