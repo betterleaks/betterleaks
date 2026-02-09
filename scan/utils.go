@@ -12,6 +12,7 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
+	"golang.org/x/exp/maps"
 )
 
 var linkCleaner = strings.NewReplacer(
@@ -151,26 +152,23 @@ func CreateFinding(fragment betterleaks.Fragment, match betterleaks.Match, rule 
 	secret := extractSecret(rule, match.MatchString)
 	entropy := shannonEntropy(secret)
 
-	// Copy resource metadata so each finding has its own map.
-	// Finding-specific augmentations (e.g. SCM link) won't bleed across
-	// findings that share the same Resource.
-	meta := make(map[string]string)
-	if fragment.Resource != nil {
-		for k, v := range fragment.Resource.Metadata {
-			meta[k] = v
-		}
-	}
-
-	return &betterleaks.Finding{
+	f := betterleaks.Finding{
 		RuleID:   match.RuleID,
 		Match:    match.MatchString,
 		Secret:   secret,
 		Entropy:  entropy,
 		Line:     match.FullDecodedLine,
 		Fragment: &fragment,
-		Metadata: meta,
 		Tags:     match.MetaTags,
+		Metadata: make(map[string]string),
 	}
+
+	// Copy resource metadata so each finding has its own map.
+	// Finding-specific augmentations (e.g. SCM link) won't bleed across
+	// findings that share the same Resource.
+	maps.Copy(f.Metadata, fragment.Resource.Metadata)
+
+	return &f
 }
 
 // AddLocationToFinding populates location fields on a finding.

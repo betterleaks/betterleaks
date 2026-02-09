@@ -12,6 +12,7 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+// TODO Scanner could be renamed matcher prolly
 type Scanner struct {
 	Config *config.Config
 
@@ -57,7 +58,23 @@ func (s *Scanner) IsIgnored(finding *betterleaks.Finding) bool {
 }
 
 // ScanFragment scans a fragment for secrets and returns any potential finding.
+// It uses the Aho-Corasick prefilter to select which rules to evaluate.
 func (s *Scanner) ScanFragment(ctx context.Context, fragment betterleaks.Fragment) ([]betterleaks.Match, error) {
+	return s.scanWithDecode(ctx, fragment, nil)
+}
+
+// ScanFragmentWithRules scans a fragment using only the given rules, bypassing
+// the keyword prefilter. This is used for lazy evaluation of required
+// (skipReport) rules when a parent composite rule fires.
+func (s *Scanner) ScanFragmentWithRules(ctx context.Context, fragment betterleaks.Fragment, rules []config.Rule) ([]betterleaks.Match, error) {
+	return s.scanWithDecode(ctx, fragment, rules)
+}
+
+// scanWithDecode is the shared decode loop used by both ScanFragment and
+// ScanFragmentWithRules. When |rules| is nil, the Aho-Corasick prefilter
+// selects which rules to evaluate. When |rules| is provided, only those
+// specific rules are scanned (prefilter is bypassed).
+func (s *Scanner) scanWithDecode(ctx context.Context, fragment betterleaks.Fragment, rules []config.Rule) ([]betterleaks.Match, error) {
 	retMatches := []betterleaks.Match{}
 
 	currentRaw := fragment.Raw
@@ -70,29 +87,41 @@ ScanLoop:
 		case <-ctx.Done():
 			break ScanLoop
 		default:
-			// Build set of rules to check based on keyword matches
-			rulesToCheck := make(map[string]struct{})
-			normalizedRaw := strings.ToLower(currentRaw)
-			matches := s.prefilter.MatchString(normalizedRaw)
-			for _, m := range matches {
-				keyword := normalizedRaw[m.Pos() : int(m.Pos())+len(m.Match())]
-				for _, ruleID := range s.Config.KeywordToRules[keyword] {
+			if rules != nil {
+				// Scan only the explicitly provided rules (required-rule path).
+				for i := range rules {
+					select {
+					case <-ctx.Done():
+						break ScanLoop
+					default:
+						retMatches = append(retMatches, s.scanRule(fragment, currentRaw, rules[i], encodedSegments)...)
+					}
+				}
+			} else {
+				// Build set of rules to check based on keyword matches
+				rulesToCheck := make(map[string]struct{})
+				normalizedRaw := strings.ToLower(currentRaw)
+				matches := s.prefilter.MatchString(normalizedRaw)
+				for _, m := range matches {
+					keyword := normalizedRaw[m.Pos() : int(m.Pos())+len(m.Match())]
+					for _, ruleID := range s.Config.KeywordToRules[keyword] {
+						rulesToCheck[ruleID] = struct{}{}
+					}
+				}
+
+				// Always check rules that have no keywords
+				for _, ruleID := range s.Config.NoKeywordRules {
 					rulesToCheck[ruleID] = struct{}{}
 				}
-			}
 
-			// Always check rules that have no keywords
-			for _, ruleID := range s.Config.NoKeywordRules {
-				rulesToCheck[ruleID] = struct{}{}
-			}
-
-			for ruleID := range rulesToCheck {
-				select {
-				case <-ctx.Done():
-					break ScanLoop
-				default:
-					rule := s.Config.Rules[ruleID]
-					retMatches = append(retMatches, s.scanRule(fragment, currentRaw, rule, encodedSegments)...)
+				for ruleID := range rulesToCheck {
+					select {
+					case <-ctx.Done():
+						break ScanLoop
+					default:
+						rule := s.Config.Rules[ruleID]
+						retMatches = append(retMatches, s.scanRule(fragment, currentRaw, rule, encodedSegments)...)
+					}
 				}
 			}
 
