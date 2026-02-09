@@ -13,7 +13,7 @@ import (
 // Parsing tests
 
 func TestParseIgnoreEntry_FullFingerprint(t *testing.T) {
-	line := "git!git_patch_content!commit_sha=abc123,path=src/auth.py!aws-access-key!a1b2c3d4!L42-42!C5-25"
+	line := "git!git_patch_content!commit_sha=abc123,path=src/auth.py!aws-access-key!a1b2c3d4#L42-42#C5-25"
 	m, isExact := ParseIgnoreEntry(line)
 
 	require.NotNil(t, m)
@@ -123,7 +123,7 @@ func TestParseIgnoreEntry_IdentityKVParsing(t *testing.T) {
 }
 
 func TestParseIgnoreEntry_LineRange(t *testing.T) {
-	line := "*!*!*!*!*!L42-42"
+	line := "*!*!*!*!*#L42-42"
 	m, _ := ParseIgnoreEntry(line)
 
 	require.NotNil(t, m)
@@ -133,7 +133,7 @@ func TestParseIgnoreEntry_LineRange(t *testing.T) {
 }
 
 func TestParseIgnoreEntry_ColumnRange(t *testing.T) {
-	line := "*!*!*!*!*!*!C5-25"
+	line := "*!*!*!*!*#L42-42#C5-25"
 	m, _ := ParseIgnoreEntry(line)
 
 	require.NotNil(t, m)
@@ -208,7 +208,7 @@ func createTestFinding(source, kind, path, commit, ruleID, secretHash string, st
 		},
 	}
 
-	// Build fingerprint manually
+	// Build fingerprint manually (new # format)
 	fingerprint := source + "!" + kind + "!"
 	if commit != "" {
 		fingerprint += "commit_sha=" + commit + ",path=" + path
@@ -216,8 +216,8 @@ func createTestFinding(source, kind, path, commit, ruleID, secretHash string, st
 		fingerprint += "path=" + path
 	}
 	fingerprint += "!" + ruleID + "!" + secretHash
-	fingerprint += "!L" + itoa(startLine) + "-" + itoa(endLine)
-	fingerprint += "!C" + itoa(startCol) + "-" + itoa(endCol)
+	fingerprint += "#L" + itoa(startLine) + "-" + itoa(endLine)
+	fingerprint += "#C" + itoa(startCol) + "-" + itoa(endCol)
 
 	return &betterleaks.Finding{
 		RuleID:      ruleID,
@@ -236,7 +236,7 @@ func itoa(i int) string {
 
 func TestIgnoreSet_ExactMatch(t *testing.T) {
 	set := NewIgnoreSet()
-	fingerprint := "git!git_patch_content!commit_sha=abc123,path=src/auth.py!aws-access-key!a1b2c3d4!L42-42!C05-25"
+	fingerprint := "git!git_patch_content!commit_sha=abc123,path=src/auth.py!aws-access-key!a1b2c3d4#L42-42#C05-25"
 	set.Add(fingerprint)
 
 	// Matching finding
@@ -363,7 +363,7 @@ func TestIgnoreSet_MultipleMatchers(t *testing.T) {
 	set := NewIgnoreSet()
 
 	// Mix of exact, wildcard by hash, wildcard by rule, legacy
-	exactFp := "git!git_patch_content!commit_sha=exact,path=exact.py!rule!hash1234!L01-01!C01-10"
+	exactFp := "git!git_patch_content!commit_sha=exact,path=exact.py!rule!hash1234#L01-01#C01-10"
 	set.Add(exactFp)
 	set.Add("*!*!*!*!wildcardh")
 	set.Add("*!*!*!wildcard-rule")
@@ -398,7 +398,7 @@ func TestLoadIgnoreFile_MixedFormats(t *testing.T) {
 	path := filepath.Join(dir, ".betterleaksignore")
 
 	content := `# Comment line
-git!git_patch_content!path=src/auth.py!aws-access-key!a1b2c3d4!L42-42!C5-25
+git!git_patch_content!path=src/auth.py!aws-access-key!a1b2c3d4#L42-42#C5-25
 
 legacy/path.py:rule-id:10
 *!*!*!*!globalha
@@ -413,7 +413,7 @@ abc123:path.py:commit-rule:20
 	require.NoError(t, err)
 
 	// Check exact entry was added
-	assert.Contains(t, set.exact, "git!git_patch_content!path=src/auth.py!aws-access-key!a1b2c3d4!L42-42!C5-25")
+	assert.Contains(t, set.exact, "git!git_patch_content!path=src/auth.py!aws-access-key!a1b2c3d4#L42-42#C5-25")
 
 	// Check matchers were added (wildcard entries)
 	assert.True(t, len(set.matchers) > 0 || len(set.unindexed) > 0)

@@ -10,13 +10,13 @@ import (
 func TestIsNew_NewFormatFingerprints(t *testing.T) {
 	// Both have new-format fingerprints
 	finding := betterleaks.Finding{
-		Fingerprint: "git!git_patch_content!commit_sha=abc,path=test.py!rule-id!hash1234!L10-10!C1-20",
+		Fingerprint: "git!git_patch_content!commit_sha=abc,path=test.py!rule-id!hash1234#L10-10#C1-20",
 		RuleID:      "rule-id",
 	}
 
 	baseline := []betterleaks.Finding{
 		{
-			Fingerprint: "git!git_patch_content!commit_sha=abc,path=test.py!rule-id!hash1234!L10-10!C1-20",
+			Fingerprint: "git!git_patch_content!commit_sha=abc,path=test.py!rule-id!hash1234#L10-10#C1-20",
 			RuleID:      "rule-id",
 		},
 	}
@@ -25,14 +25,14 @@ func TestIsNew_NewFormatFingerprints(t *testing.T) {
 	assert.False(t, IsNew(finding, 0, baseline))
 
 	// Different fingerprint should return true (is new)
-	finding.Fingerprint = "git!git_patch_content!commit_sha=xyz,path=other.py!rule-id!hash1234!L10-10!C1-20"
+	finding.Fingerprint = "git!git_patch_content!commit_sha=xyz,path=other.py!rule-id!hash1234#L10-10#C1-20"
 	assert.True(t, IsNew(finding, 0, baseline))
 }
 
 func TestIsNew_MixedFormats(t *testing.T) {
 	// Finding has new format, baseline has old format
 	finding := betterleaks.Finding{
-		Fingerprint: "git!git_patch_content!commit_sha=abc,path=test.py!rule-id!hash1234!L10-10!C1-20",
+		Fingerprint: "git!git_patch_content!commit_sha=abc,path=test.py!rule-id!hash1234#L10-10#C1-20",
 		RuleID:      "rule-id",
 		StartLine:   10,
 		EndLine:     10,

@@ -98,20 +98,25 @@ type matchContext struct {
 func matchContextFromFinding(f *betterleaks.Finding) matchContext {
 	r := f.Fragment.Resource
 
-	// Extract secret hash (5th segment) from the already-computed fingerprint
-	// rather than recomputing XXH3.
+	// Extract secret hash from the already-computed fingerprint rather than
+	// recomputing XXH3. The hash is in segment 4 (0-indexed), terminated
+	// by '#' (format: hash#L#C).
 	var secretHash string
 	if fp := f.Fingerprint; fp != "" {
-		// Walk to the 4th '!' to find start of secret hash segment
 		count := 0
-		start := 0
 		for i := 0; i < len(fp); i++ {
 			if fp[i] == '!' {
 				count++
 				if count == 4 {
-					start = i + 1
-				} else if count == 5 {
-					secretHash = fp[start:i]
+					start := i + 1
+					end := len(fp)
+					for j := start; j < len(fp); j++ {
+						if fp[j] == '#' {
+							end = j
+							break
+						}
+					}
+					secretHash = fp[start:end]
 					break
 				}
 			}
@@ -225,13 +230,14 @@ func ParseIgnoreEntry(line string) (*FingerprintMatcher, bool) {
 	}
 
 	parts := strings.Split(line, "!")
-	// Pad missing trailing segments with "*" (trailing wildcard shorthand)
-	for len(parts) < 7 {
-		parts = append(parts, "*")
-	}
 
 	m := &FingerprintMatcher{}
 	isExact := true
+
+	// Pad to at least 5 segments (source, kind, identity, rule, hash+loc).
+	for len(parts) < 5 {
+		parts = append(parts, "*")
+	}
 
 	// Segment 0: source
 	if parts[0] != "*" {
@@ -261,35 +267,37 @@ func ParseIgnoreEntry(line string) (*FingerprintMatcher, bool) {
 		isExact = false
 	}
 
-	// Segment 4: secret_hash
-	if parts[4] != "*" {
-		m.SecretHash = parts[4]
-	} else {
+	// Segment 4: "hash#L{s}-{e}#C{s}-{e}" — secret hash and location
+	// bundled in one segment with # delimiters.
+	if parts[4] == "*" {
 		isExact = false
-	}
-
-	// Segment 5: lines (L{start}-{end})
-	if parts[5] != "*" {
-		start, end, ok := parseRange(parts[5], 'L')
-		if ok {
-			m.StartLine = start
-			m.EndLine = end
-			m.hasLines = true
+	} else {
+		sub := strings.Split(parts[4], "#")
+		if sub[0] != "*" {
+			m.SecretHash = sub[0]
+		} else {
+			isExact = false
 		}
-	} else {
-		isExact = false
-	}
-
-	// Segment 6: columns (C{start}-{end})
-	if parts[6] != "*" {
-		start, end, ok := parseRange(parts[6], 'C')
-		if ok {
-			m.StartColumn = start
-			m.EndColumn = end
-			m.hasColumns = true
+		if len(sub) > 1 {
+			start, end, ok := parseRange(sub[1], 'L')
+			if ok {
+				m.StartLine = start
+				m.EndLine = end
+				m.hasLines = true
+			}
+		} else {
+			isExact = false
 		}
-	} else {
-		isExact = false
+		if len(sub) > 2 {
+			start, end, ok := parseRange(sub[2], 'C')
+			if ok {
+				m.StartColumn = start
+				m.EndColumn = end
+				m.hasColumns = true
+			}
+		} else {
+			isExact = false
+		}
 	}
 
 	return m, isExact
