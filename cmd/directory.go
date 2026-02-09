@@ -5,7 +5,7 @@ import (
 
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/scan"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/files"
 	"github.com/fatih/semgroup"
 	"github.com/spf13/cobra"
 )
@@ -47,7 +47,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	legacy := mustGetBoolFlag(cmd, "legacy")
 	verbose := mustGetBoolFlag(cmd, "verbose")
 
-	src := &sources.Files{
+	src := &files.Files{
 		Config:          &cfg,
 		FollowSymlinks:  followSymlinks,
 		MaxFileSize:     maxTargetMegaBytes * 1_000_000,

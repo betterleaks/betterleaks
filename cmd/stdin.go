@@ -6,7 +6,7 @@ import (
 
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/scan"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/file"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +32,7 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 
 	// create a File source that reads from stdin
-	src := &sources.File{
+	src := &file.File{
 		Content:         os.Stdin,
 		Path:            "stdin",
 		Config:          &cfg,

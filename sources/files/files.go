@@ -1,4 +1,4 @@
-package sources
+package files
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/file"
 	"github.com/charlievieth/fastwalk"
 	"github.com/fatih/semgroup"
 )
@@ -55,7 +57,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 
 		// Handle directories first using d.IsDir() which doesn't require stat
 		if d.IsDir() {
-			if shouldSkipPath(s.Config, "file", path) {
+			if sources.ShouldSkipPath(s.Config, "file", path) {
 				logger.Debug().Msg("skipping directory: global allowlist")
 				return fastwalk.SkipDir
 			}
@@ -84,7 +86,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 		}
 
 		// Check allowlist before expensive stat call
-		if shouldSkipPath(s.Config, "file", path) {
+		if sources.ShouldSkipPath(s.Config, "file", path) {
 			logger.Debug().Msg("skipping file: global allowlist")
 			return nil
 		}
@@ -152,7 +154,7 @@ func (s *Files) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) 
 				}
 
 				// Convert this to a file source
-				file := File{
+				fileSource := file.File{
 					Content:         f,
 					Path:            scanTarget.Path,
 					Symlink:         scanTarget.Symlink,
@@ -161,7 +163,7 @@ func (s *Files) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) 
 					Source:          "file",
 				}
 
-				err = file.Fragments(ctx, yield)
+				err = fileSource.Fragments(ctx, yield)
 				// Avoiding a defer in a hot loop
 				_ = f.Close()
 				wg.Done()

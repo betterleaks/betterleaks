@@ -11,6 +11,7 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/git"
 	"github.com/betterleaks/betterleaks/sources/scm"
 	"golang.org/x/exp/maps"
 )
@@ -22,7 +23,7 @@ var linkCleaner = strings.NewReplacer(
 
 // CreateScmLink generates a link to the finding in the SCM platform (GitHub, GitLab, etc.)
 // TODO find a better home for this
-func CreateScmLink(remote *sources.RemoteInfo, finding betterleaks.Finding) string {
+func CreateScmLink(remote *git.RemoteInfo, finding betterleaks.Finding) string {
 	commit := finding.Metadata[betterleaks.MetaCommitSHA]
 	file := finding.Metadata[betterleaks.MetaPath]
 	if remote.Platform == scm.UnknownPlatform ||

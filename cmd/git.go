@@ -6,7 +6,7 @@ import (
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/scan"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/git"
 	"github.com/betterleaks/betterleaks/sources/scm"
 	"github.com/fatih/semgroup"
 	"github.com/spf13/cobra"
@@ -50,18 +50,18 @@ func runGit(cmd *cobra.Command, args []string) {
 
 	var (
 		err         error
-		gitCmd      *sources.GitCmd
+		gitCmd      *git.GitCmd
 		scmPlatform scm.Platform
 	)
 
 	if preCommit || staged {
-		if gitCmd, err = sources.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
+		if gitCmd, err = git.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
 			logging.Fatal().Err(err).Msg("could not create Git diff cmd")
 		}
 		// Remote info + links are irrelevant for staged changes.
 		scmPlatform = scm.NoPlatform
 	} else {
-		if gitCmd, err = sources.NewGitLogCmdContext(cmd.Context(), source, logOpts); err != nil {
+		if gitCmd, err = git.NewGitLogCmdContext(cmd.Context(), source, logOpts); err != nil {
 			logging.Fatal().Err(err).Msg("could not create Git log cmd")
 		}
 		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
@@ -69,9 +69,9 @@ func runGit(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	remote := sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source)
+	remote := git.NewRemoteInfoContext(cmd.Context(), scmPlatform, source)
 
-	src := &sources.Git{
+	src := &git.Git{
 		Cmd:             gitCmd,
 		Config:          &cfg,
 		Remote:          remote,

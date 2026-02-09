@@ -1,4 +1,4 @@
-package sources
+package git
 
 import (
 	"bufio"
@@ -18,6 +18,8 @@ import (
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/file"
 	"github.com/betterleaks/betterleaks/sources/scm"
 	"github.com/fatih/semgroup"
 	"github.com/gitleaks/go-gitdiff/gitdiff"
@@ -317,7 +319,7 @@ func (s *Git) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) er
 			// skip non-archive binary files
 			yieldAsArchive := false
 			if gitdiffFile.IsBinary {
-				if !isArchive(ctx, gitdiffFile.NewName) {
+				if !sources.IsArchive(ctx, gitdiffFile.NewName) {
 					continue
 				}
 				yieldAsArchive = true
@@ -374,7 +376,7 @@ func (s *Git) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) er
 						return nil
 					}
 
-					file := File{
+					fileSource := file.File{
 						Content:         blob,
 						Path:            gitdiffFile.NewName,
 						MaxArchiveDepth: s.MaxArchiveDepth,
@@ -383,7 +385,7 @@ func (s *Git) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) er
 					}
 
 					// enrich and yield fragments
-					err = file.Fragments(ctx, func(fragment betterleaks.Fragment, err error) error {
+					err = fileSource.Fragments(ctx, func(fragment betterleaks.Fragment, err error) error {
 						fragment.Resource = resource
 						return yield(fragment, err)
 					})
