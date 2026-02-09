@@ -359,7 +359,7 @@ func (s *Git) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) er
 				resource = &betterleaks.Resource{
 					ID:       commitSHA,
 					Path:     gitdiffFile.NewName,
-					Kind:     betterleaks.GitPatchContent,
+					Kind:     PatchContent,
 					Source:   "git",
 					Metadata: meta,
 				}

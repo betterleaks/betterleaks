@@ -8,19 +8,39 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// Register test kinds. The real registrations live in sources/file/ and sources/git/
+// via init(), but we can't import them here (import cycle). These use the same
+// string values so fingerprint tests exercise real behavior.
+func init() {
+	RegisterResourceKind(ResourceKindInfo{
+		Kind:         "file_content",
+		IdentityKeys: []string{MetaPath},
+		Source:       "file",
+	})
+	RegisterResourceKind(ResourceKindInfo{
+		Kind:         "git_patch_content",
+		IdentityKeys: []string{MetaCommitSHA, MetaPath},
+		Source:       "git",
+	})
+	RegisterResourceKind(ResourceKindInfo{
+		Kind:         "git_commit_message",
+		IdentityKeys: []string{MetaCommitSHA, MetaPath},
+		Source:       "git",
+	})
+	RegisterResourceKind(ResourceKindInfo{
+		Kind:         "git_commit_body",
+		IdentityKeys: []string{MetaCommitSHA, MetaPath},
+		Source:       "git",
+	})
+}
+
 func TestFingerprintKeys_AllResourceKinds(t *testing.T) {
 	// Test all defined ResourceKind constants
 	kinds := []ResourceKind{
-		FileContent,
-		GitCommitMessage,
-		GitCommitBody,
-		GitPatchContent,
-		GitHubComment,
-		GitHubIssueDescription,
-		GitHubIssueTitle,
-		GitHubPullRequestTitle,
-		GitHubPullRequestBody,
-		S3Object,
+		"file_content",
+		"git_commit_message",
+		"git_commit_body",
+		"git_patch_content",
 	}
 
 	for _, kind := range kinds {
@@ -37,7 +57,7 @@ func TestFingerprintKeys_AllResourceKinds(t *testing.T) {
 
 func TestFingerprintIdentity_GitPatch(t *testing.T) {
 	r := &Resource{
-		Kind:   GitPatchContent,
+		Kind:   "git_patch_content",
 		Source: "git",
 		Metadata: map[string]string{
 			MetaCommitSHA: "abc123",
@@ -51,7 +71,7 @@ func TestFingerprintIdentity_GitPatch(t *testing.T) {
 
 func TestFingerprintIdentity_File(t *testing.T) {
 	r := &Resource{
-		Kind:   FileContent,
+		Kind:   "file_content",
 		Source: "file",
 		Metadata: map[string]string{
 			MetaPath: "config/secrets.yaml",
@@ -64,7 +84,7 @@ func TestFingerprintIdentity_File(t *testing.T) {
 
 func TestFingerprintIdentity_Cached(t *testing.T) {
 	r := &Resource{
-		Kind:   FileContent,
+		Kind:   "file_content",
 		Source: "file",
 		Metadata: map[string]string{
 			MetaPath: "test.txt",
@@ -82,7 +102,7 @@ func TestFingerprintIdentity_Cached(t *testing.T) {
 
 func TestAddFingerprintToFinding_Git(t *testing.T) {
 	r := &Resource{
-		Kind:   GitPatchContent,
+		Kind:   "git_patch_content",
 		Source: "git",
 		Metadata: map[string]string{
 			MetaCommitSHA: "abc123",
@@ -120,7 +140,7 @@ func TestAddFingerprintToFinding_Git(t *testing.T) {
 
 func TestAddFingerprintToFinding_File(t *testing.T) {
 	r := &Resource{
-		Kind:   FileContent,
+		Kind:   "file_content",
 		Source: "file",
 		Metadata: map[string]string{
 			MetaPath: "config/secrets.yaml",
@@ -155,7 +175,7 @@ func TestAddFingerprintToFinding_File(t *testing.T) {
 
 func TestAddFingerprintToFinding_Composite(t *testing.T) {
 	r := &Resource{
-		Kind:   FileContent,
+		Kind:   "file_content",
 		Source: "file",
 		Metadata: map[string]string{
 			MetaPath: "credentials.env",
@@ -210,7 +230,7 @@ func TestAddFingerprintToFinding_Composite(t *testing.T) {
 
 func TestAddFingerprintToFinding_CompositeMultipleRequired_Sorted(t *testing.T) {
 	r := &Resource{
-		Kind:   FileContent,
+		Kind:   "file_content",
 		Source: "file",
 		Metadata: map[string]string{
 			MetaPath: "creds.yaml",
@@ -269,7 +289,7 @@ func TestAddFingerprintToFinding_CompositeMultipleRequired_Sorted(t *testing.T) 
 
 func TestAddFingerprintToFinding_CompositeVsNonComposite_Different(t *testing.T) {
 	r := &Resource{
-		Kind:   FileContent,
+		Kind:   "file_content",
 		Source: "file",
 		Metadata: map[string]string{
 			MetaPath: "test.env",

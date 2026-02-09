@@ -295,7 +295,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield be
 			}
 			fragment.Resource = &betterleaks.Resource{
 				Path:     fragment.Path,
-				Kind:     betterleaks.FileContent,
+				Kind:     Content,
 				Source:   s.Source,
 				Metadata: meta,
 			}

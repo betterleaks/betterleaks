@@ -1,6 +1,9 @@
 package betterleaks
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Metadata keys used across sources.
 const (
@@ -51,51 +54,37 @@ func (r *Resource) Get(key string) string {
 // ResourceKind represents the kind of resource.
 type ResourceKind string
 
-// File Resource Kinds
-const (
-	FileContent ResourceKind = "file_content"
-)
+// ResourceKindInfo holds the registration details for a ResourceKind.
+type ResourceKindInfo struct {
+	Kind         ResourceKind
+	IdentityKeys []string // must be alphabetically ordered
+	Source       string
+}
 
-// Git Resource Kinds
-const (
-	GitCommitMessage ResourceKind = "git_commit_message"
-	GitCommitBody    ResourceKind = "git_commit_body"
-	GitPatchContent  ResourceKind = "git_patch_content"
-)
+var resourceKindRegistry = map[ResourceKind]ResourceKindInfo{}
 
-// GitHub Resource Kinds
-const (
-	GitHubComment          ResourceKind = "github_comment"
-	GitHubIssueDescription ResourceKind = "github_issue_description"
-	GitHubIssueTitle       ResourceKind = "github_issue_title"
-	GitHubPullRequestTitle ResourceKind = "github_pull_request_title"
-	GitHubPullRequestBody  ResourceKind = "github_pull_request_body"
-)
-
-// S3 Resource Kinds
-const (
-	S3Object ResourceKind = "s3_object"
-)
+// RegisterResourceKind registers a ResourceKind with its identity keys.
+// This is typically called from init() in each source package.
+func RegisterResourceKind(info ResourceKindInfo) {
+	for i := 1; i < len(info.IdentityKeys); i++ {
+		if info.IdentityKeys[i] <= info.IdentityKeys[i-1] {
+			panic(fmt.Sprintf("ResourceKind %q: identity keys must be alphabetically ordered", info.Kind))
+		}
+	}
+	if _, exists := resourceKindRegistry[info.Kind]; exists {
+		panic(fmt.Sprintf("ResourceKind %q already registered", info.Kind))
+	}
+	resourceKindRegistry[info.Kind] = info
+}
 
 // FingerprintKeys returns the metadata keys forming the unique identity for this resource kind.
 // Keys are returned in alphabetical order.
 func (k ResourceKind) FingerprintKeys() []string {
-	switch k {
-	case GitPatchContent, GitCommitMessage, GitCommitBody:
-		return []string{MetaCommitSHA, MetaPath} // "commit_sha", "path" — already alphabetical
-	case FileContent:
-		return []string{MetaPath}
-	case GitHubComment:
-		return []string{"comment_id", "repo"}
-	case GitHubIssueDescription, GitHubIssueTitle:
-		return []string{"issue_id", "repo"}
-	case GitHubPullRequestTitle, GitHubPullRequestBody:
-		return []string{"pr_id", "repo"}
-	case S3Object:
-		return []string{"bucket", "key"}
-	default:
-		return []string{MetaPath}
+	info, ok := resourceKindRegistry[k]
+	if !ok {
+		panic(fmt.Sprintf("unregistered ResourceKind %q", k))
 	}
+	return info.IdentityKeys
 }
 
 // FingerprintIdentity returns the sorted key=value pairs that uniquely identify
