@@ -17,8 +17,8 @@ import (
 	"github.com/fatih/semgroup"
 )
 
-// TODO: remove this in v9 and have scanTargets yield file sources
-type ScanTarget struct {
+// FileEntry represents a file discovered during directory traversal.
+type FileEntry struct {
 	Path    string
 	Symlink string
 }
@@ -33,8 +33,8 @@ type Files struct {
 	MaxArchiveDepth int
 }
 
-// scanTargets yields scan targets to a callback func
-func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) error) error {
+// scanFileEntries yields scan targets to a callback func
+func (s *Files) scanFileEntries(ctx context.Context, yield func(FileEntry, error) error) error {
 	// Configure fastwalk for parallel directory traversal
 	// Note: We handle symlinks manually so we don't use fastwalk's Follow option
 	conf := &fastwalk.Config{
@@ -42,7 +42,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 	}
 
 	err := fastwalk.Walk(conf, s.Path, func(path string, d fs.DirEntry, err error) error {
-		scanTarget := ScanTarget{Path: path}
+		fileEntry := FileEntry{Path: path}
 		logger := logging.With().Str("path", path).Logger()
 
 		if err != nil {
@@ -79,7 +79,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 				logger.Debug().Str("target", realPath).Msgf("skipping symlink: target is directory")
 				return nil
 			}
-			scanTarget = ScanTarget{
+			fileEntry = FileEntry{
 				Path:    realPath,
 				Symlink: path,
 			}
@@ -116,7 +116,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			}
 		}
 
-		return yield(scanTarget, nil)
+		return yield(fileEntry, nil)
 	})
 
 	// Handle the case where the root path doesn't exist - fastwalk returns this
@@ -134,17 +134,17 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 func (s *Files) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) error {
 	var wg sync.WaitGroup
 
-	err := s.scanTargets(ctx, func(scanTarget ScanTarget, err error) error {
+	err := s.scanFileEntries(ctx, func(fileEntry FileEntry, err error) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 			wg.Add(1)
 			s.Sema.Go(func() error {
-				logger := logging.With().Str("path", scanTarget.Path).Logger()
+				logger := logging.With().Str("path", fileEntry.Path).Logger()
 				logger.Trace().Msg("scanning path")
 
-				f, err := os.Open(scanTarget.Path)
+				f, err := os.Open(fileEntry.Path)
 				if err != nil {
 					if os.IsPermission(err) {
 						logger.Warn().Msg("skipping file: permission denied")
@@ -156,8 +156,8 @@ func (s *Files) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) 
 				// Convert this to a file source
 				fileSource := file.File{
 					Content:         f,
-					Path:            scanTarget.Path,
-					Symlink:         scanTarget.Symlink,
+					Path:            fileEntry.Path,
+					Symlink:         fileEntry.Symlink,
 					Config:          s.Config,
 					MaxArchiveDepth: s.MaxArchiveDepth,
 					Source:          "file",
