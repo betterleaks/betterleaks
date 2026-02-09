@@ -2,7 +2,6 @@ package scan
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
@@ -13,6 +12,7 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+// TODO Scanner could be renamed matcher prolly
 type Scanner struct {
 	Config *config.Config
 
@@ -26,8 +26,8 @@ type Scanner struct {
 	// matching given a set of words (keywords from the rules in the config)
 	prefilter ahocorasick.Trie
 
-	// gitleaksIgnore
-	gitleaksIgnore map[string]struct{}
+	// ignoreSet contains parsed ignore entries for fingerprint-based ignoring
+	ignoreSet *IgnoreSet
 
 	// Sema (https://github.com/fatih/semgroup) controls the concurrency
 	Sema *semgroup.Group
@@ -41,36 +41,40 @@ func NewScanner(ctx context.Context, cfg *config.Config, maxDecodeDepth int, ign
 		prefilter:      *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
 		Sema:           semgroup.NewGroup(ctx, int64(concurrency)),
 		MaxDecodeDepth: maxDecodeDepth,
-		gitleaksIgnore: make(map[string]struct{}),
 	}
 }
 
-// SetIgnore adds fingerprints from the ignore map to the scanner's ignore list.
-func (s *Scanner) SetIgnore(ignore map[string]struct{}) {
-	for k, v := range ignore {
-		s.gitleaksIgnore[k] = v
-	}
+// SetIgnore sets the ignore set for the scanner.
+func (s *Scanner) SetIgnore(set *IgnoreSet) {
+	s.ignoreSet = set
 }
 
-// IsIgnored checks if a finding should be ignored based on its fingerprint.
-// It checks both the full fingerprint and the global fingerprint (without commit).
-func (s *Scanner) IsIgnored(finding betterleaks.Finding) bool {
-	// Check full fingerprint (commit:file:rule:line for git, or file:rule:line for files)
-	if _, ok := s.gitleaksIgnore[finding.Fingerprint]; ok {
-		return true
+// IsIgnored checks if a finding should be ignored based on the ignore set.
+func (s *Scanner) IsIgnored(finding *betterleaks.Finding) bool {
+	if s.ignoreSet == nil {
+		return false
 	}
-	// For git findings, also check global fingerprint (file:rule:line)
-	if finding.Metadata[betterleaks.MetaCommitSHA] != "" {
-		globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.Metadata[betterleaks.MetaPath], finding.RuleID, finding.StartLine)
-		if _, ok := s.gitleaksIgnore[globalFingerprint]; ok {
-			return true
-		}
-	}
-	return false
+	return s.ignoreSet.IsIgnored(finding)
 }
 
 // ScanFragment scans a fragment for secrets and returns any potential finding.
+// It uses the Aho-Corasick prefilter to select which rules to evaluate.
 func (s *Scanner) ScanFragment(ctx context.Context, fragment betterleaks.Fragment) ([]betterleaks.Match, error) {
+	return s.scanWithDecode(ctx, fragment, nil)
+}
+
+// ScanFragmentWithRules scans a fragment using only the given rules, bypassing
+// the keyword prefilter. This is used for lazy evaluation of required
+// (skipReport) rules when a parent composite rule fires.
+func (s *Scanner) ScanFragmentWithRules(ctx context.Context, fragment betterleaks.Fragment, rules []config.Rule) ([]betterleaks.Match, error) {
+	return s.scanWithDecode(ctx, fragment, rules)
+}
+
+// scanWithDecode is the shared decode loop used by both ScanFragment and
+// ScanFragmentWithRules. When |rules| is nil, the Aho-Corasick prefilter
+// selects which rules to evaluate. When |rules| is provided, only those
+// specific rules are scanned (prefilter is bypassed).
+func (s *Scanner) scanWithDecode(ctx context.Context, fragment betterleaks.Fragment, rules []config.Rule) ([]betterleaks.Match, error) {
 	retMatches := []betterleaks.Match{}
 
 	currentRaw := fragment.Raw
@@ -83,29 +87,41 @@ ScanLoop:
 		case <-ctx.Done():
 			break ScanLoop
 		default:
-			// Build set of rules to check based on keyword matches
-			rulesToCheck := make(map[string]struct{})
-			normalizedRaw := strings.ToLower(currentRaw)
-			matches := s.prefilter.MatchString(normalizedRaw)
-			for _, m := range matches {
-				keyword := normalizedRaw[m.Pos() : int(m.Pos())+len(m.Match())]
-				for _, ruleID := range s.Config.KeywordToRules[keyword] {
+			if rules != nil {
+				// Scan only the explicitly provided rules (required-rule path).
+				for i := range rules {
+					select {
+					case <-ctx.Done():
+						break ScanLoop
+					default:
+						retMatches = append(retMatches, s.scanRule(fragment, currentRaw, rules[i], encodedSegments)...)
+					}
+				}
+			} else {
+				// Build set of rules to check based on keyword matches
+				rulesToCheck := make(map[string]struct{})
+				normalizedRaw := strings.ToLower(currentRaw)
+				matches := s.prefilter.MatchString(normalizedRaw)
+				for _, m := range matches {
+					keyword := normalizedRaw[m.Pos() : int(m.Pos())+len(m.Match())]
+					for _, ruleID := range s.Config.KeywordToRules[keyword] {
+						rulesToCheck[ruleID] = struct{}{}
+					}
+				}
+
+				// Always check rules that have no keywords
+				for _, ruleID := range s.Config.NoKeywordRules {
 					rulesToCheck[ruleID] = struct{}{}
 				}
-			}
 
-			// Always check rules that have no keywords
-			for _, ruleID := range s.Config.NoKeywordRules {
-				rulesToCheck[ruleID] = struct{}{}
-			}
-
-			for ruleID := range rulesToCheck {
-				select {
-				case <-ctx.Done():
-					break ScanLoop
-				default:
-					rule := s.Config.Rules[ruleID]
-					retMatches = append(retMatches, s.scanRule(fragment, currentRaw, rule, encodedSegments)...)
+				for ruleID := range rulesToCheck {
+					select {
+					case <-ctx.Done():
+						break ScanLoop
+					default:
+						rule := s.Config.Rules[ruleID]
+						retMatches = append(retMatches, s.scanRule(fragment, currentRaw, rule, encodedSegments)...)
+					}
 				}
 			}
 

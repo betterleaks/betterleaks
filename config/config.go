@@ -141,15 +141,25 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		}
 		if vr.Keywords == nil {
 			vr.Keywords = []string{}
-			noKeywordRules = append(noKeywordRules, vr.ID)
+			// skipReport rules are only scanned lazily when a parent
+			// composite rule fires, so exclude them from the prefilter.
+			if !vr.SkipReport {
+				noKeywordRules = append(noKeywordRules, vr.ID)
+			}
 		} else if len(vr.Keywords) == 0 {
-			noKeywordRules = append(noKeywordRules, vr.ID)
+			if !vr.SkipReport {
+				noKeywordRules = append(noKeywordRules, vr.ID)
+			}
 		} else {
 			for i, k := range vr.Keywords {
 				keyword := strings.ToLower(k)
-				keywords[keyword] = struct{}{}
-				keywordToRules[keyword] = append(keywordToRules[keyword], vr.ID)
 				vr.Keywords[i] = keyword
+				// skipReport rules are excluded from the keyword prefilter;
+				// they will be scanned on-demand for required-rule evaluation.
+				if !vr.SkipReport {
+					keywords[keyword] = struct{}{}
+					keywordToRules[keyword] = append(keywordToRules[keyword], vr.ID)
+				}
 			}
 		}
 		if vr.Tags == nil {
@@ -196,7 +206,10 @@ func (vc *ViperConfig) Translate() (Config, error) {
 			cr.RequiredRules = append(cr.RequiredRules, &requiredRule)
 		}
 
-		orderedRules = append(orderedRules, cr.RuleID)
+		// skipReport rules are auxiliary; exclude from ordered output.
+		if !cr.SkipReport {
+			orderedRules = append(orderedRules, cr.RuleID)
+		}
 		rulesMap[cr.RuleID] = cr
 	}
 

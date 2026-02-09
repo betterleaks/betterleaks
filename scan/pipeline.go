@@ -67,9 +67,6 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 		finding.DecodedLine = match.FullDecodedLine
 
 		if containsAllowSignature(finding.Line) {
-			// logger.Trace().
-			// 	Str("finding", finding.Secret).
-			// 	Msg("skipping finding: allow signature")
 			continue
 		}
 
@@ -87,14 +84,30 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 			newLineIndices = newLineRegexp.FindAllStringIndex(fragment.Raw, -1)
 		}
 		AddLocationToFinding(finding, fragment, match, newLineIndices)
-		AddFingerprintToFinding(finding)
+
+		// Composite rules: defer fingerprinting to processRequiredRules
+		// so the fingerprint includes required findings.
+		if len(rule.RequiredRules) > 0 {
+			findings = append(findings, *finding)
+			continue
+		}
+
+		betterleaks.AddFingerprintToFinding(finding)
 
 		// Check if finding is in ignore list
-		if p.Scanner.IsIgnored(*finding) {
+		if p.Scanner.IsIgnored(finding) {
 			continue
 		}
 
 		findings = append(findings, *finding)
+	}
+
+	// After collecting all primary findings, evaluate required rules for any
+	// composite rules. This is done as a second pass so we can batch-scan
+	// required rules per rule ID (avoiding redundant decode loops).
+	findings, err = p.processRequiredRules(ctx, fragment, findings)
+	if err != nil {
+		return nil, err
 	}
 
 	return findings, nil
@@ -157,4 +170,107 @@ func containsAllowSignature(line string) bool {
 		}
 	}
 	return false
+}
+
+// processRequiredRules evaluates composite rules. For each primary finding
+// whose rule has RequiredRules, it lazily scans the fragment for the required
+// (skipReport) rules, checks proximity, and either enriches the finding with
+// RequiredFindings or drops it if unsatisfied.
+func (p *Pipeline) processRequiredRules(ctx context.Context, fragment betterleaks.Fragment, primaryFindings []betterleaks.Finding) ([]betterleaks.Finding, error) {
+	// Fast path: if no primary finding has required rules, return as-is.
+	hasComposite := false
+	for i := range primaryFindings {
+		rule := p.Config.Rules[primaryFindings[i].RuleID]
+		if len(rule.RequiredRules) > 0 {
+			hasComposite = true
+			break
+		}
+	}
+	if !hasComposite {
+		return primaryFindings, nil
+	}
+
+	// Cache required-rule scan results so we only run the decode loop once
+	// per required rule ID per fragment.
+	requiredMatchCache := make(map[string][]betterleaks.Match)
+
+	// Pre-compute newline indices for location calculations.
+	newLineIndices := newLineRegexp.FindAllStringIndex(fragment.Raw, -1)
+
+	var results []betterleaks.Finding
+	for i := range primaryFindings {
+		primary := primaryFindings[i]
+		rule := p.Config.Rules[primary.RuleID]
+
+		// Non-composite rule: pass through unchanged.
+		if len(rule.RequiredRules) == 0 {
+			results = append(results, primary)
+			continue
+		}
+
+		// Lazily scan each required rule (with full decode support).
+		for _, req := range rule.RequiredRules {
+			if _, cached := requiredMatchCache[req.RuleID]; !cached {
+				reqRule, ok := p.Config.Rules[req.RuleID]
+				if !ok {
+					continue
+				}
+				reqMatches, err := p.Scanner.ScanFragmentWithRules(ctx, fragment, []config.Rule{reqRule})
+				if err != nil {
+					return nil, err
+				}
+				requiredMatchCache[req.RuleID] = reqMatches
+			}
+		}
+
+		// Build required findings from cached matches, checking proximity.
+		var requiredFindings []*betterleaks.Finding
+		for _, req := range rule.RequiredRules {
+			reqRule, ok := p.Config.Rules[req.RuleID]
+			if !ok {
+				continue
+			}
+			for _, m := range requiredMatchCache[req.RuleID] {
+				rf := CreateFinding(fragment, m, reqRule)
+				AddLocationToFinding(rf, fragment, m, newLineIndices)
+
+				if !withinProximity(primary, *rf, req) {
+					continue
+				}
+
+				requiredFindings = append(requiredFindings, rf)
+			}
+		}
+
+		// Only emit the primary finding if every required rule is satisfied.
+		if hasAllRequiredRules(requiredFindings, rule.RequiredRules) {
+			primary.AddRequiredFindings(requiredFindings)
+
+			// Compute the composite fingerprint now that required findings
+			// are attached, then check the ignore list.
+			betterleaks.AddFingerprintToFinding(&primary)
+			if p.Scanner.IsIgnored(&primary) {
+				continue
+			}
+
+			results = append(results, primary)
+		}
+	}
+
+	return results, nil
+}
+
+// hasAllRequiredRules checks that we have at least one required finding
+// for each required rule.
+func hasAllRequiredRules(requiredFindings []*betterleaks.Finding, requiredRules []*config.Required) bool {
+	foundRules := make(map[string]bool, len(requiredFindings))
+	for _, rf := range requiredFindings {
+		foundRules[rf.RuleID] = true
+	}
+	for _, required := range requiredRules {
+		if !foundRules[required.RuleID] {
+			return false
+		}
+	}
+	return true
 }

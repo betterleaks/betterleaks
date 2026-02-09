@@ -54,28 +54,12 @@ type Finding struct {
 	// stored here so they don't bleed across findings that share a Resource.
 	Metadata map[string]string `json:"-"`
 
-	// TODO keeping private for now to during experimental phase
-	requiredFindings []*RequiredFinding
+	// TODO keeping private for now during experimental phase
+	requiredFindings []*Finding
 }
 
-type RequiredFinding struct {
-	// contains a subset of the Finding fields
-	// only used for reporting
-	RuleID      string
-	StartLine   int
-	EndLine     int
-	StartColumn int
-	EndColumn   int
-	Line        string `json:"-"`
-	Match       string
-	Secret      string
-}
-
-func (f *Finding) AddRequiredFindings(afs []*RequiredFinding) {
-	if f.requiredFindings == nil {
-		f.requiredFindings = make([]*RequiredFinding, 0)
-	}
-	f.requiredFindings = append(f.requiredFindings, afs...)
+func (f *Finding) AddRequiredFindings(findings []*Finding) {
+	f.requiredFindings = append(f.requiredFindings, findings...)
 }
 
 // Redact removes sensitive information from a finding.

@@ -38,9 +38,14 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	// setup config (aka, the thing that defines rules)
 	cfg := Config(cmd)
 
+	// get options
 	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
 	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
+	maxDecodeDepth := mustGetIntFlag(cmd, "max-decode-depth")
+	noColor := mustGetBoolFlag(cmd, "no-color")
+	legacy := mustGetBoolFlag(cmd, "legacy")
+	verbose := mustGetBoolFlag(cmd, "verbose")
 
 	src := &sources.Files{
 		Config:          &cfg,
@@ -51,7 +56,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		MaxArchiveDepth: maxArchiveDepth,
 	}
 
-	scanner := scan.NewScanner(cmd.Context(), &cfg, 0, false, 10)
+	scanner := scan.NewScanner(cmd.Context(), &cfg, maxDecodeDepth, false, 10)
 
 	// Load ignore files
 	ignorePath := mustGetStringFlag(cmd, "gitleaks-ignore-path")
@@ -63,20 +68,22 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	p := scan.NewPipeline(cfg, src, *scanner)
 
 	var findings []betterleaks.Finding
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	legacy := mustGetBoolFlag(cmd, "legacy")
 	start := time.Now()
 
 	err := p.Run(cmd.Context(), func(finding betterleaks.Finding, err error) error {
 		if err != nil {
 			return err
 		}
-		// Legacy: use gitleaks-compatible print format.
-		if legacy {
-			scan.LegacyPrintFinding(finding, noColor)
-		} else {
-			scan.PrintFinding(finding, noColor)
+
+		if verbose {
+			// Legacy: use gitleaks-compatible print format.
+			if legacy {
+				scan.LegacyPrintFinding(finding, noColor)
+			} else {
+				scan.PrintFinding(finding, noColor)
+			}
 		}
+
 		findings = append(findings, finding)
 		return nil
 	})

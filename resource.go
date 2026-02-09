@@ -1,5 +1,7 @@
 package betterleaks
 
+import "strings"
+
 // Metadata keys used across sources.
 const (
 	MetaPath            = "path"
@@ -26,6 +28,9 @@ type Resource struct {
 
 	// TODO ParentResourceID string
 	Metadata map[string]string
+
+	// cached fingerprint identity string, computed once on first call
+	fingerprintIdentity string
 }
 
 func (r *Resource) Set(key, value string) {
@@ -71,3 +76,45 @@ const (
 const (
 	S3Object ResourceKind = "s3_object"
 )
+
+// FingerprintKeys returns the metadata keys forming the unique identity for this resource kind.
+// Keys are returned in alphabetical order.
+func (k ResourceKind) FingerprintKeys() []string {
+	switch k {
+	case GitPatchContent, GitCommitMessage, GitCommitBody:
+		return []string{MetaCommitSHA, MetaPath} // "commit_sha", "path" — already alphabetical
+	case FileContent:
+		return []string{MetaPath}
+	case GitHubComment:
+		return []string{"comment_id", "repo"}
+	case GitHubIssueDescription, GitHubIssueTitle:
+		return []string{"issue_id", "repo"}
+	case GitHubPullRequestTitle, GitHubPullRequestBody:
+		return []string{"pr_id", "repo"}
+	case S3Object:
+		return []string{"bucket", "key"}
+	default:
+		return []string{MetaPath}
+	}
+}
+
+// FingerprintIdentity returns the sorted key=value pairs that uniquely identify
+// this resource. The result is cached on the Resource since it's shared across
+// fragments.
+func (r *Resource) FingerprintIdentity() string {
+	if r.fingerprintIdentity != "" {
+		return r.fingerprintIdentity
+	}
+	keys := r.Kind.FingerprintKeys()
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(r.Metadata[k])
+	}
+	r.fingerprintIdentity = b.String()
+	return r.fingerprintIdentity
+}
