@@ -4,12 +4,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/betterleaks/betterleaks/regexp"
 )
 
 const configPath = "../testdata/config/"
@@ -22,7 +23,7 @@ var regexComparer = func(x, y *regexp.Regexp) bool {
 }
 
 type translateCase struct {
-	// Configuration file basename to load, from `../../testdata/config/`.
+	// Configuration file basename to load, from `../testdata/config/`.
 	cfgName string
 	// Expected result.
 	cfg Config
