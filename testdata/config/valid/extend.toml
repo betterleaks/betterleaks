@@ -1,5 +1,5 @@
 [extend]
-path="../../testdata/config/valid/extend_base_1.toml"
+path="../testdata/config/valid/extend_base_1.toml"
 
 [[rules]]
     description = "AWS Secret Key"

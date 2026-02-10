@@ -10,15 +10,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/betterleaks/betterleaks"
 	config2 "github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/version"
-	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 const banner = `
