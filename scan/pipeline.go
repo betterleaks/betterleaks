@@ -7,14 +7,36 @@ import (
 
 	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/fatih/semgroup"
 )
 
 var (
-	newLineRegexp   = regexp.MustCompile("\n")
 	allowSignatures = []string{"gitleaks:allow", "betterleaks:allow"}
 )
+
+// findNewlineIndices returns the byte offsets of every '\n' in s as [][]int
+// (each entry is {pos, pos+1}) to match the format previously returned by
+// regexp.FindAllStringIndex. This avoids the overhead of a WASM regex call
+// for finding literal newline characters.
+func findNewlineIndices(s string) [][]int {
+	// Count newlines first to pre-allocate exactly.
+	n := strings.Count(s, "\n")
+	if n == 0 {
+		return nil
+	}
+	indices := make([][]int, 0, n)
+	off := 0
+	for {
+		i := strings.IndexByte(s[off:], '\n')
+		if i < 0 {
+			break
+		}
+		pos := off + i
+		indices = append(indices, []int{pos, pos + 1})
+		off = pos + 1
+	}
+	return indices
+}
 
 type Pipeline struct {
 	// same as it ever was
@@ -81,7 +103,7 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 			continue
 		}
 		if newLineIndices == nil {
-			newLineIndices = newLineRegexp.FindAllStringIndex(fragment.Raw, -1)
+			newLineIndices = findNewlineIndices(fragment.Raw)
 		}
 		AddLocationToFinding(finding, fragment, match, newLineIndices)
 
@@ -195,7 +217,7 @@ func (p *Pipeline) processRequiredRules(ctx context.Context, fragment betterleak
 	requiredMatchCache := make(map[string][]betterleaks.Match)
 
 	// Pre-compute newline indices for location calculations.
-	newLineIndices := newLineRegexp.FindAllStringIndex(fragment.Raw, -1)
+	newLineIndices := findNewlineIndices(fragment.Raw)
 
 	var results []betterleaks.Finding
 	for i := range primaryFindings {
