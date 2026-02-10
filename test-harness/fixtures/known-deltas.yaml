@@ -1,0 +1,21 @@
+# Known finding count differences between gitleaks and betterleaks.
+#
+# These are documented, expected divergences — the harness will tolerate them
+# without failing.
+#
+# Fields:
+#   repo:   repository name (basename)
+#   mode:   scan mode (git or dir)
+#   rule:   rule ID
+#   delta:  count difference (negative = betterleaks reports fewer)
+#   reason: explanation of why the difference exists
+
+- repo: log4shell-vulnerable-app
+  mode: git
+  rule: aws-access-token
+  delta: -1
+  reason: >
+    gitleaks reports the same secret twice on the same line (README.md:29)
+    with different EndColumn values (overlapping regex matches).
+    betterleaks correctly deduplicates to a single finding. This is likey
+    a bug with gitleaks.

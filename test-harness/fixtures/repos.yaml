@@ -1,0 +1,28 @@
+# Test target repos for the compatibility & performance harness.
+# Each repo is pinned to a specific commit SHA for reproducibility.
+#
+# Fields:
+#   url:   HTTPS clone URL
+#   ref:   commit SHA to checkout (pinned for deterministic results)
+#   modes: scan modes to exercise — "git" (history) and/or "dir" (working tree)
+
+# - url: https://github.com/techschool/simplebank
+#   ref: 97f000fe58ad01a0774179ffa8884ac7784cf263
+#   modes: [git, dir]
+#
+# - url: https://github.com/OWASP/NodeGoat
+#   ref: c5cb68a7084e4ae7dcc60e6a98768720a81841e8
+#   modes: [git, dir]
+#
+- url: https://github.com/christophetd/log4shell-vulnerable-app
+  ref: c962aabb31a6af0a77f0e9bbc7100e175c7c04e1
+  modes: [git, dir]
+
+- url: https://github.com/Plazmaz/leaky-repo
+  ref: 2e951359cac53addbee56437da3ffb546e3dfe24
+  modes: [git, dir]
+
+# only do dir scanning for now
+- url: https://gitlab.com/gitlab-org/gitlab
+  ref: 935362c7983517fa57a515fa263bace9594bd1e9
+  modes: [dir]
