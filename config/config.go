@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	//go:embed gitleaks.toml
+	//go:embed betterleaks.toml
 	DefaultConfig string
 
 	// use to keep track of how many configs we can extend
