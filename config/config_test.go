@@ -146,6 +146,7 @@ func TestTranslateAllowlists(t *testing.T) {
 						MatchCondition: AllowlistMatchAnd,
 						Paths:          []*regexp.Regexp{regexp.MustCompile("^node_modules/.*")},
 						StopWords:      []string{"mock"},
+						Resources:      []*ResourceMatcher{{Key: "path", Pattern: regexp.MustCompile("(?:^node_modules/.*)")}},
 					},
 				},
 			},
@@ -161,7 +162,8 @@ func TestTranslateAllowlists(t *testing.T) {
 						Keywords: []string{},
 						Allowlists: []*Allowlist{
 							{
-								Paths: []*regexp.Regexp{regexp.MustCompile(`(?:^|/)@octokit/auth-token/README\.md$`)},
+								Paths:     []*regexp.Regexp{regexp.MustCompile(`(?:^|/)@octokit/auth-token/README\.md$`)},
+								Resources: []*ResourceMatcher{{Key: "path", Pattern: regexp.MustCompile(`(?:(?:^|/)@octokit/auth-token/README\.md$)`)}},
 							},
 						},
 					},
@@ -179,7 +181,8 @@ func TestTranslateAllowlists(t *testing.T) {
 						Keywords: []string{},
 						Allowlists: []*Allowlist{
 							{
-								Paths: []*regexp.Regexp{regexp.MustCompile(`(?:^|/)@octokit/auth-token/README\.md$`)},
+								Paths:     []*regexp.Regexp{regexp.MustCompile(`(?:^|/)@octokit/auth-token/README\.md$`)},
+								Resources: []*ResourceMatcher{{Key: "path", Pattern: regexp.MustCompile(`(?:(?:^|/)@octokit/auth-token/README\.md$)`)}},
 							},
 						},
 					},
@@ -206,7 +209,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		{
 			cfgName:   "invalid/allowlist_global_empty",
 			cfg:       Config{},
-			wantError: errors.New("[[allowlists]] must contain at least one check for: commits, paths, regexes, or stopwords"),
+			wantError: errors.New("[[allowlists]] must contain at least one check for: commits, paths, regexes, stopwords, or resources"),
 		},
 		{
 			cfgName:   "invalid/allowlist_global_old_and_new",
@@ -275,6 +278,7 @@ func TestTranslateAllowlists(t *testing.T) {
 						{
 							MatchCondition: AllowlistMatchOr,
 							Commits:        []string{"allowthiscommit"},
+							Resources:      []*ResourceMatcher{{Key: "commit_sha", Pattern: regexp.MustCompile("(?:(?i)^allowthiscommit$)")}},
 						},
 					},
 				}},
@@ -294,6 +298,7 @@ func TestTranslateAllowlists(t *testing.T) {
 						{
 							MatchCondition: AllowlistMatchOr,
 							Paths:          []*regexp.Regexp{regexp.MustCompile(".go")},
+							Resources:      []*ResourceMatcher{{Key: "path", Pattern: regexp.MustCompile("(?:.go)")}},
 						},
 					},
 				}},
@@ -302,7 +307,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		{
 			cfgName:   "invalid/allowlist_rule_empty",
 			cfg:       Config{},
-			wantError: errors.New("example: [[rules.allowlists]] must contain at least one check for: commits, paths, regexes, or stopwords"),
+			wantError: errors.New("example: [[rules.allowlists]] must contain at least one check for: commits, paths, regexes, stopwords, or resources"),
 		},
 		{
 			cfgName:   "invalid/allowlist_rule_old_and_new",
@@ -389,6 +394,7 @@ func TestTranslateExtend(t *testing.T) {
 								Description:    "False positive. Keys used for colors match the rule, and should be excluded.",
 								MatchCondition: AllowlistMatchOr,
 								Paths:          []*regexp.Regexp{regexp.MustCompile(`something.py`)},
+								Resources:      []*ResourceMatcher{{Key: "path", Pattern: regexp.MustCompile("(?:something.py)")}},
 							},
 						},
 					},
@@ -526,6 +532,10 @@ func TestTranslateExtend(t *testing.T) {
 								Regexes:        []*regexp.Regexp{regexp.MustCompile(`foo.+bar`)},
 								RegexTarget:    "line",
 								StopWords:      []string{"example"},
+								Resources: []*ResourceMatcher{
+									{Key: "path", Pattern: regexp.MustCompile(`(?:ignore\.xaml)`)},
+									{Key: "commit_sha", Pattern: regexp.MustCompile("(?:(?i)^abcdefg1$)")},
+								},
 							},
 						},
 					},
@@ -555,6 +565,10 @@ func TestTranslateExtend(t *testing.T) {
 								Regexes:        []*regexp.Regexp{regexp.MustCompile(`foo.+bar`)},
 								RegexTarget:    "line",
 								StopWords:      []string{"example"},
+								Resources: []*ResourceMatcher{
+									{Key: "path", Pattern: regexp.MustCompile(`(?:ignore\.xaml)`)},
+									{Key: "commit_sha", Pattern: regexp.MustCompile("(?:(?i)^abcdefg1$)")},
+								},
 							},
 						},
 					},
