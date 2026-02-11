@@ -18,6 +18,7 @@ func init() {
 	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
 	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
 	gitCmd.Flags().String("log-opts", "", "git log options")
+	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process, default)")
 }
 
 var gitCmd = &cobra.Command{
@@ -47,23 +48,20 @@ func runGit(cmd *cobra.Command, args []string) {
 	staged := mustGetBoolFlag(cmd, "staged")
 	preCommit := mustGetBoolFlag(cmd, "pre-commit")
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
+	maxDecodeDepth := mustGetIntFlag(cmd, "max-decode-depth")
+	verbose := mustGetBoolFlag(cmd, "verbose")
 
 	var (
 		err         error
-		gitCmd      *git.GitCmd
+		src         betterleaks.Source
 		scmPlatform scm.Platform
 	)
 
+	sema := semgroup.NewGroup(cmd.Context(), 10)
+
 	if preCommit || staged {
-		if gitCmd, err = git.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
-			logging.Fatal().Err(err).Msg("could not create Git diff cmd")
-		}
-		// Remote info + links are irrelevant for staged changes.
 		scmPlatform = scm.NoPlatform
 	} else {
-		if gitCmd, err = git.NewGitLogCmdContext(cmd.Context(), source, logOpts); err != nil {
-			logging.Fatal().Err(err).Msg("could not create Git log cmd")
-		}
 		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
 			logging.Fatal().Err(err).Send()
 		}
@@ -71,15 +69,45 @@ func runGit(cmd *cobra.Command, args []string) {
 
 	remote := git.NewRemoteInfoContext(cmd.Context(), scmPlatform, source)
 
-	src := &git.Git{
-		Cmd:             gitCmd,
-		Config:          &cfg,
-		Remote:          remote,
-		Sema:            semgroup.NewGroup(cmd.Context(), 10),
-		MaxArchiveDepth: maxArchiveDepth,
+	gitWorkers := mustGetIntFlag(cmd, "git-workers")
+
+	if preCommit || staged {
+		var gitDiffCmd *git.GitCmd
+		if gitDiffCmd, err = git.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
+			logging.Fatal().Err(err).Msg("could not create Git diff cmd")
+		}
+		src = &git.Git{
+			Cmd:             gitDiffCmd,
+			Config:          &cfg,
+			Remote:          remote,
+			Sema:            sema,
+			MaxArchiveDepth: maxArchiveDepth,
+		}
+	} else if gitWorkers > 0 {
+		src = &git.ParallelGit{
+			RepoPath:        source,
+			Config:          &cfg,
+			Remote:          remote,
+			Sema:            sema,
+			MaxArchiveDepth: maxArchiveDepth,
+			LogOpts:         logOpts,
+			Workers:         gitWorkers,
+		}
+	} else {
+		var gitLogCmd *git.GitCmd
+		if gitLogCmd, err = git.NewGitLogCmdContext(cmd.Context(), source, logOpts); err != nil {
+			logging.Fatal().Err(err).Msg("could not create Git log cmd")
+		}
+		src = &git.Git{
+			Cmd:             gitLogCmd,
+			Config:          &cfg,
+			Remote:          remote,
+			Sema:            sema,
+			MaxArchiveDepth: maxArchiveDepth,
+		}
 	}
 
-	scanner := scan.NewScanner(cmd.Context(), &cfg, 0, false, 10)
+	scanner := scan.NewScanner(cmd.Context(), &cfg, maxDecodeDepth, false, 10)
 
 	// Load ignore files
 	ignorePath := mustGetStringFlag(cmd, "gitleaks-ignore-path")
@@ -99,18 +127,23 @@ func runGit(cmd *cobra.Command, args []string) {
 		if err != nil {
 			return err
 		}
+
 		if link := scan.CreateScmLink(remote, finding); link != "" {
 			finding.Metadata[betterleaks.MetaLink] = link
 		}
-		// Legacy: use gitleaks-compatible print format.
-		if legacy {
-			scan.LegacyPrintFinding(finding, noColor)
-		} else {
-			scan.PrintFinding(finding, noColor)
+
+		if verbose {
+			// Legacy: use gitleaks-compatible print format.
+			if legacy {
+				scan.LegacyPrintFinding(finding, noColor)
+			} else {
+				scan.PrintFinding(finding, noColor)
+			}
 		}
+
 		findings = append(findings, finding)
 		return nil
 	})
 
-	findingSummary(cmd, cfg, findings, start, err)
+	findingSummary(cmd, cfg, findings, start, err, p.TotalBytes())
 }

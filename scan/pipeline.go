@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/betterleaks/betterleaks"
@@ -140,9 +141,11 @@ func (p *Pipeline) ProcessFragment(ctx context.Context, fragment betterleaks.Fra
 type FindingsFunc func(finding betterleaks.Finding, err error) error
 
 // Run processes all fragments from the source concurrently and yields findings
-// to the provided callback. The callback may be invoked concurrently from
-// multiple goroutines. Returning an error from the callback stops the scan.
+// to the provided callback. The callback is serialized with a mutex so callers
+// do not need to synchronize access. Returning an error from the callback
+// stops the scan.
 func (p *Pipeline) Run(ctx context.Context, yield FindingsFunc) error {
+	var mu sync.Mutex
 	sg := semgroup.NewGroup(ctx, 16)
 	err := p.Source.Fragments(ctx, func(fragment betterleaks.Fragment, err error) error {
 		if err != nil {
@@ -159,6 +162,8 @@ func (p *Pipeline) Run(ctx context.Context, yield FindingsFunc) error {
 			// demoting generic rules in favor of more specific rules.
 			findings = filter(findings, 0)
 
+			mu.Lock()
+			defer mu.Unlock()
 			for _, finding := range findings {
 				if err := yield(finding, nil); err != nil {
 					return err
@@ -173,6 +178,11 @@ func (p *Pipeline) Run(ctx context.Context, yield FindingsFunc) error {
 	}
 
 	return sg.Wait()
+}
+
+// TotalBytes returns the total number of content bytes processed by the pipeline.
+func (p *Pipeline) TotalBytes() uint64 {
+	return p.totalBytes.Load()
 }
 
 // TODO probably don't need a `New` function here, just define a struct.

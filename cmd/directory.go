@@ -88,5 +88,5 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		return nil
 	})
 
-	findingSummary(cmd, cfg, findings, start, err)
+	findingSummary(cmd, cfg, findings, start, err, p.TotalBytes())
 }

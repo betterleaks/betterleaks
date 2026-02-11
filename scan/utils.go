@@ -167,7 +167,9 @@ func CreateFinding(fragment betterleaks.Fragment, match betterleaks.Match, rule 
 	// Copy resource metadata so each finding has its own map.
 	// Finding-specific augmentations (e.g. SCM link) won't bleed across
 	// findings that share the same Resource.
-	maps.Copy(f.Metadata, fragment.Resource.Metadata)
+	if fragment.Resource != nil {
+		maps.Copy(f.Metadata, fragment.Resource.Metadata)
+	}
 
 	return &f
 }

@@ -422,7 +422,20 @@ func writeReport(reporter betterleaks.Reporter, reportPath string, findings []be
 }
 
 // findingSummary logs a summary of the scan results and writes the report.
-func findingSummary(cmd *cobra.Command, cfg config2.Config, findings []betterleaks.Finding, start time.Time, scanErr error) {
+func formatBytes(b uint64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.2f GiB", float64(b)/float64(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.2f MiB", float64(b)/float64(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.2f KiB", float64(b)/float64(1<<10))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
+}
+
+func findingSummary(cmd *cobra.Command, cfg config2.Config, findings []betterleaks.Finding, start time.Time, scanErr error, totalBytes ...uint64) {
 	// Stop diagnostics and flush profiling data before exiting.
 	if diagnosticsManager != nil {
 		diagnosticsManager.StopDiagnostics()
@@ -432,15 +445,21 @@ func findingSummary(cmd *cobra.Command, cfg config2.Config, findings []betterlea
 	reportPath := mustGetStringFlag(cmd, "report-path")
 	reporter := getReporter(cmd, cfg)
 
+	elapsed := FormatDuration(time.Since(start))
+	var bytesMsg string
+	if len(totalBytes) > 0 && totalBytes[0] > 0 {
+		bytesMsg = fmt.Sprintf(" (%s scanned)", formatBytes(totalBytes[0]))
+	}
+
 	if scanErr == nil {
-		logging.Info().Msgf("scan completed in %s", FormatDuration(time.Since(start)))
+		logging.Info().Msgf("scan completed in %s%s", elapsed, bytesMsg)
 		if len(findings) != 0 {
 			logging.Warn().Msgf("leaks found: %d", len(findings))
 		} else {
 			logging.Info().Msg("no leaks found")
 		}
 	} else {
-		logging.Warn().Msgf("partial scan completed in %s", FormatDuration(time.Since(start)))
+		logging.Warn().Msgf("partial scan completed in %s%s", elapsed, bytesMsg)
 		if len(findings) != 0 {
 			logging.Warn().Msgf("%d leaks found in partial scan", len(findings))
 		} else {
