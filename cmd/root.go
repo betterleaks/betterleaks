@@ -423,6 +423,11 @@ func writeReport(reporter betterleaks.Reporter, reportPath string, findings []be
 
 // findingSummary logs a summary of the scan results and writes the report.
 func findingSummary(cmd *cobra.Command, cfg config2.Config, findings []betterleaks.Finding, start time.Time, scanErr error) {
+	// Stop diagnostics and flush profiling data before exiting.
+	if diagnosticsManager != nil {
+		diagnosticsManager.StopDiagnostics()
+	}
+
 	exitCode := mustGetIntFlag(cmd, "exit-code")
 	reportPath := mustGetStringFlag(cmd, "report-path")
 	reporter := getReporter(cmd, cfg)
