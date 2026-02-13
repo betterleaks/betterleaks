@@ -17,6 +17,7 @@ func init() {
 	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
 	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
 	gitCmd.Flags().String("log-opts", "", "git log options")
+	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process)")
 }
 
 var gitCmd = &cobra.Command{
@@ -53,39 +54,60 @@ func runGit(cmd *cobra.Command, args []string) {
 	logOpts := mustGetStringFlag(cmd, "log-opts")
 	staged := mustGetBoolFlag(cmd, "staged")
 	preCommit := mustGetBoolFlag(cmd, "pre-commit")
+	gitWorkers := mustGetIntFlag(cmd, "git-workers")
 
 	var (
 		findings    []report.Finding
 		err         error
-		gitCmd      *sources.GitCmd
+		src         sources.Source
 		scmPlatform scm.Platform
 	)
 
 	if preCommit || staged {
-		if gitCmd, err = sources.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
-			logging.Fatal().Err(err).Msg("could not create Git diff cmd")
+		gitCmd, cmdErr := sources.NewGitDiffCmdContext(cmd.Context(), source, staged)
+		if cmdErr != nil {
+			logging.Fatal().Err(cmdErr).Msg("could not create Git diff cmd")
 		}
 		// Remote info + links are irrelevant for staged changes.
 		scmPlatform = scm.NoPlatform
-	} else {
-		if gitCmd, err = sources.NewGitLogCmdContext(cmd.Context(), source, logOpts); err != nil {
-			logging.Fatal().Err(err).Msg("could not create Git log cmd")
-		}
-		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
-			logging.Fatal().Err(err).Send()
-		}
-	}
-
-	findings, err = detector.DetectSource(
-		cmd.Context(),
-		&sources.Git{
+		src = &sources.Git{
 			Cmd:             gitCmd,
 			Config:          &detector.Config,
 			Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source),
 			Sema:            detector.Sema,
 			MaxArchiveDepth: detector.MaxArchiveDepth,
-		},
-	)
+		}
+	} else {
+		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
+			logging.Fatal().Err(err).Send()
+		}
+
+		if gitWorkers > 0 {
+			src = &sources.ParallelGit{
+				RepoPath:        source,
+				Config:          &detector.Config,
+				Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source),
+				Sema:            detector.Sema,
+				MaxArchiveDepth: detector.MaxArchiveDepth,
+				LogOpts:         logOpts,
+				Workers:         gitWorkers,
+			}
+		} else {
+			gitCmd, cmdErr := sources.NewGitLogCmdContext(cmd.Context(), source, logOpts)
+			if cmdErr != nil {
+				logging.Fatal().Err(cmdErr).Msg("could not create Git log cmd")
+			}
+			src = &sources.Git{
+				Cmd:             gitCmd,
+				Config:          &detector.Config,
+				Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source),
+				Sema:            detector.Sema,
+				MaxArchiveDepth: detector.MaxArchiveDepth,
+			}
+		}
+	}
+
+	findings, err = detector.DetectSource(cmd.Context(), src)
 
 	if err != nil {
 		// don't exit on error, just log it
