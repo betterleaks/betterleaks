@@ -91,6 +91,12 @@ type Config struct {
 	Description string
 	Rules       map[string]Rule
 	Keywords    map[string]struct{}
+	// KeywordToRules maps each lowercase keyword to the rule IDs that use it.
+	// This allows O(1) lookup from Aho-Corasick keyword matches to the rules
+	// that need to be checked, instead of iterating all rules.
+	KeywordToRules map[string][]string
+	// NoKeywordRules contains rule IDs that have no keywords and must always be checked.
+	NoKeywordRules []string
 	// used to keep sarif results consistent
 	OrderedRules []string
 	Allowlists   []*Allowlist
@@ -274,6 +280,21 @@ func (vc *ViperConfig) Translate() (Config, error) {
 			}
 			rule.Allowlists = append(rule.Allowlists, allowlists...)
 			c.Rules[ruleID] = rule
+		}
+
+	}
+
+	// Build keyword-to-rules lookup for efficient rule dispatch.
+	// This must be done after extends are resolved so all rules are present.
+	c.KeywordToRules = make(map[string][]string)
+	c.NoKeywordRules = nil
+	for ruleID, rule := range c.Rules {
+		if len(rule.Keywords) == 0 {
+			c.NoKeywordRules = append(c.NoKeywordRules, ruleID)
+		} else {
+			for _, k := range rule.Keywords {
+				c.KeywordToRules[k] = append(c.KeywordToRules[k], ruleID)
+			}
 		}
 	}
 

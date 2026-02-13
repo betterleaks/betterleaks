@@ -13,7 +13,6 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 
@@ -34,9 +33,58 @@ const (
 	SlowWarningThreshold = 5 * time.Second
 )
 
-var (
-	newLineRegexp = regexp.MustCompile("\n")
-)
+// lowercaseBufPool provides reusable byte buffers for lowercasing strings
+// without allocating a new string via strings.ToLower each time.
+var lowercaseBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 0, 128*1024)
+		return &buf
+	},
+}
+
+// getLowerBuf returns an ASCII-lowercased copy of s in a pooled byte buffer.
+// Caller must call putLowerBuf when done with the returned slice.
+func getLowerBuf(s string) (*[]byte, []byte) {
+	bp := lowercaseBufPool.Get().(*[]byte)
+	buf := *bp
+	if cap(buf) < len(s) {
+		buf = make([]byte, len(s))
+	} else {
+		buf = buf[:len(s)]
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			buf[i] = c + 32
+		} else {
+			buf[i] = c
+		}
+	}
+	*bp = buf
+	return bp, buf
+}
+
+func putLowerBuf(bp *[]byte) {
+	lowercaseBufPool.Put(bp)
+}
+
+// findNewlineIndices returns the start indices of all newlines in s.
+// This replaces the previous regex-based approach which was expensive
+// when using go-re2 (WASM overhead for a literal \n search).
+func findNewlineIndices(s string) [][]int {
+	indices := make([][]int, 0, strings.Count(s, "\n"))
+	offset := 0
+	for {
+		i := strings.IndexByte(s[offset:], '\n')
+		if i == -1 {
+			break
+		}
+		idx := offset + i
+		indices = append(indices, []int{idx, idx + 1})
+		offset = idx + 1
+	}
+	return indices
+}
 
 // containsAllowSignature checks if the line contains any of the allow signatures
 func containsAllowSignature(line string) bool {
@@ -329,33 +377,36 @@ ScanLoop:
 		case <-ctx.Done():
 			break ScanLoop
 		default:
-			// build keyword map for prefiltering rules
-			keywords := make(map[string]bool)
-			normalizedRaw := strings.ToLower(currentRaw)
-			matches := d.prefilter.MatchString(normalizedRaw)
-			for _, m := range matches {
-				keywords[normalizedRaw[m.Pos():int(m.Pos())+len(m.Match())]] = true
+			// Use Aho-Corasick to find keyword matches, then map directly
+			// to the rules that need checking via KeywordToRules.
+			// Use a pooled byte buffer for lowercasing to avoid allocating
+			lowerBufPtr, lowerBuf := getLowerBuf(currentRaw)
+			acMatches := d.prefilter.Match(lowerBuf)
+
+			// Build a set of rule IDs to check based on keyword matches.
+			rulesToCheck := make(map[string]struct{}, len(acMatches))
+			for _, m := range acMatches {
+				// m.Match() returns the keyword as []byte; convert to string
+				// for the map lookup. This is a small allocation per keyword
+				// match (typically few), not per fragment byte.
+				keyword := string(m.Match())
+				for _, ruleID := range d.Config.KeywordToRules[keyword] {
+					rulesToCheck[ruleID] = struct{}{}
+				}
+			}
+			putLowerBuf(lowerBufPtr)
+			// Always include rules that have no keywords.
+			for _, ruleID := range d.Config.NoKeywordRules {
+				rulesToCheck[ruleID] = struct{}{}
 			}
 
-			for _, rule := range d.Config.Rules {
+			for ruleID := range rulesToCheck {
 				select {
 				case <-ctx.Done():
 					break ScanLoop
 				default:
-					if len(rule.Keywords) == 0 {
-						// if no keywords are associated with the rule always scan the
-						// fragment using the rule
-						findings = append(findings, d.detectRule(fragment, currentRaw, rule, encodedSegments)...)
-						continue
-					}
-
-					// check if keywords are in the fragment
-					for _, k := range rule.Keywords {
-						if _, ok := keywords[strings.ToLower(k)]; ok {
-							findings = append(findings, d.detectRule(fragment, currentRaw, rule, encodedSegments)...)
-							break
-						}
-					}
+					rule := d.Config.Rules[ruleID]
+					findings = append(findings, d.detectRule(fragment, currentRaw, rule, encodedSegments)...)
 				}
 			}
 
@@ -457,12 +508,12 @@ func (d *Detector) detectRule(fragment Fragment, currentRaw string, r config.Rul
 		return findings
 	}
 
-	// TODO profile this, probably should replace with something more efficient
-	newlineIndices := newLineRegexp.FindAllStringIndex(fragment.Raw, -1)
+	// Lazily compute newline indices — only when we actually need location info.
+	var newlineIndices [][]int
+	newlineComputed := false
 
-	// use currentRaw instead of fragment.Raw since this represents the current
-	// decoding pass on the text
-	for _, matchIndex := range r.Regex.FindAllStringIndex(currentRaw, -1) {
+	// Reuse the matches slice from above instead of calling FindAllStringIndex again.
+	for _, matchIndex := range matches {
 		// Extract secret from match
 		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
 
@@ -492,6 +543,10 @@ func (d *Detector) detectRule(fragment Fragment, currentRaw string, r config.Rul
 		// in the finding will be the line/column numbers of the _match_
 		// not the _secret_, which will be different if the secretGroup
 		// value is set for this rule
+		if !newlineComputed {
+			newlineIndices = findNewlineIndices(fragment.Raw)
+			newlineComputed = true
+		}
 		loc := location(newlineIndices, fragment.Raw, matchIndex)
 
 		if matchIndex[1] > loc.endLineIndex {
@@ -511,7 +566,12 @@ func (d *Detector) detectRule(fragment Fragment, currentRaw string, r config.Rul
 			Secret:      secret,
 			File:        fragment.FilePath,
 			SymlinkFile: fragment.SymlinkFile,
-			Tags:        append(r.Tags, metaTags...),
+			Tags: func() []string {
+				if len(metaTags) == 0 {
+					return r.Tags
+				}
+				return append(r.Tags, metaTags...)
+			}(),
 		}
 		if fragment.CommitInfo != nil {
 			finding.Author = fragment.CommitInfo.AuthorName

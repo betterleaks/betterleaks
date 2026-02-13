@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
@@ -20,6 +21,41 @@ import (
 
 const defaultBufferSize = 100 * 1_000 // 100kb
 const InnerPathSeparator = "!"
+
+var bufferPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, defaultBufferSize)
+		return &buf
+	},
+}
+
+func getBuffer() []byte {
+	return *bufferPool.Get().(*[]byte)
+}
+
+func putBuffer(buf []byte) {
+	buf = buf[:cap(buf)]
+	bufferPool.Put(&buf)
+}
+
+var readerPool = sync.Pool{
+	New: func() any {
+		// Use the same default size as bufio.NewReader (4096) to preserve
+		// chunk boundary behavior in readUntilSafeBoundary.
+		return bufio.NewReader(nil)
+	},
+}
+
+func getReader(r io.Reader) *bufio.Reader {
+	br := readerPool.Get().(*bufio.Reader)
+	br.Reset(r)
+	return br
+}
+
+func putReader(br *bufio.Reader) {
+	br.Reset(nil)
+	readerPool.Put(br)
+}
 
 type seekReaderAt interface {
 	io.ReaderAt
@@ -83,7 +119,9 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		logging.Warn().Str("path", s.FullPath()).Msg("skipping unknown archive type")
 	}
 
-	return s.fileFragments(ctx, bufio.NewReader(s.Content), yield)
+	br := getReader(s.Content)
+	defer putReader(br)
+	return s.fileFragments(ctx, br, yield)
 }
 
 // extractorFragments recursively crawls archives and yields fragments
@@ -154,7 +192,9 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 		return nil
 	}
 
-	if err := s.fileFragments(ctx, bufio.NewReader(innerReader), yield); err != nil {
+	br := getReader(innerReader)
+	defer putReader(br)
+	if err := s.fileFragments(ctx, br, yield); err != nil {
 		_ = innerReader.Close()
 		return err
 	}
@@ -165,9 +205,13 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 
 // fileFragments reads the file into fragments to yield
 func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield FragmentsFunc) error {
-	// Create a buffer if the caller hasn't provided one
+	// Use a pooled buffer if the caller hasn't provided one.
 	if s.Buffer == nil {
-		s.Buffer = make([]byte, defaultBufferSize)
+		s.Buffer = getBuffer()
+		defer func() {
+			putBuffer(s.Buffer)
+			s.Buffer = nil
+		}()
 	}
 
 	totalLines := 0

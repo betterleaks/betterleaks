@@ -24,11 +24,11 @@ import (
 )
 
 const banner = `
-    ○
-    │╲
-    │ ○
-    ○ ░
-    ░    betterleaks
+
+  ○
+  ○
+  ●
+  ○  betterleaks v0.0.x-gitleaks-compat.1
 
 `
 
