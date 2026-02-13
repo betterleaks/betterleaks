@@ -1,11 +1,9 @@
 package rules
 
 import (
-	"regexp"
-
 	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-
 	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/regexp"
 )
 
 func PerplexityAPIKey() *config.Rule {
