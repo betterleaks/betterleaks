@@ -123,9 +123,16 @@ func matchContextFromFinding(f *betterleaks.Finding) matchContext {
 		}
 	}
 
+	var source string
+	var resourceKind string
+	if r != nil {
+		source = r.Source
+		resourceKind = string(r.Kind)
+	}
+
 	return matchContext{
-		source:       r.Source,
-		resourceKind: string(r.Kind),
+		source:       source,
+		resourceKind: resourceKind,
 		resource:     r,
 		ruleID:       f.RuleID,
 		secretHash:   secretHash,
