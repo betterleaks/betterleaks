@@ -6,6 +6,8 @@ import (
 	"hash/crc32"
 	"math/bits"
 	"os"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // File format: little-endian.
@@ -47,12 +49,25 @@ const (
 
 var ErrBadFormat = errors.New("words: bad matcher data format")
 
-//go:embed words_ac.dat
-var defaultData []byte
+//go:embed words_ac.dat.zst
+var defaultDataZst []byte
 
 // Default is the package-level matcher loaded from embedded data.
 // It panics at init if the embedded data is invalid.
-var Default = MustLoadMatcher(defaultData)
+var Default *Matcher
+
+func init() {
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		panic("words: init zstd decoder: " + err.Error())
+	}
+	defer dec.Close()
+	raw, err := dec.DecodeAll(defaultDataZst, nil)
+	if err != nil {
+		panic("words: decompress embedded data: " + err.Error())
+	}
+	Default = MustLoadMatcher(raw)
+}
 
 // Matcher is a read-only Aho-Corasick matcher specialized to ASCII letters a-z.
 //
@@ -161,6 +176,8 @@ func LoadMatcherFromFile(path string) (*Matcher, error) {
 	return LoadMatcher(b)
 }
 
+// validate checks structural integrity: fail links point within bounds,
+// child base+count fits the next array, and root's fail link is self-referencing.
 func (m *Matcher) validate() error {
 	if m.stateCount == 0 {
 		return ErrBadFormat

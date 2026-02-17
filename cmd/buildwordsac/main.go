@@ -1,3 +1,6 @@
+// Command buildwordsac reads a newline-delimited word list and compiles it
+// into a zstd-compressed Aho-Corasick automaton in the WAC1 binary format
+// consumed by the words.Matcher at runtime.
 package main
 
 import (
@@ -10,6 +13,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 const (
@@ -72,16 +77,23 @@ func main() {
 		exitErr(err)
 	}
 
-	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
+	if err != nil {
+		exitErr(fmt.Errorf("create zstd encoder: %w", err))
+	}
+	compressed := enc.EncodeAll(data, nil)
+	enc.Close()
+
+	if err := os.WriteFile(outPath, compressed, 0o644); err != nil {
 		exitErr(err)
 	}
 
-	st.OutputBytes = len(data)
+	st.OutputBytes = len(compressed)
 	if !quiet {
 		fmt.Fprintf(os.Stderr,
-			"buildwordsac: lines=%d accepted=%d deduped=%d skipped_empty=%d skipped_short=%d skipped_bad=%d states=%d next=%d out_bytes=%d\n",
+			"buildwordsac: lines=%d accepted=%d deduped=%d skipped_empty=%d skipped_short=%d skipped_bad=%d states=%d next=%d raw_bytes=%d compressed_bytes=%d\n",
 			st.Lines, st.Accepted, st.Deduped, st.SkippedEmpty, st.SkippedShort, st.SkippedBad,
-			st.StateCount, st.NextCount, st.OutputBytes)
+			st.StateCount, st.NextCount, len(data), st.OutputBytes)
 	}
 }
 
@@ -95,6 +107,8 @@ func exitErr(err error) {
 	os.Exit(1)
 }
 
+// buildFromReader reads words from f, builds the AC trie with failure links,
+// and returns the serialized WAC1 binary along with build statistics.
 func buildFromReader(f *os.File, strict bool, minLen int) ([]byte, stats, error) {
 	var st stats
 
@@ -185,6 +199,9 @@ func dedupeSorted(in []string) ([]string, int) {
 	return in[:w], len(in) - w
 }
 
+// insert adds word to the trie, creating nodes as needed and updating
+// termMax to record the longest pattern ending at each terminal node.
+// Children use 1-indexed IDs (0 == absent) to avoid an extra sentinel node.
 func insert(nodes *[]node, word string) {
 	cur := uint32(0)
 	for i := 0; i < len(word); i++ {
@@ -206,6 +223,8 @@ func insert(nodes *[]node, word string) {
 	}
 }
 
+// buildFailureLinks computes Aho-Corasick failure links via BFS and propagates
+// outMax (longest matching pattern reachable through any failure chain) to each node.
 func buildFailureLinks(nodes []node) {
 	queue := make([]uint32, 0, len(nodes))
 
@@ -259,6 +278,8 @@ func countEdges(nodes []node) int {
 	return cnt
 }
 
+// serialize encodes the trie into the WAC1 binary format (see words/matcher.go
+// for the layout specification) and appends a CRC32 integrity check.
 func serialize(nodes []node, maxWordLen uint16, nextCount uint32) ([]byte, error) {
 	stateCount := uint32(len(nodes))
 	statesOff := uint32(headerSize)
