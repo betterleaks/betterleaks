@@ -93,7 +93,7 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 		cmd = exec.CommandContext(ctx, "git", args...)
 	} else {
 		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
-			"--full-history", "--all", "--diff-filter=tuxdb")
+			"--full-history", "--all", "--reflog", "--diff-filter=tuxdb")
 	}
 
 	logging.Debug().Msgf("executing: %s", cmd.String())

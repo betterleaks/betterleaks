@@ -14,6 +14,24 @@ import (
 	"github.com/fatih/semgroup"
 )
 
+// gitExec runs a git command in dir and returns combined output.
+func gitExec(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// gitSHA returns the current HEAD SHA.
+func gitSHA(t *testing.T, dir string) string {
+	t.Helper()
+	return gitExec(t, dir, "rev-parse", "HEAD")
+}
+
 // initTestRepo creates a temp git repo with some commits and returns its path.
 func initTestRepo(t *testing.T) string {
 	t.Helper()
@@ -250,6 +268,200 @@ func TestParallelGitMatchesSingleGit(t *testing.T) {
 		if !singleSet[key] {
 			parts := strings.SplitN(key, "\x00", 2)
 			t.Errorf("multi has fragment path=%s raw=%q not found in single", parts[0], parts[1])
+		}
+	}
+}
+
+// initTestRepoWithAmend creates a repo where a commit is amended, producing a
+// reflog-only pre-amend commit. Returns (repoDir, preAmendSHA, postAmendSHA).
+func initTestRepoWithAmend(t *testing.T) (string, string, string) {
+	t.Helper()
+	dir := initTestRepo(t)
+
+	// Initial commit
+	commitFile(t, dir, "a.txt", "original\n", "first commit")
+
+	// Second commit (will be amended)
+	commitFile(t, dir, "secret.txt", "pre-amend-content\n", "add secret")
+	preAmendSHA := gitSHA(t, dir)
+
+	// Amend: replace the file content
+	fullPath := filepath.Join(dir, "secret.txt")
+	if err := os.WriteFile(fullPath, []byte("post-amend-content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitExec(t, dir, "add", "secret.txt")
+	gitExec(t, dir, "commit", "--amend", "-m", "add secret (amended)")
+	postAmendSHA := gitSHA(t, dir)
+
+	if preAmendSHA == postAmendSHA {
+		t.Fatal("amend did not change SHA")
+	}
+
+	return dir, preAmendSHA, postAmendSHA
+}
+
+func TestListCommitsIncludesReflog(t *testing.T) {
+	dir, preAmendSHA, postAmendSHA := initTestRepoWithAmend(t)
+
+	ctx := context.Background()
+	commits, err := listCommits(ctx, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	commitSet := make(map[string]bool)
+	for _, sha := range commits {
+		commitSet[sha] = true
+	}
+
+	if !commitSet[postAmendSHA] {
+		t.Errorf("listCommits missing current HEAD %s", postAmendSHA)
+	}
+	if !commitSet[preAmendSHA] {
+		t.Errorf("listCommits missing pre-amend SHA %s (should be reachable via --reflog)", preAmendSHA)
+	}
+}
+
+func TestListDanglingCommits(t *testing.T) {
+	dir, preAmendSHA, _ := initTestRepoWithAmend(t)
+
+	// Expire all reflog entries so the pre-amend commit becomes dangling
+	gitExec(t, dir, "reflog", "expire", "--expire=now", "--all")
+
+	// Verify the pre-amend SHA is no longer in rev-list --all --reflog
+	ctx := context.Background()
+	reachable, err := listCommits(ctx, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reachableSet := make(map[string]bool)
+	for _, sha := range reachable {
+		reachableSet[sha] = true
+	}
+	if reachableSet[preAmendSHA] {
+		t.Fatalf("pre-amend SHA %s should not be reachable after reflog expire", preAmendSHA)
+	}
+
+	// Now it should appear as a dangling commit
+	dangling, err := ListDanglingCommits(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	danglingSet := make(map[string]bool)
+	for _, sha := range dangling {
+		danglingSet[sha] = true
+	}
+	if !danglingSet[preAmendSHA] {
+		t.Errorf("ListDanglingCommits did not return pre-amend SHA %s; got %v", preAmendSHA, dangling)
+	}
+}
+
+func TestParallelGitWithDangling(t *testing.T) {
+	dir, preAmendSHA, _ := initTestRepoWithAmend(t)
+
+	// Expire reflog so pre-amend commit is dangling
+	gitExec(t, dir, "reflog", "expire", "--expire=now", "--all")
+
+	ctx := context.Background()
+	src := &ParallelGit{
+		RepoPath:        dir,
+		Config:          &config.Config{},
+		Sema:            semgroup.NewGroup(ctx, 4),
+		Workers:         2,
+		IncludeDangling: true,
+	}
+
+	var c collectFragments
+	if err := src.Fragments(ctx, c.yield); err != nil {
+		t.Fatal(err)
+	}
+
+	// We should find fragments from both the current commits AND the dangling one.
+	// The dangling commit added "pre-amend-content" to secret.txt.
+	var foundDangling bool
+	for _, f := range c.list {
+		if f.Resource != nil && f.Resource.ID == preAmendSHA {
+			foundDangling = true
+			break
+		}
+	}
+	if !foundDangling {
+		t.Errorf("ParallelGit with IncludeDangling did not yield fragment from dangling commit %s", preAmendSHA)
+		for _, f := range c.list {
+			id := ""
+			if f.Resource != nil {
+				id = f.Resource.ID
+			}
+			t.Logf("  path=%s commit=%s raw=%q", f.Path, id, f.Raw)
+		}
+	}
+}
+
+func TestRegularGitWithDangling(t *testing.T) {
+	dir, preAmendSHA, _ := initTestRepoWithAmend(t)
+
+	// Expire reflog so pre-amend commit is dangling
+	gitExec(t, dir, "reflog", "expire", "--expire=now", "--all")
+
+	ctx := context.Background()
+
+	// Main source (regular mode)
+	mainCmd, err := NewGitLogCmdContext(ctx, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainSrc := &Git{
+		Cmd:    mainCmd,
+		Config: &config.Config{},
+		Sema:   semgroup.NewGroup(ctx, 4),
+	}
+
+	// Dangling source
+	dangling, err := ListDanglingCommits(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dangling) == 0 {
+		t.Fatal("expected dangling commits after reflog expire")
+	}
+
+	danglingCmd, err := NewGitLogCommitsCmd(ctx, dir, dangling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	danglingSrc := &Git{
+		Cmd:    danglingCmd,
+		Config: &config.Config{},
+		Sema:   semgroup.NewGroup(ctx, 4),
+	}
+
+	// Collect fragments from both sources
+	var c collectFragments
+	if err := mainSrc.Fragments(ctx, c.yield); err != nil {
+		t.Fatal(err)
+	}
+	if err := danglingSrc.Fragments(ctx, c.yield); err != nil {
+		t.Fatal(err)
+	}
+
+	// The dangling commit should have produced a fragment
+	var foundDangling bool
+	for _, f := range c.list {
+		if f.Resource != nil && f.Resource.ID == preAmendSHA {
+			foundDangling = true
+			break
+		}
+	}
+	if !foundDangling {
+		t.Errorf("regular Git + dangling pass did not yield fragment from dangling commit %s", preAmendSHA)
+		for _, f := range c.list {
+			id := ""
+			if f.Resource != nil {
+				id = f.Resource.ID
+			}
+			t.Logf("  path=%s commit=%s raw=%q", f.Path, id, f.Raw)
 		}
 	}
 }

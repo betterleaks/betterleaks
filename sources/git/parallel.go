@@ -29,7 +29,8 @@ type ParallelGit struct {
 	Sema            *semgroup.Group
 	MaxArchiveDepth int
 	LogOpts         string
-	Workers         int // 0 means auto (min(NumCPU, 4))
+	Workers         int  // 0 means auto (min(NumCPU, 4))
+	IncludeDangling bool // scan dangling commits via git fsck
 }
 
 func (s *ParallelGit) workers() int {
@@ -45,6 +46,19 @@ func (s *ParallelGit) Fragments(ctx context.Context, yield betterleaks.Fragments
 	commits, err := listCommits(ctx, s.RepoPath, s.LogOpts)
 	if err != nil {
 		return fmt.Errorf("list commits: %w", err)
+	}
+
+	if s.IncludeDangling {
+		logging.Info().Msg("scanning for dangling commits via git fsck")
+		dangling, err := ListDanglingCommits(ctx, s.RepoPath)
+		if err != nil {
+			logging.Warn().Err(err).Msg("could not list dangling commits")
+		} else if len(dangling) > 0 {
+			logging.Info().Int("count", len(dangling)).Msg("found dangling commits")
+			commits = append(commits, dangling...)
+		} else {
+			logging.Info().Msg("no dangling commits found")
+		}
 	}
 
 	count := len(commits)
@@ -99,7 +113,7 @@ func (s *ParallelGit) runSingleWorker(ctx context.Context, yield betterleaks.Fra
 // runWorkerCommits runs a git log process for a specific set of commit SHAs,
 // piped via stdin with --no-walk.
 func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield betterleaks.FragmentsFunc, commits []string) error {
-	gitCmd, err := newGitLogCommitsCmd(ctx, s.RepoPath, commits)
+	gitCmd, err := NewGitLogCommitsCmd(ctx, s.RepoPath, commits)
 	if err != nil {
 		return err
 	}
@@ -133,16 +147,16 @@ func newGitLogCmd(ctx context.Context, source string, logOpts string) (*GitCmd, 
 		}
 		args = append(args, userArgs...)
 	} else {
-		args = append(args, "--full-history", "--all", "--diff-filter=tuxdb")
+		args = append(args, "--full-history", "--all", "--reflog", "--diff-filter=tuxdb")
 	}
 
 	return startGitLogCmd(ctx, sourceClean, args)
 }
 
-// newGitLogCommitsCmd constructs a git log -p command that processes a specific
+// NewGitLogCommitsCmd constructs a git log -p command that processes a specific
 // set of commits via --no-walk --stdin. This avoids non-deterministic ordering
 // issues with --skip/--max-count on repos with timestamp ties.
-func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (*GitCmd, error) {
+func NewGitLogCommitsCmd(ctx context.Context, source string, commits []string) (*GitCmd, error) {
 	sourceClean := filepath.Clean(source)
 	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
 
@@ -235,7 +249,7 @@ func listCommits(ctx context.Context, source string, logOpts string) ([]string, 
 	if logOpts != "" {
 		args = append(args, strings.Split(logOpts, " ")...)
 	} else {
-		args = append(args, "--all")
+		args = append(args, "--all", "--reflog")
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -259,7 +273,7 @@ func commitCount(ctx context.Context, source string, logOpts string) (int, error
 	if logOpts != "" {
 		args = append(args, strings.Split(logOpts, " ")...)
 	} else {
-		args = append(args, "--all")
+		args = append(args, "--all", "--reflog")
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -269,4 +283,28 @@ func commitCount(ctx context.Context, source string, logOpts string) (int, error
 	}
 
 	return strconv.Atoi(strings.TrimSpace(string(out)))
+}
+
+// ListDanglingCommits returns commit SHAs that are unreachable from any ref or
+// reflog entry but still exist in the object store (awaiting garbage collection).
+// It shells out to `git fsck --unreachable --no-reflogs` and filters for commit
+// objects only (ignoring unreachable blobs and trees).
+func ListDanglingCommits(ctx context.Context, source string) ([]string, error) {
+	sourceClean := filepath.Clean(source)
+	cmd := exec.CommandContext(ctx, "git", "-C", sourceClean,
+		"fsck", "--unreachable", "--no-reflogs", "--no-progress", "--connectivity-only")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git fsck: %w", err)
+	}
+
+	var commits []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if after, ok := strings.CutPrefix(line, "unreachable commit "); ok {
+			if sha := strings.TrimSpace(after); sha != "" {
+				commits = append(commits, sha)
+			}
+		}
+	}
+	return commits, nil
 }
