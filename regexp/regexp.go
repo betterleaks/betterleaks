@@ -48,7 +48,8 @@ var currentEngine = "stdlib"
 // Version returns the name of the active regex engine.
 func Version() string { return currentEngine }
 
-// SetEngine selects the regex engine used by subsequent MustCompile calls.
+// SetEngine selects the regex engine used by subsequent MustCompile calls. Probably
+// not a great idea to call this mid execution.
 func SetEngine(name string) {
 	switch name {
 	case "stdlib", "re2":
