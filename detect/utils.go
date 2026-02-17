@@ -20,6 +20,8 @@ var linkCleaner = strings.NewReplacer(
 	"%", "%25",
 )
 
+var nlReplacer = strings.NewReplacer("\n", "", "\r", "")
+
 func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
 	if remote.Platform == scm.UnknownPlatform ||
 		remote.Platform == scm.NoPlatform ||

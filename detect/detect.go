@@ -669,28 +669,23 @@ func (d *Detector) detectRule(fragment Fragment, currentRaw string, r config.Rul
 }
 
 func (d *Detector) failsSmartFilter(secret string) bool {
-	// For short secrets (< 20 chars) that contain newlines, strip the newlines
-	// before analysis so that strings like "123\n\nTest" are evaluated as "123Test"
-	// allowing word detection to work.
 	analyzed := secret
 	if len(analyzed) < 20 && strings.ContainsAny(analyzed, "\n\r") {
-		analyzed = strings.NewReplacer("\n", "", "\r", "").Replace(analyzed)
+		analyzed = nlReplacer.Replace(analyzed)
+	}
+
+	// One dictionary scan. Early-exits if it finds >=5.
+	maxLen := words.Default.MaxMatchLenASCII(analyzed, 5)
+	if maxLen >= 5 {
+		return true
+	}
+
+	threshold := 2.5
+	if len(analyzed) < 12 && maxLen >= 3 {
+		threshold = 2.1
 	}
 
 	tokens := d.tokenizer.Encode(analyzed, nil, nil)
-
-	matches := words.HasMatchInList(analyzed, 5)
-	if len(matches) > 0 {
-		return true
-	}
-	threshold := 2.5
-	if len(analyzed) < 12 {
-		threshold = 2.1
-		matches := words.HasMatchInList(analyzed, 3)
-		if len(matches) == 0 {
-			threshold = 2.5
-		}
-	}
 	return float64(len(analyzed))/float64(len(tokens)) >= threshold
 }
 
