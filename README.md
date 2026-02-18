@@ -26,11 +26,12 @@ Betterleaks is a tool for **detecting** secrets like passwords, API keys, and to
 Wait wtf this isn't Gitleaks. You're right, it's not but it's built by the same people who maintained Gitleaks and ships with some cool new features.
 
 ## What's New?
-A couple things: 
-- Parallelized Git Scanning
+A couple things:
+- Parallelized Git Scanning (`--git-workers=`)
 - Optimized Recursive Decoding (for catching those nasty SHA1-HULUD variants)
 - Token Efficiency Filter (a better entropy)
 - Misc optimizations
+- Regex engine switching w/ (`--regexp-engine=re2`)
 
 ## What's Coming?
 Great question. Check out what we're cookin in the v2 branch.
