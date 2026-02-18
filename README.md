@@ -1,9 +1,6 @@
 # Betterleaks
 
-~~Gitleaks is a tool for **detecting** secrets like passwords, API keys, and tokens in git repos, files, and whatever else you wanna throw at it via `stdin`. If you wanna learn more about how the detection engine works check out this blog: [Regex is (almost) all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need).~~
-
-This is the Betterleaks branch that is fully compatible with the gitleaks v8 library. It's a copy of v8 + some renames. This branch is intended to be used as an option for those who want a Gitleaks v8.30.0 compatible API. This branch will be maintained with minor patches from time to time.
-
+Betterleaks is a tool for **detecting** secrets like passwords, API keys, and tokens in git repos, files, and whatever else you wanna throw at it via `stdin`. If you wanna learn more about how the detection engine works check out this blog: [Regex is (almost) all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need).
 
 ```
 ➜  ~/code(master) betterleaks git -v
@@ -12,22 +9,34 @@ This is the Betterleaks branch that is fully compatible with the gitleaks v8 lib
   ○
   ○
   ●
-  ○  betterleaks v0.0.0
+  ○  Betterleaks v1.0.0
 
-
-
-Finding:     "export BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef",
-Secret:      cafebabe:deadbeef
-RuleID:      sidekiq-secret
-Entropy:     2.609850
-File:        cmd/generate/config/rules/sidekiq.go
-Line:        23
-Commit:      cd5226711335c68be1e720b318b7bc3135a30eb2
-Author:      John
-Email:       john@users.noreply.github.com
-Date:        2022-08-03T12:31:40Z
-Fingerprint: cd5226711335c68be1e720b318b7bc3135a30eb2:cmd/generate/config/rules/sidekiq.go:sidekiq-secret:23
+  Finding:     "export BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef",
+  Secret:      cafebabe:deadbeef
+  RuleID:      sidekiq-secret
+  Entropy:     2.609850
+  File:        cmd/generate/config/rules/sidekiq.go
+  Line:        23
+  Commit:      cd5226711335c68be1e720b318b7bc3135a30eb2
+  Author:      John
+  Email:       john@users.noreply.github.com
+  Date:        2022-08-03T12:31:40Z
 ```
+
+Wait wtf this isn't Gitleaks. You're right, it's not but it's built by the same people who maintained Gitleaks and ships with some cool new features.
+
+## What's New?
+A couple things: 
+- Parallelized Git Scanning
+- Optimized Recursive Decoding (for catching those nasty SHA1-HULUD variants)
+- Token Efficiency Filter (a better entropy)
+- Misc optimizations
+
+## What's Coming?
+Great question. Check out what we're cookin in the v2 branch.
+
+## Installation
+TODO
 
 ## Usage
 
