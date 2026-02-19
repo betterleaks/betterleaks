@@ -15,11 +15,11 @@ const (
 	templatePath = "rules/config.tmpl"
 )
 
-//go:generate go run $GOFILE ../../../config/gitleaks.toml
+//go:generate go run $GOFILE ../../../config/betterleaks.toml
 
 func main() {
 	if len(os.Args) < 2 {
-		_, _ = os.Stderr.WriteString("Specify path to the gitleaks.toml config\n")
+		_, _ = os.Stderr.WriteString("Specify path to the betterleaks.toml config\n")
 		os.Exit(2)
 	}
 	gitleaksConfigPath := os.Args[1]

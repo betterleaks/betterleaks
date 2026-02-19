@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	//go:embed gitleaks.toml
+	//go:embed betterleaks.toml
 	DefaultConfig string
 
 	// use to keep track of how many configs we can extend
@@ -47,8 +47,8 @@ type ViperConfig struct {
 		// TODO: Remove this in 9.x.
 		AllowList *viperRuleAllowlist
 
-		Allowlists  []*viperRuleAllowlist
-		Required    []*viperRequired
+		Allowlists      []*viperRuleAllowlist
+		Required        []*viperRequired
 		SkipReport      bool
 		TokenEfficiency bool
 	}
@@ -146,15 +146,15 @@ func (vc *ViperConfig) Translate() (Config, error) {
 			vr.Tags = []string{}
 		}
 		cr := Rule{
-			RuleID:      vr.ID,
-			Description: vr.Description,
-			Regex:       regexPat,
-			SecretGroup: vr.SecretGroup,
-			Entropy:     vr.Entropy,
-			Path:        pathPat,
-			Keywords:    vr.Keywords,
-			Tags:        vr.Tags,
-			SkipReport:  vr.SkipReport,
+			RuleID:          vr.ID,
+			Description:     vr.Description,
+			Regex:           regexPat,
+			SecretGroup:     vr.SecretGroup,
+			Entropy:         vr.Entropy,
+			Path:            pathPat,
+			Keywords:        vr.Keywords,
+			Tags:            vr.Tags,
+			SkipReport:      vr.SkipReport,
 			TokenEfficiency: vr.TokenEfficiency,
 		}
 

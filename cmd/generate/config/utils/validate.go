@@ -88,6 +88,16 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 	cfg := base.CreateGlobalConfig()
 	cfg.Rules = rules
 	cfg.Keywords = uniqueKeywords
+
+	cfg.KeywordToRules = make(map[string][]string)
+	if len(r.Keywords) == 0 {
+		cfg.NoKeywordRules = []string{r.RuleID}
+	} else {
+		for _, k := range r.Keywords {
+			cfg.KeywordToRules[k] = append(cfg.KeywordToRules[k], r.RuleID)
+		}
+	}
+
 	for _, a := range cfg.Allowlists {
 		if err := a.Validate(); err != nil {
 			logging.Fatal().Err(err).Msg("invalid global allowlist")
