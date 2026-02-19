@@ -43,7 +43,7 @@ func (r *Regexp) String() string {
 	return r.e.String()
 }
 
-var currentEngine = "stdlib"
+var currentEngine = "re2"
 
 // Version returns the name of the active regex engine.
 func Version() string { return currentEngine }

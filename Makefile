@@ -12,15 +12,14 @@ test-cover:
 format:
 	go fmt ./...
 
-test: config/gitleaks.toml format
+test: config/betterleaks.toml format
 	go test -v ./... --race $(PKG)
 
 failfast: format
 	go test -failfast ./...
 
-build: config/gitleaks.toml format
-	go mod tidy
-	go build $(LDFLAGS)
+build:
+	go build $(LDFLAGS) -o betterleaks ./cmd/betterleaks
 
 lint:
 	golangci-lint run
@@ -33,5 +32,5 @@ clean:
 profile: build
 	./scripts/profile.sh './betterleaks' '.'
 
-config/gitleaks.toml: $(wildcard cmd/generate/config/**/*)
+config/betterleaks.toml: $(wildcard cmd/generate/config/**/*)
 	go generate ./...

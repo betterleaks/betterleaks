@@ -33,11 +33,28 @@ A couple things:
 - Misc optimizations
 - Regex engine switching w/ (`--regexp-engine=re2`)
 
+### Benchmarks
+
+Scan times compared against [gitleaks](https://github.com/gitleaks/gitleaks) on real-world repos (lower is better):
+
+![Scan Time Comparison](docs/scan_comparison.png)
+
 ## What's Coming?
 Great question. Check out what we're cookin in the [v2 branch](https://github.com/betterleaks/betterleaks/tree/v2-dev).
 
 ## Installation
-TODO
+```
+# Package managers
+# brew install todo
+
+# Containers
+docker pull ghcr.io/betterleaks/betterleaks:latest
+
+# Source
+git clone https://github.com/betterleaks/betterleaks
+cd betterleaks
+make betterleaks
+```
 
 ## Usage
 
