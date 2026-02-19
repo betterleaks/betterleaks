@@ -23,14 +23,14 @@ import (
 	"github.com/betterleaks/betterleaks/version"
 )
 
-const banner = `
+var banner = fmt.Sprintf(`
 
   ○
   ○
   ●
-  ○  betterleaks v0.0.x-gitleaks-compat.1
+  ○  betterleaks %s
 
-`
+`, version.Version)
 
 const configDescription = `config file path
 order of precedence:

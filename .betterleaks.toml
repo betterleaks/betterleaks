@@ -1,0 +1,14 @@
+# This is NOT the default betterleaks config. The default betterleaks config is located
+# here: https://github.com/betterleaks/betterleaks/blob/master/config/betterleaks.toml
+# This betterleaks config extends the default config and ignores secrets located in the `cmd/generate/config/rules`
+
+title = "Betterleaks development"
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''(^|/)cmd/generate/config/rules''',
+  '''.*test\.go''',
+  '''testdata'''
+]

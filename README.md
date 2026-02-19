@@ -90,12 +90,6 @@ Use "betterleaks [command] --help" for more information about a command.
 
 ### Commands
 
-⚠️ v8.19.0 introduced a change that deprecated `detect` and `protect`. Those commands are still available but
-are hidden in the `--help` menu. Take a look at this [gist](https://gist.github.com/zricethezav/b325bb93ebf41b9c0b0507acf12810d2) for easy command translations.
-If you find v8.19.0 broke an existing command (`detect`/`protect`), please open an issue.
-
-There are three scanning modes: `git`, `dir`, and `stdin`.
-
 #### Git
 
 The `git` command lets you scan local git repos. Under the hood, betterleaks uses the `git log -p` command to scan patches.
@@ -103,6 +97,8 @@ You can configure the behavior of `git log -p` with the `log-opts` option.
 For example, if you wanted to run betterleaks on a range of commits you could use the following
 command: `betterleaks git -v --log-opts="--all commitA..commitB" path_to_repo`. See the [git log](https://git-scm.com/docs/git-log) documentation for more information.
 If there is no target specified as a positional argument, then betterleaks will attempt to scan the current working directory as a git repo.
+
+If you want faster `git` scans you can enable parallelized `git log -p` with `--git-workers={int}`.
 
 #### Dir
 
@@ -130,10 +126,6 @@ betterleaks git --baseline-path betterleaks-report.json --report-path findings.j
 
 After running the detect command with the --baseline-path parameter, report output (findings.json) will only contain new issues.
 
-## Pre-Commit hook
-
-You can run Betterleaks as a pre-commit hook by copying the example `pre-commit.py` script into
-your `.git/hooks/` directory.
 
 ## Load Configuration
 
@@ -164,18 +156,18 @@ If none of the four options are used, then the default config will be used.
 
 ## Configuration
 
-Gitleaks offers a configuration format you can follow to write your own secret detection rules:
+Betterleaks offers a configuration format you can follow to write your own secret detection rules:
 
 ```toml
-# Title for the gitleaks configuration file.
-title = "Custom Gitleaks configuration"
+# Title for the Betterleaks configuration file.
+title = "Custom Betterleaks configuration"
 
 # You have basically two options for your custom configuration:
 #
 # 1. define your own configuration, default rules do not apply
 #
 #    use e.g., the default configuration as starting point:
-#    https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+#    https://github.com/betterleaks/betterleaks/blob/master/config/betterleaks.toml
 #
 # 2. extend a configuration, the rules are overwritten or extended
 #
@@ -191,7 +183,7 @@ title = "Custom Gitleaks configuration"
 [extend]
 # useDefault will extend the default gitleaks config built in to the binary
 # the latest version is located at:
-# https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+# https://github.com/betterleaks/betterleaks/blob/master/config/betterleaks.toml
 useDefault = true
 # or you can provide a path to a configuration to extend from.
 # The path is relative to where gitleaks was invoked,
@@ -225,8 +217,7 @@ entropy = 3.5
 # a string is. Common words and phrases tokenize into fewer, longer tokens (high token efficiency),
 # while secrets and random strings break into many short tokens (low token efficiency). Strings that
 # look like natural language are filtered out as false positives. This is an alternative to entropy
-# that is better at distinguishing true secrets from everyday text.
-# (introduced in v8.x.x)
+# that is better at distinguishing true secrets from everyday text. (introduced in Betterleaks v1.0.0).
 tokenEfficiency = true
 
 # Golang regular expression used to match paths. This can be used as a standalone rule or it can be used
@@ -247,9 +238,6 @@ keywords = [
 # Array of strings used for metadata and reporting purposes.
 tags = ["tag","another tag"]
 
-    # ⚠️ In v8.21.0 `[rules.allowlist]` was replaced with `[[rules.allowlists]]`.
-    # This change was backwards-compatible: instances of `[rules.allowlist]` still  work.
-    #
     # You can define multiple allowlists for a rule to reduce false positives.
     # A finding will be ignored if _ANY_ `[[rules.allowlists]]` matches.
     [[rules.allowlists]]
@@ -290,8 +278,6 @@ id = "gitlab-pat"
     regexes = [ '''MY-glpat-''' ]
 
 
-# ⚠️ In v8.25.0 `[allowlist]` was replaced with `[[allowlists]]`.
-#
 # Global allowlists have a higher order of precedence than rule-specific allowlists.
 # If a commit listed in the `commits` field below is encountered then that commit will be skipped and no
 # secrets will be detected for said commit. The same logic applies for regexes and paths.
@@ -317,8 +303,6 @@ stopwords = [
   '''endpoint''',
 ]
 
-# ⚠️ In v8.25.0, `[[allowlists]]` have a new field called |targetRules|.
-#
 # Common allowlists can be defined once and assigned to multiple rules using |targetRules|.
 # This will only run on the specified rules, not globally.
 [[allowlists]]
@@ -327,12 +311,12 @@ description = "Our test assets trigger false-positives in a couple rules."
 paths = ['''tests/expected/._\.json$''']
 ```
 
-Refer to the default [gitleaks config](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml) for examples or follow the [contributing guidelines](https://github.com/gitleaks/gitleaks/blob/master/CONTRIBUTING.md) if you would like to contribute to the default configuration. Additionally, you can check out [this gitleaks blog post](https://blog.gitleaks.io/stop-leaking-secrets-configuration-2-3-aeed293b1fbf) which covers advanced configuration setups.
+Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/master/config/betterleaks.toml) for examples or follow the [contributing guidelines](https://github.com/betterleaks/betterleaks/blob/master/CONTRIBUTING.md) if you would like to contribute to the default configuration.
 
 ### Additional Configuration
 
 #### Composite Rules (Multi-part or `required` Rules)
-In v8.28.0 Gitleaks introduced composite rules, which are made up of a single "primary" rule and one or more auxiliary or `required` rules. To create a composite rule, add a `[[rules.required]]` table to the primary rule specifying an `id` and optionally `withinLines` and/or `withinColumns` proximity constraints. A fragment is a chunk of content that Gitleaks processes at once (typically a file, part of a file, or git diff), and proximity matching instructs the primary rule to only report a finding if the auxiliary `required` rules also find matches within the specified area of the fragment.
+Betterleaks ships with composite rules, which are made up of a single "primary" rule and one or more auxiliary or `required` rules. To create a composite rule, add a `[[rules.required]]` table to the primary rule specifying an `id` and optionally `withinLines` and/or `withinColumns` proximity constraints. A fragment is a chunk of content that Betterleaks processes at once (typically a file, part of a file, or git diff), and proximity matching instructs the primary rule to only report a finding if the auxiliary `required` rules also find matches within the specified area of the fragment.
 
 **Proximity matching:** Using the `withinLines` and `withinColumns` fields instructs the primary rule to only report a finding if the auxiliary `required` rules also find matches within the specified proximity. You can set:
 
@@ -417,7 +401,6 @@ fragment = section of data gitleaks is looking at
    └───-3C────0L───+3C┴─┘ └────────────┘
 ```
 
-<details><summary>Some final quick thoughts on composite rules.</summary>This is an experimental feature! It's subject to change so don't go sellin' a new B2B SaaS feature built ontop of this feature. Scan type (git vs dir) based context is interesting. I'm monitoring the situation. Composite rules might not be super useful for git scans because gitleaks only looks at additions in the git history. It could be useful to scan non-additions in git history for `required` rules. Oh, right this is a readme, I'll shut up now.</details>
 
 #### betterleaks:allow / gitleaks:allow
 
@@ -432,14 +415,14 @@ class CustomClass:
 
 #### .betterleaksignore / .gitleaksignore
 
-You can ignore specific findings by creating a `.betterleaksignore` (or `.gitleaksignore` for backwards compatibility) file at the root of your repo. In release v8.10.0 a `Fingerprint` value was added to the report. Each leak, or finding, has a Fingerprint that uniquely identifies a secret. Add this fingerprint to the ignore file to ignore that specific secret. See the [.gitleaksignore](https://github.com/gitleaks/gitleaks/blob/master/.gitleaksignore) for an example. Note: this feature is experimental and is subject to change in the future.
+You can ignore specific findings by creating a `.betterleaksignore` (or `.gitleaksignore` for backwards compatibility) file at the root of your repo. In release v8.10.0 a `Fingerprint` value was added to the report. Each leak, or finding, has a Fingerprint that uniquely identifies a secret. Add this fingerprint to the ignore file to ignore that specific secret. See the [.gitleaksignore](https://github.com/betterleaks/betterleaks/blob/master/.betterleaksignore) for an example. Note: this feature is experimental and is subject to change in the future.
 
 #### Decoding
 
 Sometimes secrets are encoded in a way that can make them difficult to find
 with just regex. Now you can tell gitleaks to automatically find and decode
-encoded text. The flag `--max-decode-depth` enables this feature (the default
-value "0" means the feature is disabled by default).
+encoded text. The flag `--max-decode-depth` tweaks this feature (the default
+value "5").
 
 Recursive decoding is supported since decoded text can also contain encoded
 text.  The flag `--max-decode-depth` sets the recursion limit. Recursion stops
@@ -462,6 +445,7 @@ Currently supported encodings:
 - **percent** - Any printable ASCII percent encoded values
 - **hex** - Any printable ASCII hex encoded values >= 32 characters
 - **base64** - Any printable ASCII base64 encoded values >= 16 characters
+- **unicode** - Unicode escape sequences (`U+XXXX`, `\uXXXX`, `\\uXXXX`) decoded to UTF-8
 
 #### Archive Scanning
 
@@ -504,7 +488,7 @@ are supported.
 
 #### Reporting
 
-Betterleaks has built-in support for several report formats: [`json`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/json_simple.json), [`csv`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/csv_simple.csv?plain=1), [`junit`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/junit_simple.xml), and [`sarif`](https://github.com/gitleaks/gitleaks/blob/master/testdata/expected/report/sarif_simple.sarif).
+Betterleaks has built-in support for several report formats: [`json`](https://github.com/betterleaks/betterleaks/blob/master/testdata/expected/report/json_simple.json), [`csv`](https://github.com/betterleaks/betterleaks/blob/master/testdata/expected/report/csv_simple.csv?plain=1), [`junit`](https://github.com/betterleaks/betterleaks/blob/master/testdata/expected/report/junit_simple.xml), and [`sarif`](https://github.com/betterleaks/betterleaks/blob/master/testdata/expected/report/sarif_simple.sarif).
 
 If none of these formats fit your need, you can create your own report format with a [Go `text/template` .tmpl file](https://www.digitalocean.com/community/tutorials/how-to-use-templates-in-go#step-4-writing-a-template) and the `--report-template` flag. The template can use [extended functionality from the `Masterminds/sprig` template library](https://masterminds.github.io/sprig/).
 

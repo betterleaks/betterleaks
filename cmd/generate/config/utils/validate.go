@@ -90,10 +90,10 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 	cfg.Keywords = uniqueKeywords
 
 	cfg.KeywordToRules = make(map[string][]string)
-	if len(keywords) == 0 {
+	if len(r.Keywords) == 0 {
 		cfg.NoKeywordRules = []string{r.RuleID}
 	} else {
-		for _, k := range keywords {
+		for _, k := range r.Keywords {
 			cfg.KeywordToRules[k] = append(cfg.KeywordToRules[k], r.RuleID)
 		}
 	}
