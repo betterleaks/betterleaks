@@ -13,10 +13,11 @@
 
 title = "{{.Title}}"
 
-# minVersion indicates the minimum Gitleaks version required to use this config.
-# If the running version is older, a warning will be logged and not all
-# config-enabled features are guaranteed to work.
+# minVersion indicates the minimum gitleaks config format version required.
+# betterleaksMinVersion indicates the minimum betterleaks version required.
+# If the running version is older, a warning will be logged.
 minVersion = "v8.25.0"
+betterleaksMinVersion = "v1.0.0"
 
 {{ with .Allowlists }}{{ range $i, $allowlist := . }}{{ if or $allowlist.Regexes $allowlist.Paths $allowlist.Commits $allowlist.StopWords }}# TODO: change to [[allowlists]]{{println}}[allowlist]
 {{- with .Description }}{{println}}description = "{{ . }}"{{ end }}

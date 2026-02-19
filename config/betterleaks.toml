@@ -6,17 +6,18 @@
 # How the hell does secret scanning work? Read this:
 #   https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need
 #
-# This is the default betterleaks configuration file.
+# This is the default gitleaks configuration file.
 # Rules and allowlists are defined within this file.
-# Rules instruct betterleaks on what should be considered a secret.
-# Allowlists instruct betterleaks on what is allowed, i.e. not a secret.
+# Rules instruct gitleaks on what should be considered a secret.
+# Allowlists instruct gitleaks on what is allowed, i.e. not a secret.
 
 title = "betterleaks config"
 
-# minVersion indicates the minimum Gitleaks version required to use this config.
-# If the running version is older, a warning will be logged and not all
-# config-enabled features are guaranteed to work.
+# minVersion indicates the minimum gitleaks config format version required.
+# betterleaksMinVersion indicates the minimum betterleaks version required.
+# If the running version is older, a warning will be logged.
 minVersion = "v8.25.0"
+betterleaksMinVersion = "v1.0.0"
 
 # TODO: change to [[allowlists]]
 [allowlist]

@@ -22,7 +22,7 @@ func main() {
 		_, _ = os.Stderr.WriteString("Specify path to the betterleaks.toml config\n")
 		os.Exit(2)
 	}
-	gitleaksConfigPath := os.Args[1]
+	betterleaksConfigPath := os.Args[1]
 
 	configRules := []*config.Rule{
 		rules.OnePasswordSecretKey(),
@@ -283,7 +283,7 @@ func main() {
 		logging.Fatal().Err(err).Msg("Failed to parse template")
 	}
 
-	f, err := os.Create(gitleaksConfigPath)
+	f, err := os.Create(betterleaksConfigPath)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("Failed to create rules.toml")
 	}

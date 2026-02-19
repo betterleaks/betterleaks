@@ -58,7 +58,8 @@ type ViperConfig struct {
 
 	Allowlists []*viperGlobalAllowlist
 
-	MinVersion string
+	MinVersion            string
+	BetterleaksMinVersion string
 
 	configPath string
 }
@@ -99,9 +100,10 @@ type Config struct {
 	// NoKeywordRules contains rule IDs that have no keywords and must always be checked.
 	NoKeywordRules []string
 	// used to keep sarif results consistent
-	OrderedRules []string
-	Allowlists   []*Allowlist
-	MinVersion   string
+	OrderedRules          []string
+	Allowlists            []*Allowlist
+	MinVersion            string
+	BetterleaksMinVersion string
 }
 
 // Extend is a struct that allows users to define how they want their
@@ -203,13 +205,14 @@ func (vc *ViperConfig) Translate() (Config, error) {
 
 	// Assemble the config.
 	c := Config{
-		Title:        vc.Title,
-		Description:  vc.Description,
-		Extend:       vc.Extend,
-		Rules:        rulesMap,
-		Keywords:     keywords,
-		OrderedRules: orderedRules,
-		MinVersion:   vc.MinVersion,
+		Title:                 vc.Title,
+		Description:           vc.Description,
+		Extend:                vc.Extend,
+		Rules:                 rulesMap,
+		Keywords:              keywords,
+		OrderedRules:          orderedRules,
+		MinVersion:            vc.MinVersion,
+		BetterleaksMinVersion: vc.BetterleaksMinVersion,
 	}
 
 	if extendDepth > 0 {
@@ -221,7 +224,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		c.Path = viper.ConfigFileUsed()
 	}
 
-	if err := validateMinVersion(c.MinVersion, c.Path); err != nil {
+	if err := validateMinVersion(c.MinVersion, c.BetterleaksMinVersion, c.Path); err != nil {
 		return Config{}, err
 	}
 
@@ -303,36 +306,62 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	return c, nil
 }
 
-func validateMinVersion(minVer string, configPath string) error {
-	if minVer == "" {
+func validateMinVersion(gitleaksMinVer, betterleaksMinVer, configPath string) error {
+	isDev := version.Version == version.DefaultMsg
+
+	// Check gitleaks config format compatibility (minVersion field).
+	if gitleaksMinVer != "" {
+		if isDev {
+			logging.Debug().
+				Str("required", gitleaksMinVer).
+				Msg("dev build, skipping gitleaks minVersion check.")
+		} else {
+			minSemVer, err := gv.NewSemver(gitleaksMinVer)
+			if err != nil {
+				return fmt.Errorf("invalid minVersion '%s': %w", gitleaksMinVer, err)
+			}
+			compatSemVer, err := gv.NewSemver(version.GitleaksCompat)
+			if err != nil {
+				return fmt.Errorf("unable to parse gitleaks compat version: %w", err)
+			}
+			if compatSemVer.LessThan(minSemVer) {
+				logging.Warn().
+					Str("required", gitleaksMinVer).
+					Str("current", version.GitleaksCompat).
+					Str("config path", configPath).
+					Msg("config minVersion exceeds this build's gitleaks compatibility level")
+			}
+		}
+	}
+
+	// Check betterleaks version compatibility (betterleaksMinVersion field).
+	if betterleaksMinVer != "" {
+		if isDev {
+			logging.Debug().
+				Str("required", betterleaksMinVer).
+				Msg("dev build, skipping betterleaksMinVersion check.")
+		} else {
+			minSemVer, err := gv.NewSemver(betterleaksMinVer)
+			if err != nil {
+				return fmt.Errorf("invalid betterleaksMinVersion '%s': %w", betterleaksMinVer, err)
+			}
+			currentSemVer, err := gv.NewSemver(version.Version)
+			if err != nil {
+				return fmt.Errorf("unable to parse current version: %w", err)
+			}
+			if currentSemVer.LessThan(minSemVer) {
+				logging.Warn().
+					Str("required", betterleaksMinVer).
+					Str("current", version.Version).
+					Str("config path", configPath).
+					Msg("config requires a newer betterleaks version")
+			}
+		}
+	}
+
+	if gitleaksMinVer == "" && betterleaksMinVer == "" {
 		logging.Debug().Str("config path", configPath).
 			Msg("no minVersion specified in config... consider adding minVersion to ensure compatibility.")
-		return nil
-	}
-
-	if version.Version == version.DefaultMsg {
-		logging.Debug().
-			Str("required", minVer).
-			Msg("dev build, skipping config version check.")
-		return nil
-	}
-
-	minSemVer, err := gv.NewSemver(minVer)
-	if err != nil {
-		return fmt.Errorf("invalid minVersion '%s': %w", minVer, err)
-	}
-
-	currentSemVer, err := gv.NewSemver(version.Version)
-	if err != nil {
-		return fmt.Errorf("unable to parse current version: %w", err)
-	}
-
-	if currentSemVer.LessThan(minSemVer) {
-		logging.Warn().
-			Str("required", minVer).
-			Str("current", version.Version).
-			Str("config path", configPath).
-			Msg("config requires a newer Gitleaks version...")
 	}
 
 	return nil
