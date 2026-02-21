@@ -7,7 +7,7 @@ import (
 	"os"
 	"text/template"
 
-	"github.com/Masterminds/sprig/v3"
+	"github.com/go-sprout/sprout/sprigin"
 )
 
 type TemplateReporter struct {
@@ -30,7 +30,7 @@ func NewTemplateReporter(templatePath string) (*TemplateReporter, error) {
 	// TODO: Add helper functions like escaping for JSON, XML, etc.
 	t := template.New("custom")
 
-	funcMap := sprig.TxtFuncMap()
+	funcMap := sprigin.TxtFuncMap()
 	delete(funcMap, "env")
 	delete(funcMap, "expandenv")
 	delete(funcMap, "getHostByName")
