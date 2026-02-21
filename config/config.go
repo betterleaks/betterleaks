@@ -147,10 +147,18 @@ func (vc *ViperConfig) Translate() (Config, error) {
 			regexPat *regexp.Regexp
 		)
 		if vr.Path != "" {
-			pathPat = regexp.MustCompile(vr.Path)
+			pat, err := regexp.Compile(vr.Path)
+			if err != nil {
+				return Config{}, fmt.Errorf("%s: invalid path regex %q: %w", vr.ID, vr.Path, err)
+			}
+			pathPat = pat
 		}
 		if vr.Regex != "" {
-			regexPat = regexp.MustCompile(vr.Regex)
+			pat, err := regexp.Compile(vr.Regex)
+			if err != nil {
+				return Config{}, fmt.Errorf("%s: invalid regex %q: %w", vr.ID, vr.Regex, err)
+			}
+			regexPat = pat
 		}
 		if vr.Keywords == nil {
 			vr.Keywords = []string{}
@@ -409,11 +417,19 @@ func (vc *ViperConfig) parseAllowlist(a *viperRuleAllowlist) (*Allowlist, error)
 	}
 	var allowlistRegexes []*regexp.Regexp
 	for _, a := range a.Regexes {
-		allowlistRegexes = append(allowlistRegexes, regexp.MustCompile(a))
+		pat, err := regexp.Compile(a)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regex %q: %w", a, err)
+		}
+		allowlistRegexes = append(allowlistRegexes, pat)
 	}
 	var allowlistPaths []*regexp.Regexp
 	for _, a := range a.Paths {
-		allowlistPaths = append(allowlistPaths, regexp.MustCompile(a))
+		pat, err := regexp.Compile(a)
+		if err != nil {
+			return nil, fmt.Errorf("invalid path regex %q: %w", a, err)
+		}
+		allowlistPaths = append(allowlistPaths, pat)
 	}
 
 	allowlist := &Allowlist{

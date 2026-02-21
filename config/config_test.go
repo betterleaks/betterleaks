@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -104,6 +105,11 @@ func TestTranslate(t *testing.T) {
 			cfgName:   "invalid/rule_bad_entropy_group",
 			cfg:       Config{},
 			wantError: errors.New("discord-api-key: invalid regex secret group 5, max regex secret group 3"),
+		},
+		{
+			cfgName:   "invalid/allowlist_global_bad_regex",
+			cfg:       Config{},
+			wantError: fmt.Errorf("[[allowlists]] invalid path regex \"*.test.js\": error parsing regexp: missing argument to repetition operator: `*`"),
 		},
 	}
 	for _, tt := range tests {
