@@ -58,6 +58,24 @@ func SetEngine(name string) {
 	}
 }
 
+// Compile parses a regular expression using the currently selected engine.
+// If successful, returns a [Regexp] object that can be used to match against text.
+func Compile(str string) (*Regexp, error) {
+	var (
+		impl engine
+		err  error
+	)
+	if currentEngine == "re2" {
+		impl, err = gore2.Compile(str)
+	} else {
+		impl, err = stdlib.Compile(str)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &Regexp{e: impl}, nil
+}
+
 // MustCompile compiles a regular expression using the currently selected engine.
 func MustCompile(str string) *Regexp {
 	var impl engine

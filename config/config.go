@@ -130,10 +130,18 @@ func (vc *ViperConfig) Translate() (Config, error) {
 			regexPat *regexp.Regexp
 		)
 		if vr.Path != "" {
-			pathPat = regexp.MustCompile(vr.Path)
+			exp, err := regexp.Compile(vr.Path)
+			if err != nil {
+				return Config{}, fmt.Errorf("failed to compile allowlist regex '%s', err: %w", a, err)
+			}
+			pathPat = exp
 		}
 		if vr.Regex != "" {
-			regexPat = regexp.MustCompile(vr.Regex)
+			exp, err := regexp.Compile(vr.Regex)
+			if err != nil {
+				return Config{}, fmt.Errorf("failed to compile regex '%s', err: %w", a, err)
+			}
+			regexPat = exp
 		}
 		if vr.Keywords == nil {
 			vr.Keywords = []string{}
