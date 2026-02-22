@@ -13,13 +13,13 @@ format:
 	go fmt ./...
 
 test: config/betterleaks.toml format
-	go test -v ./... --race $(PKG)
+	go test -v --race ./... $(PKG)
 
 failfast: format
 	go test -failfast ./...
 
 build:
-	go build $(LDFLAGS) -o betterleaks ./cmd/betterleaks
+	go build $(LDFLAGS) -o betterleaks .
 
 lint:
 	golangci-lint run
