@@ -174,11 +174,6 @@ type Detector struct {
 	tokenizer *tiktoken.Tiktoken
 }
 
-// Fragment is an alias for sources.Fragment for backwards compatibility
-//
-// Deprecated: This will be replaced with sources.Fragment in v9
-type Fragment sources.Fragment
-
 // NewDetector creates a new detector with the given config
 func NewDetector(cfg config.Config) *Detector {
 	return NewDetectorContext(context.Background(), cfg)
@@ -268,14 +263,9 @@ func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
 	return nil
 }
 
-// DetectBytes scans the given bytes and returns a list of findings
-func (d *Detector) DetectBytes(content []byte) []report.Finding {
-	return d.DetectString(string(content))
-}
-
 // DetectString scans the given string and returns a list of findings
 func (d *Detector) DetectString(content string) []report.Finding {
-	return d.Detect(Fragment{
+	return d.Detect(sources.Fragment{
 		Raw: content,
 	})
 }
@@ -322,7 +312,7 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 			})
 		}
 
-		for _, finding := range d.DetectContext(ctx, Fragment(fragment)) {
+		for _, finding := range d.DetectContext(ctx, fragment) {
 			d.AddFinding(finding)
 		}
 
@@ -343,13 +333,13 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 }
 
 // Detect scans the given fragment and returns a list of findings
-func (d *Detector) Detect(fragment Fragment) []report.Finding {
+func (d *Detector) Detect(fragment sources.Fragment) []report.Finding {
 	return d.DetectContext(context.Background(), fragment)
 }
 
 // DetectContext is the same as Detect but supports passing in a
 // context to use for timeouts
-func (d *Detector) DetectContext(ctx context.Context, fragment Fragment) []report.Finding {
+func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment) []report.Finding {
 	if fragment.Bytes == nil {
 		d.TotalBytes.Add(uint64(len(fragment.Raw)))
 	}
@@ -447,7 +437,7 @@ ScanLoop:
 }
 
 // detectRule scans the given fragment for the given rule and returns a list of findings
-func (d *Detector) detectRule(fragment Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
+func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = func() zerolog.Logger {
@@ -697,7 +687,7 @@ func (d *Detector) failsTokenEfficiencyFilter(secret string) bool {
 }
 
 // processRequiredRules handles the logic for multi-part rules with auxiliary findings
-func (d *Detector) processRequiredRules(fragment Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
+func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
 	if len(primaryFindings) == 0 {
 		logger.Debug().Msg("no primary findings to process for required rules")
 		return primaryFindings
@@ -886,7 +876,7 @@ func (d *Detector) addCommit(commit string) {
 // Otherwise, if regexes or stopwords are defined this will fail.
 func checkCommitOrPathAllowed(
 	logger zerolog.Logger,
-	fragment Fragment,
+	fragment sources.Fragment,
 	allowlists []*config.Allowlist,
 ) (bool, *zerolog.Event) {
 	if fragment.FilePath == "" && fragment.CommitSHA == "" {
@@ -943,7 +933,7 @@ func checkCommitOrPathAllowed(
 func checkFindingAllowed(
 	logger zerolog.Logger,
 	finding report.Finding,
-	fragment Fragment,
+	fragment sources.Fragment,
 	currentLine string,
 	allowlists []*config.Allowlist,
 ) (bool, *zerolog.Event) {

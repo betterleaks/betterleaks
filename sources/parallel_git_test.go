@@ -47,7 +47,7 @@ func commitFile(t *testing.T, dir, path, content, message string) {
 
 	for _, args := range [][]string{
 		{"git", "add", path},
-		{"git", "commit", "-m", message},
+		{"git", "commit", "--no-verify", "-m", message},
 	} {
 		cmd := exec.Command(args[0], args[1:]...)
 		cmd.Dir = dir

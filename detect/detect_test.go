@@ -19,13 +19,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 
-	"github.com/betterleaks/betterleaks/cmd/scm"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
 const maxDecodeDepth = 8
@@ -134,7 +134,7 @@ func TestDetect(t *testing.T) {
 	tests := map[string]struct {
 		cfgName      string
 		baselinePath string
-		fragment     Fragment
+		fragment     sources.Fragment
 		// NOTE: for expected findings, all line numbers will be 0
 		// because line deltas are added _after_ the finding is created.
 		// I.e., if the finding is from a --no-git file, the line number will be
@@ -147,14 +147,14 @@ func TestDetect(t *testing.T) {
 		// General
 		"valid allow comment (1)": {
 			cfgName: "simple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `awsToken := \"AKIALALEMEL33243OKIA\ // gitleaks:allow"`,
 				FilePath: "tmp.go",
 			},
 		},
 		"valid allow comment (2)": {
 			cfgName: "simple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw: `awsToken := \
 
 		        \"AKIALALEMEL33243OKIA\ // gitleaks:allow"
@@ -165,7 +165,7 @@ func TestDetect(t *testing.T) {
 		},
 		"invalid allow comment": {
 			cfgName: "simple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw: `awsToken := \"AKIALALEMEL33243OKIA\"
 
 		                // gitleaks:allow"
@@ -192,7 +192,7 @@ func TestDetect(t *testing.T) {
 		},
 		"detect finding - aws": {
 			cfgName: "simple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `awsToken := \"AKIALALEMEL33243OLIA\"`,
 				FilePath: "tmp.go",
 			},
@@ -215,7 +215,7 @@ func TestDetect(t *testing.T) {
 		},
 		"detect finding - sidekiq env var": {
 			cfgName: "simple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `export BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;`,
 				FilePath: "tmp.sh",
 			},
@@ -238,7 +238,7 @@ func TestDetect(t *testing.T) {
 		},
 		"detect finding - sidekiq env var, semicolon": {
 			cfgName: "simple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `echo hello1; export BUNDLE_ENTERPRISE__CONTRIBSYS__COM="cafebabe:deadbeef" && echo hello2`,
 				FilePath: "tmp.sh",
 			},
@@ -261,7 +261,7 @@ func TestDetect(t *testing.T) {
 		},
 		"detect finding - sidekiq url": {
 			cfgName: "simple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `url = "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:80/path?param1=true&param2=false#heading1"`,
 				FilePath: "tmp.sh",
 			},
@@ -284,21 +284,21 @@ func TestDetect(t *testing.T) {
 		},
 		"ignore finding - our config file": {
 			cfgName: "simple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `awsToken := \"AKIALALEMEL33243OLIA\"`,
 				FilePath: filepath.Join(configPath, "simple.toml"),
 			},
 		},
 		"ignore finding - doesn't match path": {
 			cfgName: "generic_with_py_path",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
 				FilePath: "tmp.go",
 			},
 		},
 		"detect finding - matches path,regex,entropy": {
 			cfgName: "generic_with_py_path",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
 				FilePath: "tmp.py",
 			},
@@ -321,7 +321,7 @@ func TestDetect(t *testing.T) {
 		},
 		"ignore finding - allowlist regex": {
 			cfgName: "generic_with_py_path",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `const Discord_Public_Key = "load2523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
 				FilePath: "tmp.py",
 			},
@@ -331,14 +331,14 @@ func TestDetect(t *testing.T) {
 		"rule - ignore path": {
 			cfgName:      "valid/rule_path_only",
 			baselinePath: ".baseline.json",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
 				FilePath: ".baseline.json",
 			},
 		},
 		"rule - detect path ": {
 			cfgName: "valid/rule_path_only",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
 				FilePath: "tmp.py",
 			},
@@ -354,7 +354,7 @@ func TestDetect(t *testing.T) {
 		},
 		"rule - match based on entropy": {
 			cfgName: "valid/rule_entropy_group",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw: `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"
 //const Discord_Public_Key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 `,
@@ -381,14 +381,14 @@ func TestDetect(t *testing.T) {
 		// Allowlists
 		"global allowlist - ignore regex": {
 			cfgName: "valid/allowlist_global_regex",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `awsToken := \"AKIALALEMEL33243OLIA\"`,
 				FilePath: "tmp.go",
 			},
 		},
 		"global allowlist - detect, doesn't match all conditions": {
 			cfgName: "valid/allowlist_global_multiple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw: `
 const token = "mockSecret";
 // const token = "changeit";`,
@@ -412,14 +412,14 @@ const token = "mockSecret";
 		},
 		"global allowlist - ignore, matches all conditions": {
 			cfgName: "valid/allowlist_global_multiple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `token := "mockSecret";`,
 				FilePath: "node_modules/config.txt",
 			},
 		},
 		"global allowlist - detect path, doesn't match all conditions": {
 			cfgName: "valid/allowlist_global_multiple",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `var token = "fakeSecret";`,
 				FilePath: "node_modules/config.txt",
 			},
@@ -441,7 +441,7 @@ const token = "mockSecret";
 		},
 		"allowlist - ignore commit": {
 			cfgName: "valid/allowlist_rule_commit",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:       `awsToken := \"AKIALALEMEL33243OLIA\"`,
 				FilePath:  "tmp.go",
 				CommitSHA: "allowthiscommit",
@@ -449,28 +449,28 @@ const token = "mockSecret";
 		},
 		"allowlist - ignore path": {
 			cfgName: "valid/allowlist_rule_path",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `awsToken := \"AKIALALEMEL33243OLIA\"`,
 				FilePath: "tmp.go",
 			},
 		},
 		"allowlist - ignore path when extending": {
 			cfgName: "valid/allowlist_rule_extend_default",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `token = "aebfab88-7596-481d-82e8-c60c8f7de0c0"`,
 				FilePath: "path/to/your/problematic/file.js",
 			},
 		},
 		"allowlist - ignore regex": {
 			cfgName: "valid/allowlist_rule_regex",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `awsToken := \"AKIALALEMEL33243OLIA\"`,
 				FilePath: "tmp.go",
 			},
 		},
 		"fragment level composite": {
 			cfgName: "composite",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw: multili,
 			},
 			expectedFindings: []report.Finding{
@@ -493,7 +493,7 @@ const token = "mockSecret";
 		// Decoding
 		"detect encoded": {
 			cfgName: "encoded",
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      encodedTestValues,
 				FilePath: "tmp.go",
 			},
@@ -1312,9 +1312,16 @@ func TestFromGit(t *testing.T) {
 
 			gitCmd, err := sources.NewGitLogCmd(tt.source, tt.logOpts)
 			require.NoError(t, err)
-
-			remote := NewRemoteInfo(scm.UnknownPlatform, tt.source)
-			findings, err := detector.DetectGit(gitCmd, remote)
+			findings, err := detector.DetectSource(
+				t.Context(),
+				&sources.Git{
+					Cmd:             gitCmd,
+					Config:          &detector.Config,
+					Remote:          sources.NewRemoteInfo(scm.UnknownPlatform, tt.source),
+					Sema:            detector.Sema,
+					MaxArchiveDepth: detector.MaxArchiveDepth,
+				},
+			)
 			require.NoError(t, err)
 
 			for _, f := range findings {
@@ -1385,8 +1392,16 @@ func TestFromGitStaged(t *testing.T) {
 		require.NoError(t, err)
 		gitCmd, err := sources.NewGitDiffCmd(tt.source, true)
 		require.NoError(t, err)
-		remote := NewRemoteInfo(scm.UnknownPlatform, tt.source)
-		findings, err := detector.DetectGit(gitCmd, remote)
+		findings, err := detector.DetectSource(
+			t.Context(),
+			&sources.Git{
+				Cmd:             gitCmd,
+				Config:          &detector.Config,
+				Remote:          sources.NewRemoteInfo(scm.UnknownPlatform, tt.source),
+				Sema:            detector.Sema,
+				MaxArchiveDepth: detector.MaxArchiveDepth,
+			},
+		)
 		require.NoError(t, err)
 
 		for _, f := range findings {
@@ -1502,10 +1517,17 @@ func TestFromFiles(t *testing.T) {
 			require.NoError(t, err)
 
 			detector.FollowSymlinks = true
-			paths, err := sources.DirectoryTargets(tt.source, detector.Sema, true, cfg.Allowlists)
-			require.NoError(t, err)
-
-			findings, err := detector.DetectFiles(paths)
+			findings, err := detector.DetectSource(
+				t.Context(),
+				&sources.Files{
+					Config:          &detector.Config,
+					FollowSymlinks:  detector.FollowSymlinks,
+					MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
+					Path:            tt.source,
+					Sema:            detector.Sema,
+					MaxArchiveDepth: detector.MaxArchiveDepth,
+				},
+			)
 			require.NoError(t, err)
 
 			// TODO: Temporary mitigation.
@@ -2080,7 +2102,7 @@ func TestDetectWithArchives(t *testing.T) {
 			err = viper.Unmarshal(&vc)
 			require.NoError(t, err)
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			if tt.expireContext {
 				cancel()
 			}
@@ -2174,10 +2196,17 @@ func TestDetectWithSymlinks(t *testing.T) {
 		cfg, _ := vc.Translate()
 		detector := NewDetector(cfg)
 		detector.FollowSymlinks = true
-		paths, err := sources.DirectoryTargets(tt.source, detector.Sema, true, cfg.Allowlists)
-		require.NoError(t, err)
-
-		findings, err := detector.DetectFiles(paths)
+		findings, err := detector.DetectSource(
+			t.Context(),
+			&sources.Files{
+				Config:          &detector.Config,
+				FollowSymlinks:  detector.FollowSymlinks,
+				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
+				Path:            tt.source,
+				Sema:            detector.Sema,
+				MaxArchiveDepth: detector.MaxArchiveDepth,
+			},
+		)
 		require.NoError(t, err)
 		assert.ElementsMatch(t, tt.expectedFindings, findings)
 	}
@@ -2185,13 +2214,13 @@ func TestDetectWithSymlinks(t *testing.T) {
 
 func TestDetectRuleAllowlist(t *testing.T) {
 	cases := map[string]struct {
-		fragment  Fragment
+		fragment  sources.Fragment
 		allowlist *config.Allowlist
 		expected  []report.Finding
 	}{
 		// Commit / path
 		"commit allowed": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				CommitSHA: "41edf1f7f612199f401ccfc3144c2ebd0d7aeb48",
 			},
 			allowlist: &config.Allowlist{
@@ -2199,7 +2228,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"path allowed": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				FilePath: "package-lock.json",
 			},
 			allowlist: &config.Allowlist{
@@ -2207,7 +2236,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"commit AND path allowed": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				CommitSHA: "41edf1f7f612199f401ccfc3144c2ebd0d7aeb48",
 				FilePath:  "package-lock.json",
 			},
@@ -2218,7 +2247,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"commit AND path NOT allowed": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				CommitSHA: "41edf1f7f612199f401ccfc3144c2ebd0d7aeb48",
 				FilePath:  "package.json",
 			},
@@ -2244,7 +2273,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"commit AND path NOT allowed - other conditions": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				CommitSHA: "41edf1f7f612199f401ccfc3144c2ebd0d7aeb48",
 				FilePath:  "package-lock.json",
 			},
@@ -2271,7 +2300,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"commit OR path allowed": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				CommitSHA: "41edf1f7f612199f401ccfc3144c2ebd0d7aeb48",
 				FilePath:  "package-lock.json",
 			},
@@ -2284,19 +2313,19 @@ func TestDetectRuleAllowlist(t *testing.T) {
 
 		// Regex / stopwords
 		"regex allowed": {
-			fragment: Fragment{},
+			fragment: sources.Fragment{},
 			allowlist: &config.Allowlist{
 				Regexes: []*regexp.Regexp{regexp.MustCompile(`(?i)summer.+`)},
 			},
 		},
 		"stopwords allowed": {
-			fragment: Fragment{},
+			fragment: sources.Fragment{},
 			allowlist: &config.Allowlist{
 				StopWords: []string{"summer"},
 			},
 		},
 		"regex AND stopword allowed": {
-			fragment: Fragment{},
+			fragment: sources.Fragment{},
 			allowlist: &config.Allowlist{
 				MatchCondition: config.AllowlistMatchAnd,
 				Regexes:        []*regexp.Regexp{regexp.MustCompile(`(?i)summer.+`)},
@@ -2304,7 +2333,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"regex AND stopword allowed - other conditions": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				CommitSHA: "41edf1f7f612199f401ccfc3144c2ebd0d7aeb48",
 				FilePath:  "config.js",
 			},
@@ -2317,7 +2346,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"regex AND stopword NOT allowed - non-git, other conditions": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				FilePath: "config.js",
 			},
 			allowlist: &config.Allowlist{
@@ -2343,7 +2372,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"regex AND stopword NOT allowed": {
-			fragment: Fragment{},
+			fragment: sources.Fragment{},
 			allowlist: &config.Allowlist{
 				MatchCondition: config.AllowlistMatchAnd,
 				Regexes: []*regexp.Regexp{
@@ -2366,7 +2395,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"regex AND stopword NOT allowed - other conditions": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				CommitSHA: "a060c9d2d5e90c992763f1bd4c3cd2a6f121241b",
 				FilePath:  "config.js",
 			},
@@ -2394,7 +2423,7 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 		},
 		"regex OR stopword allowed": {
-			fragment: Fragment{},
+			fragment: sources.Fragment{},
 			allowlist: &config.Allowlist{
 				MatchCondition: config.AllowlistMatchOr,
 				Regexes:        []*regexp.Regexp{regexp.MustCompile(`(?i)summer.+`)},
@@ -2491,20 +2520,20 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		},
 	}
 	tests := map[string]struct {
-		fragment Fragment
+		fragment sources.Fragment
 		rule     config.Rule
 		expected []report.Finding
 	}{
 		// unix rule
 		"unix rule - unix path separator": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				FilePath: `.m2/settings.xml`,
 			},
 			rule:     unixRule,
 			expected: expected,
 		},
 		"unix rule - windows path separator": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				FilePath:        `.m2/settings.xml`,
 				WindowsFilePath: `.m2\settings.xml`,
 			},
@@ -2512,7 +2541,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 			expected: expected,
 		},
 		"unix regex+path rule - windows path separator": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `<password>s3cr3t</password>`,
 				FilePath: `.m2/settings.xml`,
 			},
@@ -2537,7 +2566,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 
 		// windows rule
 		"windows rule - unix path separator": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				FilePath: `.m2/settings.xml`,
 			},
 			rule: windowsRule,
@@ -2546,7 +2575,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 			expected: nil,
 		},
 		"windows rule - windows path separator": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				FilePath:        `.m2/settings.xml`,
 				WindowsFilePath: `.m2\settings.xml`,
 			},
@@ -2554,7 +2583,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 			expected: expected,
 		},
 		"windows regex+path rule - windows path separator": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:             `<password>s3cr3t</password>`,
 				FilePath:        `.m2/settings.xml`,
 				WindowsFilePath: `.m2\settings.xml`,
@@ -2590,13 +2619,13 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 
 func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 	tests := map[string]struct {
-		fragment Fragment
+		fragment sources.Fragment
 		rule     config.Rule
 		expected []report.Finding
 	}{
 		// unix
 		"unix path separator - unix rule - OR allowlist path-only": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `value: "s3cr3t"`,
 				FilePath: `ignoreme/unix.txt`,
 			},
@@ -2612,7 +2641,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			expected: nil,
 		},
 		"unix path separator - windows rule - OR allowlist path-only": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `value: "s3cr3t"`,
 				FilePath: `ignoreme/unix.txt`,
 			},
@@ -2640,7 +2669,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			},
 		},
 		"unix path separator - unix rule - AND allowlist path+stopwords": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `value: "f4k3s3cr3t"`,
 				FilePath: `ignoreme/unix.txt`,
 			},
@@ -2658,7 +2687,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			expected: nil,
 		},
 		"unix path separator - windows rule - AND allowlist path+stopwords": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:      `value: "f4k3s3cr3t"`,
 				FilePath: `ignoreme/unix.txt`,
 			},
@@ -2689,7 +2718,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 
 		// windows
 		"windows path separator - unix rule - OR allowlist path-only": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:             `value: "s3cr3t"`,
 				FilePath:        `ignoreme/windows.txt`,
 				WindowsFilePath: `ignoreme\windows.txt`,
@@ -2706,7 +2735,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			expected: nil,
 		},
 		"windows path separator - windows rule - OR allowlist path-only": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:             `value: "s3cr3t"`,
 				FilePath:        `ignoreme/windows.txt`,
 				WindowsFilePath: `ignoreme\windows.txt`,
@@ -2723,7 +2752,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			expected: nil,
 		},
 		"windows path separator - unix rule - AND allowlist path+stopwords": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:             `value: "f4k3s3cr3t"`,
 				FilePath:        `ignoreme/unix.txt`,
 				WindowsFilePath: `ignoreme\windows.txt`,
@@ -2742,7 +2771,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			expected: nil,
 		},
 		"windows path separator - windows rule - AND allowlist path+stopwords": {
-			fragment: Fragment{
+			fragment: sources.Fragment{
 				Raw:             `value: "f4k3s3cr3t"`,
 				FilePath:        `ignoreme/unix.txt`,
 				WindowsFilePath: `ignoreme\windows.txt`,

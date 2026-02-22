@@ -67,9 +67,6 @@ linters:
   exclusions:
     rules:
       - linters:
-          - staticcheck
-        source: 'detector\.Detect\w+\(|sources\.DirectoryTargets\(|detect\.(?:Fragment|RemoteInfo)'
-      - linters:
           - misspell
         source: '"(?:addres|busines|clas)",'
   settings:

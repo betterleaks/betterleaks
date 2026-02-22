@@ -5,10 +5,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/betterleaks/betterleaks/cmd/scm"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
 func init() {

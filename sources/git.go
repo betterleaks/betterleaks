@@ -18,9 +18,9 @@ import (
 	"github.com/fatih/semgroup"
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 
-	"github.com/betterleaks/betterleaks/cmd/scm"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
 var quotedOptPattern = regexp.MustCompile(`^(?:"[^"]+"|'[^']+')$`)
