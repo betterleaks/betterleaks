@@ -12,7 +12,6 @@ linters:
     - err113
     - errcheck
     - exhaustive
-    - exhaustruct
     - exptostd
     - forbidigo
     - funcorder
@@ -35,7 +34,6 @@ linters:
     - nestif
     - nilerr
     - nlreturn
-    - nonamedreturns
     - paralleltest
     - perfsprint
     - prealloc
