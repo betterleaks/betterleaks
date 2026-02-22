@@ -19,33 +19,6 @@ type ScanTarget struct {
 	Symlink string
 }
 
-// Deprecated: Use Files and detector.DetectSource instead
-func DirectoryTargets(sourcePath string, s *semgroup.Group, followSymlinks bool, allowlists []*config.Allowlist) (<-chan ScanTarget, error) {
-	paths := make(chan ScanTarget)
-
-	// create a Files source
-	files := Files{
-		FollowSymlinks: followSymlinks,
-		Path:           sourcePath,
-		Sema:           s,
-		Config: &config.Config{
-			Allowlists: allowlists,
-		},
-	}
-
-	s.Go(func() error {
-		ctx := context.Background()
-		err := files.scanTargets(ctx, func(scanTarget ScanTarget, err error) error {
-			paths <- scanTarget
-			return nil
-		})
-		close(paths)
-		return err
-	})
-
-	return paths, nil
-}
-
 // Files is a source for yielding fragments from a collection of files
 type Files struct {
 	Config          *config.Config

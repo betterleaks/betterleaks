@@ -11,6 +11,7 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/sources"
 )
 
 func Validate(rule config.Rule, truePositives []string, falsePositives []string) *config.Rule {
@@ -42,7 +43,7 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 	r := &rule
 	d := createSingleRuleDetector(r)
 	for path, tp := range truePositives {
-		f := detect.Fragment{Raw: tp, FilePath: path}
+		f := sources.Fragment{Raw: tp, FilePath: path}
 		if len(d.Detect(f)) != 1 {
 			logging.Fatal().
 				Str("rule", r.RuleID).
@@ -53,7 +54,7 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 		}
 	}
 	for path, fp := range falsePositives {
-		f := detect.Fragment{Raw: fp, FilePath: path}
+		f := sources.Fragment{Raw: fp, FilePath: path}
 		if len(d.Detect(f)) != 0 {
 			logging.Fatal().
 				Str("rule", r.RuleID).

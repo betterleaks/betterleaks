@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/cmd/scm"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/scm"
 
 	"github.com/charmbracelet/lipgloss"
 )

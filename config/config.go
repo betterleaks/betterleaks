@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -25,6 +26,22 @@ var (
 )
 
 const maxExtendDepth = 2
+
+func init() {
+	// The environment variables for the scan environment
+	env := map[string]string{
+		"GIT_CONFIG_GLOBAL":      "/dev/null",
+		"GIT_TERMINAL_PROMPT":    "0",
+		"GIT_NO_REPLACE_OBJECTS": "1",
+		"GIT_CONFIG_NOSYSTEM":    "1",
+	}
+
+	for key, value := range env {
+		if err := os.Setenv(key, value); err != nil {
+			logging.Err(err).Str(key, value).Msg("could not set env var")
+		}
+	}
+}
 
 // ViperConfig is the config struct used by the Viper config package
 // to parse the config file. This struct does not include regular expressions.

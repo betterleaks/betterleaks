@@ -5,11 +5,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/betterleaks/betterleaks/cmd/scm"
-	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
 func init() {
@@ -48,19 +47,24 @@ func runProtect(cmd *cobra.Command, args []string) {
 	var (
 		findings []report.Finding
 		err      error
-
-		gitCmd *sources.GitCmd
-		remote *detect.RemoteInfo
+		gitCmd   *sources.GitCmd
 	)
 
 	if gitCmd, err = sources.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
 		logging.Fatal().Err(err).Msg("could not create Git diff cmd")
 	}
-	remote = &detect.RemoteInfo{Platform: scm.NoPlatform}
+	src := &sources.Git{
+		Cmd:             gitCmd,
+		Config:          &detector.Config,
+		Remote:          &sources.RemoteInfo{Platform: scm.NoPlatform},
+		Sema:            detector.Sema,
+		MaxArchiveDepth: detector.MaxArchiveDepth,
+	}
 
-	if findings, err = detector.DetectGit(gitCmd, remote); err != nil {
+	if findings, err = detector.DetectSource(cmd.Context(), src); err != nil {
 		// don't exit on error, just log it
 		logging.Error().Err(err).Msg("failed to scan Git repository")
 	}
+
 	findingSummaryAndExit(detector, findings, exitCode, start, err)
 }
