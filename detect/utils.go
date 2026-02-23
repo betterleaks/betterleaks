@@ -165,6 +165,37 @@ func filter(findings []report.Finding, redact uint) []report.Finding {
 	return retFindings
 }
 
+func formatMatchContext(context string, match string, secret string, noColor bool) string {
+	indent := "    " // 4 spaces
+	matchStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#f5d445"))
+	secretStyle := lipgloss.NewStyle().
+		Bold(true).
+		Italic(true).
+		Foreground(lipgloss.Color("#f05c07"))
+
+	lines := strings.Split(context, "\n")
+	for i, line := range lines {
+		if !noColor {
+			if secretIdx := strings.Index(line, secret); secret != "" && secretIdx != -1 {
+				// Try to highlight the full match with the secret emphasized inside it
+				if matchIdx := strings.Index(line, match); match != "" && matchIdx != -1 {
+					secretInMatch := strings.Index(match, secret)
+					highlighted := matchStyle.Render(match[:secretInMatch]) +
+						secretStyle.Render(secret) +
+						matchStyle.Render(match[secretInMatch+len(secret):])
+					line = line[:matchIdx] + highlighted + line[matchIdx+len(match):]
+				} else {
+					// Fall back to highlighting just the secret
+					line = line[:secretIdx] + secretStyle.Render(secret) + line[secretIdx+len(secret):]
+				}
+			}
+		}
+		lines[i] = indent + line
+	}
+	return strings.Join(lines, "\n")
+}
+
 func printFinding(f report.Finding, noColor bool) {
 	// trim all whitespace and tabs
 	f.Line = strings.TrimSpace(f.Line)
@@ -234,6 +265,9 @@ func printFinding(f report.Finding, noColor bool) {
 	fmt.Printf("%-12s %f\n", "Entropy:", f.Entropy)
 
 	if f.File == "" {
+		if f.MatchContext != "" {
+			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
+		}
 		f.PrintRequiredFindings()
 		fmt.Println("")
 		return
@@ -245,6 +279,9 @@ func printFinding(f report.Finding, noColor bool) {
 	fmt.Printf("%-12s %d\n", "Line:", f.StartLine)
 	if f.Commit == "" {
 		fmt.Printf("%-12s %s\n", "Fingerprint:", f.Fingerprint)
+		if f.MatchContext != "" {
+			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
+		}
 		f.PrintRequiredFindings()
 		fmt.Println("")
 		return
@@ -259,7 +296,7 @@ func printFinding(f report.Finding, noColor bool) {
 	}
 
 	if f.MatchContext != "" {
-		fmt.Printf("%-12s\n%s\n", "Context:", f.MatchContext)
+		fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 	}
 	f.PrintRequiredFindings()
 	fmt.Println("")

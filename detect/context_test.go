@@ -9,59 +9,15 @@ func TestParseMatchContext(t *testing.T) {
 	tests := []struct {
 		name    string
 		spec    string
-		want    MatchContext
+		want    int
 		wantErr bool
 	}{
-		{
-			name: "empty string",
-			spec: "",
-			want: MatchContext{},
-		},
-		{
-			name: "lines only - bare number",
-			spec: "5",
-			want: MatchContext{Lines: 5},
-		},
-		{
-			name: "lines only - with L suffix",
-			spec: "5L",
-			want: MatchContext{Lines: 5},
-		},
-		{
-			name: "lines and chars",
-			spec: "5L250C",
-			want: MatchContext{Lines: 5, Chars: 250},
-		},
-		{
-			name: "one line",
-			spec: "1",
-			want: MatchContext{Lines: 1},
-		},
-		{
-			name: "zero lines",
-			spec: "0",
-			want: MatchContext{Lines: 0},
-		},
-		{
-			name: "whitespace trimmed",
-			spec: "  3L100C  ",
-			want: MatchContext{Lines: 3, Chars: 100},
-		},
-		{
-			name:    "invalid spec - letters",
-			spec:    "abc",
-			wantErr: true,
-		},
-		{
-			name:    "invalid spec - negative",
-			spec:    "-1",
-			wantErr: true,
-		},
-		{
-			name:    "invalid spec - bad format",
-			spec:    "5L250",
-			wantErr: true,
-		},
+		{name: "empty string", spec: "", want: 0},
+		{name: "valid number", spec: "100", want: 100},
+		{name: "zero", spec: "0", want: 0},
+		{name: "whitespace trimmed", spec: "  50  ", want: 50},
+		{name: "invalid - not a number", spec: "abc", wantErr: true},
+		{name: "invalid - negative", spec: "-1", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -72,81 +28,50 @@ func TestParseMatchContext(t *testing.T) {
 				return
 			}
 			if !tt.wantErr && got != tt.want {
-				t.Errorf("ParseMatchContext(%q) = %+v, want %+v", tt.spec, got, tt.want)
+				t.Errorf("ParseMatchContext(%q) = %d, want %d", tt.spec, got, tt.want)
 			}
 		})
 	}
 }
 
 func TestExtractContext(t *testing.T) {
-	// Helper: create a raw string with numbered lines and compute newlineIndices + location.
-	// Lines: "line0\nline1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9"
-	lines := []string{
-		"line0 aaa and some more text here padding",
-		"line1 bbb with extra content after value",
-		"line2 ccc followed by trailing characters",
-		"line3 ddd plus additional context padding",
-		"line4 SECRET_HERE eee some trailing content",
-		"line5 fff more stuff beyond the match line",
-		"line6 ggg yet another line with extra text",
-		"line7 hhh continuing with padded out lines",
-		"line8 iii almost done with trailing content",
-		"line9 jjj final line with some extra filler",
-	}
-	raw := strings.Join(lines, "\n")
-	newlineIndices := findNewlineIndices(raw)
+	raw := "line0 aaa and some more text here padding\nline1 bbb with extra content after value\nline2 ccc followed by trailing characters\nline3 ddd plus additional context padding\nline4 SECRET_HERE eee some trailing content\nline5 fff more stuff beyond the match line\nline6 ggg yet another line with extra text\nline7 hhh continuing with padded out lines\nline8 iii almost done with trailing content\nline9 jjj final line with some extra filler"
 
-	// The match is on line 4 (0-indexed). Find its byte offset.
 	matchStr := "SECRET_HERE"
 	matchStart := strings.Index(raw, matchStr)
 	matchEnd := matchStart + len(matchStr)
-	loc := location(newlineIndices, raw, []int{matchStart, matchEnd})
+	matchIndex := []int{matchStart, matchEnd}
 
 	tests := []struct {
-		name string
-		cfg  MatchContext
-		want string
+		name  string
+		bytes int
+		want  string
 	}{
 		{
-			name: "not set",
-			cfg:  MatchContext{},
-			want: "",
+			name:  "not set",
+			bytes: 0,
+			want:  "",
 		},
 		{
-			name: "2 lines context",
-			cfg:  MatchContext{Lines: 2},
-			want: strings.Join(lines[2:7], "\n"),
+			name:  "small context around match",
+			bytes: 10,
+			want:  raw[matchStart-10 : matchEnd+10],
 		},
 		{
-			name: "0 lines context (just the match line, but Lines=0 means IsSet is false)",
-			cfg:  MatchContext{Lines: 0},
-			want: "",
+			name:  "large context includes everything",
+			bytes: 10000,
+			want:  raw,
 		},
 		{
-			name: "1 line context",
-			cfg:  MatchContext{Lines: 1},
-			want: strings.Join(lines[3:6], "\n"),
-		},
-		{
-			name: "5 lines context (clamped at boundaries)",
-			cfg:  MatchContext{Lines: 5},
-			want: strings.Join(lines[0:10], "\n"),
-		},
-		{
-			name: "100 lines context (clamped)",
-			cfg:  MatchContext{Lines: 100},
-			want: raw,
-		},
-		{
-			name: "2 lines with char truncation",
-			cfg:  MatchContext{Lines: 2, Chars: 20},
-			want: "line2 ccc followed b\nline3 ddd plus addit\nline4 SECRET_HERE ee\nline5 fff more stuff\nline6 ggg yet anothe",
+			name:  "1 byte padding",
+			bytes: 1,
+			want:  raw[matchStart-1 : matchEnd+1],
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractContext(raw, newlineIndices, loc, tt.cfg)
+			got := extractContext(raw, matchIndex, tt.bytes)
 			if got != tt.want {
 				t.Errorf("extractContext() =\n%q\nwant\n%q", got, tt.want)
 			}
@@ -154,50 +79,32 @@ func TestExtractContext(t *testing.T) {
 	}
 }
 
-func TestExtractContext_MatchOnFirstLine(t *testing.T) {
-	raw := "SECRET_HERE\nline1\nline2"
-	newlineIndices := findNewlineIndices(raw)
-	matchStart := 0
+func TestExtractContext_MatchAtStart(t *testing.T) {
+	raw := "SECRET_HERE and some text after"
 	matchEnd := len("SECRET_HERE")
-	loc := location(newlineIndices, raw, []int{matchStart, matchEnd})
+	matchIndex := []int{0, matchEnd}
 
-	got := extractContext(raw, newlineIndices, loc, MatchContext{Lines: 2})
-	want := "SECRET_HERE\nline1\nline2"
+	got := extractContext(raw, matchIndex, 20)
+	want := raw[:matchEnd+20]
 	if got != want {
-		t.Errorf("extractContext(first line) =\n%q\nwant\n%q", got, want)
+		t.Errorf("extractContext(start) =\n%q\nwant\n%q", got, want)
 	}
 }
 
-func TestExtractContext_MatchOnLastLine(t *testing.T) {
-	raw := "line0\nline1\nSECRET_HERE"
-	newlineIndices := findNewlineIndices(raw)
+func TestExtractContext_MatchAtEnd(t *testing.T) {
+	raw := "some text before and more padding here SECRET_HERE"
 	matchStart := strings.Index(raw, "SECRET_HERE")
-	matchEnd := matchStart + len("SECRET_HERE")
-	loc := location(newlineIndices, raw, []int{matchStart, matchEnd})
+	matchIndex := []int{matchStart, len(raw)}
 
-	got := extractContext(raw, newlineIndices, loc, MatchContext{Lines: 2})
-	want := "line0\nline1\nSECRET_HERE"
+	got := extractContext(raw, matchIndex, 20)
+	want := raw[matchStart-20:]
 	if got != want {
-		t.Errorf("extractContext(last line) =\n%q\nwant\n%q", got, want)
-	}
-}
-
-func TestExtractContext_SingleLine(t *testing.T) {
-	raw := "only SECRET_HERE line"
-	newlineIndices := findNewlineIndices(raw)
-	matchStart := strings.Index(raw, "SECRET_HERE")
-	matchEnd := matchStart + len("SECRET_HERE")
-	loc := location(newlineIndices, raw, []int{matchStart, matchEnd})
-
-	got := extractContext(raw, newlineIndices, loc, MatchContext{Lines: 3})
-	want := "only SECRET_HERE line"
-	if got != want {
-		t.Errorf("extractContext(single line) =\n%q\nwant\n%q", got, want)
+		t.Errorf("extractContext(end) =\n%q\nwant\n%q", got, want)
 	}
 }
 
 func TestExtractContext_EmptyRaw(t *testing.T) {
-	got := extractContext("", nil, Location{}, MatchContext{Lines: 3})
+	got := extractContext("", []int{0, 0}, 10)
 	if got != "" {
 		t.Errorf("extractContext(empty) = %q, want empty", got)
 	}
