@@ -46,6 +46,9 @@ type Finding struct {
 	// unique identifier
 	Fingerprint string
 
+	// MatchContext contains surrounding lines around the match
+	MatchContext string `json:",omitempty"`
+
 	// Fragment used for multi-part rule checking, CEL filtering,
 	// and eventually ML validation
 	Fragment *sources.Fragment `json:",omitempty"`
