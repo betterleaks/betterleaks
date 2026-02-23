@@ -15,6 +15,7 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/validate"
 	"github.com/betterleaks/betterleaks/words"
 	"github.com/pkoukk/tiktoken-go"
 	tiktoken_loader "github.com/pkoukk/tiktoken-go-loader"
@@ -175,6 +176,18 @@ type Detector struct {
 	TotalBytes atomic.Uint64
 
 	tokenizer *tiktoken.Tiktoken
+
+	// ValidateOnly, when true, silently drops findings whose rule has no
+	// [rules.validate] block (they can never be confirmed).
+	ValidateOnly bool
+
+	// validator is the optional validation worker pool.
+	validator     *validate.Validator
+	validateCh    chan report.Finding
+	validateWg    sync.WaitGroup
+	validatedMu   sync.Mutex
+	validated     []report.Finding
+	validateCtx   context.Context
 }
 
 // NewDetector creates a new detector with the given config
@@ -856,6 +869,20 @@ func (d *Detector) AddFinding(finding report.Finding) {
 		return
 	}
 
+	if d.validateCh != nil {
+		rule, ok := d.Config.Rules[finding.RuleID]
+		if ok && rule.Validate != nil {
+			d.validateCh <- finding
+			return
+		}
+	}
+
+	// In validate-only mode, drop findings that have no validate block —
+	// they can never be confirmed.
+	if d.ValidateOnly {
+		return
+	}
+
 	d.findingMutex.Lock()
 	d.findings = append(d.findings, finding)
 	if d.Verbose {
@@ -867,6 +894,58 @@ func (d *Detector) AddFinding(finding report.Finding) {
 // Findings returns the findings added to the detector
 func (d *Detector) Findings() []report.Finding {
 	return d.findings
+}
+
+// StartValidation spins up a pool of workers that validate findings asynchronously.
+// Findings whose rule has a [rules.validate] block will be sent to the pool from AddFinding.
+// Call DrainValidation after the scan completes to wait for all workers and collect results.
+func (d *Detector) StartValidation(ctx context.Context, v *validate.Validator, workers int) {
+	d.validator = v
+	d.validateCtx = ctx
+	d.validateCh = make(chan report.Finding, workers*2)
+	d.validated = make([]report.Finding, 0)
+
+	for range workers {
+		d.validateWg.Add(1)
+		go func() {
+			defer d.validateWg.Done()
+			for f := range d.validateCh {
+				v.ValidateFinding(ctx, &f)
+				d.validatedMu.Lock()
+				d.validated = append(d.validated, f)
+				if d.Verbose {
+					printFinding(f, d.NoColor)
+				}
+				d.validatedMu.Unlock()
+			}
+		}()
+	}
+
+	logging.Debug().Int("workers", workers).Msg("validation worker pool started")
+}
+
+// Validating reports whether an async validation worker pool is running.
+func (d *Detector) Validating() bool {
+	return d.validateCh != nil
+}
+
+// WaitForValidation blocks until all in-flight validation workers finish,
+// then merges their results into the main findings slice. Safe to call
+// even if no validation pool was started (no-op).
+func (d *Detector) WaitForValidation() {
+	if d.validateCh == nil {
+		return
+	}
+
+	close(d.validateCh)
+	d.validateWg.Wait()
+
+	d.findingMutex.Lock()
+	d.findings = append(d.findings, d.validated...)
+	d.findingMutex.Unlock()
+
+	d.validated = nil
+	d.validateCh = nil
 }
 
 // AddCommit synchronously adds a commit to the commit slice

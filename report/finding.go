@@ -55,6 +55,11 @@ type Finding struct {
 
 	// TODO keeping private for now to during experimental phase
 	requiredFindings []*RequiredFinding
+
+	ValidationStatus   ValidationStatus  `json:",omitempty"`
+	ValidationNote     string            `json:",omitempty"`
+	ValidationMeta     map[string]string `json:",omitempty"`
+	ValidationResponse string            `json:",omitempty"`
 }
 
 type RequiredFinding struct {
@@ -68,6 +73,21 @@ type RequiredFinding struct {
 	Line        string `json:"-"`
 	Match       string
 	Secret      string
+}
+
+type ValidationStatus string
+
+const (
+	ValidationUnknown   ValidationStatus = ""
+	ValidationConfirmed ValidationStatus = "CONFIRMED"
+	ValidationInvalid   ValidationStatus = "INVALID"
+	ValidationRevoked   ValidationStatus = "REVOKED"
+	ValidationError     ValidationStatus = "ERROR"
+	ValidationUnkown    ValidationStatus = "UNKNOWN"
+)
+
+func (f *Finding) RequiredFindings() []*RequiredFinding {
+	return f.requiredFindings
 }
 
 func (f *Finding) AddRequiredFindings(afs []*RequiredFinding) {

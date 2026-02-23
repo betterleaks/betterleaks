@@ -20,6 +20,7 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
+	"github.com/betterleaks/betterleaks/validate"
 	"github.com/betterleaks/betterleaks/version"
 )
 
@@ -93,6 +94,12 @@ func init() {
 	rootCmd.PersistentFlags().Int("max-archive-depth", 0, "allow scanning into nested archives up to this depth (default \"0\", no archive traversal is done)")
 	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for gitleaks commands in seconds (default \"0\", no timeout is set)")
 	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
+
+	// Validation flags
+	rootCmd.PersistentFlags().Bool("validate-only", false, "only report confirmed findings (suppresses unvalidated + invalid)")
+	rootCmd.PersistentFlags().Bool("no-validate", false, "skip all validation even if rules have validate blocks")
+	rootCmd.PersistentFlags().Duration("validate-timeout", 10*time.Second, "per-request timeout for validation")
+	rootCmd.PersistentFlags().Bool("full-validation-response", false, "include full HTTP response body on validated findings")
 
 	// Add diagnostics flags
 	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
@@ -453,6 +460,16 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 		detector.Reporter = reporter
 	}
 
+	// Start async validation worker pool if any rules have validate blocks.
+	noValidate := mustGetBoolFlag(cmd, "no-validate")
+	detector.ValidateOnly = mustGetBoolFlag(cmd, "validate-only")
+	if !noValidate && hasAnyValidationRule(cfg) {
+		v := validate.NewValidator(cfg)
+		v.RequestTimeout, _ = cmd.Flags().GetDuration("validate-timeout")
+		v.FullResponse, _ = cmd.Flags().GetBool("full-validation-response")
+		detector.StartValidation(cmd.Context(), v, 10)
+	}
+
 	return detector
 }
 
@@ -483,10 +500,58 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
+func hasAnyValidationRule(cfg config.Config) bool {
+	for _, r := range cfg.Rules {
+		if r.Validate != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func filterConfirmed(findings []report.Finding) []report.Finding {
+	var confirmed []report.Finding
+	for _, f := range findings {
+		if f.ValidationStatus == report.ValidationConfirmed {
+			confirmed = append(confirmed, f)
+		}
+	}
+	return confirmed
+}
+
 func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding, exitCode int, start time.Time, err error) {
 	if diagnosticsManager.Enabled {
 		logging.Debug().Msg("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()
+	}
+
+	if detector.Validating() {
+		detector.WaitForValidation()
+		findings = detector.Findings()
+
+		var confirmed, invalid, revoked, errCount int
+		for _, f := range findings {
+			switch f.ValidationStatus {
+			case report.ValidationConfirmed:
+				confirmed++
+			case report.ValidationInvalid:
+				invalid++
+			case report.ValidationRevoked:
+				revoked++
+			case report.ValidationError:
+				errCount++
+			}
+		}
+		logging.Info().
+			Int("confirmed", confirmed).
+			Int("invalid", invalid).
+			Int("revoked", revoked).
+			Int("errors", errCount).
+			Msg("validation complete")
+	}
+
+	if mustGetBoolFlag(rootCmd, "validate-only") {
+		findings = filterConfirmed(findings)
 	}
 
 	totalBytes := detector.TotalBytes.Load()

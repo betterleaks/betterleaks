@@ -66,6 +66,7 @@ type ViperConfig struct {
 
 		Allowlists      []*viperRuleAllowlist
 		Required        []*viperRequired
+		Validate        *viperValidation
 		SkipReport      bool
 		TokenEfficiency bool
 	}
@@ -85,6 +86,24 @@ type viperRequired struct {
 	ID            string
 	WithinLines   *int `mapstructure:"withinLines"`
 	WithinColumns *int `mapstructure:"withinColumns"`
+}
+
+type viperValidation struct {
+	Type    string            `mapstructure:"type"`
+	Method  string            `mapstructure:"method"`
+	URL     string            `mapstructure:"url"`
+	Headers map[string]string `mapstructure:"headers"`
+	Body    string            `mapstructure:"body"`
+	Match   []viperMatchClause `mapstructure:"match"`
+}
+
+type viperMatchClause struct {
+	Status        *int     `mapstructure:"status"`
+	Words         []string `mapstructure:"words"`
+	WordsAll      bool     `mapstructure:"words_all"`
+	NegativeWords []string `mapstructure:"negative_words"`
+	Result        string   `mapstructure:"result"`
+	Extract       []string `mapstructure:"extract"`
 }
 
 type viperRuleAllowlist struct {
@@ -214,6 +233,14 @@ func (vc *ViperConfig) Translate() (Config, error) {
 			cr.RequiredRules = append(cr.RequiredRules, &requiredRule)
 		}
 
+		if vr.Validate != nil {
+			v, err := parseViperValidation(vr.Validate)
+			if err != nil {
+				return Config{}, fmt.Errorf("%s: %w", cr.RuleID, err)
+			}
+			cr.Validate = v
+		}
+
 		orderedRules = append(orderedRules, cr.RuleID)
 		rulesMap[cr.RuleID] = cr
 	}
@@ -297,7 +324,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	// Validate the rules after everything has been assembled (including extended configs).
 	if currentExtendDepth == 0 {
 		for _, rule := range c.Rules {
-			if err := rule.Validate(); err != nil {
+			if err := rule.Check(); err != nil {
 				return Config{}, err
 			}
 		}
@@ -557,6 +584,9 @@ func (c *Config) extend(extensionConfig Config) {
 			if currentRule.Path != nil {
 				baseRule.Path = currentRule.Path
 			}
+			if currentRule.Validate != nil {
+				baseRule.Validate = currentRule.Validate
+			}
 			baseRule.Tags = append(baseRule.Tags, currentRule.Tags...)
 			baseRule.Keywords = append(baseRule.Keywords, currentRule.Keywords...)
 			baseRule.Allowlists = append(baseRule.Allowlists, currentRule.Allowlists...)
@@ -574,4 +604,49 @@ func (c *Config) extend(extensionConfig Config) {
 	// sort to keep extended rules in order
 	sort.Strings(c.OrderedRules)
 	return
+}
+
+func parseViperValidation(vv *viperValidation) (*Validation, error) {
+	vType := strings.ToLower(vv.Type)
+	if vType == "" {
+		vType = "http"
+	}
+
+	switch vType {
+	case "http":
+		return parseHTTPValidation(vv)
+	default:
+		return nil, fmt.Errorf("validate: unknown type %q", vv.Type)
+	}
+}
+
+func parseHTTPValidation(vv *viperValidation) (*Validation, error) {
+	var clauses []MatchClause
+	for i, vm := range vv.Match {
+		clause := MatchClause{
+			Status:        vm.Status,
+			Words:         vm.Words,
+			WordsAll:      vm.WordsAll,
+			NegativeWords: vm.NegativeWords,
+			Result:        strings.ToLower(vm.Result),
+			Extract:       vm.Extract,
+		}
+		if clause.Result == "" {
+			return nil, fmt.Errorf("validate: match[%d]: result is required", i)
+		}
+		clauses = append(clauses, clause)
+	}
+
+	v := &Validation{
+		Type:    ValidationTypeHTTP,
+		Method:  strings.ToUpper(vv.Method),
+		URL:     vv.URL,
+		Headers: vv.Headers,
+		Body:    vv.Body,
+		Match:   clauses,
+	}
+	if err := v.Check(); err != nil {
+		return nil, err
+	}
+	return v, nil
 }

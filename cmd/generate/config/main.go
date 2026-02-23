@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"slices"
+	"sort"
+	"strings"
 	"text/template"
 
 	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
@@ -254,7 +257,7 @@ func main() {
 	// ensure rules have unique ids
 	ruleLookUp := make(map[string]config.Rule, len(configRules))
 	for _, rule := range configRules {
-		if err := rule.Validate(); err != nil {
+		if err := rule.Check(); err != nil {
 			logging.Fatal().Err(err).
 				Str("rule-id", rule.RuleID).
 				Msg("Failed to validate rule")
@@ -278,7 +281,21 @@ func main() {
 		}
 	}
 
-	tmpl, err := template.ParseFiles(templatePath)
+	funcMap := template.FuncMap{
+		"tomlInlineTable": func(m map[string]string) string {
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			parts := make([]string, 0, len(keys))
+			for _, k := range keys {
+				parts = append(parts, fmt.Sprintf("%s = %q", k, m[k]))
+			}
+			return "{ " + strings.Join(parts, ", ") + " }"
+		},
+	}
+	tmpl, err := template.New("config.tmpl").Funcs(funcMap).ParseFiles(templatePath)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("Failed to parse template")
 	}

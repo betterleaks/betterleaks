@@ -36,7 +36,10 @@ betterleaksMinVersion = "v1.0.0"
     "{{ $stopword }}",{{ end }}
 ]{{ end }}{{ end }}{{ end }}{{ end }}{{println}}
 
-{{- range $i, $rule := .Rules }}{{println}}[[rules]]
+{{- range $i, $rule := .Rules }}{{println}}# ──────────────────────────────────────────────────────────────────────────────
+# {{ $rule.RuleID }}
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
 id = "{{$rule.RuleID}}"
 description = "{{$rule.Description}}"
 {{- with $rule.Regex }}
@@ -73,4 +76,17 @@ tags = [
 {{- with .StopWords }}{{println}}stopwords = [{{ range $j, $stopword := . }}
     "{{ $stopword }}",{{ end }}
 ]{{ end }}{{ end }}{{ end }}{{ end }}
+{{- with $rule.Validate }}{{println}}[rules.validate]
+type = "{{ .Type }}"
+method = "{{ .Method }}"
+url = "{{ .URL }}"
+{{- with .Headers }}
+headers = {{ tomlInlineTable . }}{{ end }}
+{{- with .Body }}
+body = '''{{ . }}'''{{ end }}
+{{- with .Match }}{{println}}match = [
+{{- range $j, $clause := . }}
+    { {{ with $clause.Status }}status = {{ . }}, {{ end }}{{ with $clause.Words }}words = [{{ range $k, $word := . }}'{{ $word }}', {{ end }}], {{ end }}{{ if $clause.WordsAll }}words_all = true, {{ end }}{{ with $clause.NegativeWords }}negative_words = [{{ range $k, $word := . }}'{{ $word }}', {{ end }}], {{ end }}result = "{{ $clause.Result }}"{{ with $clause.Extract }}, extract = [{{ range $k, $field := . }}"{{ $field }}", {{ end }}]{{ end }} },
+{{- end }}
+]{{ end }}{{ end }}
 {{ end }}
