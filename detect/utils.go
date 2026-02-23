@@ -258,6 +258,9 @@ func printFinding(f report.Finding, noColor bool) {
 		fmt.Printf("%-12s %s\n", "Link:", f.Link)
 	}
 
+	if f.MatchContext != "" {
+		fmt.Printf("%-12s\n%s\n", "Context:", f.MatchContext)
+	}
 	f.PrintRequiredFindings()
 	fmt.Println("")
 }
