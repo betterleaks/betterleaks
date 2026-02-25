@@ -2379,6 +2379,13 @@ entropy = 3
 keywords = ["glsa_"]
 
 [[rules]]
+id = "greptile-api-key"
+description = "Detected a Greptile API Key, which may expose AI-powered code search and analysis services to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:greptile)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-zA-Z0-9+/]{48})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["greptile"]
+
+[[rules]]
 id = "groq-api-key"
 description = "Identified a Groq API Key, which may expose high-speed AI inference services to unauthorized access."
 regex = '''(?i)\b(gsk_[A-Z0-9]{52})(?:[\x60'"\s;]|\\[nr]|$)'''

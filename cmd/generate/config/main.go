@@ -135,6 +135,7 @@ func main() {
 		rules.GitlabSessionCookie(),
 		rules.GitterAccessToken(),
 		rules.Groq(),
+		rules.Greptile(),
 		rules.GrafanaApiKey(),
 		rules.GrafanaCloudApiToken(),
 		rules.GrafanaServiceAccountToken(),
