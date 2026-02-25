@@ -36,6 +36,7 @@ A couple things:
 - [Token Efficiency Filter](https://lookingatcomputer.substack.com/p/rare-not-random)
 - Misc optimizations
 - Regex engine switching w/ (`--regexp-engine=stdlib/re2`)
+- MORE RULES! Ahhh finally!
 
 ### Benchmarks
 
