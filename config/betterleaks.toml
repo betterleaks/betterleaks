@@ -2387,7 +2387,7 @@ match = [
     { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
-    { result = "error" },
+    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2408,7 +2408,7 @@ match = [
     { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
-    { result = "error" },
+    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2429,7 +2429,7 @@ match = [
     { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
-    { result = "error" },
+    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2454,7 +2454,7 @@ match = [
     { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
-    { result = "error" },
+    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2475,7 +2475,7 @@ match = [
     { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
-    { result = "error" },
+    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
