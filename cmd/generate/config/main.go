@@ -53,6 +53,7 @@ func main() {
 		rules.BitBucketClientSecret(),
 		rules.BittrexAccessKey(),
 		rules.BittrexSecretKey(),
+		rules.Beamer(),
 		rules.Cerebras(),
 		rules.Beamer(),
 		rules.CodecovAccessToken(),
