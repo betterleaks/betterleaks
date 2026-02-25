@@ -37,6 +37,7 @@ A couple things:
 - Secret Validation — automatically check if a detected secret is live by firing an HTTP request
 - Misc optimizations
 - Regex engine switching w/ (`--regexp-engine=stdlib/re2`)
+- MORE RULES! Ahhh finally!
 
 ### Benchmarks
 
