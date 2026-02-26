@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/osteele/liquid"
 	"github.com/tidwall/gjson"
 )
 
-// Probably want to warn rule authors not to hit APIs that change state
 var validMethods = map[string]struct{}{
 	"GET":     {},
 	"POST":    {},
@@ -25,7 +26,6 @@ type ValidationType string
 
 const (
 	ValidationTypeHTTP ValidationType = "http"
-	// TODO Add more in the future (aws, postgres, etc)
 )
 
 // Validation describes a request to fire against a live API and a list of
@@ -37,18 +37,24 @@ type Validation struct {
 	Headers map[string]string
 	Body    string
 	Match   []MatchClause
+	// Extract is the default extractor map. Used when a matching clause has no
+	// extract of its own. Keys are output names, values are source-prefixed
+	// expressions (e.g. "json:login", "header:X-OAuth-Scopes").
+	Extract map[string]string
 }
 
 // MatchClause is one branch in a first-match-wins decision list.
 // All specified fields must be satisfied for the clause to match.
 // The first matching clause determines the finding's ValidationStatus.
 type MatchClause struct {
-	Status        *int     // if set, response status code must equal this
-	Words         []string // if set, body must contain these words (any by default)
-	WordsAll      bool     // if true, ALL words must be present
-	NegativeWords []string // if set, body must NOT contain any of these
-	Result        string   // required: "confirmed", "invalid", "revoked", "error"
-	Extract       []string // optional: JSON field names to extract into finding metadata
+	StatusCodes   []int             // if set, response status code must be one of these
+	Words         []string          // if set, body must contain these words (any by default)
+	WordsAll      bool              // if true, ALL words must be present
+	NegativeWords []string          // if set, body must NOT contain any of these
+	JSON          map[string]any    // GJSON path assertions; all must match
+	Headers       map[string]string // response header assertions (case-insensitive substring)
+	Result        string            // required: "confirmed", "invalid", "revoked", "error", "unknown"
+	Extract       map[string]string // per-clause extract overrides Validation.Extract
 }
 
 var validResults = map[string]struct{}{
@@ -76,8 +82,6 @@ func (v *Validation) Check() error {
 		return errors.New("validate: url is required")
 	}
 	if u, err := url.Parse(v.URL); err != nil || u.Scheme == "" || u.Host == "" {
-		// URLs may contain {{ placeholders }}, so only reject obviously malformed ones
-		// where the scheme or host is missing even after ignoring template syntax.
 		if !strings.Contains(v.URL, "{{") {
 			return fmt.Errorf("validate: url %q must have a scheme and host", v.URL)
 		}
@@ -91,39 +95,74 @@ func (v *Validation) Check() error {
 		}
 	}
 
-	// Warn if the last match clause isn't a catch-all. Without one, unexpected
-	// responses silently become ERROR status which can be confusing to debug.
 	last := v.Match[len(v.Match)-1]
-	if last.Status != nil || len(last.Words) > 0 || len(last.NegativeWords) > 0 {
+	if len(last.StatusCodes) > 0 || len(last.Words) > 0 || len(last.NegativeWords) > 0 || len(last.JSON) > 0 || len(last.Headers) > 0 {
 		logging.Warn().
 			Str("url", v.URL).
-			Msg("validate: last match clause is not a catch-all (has status/words conditions); unmatched responses will default to error")
+			Msg("validate: last match clause is not a catch-all (has conditions); unmatched responses will default to error")
+	}
+
+	// Validate Liquid template syntax at config time so broken templates
+	// fail loudly rather than silently at runtime.
+	if err := v.checkTemplates(); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-// EvalMatch evaluates match clauses against an HTTP response.
-// Returns the result string of the first matching clause, extracted metadata,
-// and a reason. If no clause matches, returns "error" with a reason explaining
-// the miss.
-func (v *Validation) EvalMatch(statusCode int, body []byte) (result string, meta map[string]string, reason string) {
-	for i, c := range v.Match {
-		if !clauseMatches(c, statusCode, body) {
+func (v *Validation) checkTemplates() error {
+	engine := liquid.NewEngine()
+	templates := []struct {
+		name, tmpl string
+	}{
+		{"url", v.URL},
+		{"body", v.Body},
+	}
+	for _, h := range v.Headers {
+		templates = append(templates, struct{ name, tmpl string }{"header value", h})
+	}
+	for _, t := range templates {
+		if t.tmpl == "" {
 			continue
 		}
-		var extracted map[string]string
-		if len(c.Extract) > 0 {
-			extracted = extractJSON(body, c.Extract)
+		if _, err := engine.ParseString(t.tmpl); err != nil {
+			return fmt.Errorf("validate: template error in %s %q: %w", t.name, t.tmpl, err)
 		}
+	}
+	return nil
+}
+
+// EvalMatch evaluates match clauses against an HTTP response.
+// Returns the result string of the first matching clause, extracted metadata,
+// and a reason. If no clause matches, returns "unknown" with a reason.
+func (v *Validation) EvalMatch(statusCode int, body []byte, headers http.Header) (result string, meta map[string]string, reason string) {
+	for i, c := range v.Match {
+		if !clauseMatches(c, statusCode, body, headers) {
+			continue
+		}
+		extractMap := v.Extract
+		if len(c.Extract) > 0 {
+			extractMap = c.Extract
+		}
+		extracted := extractValues(body, headers, extractMap)
 		return c.Result, extracted, fmt.Sprintf("match[%d] (%s)", i, c.Result)
 	}
 	return "unknown", nil, fmt.Sprintf("no match clause satisfied (status=%d)", statusCode)
 }
 
-func clauseMatches(c MatchClause, statusCode int, body []byte) bool {
-	if c.Status != nil && statusCode != *c.Status {
-		return false
+func clauseMatches(c MatchClause, statusCode int, body []byte, headers http.Header) bool {
+	if len(c.StatusCodes) > 0 {
+		found := false
+		for _, code := range c.StatusCodes {
+			if statusCode == code {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
 	}
 
 	lowerBody := bytes.ToLower(body)
@@ -155,34 +194,104 @@ func clauseMatches(c MatchClause, statusCode int, body []byte) bool {
 		}
 	}
 
+	// JSON path assertions
+	if len(c.JSON) > 0 {
+		if !gjson.ValidBytes(body) {
+			return false
+		}
+		for path, expected := range c.JSON {
+			result := gjson.GetBytes(body, path)
+			if !matchJSONAssertion(result, expected) {
+				return false
+			}
+		}
+	}
+
+	// Response header assertions
+	for name, expected := range c.Headers {
+		actual := headers.Get(name)
+		if !strings.Contains(strings.ToLower(actual), strings.ToLower(expected)) {
+			return false
+		}
+	}
+
 	return true
 }
 
-// extractJSON extracts JSON values using GJSON path expressions, stringifying them.
-// Simple field names (e.g. "login") work as top-level lookups for backward
-// compatibility. GJSON paths enable nested access ("user.name"), array
-// indexing ("repos.0.name"), wildcards ("repos.#.name"), and more.
-// See https://github.com/tidwall/gjson/blob/master/SYNTAX.md
-func extractJSON(body []byte, fields []string) map[string]string {
-	if !gjson.ValidBytes(body) {
+// matchJSONAssertion checks a GJSON result against an expected value:
+//   - "!empty": path must exist and be non-empty
+//   - []any: actual value must match one of the list entries
+//   - scalar: exact match via string comparison
+func matchJSONAssertion(result gjson.Result, expected any) bool {
+	switch v := expected.(type) {
+	case string:
+		if v == "!empty" {
+			return result.Exists() && result.String() != ""
+		}
+		return result.Exists() && result.String() == v
+	case []any:
+		if !result.Exists() {
+			return false
+		}
+		actual := result.Value()
+		for _, want := range v {
+			if fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", want) {
+				return true
+			}
+		}
+		return false
+	case bool:
+		return result.Exists() && result.Bool() == v
+	case float64:
+		return result.Exists() && result.Float() == v
+	case int:
+		return result.Exists() && result.Int() == int64(v)
+	case int64:
+		return result.Exists() && result.Int() == v
+	default:
+		return result.Exists() && fmt.Sprintf("%v", result.Value()) == fmt.Sprintf("%v", expected)
+	}
+}
+
+// extractValues extracts data from an HTTP response using source-prefixed expressions.
+// Supported prefixes: "json:" (GJSON path on body), "header:" (response header value),
+// "xpath:" (stub for future XML support).
+func extractValues(body []byte, headers http.Header, extract map[string]string) map[string]string {
+	if len(extract) == 0 {
 		return nil
 	}
-	out := make(map[string]string, len(fields))
-	for _, f := range fields {
-		result := gjson.GetBytes(body, f)
-		if !result.Exists() {
-			continue
+	out := make(map[string]string, len(extract))
+	for name, expr := range extract {
+		prefix, path, _ := strings.Cut(expr, ":")
+		var val string
+		switch prefix {
+		case "json":
+			if gjson.ValidBytes(body) {
+				r := gjson.GetBytes(body, path)
+				if r.Exists() {
+					if r.IsArray() {
+						parts := make([]string, 0)
+						r.ForEach(func(_, v gjson.Result) bool {
+							parts = append(parts, v.String())
+							return true
+						})
+						val = strings.Join(parts, ",")
+					} else {
+						val = r.String()
+					}
+				}
+			}
+		case "header":
+			val = headers.Get(path)
+		case "xpath":
+			// Stub — implement when needed
 		}
-		if result.IsArray() {
-			parts := make([]string, 0)
-			result.ForEach(func(_, v gjson.Result) bool {
-				parts = append(parts, v.String())
-				return true
-			})
-			out[f] = strings.Join(parts, ",")
-		} else {
-			out[f] = result.String()
+		if val != "" {
+			out[name] = val
 		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

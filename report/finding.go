@@ -28,6 +28,9 @@ type Finding struct {
 	// Captured secret
 	Secret string
 
+	// CaptureGroups holds named regex capture groups from the match.
+	CaptureGroups map[string]string `json:",omitempty"`
+
 	// File is the name of the file containing the finding
 	File        string
 	SymlinkFile string
@@ -65,25 +68,25 @@ type Finding struct {
 type RequiredFinding struct {
 	// contains a subset of the Finding fields
 	// only used for reporting
-	RuleID      string
-	StartLine   int
-	EndLine     int
-	StartColumn int
-	EndColumn   int
-	Line        string `json:"-"`
-	Match       string
-	Secret      string
+	RuleID        string
+	StartLine     int
+	EndLine       int
+	StartColumn   int
+	EndColumn     int
+	Line          string            `json:"-"`
+	Match         string
+	Secret        string
+	CaptureGroups map[string]string `json:",omitempty"`
 }
 
 type ValidationStatus string
 
 const (
-	ValidationUnknown   ValidationStatus = ""
+	ValidationUnknown   ValidationStatus = "UNKNOWN"
 	ValidationConfirmed ValidationStatus = "CONFIRMED"
 	ValidationInvalid   ValidationStatus = "INVALID"
 	ValidationRevoked   ValidationStatus = "REVOKED"
 	ValidationError     ValidationStatus = "ERROR"
-	ValidationUnkown    ValidationStatus = "UNKNOWN"
 )
 
 func (f *Finding) RequiredFindings() []*RequiredFinding {

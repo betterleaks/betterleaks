@@ -89,21 +89,24 @@ type viperRequired struct {
 }
 
 type viperValidation struct {
-	Type    string            `mapstructure:"type"`
-	Method  string            `mapstructure:"method"`
-	URL     string            `mapstructure:"url"`
-	Headers map[string]string `mapstructure:"headers"`
-	Body    string            `mapstructure:"body"`
+	Type    string             `mapstructure:"type"`
+	Method  string             `mapstructure:"method"`
+	URL     string             `mapstructure:"url"`
+	Headers map[string]string  `mapstructure:"headers"`
+	Body    string             `mapstructure:"body"`
 	Match   []viperMatchClause `mapstructure:"match"`
+	Extract map[string]string  `mapstructure:"extract"`
 }
 
 type viperMatchClause struct {
-	Status        *int     `mapstructure:"status"`
-	Words         []string `mapstructure:"words"`
-	WordsAll      bool     `mapstructure:"words_all"`
-	NegativeWords []string `mapstructure:"negative_words"`
-	Result        string   `mapstructure:"result"`
-	Extract       []string `mapstructure:"extract"`
+	Status        any               `mapstructure:"status"` // int, float64, or []any
+	Words         []string          `mapstructure:"words"`
+	WordsAll      bool              `mapstructure:"words_all"`
+	NegativeWords []string          `mapstructure:"negative_words"`
+	JSON          map[string]any    `mapstructure:"json"`
+	Headers       map[string]string `mapstructure:"headers"`
+	Result        string            `mapstructure:"result"`
+	Extract       map[string]string `mapstructure:"extract"`
 }
 
 type viperRuleAllowlist struct {
@@ -623,11 +626,17 @@ func parseViperValidation(vv *viperValidation) (*Validation, error) {
 func parseHTTPValidation(vv *viperValidation) (*Validation, error) {
 	var clauses []MatchClause
 	for i, vm := range vv.Match {
+		statusCodes, err := parseStatusCodes(vm.Status)
+		if err != nil {
+			return nil, fmt.Errorf("validate: match[%d]: %w", i, err)
+		}
 		clause := MatchClause{
-			Status:        vm.Status,
+			StatusCodes:   statusCodes,
 			Words:         vm.Words,
 			WordsAll:      vm.WordsAll,
 			NegativeWords: vm.NegativeWords,
+			JSON:          vm.JSON,
+			Headers:       vm.Headers,
 			Result:        strings.ToLower(vm.Result),
 			Extract:       vm.Extract,
 		}
@@ -644,9 +653,43 @@ func parseHTTPValidation(vv *viperValidation) (*Validation, error) {
 		Headers: vv.Headers,
 		Body:    vv.Body,
 		Match:   clauses,
+		Extract: vv.Extract,
 	}
 	if err := v.Check(); err != nil {
 		return nil, err
 	}
 	return v, nil
+}
+
+// parseStatusCodes converts the flexible TOML status field (int, float64, or
+// list) into a []int for MatchClause.StatusCodes.
+func parseStatusCodes(raw any) ([]int, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	switch v := raw.(type) {
+	case int:
+		return []int{v}, nil
+	case int64:
+		return []int{int(v)}, nil
+	case float64:
+		return []int{int(v)}, nil
+	case []any:
+		codes := make([]int, 0, len(v))
+		for _, item := range v {
+			switch n := item.(type) {
+			case int:
+				codes = append(codes, n)
+			case int64:
+				codes = append(codes, int(n))
+			case float64:
+				codes = append(codes, int(n))
+			default:
+				return nil, fmt.Errorf("status list contains non-numeric value: %v", item)
+			}
+		}
+		return codes, nil
+	default:
+		return nil, fmt.Errorf("status must be an int or list of ints, got %T", raw)
+	}
 }

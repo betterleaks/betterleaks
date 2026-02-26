@@ -3,15 +3,17 @@ package validate
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
 )
 
-// CachedResponse stores the status code and body of an HTTP response.
+// CachedResponse stores the status code, body, and headers of an HTTP response.
 type CachedResponse struct {
 	StatusCode int
 	Body       []byte
+	Headers    http.Header
 	Err        error
 }
 

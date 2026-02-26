@@ -321,7 +321,7 @@ func printValidation(f report.Finding, noColor bool) {
 			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 		case report.ValidationRevoked:
 			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#f5d445"))
-		case report.ValidationUnkown:
+		case report.ValidationUnknown:
 			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#c0c0c0"))
 		case report.ValidationError:
 			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#f05c07"))

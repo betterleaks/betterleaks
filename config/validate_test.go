@@ -1,13 +1,12 @@
 package config
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func intPtr(i int) *int { return &i }
 
 // --- Check() tests ---
 
@@ -58,7 +57,7 @@ func TestValidation_Check(t *testing.T) {
 				Type:   ValidationTypeHTTP,
 				Method: "GET",
 				URL:    "http://x",
-				Match:  []MatchClause{{Status: intPtr(200), Result: "confirmed"}},
+				Match:  []MatchClause{{StatusCodes: []int{200}, Result: "confirmed"}},
 			},
 		},
 		{
@@ -68,9 +67,9 @@ func TestValidation_Check(t *testing.T) {
 				Method: "GET",
 				URL:    "http://x",
 				Match: []MatchClause{
-					{Status: intPtr(200), Result: "confirmed"},
-					{Status: intPtr(401), Result: "invalid"},
-					{Status: intPtr(403), Result: "revoked"},
+					{StatusCodes: []int{200}, Result: "confirmed"},
+					{StatusCodes: []int{401}, Result: "invalid"},
+					{StatusCodes: []int{403}, Result: "revoked"},
 					{Result: "error"},
 				},
 			},
@@ -92,15 +91,21 @@ func TestValidation_Check(t *testing.T) {
 
 // --- EvalMatch() tests ---
 
+var emptyHeaders = http.Header{}
+
 func slackValidation() *Validation {
 	return &Validation{
 		Type:   ValidationTypeHTTP,
 		Method: "GET",
 		URL:    "https://slack.com/api/auth.test",
+		Extract: map[string]string{
+			"user": "json:user",
+			"team": "json:team",
+		},
 		Match: []MatchClause{
-			{Status: intPtr(200), Words: []string{`"ok":true`}, Result: "confirmed", Extract: []string{"user", "team"}},
-			{Status: intPtr(200), Words: []string{"token_revoked"}, Result: "revoked"},
-			{Status: intPtr(200), Words: []string{"invalid_auth"}, Result: "invalid"},
+			{StatusCodes: []int{200}, Words: []string{`"ok":true`}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Words: []string{"token_revoked"}, Result: "revoked"},
+			{StatusCodes: []int{200}, Words: []string{"invalid_auth"}, Result: "invalid"},
 		},
 	}
 }
@@ -108,13 +113,13 @@ func slackValidation() *Validation {
 func TestEvalMatch_FirstMatchWins(t *testing.T) {
 	v := slackValidation()
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true,"user":"bob","team":"acme"}`))
+	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true,"user":"bob","team":"acme"}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"token_revoked"}`))
+	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"token_revoked"}`), emptyHeaders)
 	assert.Equal(t, "revoked", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"invalid_auth"}`))
+	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"invalid_auth"}`), emptyHeaders)
 	assert.Equal(t, "invalid", result)
 }
 
@@ -124,19 +129,37 @@ func TestEvalMatch_StatusOnly(t *testing.T) {
 		Method: "GET",
 		URL:    "http://x",
 		Match: []MatchClause{
-			{Status: intPtr(200), Result: "confirmed"},
-			{Status: intPtr(401), Result: "invalid"},
+			{StatusCodes: []int{200}, Result: "confirmed"},
+			{StatusCodes: []int{401}, Result: "invalid"},
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte("anything"))
+	result, _, _ := v.EvalMatch(200, []byte("anything"), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(401, []byte("anything"))
+	result, _, _ = v.EvalMatch(401, []byte("anything"), emptyHeaders)
 	assert.Equal(t, "invalid", result)
 
-	result, _, _ = v.EvalMatch(500, []byte("anything"))
+	result, _, _ = v.EvalMatch(500, []byte("anything"), emptyHeaders)
 	assert.Equal(t, "unknown", result)
+}
+
+func TestEvalMatch_StatusList(t *testing.T) {
+	v := &Validation{
+		Type:   ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "http://x",
+		Match: []MatchClause{
+			{StatusCodes: []int{200, 201}, Result: "confirmed"},
+			{StatusCodes: []int{500, 502, 503}, Result: "error"},
+		},
+	}
+
+	result, _, _ := v.EvalMatch(201, []byte("anything"), emptyHeaders)
+	assert.Equal(t, "confirmed", result)
+
+	result, _, _ = v.EvalMatch(502, []byte("anything"), emptyHeaders)
+	assert.Equal(t, "error", result)
 }
 
 func TestEvalMatch_WordsAny(t *testing.T) {
@@ -149,13 +172,13 @@ func TestEvalMatch_WordsAny(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"bearer": true}`))
+	result, _, _ := v.EvalMatch(200, []byte(`{"bearer": true}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"access_token": "abc"}`))
+	result, _, _ = v.EvalMatch(200, []byte(`{"access_token": "abc"}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`nothing here`))
+	result, _, _ = v.EvalMatch(200, []byte(`nothing here`), emptyHeaders)
 	assert.Equal(t, "unknown", result)
 }
 
@@ -169,10 +192,10 @@ func TestEvalMatch_WordsAll(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"access_token":"abc","bearer":true}`))
+	result, _, _ := v.EvalMatch(200, []byte(`{"access_token":"abc","bearer":true}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"access_token":"abc"}`))
+	result, _, _ = v.EvalMatch(200, []byte(`{"access_token":"abc"}`), emptyHeaders)
 	assert.Equal(t, "unknown", result)
 }
 
@@ -182,15 +205,15 @@ func TestEvalMatch_NegativeWords(t *testing.T) {
 		Method: "GET",
 		URL:    "http://x",
 		Match: []MatchClause{
-			{Status: intPtr(200), NegativeWords: []string{"error", "revoked"}, Result: "confirmed"},
-			{Status: intPtr(200), Result: "invalid"},
+			{StatusCodes: []int{200}, NegativeWords: []string{"error", "revoked"}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Result: "invalid"},
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true}`))
+	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"token_revoked"}`))
+	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"token_revoked"}`), emptyHeaders)
 	assert.Equal(t, "invalid", result)
 }
 
@@ -200,11 +223,11 @@ func TestEvalMatch_NoMatch(t *testing.T) {
 		Method: "GET",
 		URL:    "http://x",
 		Match: []MatchClause{
-			{Status: intPtr(200), Result: "confirmed"},
+			{StatusCodes: []int{200}, Result: "confirmed"},
 		},
 	}
 
-	result, meta, reason := v.EvalMatch(500, []byte("server error"))
+	result, meta, reason := v.EvalMatch(500, []byte("server error"), emptyHeaders)
 	assert.Equal(t, "unknown", result)
 	assert.Nil(t, meta)
 	assert.Contains(t, reason, "status=500")
@@ -213,7 +236,7 @@ func TestEvalMatch_NoMatch(t *testing.T) {
 func TestEvalMatch_Extract(t *testing.T) {
 	v := slackValidation()
 
-	result, meta, _ := v.EvalMatch(200, []byte(`{"ok":true,"user":"alice","team":"eng"}`))
+	result, meta, _ := v.EvalMatch(200, []byte(`{"ok":true,"user":"alice","team":"eng"}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
 	assert.Equal(t, "alice", meta["user"])
@@ -225,15 +248,61 @@ func TestEvalMatch_ExtractStringifiesArrays(t *testing.T) {
 		Type:   ValidationTypeHTTP,
 		Method: "GET",
 		URL:    "http://x",
+		Extract: map[string]string{
+			"scopes": "json:scopes",
+		},
 		Match: []MatchClause{
-			{Status: intPtr(200), Result: "confirmed", Extract: []string{"scopes"}},
+			{StatusCodes: []int{200}, Result: "confirmed"},
 		},
 	}
 
-	result, meta, _ := v.EvalMatch(200, []byte(`{"scopes":["read","write","admin"]}`))
+	result, meta, _ := v.EvalMatch(200, []byte(`{"scopes":["read","write","admin"]}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
 	assert.Equal(t, "read,write,admin", meta["scopes"])
+}
+
+func TestEvalMatch_PerClauseExtractOverridesDefault(t *testing.T) {
+	v := &Validation{
+		Type:   ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "http://x",
+		Extract: map[string]string{
+			"user": "json:user",
+		},
+		Match: []MatchClause{
+			{StatusCodes: []int{200}, Result: "confirmed", Extract: map[string]string{"error": "json:error"}},
+		},
+	}
+
+	result, meta, _ := v.EvalMatch(200, []byte(`{"user":"alice","error":"none"}`), emptyHeaders)
+	assert.Equal(t, "confirmed", result)
+	require.NotNil(t, meta)
+	assert.Equal(t, "none", meta["error"])
+	_, hasUser := meta["user"]
+	assert.False(t, hasUser, "per-clause extract should override default, not merge")
+}
+
+func TestEvalMatch_HeaderExtract(t *testing.T) {
+	v := &Validation{
+		Type:   ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "http://x",
+		Extract: map[string]string{
+			"scopes": "header:X-OAuth-Scopes",
+		},
+		Match: []MatchClause{
+			{StatusCodes: []int{200}, Result: "confirmed"},
+		},
+	}
+
+	headers := http.Header{}
+	headers.Set("X-OAuth-Scopes", "repo, user")
+
+	result, meta, _ := v.EvalMatch(200, []byte(`{}`), headers)
+	assert.Equal(t, "confirmed", result)
+	require.NotNil(t, meta)
+	assert.Equal(t, "repo, user", meta["scopes"])
 }
 
 // --- Case-insensitivity tests ---
@@ -248,10 +317,10 @@ func TestEvalMatch_WordsCaseInsensitive(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"ACCESS_TOKEN": "abc"}`))
+	result, _, _ := v.EvalMatch(200, []byte(`{"ACCESS_TOKEN": "abc"}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"Access_Token": "abc"}`))
+	result, _, _ = v.EvalMatch(200, []byte(`{"Access_Token": "abc"}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 }
 
@@ -261,37 +330,141 @@ func TestEvalMatch_NegativeWordsCaseInsensitive(t *testing.T) {
 		Method: "GET",
 		URL:    "http://x",
 		Match: []MatchClause{
-			{Status: intPtr(200), NegativeWords: []string{"error"}, Result: "confirmed"},
-			{Status: intPtr(200), Result: "invalid"},
+			{StatusCodes: []int{200}, NegativeWords: []string{"error"}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Result: "invalid"},
 		},
 	}
 
-	// "ERROR" should still be caught by negative_words = ["error"]
-	result, _, _ := v.EvalMatch(200, []byte(`{"ERROR": "something broke"}`))
+	result, _, _ := v.EvalMatch(200, []byte(`{"ERROR": "something broke"}`), emptyHeaders)
 	assert.Equal(t, "invalid", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"status": "ok"}`))
+	result, _, _ = v.EvalMatch(200, []byte(`{"status": "ok"}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 }
 
-// --- GJSON path extraction tests ---
+// --- JSON assertion tests ---
+
+func TestEvalMatch_JSONAssertion_Scalar(t *testing.T) {
+	v := &Validation{
+		Type:   ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "http://x",
+		Match: []MatchClause{
+			{StatusCodes: []int{200}, JSON: map[string]any{"ok": true}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Result: "invalid"},
+		},
+	}
+
+	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true}`), emptyHeaders)
+	assert.Equal(t, "confirmed", result)
+
+	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false}`), emptyHeaders)
+	assert.Equal(t, "invalid", result)
+}
+
+func TestEvalMatch_JSONAssertion_List(t *testing.T) {
+	v := &Validation{
+		Type:   ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "http://x",
+		Match: []MatchClause{
+			{StatusCodes: []int{200}, JSON: map[string]any{"error": []any{"account_inactive", "token_revoked"}}, Result: "revoked"},
+			{StatusCodes: []int{200}, Result: "unknown"},
+		},
+	}
+
+	result, _, _ := v.EvalMatch(200, []byte(`{"error":"token_revoked"}`), emptyHeaders)
+	assert.Equal(t, "revoked", result)
+
+	result, _, _ = v.EvalMatch(200, []byte(`{"error":"account_inactive"}`), emptyHeaders)
+	assert.Equal(t, "revoked", result)
+
+	result, _, _ = v.EvalMatch(200, []byte(`{"error":"other"}`), emptyHeaders)
+	assert.Equal(t, "unknown", result)
+}
+
+func TestEvalMatch_JSONAssertion_NotEmpty(t *testing.T) {
+	v := &Validation{
+		Type:   ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "http://x",
+		Match: []MatchClause{
+			{StatusCodes: []int{200}, JSON: map[string]any{"user": "!empty"}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Result: "invalid"},
+		},
+	}
+
+	result, _, _ := v.EvalMatch(200, []byte(`{"user":"alice"}`), emptyHeaders)
+	assert.Equal(t, "confirmed", result)
+
+	result, _, _ = v.EvalMatch(200, []byte(`{"user":""}`), emptyHeaders)
+	assert.Equal(t, "invalid", result)
+
+	result, _, _ = v.EvalMatch(200, []byte(`{"other":"x"}`), emptyHeaders)
+	assert.Equal(t, "invalid", result)
+}
+
+func TestEvalMatch_JSONAssertion_NonJSON(t *testing.T) {
+	v := &Validation{
+		Type:   ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "http://x",
+		Match: []MatchClause{
+			{StatusCodes: []int{200}, JSON: map[string]any{"ok": true}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Result: "invalid"},
+		},
+	}
+
+	result, _, _ := v.EvalMatch(200, []byte(`not json`), emptyHeaders)
+	assert.Equal(t, "invalid", result)
+}
+
+// --- Response header matching tests ---
+
+func TestEvalMatch_ResponseHeaderMatch(t *testing.T) {
+	v := &Validation{
+		Type:   ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "http://x",
+		Match: []MatchClause{
+			{StatusCodes: []int{200}, Headers: map[string]string{"Content-Type": "json"}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Result: "unknown"},
+		},
+	}
+
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/json; charset=utf-8")
+	result, _, _ := v.EvalMatch(200, []byte(`{}`), headers)
+	assert.Equal(t, "confirmed", result)
+
+	headers2 := http.Header{}
+	headers2.Set("Content-Type", "text/html")
+	result, _, _ = v.EvalMatch(200, []byte(`{}`), headers2)
+	assert.Equal(t, "unknown", result)
+}
+
+// --- GJSON path extraction tests (now via extractValues) ---
 
 func TestEvalMatch_ExtractNestedPath(t *testing.T) {
 	v := &Validation{
 		Type:   ValidationTypeHTTP,
 		Method: "GET",
 		URL:    "http://x",
+		Extract: map[string]string{
+			"email": "json:user.profile.email",
+			"name":  "json:user.name",
+		},
 		Match: []MatchClause{
-			{Status: intPtr(200), Result: "confirmed", Extract: []string{"user.profile.email", "user.name"}},
+			{StatusCodes: []int{200}, Result: "confirmed"},
 		},
 	}
 
 	body := []byte(`{"user":{"name":"alice","profile":{"email":"alice@example.com","bio":"dev"}}}`)
-	result, meta, _ := v.EvalMatch(200, body)
+	result, meta, _ := v.EvalMatch(200, body, emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
-	assert.Equal(t, "alice@example.com", meta["user.profile.email"])
-	assert.Equal(t, "alice", meta["user.name"])
+	assert.Equal(t, "alice@example.com", meta["email"])
+	assert.Equal(t, "alice", meta["name"])
 }
 
 func TestEvalMatch_ExtractArrayWildcard(t *testing.T) {
@@ -299,70 +472,19 @@ func TestEvalMatch_ExtractArrayWildcard(t *testing.T) {
 		Type:   ValidationTypeHTTP,
 		Method: "GET",
 		URL:    "http://x",
+		Extract: map[string]string{
+			"names": "json:repos.#.name",
+		},
 		Match: []MatchClause{
-			{Status: intPtr(200), Result: "confirmed", Extract: []string{"repos.#.name"}},
+			{StatusCodes: []int{200}, Result: "confirmed"},
 		},
 	}
 
 	body := []byte(`{"repos":[{"name":"alpha","stars":10},{"name":"beta","stars":50}]}`)
-	result, meta, _ := v.EvalMatch(200, body)
+	result, meta, _ := v.EvalMatch(200, body, emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
-	assert.Equal(t, "alpha,beta", meta["repos.#.name"])
-}
-
-func TestEvalMatch_ExtractArrayCount(t *testing.T) {
-	v := &Validation{
-		Type:   ValidationTypeHTTP,
-		Method: "GET",
-		URL:    "http://x",
-		Match: []MatchClause{
-			{Status: intPtr(200), Result: "confirmed", Extract: []string{"repos.#"}},
-		},
-	}
-
-	body := []byte(`{"repos":[{"name":"a"},{"name":"b"},{"name":"c"}]}`)
-	result, meta, _ := v.EvalMatch(200, body)
-	assert.Equal(t, "confirmed", result)
-	require.NotNil(t, meta)
-	assert.Equal(t, "3", meta["repos.#"])
-}
-
-func TestEvalMatch_ExtractArrayIndex(t *testing.T) {
-	v := &Validation{
-		Type:   ValidationTypeHTTP,
-		Method: "GET",
-		URL:    "http://x",
-		Match: []MatchClause{
-			{Status: intPtr(200), Result: "confirmed", Extract: []string{"repos.0.name", "repos.1.name"}},
-		},
-	}
-
-	body := []byte(`{"repos":[{"name":"first"},{"name":"second"}]}`)
-	result, meta, _ := v.EvalMatch(200, body)
-	assert.Equal(t, "confirmed", result)
-	require.NotNil(t, meta)
-	assert.Equal(t, "first", meta["repos.0.name"])
-	assert.Equal(t, "second", meta["repos.1.name"])
-}
-
-func TestEvalMatch_ExtractMissingNestedPath(t *testing.T) {
-	v := &Validation{
-		Type:   ValidationTypeHTTP,
-		Method: "GET",
-		URL:    "http://x",
-		Match: []MatchClause{
-			{Status: intPtr(200), Result: "confirmed", Extract: []string{"user.nonexistent.deep", "exists"}},
-		},
-	}
-
-	body := []byte(`{"exists":"yes","user":{"name":"alice"}}`)
-	result, meta, _ := v.EvalMatch(200, body)
-	assert.Equal(t, "confirmed", result)
-	require.NotNil(t, meta)
-	assert.Equal(t, "yes", meta["exists"])
-	_, hasMissing := meta["user.nonexistent.deep"]
-	assert.False(t, hasMissing)
+	assert.Equal(t, "alpha,beta", meta["names"])
 }
 
 func TestEvalMatch_ExtractNonJSONBody(t *testing.T) {
@@ -370,12 +492,15 @@ func TestEvalMatch_ExtractNonJSONBody(t *testing.T) {
 		Type:   ValidationTypeHTTP,
 		Method: "GET",
 		URL:    "http://x",
+		Extract: map[string]string{
+			"field": "json:field",
+		},
 		Match: []MatchClause{
-			{Status: intPtr(200), Result: "confirmed", Extract: []string{"field"}},
+			{StatusCodes: []int{200}, Result: "confirmed"},
 		},
 	}
 
-	result, meta, _ := v.EvalMatch(200, []byte(`not json at all`))
+	result, meta, _ := v.EvalMatch(200, []byte(`not json at all`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 	assert.Nil(t, meta)
 }
@@ -413,7 +538,6 @@ func TestValidation_Check_TemplatedURL_Allowed(t *testing.T) {
 		URL:    "{{ base-url }}/api/check",
 		Match:  []MatchClause{{Result: "confirmed"}},
 	}
-	// Should not error — URL contains placeholders so we can't validate it statically.
 	err := v.Check()
 	require.NoError(t, err)
 }
@@ -429,9 +553,12 @@ func TestParseHTTPValidation_RoundTrip(t *testing.T) {
 			"Authorization": "Bearer {{ test.rule }}",
 		},
 		Body: "token={{ test.rule }}",
+		Extract: map[string]string{
+			"user": "json:user",
+		},
 		Match: []viperMatchClause{
-			{Status: intPtr(200), Words: []string{"ok"}, WordsAll: false, Result: "confirmed", Extract: []string{"user"}},
-			{Status: intPtr(401), Result: "invalid"},
+			{Status: 200, Words: []string{"ok"}, WordsAll: false, Result: "confirmed"},
+			{Status: 401, Result: "invalid"},
 			{Result: "error"},
 		},
 	}
@@ -446,9 +573,26 @@ func TestParseHTTPValidation_RoundTrip(t *testing.T) {
 	assert.Equal(t, "token={{ test.rule }}", v.Body)
 	require.Len(t, v.Match, 3)
 	assert.Equal(t, "confirmed", v.Match[0].Result)
-	assert.Equal(t, []string{"user"}, v.Match[0].Extract)
+	assert.Equal(t, []int{200}, v.Match[0].StatusCodes)
 	assert.Equal(t, "invalid", v.Match[1].Result)
 	assert.Equal(t, "error", v.Match[2].Result)
+	assert.Equal(t, map[string]string{"user": "json:user"}, v.Extract)
+}
+
+func TestParseHTTPValidation_StatusList(t *testing.T) {
+	vv := &viperValidation{
+		Type:   "http",
+		Method: "GET",
+		URL:    "https://example.com",
+		Match: []viperMatchClause{
+			{Status: []any{float64(500), float64(502), float64(503)}, Result: "error"},
+			{Result: "unknown"},
+		},
+	}
+
+	v, err := parseHTTPValidation(vv)
+	require.NoError(t, err)
+	assert.Equal(t, []int{500, 502, 503}, v.Match[0].StatusCodes)
 }
 
 func TestParseHTTPValidation_EmptyResult_Errors(t *testing.T) {
@@ -457,7 +601,7 @@ func TestParseHTTPValidation_EmptyResult_Errors(t *testing.T) {
 		Method: "GET",
 		URL:    "https://example.com",
 		Match: []viperMatchClause{
-			{Status: intPtr(200), Result: ""},
+			{Status: 200, Result: ""},
 		},
 	}
 
@@ -473,18 +617,18 @@ func TestEvalMatch_GoogleMaps(t *testing.T) {
 		Method: "GET",
 		URL:    "https://maps.googleapis.com/maps/api/geocode/json",
 		Match: []MatchClause{
-			{Status: intPtr(200), Words: []string{`"status":"OK"`}, Result: "confirmed"},
-			{Status: intPtr(200), Words: []string{`"REQUEST_DENIED"`}, Result: "invalid"},
+			{StatusCodes: []int{200}, Words: []string{`"status":"OK"`}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Words: []string{`"REQUEST_DENIED"`}, Result: "invalid"},
 			{Result: "error"},
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"status":"OK","results":[]}`))
+	result, _, _ := v.EvalMatch(200, []byte(`{"status":"OK","results":[]}`), emptyHeaders)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"status":"REQUEST_DENIED"}`))
+	result, _, _ = v.EvalMatch(200, []byte(`{"status":"REQUEST_DENIED"}`), emptyHeaders)
 	assert.Equal(t, "invalid", result)
 
-	result, _, _ = v.EvalMatch(503, []byte(`service unavailable`))
+	result, _, _ = v.EvalMatch(503, []byte(`service unavailable`), emptyHeaders)
 	assert.Equal(t, "error", result)
 }

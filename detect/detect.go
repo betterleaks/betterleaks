@@ -177,10 +177,6 @@ type Detector struct {
 
 	tokenizer *tiktoken.Tiktoken
 
-	// ValidateOnly, when true, silently drops findings whose rule has no
-	// [rules.validate] block (they can never be confirmed).
-	ValidateOnly bool
-
 	// validator is the optional validation worker pool.
 	validator     *validate.Validator
 	validateCh    chan report.Finding
@@ -631,6 +627,18 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 					}
 				}
 			}
+
+			// Extract named capture groups for use as template variables.
+			names := r.Regex.SubexpNames()
+			captures := make(map[string]string)
+			for i, name := range names {
+				if i > 0 && name != "" && i < len(groups) && groups[i] != "" {
+					captures[name] = groups[i]
+				}
+			}
+			if len(captures) > 0 {
+				finding.CaptureGroups = captures
+			}
 		}
 
 		// check entropy
@@ -875,12 +883,6 @@ func (d *Detector) AddFinding(finding report.Finding) {
 			d.validateCh <- finding
 			return
 		}
-	}
-
-	// In validate-only mode, drop findings that have no validate block —
-	// they can never be confirmed.
-	if d.ValidateOnly {
-		return
 	}
 
 	d.findingMutex.Lock()

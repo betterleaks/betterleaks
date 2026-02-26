@@ -15,6 +15,9 @@ const maxCombos = 100
 var placeholderRe = regexp.MustCompile(`\{\{\s*([\w.\-]+)\s*\}\}`)
 
 // PlaceholderIDs returns all unique rule IDs referenced in tmpl.
+// This is used to determine which secret variables a template needs before
+// rendering (e.g. to detect missing placeholders). Rendering itself is
+// handled by [TemplateEngine].
 func PlaceholderIDs(tmpl string) []string {
 	seen := make(map[string]struct{})
 	var ids []string
@@ -26,51 +29,6 @@ func PlaceholderIDs(tmpl string) []string {
 		}
 	}
 	return ids
-}
-
-// Render replaces all {{ rule-id }} placeholders with values[ruleID].
-// Placeholders whose ruleID is not in values are left unchanged.
-func Render(tmpl string, values map[string]string) string {
-	return placeholderRe.ReplaceAllStringFunc(tmpl, func(match string) string {
-		sub := placeholderRe.FindStringSubmatch(match)
-		if len(sub) < 2 {
-			return match
-		}
-		if val, ok := values[sub[1]]; ok {
-			return val
-		}
-		return match
-	})
-}
-
-// Expand generates all cartesian-product combinations of a template
-// given a map of ruleID → []possibleSecrets.
-// Returns one rendered string per combination.
-func Expand(tmpl string, secrets map[string][]string) []string {
-	ids := PlaceholderIDs(tmpl)
-	if len(ids) == 0 {
-		return []string{tmpl}
-	}
-
-	// Filter to IDs that actually have secrets, sort for deterministic output.
-	var activeIDs []string
-	for _, id := range ids {
-		if vals, ok := secrets[id]; ok && len(vals) > 0 {
-			activeIDs = append(activeIDs, id)
-		}
-	}
-	sort.Strings(activeIDs)
-
-	if len(activeIDs) == 0 {
-		return []string{tmpl}
-	}
-
-	combos := cartesian(activeIDs, secrets)
-	results := make([]string, 0, len(combos))
-	for _, combo := range combos {
-		results = append(results, Render(tmpl, combo))
-	}
-	return results
 }
 
 // cartesian produces the cartesian product of secrets for each ID.
@@ -120,13 +78,4 @@ func Combos(ids []string, secrets map[string][]string) []map[string]string {
 		combos = combos[:maxCombos]
 	}
 	return combos
-}
-
-// RenderMap applies Render to every string value in a map.
-func RenderMap(m map[string]string, values map[string]string) map[string]string {
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = Render(v, values)
-	}
-	return out
 }

@@ -2382,9 +2382,10 @@ paths = [
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ github-app-token }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
     { result = "unknown" },
@@ -2403,9 +2404,10 @@ keywords = ["github_pat_"]
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ github-fine-grained-pat }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
     { result = "unknown" },
@@ -2424,9 +2426,10 @@ keywords = ["gho_"]
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ github-oauth }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
     { result = "unknown" },
@@ -2449,9 +2452,10 @@ paths = [
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ github-pat }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
     { result = "unknown" },
@@ -2470,9 +2474,10 @@ keywords = ["ghr_"]
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ github-refresh-token }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, words = ['"login"', '"id"', ], words_all = true, result = "confirmed", extract = ["login", "id", "name", ] },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
     { status = 401, result = "invalid" },
     { status = 403, result = "invalid" },
     { result = "unknown" },

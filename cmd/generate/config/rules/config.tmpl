@@ -84,9 +84,11 @@ url = "{{ .URL }}"
 headers = {{ tomlInlineTable . }}{{ end }}
 {{- with .Body }}
 body = '''{{ . }}'''{{ end }}
+{{- with .Extract }}
+extract = {{ tomlInlineTable . }}{{ end }}
 {{- with .Match }}{{println}}match = [
 {{- range $j, $clause := . }}
-    { {{ with $clause.Status }}status = {{ . }}, {{ end }}{{ with $clause.Words }}words = [{{ range $k, $word := . }}'{{ $word }}', {{ end }}], {{ end }}{{ if $clause.WordsAll }}words_all = true, {{ end }}{{ with $clause.NegativeWords }}negative_words = [{{ range $k, $word := . }}'{{ $word }}', {{ end }}], {{ end }}result = "{{ $clause.Result }}"{{ with $clause.Extract }}, extract = [{{ range $k, $field := . }}"{{ $field }}", {{ end }}]{{ end }} },
+    { {{ with $clause.StatusCodes }}{{ if eq (len .) 1 }}status = {{ index . 0 }}, {{ else }}status = [{{ range $k, $code := . }}{{ if $k }}, {{ end }}{{ $code }}{{ end }}], {{ end }}{{ end }}{{ with $clause.Words }}words = [{{ range $k, $word := . }}'{{ $word }}', {{ end }}], {{ end }}{{ if $clause.WordsAll }}words_all = true, {{ end }}{{ with $clause.NegativeWords }}negative_words = [{{ range $k, $word := . }}'{{ $word }}', {{ end }}], {{ end }}{{ with $clause.JSON }}json = {{ tomlInlineTableAny . }}, {{ end }}{{ with $clause.Headers }}headers = {{ tomlInlineTable . }}, {{ end }}result = "{{ $clause.Result }}"{{ with $clause.Extract }}, extract = {{ tomlInlineTable . }}{{ end }} },
 {{- end }}
 ]{{ end }}{{ end }}
 {{ end }}

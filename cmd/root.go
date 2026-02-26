@@ -96,8 +96,9 @@ func init() {
 	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
 
 	// Validation flags
-	rootCmd.PersistentFlags().Bool("validate-only", false, "only report confirmed findings (suppresses unvalidated + invalid)")
-	rootCmd.PersistentFlags().Bool("no-validate", false, "skip all validation even if rules have validate blocks")
+	rootCmd.PersistentFlags().Bool("validate", true, "enable validation of findings against live APIs")
+	rootCmd.PersistentFlags().String("output-status", "", "comma-separated list of validation statuses to include (e.g. confirmed,revoked)")
+	rootCmd.PersistentFlags().Bool("extract-empty", false, "include empty values from extractors in output")
 	rootCmd.PersistentFlags().Duration("validate-timeout", 10*time.Second, "per-request timeout for validation")
 	rootCmd.PersistentFlags().Bool("full-validation-response", false, "include full HTTP response body on validated findings")
 
@@ -461,9 +462,8 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 	}
 
 	// Start async validation worker pool if any rules have validate blocks.
-	noValidate := mustGetBoolFlag(cmd, "no-validate")
-	detector.ValidateOnly = mustGetBoolFlag(cmd, "validate-only")
-	if !noValidate && hasAnyValidationRule(cfg) {
+	enableValidation := mustGetBoolFlag(cmd, "validate")
+	if enableValidation && hasAnyValidationRule(cfg) {
 		v := validate.NewValidator(cfg)
 		v.RequestTimeout, _ = cmd.Flags().GetDuration("validate-timeout")
 		v.FullResponse, _ = cmd.Flags().GetBool("full-validation-response")
@@ -509,14 +509,32 @@ func hasAnyValidationRule(cfg config.Config) bool {
 	return false
 }
 
-func filterConfirmed(findings []report.Finding) []report.Finding {
-	var confirmed []report.Finding
+// filterByStatus filters findings to those whose ValidationStatus matches one
+// of the comma-separated status names. Status names are case-insensitive.
+// Findings without a validation status (empty string) match "unknown".
+func filterByStatus(findings []report.Finding, statusCSV string) []report.Finding {
+	allowed := make(map[report.ValidationStatus]struct{})
+	for _, s := range strings.Split(statusCSV, ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		allowed[report.ValidationStatus(strings.ToUpper(s))] = struct{}{}
+	}
+	if len(allowed) == 0 {
+		return findings
+	}
+	var filtered []report.Finding
 	for _, f := range findings {
-		if f.ValidationStatus == report.ValidationConfirmed {
-			confirmed = append(confirmed, f)
+		status := f.ValidationStatus
+		if status == "" {
+			status = report.ValidationUnknown
+		}
+		if _, ok := allowed[status]; ok {
+			filtered = append(filtered, f)
 		}
 	}
-	return confirmed
+	return filtered
 }
 
 func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding, exitCode int, start time.Time, err error) {
@@ -550,8 +568,9 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 			Msg("validation complete")
 	}
 
-	if mustGetBoolFlag(rootCmd, "validate-only") {
-		findings = filterConfirmed(findings)
+	outputStatus, _ := rootCmd.Flags().GetString("output-status")
+	if outputStatus != "" {
+		findings = filterByStatus(findings, outputStatus)
 	}
 
 	totalBytes := detector.TotalBytes.Load()

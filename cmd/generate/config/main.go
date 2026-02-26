@@ -20,6 +20,35 @@ const (
 
 //go:generate go run $GOFILE ../../../config/betterleaks.toml
 
+func tomlValue(v any) string {
+	switch val := v.(type) {
+	case string:
+		return fmt.Sprintf("%q", val)
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	case int:
+		return fmt.Sprintf("%d", val)
+	case int64:
+		return fmt.Sprintf("%d", val)
+	case float64:
+		if val == float64(int64(val)) {
+			return fmt.Sprintf("%d", int64(val))
+		}
+		return fmt.Sprintf("%g", val)
+	case []any:
+		parts := make([]string, 0, len(val))
+		for _, item := range val {
+			parts = append(parts, tomlValue(item))
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	default:
+		return fmt.Sprintf("%q", fmt.Sprintf("%v", v))
+	}
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		_, _ = os.Stderr.WriteString("Specify path to the betterleaks.toml config\n")
@@ -291,6 +320,18 @@ func main() {
 			parts := make([]string, 0, len(keys))
 			for _, k := range keys {
 				parts = append(parts, fmt.Sprintf("%s = %q", k, m[k]))
+			}
+			return "{ " + strings.Join(parts, ", ") + " }"
+		},
+		"tomlInlineTableAny": func(m map[string]any) string {
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			parts := make([]string, 0, len(keys))
+			for _, k := range keys {
+				parts = append(parts, fmt.Sprintf("%s = %s", k, tomlValue(m[k])))
 			}
 			return "{ " + strings.Join(parts, ", ") + " }"
 		},

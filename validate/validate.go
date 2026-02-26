@@ -2,6 +2,7 @@ package validate
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -22,17 +23,9 @@ type Validator struct {
 	Cache          *ResponseCache
 	RequestTimeout time.Duration
 	FullResponse   bool
+	Templates      *TemplateEngine
 
 	// inflight deduplicates concurrent HTTP requests for the same cache key.
-	// When ValidateFinding is called from multiple goroutines (e.g. the
-	// Detector's validation worker pool), the first caller for a given key
-	// executes the request while subsequent callers block and share the result.
-	//
-	// Caveat: singleflight uses the first caller's context for the in-flight
-	// function. If that context is cancelled while other goroutines are waiting,
-	// all waiters receive the cancellation error even if their own contexts are
-	// still live. This is acceptable because all workers share the same parent
-	// context (the scan context), so a cancellation applies to everyone.
 	inflight singleflight.Group
 }
 
@@ -43,6 +36,7 @@ func NewValidator(cfg config.Config) *Validator {
 		HTTPClient:     &http.Client{},
 		Cache:          NewResponseCache(),
 		RequestTimeout: 10 * time.Second,
+		Templates:      NewTemplateEngine(),
 	}
 }
 
@@ -78,9 +72,24 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 	var lastBody []byte
 
 	for _, combo := range combos {
-		renderedURL := Render(rule.Validate.URL, combo)
-		renderedBody := Render(rule.Validate.Body, combo)
-		renderedHeaders := RenderMap(rule.Validate.Headers, combo)
+		renderedURL, err := v.Templates.Render(rule.Validate.URL, combo)
+		if err != nil {
+			f.ValidationStatus = report.ValidationError
+			f.ValidationNote = fmt.Sprintf("template render (url): %s", err)
+			return true
+		}
+		renderedBody, err := v.Templates.Render(rule.Validate.Body, combo)
+		if err != nil {
+			f.ValidationStatus = report.ValidationError
+			f.ValidationNote = fmt.Sprintf("template render (body): %s", err)
+			return true
+		}
+		renderedHeaders, err := v.Templates.RenderMap(rule.Validate.Headers, combo)
+		if err != nil {
+			f.ValidationStatus = report.ValidationError
+			f.ValidationNote = fmt.Sprintf("template render (headers): %s", err)
+			return true
+		}
 
 		cacheKey := v.Cache.Key(rule.Validate.Method, renderedURL, renderedHeaders, renderedBody)
 
@@ -97,7 +106,11 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 			return true
 		}
 
-		result, meta, reason := rule.Validate.EvalMatch(resp.StatusCode, resp.Body)
+		respHeaders := resp.Headers
+		if respHeaders == nil {
+			respHeaders = http.Header{}
+		}
+		result, meta, reason := rule.Validate.EvalMatch(resp.StatusCode, resp.Body, respHeaders)
 		lastResult = result
 		lastMeta = meta
 		lastNote = reason
@@ -119,7 +132,7 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 	case "revoked":
 		f.ValidationStatus = report.ValidationRevoked
 	case "unknown":
-		f.ValidationStatus = report.ValidationUnkown
+		f.ValidationStatus = report.ValidationUnknown
 	default:
 		f.ValidationStatus = report.ValidationError
 	}
@@ -142,10 +155,22 @@ func (v *Validator) Validate(ctx context.Context, findings []report.Finding) []r
 
 func buildSecrets(f *report.Finding) map[string][]string {
 	secrets := make(map[string][]string)
+	// Implicit variable — always available as {{ secret }}
+	secrets["secret"] = []string{f.Secret}
+	// Keep rule-ID key for backward compat
 	secrets[f.RuleID] = []string{f.Secret}
+
+	// Named captures become template variables
+	for name, val := range f.CaptureGroups {
+		secrets[name] = []string{val}
+	}
 
 	for _, rf := range f.RequiredFindings() {
 		secrets[rf.RuleID] = appendUnique(secrets[rf.RuleID], rf.Secret)
+		for name, val := range rf.CaptureGroups {
+			key := rf.RuleID + "." + name
+			secrets[key] = []string{val}
+		}
 	}
 	return secrets
 }
@@ -214,6 +239,7 @@ func (v *Validator) doRequest(ctx context.Context, method, url string, headers m
 	return &CachedResponse{
 		StatusCode: resp.StatusCode,
 		Body:       respBody,
+		Headers:    resp.Header,
 	}
 }
 

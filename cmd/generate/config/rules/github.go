@@ -7,21 +7,28 @@ import (
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
-func intPtr(n int) *int { return &n }
-
-func githubTokenValidation(ruleID string) *config.Validation {
+func githubTokenValidation() *config.Validation {
 	return &config.Validation{
 		Type:   config.ValidationTypeHTTP,
 		Method: "GET",
 		URL:    "https://api.github.com/user",
 		Headers: map[string]string{
-			"Authorization": "token {{ " + ruleID + " }}",
+			"Authorization": "token {{ secret }}",
 			"Accept":        "application/vnd.github+json",
 		},
+		Extract: map[string]string{
+			"username": "json:login",
+			"name":     "json:name",
+			"scopes":   "header:X-OAuth-Scopes",
+		},
 		Match: []config.MatchClause{
-			{Status: intPtr(200), Words: []string{`"login"`, `"id"`}, WordsAll: true, Result: "confirmed", Extract: []string{"login", "id", "name"}},
-			{Status: intPtr(401), Result: "invalid"},
-			{Status: intPtr(403), Result: "invalid"},
+			{
+				StatusCodes: []int{200},
+				JSON:        map[string]any{"login": "!empty", "id": "!empty"},
+				Result:      "confirmed",
+			},
+			{StatusCodes: []int{401}, Result: "invalid"},
+			{StatusCodes: []int{403}, Result: "invalid"},
 			{Result: "unknown"},
 		},
 	}
@@ -45,7 +52,7 @@ func GitHubPat() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"ghp_"},
 		Allowlists:  githubAllowlist,
-		Validate:    githubTokenValidation("github-pat"),
+		Validate:    githubTokenValidation(),
 	}
 
 	// validate
@@ -64,7 +71,7 @@ func GitHubFineGrainedPat() *config.Rule {
 		Regex:       regexp.MustCompile(`github_pat_\w{82}`),
 		Entropy:     3,
 		Keywords:    []string{"github_pat_"},
-		Validate:    githubTokenValidation("github-fine-grained-pat"),
+		Validate:    githubTokenValidation(),
 	}
 
 	// validate
@@ -83,7 +90,7 @@ func GitHubOauth() *config.Rule {
 		Regex:       regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
 		Entropy:     3,
 		Keywords:    []string{"gho_"},
-		Validate:    githubTokenValidation("github-oauth"),
+		Validate:    githubTokenValidation(),
 	}
 
 	// validate
@@ -103,7 +110,7 @@ func GitHubApp() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"ghu_", "ghs_"},
 		Allowlists:  githubAllowlist,
-		Validate:    githubTokenValidation("github-app-token"),
+		Validate:    githubTokenValidation(),
 	}
 
 	// validate
@@ -124,7 +131,7 @@ func GitHubRefresh() *config.Rule {
 		Regex:       regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
 		Entropy:     3,
 		Keywords:    []string{"ghr_"},
-		Validate:    githubTokenValidation("github-refresh-token"),
+		Validate:    githubTokenValidation(),
 	}
 
 	// validate
