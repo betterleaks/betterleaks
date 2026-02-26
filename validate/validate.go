@@ -157,8 +157,6 @@ func buildSecrets(f *report.Finding) map[string][]string {
 	secrets := make(map[string][]string)
 	// Implicit variable — always available as {{ secret }}
 	secrets["secret"] = []string{f.Secret}
-	// Keep rule-ID key for backward compat
-	secrets[f.RuleID] = []string{f.Secret}
 
 	// Named captures become template variables
 	for name, val := range f.CaptureGroups {

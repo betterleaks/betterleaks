@@ -33,7 +33,7 @@ func TestValidator_Validate_Confirmed(t *testing.T) {
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
 					URL:    srv.URL + "/token",
-					Body:   "secret={{ test.rule }}",
+					Body:   "secret={{ secret }}",
 					Match: []config.MatchClause{
 						{StatusCodes: []int{200}, Words: []string{"access_token"}, Result: "confirmed"},
 					},
@@ -126,14 +126,14 @@ func TestValidator_Validate_CacheHit(t *testing.T) {
 				Validate: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
-					URL:    srv.URL + "/check?key={{ test.rule }}",
-					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
-					},
+				URL:    srv.URL + "/check?key={{ secret }}",
+				Match: []config.MatchClause{
+					{StatusCodes: []int{200}, Result: "confirmed"},
 				},
 			},
 		},
-	}
+	},
+}
 
 	findings := []report.Finding{
 		{RuleID: "test.rule", Secret: "same-secret"},
@@ -166,7 +166,7 @@ func TestValidator_Validate_CartesianProduct(t *testing.T) {
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
 					URL:    srv.URL,
-					Body:   "id={{ dep.id }}&secret={{ composite.rule }}",
+					Body:   "id={{ dep.id }}&secret={{ secret }}",
 					Match: []config.MatchClause{
 						{StatusCodes: []int{200}, Result: "confirmed"},
 						{Result: "invalid"},
@@ -217,8 +217,8 @@ func TestValidator_Validate_SharedPlaceholder_ConsistentCombo(t *testing.T) {
 				Validate: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
-					URL:    srv.URL + "/check?id={{ dep.id }}",
-					Body:   "id={{ dep.id }}&secret={{ test.rule }}",
+				URL:    srv.URL + "/check?id={{ dep.id }}",
+				Body:   "id={{ dep.id }}&secret={{ secret }}",
 					Match: []config.MatchClause{
 						{StatusCodes: []int{200}, Result: "confirmed"},
 						{Result: "invalid"},
@@ -267,7 +267,7 @@ func TestValidator_Validate_HeadersIncludedInCombo(t *testing.T) {
 					Type:    config.ValidationTypeHTTP,
 					Method:  "GET",
 					URL:     srv.URL,
-					Headers: map[string]string{"Authorization": "Bearer {{ test.rule }}"},
+					Headers: map[string]string{"Authorization": "Bearer {{ secret }}"},
 					Match: []config.MatchClause{
 						{StatusCodes: []int{200}, Result: "confirmed"},
 						{Result: "invalid"},
@@ -334,14 +334,14 @@ func TestValidator_Validate_NetworkError_NotCached(t *testing.T) {
 				Validate: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
-					URL:    srv.URL + "/check?key={{ test.rule }}",
-					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
-					},
+				URL:    srv.URL + "/check?key={{ secret }}",
+				Match: []config.MatchClause{
+					{StatusCodes: []int{200}, Result: "confirmed"},
 				},
 			},
 		},
-	}
+	},
+}
 
 	v := NewValidator(cfg)
 
@@ -401,7 +401,7 @@ func TestValidator_Validate_RequestBodyRendered(t *testing.T) {
 					Method:  "POST",
 					URL:     srv.URL,
 					Headers: map[string]string{"Content-Type": "application/x-www-form-urlencoded"},
-					Body:    "token={{ test.rule }}",
+					Body:    "token={{ secret }}",
 					Match: []config.MatchClause{
 						{StatusCodes: []int{200}, Result: "confirmed"},
 					},
@@ -479,14 +479,14 @@ func TestValidateFinding_ConcurrentSafe(t *testing.T) {
 				Validate: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
-					URL:    srv.URL + "/check?key={{ test.rule }}",
-					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
-					},
+				URL:    srv.URL + "/check?key={{ secret }}",
+				Match: []config.MatchClause{
+					{StatusCodes: []int{200}, Result: "confirmed"},
 				},
 			},
 		},
-	}
+	},
+}
 
 	v := NewValidator(cfg)
 
@@ -528,10 +528,10 @@ func TestValidateFinding_ConfirmedShortCircuitsCombos(t *testing.T) {
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
 					URL:    srv.URL,
-					Body:   "id={{ dep.id }}&secret={{ test.rule }}",
-					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Words: []string{`"ok":true`}, Result: "confirmed"},
-						{Result: "error"},
+				Body:   "id={{ dep.id }}&secret={{ secret }}",
+				Match: []config.MatchClause{
+					{StatusCodes: []int{200}, Words: []string{`"ok":true`}, Result: "confirmed"},
+					{Result: "error"},
 					},
 				},
 			},
