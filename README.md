@@ -75,7 +75,7 @@ Available Commands:
   git         scan git repositories for secrets
   help        Help about any command
   stdin       detect secrets from stdin
-  version     display gitleaks version
+  version     display betterleaks version
 
 Flags:
   -b, --baseline-path string          path to baseline with issues that can be ignored
