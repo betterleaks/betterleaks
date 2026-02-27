@@ -50,7 +50,8 @@ Great question. Check out what we're cookin in the [v2 branch](https://github.co
 ## Installation
 ```
 # Package managers
-brew install betterleaks/tap/betterleaks
+brew install betterleaks
+brew install betterleaks/tap/betterleaks 
 
 # Containers
 docker pull ghcr.io/betterleaks/betterleaks:latest
