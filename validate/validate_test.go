@@ -29,7 +29,7 @@ func TestValidator_Validate_Confirmed(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
 					URL:    srv.URL + "/token",
@@ -66,7 +66,7 @@ func TestValidator_Validate_Invalid(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
 					URL:    srv.URL + "/check",
@@ -123,17 +123,17 @@ func TestValidator_Validate_CacheHit(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
-				URL:    srv.URL + "/check?key={{ secret }}",
-				Match: []config.MatchClause{
-					{StatusCodes: []int{200}, Result: "confirmed"},
+					URL:    srv.URL + "/check?key={{ secret }}",
+					Match: []config.MatchClause{
+						{StatusCodes: []int{200}, Result: "confirmed"},
+					},
 				},
 			},
 		},
-	},
-}
+	}
 
 	findings := []report.Finding{
 		{RuleID: "test.rule", Secret: "same-secret"},
@@ -162,7 +162,7 @@ func TestValidator_Validate_CartesianProduct(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"composite.rule": {
 				RuleID: "composite.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
 					URL:    srv.URL,
@@ -214,11 +214,11 @@ func TestValidator_Validate_SharedPlaceholder_ConsistentCombo(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
-				URL:    srv.URL + "/check?id={{ dep.id }}",
-				Body:   "id={{ dep.id }}&secret={{ secret }}",
+					URL:    srv.URL + "/check?id={{ dep.id }}",
+					Body:   "id={{ dep.id }}&secret={{ secret }}",
 					Match: []config.MatchClause{
 						{StatusCodes: []int{200}, Result: "confirmed"},
 						{Result: "invalid"},
@@ -263,7 +263,7 @@ func TestValidator_Validate_HeadersIncludedInCombo(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:    config.ValidationTypeHTTP,
 					Method:  "GET",
 					URL:     srv.URL,
@@ -295,7 +295,7 @@ func TestValidator_Validate_NetworkError_IsValidationError(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
 					URL:    "http://127.0.0.1:1/unreachable",
@@ -331,17 +331,17 @@ func TestValidator_Validate_NetworkError_NotCached(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
-				URL:    srv.URL + "/check?key={{ secret }}",
-				Match: []config.MatchClause{
-					{StatusCodes: []int{200}, Result: "confirmed"},
+					URL:    srv.URL + "/check?key={{ secret }}",
+					Match: []config.MatchClause{
+						{StatusCodes: []int{200}, Result: "confirmed"},
+					},
 				},
 			},
 		},
-	},
-}
+	}
 
 	v := NewValidator(cfg)
 
@@ -358,7 +358,7 @@ func TestValidator_Validate_MissingPlaceholder_NotAttempted(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
 					URL:    "http://localhost/check?id={{ missing.dep }}",
@@ -396,7 +396,7 @@ func TestValidator_Validate_RequestBodyRendered(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:    config.ValidationTypeHTTP,
 					Method:  "POST",
 					URL:     srv.URL,
@@ -429,7 +429,7 @@ func TestValidateFinding_Confirmed(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
 					URL:    srv.URL,
@@ -476,17 +476,17 @@ func TestValidateFinding_ConcurrentSafe(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
-				URL:    srv.URL + "/check?key={{ secret }}",
-				Match: []config.MatchClause{
-					{StatusCodes: []int{200}, Result: "confirmed"},
+					URL:    srv.URL + "/check?key={{ secret }}",
+					Match: []config.MatchClause{
+						{StatusCodes: []int{200}, Result: "confirmed"},
+					},
 				},
 			},
 		},
-	},
-}
+	}
 
 	v := NewValidator(cfg)
 
@@ -524,14 +524,14 @@ func TestValidateFinding_ConfirmedShortCircuitsCombos(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
 					URL:    srv.URL,
-				Body:   "id={{ dep.id }}&secret={{ secret }}",
-				Match: []config.MatchClause{
-					{StatusCodes: []int{200}, Words: []string{`"ok":true`}, Result: "confirmed"},
-					{Result: "error"},
+					Body:   "id={{ dep.id }}&secret={{ secret }}",
+					Match: []config.MatchClause{
+						{StatusCodes: []int{200}, Words: []string{`"ok":true`}, Result: "confirmed"},
+						{Result: "error"},
 					},
 				},
 			},
@@ -564,7 +564,7 @@ func TestValidateFinding_Revoked(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
 					URL:    srv.URL,
@@ -595,7 +595,7 @@ func TestValidateFinding_FullResponse(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "GET",
 					URL:    srv.URL,
@@ -627,7 +627,7 @@ func TestValidateFinding_ImplicitSecretVariable(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:    config.ValidationTypeHTTP,
 					Method:  "GET",
 					URL:     srv.URL,
@@ -661,7 +661,7 @@ func TestValidateFinding_NamedCaptureGroups(t *testing.T) {
 		Rules: map[string]config.Rule{
 			"test.rule": {
 				RuleID: "test.rule",
-				Validate: &config.Validation{
+				Validation: &config.Validation{
 					Type:   config.ValidationTypeHTTP,
 					Method: "POST",
 					URL:    srv.URL,

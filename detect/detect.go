@@ -178,12 +178,12 @@ type Detector struct {
 	tokenizer *tiktoken.Tiktoken
 
 	// validator is the optional validation worker pool.
-	validator     *validate.Validator
-	validateCh    chan report.Finding
-	validateWg    sync.WaitGroup
-	validatedMu   sync.Mutex
-	validated     []report.Finding
-	validateCtx   context.Context
+	validator   *validate.Validator
+	validateCh  chan report.Finding
+	validateWg  sync.WaitGroup
+	validatedMu sync.Mutex
+	validated   []report.Finding
+	validateCtx context.Context
 }
 
 // NewDetector creates a new detector with the given config
@@ -879,7 +879,7 @@ func (d *Detector) AddFinding(finding report.Finding) {
 
 	if d.validateCh != nil {
 		rule, ok := d.Config.Rules[finding.RuleID]
-		if ok && rule.Validate != nil {
+		if ok && rule.Validation != nil {
 			d.validateCh <- finding
 			return
 		}

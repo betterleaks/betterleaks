@@ -241,7 +241,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 			if err != nil {
 				return Config{}, fmt.Errorf("%s: %w", cr.RuleID, err)
 			}
-			cr.Validate = v
+			cr.Validation = v
 		}
 
 		orderedRules = append(orderedRules, cr.RuleID)
@@ -587,8 +587,8 @@ func (c *Config) extend(extensionConfig Config) {
 			if currentRule.Path != nil {
 				baseRule.Path = currentRule.Path
 			}
-			if currentRule.Validate != nil {
-				baseRule.Validate = currentRule.Validate
+			if currentRule.Validation != nil {
+				baseRule.Validation = currentRule.Validation
 			}
 			baseRule.Tags = append(baseRule.Tags, currentRule.Tags...)
 			baseRule.Keywords = append(baseRule.Keywords, currentRule.Keywords...)

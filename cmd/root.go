@@ -502,7 +502,7 @@ func bytesConvert(bytes uint64) string {
 
 func hasAnyValidationRule(cfg config.Config) bool {
 	for _, r := range cfg.Rules {
-		if r.Validate != nil {
+		if r.Validation != nil {
 			return true
 		}
 	}

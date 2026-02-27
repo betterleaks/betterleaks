@@ -52,7 +52,7 @@ func GitHubPat() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"ghp_"},
 		Allowlists:  githubAllowlist,
-		Validate:    githubTokenValidation(),
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate
@@ -71,7 +71,7 @@ func GitHubFineGrainedPat() *config.Rule {
 		Regex:       regexp.MustCompile(`github_pat_\w{82}`),
 		Entropy:     3,
 		Keywords:    []string{"github_pat_"},
-		Validate:    githubTokenValidation(),
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate
@@ -90,7 +90,7 @@ func GitHubOauth() *config.Rule {
 		Regex:       regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
 		Entropy:     3,
 		Keywords:    []string{"gho_"},
-		Validate:    githubTokenValidation(),
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate
@@ -110,7 +110,7 @@ func GitHubApp() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"ghu_", "ghs_"},
 		Allowlists:  githubAllowlist,
-		Validate:    githubTokenValidation(),
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate
@@ -131,7 +131,7 @@ func GitHubRefresh() *config.Rule {
 		Regex:       regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
 		Entropy:     3,
 		Keywords:    []string{"ghr_"},
-		Validate:    githubTokenValidation(),
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate

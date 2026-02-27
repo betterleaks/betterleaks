@@ -46,13 +46,13 @@ func NewValidator(cfg config.Config) *Validator {
 // and the response cache provides cross-call deduplication.
 func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool {
 	rule, ok := v.Config.Rules[f.RuleID]
-	if !ok || rule.Validate == nil {
+	if !ok || rule.Validation == nil {
 		return false
 	}
 
 	secrets := buildSecrets(f)
 
-	allIDs := collectTemplateIDs(rule.Validate)
+	allIDs := collectTemplateIDs(rule.Validation)
 	if missing := missingIDs(allIDs, secrets); len(missing) > 0 {
 		logging.Debug().
 			Str("rule", f.RuleID).
@@ -72,28 +72,28 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 	var lastBody []byte
 
 	for _, combo := range combos {
-		renderedURL, err := v.Templates.Render(rule.Validate.URL, combo)
+		renderedURL, err := v.Templates.Render(rule.Validation.URL, combo)
 		if err != nil {
 			f.ValidationStatus = report.ValidationError
 			f.ValidationNote = fmt.Sprintf("template render (url): %s", err)
 			return true
 		}
-		renderedBody, err := v.Templates.Render(rule.Validate.Body, combo)
+		renderedBody, err := v.Templates.Render(rule.Validation.Body, combo)
 		if err != nil {
 			f.ValidationStatus = report.ValidationError
 			f.ValidationNote = fmt.Sprintf("template render (body): %s", err)
 			return true
 		}
-		renderedHeaders, err := v.Templates.RenderMap(rule.Validate.Headers, combo)
+		renderedHeaders, err := v.Templates.RenderMap(rule.Validation.Headers, combo)
 		if err != nil {
 			f.ValidationStatus = report.ValidationError
 			f.ValidationNote = fmt.Sprintf("template render (headers): %s", err)
 			return true
 		}
 
-		cacheKey := v.Cache.Key(rule.Validate.Method, renderedURL, renderedHeaders, renderedBody)
+		cacheKey := v.Cache.Key(rule.Validation.Method, renderedURL, renderedHeaders, renderedBody)
 
-		resp, err := v.getOrFetch(ctx, cacheKey, rule.Validate.Method, renderedURL, renderedHeaders, renderedBody)
+		resp, err := v.getOrFetch(ctx, cacheKey, rule.Validation.Method, renderedURL, renderedHeaders, renderedBody)
 		if err != nil {
 			f.ValidationStatus = report.ValidationError
 			f.ValidationNote = err.Error()
@@ -110,7 +110,7 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 		if respHeaders == nil {
 			respHeaders = http.Header{}
 		}
-		result, meta, reason := rule.Validate.EvalMatch(resp.StatusCode, resp.Body, respHeaders)
+		result, meta, reason := rule.Validation.EvalMatch(resp.StatusCode, resp.Body, respHeaders)
 		lastResult = result
 		lastMeta = meta
 		lastNote = reason

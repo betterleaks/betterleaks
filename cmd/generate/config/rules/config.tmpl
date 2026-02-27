@@ -76,7 +76,7 @@ tags = [
 {{- with .StopWords }}{{println}}stopwords = [{{ range $j, $stopword := . }}
     "{{ $stopword }}",{{ end }}
 ]{{ end }}{{ end }}{{ end }}{{ end }}
-{{- with $rule.Validate }}{{println}}[rules.validate]
+{{- with $rule.Validation }}{{println}}[rules.validate]
 type = "{{ .Type }}"
 method = "{{ .Method }}"
 url = "{{ .URL }}"

@@ -59,9 +59,9 @@ type Rule struct {
 	// tokenize efficiently (i.e., common words/phrases) are filtered out.
 	TokenEfficiency bool
 
-	// Validate describes an HTTP request to fire to determine whether
+	// Validation describes an HTTP request to fire to determine whether
 	// a detected secret is live (confirmed) or stale/invalid.
-	Validate *Validation
+	Validation *Validation
 }
 
 type Required struct {
