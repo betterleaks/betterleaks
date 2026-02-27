@@ -99,8 +99,8 @@ func init() {
 	rootCmd.PersistentFlags().Bool("validate", true, "enable validation of findings against live APIs")
 	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: confirmed, invalid, revoked, error, unknown, none (none = rules without validation)")
 	rootCmd.PersistentFlags().Duration("validate-timeout", 10*time.Second, "per-request timeout for validation")
-	rootCmd.PersistentFlags().Bool("full-validation-response", false, "include full HTTP response body on validated findings")
-	rootCmd.PersistentFlags().Bool("extract-empty", false, "include empty values from extractors in output")
+	rootCmd.PersistentFlags().Bool("validation-full-response", false, "include full HTTP response body on validated findings")
+	rootCmd.PersistentFlags().Bool("validate-extract-empty", false, "include empty values from extractors in output")
 
 	// Add diagnostics flags
 	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
@@ -467,8 +467,8 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 	if enableValidation && hasAnyValidationRule(cfg) {
 		v := validate.NewValidator(cfg)
 		v.RequestTimeout, _ = cmd.Flags().GetDuration("validate-timeout")
-		v.FullResponse, _ = cmd.Flags().GetBool("full-validation-response")
-		v.ExtractEmpty, _ = cmd.Flags().GetBool("extract-empty")
+		v.FullResponse, _ = cmd.Flags().GetBool("validation-full-response")
+		v.ExtractEmpty, _ = cmd.Flags().GetBool("validate-extract-empty")
 		detector.StartValidation(cmd.Context(), v, 10)
 	}
 

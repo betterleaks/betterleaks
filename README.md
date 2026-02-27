@@ -108,8 +108,8 @@ Flags:
       --timeout int                   set a timeout for betterleaks commands in seconds (default "0", no timeout is set)
       --validate                      enable validation of findings against live APIs (default true)
       --validate-timeout duration     per-request timeout for validation (default 10s)
-      --extract-empty                 include empty values from extractors in output
-      --full-validation-response      include full HTTP response body on validated findings
+      --validate-extract-empty         include empty values from extractors in output
+      --validation-full-response      include full HTTP response body on validated findings
   -v, --verbose                       show verbose output from scan
       --version                       version for betterleaks
 
@@ -620,9 +620,9 @@ match = [
 |---|---|---|
 | `--validate` | `true` | Master toggle — set `--validate=false` to skip all validation |
 | `--validation-status` | *(all)* | Comma-separated list of statuses to include in output: `confirmed`, `invalid`, `revoked`, `error`, `unknown`, `none`. Use `none` to include findings from rules without a validation block. |
-| `--extract-empty` | `false` | Include empty/nil extracted values in output |
+| `--validate-extract-empty` | `false` | Include empty/nil extracted values in output |
 | `--validate-timeout` | `10s` | Per-request HTTP timeout |
-| `--full-validation-response` | `false` | Include full HTTP response body in the finding output |
+| `--validation-full-response` | `false` | Include full HTTP response body in the finding output |
 
 ```bash
 # Only show confirmed findings (excludes non-validatable rules)
