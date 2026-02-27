@@ -113,13 +113,13 @@ func slackValidation() *Validation {
 func TestEvalMatch_FirstMatchWins(t *testing.T) {
 	v := slackValidation()
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true,"user":"bob","team":"acme"}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true,"user":"bob","team":"acme"}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"token_revoked"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"token_revoked"}`), emptyHeaders, false)
 	assert.Equal(t, "revoked", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"invalid_auth"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"invalid_auth"}`), emptyHeaders, false)
 	assert.Equal(t, "invalid", result)
 }
 
@@ -134,13 +134,13 @@ func TestEvalMatch_StatusOnly(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte("anything"), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte("anything"), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(401, []byte("anything"), emptyHeaders)
+	result, _, _ = v.EvalMatch(401, []byte("anything"), emptyHeaders, false)
 	assert.Equal(t, "invalid", result)
 
-	result, _, _ = v.EvalMatch(500, []byte("anything"), emptyHeaders)
+	result, _, _ = v.EvalMatch(500, []byte("anything"), emptyHeaders, false)
 	assert.Equal(t, "unknown", result)
 }
 
@@ -155,10 +155,10 @@ func TestEvalMatch_StatusList(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(201, []byte("anything"), emptyHeaders)
+	result, _, _ := v.EvalMatch(201, []byte("anything"), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(502, []byte("anything"), emptyHeaders)
+	result, _, _ = v.EvalMatch(502, []byte("anything"), emptyHeaders, false)
 	assert.Equal(t, "error", result)
 }
 
@@ -172,13 +172,13 @@ func TestEvalMatch_WordsAny(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"bearer": true}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"bearer": true}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"access_token": "abc"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"access_token": "abc"}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`nothing here`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`nothing here`), emptyHeaders, false)
 	assert.Equal(t, "unknown", result)
 }
 
@@ -192,10 +192,10 @@ func TestEvalMatch_WordsAll(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"access_token":"abc","bearer":true}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"access_token":"abc","bearer":true}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"access_token":"abc"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"access_token":"abc"}`), emptyHeaders, false)
 	assert.Equal(t, "unknown", result)
 }
 
@@ -210,10 +210,10 @@ func TestEvalMatch_NegativeWords(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"token_revoked"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false,"error":"token_revoked"}`), emptyHeaders, false)
 	assert.Equal(t, "invalid", result)
 }
 
@@ -227,7 +227,7 @@ func TestEvalMatch_NoMatch(t *testing.T) {
 		},
 	}
 
-	result, meta, reason := v.EvalMatch(500, []byte("server error"), emptyHeaders)
+	result, meta, reason := v.EvalMatch(500, []byte("server error"), emptyHeaders, false)
 	assert.Equal(t, "unknown", result)
 	assert.Nil(t, meta)
 	assert.Contains(t, reason, "status=500")
@@ -236,7 +236,7 @@ func TestEvalMatch_NoMatch(t *testing.T) {
 func TestEvalMatch_Extract(t *testing.T) {
 	v := slackValidation()
 
-	result, meta, _ := v.EvalMatch(200, []byte(`{"ok":true,"user":"alice","team":"eng"}`), emptyHeaders)
+	result, meta, _ := v.EvalMatch(200, []byte(`{"ok":true,"user":"alice","team":"eng"}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
 	assert.Equal(t, "alice", meta["user"])
@@ -256,7 +256,7 @@ func TestEvalMatch_ExtractStringifiesArrays(t *testing.T) {
 		},
 	}
 
-	result, meta, _ := v.EvalMatch(200, []byte(`{"scopes":["read","write","admin"]}`), emptyHeaders)
+	result, meta, _ := v.EvalMatch(200, []byte(`{"scopes":["read","write","admin"]}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
 	assert.Equal(t, "read,write,admin", meta["scopes"])
@@ -275,7 +275,7 @@ func TestEvalMatch_PerClauseExtractOverridesDefault(t *testing.T) {
 		},
 	}
 
-	result, meta, _ := v.EvalMatch(200, []byte(`{"user":"alice","error":"none"}`), emptyHeaders)
+	result, meta, _ := v.EvalMatch(200, []byte(`{"user":"alice","error":"none"}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
 	assert.Equal(t, "none", meta["error"])
@@ -299,7 +299,7 @@ func TestEvalMatch_HeaderExtract(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("X-OAuth-Scopes", "repo, user")
 
-	result, meta, _ := v.EvalMatch(200, []byte(`{}`), headers)
+	result, meta, _ := v.EvalMatch(200, []byte(`{}`), headers, false)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
 	assert.Equal(t, "repo, user", meta["scopes"])
@@ -317,10 +317,10 @@ func TestEvalMatch_WordsCaseInsensitive(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"ACCESS_TOKEN": "abc"}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"ACCESS_TOKEN": "abc"}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"Access_Token": "abc"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"Access_Token": "abc"}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 }
 
@@ -335,10 +335,10 @@ func TestEvalMatch_NegativeWordsCaseInsensitive(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"ERROR": "something broke"}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"ERROR": "something broke"}`), emptyHeaders, false)
 	assert.Equal(t, "invalid", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"status": "ok"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"status": "ok"}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 }
 
@@ -355,10 +355,10 @@ func TestEvalMatch_JSONAssertion_Scalar(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"ok":true}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"ok":false}`), emptyHeaders, false)
 	assert.Equal(t, "invalid", result)
 }
 
@@ -373,13 +373,13 @@ func TestEvalMatch_JSONAssertion_List(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"error":"token_revoked"}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"error":"token_revoked"}`), emptyHeaders, false)
 	assert.Equal(t, "revoked", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"error":"account_inactive"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"error":"account_inactive"}`), emptyHeaders, false)
 	assert.Equal(t, "revoked", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"error":"other"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"error":"other"}`), emptyHeaders, false)
 	assert.Equal(t, "unknown", result)
 }
 
@@ -394,13 +394,13 @@ func TestEvalMatch_JSONAssertion_NotEmpty(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"user":"alice"}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"user":"alice"}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"user":""}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"user":""}`), emptyHeaders, false)
 	assert.Equal(t, "invalid", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"other":"x"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"other":"x"}`), emptyHeaders, false)
 	assert.Equal(t, "invalid", result)
 }
 
@@ -415,7 +415,7 @@ func TestEvalMatch_JSONAssertion_NonJSON(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`not json`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`not json`), emptyHeaders, false)
 	assert.Equal(t, "invalid", result)
 }
 
@@ -434,12 +434,12 @@ func TestEvalMatch_ResponseHeaderMatch(t *testing.T) {
 
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json; charset=utf-8")
-	result, _, _ := v.EvalMatch(200, []byte(`{}`), headers)
+	result, _, _ := v.EvalMatch(200, []byte(`{}`), headers, false)
 	assert.Equal(t, "confirmed", result)
 
 	headers2 := http.Header{}
 	headers2.Set("Content-Type", "text/html")
-	result, _, _ = v.EvalMatch(200, []byte(`{}`), headers2)
+	result, _, _ = v.EvalMatch(200, []byte(`{}`), headers2, false)
 	assert.Equal(t, "unknown", result)
 }
 
@@ -460,7 +460,7 @@ func TestEvalMatch_ExtractNestedPath(t *testing.T) {
 	}
 
 	body := []byte(`{"user":{"name":"alice","profile":{"email":"alice@example.com","bio":"dev"}}}`)
-	result, meta, _ := v.EvalMatch(200, body, emptyHeaders)
+	result, meta, _ := v.EvalMatch(200, body, emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
 	assert.Equal(t, "alice@example.com", meta["email"])
@@ -481,7 +481,7 @@ func TestEvalMatch_ExtractArrayWildcard(t *testing.T) {
 	}
 
 	body := []byte(`{"repos":[{"name":"alpha","stars":10},{"name":"beta","stars":50}]}`)
-	result, meta, _ := v.EvalMatch(200, body, emptyHeaders)
+	result, meta, _ := v.EvalMatch(200, body, emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 	require.NotNil(t, meta)
 	assert.Equal(t, "alpha,beta", meta["names"])
@@ -500,9 +500,42 @@ func TestEvalMatch_ExtractNonJSONBody(t *testing.T) {
 		},
 	}
 
-	result, meta, _ := v.EvalMatch(200, []byte(`not json at all`), emptyHeaders)
+	result, meta, _ := v.EvalMatch(200, []byte(`not json at all`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 	assert.Nil(t, meta)
+}
+
+func TestEvalMatch_ExtractEmpty(t *testing.T) {
+	v := &Validation{
+		Type:   ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "http://x",
+		Extract: map[string]string{
+			"present": "json:name",
+			"missing": "json:nope",
+			"blank":   "header:X-Missing",
+		},
+		Match: []MatchClause{
+			{StatusCodes: []int{200}, Result: "confirmed"},
+		},
+	}
+	body := []byte(`{"name":"alice"}`)
+
+	// Without extract-empty: only non-empty values appear
+	_, meta, _ := v.EvalMatch(200, body, emptyHeaders, false)
+	require.NotNil(t, meta)
+	assert.Equal(t, "alice", meta["present"])
+	_, hasMissing := meta["missing"]
+	assert.False(t, hasMissing)
+	_, hasBlank := meta["blank"]
+	assert.False(t, hasBlank)
+
+	// With extract-empty: all keys appear, empty ones have ""
+	_, meta, _ = v.EvalMatch(200, body, emptyHeaders, true)
+	require.NotNil(t, meta)
+	assert.Equal(t, "alice", meta["present"])
+	assert.Equal(t, "", meta["missing"])
+	assert.Equal(t, "", meta["blank"])
 }
 
 // --- Check() validation tests for method and URL ---
@@ -639,12 +672,12 @@ func TestEvalMatch_GoogleMaps(t *testing.T) {
 		},
 	}
 
-	result, _, _ := v.EvalMatch(200, []byte(`{"status":"OK","results":[]}`), emptyHeaders)
+	result, _, _ := v.EvalMatch(200, []byte(`{"status":"OK","results":[]}`), emptyHeaders, false)
 	assert.Equal(t, "confirmed", result)
 
-	result, _, _ = v.EvalMatch(200, []byte(`{"status":"REQUEST_DENIED"}`), emptyHeaders)
+	result, _, _ = v.EvalMatch(200, []byte(`{"status":"REQUEST_DENIED"}`), emptyHeaders, false)
 	assert.Equal(t, "invalid", result)
 
-	result, _, _ = v.EvalMatch(503, []byte(`service unavailable`), emptyHeaders)
+	result, _, _ = v.EvalMatch(503, []byte(`service unavailable`), emptyHeaders, false)
 	assert.Equal(t, "error", result)
 }

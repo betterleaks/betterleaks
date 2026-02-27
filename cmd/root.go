@@ -97,10 +97,10 @@ func init() {
 
 	// Validation flags
 	rootCmd.PersistentFlags().Bool("validate", true, "enable validation of findings against live APIs")
-	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: confirmed, invalid, revoked, error, unknown")
-	rootCmd.PersistentFlags().Bool("extract-empty", false, "include empty values from extractors in output")
+	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: confirmed, invalid, revoked, error, unknown, none (none = rules without validation)")
 	rootCmd.PersistentFlags().Duration("validate-timeout", 10*time.Second, "per-request timeout for validation")
 	rootCmd.PersistentFlags().Bool("full-validation-response", false, "include full HTTP response body on validated findings")
+	rootCmd.PersistentFlags().Bool("extract-empty", false, "include empty values from extractors in output")
 
 	// Add diagnostics flags
 	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
@@ -334,6 +334,7 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 	if detector.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
 		logging.Fatal().Err(err).Send()
 	}
+	detector.ValidationStatusFilter, _ = cmd.Flags().GetString("validation-status")
 	// set redact flag
 	if detector.Redact, err = cmd.Flags().GetUint("redact"); err != nil {
 		logging.Fatal().Err(err).Send()
@@ -467,6 +468,7 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 		v := validate.NewValidator(cfg)
 		v.RequestTimeout, _ = cmd.Flags().GetDuration("validate-timeout")
 		v.FullResponse, _ = cmd.Flags().GetBool("full-validation-response")
+		v.ExtractEmpty, _ = cmd.Flags().GetBool("extract-empty")
 		detector.StartValidation(cmd.Context(), v, 10)
 	}
 
@@ -511,26 +513,35 @@ func hasAnyValidationRule(cfg config.Config) bool {
 
 // filterByStatus filters findings to those whose ValidationStatus matches one
 // of the comma-separated status names. Status names are case-insensitive.
-// Findings without a validation status (empty string) match "unknown".
+// The pseudo-status "none" matches findings from rules that have no validation
+// block (ValidationStatus == ""). Without "none", such findings are excluded
+// when any filter is active.
 func filterByStatus(findings []report.Finding, statusCSV string) []report.Finding {
 	allowed := make(map[report.ValidationStatus]struct{})
+	includeNone := false
 	for _, s := range strings.Split(statusCSV, ",") {
 		s = strings.TrimSpace(s)
 		if s == "" {
 			continue
 		}
+		if strings.EqualFold(s, "none") {
+			includeNone = true
+			continue
+		}
 		allowed[report.ValidationStatus(strings.ToUpper(s))] = struct{}{}
 	}
-	if len(allowed) == 0 {
+	if len(allowed) == 0 && !includeNone {
 		return findings
 	}
 	var filtered []report.Finding
 	for _, f := range findings {
-		status := f.ValidationStatus
-		if status == "" {
-			status = report.ValidationUnknown
+		if f.ValidationStatus == "" {
+			if includeNone {
+				filtered = append(filtered, f)
+			}
+			continue
 		}
-		if _, ok := allowed[status]; ok {
+		if _, ok := allowed[f.ValidationStatus]; ok {
 			filtered = append(filtered, f)
 		}
 	}
@@ -547,7 +558,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 		detector.WaitForValidation()
 		findings = detector.Findings()
 
-		var confirmed, invalid, revoked, errCount int
+		var confirmed, invalid, revoked, unknown, errCount int
 		for _, f := range findings {
 			switch f.ValidationStatus {
 			case report.ValidationConfirmed:
@@ -556,15 +567,22 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 				invalid++
 			case report.ValidationRevoked:
 				revoked++
+			case report.ValidationUnknown:
+				unknown++
 			case report.ValidationError:
 				errCount++
 			}
 		}
 		logging.Info().
 			Int64("attempted", detector.ValidationsAttempted()).
+			Int64("cache_hits", detector.ValidationCacheHits()).
+			Int64("http_requests", detector.ValidationHTTPRequests()).
+			Msg("validation requests")
+		logging.Info().
 			Int("confirmed", confirmed).
 			Int("invalid", invalid).
 			Int("revoked", revoked).
+			Int("unknown", unknown).
 			Int("errors", errCount).
 			Msg("validation complete")
 	}

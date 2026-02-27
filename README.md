@@ -100,7 +100,7 @@ Flags:
       --max-target-megabytes int      files larger than this will be skipped
       --no-banner                     suppress banner
       --no-color                      turn off color for verbose output
-      --validation-status string        comma-separated list of validation statuses to include: confirmed, invalid, revoked, error, unknown
+      --validation-status string        comma-separated list of validation statuses to include: confirmed, invalid, revoked, error, unknown, none (none = rules without validation)
       --redact uint[=100]             redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)
   -f, --report-format string          output format (json, csv, junit, sarif, template)
   -r, --report-path string            report file
@@ -619,14 +619,17 @@ match = [
 | Flag | Default | Description |
 |---|---|---|
 | `--validate` | `true` | Master toggle — set `--validate=false` to skip all validation |
-| `--validation-status` | *(all)* | Comma-separated list of statuses to include in output, e.g. `--validation-status confirmed,revoked` |
+| `--validation-status` | *(all)* | Comma-separated list of statuses to include in output: `confirmed`, `invalid`, `revoked`, `error`, `unknown`, `none`. Use `none` to include findings from rules without a validation block. |
 | `--extract-empty` | `false` | Include empty/nil extracted values in output |
 | `--validate-timeout` | `10s` | Per-request HTTP timeout |
 | `--full-validation-response` | `false` | Include full HTTP response body in the finding output |
 
 ```bash
-# Only show confirmed findings
+# Only show confirmed findings (excludes non-validatable rules)
 betterleaks git --validation-status confirmed
+
+# Show confirmed findings + all non-validatable rules
+betterleaks git --validation-status confirmed,none
 
 # Show confirmed and revoked
 betterleaks dir --validation-status confirmed,revoked

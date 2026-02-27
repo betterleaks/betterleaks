@@ -133,6 +133,10 @@ type Detector struct {
 	// NoColor is a flag to disable color output
 	NoColor bool
 
+	// ValidationStatusFilter, when non-empty, restricts which findings are
+	// printed in verbose mode. Parsed from --validation-status.
+	ValidationStatusFilter string
+
 	// IgnoreGitleaksAllow is a flag to ignore gitleaks:allow comments.
 	IgnoreGitleaksAllow bool
 
@@ -887,7 +891,7 @@ func (d *Detector) AddFinding(finding report.Finding) {
 
 	d.findingMutex.Lock()
 	d.findings = append(d.findings, finding)
-	if d.Verbose {
+	if d.shouldVerbosePrint(finding) {
 		printFinding(finding, d.NoColor)
 	}
 	d.findingMutex.Unlock()
@@ -896,6 +900,40 @@ func (d *Detector) AddFinding(finding report.Finding) {
 // Findings returns the findings added to the detector
 func (d *Detector) Findings() []report.Finding {
 	return d.findings
+}
+
+// shouldVerbosePrint returns true when the finding should be printed in
+// verbose mode. When ValidationStatusFilter is set, only findings whose
+// status passes the filter are printed. The pseudo-status "none" matches
+// findings that have not been validated (empty status).
+func (d *Detector) shouldVerbosePrint(f report.Finding) bool {
+	if !d.Verbose {
+		return false
+	}
+	if d.ValidationStatusFilter == "" {
+		return true
+	}
+	includeNone := false
+	allowed := make(map[report.ValidationStatus]struct{})
+	for _, s := range strings.Split(d.ValidationStatusFilter, ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if strings.EqualFold(s, "none") {
+			includeNone = true
+			continue
+		}
+		allowed[report.ValidationStatus(strings.ToUpper(s))] = struct{}{}
+	}
+	if len(allowed) == 0 && !includeNone {
+		return true
+	}
+	if f.ValidationStatus == "" {
+		return includeNone
+	}
+	_, ok := allowed[f.ValidationStatus]
+	return ok
 }
 
 // StartValidation spins up a pool of workers that validate findings asynchronously.
@@ -915,7 +953,7 @@ func (d *Detector) StartValidation(ctx context.Context, v *validate.Validator, w
 				v.ValidateFinding(ctx, &f)
 				d.validatedMu.Lock()
 				d.validated = append(d.validated, f)
-				if d.Verbose {
+				if d.shouldVerbosePrint(f) {
 					printFinding(f, d.NoColor)
 				}
 				d.validatedMu.Unlock()
@@ -939,6 +977,22 @@ func (d *Detector) ValidationsAttempted() int64 {
 		return 0
 	}
 	return d.validator.Attempted.Load()
+}
+
+// ValidationCacheHits returns the number of validation lookups served from cache.
+func (d *Detector) ValidationCacheHits() int64 {
+	if d.validator == nil {
+		return 0
+	}
+	return d.validator.CacheHits.Load()
+}
+
+// ValidationHTTPRequests returns the number of actual outbound HTTP requests.
+func (d *Detector) ValidationHTTPRequests() int64 {
+	if d.validator == nil {
+		return 0
+	}
+	return d.validator.HTTPRequests.Load()
 }
 
 // WaitForValidation blocks until all in-flight validation workers finish,

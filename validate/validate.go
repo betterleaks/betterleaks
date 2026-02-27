@@ -24,6 +24,7 @@ type Validator struct {
 	Cache          *ResponseCache
 	RequestTimeout time.Duration
 	FullResponse   bool
+	ExtractEmpty   bool
 	Templates      *TemplateEngine
 
 	// inflight deduplicates concurrent HTTP requests for the same cache key.
@@ -31,6 +32,12 @@ type Validator struct {
 
 	// Attempted counts the total number of findings where validation was attempted.
 	Attempted atomic.Int64
+
+	// CacheHits counts how many validation lookups were served from cache.
+	CacheHits atomic.Int64
+
+	// HTTPRequests counts actual outbound HTTP requests (cache misses after singleflight).
+	HTTPRequests atomic.Int64
 }
 
 // NewValidator creates a Validator with sensible defaults.
@@ -116,7 +123,7 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 		if respHeaders == nil {
 			respHeaders = http.Header{}
 		}
-		result, meta, reason := rule.Validation.EvalMatch(resp.StatusCode, resp.Body, respHeaders)
+		result, meta, reason := rule.Validation.EvalMatch(resp.StatusCode, resp.Body, respHeaders, v.ExtractEmpty)
 		lastResult = result
 		lastMeta = meta
 		lastNote = reason
@@ -184,6 +191,7 @@ func buildSecrets(f *report.Finding) map[string][]string {
 // key block until the first request completes, then share the result.
 func (v *Validator) getOrFetch(ctx context.Context, cacheKey, method, url string, headers map[string]string, body string) (*CachedResponse, error) {
 	if resp, ok := v.Cache.Get(cacheKey); ok {
+		v.CacheHits.Add(1)
 		logging.Debug().
 			Str("request", KeyDebug(method, url, headers, body)).
 			Msg("cache hit")
@@ -206,6 +214,7 @@ func (v *Validator) getOrFetch(ctx context.Context, cacheKey, method, url string
 }
 
 func (v *Validator) doRequest(ctx context.Context, method, url string, headers map[string]string, body string) *CachedResponse {
+	v.HTTPRequests.Add(1)
 	reqCtx, cancel := context.WithTimeout(ctx, v.RequestTimeout)
 	defer cancel()
 

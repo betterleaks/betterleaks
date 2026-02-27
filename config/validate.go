@@ -99,7 +99,7 @@ func (v *Validation) Check() error {
 	if len(last.StatusCodes) > 0 || len(last.Words) > 0 || len(last.NegativeWords) > 0 || len(last.JSON) > 0 || len(last.Headers) > 0 {
 		logging.Warn().
 			Str("url", v.URL).
-			Msg("validate: last match clause is not a catch-all (has conditions); unmatched responses will default to error")
+			Msg("validate: last match clause is not a catch-all (has conditions); unmatched responses will default to unknown")
 	}
 
 	// Validate Liquid template syntax at config time so broken templates
@@ -136,7 +136,7 @@ func (v *Validation) checkTemplates() error {
 // EvalMatch evaluates match clauses against an HTTP response.
 // Returns the result string of the first matching clause, extracted metadata,
 // and a reason. If no clause matches, returns "unknown" with a reason.
-func (v *Validation) EvalMatch(statusCode int, body []byte, headers http.Header) (result string, meta map[string]string, reason string) {
+func (v *Validation) EvalMatch(statusCode int, body []byte, headers http.Header, includeEmpty bool) (result string, meta map[string]string, reason string) {
 	for i, c := range v.Match {
 		if !clauseMatches(c, statusCode, body, headers) {
 			continue
@@ -145,7 +145,7 @@ func (v *Validation) EvalMatch(statusCode int, body []byte, headers http.Header)
 		if len(c.Extract) > 0 {
 			extractMap = c.Extract
 		}
-		extracted := extractValues(body, headers, extractMap)
+		extracted := extractValues(body, headers, extractMap, includeEmpty)
 		return c.Result, extracted, fmt.Sprintf("match[%d] (%s)", i, c.Result)
 	}
 	return "unknown", nil, fmt.Sprintf("no match clause satisfied (status=%d)", statusCode)
@@ -256,7 +256,7 @@ func matchJSONAssertion(result gjson.Result, expected any) bool {
 // extractValues extracts data from an HTTP response using source-prefixed expressions.
 // Supported prefixes: "json:" (GJSON path on body), "header:" (response header value),
 // "xpath:" (stub for future XML support).
-func extractValues(body []byte, headers http.Header, extract map[string]string) map[string]string {
+func extractValues(body []byte, headers http.Header, extract map[string]string, includeEmpty bool) map[string]string {
 	if len(extract) == 0 {
 		return nil
 	}
@@ -286,7 +286,7 @@ func extractValues(body []byte, headers http.Header, extract map[string]string) 
 		case "xpath":
 			// Stub — implement when needed
 		}
-		if val != "" {
+		if includeEmpty || val != "" {
 			out[name] = val
 		}
 	}
