@@ -100,7 +100,7 @@ Flags:
       --max-target-megabytes int      files larger than this will be skipped
       --no-banner                     suppress banner
       --no-color                      turn off color for verbose output
-      --output-status string           comma-separated list of validation statuses to include (e.g. confirmed,revoked)
+      --validation-status string        comma-separated list of validation statuses to include: confirmed, invalid, revoked, error, unknown
       --redact uint[=100]             redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)
   -f, --report-format string          output format (json, csv, junit, sarif, template)
   -r, --report-path string            report file
@@ -619,17 +619,17 @@ match = [
 | Flag | Default | Description |
 |---|---|---|
 | `--validate` | `true` | Master toggle — set `--validate=false` to skip all validation |
-| `--output-status` | *(all)* | Comma-separated list of statuses to include in output, e.g. `--output-status confirmed,revoked` |
+| `--validation-status` | *(all)* | Comma-separated list of statuses to include in output, e.g. `--validation-status confirmed,revoked` |
 | `--extract-empty` | `false` | Include empty/nil extracted values in output |
 | `--validate-timeout` | `10s` | Per-request HTTP timeout |
 | `--full-validation-response` | `false` | Include full HTTP response body in the finding output |
 
 ```bash
 # Only show confirmed findings
-betterleaks git --output-status confirmed
+betterleaks git --validation-status confirmed
 
 # Show confirmed and revoked
-betterleaks dir --output-status confirmed,revoked
+betterleaks dir --validation-status confirmed,revoked
 
 # Disable validation entirely
 betterleaks git --validate=false

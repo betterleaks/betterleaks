@@ -97,7 +97,7 @@ func init() {
 
 	// Validation flags
 	rootCmd.PersistentFlags().Bool("validate", true, "enable validation of findings against live APIs")
-	rootCmd.PersistentFlags().String("output-status", "", "comma-separated list of validation statuses to include (e.g. confirmed,revoked)")
+	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: confirmed, invalid, revoked, error, unknown")
 	rootCmd.PersistentFlags().Bool("extract-empty", false, "include empty values from extractors in output")
 	rootCmd.PersistentFlags().Duration("validate-timeout", 10*time.Second, "per-request timeout for validation")
 	rootCmd.PersistentFlags().Bool("full-validation-response", false, "include full HTTP response body on validated findings")
@@ -568,7 +568,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 			Msg("validation complete")
 	}
 
-	outputStatus, _ := rootCmd.Flags().GetString("output-status")
+	outputStatus, _ := rootCmd.Flags().GetString("validation-status")
 	if outputStatus != "" {
 		findings = filterByStatus(findings, outputStatus)
 	}
