@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -27,6 +28,9 @@ type Validator struct {
 
 	// inflight deduplicates concurrent HTTP requests for the same cache key.
 	inflight singleflight.Group
+
+	// Attempted counts the total number of findings where validation was attempted.
+	Attempted atomic.Int64
 }
 
 // NewValidator creates a Validator with sensible defaults.
@@ -60,6 +64,8 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 			Msg("validation skipped: missing placeholders")
 		return false
 	}
+
+	v.Attempted.Add(1)
 
 	// Build one cartesian product across all placeholder IDs found in URL,
 	// body, and headers. Each combo map is used to render every field, so

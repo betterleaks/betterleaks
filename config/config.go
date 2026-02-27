@@ -99,7 +99,7 @@ type viperValidation struct {
 }
 
 type viperMatchClause struct {
-	Status        any               `mapstructure:"status"` // int, float64, or []any
+	Status        any               `mapstructure:"status"` // int, float64, or []any — single or list
 	Words         []string          `mapstructure:"words"`
 	WordsAll      bool              `mapstructure:"words_all"`
 	NegativeWords []string          `mapstructure:"negative_words"`
@@ -693,3 +693,4 @@ func parseStatusCodes(raw any) ([]int, error) {
 		return nil, fmt.Errorf("status must be an int or list of ints, got %T", raw)
 	}
 }
+

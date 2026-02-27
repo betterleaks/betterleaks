@@ -931,6 +931,16 @@ func (d *Detector) Validating() bool {
 	return d.validateCh != nil
 }
 
+// ValidationsAttempted returns the total number of findings where validation
+// was attempted (i.e., the rule had a validate block and all placeholders
+// were present). Returns 0 if no validation pool was started.
+func (d *Detector) ValidationsAttempted() int64 {
+	if d.validator == nil {
+		return 0
+	}
+	return d.validator.Attempted.Load()
+}
+
 // WaitForValidation blocks until all in-flight validation workers finish,
 // then merges their results into the main findings slice. Safe to call
 // even if no validation pool was started (no-op).

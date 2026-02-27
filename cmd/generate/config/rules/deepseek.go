@@ -6,6 +6,23 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+func deepseekValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://api.deepseek.com/models",
+		Headers: map[string]string{
+			"Authorization": "Bearer {{ secret }}",
+			"Accept":        "application/json",
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, Words: []string{`"data"`}, Result: "confirmed"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+			{Result: "unknown"},
+		},
+	}
+}
+
 func DeepSeek() *config.Rule {
 	r := config.Rule{
 		RuleID:      "deepseek-api-key",
@@ -13,6 +30,7 @@ func DeepSeek() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"deepseek"}, `sk-[a-f0-9]{32}`, true),
 		Keywords:    []string{"deepseek"},
 		Entropy:     3.5,
+		Validation:  deepseekValidation(),
 	}
 
 	tps := utils.GenerateSampleSecrets("deepseek", "sk-"+secrets.NewSecret(utils.Hex("32")))

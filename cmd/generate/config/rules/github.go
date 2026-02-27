@@ -27,8 +27,7 @@ func githubTokenValidation() *config.Validation {
 				JSON:        map[string]any{"login": "!empty", "id": "!empty"},
 				Result:      "confirmed",
 			},
-			{StatusCodes: []int{401}, Result: "invalid"},
-			{StatusCodes: []int{403}, Result: "invalid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
 			{Result: "unknown"},
 		},
 	}

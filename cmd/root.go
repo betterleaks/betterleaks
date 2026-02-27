@@ -561,6 +561,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 			}
 		}
 		logging.Info().
+			Int64("attempted", detector.ValidationsAttempted()).
 			Int("confirmed", confirmed).
 			Int("invalid", invalid).
 			Int("revoked", revoked).

@@ -595,6 +595,22 @@ func TestParseHTTPValidation_StatusList(t *testing.T) {
 	assert.Equal(t, []int{500, 502, 503}, v.Match[0].StatusCodes)
 }
 
+func TestParseHTTPValidation_StatusAsList(t *testing.T) {
+	vv := &viperValidation{
+		Type:   "http",
+		Method: "GET",
+		URL:    "https://example.com",
+		Match: []viperMatchClause{
+			{Status: []any{float64(401), float64(403)}, Result: "invalid"},
+			{Result: "unknown"},
+		},
+	}
+
+	v, err := parseHTTPValidation(vv)
+	require.NoError(t, err)
+	assert.Equal(t, []int{401, 403}, v.Match[0].StatusCodes)
+}
+
 func TestParseHTTPValidation_EmptyResult_Errors(t *testing.T) {
 	vv := &viperValidation{
 		Type:   "http",
