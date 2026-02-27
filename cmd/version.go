@@ -13,7 +13,7 @@ func init() {
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "display gitleaks version",
+	Short: "display betterleaks version",
 	Run:   runVersion,
 }
 

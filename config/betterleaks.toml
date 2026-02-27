@@ -231,6 +231,16 @@ regex = '''(?i)[\w.-]{0,50}?(?:asana)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}
 keywords = ["asana"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# assemblyai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "assemblyai-api-key"
+description = "Detected an AssemblyAI API Key, which may expose speech-to-text services and associated audio data to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:assemblyai)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["assemblyai"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # atlassian-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -354,6 +364,16 @@ id = "bittrex-secret-key"
 description = "Detected a Bittrex Secret Key, potentially compromising cryptocurrency transactions and financial security."
 regex = '''(?i)[\w.-]{0,50}?(?:bittrex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)'''
 keywords = ["bittrex"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# cerebras-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cerebras-api-key"
+description = "Identified a Cerebras AI API Key, which may expose AI inference services to unauthorized access."
+regex = '''(?i)\b(csk-[a-z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["csk-"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # cisco-meraki-api-key
@@ -506,6 +526,16 @@ regexes = [
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# cursor-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cursor-api-key"
+description = "Detected a Cursor Integrations API Key, which may expose AI-assisted development services to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:cursor)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(key_[0-9a-f]{64})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["cursor"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # databricks-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -523,6 +553,26 @@ id = "datadog-access-token"
 description = "Detected a Datadog Access Token, potentially risking monitoring and analytics data exposure and manipulation."
 regex = '''(?i)[\w.-]{0,50}?(?:datadog)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{40})(?:[\x60'"\s;]|\\[nr]|$)'''
 keywords = ["datadog"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# deepgram-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "deepgram-api-key"
+description = "Detected a Deepgram API Key, which may expose speech recognition services and audio data to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:deepgram)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{40})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.3
+keywords = ["deepgram"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# deepseek-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "deepseek-api-key"
+description = "Detected a DeepSeek API Key, which may expose AI model access and associated usage to unauthorized parties."
+regex = '''(?i)[\w.-]{0,50}?(?:deepseek)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk-[a-f0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["deepseek"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # defined-networking-api-token
@@ -676,6 +726,36 @@ description = "Detected an EasyPost test API token, risking exposure of test env
 regex = '''\bEZTK(?i)[a-z0-9]{54}\b'''
 entropy = 2
 keywords = ["eztk"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# elevenlabs-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "elevenlabs-api-key"
+description = "Detected an ElevenLabs API Key, which may expose AI voice synthesis services to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:elevenlabs)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk_[0-9a-f]{48})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["elevenlabs"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# endorlabs-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "endorlabs-api-key"
+description = "Detected an Endor Labs API Key, which may compromise supply chain security scanning and software composition analysis."
+regex = '''(?i)[\w.-]{0,50}?(?:endor(?:labs)?|key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(endr\+[A-Za-z0-9-]{16})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["endr+"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# endorlabs-api-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "endorlabs-api-secret"
+description = "Detected an Endor Labs API Secret, which together with an API key grants full access to Endor Labs supply chain security services."
+regex = '''(?i)[\w.-]{0,50}?(?:endor(?:labs)?|secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(endr\+[A-Za-z0-9-]{16})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["endr+"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # etsy-access-token
@@ -2363,6 +2443,16 @@ regexes = [
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# gitea-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "gitea-access-token"
+description = "Detected a Gitea Access Token, which may expose self-hosted Git repositories and associated code to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:gitea[_.-]?(?:token|key|secret|access))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{40})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["gitea"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # github-app-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -2683,6 +2773,26 @@ description = "Discovered a Grafana service account token, posing a risk of comp
 regex = '''(?i)\b(glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8})(?:[\x60'"\s;]|\\[nr]|$)'''
 entropy = 3
 keywords = ["glsa_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# greptile-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "greptile-api-key"
+description = "Detected a Greptile API Key, which may expose AI-powered code search and analysis services to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:greptile)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-zA-Z0-9+/]{48})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["greptile"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# groq-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "groq-api-key"
+description = "Identified a Groq API Key, which may expose high-speed AI inference services to unauthorized access."
+regex = '''(?i)\b(gsk_[A-Z0-9]{52})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["gsk_"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # harness-api-key
@@ -3099,6 +3209,16 @@ keywords = [
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# mistral-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mistral-api-key"
+description = "Detected a Mistral AI API Key, which may expose AI language model services to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:mistral)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["mistral"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # netlify-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -3185,6 +3305,16 @@ regexes = [
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# nvidia-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "nvidia-api-key"
+description = "Detected an NVIDIA NIM API Key, which may expose AI inference and GPU cloud services to unauthorized access."
+regex = '''(?i)\b(nvapi-[A-Z0-9_-]{60,70})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["nvapi-"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # nytimes-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -3218,6 +3348,16 @@ entropy = 4
 keywords = ["okta"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# ollama-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "ollama-api-key"
+description = "Detected an Ollama API Key, which may expose local and hosted AI model serving to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:ollama)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32}\.[a-zA-Z0-9_-]{24})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["ollama"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # openai-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -3228,6 +3368,16 @@ entropy = 3
 keywords = ["t3blbkfj"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# openrouter-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "openrouter-api-key"
+description = "Detected an OpenRouter API Key, which may expose access to multiple AI models through the OpenRouter gateway."
+regex = '''(?i)\b(sk-or-v1-[0-9a-f]{64})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["sk-or-v1-"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # openshift-user-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -3236,16 +3386,6 @@ description = "Found an OpenShift user token, potentially compromising an OpenSh
 regex = '''\b(sha256~[\w-]{43})(?:[^\w-]|\z)'''
 entropy = 3.5
 keywords = ["sha256~"]
-
-# ──────────────────────────────────────────────────────────────────────────────
-# perplexity-api-key
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "perplexity-api-key"
-description = "Detected a Perplexity API key, which could lead to unauthorized access to Perplexity AI services and data exposure."
-regex = '''\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)'''
-entropy = 4
-keywords = ["pplx-"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # pkcs12-file
@@ -3313,6 +3453,26 @@ description = "Discovered a PlanetScale password, which could lead to unauthoriz
 regex = '''(?i)\b(pscale_pw_(?i)[\w=\.-]{32,64})(?:[\x60'"\s;]|\\[nr]|$)'''
 entropy = 3
 keywords = ["pscale_pw_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# posthog-personal-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "posthog-personal-api-key"
+description = "Detected a PostHog Personal API Key, which may expose administrative access to PostHog analytics projects."
+regex = '''(?i)\b(phx_[a-zA-Z0-9_\-]{47})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["phx_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# posthog-project-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "posthog-project-api-key"
+description = "Detected a PostHog Project API Key, which may expose product analytics data and event tracking to unauthorized access."
+regex = '''(?i)\b(phc_[a-zA-Z0-9_\-]{43})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["phc_"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # postman-api-token
@@ -3395,6 +3555,16 @@ description = "Detected a Readme API token, risking unauthorized documentation m
 regex = '''\b(rdme_[a-z0-9]{70})(?:[\x60'"\s;]|\\[nr]|$)'''
 entropy = 2
 keywords = ["rdme_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# replicate-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "replicate-api-token"
+description = "Detected a Replicate API Token, which may expose AI model hosting and inference services to unauthorized access."
+regex = '''(?i)\b(r8_[A-Za-z0-9]{37})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["r8_"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # rubygems-api-token
@@ -3744,6 +3914,16 @@ regex = '''(?i)[\w.-]{0,50}?(?:squarespace)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|
 keywords = ["squarespace"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# stability-ai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "stability-ai-api-key"
+description = "Detected a Stability AI API Key, which may expose AI image generation services to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:stability)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk-[A-Za-z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["stability"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # stripe-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -3788,6 +3968,16 @@ id = "telegram-bot-api-token"
 description = "Detected a Telegram Bot API Token, risking unauthorized bot operations and message interception on Telegram."
 regex = '''(?i)[\w.-]{0,50}?(?:telegr)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9]{5,16}:(?-i:A)[a-z0-9_\-]{34})(?:[\x60'"\s;]|\\[nr]|$)'''
 keywords = ["telegr"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# togetherai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "togetherai-api-key"
+description = "Detected a Together.ai API Key, which may expose access to open-source AI models and inference services."
+regex = '''(?i)\b(tgp_v1_[A-Za-z0-9_-]{43})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["tgp_v1_"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # travisci-access-token
@@ -3897,6 +4087,99 @@ keywords = [
 regexes = [
     '''s\.[A-Za-z]{24}''',
 ]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# vercel-ai-gateway-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "vercel-ai-gateway-key"
+description = "Detected a Vercel AI Gateway API Key (vck_), which may expose AI model routing and gateway access to unauthorized parties."
+regex = '''(?i)\b(vck_[A-Za-z0-9_-]{56})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["vck_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# vercel-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "vercel-api-token"
+description = "Detected a Vercel API Token, which may expose deployment and serverless infrastructure to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:vercel)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9]{24})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["vercel"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# vercel-app-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "vercel-app-access-token"
+description = "Detected a Vercel App Access Token (vca_), which may allow Sign in with Vercel apps to access user resources."
+regex = '''(?i)\b(vca_[A-Za-z0-9_-]{56})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["vca_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# vercel-app-refresh-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "vercel-app-refresh-token"
+description = "Detected a Vercel App Refresh Token (vcr_), which may allow persistent unauthorized access through token refresh flows."
+regex = '''(?i)\b(vcr_[A-Za-z0-9_-]{56})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["vcr_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# vercel-integration-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "vercel-integration-token"
+description = "Detected a Vercel Integration Token (vci_), which may allow third-party service integrations to act on behalf of users."
+regex = '''(?i)\b(vci_[A-Za-z0-9_-]{56})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["vci_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# vercel-personal-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "vercel-personal-access-token"
+description = "Detected a Vercel Personal Access Token (vcp_), which may expose full account and deployment management capabilities."
+regex = '''(?i)\b(vcp_[A-Za-z0-9_-]{56})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["vcp_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# weights-and-biases-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "weights-and-biases-api-key"
+description = "Detected a Weights & Biases API Key, which may expose ML experiment tracking and model registry access to unauthorized parties."
+regex = '''(?i)[\w.-]{0,50}?(?:wandb|weightsandbiases)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{40})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = [
+    "wandb",
+    "weightsandbiases",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# weights-and-biases-api-key-v1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "weights-and-biases-api-key-v1"
+description = "Detected a Weights & Biases v1 API Key (wandb_v1_), which may expose ML experiment tracking and artifact storage to unauthorized access."
+regex = '''(?i)\b(wandb_v1_[A-Za-z0-9_]{77})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["wandb_v1_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# xai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "xai-api-key"
+description = "Detected an xAI (Grok) API Key, which may expose Grok AI model access to unauthorized parties."
+regex = '''(?i)\b(xai-[A-Za-z0-9_-]{70,120})(?:[\x60'"\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["xai-"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # yandex-access-token
