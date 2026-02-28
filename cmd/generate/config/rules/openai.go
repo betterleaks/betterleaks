@@ -15,8 +15,9 @@ func openaiValidation() *config.Validation {
 			"Authorization": "Bearer {{ secret }}",
 		},
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, Result: "valid"},
-			{StatusCodes: []int{401, 403}, Result: "invalid"},
+			{StatusCodes: []int{200}, JSON: map[string]any{"object": "list", "data": "!empty"}, Result: "valid"},
+			{StatusCodes: []int{401}, JSON: map[string]any{"error.code": "invalid_api_key"}, Result: "invalid"},
+			{StatusCodes: []int{403}, JSON: map[string]any{"error.type": "invalid_request_error"}, Result: "invalid"},
 		},
 	}
 }

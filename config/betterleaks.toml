@@ -3003,7 +3003,9 @@ url = "https://huggingface.co/api/whoami-v2"
 headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
     { status = 200, words = ['"name"', '"id"', ], words_all = true, result = "valid" },
+    { status = 401, words = ['expired', ], result = "revoked" },
     { status = [401, 403], result = "invalid" },
+    { status = 429, words = ['rate limit', ], result = "error" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3022,7 +3024,9 @@ url = "https://huggingface.co/api/whoami-v2"
 headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
     { status = 200, words = ['"name"', '"id"', ], words_all = true, result = "valid" },
+    { status = 401, words = ['expired', ], result = "revoked" },
     { status = [401, 403], result = "invalid" },
+    { status = 429, words = ['rate limit', ], result = "error" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3546,8 +3550,9 @@ method = "GET"
 url = "https://api.openai.com/v1/models"
 headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, result = "valid" },
-    { status = [401, 403], result = "invalid" },
+    { status = 200, json = { data = "!empty", object = "list" }, result = "valid" },
+    { status = 401, json = { "error.code" = "invalid_api_key" }, result = "invalid" },
+    { status = 403, json = { "error.type" = "invalid_request_error" }, result = "invalid" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────

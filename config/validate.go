@@ -129,7 +129,7 @@ func (v *Validation) checkTemplates() error {
 // Returns the result string of the first matching clause, extracted metadata,
 // and a reason. If no clause matches, returns "unknown" with a reason.
 func (v *Validation) EvalMatch(statusCode int, body []byte, headers http.Header, includeEmpty bool) (result string, meta map[string]string, reason string) {
-	for i, c := range v.Match {
+	for _, c := range v.Match {
 		if !clauseMatches(c, statusCode, body, headers) {
 			continue
 		}
@@ -138,9 +138,9 @@ func (v *Validation) EvalMatch(statusCode int, body []byte, headers http.Header,
 			extractMap = c.Extract
 		}
 		extracted := extractValues(body, headers, extractMap, includeEmpty)
-		return c.Result, extracted, fmt.Sprintf("match[%d] (%s)", i, c.Result)
+		return c.Result, extracted, clauseReason(c, statusCode)
 	}
-	return "unknown", nil, fmt.Sprintf("no match clause satisfied (status=%d)", statusCode)
+	return "unknown", nil, fmt.Sprintf("HTTP %d, no match", statusCode)
 }
 
 func clauseMatches(c MatchClause, statusCode int, body []byte, headers http.Header) bool {
@@ -208,6 +208,37 @@ func clauseMatches(c MatchClause, statusCode int, body []byte, headers http.Head
 	}
 
 	return true
+}
+
+// clauseReason builds a human-readable reason string from a matched clause.
+func clauseReason(c MatchClause, statusCode int) string {
+	parts := []string{fmt.Sprintf("HTTP %d", statusCode)}
+
+	for path, expected := range c.JSON {
+		parts = append(parts, fmt.Sprintf("%s=%v", path, expected))
+	}
+
+	if len(c.Words) > 0 {
+		quoted := make([]string, len(c.Words))
+		for i, w := range c.Words {
+			quoted[i] = fmt.Sprintf("%q", w)
+		}
+		parts = append(parts, fmt.Sprintf("body contains %s", strings.Join(quoted, ", ")))
+	}
+
+	if len(c.NegativeWords) > 0 {
+		quoted := make([]string, len(c.NegativeWords))
+		for i, w := range c.NegativeWords {
+			quoted[i] = fmt.Sprintf("%q", w)
+		}
+		parts = append(parts, fmt.Sprintf("body excludes %s", strings.Join(quoted, ", ")))
+	}
+
+	for name, expected := range c.Headers {
+		parts = append(parts, fmt.Sprintf("header %s=%q", name, expected))
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 // matchJSONAssertion checks a GJSON result against an expected value:

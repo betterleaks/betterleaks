@@ -230,7 +230,7 @@ func TestEvalMatch_NoMatch(t *testing.T) {
 	result, meta, reason := v.EvalMatch(500, []byte("server error"), emptyHeaders, false)
 	assert.Equal(t, "unknown", result)
 	assert.Nil(t, meta)
-	assert.Contains(t, reason, "status=500")
+	assert.Contains(t, reason, "HTTP 500")
 }
 
 func TestEvalMatch_Extract(t *testing.T) {

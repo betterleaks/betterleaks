@@ -20,6 +20,15 @@ const (
 
 //go:generate go run $GOFILE ../../../config/betterleaks.toml
 
+// tomlKeyQuote quotes a TOML key if it contains characters that require quoting
+// (e.g. dots, spaces). Bare keys only allow [A-Za-z0-9_-].
+func tomlKeyQuote(key string) string {
+	if strings.ContainsAny(key, ". \t") {
+		return fmt.Sprintf("%q", key)
+	}
+	return key
+}
+
 // tomlQuote returns a TOML-safe quoted string. Values containing liquid
 // template syntax ({{ ... }}) use TOML literal strings (single quotes) to
 // avoid escaping inner double quotes used by filters like append/b64enc.
@@ -358,7 +367,7 @@ func main() {
 			sort.Strings(keys)
 			parts := make([]string, 0, len(keys))
 			for _, k := range keys {
-				parts = append(parts, fmt.Sprintf("%s = %s", k, tomlQuote(m[k])))
+				parts = append(parts, fmt.Sprintf("%s = %s", tomlKeyQuote(k), tomlQuote(m[k])))
 			}
 			return "{ " + strings.Join(parts, ", ") + " }"
 		},
@@ -370,7 +379,7 @@ func main() {
 			sort.Strings(keys)
 			parts := make([]string, 0, len(keys))
 			for _, k := range keys {
-				parts = append(parts, fmt.Sprintf("%s = %s", k, tomlValue(m[k])))
+				parts = append(parts, fmt.Sprintf("%s = %s", tomlKeyQuote(k), tomlValue(m[k])))
 			}
 			return "{ " + strings.Join(parts, ", ") + " }"
 		},

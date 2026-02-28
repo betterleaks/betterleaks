@@ -18,7 +18,9 @@ func huggingfaceValidation() *config.Validation {
 		},
 		Match: []config.MatchClause{
 			{StatusCodes: []int{200}, Words: []string{`"name"`, `"id"`}, WordsAll: true, Result: "valid"},
+			{StatusCodes: []int{401}, Words: []string{"expired"}, Result: "revoked"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
+			{StatusCodes: []int{429}, Words: []string{"rate limit"}, Result: "error"},
 		},
 	}
 }
