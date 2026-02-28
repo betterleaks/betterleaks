@@ -5,49 +5,78 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/betterleaks/betterleaks/report"
 )
 
-func TestResponseCache_GetSet(t *testing.T) {
-	c := NewResponseCache()
+func TestResultCache_GetSet(t *testing.T) {
+	c := NewResultCache()
 
-	key := c.Key("POST", "http://example.com", map[string]string{"Auth": "token"}, "body")
+	key := c.Key("test.rule", map[string][]string{
+		"secret": {"my-secret"},
+	})
 
 	_, ok := c.Get(key)
 	assert.False(t, ok)
 
-	resp := &CachedResponse{StatusCode: 200, Body: []byte("ok")}
-	c.Set(key, resp)
+	result := &CachedResult{Status: report.ValidationValid, Note: "match[0] (valid)"}
+	c.Set(key, result)
 
 	got, ok := c.Get(key)
 	require.True(t, ok)
-	assert.Equal(t, 200, got.StatusCode)
-	assert.Equal(t, []byte("ok"), got.Body)
+	assert.Equal(t, report.ValidationValid, got.Status)
+	assert.Equal(t, "match[0] (valid)", got.Note)
 }
 
-func TestResponseCache_KeyDeterminism(t *testing.T) {
-	c := NewResponseCache()
+func TestResultCache_KeyDeterminism(t *testing.T) {
+	c := NewResultCache()
 
-	k1 := c.Key("GET", "http://a.com", map[string]string{"X": "1", "Y": "2"}, "b")
-	k2 := c.Key("GET", "http://a.com", map[string]string{"Y": "2", "X": "1"}, "b")
-	assert.Equal(t, k1, k2, "keys should be the same regardless of header order")
+	secrets := map[string][]string{
+		"secret": {"s1"},
+		"token":  {"t1"},
+	}
+	k1 := c.Key("rule.a", secrets)
+
+	// Same data, different map iteration order shouldn't matter
+	// (Go maps are unordered, but Key sorts keys internally)
+	k2 := c.Key("rule.a", map[string][]string{
+		"token":  {"t1"},
+		"secret": {"s1"},
+	})
+	assert.Equal(t, k1, k2, "keys should be the same regardless of map iteration order")
 }
 
-func TestResponseCache_KeyUniqueness(t *testing.T) {
-	c := NewResponseCache()
+func TestResultCache_KeyUniqueness(t *testing.T) {
+	c := NewResultCache()
 
-	k1 := c.Key("GET", "http://a.com", nil, "body1")
-	k2 := c.Key("GET", "http://a.com", nil, "body2")
-	assert.NotEqual(t, k1, k2)
+	k1 := c.Key("rule.a", map[string][]string{"secret": {"s1"}})
+	k2 := c.Key("rule.a", map[string][]string{"secret": {"s2"}})
+	assert.NotEqual(t, k1, k2, "different secrets should produce different keys")
 
-	k3 := c.Key("POST", "http://a.com", nil, "body1")
-	assert.NotEqual(t, k1, k3)
+	k3 := c.Key("rule.b", map[string][]string{"secret": {"s1"}})
+	assert.NotEqual(t, k1, k3, "different rule IDs should produce different keys")
 }
 
-func TestResponseCache_Size(t *testing.T) {
-	c := NewResponseCache()
+func TestResultCache_KeyCompositeRule(t *testing.T) {
+	c := NewResultCache()
+
+	// Same primary secret, different required-finding secrets
+	k1 := c.Key("composite.rule", map[string][]string{
+		"secret":   {"primary"},
+		"dep.rule": {"dep-val-a"},
+	})
+	k2 := c.Key("composite.rule", map[string][]string{
+		"secret":   {"primary"},
+		"dep.rule": {"dep-val-b"},
+	})
+	assert.NotEqual(t, k1, k2, "different required-finding secrets should produce different keys")
+}
+
+func TestResultCache_Size(t *testing.T) {
+	c := NewResultCache()
 	assert.Equal(t, 0, c.Size())
 
-	c.Set("a", &CachedResponse{StatusCode: 200})
-	c.Set("b", &CachedResponse{StatusCode: 201})
+	c.Set("a", &CachedResult{Status: report.ValidationValid})
+	c.Set("b", &CachedResult{Status: report.ValidationInvalid})
 	assert.Equal(t, 2, c.Size())
 }

@@ -350,7 +350,7 @@ func TestValidator_Validate_NetworkError_NotCached(t *testing.T) {
 	v.ValidateFinding(context.Background(), &f1)
 	assert.Equal(t, report.ValidationError, f1.ValidationStatus)
 
-	assert.Equal(t, 0, v.Cache.Size(), "errored responses should not be cached")
+	assert.Equal(t, 0, v.Cache.Size(), "errored results should not be cached")
 }
 
 func TestValidator_Validate_MissingPlaceholder_NotAttempted(t *testing.T) {

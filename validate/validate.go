@@ -21,14 +21,14 @@ import (
 type Validator struct {
 	Config          config.Config
 	HTTPClient      *http.Client
-	Cache           *ResponseCache
+	Cache           *ResultCache
 	RequestTimeout  time.Duration
 	FullResponse    bool
 	ExtractEmpty    bool
 	IncludeRequests bool
 	Templates       *TemplateEngine
 
-	// inflight deduplicates concurrent HTTP requests for the same cache key.
+	// inflight deduplicates concurrent validations for the same rule+secret.
 	inflight singleflight.Group
 
 	// Attempted counts the total number of findings where validation was attempted.
@@ -46,7 +46,7 @@ func NewValidator(cfg config.Config) *Validator {
 	return &Validator{
 		Config:         cfg,
 		HTTPClient:     &http.Client{},
-		Cache:          NewResponseCache(),
+		Cache:          NewResultCache(),
 		RequestTimeout: 10 * time.Second,
 		Templates:      NewTemplateEngine(),
 	}
@@ -54,8 +54,8 @@ func NewValidator(cfg config.Config) *Validator {
 
 // ValidateFinding annotates a single finding in-place with a ValidationStatus.
 // Returns true if the finding's rule had a validate block (i.e. validation was attempted).
-// Safe for concurrent use — singleflight coalesces identical in-flight requests
-// and the response cache provides cross-call deduplication.
+// Safe for concurrent use — singleflight coalesces identical in-flight validations
+// and the result cache provides cross-call deduplication.
 func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool {
 	rule, ok := v.Config.Rules[f.RuleID]
 	if !ok || rule.Validation == nil {
@@ -75,9 +75,43 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 
 	v.Attempted.Add(1)
 
-	// Build one cartesian product across all placeholder IDs found in URL,
-	// body, and headers. Each combo map is used to render every field, so
-	// placeholders that appear in multiple fields always get consistent values.
+	cacheKey := v.Cache.Key(f.RuleID, secrets)
+
+	// Fast path: result already cached from a previous finding with the same rule+secret.
+	if cached, ok := v.Cache.Get(cacheKey); ok {
+		v.CacheHits.Add(1)
+		logging.Debug().
+			Str("rule", f.RuleID).
+			Str("cache_key", KeyDebug(f.RuleID, secrets)).
+			Msg("validation cache hit")
+		applyCachedResult(f, cached, v.FullResponse)
+		return true
+	}
+
+	// Singleflight at the rule+secret level: concurrent goroutines validating
+	// the same secret against the same rule share a single validation pass.
+	val, err, _ := v.inflight.Do(cacheKey, func() (any, error) {
+		result := v.runValidation(ctx, rule, secrets)
+		if result.Err == nil {
+			v.Cache.Set(cacheKey, result)
+		}
+		return result, nil
+	})
+	if err != nil {
+		f.ValidationStatus = report.ValidationError
+		f.ValidationNote = err.Error()
+		return true
+	}
+
+	applyCachedResult(f, val.(*CachedResult), v.FullResponse)
+	return true
+}
+
+// runValidation executes the full validation flow: template rendering,
+// combo iteration, HTTP requests, and match evaluation. Returns a
+// CachedResult representing the final outcome.
+func (v *Validator) runValidation(ctx context.Context, rule config.Rule, secrets map[string][]string) *CachedResult {
+	allIDs := collectTemplateIDs(rule.Validation)
 	combos := Combos(allIDs, secrets)
 
 	var lastResult string
@@ -88,36 +122,36 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 	for _, combo := range combos {
 		renderedURL, err := v.Templates.Render(rule.Validation.URL, combo)
 		if err != nil {
-			f.ValidationStatus = report.ValidationError
-			f.ValidationNote = fmt.Sprintf("template render (url): %s", err)
-			return true
+			return &CachedResult{
+				Status: report.ValidationError,
+				Note:   fmt.Sprintf("template render (url): %s", err),
+				Err:    err,
+			}
 		}
 		renderedBody, err := v.Templates.Render(rule.Validation.Body, combo)
 		if err != nil {
-			f.ValidationStatus = report.ValidationError
-			f.ValidationNote = fmt.Sprintf("template render (body): %s", err)
-			return true
+			return &CachedResult{
+				Status: report.ValidationError,
+				Note:   fmt.Sprintf("template render (body): %s", err),
+				Err:    err,
+			}
 		}
 		renderedHeaders, err := v.Templates.RenderMap(rule.Validation.Headers, combo)
 		if err != nil {
-			f.ValidationStatus = report.ValidationError
-			f.ValidationNote = fmt.Sprintf("template render (headers): %s", err)
-			return true
+			return &CachedResult{
+				Status: report.ValidationError,
+				Note:   fmt.Sprintf("template render (headers): %s", err),
+				Err:    err,
+			}
 		}
 
-		cacheKey := v.Cache.Key(rule.Validation.Method, renderedURL, renderedHeaders, renderedBody)
-
-		resp, err := v.getOrFetch(ctx, cacheKey, rule.Validation.Method, renderedURL, renderedHeaders, renderedBody)
+		resp, err := v.doRequest(ctx, rule.Validation.Method, renderedURL, renderedHeaders, renderedBody)
 		if err != nil {
-			f.ValidationStatus = report.ValidationError
-			f.ValidationNote = err.Error()
-			return true
-		}
-
-		if resp.Err != nil {
-			f.ValidationStatus = report.ValidationError
-			f.ValidationNote = resp.Err.Error()
-			return true
+			return &CachedResult{
+				Status: report.ValidationError,
+				Note:   err.Error(),
+				Err:    err,
+			}
 		}
 
 		respHeaders := resp.Headers
@@ -134,28 +168,44 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 		}
 	}
 
+	cached := &CachedResult{
+		Meta: lastMeta,
+		Note: lastNote,
+	}
+	if v.FullResponse {
+		cached.Body = lastBody
+	}
+
 	switch lastResult {
 	case "valid":
-		f.ValidationStatus = report.ValidationValid
+		cached.Status = report.ValidationValid
+	case "invalid":
+		cached.Status = report.ValidationInvalid
+	case "revoked":
+		cached.Status = report.ValidationRevoked
+	case "unknown":
+		cached.Status = report.ValidationUnknown
+	default:
+		cached.Status = report.ValidationError
+	}
+
+	return cached
+}
+
+// applyCachedResult assigns a CachedResult's fields to a Finding.
+func applyCachedResult(f *report.Finding, r *CachedResult, fullResponse bool) {
+	f.ValidationStatus = r.Status
+	f.ValidationNote = r.Note
+	f.ValidationMeta = r.Meta
+	if fullResponse && len(r.Body) > 0 {
+		f.ValidationResponse = string(r.Body)
+	}
+	if r.Status == report.ValidationValid {
 		logging.Debug().
 			Str("rule", f.RuleID).
 			Str("file", f.File).
 			Msg("secret validated live")
-	case "invalid":
-		f.ValidationStatus = report.ValidationInvalid
-	case "revoked":
-		f.ValidationStatus = report.ValidationRevoked
-	case "unknown":
-		f.ValidationStatus = report.ValidationUnknown
-	default:
-		f.ValidationStatus = report.ValidationError
 	}
-	f.ValidationNote = lastNote
-	f.ValidationMeta = lastMeta
-	if v.FullResponse {
-		f.ValidationResponse = string(lastBody)
-	}
-	return true
 }
 
 // Validate annotates each finding with a ValidationStatus.
@@ -169,10 +219,8 @@ func (v *Validator) Validate(ctx context.Context, findings []report.Finding) []r
 
 func buildSecrets(f *report.Finding) map[string][]string {
 	secrets := make(map[string][]string)
-	// Implicit variable — always available as {{ secret }}
 	secrets["secret"] = []string{f.Secret}
 
-	// Named captures become template variables
 	for name, val := range f.CaptureGroups {
 		secrets[name] = []string{val}
 	}
@@ -187,34 +235,15 @@ func buildSecrets(f *report.Finding) map[string][]string {
 	return secrets
 }
 
-// getOrFetch checks the cache, and on miss uses singleflight to ensure only one
-// in-flight HTTP request per unique cache key. Concurrent callers with the same
-// key block until the first request completes, then share the result.
-func (v *Validator) getOrFetch(ctx context.Context, cacheKey, method, url string, headers map[string]string, body string) (*CachedResponse, error) {
-	if resp, ok := v.Cache.Get(cacheKey); ok {
-		v.CacheHits.Add(1)
-		logging.Debug().
-			Str("request", KeyDebug(method, url, headers, body)).
-			Msg("cache hit")
-		return resp, nil
-	}
-
-	val, err, _ := v.inflight.Do(cacheKey, func() (any, error) {
-		resp := v.doRequest(ctx, method, url, headers, body)
-		// Only cache successful responses. Transient failures (DNS, TLS,
-		// connection refused) should not poison the key for the entire run.
-		if resp.Err == nil {
-			v.Cache.Set(cacheKey, resp)
-		}
-		return resp, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return val.(*CachedResponse), nil
+// httpResponse is an internal type for passing raw HTTP response data
+// from doRequest to runValidation.
+type httpResponse struct {
+	StatusCode int
+	Body       []byte
+	Headers    http.Header
 }
 
-func (v *Validator) doRequest(ctx context.Context, method, url string, headers map[string]string, body string) *CachedResponse {
+func (v *Validator) doRequest(ctx context.Context, method, url string, headers map[string]string, body string) (*httpResponse, error) {
 	v.HTTPRequests.Add(1)
 	reqCtx, cancel := context.WithTimeout(ctx, v.RequestTimeout)
 	defer cancel()
@@ -226,7 +255,7 @@ func (v *Validator) doRequest(ctx context.Context, method, url string, headers m
 
 	req, err := http.NewRequestWithContext(reqCtx, method, url, bodyReader)
 	if err != nil {
-		return &CachedResponse{Err: err}
+		return nil, err
 	}
 	for k, val := range headers {
 		req.Header.Set(k, val)
@@ -258,15 +287,14 @@ func (v *Validator) doRequest(ctx context.Context, method, url string, headers m
 				Str("url", url).
 				Msg("validation request failed")
 		}
-		return &CachedResponse{Err: err}
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	// Cap response body to 10 MB to prevent OOM from oversized responses.
 	const maxResponseBody = 10 << 20
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
-		return &CachedResponse{Err: err}
+		return nil, err
 	}
 
 	if v.IncludeRequests {
@@ -285,11 +313,11 @@ func (v *Validator) doRequest(ctx context.Context, method, url string, headers m
 		evt.Msg("validation response ←")
 	}
 
-	return &CachedResponse{
+	return &httpResponse{
 		StatusCode: resp.StatusCode,
 		Body:       respBody,
 		Headers:    resp.Header,
-	}
+	}, nil
 }
 
 func collectTemplateIDs(v *config.Validation) []string {
