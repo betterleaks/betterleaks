@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/osteele/liquid"
 	"github.com/tidwall/gjson"
 )
@@ -53,12 +52,12 @@ type MatchClause struct {
 	NegativeWords []string          // if set, body must NOT contain any of these
 	JSON          map[string]any    // GJSON path assertions; all must match
 	Headers       map[string]string // response header assertions (case-insensitive substring)
-	Result        string            // required: "confirmed", "invalid", "revoked", "error", "unknown"
+	Result        string            // required: "valid", "invalid", "revoked", "error", "unknown"
 	Extract       map[string]string // per-clause extract overrides Validation.Extract
 }
 
 var validResults = map[string]struct{}{
-	"confirmed": {},
+	"valid": {},
 	"invalid":   {},
 	"revoked":   {},
 	"error":     {},
@@ -91,15 +90,8 @@ func (v *Validation) Check() error {
 	}
 	for i, c := range v.Match {
 		if _, ok := validResults[c.Result]; !ok {
-			return fmt.Errorf("validate: match[%d]: result %q is invalid (expected confirmed, invalid, revoked, unknown, or error)", i, c.Result)
+			return fmt.Errorf("validate: match[%d]: result %q is invalid (expected valid, invalid, revoked, unknown, or error)", i, c.Result)
 		}
-	}
-
-	last := v.Match[len(v.Match)-1]
-	if len(last.StatusCodes) > 0 || len(last.Words) > 0 || len(last.NegativeWords) > 0 || len(last.JSON) > 0 || len(last.Headers) > 0 {
-		logging.Warn().
-			Str("url", v.URL).
-			Msg("validate: last match clause is not a catch-all (has conditions); unmatched responses will default to unknown")
 	}
 
 	// Validate Liquid template syntax at config time so broken templates

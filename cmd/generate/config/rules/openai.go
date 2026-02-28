@@ -15,9 +15,8 @@ func openaiValidation() *config.Validation {
 			"Authorization": "Bearer {{ secret }}",
 		},
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Result: "valid"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{Result: "unknown"},
 		},
 	}
 }

@@ -16,9 +16,8 @@ func anthropicAPIValidation() *config.Validation {
 			"anthropic-version": "2023-06-01",
 		},
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, Words: []string{`"data"`, `"type"`}, WordsAll: true, Result: "confirmed"},
+			{StatusCodes: []int{200}, Words: []string{`"data"`, `"type"`}, WordsAll: true, Result: "valid"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{Result: "unknown"},
 		},
 	}
 }
@@ -36,9 +35,8 @@ func anthropicAdminValidation() *config.Validation {
 			"organization": "json:name",
 		},
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, JSON: map[string]any{"type": "organization", "id": "!empty"}, Result: "confirmed"},
+			{StatusCodes: []int{200}, JSON: map[string]any{"type": "organization", "id": "!empty"}, Result: "valid"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{Result: "unknown"},
 		},
 	}
 }

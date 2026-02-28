@@ -20,6 +20,16 @@ const (
 
 //go:generate go run $GOFILE ../../../config/betterleaks.toml
 
+// tomlQuote returns a TOML-safe quoted string. Values containing liquid
+// template syntax ({{ ... }}) use TOML literal strings (single quotes) to
+// avoid escaping inner double quotes used by filters like append/b64enc.
+func tomlQuote(s string) string {
+	if strings.Contains(s, "{{") {
+		return "'" + s + "'"
+	}
+	return fmt.Sprintf("%q", s)
+}
+
 func tomlValue(v any) string {
 	switch val := v.(type) {
 	case string:
@@ -339,6 +349,7 @@ func main() {
 	}
 
 	funcMap := template.FuncMap{
+		"tomlQuote": tomlQuote,
 		"tomlInlineTable": func(m map[string]string) string {
 			keys := make([]string, 0, len(m))
 			for k := range m {
@@ -347,7 +358,7 @@ func main() {
 			sort.Strings(keys)
 			parts := make([]string, 0, len(keys))
 			for _, k := range keys {
-				parts = append(parts, fmt.Sprintf("%s = %q", k, m[k]))
+				parts = append(parts, fmt.Sprintf("%s = %s", k, tomlQuote(m[k])))
 			}
 			return "{ " + strings.Join(parts, ", ") + " }"
 		},

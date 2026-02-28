@@ -96,11 +96,11 @@ func init() {
 	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
 
 	// Validation flags
-	rootCmd.PersistentFlags().Bool("validate", true, "enable validation of findings against live APIs")
-	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: confirmed, invalid, revoked, error, unknown, none (none = rules without validation)")
-	rootCmd.PersistentFlags().Duration("validate-timeout", 10*time.Second, "per-request timeout for validation")
+	rootCmd.PersistentFlags().Bool("validation", true, "enable validation of findings against live APIs")
+	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: valid, invalid, revoked, error, unknown, none (none = rules without validation)")
+	rootCmd.PersistentFlags().Duration("validation-timeout", 10*time.Second, "per-request timeout for validation")
 	rootCmd.PersistentFlags().Bool("validation-full-response", false, "include full HTTP response body on validated findings")
-	rootCmd.PersistentFlags().Bool("validate-extract-empty", false, "include empty values from extractors in output")
+	rootCmd.PersistentFlags().Bool("validation-extract-empty", false, "include empty values from extractors in output")
 
 	// Add diagnostics flags
 	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
@@ -463,12 +463,13 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 	}
 
 	// Start async validation worker pool if any rules have validate blocks.
-	enableValidation := mustGetBoolFlag(cmd, "validate")
+	enableValidation := mustGetBoolFlag(cmd, "validation")
 	if enableValidation && hasAnyValidationRule(cfg) {
 		v := validate.NewValidator(cfg)
-		v.RequestTimeout, _ = cmd.Flags().GetDuration("validate-timeout")
+		v.RequestTimeout, _ = cmd.Flags().GetDuration("validation-timeout")
 		v.FullResponse, _ = cmd.Flags().GetBool("validation-full-response")
-		v.ExtractEmpty, _ = cmd.Flags().GetBool("validate-extract-empty")
+		v.ExtractEmpty, _ = cmd.Flags().GetBool("validation-extract-empty")
+		v.IncludeRequests, _ = cmd.Flags().GetBool("validation-include-requests")
 		detector.StartValidation(cmd.Context(), v, 10)
 	}
 
@@ -558,11 +559,11 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 		detector.WaitForValidation()
 		findings = detector.Findings()
 
-		var confirmed, invalid, revoked, unknown, errCount int
+		var valid, invalid, revoked, unknown, errCount int
 		for _, f := range findings {
 			switch f.ValidationStatus {
-			case report.ValidationConfirmed:
-				confirmed++
+			case report.ValidationValid:
+				valid++
 			case report.ValidationInvalid:
 				invalid++
 			case report.ValidationRevoked:
@@ -579,7 +580,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 			Int64("http_requests", detector.ValidationHTTPRequests()).
 			Msg("validation requests")
 		logging.Info().
-			Int("confirmed", confirmed).
+			Int("valid", valid).
 			Int("invalid", invalid).
 			Int("revoked", revoked).
 			Int("unknown", unknown).

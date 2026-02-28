@@ -25,9 +25,8 @@ func gitlabPatValidation() *config.Validation {
 			"name":   "json:name",
 		},
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, JSON: map[string]any{"id": "!empty"}, Result: "confirmed"},
+			{StatusCodes: []int{200}, JSON: map[string]any{"id": "!empty"}, Result: "valid"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{Result: "unknown"},
 		},
 	}
 }
@@ -44,9 +43,8 @@ func gitlabTokenValidation() *config.Validation {
 			"PRIVATE-TOKEN": "{{ secret }}",
 		},
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, JSON: map[string]any{"id": "!empty"}, Result: "confirmed"},
+			{StatusCodes: []int{200}, JSON: map[string]any{"id": "!empty"}, Result: "valid"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{Result: "unknown"},
 		},
 	}
 }
@@ -63,9 +61,8 @@ func gitlabRunnerRegistrationValidation() *config.Validation {
 		},
 		Body: "token={{ secret }}",
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, NegativeWords: []string{"token is missing", "403 Forbidden"}, Result: "confirmed"},
+			{StatusCodes: []int{200}, NegativeWords: []string{"token is missing", "403 Forbidden"}, Result: "valid"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{Result: "unknown"},
 		},
 	}
 }

@@ -3,6 +3,7 @@ package validate
 import (
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/betterleaks/betterleaks/logging"
 )
@@ -11,21 +12,50 @@ import (
 // fan-out explosion when multiple placeholders each have many captured secrets.
 const maxCombos = 100
 
-// placeholderRe matches {{ some.rule-id }} (with optional inner whitespace).
-var placeholderRe = regexp.MustCompile(`\{\{\s*([\w.\-]+)\s*\}\}`)
+// exprRe matches the full contents of a {{ ... }} expression (including filters).
+var exprRe = regexp.MustCompile(`\{\{(.*?)\}\}`)
 
-// PlaceholderIDs returns all unique rule IDs referenced in tmpl.
+// identRe matches a bare identifier (not a quoted string literal).
+var identRe = regexp.MustCompile(`^[\w][\w.\-]*$`)
+
+// PlaceholderIDs returns all unique variable IDs referenced in tmpl,
+// including variables used as filter arguments (e.g. `append: secret`).
+// String literals (quoted values) are ignored.
 // This is used to determine which secret variables a template needs before
 // rendering (e.g. to detect missing placeholders). Rendering itself is
 // handled by [TemplateEngine].
 func PlaceholderIDs(tmpl string) []string {
 	seen := make(map[string]struct{})
 	var ids []string
-	for _, m := range placeholderRe.FindAllStringSubmatch(tmpl, -1) {
-		id := m[1]
+	addID := func(id string) {
 		if _, ok := seen[id]; !ok {
 			seen[id] = struct{}{}
 			ids = append(ids, id)
+		}
+	}
+
+	for _, m := range exprRe.FindAllStringSubmatch(tmpl, -1) {
+		inner := strings.TrimSpace(m[1])
+		parts := strings.Split(inner, "|")
+
+		// First segment is the primary value (variable or string literal).
+		primary := strings.TrimSpace(parts[0])
+		if identRe.MatchString(primary) {
+			addID(primary)
+		}
+
+		// Remaining segments are filters. Extract bare identifiers used
+		// as arguments (skip quoted strings and numeric literals).
+		for _, part := range parts[1:] {
+			seg := strings.TrimSpace(part)
+			if colonIdx := strings.Index(seg, ":"); colonIdx >= 0 {
+				for _, arg := range strings.Split(seg[colonIdx+1:], ",") {
+					arg = strings.TrimSpace(arg)
+					if identRe.MatchString(arg) {
+						addID(arg)
+					}
+				}
+			}
 		}
 	}
 	return ids

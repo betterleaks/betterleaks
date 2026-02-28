@@ -15,9 +15,8 @@ func groqValidation() *config.Validation {
 			"Authorization": "Bearer {{ secret }}",
 		},
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, Words: []string{`"id"`, `"data"`}, WordsAll: true, Result: "confirmed"},
+			{StatusCodes: []int{200}, Words: []string{`"id"`, `"data"`}, WordsAll: true, Result: "valid"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{Result: "unknown"},
 		},
 	}
 }

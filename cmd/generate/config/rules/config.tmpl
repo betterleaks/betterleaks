@@ -60,6 +60,8 @@ keywords = [{{ range $j, $keyword := . }}"{{ $keyword }}"{{ end }}]{{end}}{{ end
 tags = [
     {{ range $j, $tag := . }}"{{ $tag }}",{{ end }}
 ]{{ end }}
+{{- if $rule.SkipReport }}
+skipReport = true{{ end }}
 {{- with $rule.Allowlists }}{{ range $i, $allowlist := . }}{{ if or $allowlist.Regexes $allowlist.Paths $allowlist.Commits $allowlist.StopWords }}{{println}}[[rules.allowlists]]
 {{- with .Description }}{{println}}description = "{{ . }}"{{ end }}
 {{- with .MatchCondition }}{{println}}condition = "{{ .String }}"{{ end }}
@@ -76,10 +78,16 @@ tags = [
 {{- with .StopWords }}{{println}}stopwords = [{{ range $j, $stopword := . }}
     "{{ $stopword }}",{{ end }}
 ]{{ end }}{{ end }}{{ end }}{{ end }}
+{{- range $rule.RequiredRules }}{{println}}[[rules.required]]
+id = "{{ .RuleID }}"
+{{- with .WithinLines }}
+withinLines = {{ . }}{{ end }}
+{{- with .WithinColumns }}
+withinColumns = {{ . }}{{ end }}{{ end }}
 {{- with $rule.Validation }}{{println}}[rules.validate]
 type = "{{ .Type }}"
 method = "{{ .Method }}"
-url = "{{ .URL }}"
+url = {{ tomlQuote .URL }}
 {{- with .Headers }}
 headers = {{ tomlInlineTable . }}{{ end }}
 {{- with .Body }}

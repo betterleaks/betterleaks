@@ -18,7 +18,7 @@ import (
 	"github.com/betterleaks/betterleaks/report"
 )
 
-func TestValidator_Validate_Confirmed(t *testing.T) {
+func TestValidator_Validate_Valid(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte(`{"access_token": "live"}`))
@@ -35,7 +35,7 @@ func TestValidator_Validate_Confirmed(t *testing.T) {
 					URL:    srv.URL + "/token",
 					Body:   "secret={{ secret }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Words: []string{"access_token"}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Words: []string{"access_token"}, Result: "valid"},
 					},
 				},
 			},
@@ -52,7 +52,7 @@ func TestValidator_Validate_Confirmed(t *testing.T) {
 	v := NewValidator(cfg)
 	result := v.Validate(context.Background(), findings)
 	require.Len(t, result, 1)
-	assert.Equal(t, report.ValidationConfirmed, result[0].ValidationStatus)
+	assert.Equal(t, report.ValidationValid, result[0].ValidationStatus)
 }
 
 func TestValidator_Validate_Invalid(t *testing.T) {
@@ -71,7 +71,7 @@ func TestValidator_Validate_Invalid(t *testing.T) {
 					Method: "GET",
 					URL:    srv.URL + "/check",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 						{StatusCodes: []int{401}, Result: "invalid"},
 					},
 				},
@@ -128,7 +128,7 @@ func TestValidator_Validate_CacheHit(t *testing.T) {
 					Method: "GET",
 					URL:    srv.URL + "/check?key={{ secret }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -143,8 +143,8 @@ func TestValidator_Validate_CacheHit(t *testing.T) {
 	v := NewValidator(cfg)
 	result := v.Validate(context.Background(), findings)
 	require.Len(t, result, 2)
-	assert.Equal(t, report.ValidationConfirmed, result[0].ValidationStatus)
-	assert.Equal(t, report.ValidationConfirmed, result[1].ValidationStatus)
+	assert.Equal(t, report.ValidationValid, result[0].ValidationStatus)
+	assert.Equal(t, report.ValidationValid, result[1].ValidationStatus)
 	assert.Equal(t, 1, calls, "should have only made one HTTP request due to cache")
 }
 
@@ -168,7 +168,7 @@ func TestValidator_Validate_CartesianProduct(t *testing.T) {
 					URL:    srv.URL,
 					Body:   "id={{ dep.id }}&secret={{ secret }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 						{Result: "invalid"},
 					},
 				},
@@ -220,7 +220,7 @@ func TestValidator_Validate_SharedPlaceholder_ConsistentCombo(t *testing.T) {
 					URL:    srv.URL + "/check?id={{ dep.id }}",
 					Body:   "id={{ dep.id }}&secret={{ secret }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 						{Result: "invalid"},
 					},
 				},
@@ -269,7 +269,7 @@ func TestValidator_Validate_HeadersIncludedInCombo(t *testing.T) {
 					URL:     srv.URL,
 					Headers: map[string]string{"Authorization": "Bearer {{ secret }}"},
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 						{Result: "invalid"},
 					},
 				},
@@ -300,7 +300,7 @@ func TestValidator_Validate_NetworkError_IsValidationError(t *testing.T) {
 					Method: "GET",
 					URL:    "http://127.0.0.1:1/unreachable",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -336,7 +336,7 @@ func TestValidator_Validate_NetworkError_NotCached(t *testing.T) {
 					Method: "GET",
 					URL:    srv.URL + "/check?key={{ secret }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -363,7 +363,7 @@ func TestValidator_Validate_MissingPlaceholder_NotAttempted(t *testing.T) {
 					Method: "GET",
 					URL:    "http://localhost/check?id={{ missing.dep }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -403,7 +403,7 @@ func TestValidator_Validate_RequestBodyRendered(t *testing.T) {
 					Headers: map[string]string{"Content-Type": "application/x-www-form-urlencoded"},
 					Body:    "token={{ secret }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -419,7 +419,7 @@ func TestValidator_Validate_RequestBodyRendered(t *testing.T) {
 	assert.Equal(t, "token=abc123", gotBody)
 }
 
-func TestValidateFinding_Confirmed(t *testing.T) {
+func TestValidateFinding_Valid(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	}))
@@ -434,7 +434,7 @@ func TestValidateFinding_Confirmed(t *testing.T) {
 					Method: "GET",
 					URL:    srv.URL,
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -446,7 +446,7 @@ func TestValidateFinding_Confirmed(t *testing.T) {
 
 	attempted := v.ValidateFinding(context.Background(), &f)
 	assert.True(t, attempted)
-	assert.Equal(t, report.ValidationConfirmed, f.ValidationStatus)
+	assert.Equal(t, report.ValidationValid, f.ValidationStatus)
 }
 
 func TestValidateFinding_NoBlock(t *testing.T) {
@@ -481,7 +481,7 @@ func TestValidateFinding_ConcurrentSafe(t *testing.T) {
 					Method: "GET",
 					URL:    srv.URL + "/check?key={{ secret }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -506,12 +506,12 @@ func TestValidateFinding_ConcurrentSafe(t *testing.T) {
 	wg.Wait()
 
 	for _, f := range findings {
-		assert.Equal(t, report.ValidationConfirmed, f.ValidationStatus)
+		assert.Equal(t, report.ValidationValid, f.ValidationStatus)
 	}
 	assert.Equal(t, int32(1), calls.Load(), "cache should collapse identical requests")
 }
 
-func TestValidateFinding_ConfirmedShortCircuitsCombos(t *testing.T) {
+func TestValidateFinding_ValidShortCircuitsCombos(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -530,7 +530,7 @@ func TestValidateFinding_ConfirmedShortCircuitsCombos(t *testing.T) {
 					URL:    srv.URL,
 					Body:   "id={{ dep.id }}&secret={{ secret }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Words: []string{`"ok":true`}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Words: []string{`"ok":true`}, Result: "valid"},
 						{Result: "error"},
 					},
 				},
@@ -548,9 +548,9 @@ func TestValidateFinding_ConfirmedShortCircuitsCombos(t *testing.T) {
 	v := NewValidator(cfg)
 	v.ValidateFinding(context.Background(), &f)
 
-	assert.Equal(t, report.ValidationConfirmed, f.ValidationStatus)
+	assert.Equal(t, report.ValidationValid, f.ValidationStatus)
 	assert.Equal(t, int32(1), calls.Load(),
-		"should stop after first confirmed combo, not try all 3")
+		"should stop after first valid combo, not try all 3")
 }
 
 func TestValidateFinding_Revoked(t *testing.T) {
@@ -569,7 +569,7 @@ func TestValidateFinding_Revoked(t *testing.T) {
 					Method: "POST",
 					URL:    srv.URL,
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Words: []string{`"ok":true`}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Words: []string{`"ok":true`}, Result: "valid"},
 						{StatusCodes: []int{200}, Words: []string{"token_revoked"}, Result: "revoked"},
 						{StatusCodes: []int{200}, Words: []string{"invalid_auth"}, Result: "invalid"},
 					},
@@ -600,7 +600,7 @@ func TestValidateFinding_FullResponse(t *testing.T) {
 					Method: "GET",
 					URL:    srv.URL,
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -611,7 +611,7 @@ func TestValidateFinding_FullResponse(t *testing.T) {
 	v := NewValidator(cfg)
 	v.FullResponse = true
 	v.ValidateFinding(context.Background(), &f)
-	assert.Equal(t, report.ValidationConfirmed, f.ValidationStatus)
+	assert.Equal(t, report.ValidationValid, f.ValidationStatus)
 	assert.Equal(t, `{"ok":true,"user":"alice"}`, f.ValidationResponse)
 }
 
@@ -633,7 +633,7 @@ func TestValidateFinding_ImplicitSecretVariable(t *testing.T) {
 					URL:     srv.URL,
 					Headers: map[string]string{"Authorization": "token {{ secret }}"},
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -643,7 +643,7 @@ func TestValidateFinding_ImplicitSecretVariable(t *testing.T) {
 	f := report.Finding{RuleID: "test.rule", Secret: "ghp_abc123"}
 	v := NewValidator(cfg)
 	v.ValidateFinding(context.Background(), &f)
-	assert.Equal(t, report.ValidationConfirmed, f.ValidationStatus)
+	assert.Equal(t, report.ValidationValid, f.ValidationStatus)
 	assert.Equal(t, "token ghp_abc123", gotAuth)
 }
 
@@ -667,7 +667,7 @@ func TestValidateFinding_NamedCaptureGroups(t *testing.T) {
 					URL:    srv.URL,
 					Body:   "id={{ key_id }}&secret={{ key_secret }}",
 					Match: []config.MatchClause{
-						{StatusCodes: []int{200}, Result: "confirmed"},
+						{StatusCodes: []int{200}, Result: "valid"},
 					},
 				},
 			},
@@ -684,6 +684,6 @@ func TestValidateFinding_NamedCaptureGroups(t *testing.T) {
 	}
 	v := NewValidator(cfg)
 	v.ValidateFinding(context.Background(), &f)
-	assert.Equal(t, report.ValidationConfirmed, f.ValidationStatus)
+	assert.Equal(t, report.ValidationValid, f.ValidationStatus)
 	assert.Equal(t, "id=AKIAIOSFODNN7EXAMPLE&secret=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", gotBody)
 }

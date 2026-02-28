@@ -16,9 +16,8 @@ func mistralValidation() *config.Validation {
 			"Accept":        "application/json",
 		},
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, Words: []string{`"data"`}, Result: "confirmed"},
+			{StatusCodes: []int{200}, Words: []string{`"data"`}, Result: "valid"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{Result: "unknown"},
 		},
 	}
 }

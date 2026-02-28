@@ -18,9 +18,8 @@ func perplexityValidation() *config.Validation {
 		Body: `{"model":"invalid-model-for-validation","messages":[{"role":"user","content":"."}]}`,
 		Match: []config.MatchClause{
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{StatusCodes: []int{200}, Result: "confirmed"},
-			{StatusCodes: []int{400, 404, 422}, Result: "confirmed"},
-			{Result: "unknown"},
+			{StatusCodes: []int{200}, Result: "valid"},
+			{StatusCodes: []int{400, 404, 422}, Result: "valid"},
 		},
 	}
 }

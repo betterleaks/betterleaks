@@ -186,12 +186,11 @@ keywords = ["sk-ant-admin01"]
 type = "http"
 method = "GET"
 url = "https://api.anthropic.com/v1/organizations/me"
-headers = { anthropic-version = "2023-06-01", x-api-key = "{{ secret }}" }
+headers = { anthropic-version = "2023-06-01", x-api-key = '{{ secret }}' }
 extract = { organization = "json:name" }
 match = [
-    { status = 200, json = { id = "!empty", type = "organization" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty", type = "organization" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -206,11 +205,10 @@ keywords = ["sk-ant-api03"]
 type = "http"
 method = "GET"
 url = "https://api.anthropic.com/v1/models"
-headers = { anthropic-version = "2023-06-01", x-api-key = "{{ secret }}" }
+headers = { anthropic-version = "2023-06-01", x-api-key = '{{ secret }}' }
 match = [
-    { status = 200, words = ['"data"', '"type"', ], words_all = true, result = "confirmed" },
+    { status = 200, words = ['"data"', '"type"', ], words_all = true, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -399,11 +397,10 @@ keywords = ["csk-"]
 type = "http"
 method = "GET"
 url = "https://api.cerebras.ai/v1/models"
-headers = { Authorization = "Bearer {{ secret }}" }
+headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, words = ['"object"', '"data"', ], words_all = true, result = "confirmed" },
+    { status = 200, words = ['"object"', '"data"', ], words_all = true, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -494,11 +491,10 @@ keywords = [
 type = "http"
 method = "GET"
 url = "https://api.cohere.com/v1/connectors"
-headers = { Authorization = "Bearer {{ secret }}" }
+headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, words = ['"connectors"', '"total_count"', ], words_all = true, result = "confirmed" },
+    { status = 200, words = ['"connectors"', '"total_count"', ], words_all = true, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -575,6 +571,15 @@ description = "Detected a Cursor Integrations API Key, which may expose AI-assis
 regex = '''(?i)[\w.-]{0,50}?(?:cursor)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(key_[0-9a-f]{64})(?:[\x60'"\s;]|\\[nr]|$)'''
 entropy = 3.5
 keywords = ["cursor"]
+[rules.validate]
+type = "http"
+method = "GET"
+url = "https://api.cursor.com/v0/me"
+headers = { Accept = "application/json", Authorization = 'Basic {{ secret | b64enc }}' }
+match = [
+    { status = 200, words = ['"userEmail"', ], result = "valid" },
+    { status = [401, 403], result = "invalid" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # databricks-api-token
@@ -618,11 +623,10 @@ keywords = ["deepseek"]
 type = "http"
 method = "GET"
 url = "https://api.deepseek.com/models"
-headers = { Accept = "application/json", Authorization = "Bearer {{ secret }}" }
+headers = { Accept = "application/json", Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, words = ['"data"', ], result = "confirmed" },
+    { status = 200, words = ['"data"', ], result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2523,12 +2527,11 @@ paths = [
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = 'token {{ secret }}' }
 extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2544,12 +2547,11 @@ keywords = ["github_pat_"]
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = 'token {{ secret }}' }
 extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2565,12 +2567,11 @@ keywords = ["gho_"]
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = 'token {{ secret }}' }
 extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2590,12 +2591,11 @@ paths = [
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = 'token {{ secret }}' }
 extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2611,12 +2611,11 @@ keywords = ["ghr_"]
 type = "http"
 method = "GET"
 url = "https://api.github.com/user"
-headers = { Accept = "application/vnd.github+json", Authorization = "token {{ secret }}" }
+headers = { Accept = "application/vnd.github+json", Authorization = 'token {{ secret }}' }
 extract = { name = "json:name", scopes = "header:X-OAuth-Scopes", username = "json:login" }
 match = [
-    { status = 200, json = { id = "!empty", login = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty", login = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2632,11 +2631,10 @@ keywords = ["glcbt-"]
 type = "http"
 method = "GET"
 url = "https://gitlab.com/api/v4/user"
-headers = { PRIVATE-TOKEN = "{{ secret }}" }
+headers = { PRIVATE-TOKEN = '{{ secret }}' }
 match = [
-    { status = 200, json = { id = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2652,11 +2650,10 @@ keywords = ["gldt-"]
 type = "http"
 method = "GET"
 url = "https://gitlab.com/api/v4/user"
-headers = { PRIVATE-TOKEN = "{{ secret }}" }
+headers = { PRIVATE-TOKEN = '{{ secret }}' }
 match = [
-    { status = 200, json = { id = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2722,12 +2719,11 @@ keywords = ["glpat-"]
 type = "http"
 method = "GET"
 url = "https://gitlab.com/api/v4/personal_access_tokens/self"
-headers = { PRIVATE-TOKEN = "{{ secret }}" }
+headers = { PRIVATE-TOKEN = '{{ secret }}' }
 extract = { name = "json:name", scopes = "json:scopes" }
 match = [
-    { status = 200, json = { id = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2743,12 +2739,11 @@ keywords = ["glpat-"]
 type = "http"
 method = "GET"
 url = "https://gitlab.com/api/v4/personal_access_tokens/self"
-headers = { PRIVATE-TOKEN = "{{ secret }}" }
+headers = { PRIVATE-TOKEN = '{{ secret }}' }
 extract = { name = "json:name", scopes = "json:scopes" }
 match = [
-    { status = 200, json = { id = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2764,11 +2759,10 @@ keywords = ["glptt-"]
 type = "http"
 method = "GET"
 url = "https://gitlab.com/api/v4/user"
-headers = { PRIVATE-TOKEN = "{{ secret }}" }
+headers = { PRIVATE-TOKEN = '{{ secret }}' }
 match = [
-    { status = 200, json = { id = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2787,9 +2781,8 @@ url = "https://gitlab.com/api/v4/runners/verify"
 headers = { Content-Type = "application/x-www-form-urlencoded" }
 body = '''token={{ secret }}'''
 match = [
-    { status = 200, negative_words = ['token is missing', '403 Forbidden', ], result = "confirmed" },
+    { status = 200, negative_words = ['token is missing', '403 Forbidden', ], result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2805,11 +2798,10 @@ keywords = ["glrt-"]
 type = "http"
 method = "GET"
 url = "https://gitlab.com/api/v4/user"
-headers = { PRIVATE-TOKEN = "{{ secret }}" }
+headers = { PRIVATE-TOKEN = '{{ secret }}' }
 match = [
-    { status = 200, json = { id = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2825,11 +2817,10 @@ keywords = ["glrt-"]
 type = "http"
 method = "GET"
 url = "https://gitlab.com/api/v4/user"
-headers = { PRIVATE-TOKEN = "{{ secret }}" }
+headers = { PRIVATE-TOKEN = '{{ secret }}' }
 match = [
-    { status = 200, json = { id = "!empty" }, result = "confirmed" },
+    { status = 200, json = { id = "!empty" }, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2926,11 +2917,10 @@ keywords = ["gsk_"]
 type = "http"
 method = "GET"
 url = "https://api.groq.com/openai/v1/models"
-headers = { Authorization = "Bearer {{ secret }}" }
+headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, words = ['"id"', '"data"', ], words_all = true, result = "confirmed" },
+    { status = 200, words = ['"id"', '"data"', ], words_all = true, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3010,11 +3000,10 @@ keywords = ["hf_"]
 type = "http"
 method = "GET"
 url = "https://huggingface.co/api/whoami-v2"
-headers = { Authorization = "Bearer {{ secret }}" }
+headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, words = ['"name"', '"id"', ], words_all = true, result = "confirmed" },
+    { status = 200, words = ['"name"', '"id"', ], words_all = true, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3030,11 +3019,10 @@ keywords = ["api_org_"]
 type = "http"
 method = "GET"
 url = "https://huggingface.co/api/whoami-v2"
-headers = { Authorization = "Bearer {{ secret }}" }
+headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, words = ['"name"', '"id"', ], words_all = true, result = "confirmed" },
+    { status = 200, words = ['"name"', '"id"', ], words_all = true, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3272,6 +3260,15 @@ id = "mailchimp-api-key"
 description = "Identified a Mailchimp API key, potentially compromising email marketing campaigns and subscriber data."
 regex = '''(?i)[\w.-]{0,50}?(?:MailchimpSDK.initialize|mailchimp)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32}-us\d\d)(?:[\x60'"\s;]|\\[nr]|$)'''
 keywords = ["mailchimp"]
+[rules.validate]
+type = "http"
+method = "GET"
+url = 'https://{{ secret | split: "-" | last }}.api.mailchimp.com/3.0/ping'
+headers = { Accept = "application/json", Authorization = 'Basic {{ "x:" | append: secret | b64enc }}' }
+match = [
+    { status = 200, result = "valid" },
+    { status = [401, 403], result = "invalid" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # mailgun-private-api-token
@@ -3281,6 +3278,15 @@ id = "mailgun-private-api-token"
 description = "Found a Mailgun private API token, risking unauthorized email service operations and data breaches."
 regex = '''(?i)[\w.-]{0,50}?(?:mailgun)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(key-[a-f0-9]{32})(?:[\x60'"\s;]|\\[nr]|$)'''
 keywords = ["mailgun"]
+[rules.validate]
+type = "http"
+method = "GET"
+url = "https://api.mailgun.net/v3/domains"
+headers = { Accept = "application/json", Authorization = 'Basic {{ "api:" | append: secret | b64enc }}' }
+match = [
+    { status = 200, result = "valid" },
+    { status = [401, 403], result = "invalid" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # mailgun-pub-key
@@ -3380,11 +3386,10 @@ keywords = ["mistral"]
 type = "http"
 method = "GET"
 url = "https://api.mistral.ai/v1/models"
-headers = { Accept = "application/json", Authorization = "Bearer {{ secret }}" }
+headers = { Accept = "application/json", Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, words = ['"data"', ], result = "confirmed" },
+    { status = 200, words = ['"data"', ], result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3539,11 +3544,10 @@ keywords = ["t3blbkfj"]
 type = "http"
 method = "GET"
 url = "https://api.openai.com/v1/models"
-headers = { Authorization = "Bearer {{ secret }}" }
+headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, result = "confirmed" },
+    { status = 200, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3748,11 +3752,10 @@ keywords = ["r8_"]
 type = "http"
 method = "GET"
 url = "https://api.replicate.com/v1/account"
-headers = { Authorization = "Bearer {{ secret }}" }
+headers = { Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, words = ['"type"', '"username"', '"name"', ], words_all = true, result = "confirmed" },
+    { status = 200, words = ['"type"', '"username"', '"name"', ], words_all = true, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4171,11 +4174,10 @@ keywords = ["tgp_v1_"]
 type = "http"
 method = "GET"
 url = "https://api.together.xyz/v1/models"
-headers = { Accept = "application/json", Authorization = "Bearer {{ secret }}" }
+headers = { Accept = "application/json", Authorization = 'Bearer {{ secret }}' }
 match = [
-    { status = 200, words = ['"id"', '"object"', ], words_all = true, result = "confirmed" },
+    { status = 200, words = ['"id"', '"object"', ], words_all = true, result = "valid" },
     { status = [401, 403], result = "invalid" },
-    { result = "unknown" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────

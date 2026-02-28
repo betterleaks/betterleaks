@@ -19,13 +19,14 @@ import (
 // Validator fires HTTP requests described in [rules.validate] blocks
 // and annotates findings with a ValidationStatus.
 type Validator struct {
-	Config         config.Config
-	HTTPClient     *http.Client
-	Cache          *ResponseCache
-	RequestTimeout time.Duration
-	FullResponse   bool
-	ExtractEmpty   bool
-	Templates      *TemplateEngine
+	Config          config.Config
+	HTTPClient      *http.Client
+	Cache           *ResponseCache
+	RequestTimeout  time.Duration
+	FullResponse    bool
+	ExtractEmpty    bool
+	IncludeRequests bool
+	Templates       *TemplateEngine
 
 	// inflight deduplicates concurrent HTTP requests for the same cache key.
 	inflight singleflight.Group
@@ -128,18 +129,18 @@ func (v *Validator) ValidateFinding(ctx context.Context, f *report.Finding) bool
 		lastMeta = meta
 		lastNote = reason
 		lastBody = resp.Body
-		if result == "confirmed" {
+		if result == "valid" {
 			break
 		}
 	}
 
 	switch lastResult {
-	case "confirmed":
-		f.ValidationStatus = report.ValidationConfirmed
+	case "valid":
+		f.ValidationStatus = report.ValidationValid
 		logging.Debug().
 			Str("rule", f.RuleID).
 			Str("file", f.File).
-			Msg("secret confirmed live")
+			Msg("secret validated live")
 	case "invalid":
 		f.ValidationStatus = report.ValidationInvalid
 	case "revoked":
@@ -231,13 +232,32 @@ func (v *Validator) doRequest(ctx context.Context, method, url string, headers m
 		req.Header.Set(k, val)
 	}
 
-	logging.Debug().
-		Str("method", method).
-		Str("url", url).
-		Msg("validation request")
+	if v.IncludeRequests {
+		evt := logging.Info().
+			Str("method", method).
+			Str("url", url)
+		for k, val := range headers {
+			evt = evt.Str("req_header_"+k, val)
+		}
+		if body != "" {
+			evt = evt.Str("body", body)
+		}
+		evt.Msg("validation request →")
+	} else {
+		logging.Debug().
+			Str("method", method).
+			Str("url", url).
+			Msg("validation request")
+	}
 
 	resp, err := v.HTTPClient.Do(req)
 	if err != nil {
+		if v.IncludeRequests {
+			logging.Info().Err(err).
+				Str("method", method).
+				Str("url", url).
+				Msg("validation request failed")
+		}
 		return &CachedResponse{Err: err}
 	}
 	defer resp.Body.Close()
@@ -247,6 +267,22 @@ func (v *Validator) doRequest(ctx context.Context, method, url string, headers m
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		return &CachedResponse{Err: err}
+	}
+
+	if v.IncludeRequests {
+		evt := logging.Info().
+			Str("method", method).
+			Str("url", url).
+			Int("status", resp.StatusCode)
+		for k, vals := range resp.Header {
+			evt = evt.Strs("resp_header_"+k, vals)
+		}
+		if len(respBody) <= 4096 {
+			evt = evt.Str("resp_body", string(respBody))
+		} else {
+			evt = evt.Str("resp_body", string(respBody[:4096])+"… (truncated)")
+		}
+		evt.Msg("validation response ←")
 	}
 
 	return &CachedResponse{

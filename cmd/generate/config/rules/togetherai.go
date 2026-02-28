@@ -16,9 +16,8 @@ func togetheraiValidation() *config.Validation {
 			"Accept":        "application/json",
 		},
 		Match: []config.MatchClause{
-			{StatusCodes: []int{200}, Words: []string{`"id"`, `"object"`}, WordsAll: true, Result: "confirmed"},
+			{StatusCodes: []int{200}, Words: []string{`"id"`, `"object"`}, WordsAll: true, Result: "valid"},
 			{StatusCodes: []int{401, 403}, Result: "invalid"},
-			{Result: "unknown"},
 		},
 	}
 }

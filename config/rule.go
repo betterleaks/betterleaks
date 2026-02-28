@@ -60,7 +60,7 @@ type Rule struct {
 	TokenEfficiency bool
 
 	// Validation describes an HTTP request to fire to determine whether
-	// a detected secret is live (confirmed) or stale/invalid.
+	// a detected secret is live (valid) or stale/invalid.
 	Validation *Validation
 }
 

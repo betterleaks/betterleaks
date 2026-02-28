@@ -6,6 +6,22 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+func cursorValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://api.cursor.com/v0/me",
+		Headers: map[string]string{
+			"Accept":        "application/json",
+			"Authorization": `Basic {{ secret | b64enc }}`,
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, Words: []string{`"userEmail"`}, Result: "valid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
 func CursorAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "cursor-api-key",
@@ -13,6 +29,7 @@ func CursorAPIKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"cursor"}, `key_[0-9a-f]{64}`, true),
 		Keywords:    []string{"cursor"},
 		Entropy:     3.5,
+		Validation:  cursorValidation(),
 	}
 
 	tps := utils.GenerateSampleSecrets("cursor", "key_"+secrets.NewSecret(utils.Hex("64")))

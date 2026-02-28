@@ -315,7 +315,7 @@ func printValidation(f report.Finding, noColor bool) {
 	var statusStyle lipgloss.Style
 	if !noColor {
 		switch f.ValidationStatus {
-		case report.ValidationConfirmed:
+		case report.ValidationValid:
 			statusStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00d26a"))
 		case report.ValidationInvalid:
 			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))

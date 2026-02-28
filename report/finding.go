@@ -83,7 +83,7 @@ type ValidationStatus string
 
 const (
 	ValidationUnknown   ValidationStatus = "UNKNOWN"
-	ValidationConfirmed ValidationStatus = "CONFIRMED"
+	ValidationValid     ValidationStatus = "VALID"
 	ValidationInvalid   ValidationStatus = "INVALID"
 	ValidationRevoked   ValidationStatus = "REVOKED"
 	ValidationError     ValidationStatus = "ERROR"
