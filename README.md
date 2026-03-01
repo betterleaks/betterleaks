@@ -35,7 +35,7 @@ A couple things:
 - Optimized Recursive Decoding (for catching those nasty SHA1-HULUD variants)
 - [Token Efficiency Filter](https://lookingatcomputer.substack.com/p/rare-not-random)
 - Misc optimizations
-- Regex engine switching w/ (`--regexp-engine=stdlib/re2`)
+- Regex engine switching w/ (`--regex-engine=stdlib/re2` or `BETTERLEAKS_REGEX_ENGINE=stdlib`)
 - MORE RULES! Ahhh finally!
 
 ### Benchmarks
