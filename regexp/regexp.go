@@ -1,10 +1,17 @@
 package regexp
 
 import (
+	"os"
 	stdlib "regexp"
 
 	gore2 "github.com/wasilibs/go-re2"
 )
+
+func init() {
+	if v := os.Getenv("BETTERLEAKS_REGEX_ENGINE"); v != "" {
+		SetEngine(v)
+	}
+}
 
 // engine is an internal interface satisfied by both *stdlib.Regexp and *gore2.Regexp.
 type engine interface {
