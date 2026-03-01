@@ -132,9 +132,11 @@ func initLog() {
 	}
 	logging.Logger = logging.Logger.Level(logLevel)
 
-	if engine, err := rootCmd.Flags().GetString("regex-engine"); err == nil && engine != "" {
+	if rootCmd.Flags().Changed("regex-engine") {
+		engine, _ := rootCmd.Flags().GetString("regex-engine")
 		regexp.SetEngine(engine)
-	} else if engine, err := rootCmd.Flags().GetString("regexp-engine"); err == nil && engine != "" {
+	} else if rootCmd.Flags().Changed("regexp-engine") {
+		engine, _ := rootCmd.Flags().GetString("regexp-engine")
 		regexp.SetEngine(engine)
 	}
 }
