@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/osteele/liquid"
@@ -57,11 +58,11 @@ type MatchClause struct {
 }
 
 var validResults = map[string]struct{}{
-	"valid": {},
-	"invalid":   {},
-	"revoked":   {},
-	"error":     {},
-	"unknown":   {},
+	"valid":   {},
+	"invalid": {},
+	"revoked": {},
+	"error":   {},
+	"unknown": {},
 }
 
 // Check verifies that the Validation block has all required fields.
@@ -144,8 +145,8 @@ func (v *Validation) EvalMatch(statusCode int, body []byte, headers http.Header,
 }
 
 func clauseMatches(c MatchClause, statusCode int, body []byte, headers http.Header) bool {
-	if !slices.Contains(c.StatusCodes, code) {
-	    return false
+	if len(c.StatusCodes) > 0 && !slices.Contains(c.StatusCodes, statusCode) {
+		return false
 	}
 
 	lowerBody := bytes.ToLower(body)

@@ -16,6 +16,8 @@ import (
 	"github.com/betterleaks/betterleaks/report"
 )
 
+const maxResponseBody = 10 << 20
+
 // Validator fires HTTP requests described in [rules.validate] blocks
 // and annotates findings with a ValidationStatus.
 type Validator struct {
@@ -289,12 +291,12 @@ func (v *Validator) doRequest(ctx context.Context, method, url string, headers m
 		}
 		return nil, err
 	}
-	defer func() { 
-	  _, _ = io.ReadAll(io.Discard, res.Body)
-	  _ = resp.Body.Close()
-    }()
 
-	const maxResponseBody = 10 << 20
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+		resp.Body.Close()
+	}()
+
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		return nil, err
