@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -94,6 +95,8 @@ func init() {
 	rootCmd.PersistentFlags().Int("max-archive-depth", 0, "allow scanning into nested archives up to this depth (default \"0\", no archive traversal is done)")
 	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for gitleaks commands in seconds (default \"0\", no timeout is set)")
 	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
+
+	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable (e.g. \"validation\")")
 
 	// Validation flags
 	rootCmd.PersistentFlags().Bool("validation", true, "enable validation of findings against live APIs")
@@ -462,8 +465,20 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 		detector.Reporter = reporter
 	}
 
-	// Start async validation worker pool if any rules have validate blocks.
 	enableValidation := mustGetBoolFlag(cmd, "validation")
+
+	// TODO move this experiment flag to the detector, basically build out the `experiments` feature.
+	experimentsStr := mustGetStringFlag(cmd, "experiments")
+	experimentsSlice := []string{}
+	if experimentsStr != "" {
+		experimentsSlice = strings.Split(experimentsStr, ",")
+	}
+
+	if !slices.Contains(experimentsSlice, "validation") {
+		enableValidation = false
+	}
+
+	// Start async validation worker pool if any rules have validate blocks.
 	if enableValidation && hasAnyValidationRule(cfg) {
 		v := validate.NewValidator(cfg)
 		v.RequestTimeout, _ = cmd.Flags().GetDuration("validation-timeout")
