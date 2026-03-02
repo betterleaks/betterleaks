@@ -6,6 +6,22 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+func mailgunPrivateValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://api.mailgun.net/v3/domains",
+		Headers: map[string]string{
+			"Accept":        "application/json",
+			"Authorization": `Basic {{ "api:" | append: secret | b64enc }}`,
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, Result: "valid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
 func MailGunPrivateAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
@@ -16,6 +32,7 @@ func MailGunPrivateAPIToken() *config.Rule {
 		Keywords: []string{
 			"mailgun",
 		},
+		Validation: mailgunPrivateValidation(),
 	}
 
 	// validate

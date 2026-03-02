@@ -6,6 +6,21 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+func cohereValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://api.cohere.com/v1/connectors",
+		Headers: map[string]string{
+			"Authorization": "Bearer {{ secret }}",
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, Words: []string{`"connectors"`, `"total_count"`}, WordsAll: true, Result: "valid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
 func CohereAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
@@ -17,6 +32,7 @@ func CohereAPIToken() *config.Rule {
 			"cohere",
 			"CO_API_KEY",
 		},
+		Validation: cohereValidation(),
 	}
 
 	// validate

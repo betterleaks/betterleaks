@@ -58,6 +58,10 @@ type Rule struct {
 	// to measure how "rare" or non-natural-language a string is. Strings that
 	// tokenize efficiently (i.e., common words/phrases) are filtered out.
 	TokenEfficiency bool
+
+	// Validation describes an HTTP request to fire to determine whether
+	// a detected secret is live (valid) or stale/invalid.
+	Validation *Validation
 }
 
 type Required struct {
@@ -66,8 +70,8 @@ type Required struct {
 	WithinColumns *int
 }
 
-// Validate guards against common misconfigurations.
-func (r *Rule) Validate() error {
+// Check guards against common misconfigurations.
+func (r *Rule) Check() error {
 	if r.validated {
 		return nil
 	}

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"slices"
+	"sort"
+	"strings"
 	"text/template"
 
 	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
@@ -16,6 +19,54 @@ const (
 )
 
 //go:generate go run $GOFILE ../../../config/betterleaks.toml
+
+// tomlKeyQuote quotes a TOML key if it contains characters that require quoting
+// (e.g. dots, spaces). Bare keys only allow [A-Za-z0-9_-].
+func tomlKeyQuote(key string) string {
+	if strings.ContainsAny(key, ". \t") {
+		return fmt.Sprintf("%q", key)
+	}
+	return key
+}
+
+// tomlQuote returns a TOML-safe quoted string. Values containing liquid
+// template syntax ({{ ... }}) use TOML literal strings (single quotes) to
+// avoid escaping inner double quotes used by filters like append/b64enc.
+func tomlQuote(s string) string {
+	if strings.Contains(s, "{{") {
+		return "'" + s + "'"
+	}
+	return fmt.Sprintf("%q", s)
+}
+
+func tomlValue(v any) string {
+	switch val := v.(type) {
+	case string:
+		return fmt.Sprintf("%q", val)
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	case int:
+		return fmt.Sprintf("%d", val)
+	case int64:
+		return fmt.Sprintf("%d", val)
+	case float64:
+		if val == float64(int64(val)) {
+			return fmt.Sprintf("%d", int64(val))
+		}
+		return fmt.Sprintf("%g", val)
+	case []any:
+		parts := make([]string, 0, len(val))
+		for _, item := range val {
+			parts = append(parts, tomlValue(item))
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	default:
+		return fmt.Sprintf("%q", fmt.Sprintf("%v", v))
+	}
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -282,7 +333,7 @@ func main() {
 	// ensure rules have unique ids
 	ruleLookUp := make(map[string]config.Rule, len(configRules))
 	for _, rule := range configRules {
-		if err := rule.Validate(); err != nil {
+		if err := rule.Check(); err != nil {
 			logging.Fatal().Err(err).
 				Str("rule-id", rule.RuleID).
 				Msg("Failed to validate rule")
@@ -306,7 +357,34 @@ func main() {
 		}
 	}
 
-	tmpl, err := template.ParseFiles(templatePath)
+	funcMap := template.FuncMap{
+		"tomlQuote": tomlQuote,
+		"tomlInlineTable": func(m map[string]string) string {
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			parts := make([]string, 0, len(keys))
+			for _, k := range keys {
+				parts = append(parts, fmt.Sprintf("%s = %s", tomlKeyQuote(k), tomlQuote(m[k])))
+			}
+			return "{ " + strings.Join(parts, ", ") + " }"
+		},
+		"tomlInlineTableAny": func(m map[string]any) string {
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			parts := make([]string, 0, len(keys))
+			for _, k := range keys {
+				parts = append(parts, fmt.Sprintf("%s = %s", tomlKeyQuote(k), tomlValue(m[k])))
+			}
+			return "{ " + strings.Join(parts, ", ") + " }"
+		},
+	}
+	tmpl, err := template.New("config.tmpl").Funcs(funcMap).ParseFiles(templatePath)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("Failed to parse template")
 	}

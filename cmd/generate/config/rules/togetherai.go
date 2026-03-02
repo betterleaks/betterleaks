@@ -6,6 +6,22 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+func togetheraiValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://api.together.xyz/v1/models",
+		Headers: map[string]string{
+			"Authorization": "Bearer {{ secret }}",
+			"Accept":        "application/json",
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, Words: []string{`"id"`, `"object"`}, WordsAll: true, Result: "valid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
 func TogetherAI() *config.Rule {
 	r := config.Rule{
 		RuleID:      "togetherai-api-key",
@@ -13,6 +29,7 @@ func TogetherAI() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`tgp_v1_[A-Za-z0-9_-]{43}`, true),
 		Keywords:    []string{"tgp_v1_"},
 		Entropy:     3.0,
+		Validation:  togetheraiValidation(),
 	}
 
 	tps := utils.GenerateSampleSecrets("togetherai", "tgp_v1_"+secrets.NewSecret(`[A-Za-z0-9_-]{43}`))

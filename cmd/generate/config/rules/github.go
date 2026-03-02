@@ -7,6 +7,31 @@ import (
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
+func githubTokenValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://api.github.com/user",
+		Headers: map[string]string{
+			"Authorization": "token {{ secret }}",
+			"Accept":        "application/vnd.github+json",
+		},
+		Extract: map[string]string{
+			"username": "json:login",
+			"name":     "json:name",
+			"scopes":   "header:X-OAuth-Scopes",
+		},
+		Match: []config.MatchClause{
+			{
+				StatusCodes: []int{200},
+				JSON:        map[string]any{"login": "!empty", "id": "!empty"},
+				Result:      "valid",
+			},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
 var githubAllowlist = []*config.Allowlist{
 	{
 		Paths: []*regexp.Regexp{
@@ -25,6 +50,7 @@ func GitHubPat() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"ghp_"},
 		Allowlists:  githubAllowlist,
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate
@@ -43,6 +69,7 @@ func GitHubFineGrainedPat() *config.Rule {
 		Regex:       regexp.MustCompile(`github_pat_\w{82}`),
 		Entropy:     3,
 		Keywords:    []string{"github_pat_"},
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate
@@ -61,6 +88,7 @@ func GitHubOauth() *config.Rule {
 		Regex:       regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
 		Entropy:     3,
 		Keywords:    []string{"gho_"},
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate
@@ -80,6 +108,7 @@ func GitHubApp() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"ghu_", "ghs_"},
 		Allowlists:  githubAllowlist,
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate
@@ -100,6 +129,7 @@ func GitHubRefresh() *config.Rule {
 		Regex:       regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
 		Entropy:     3,
 		Keywords:    []string{"ghr_"},
+		Validation:  githubTokenValidation(),
 	}
 
 	// validate

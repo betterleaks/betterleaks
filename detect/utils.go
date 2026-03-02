@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/logging"
@@ -269,6 +270,7 @@ func printFinding(f report.Finding, noColor bool) {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 		}
 		f.PrintRequiredFindings()
+		printValidation(f, noColor)
 		fmt.Println("")
 		return
 	}
@@ -283,6 +285,7 @@ func printFinding(f report.Finding, noColor bool) {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 		}
 		f.PrintRequiredFindings()
+		printValidation(f, noColor)
 		fmt.Println("")
 		return
 	}
@@ -299,5 +302,57 @@ func printFinding(f report.Finding, noColor bool) {
 		fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 	}
 	f.PrintRequiredFindings()
+	printValidation(f, noColor)
 	fmt.Println("")
+}
+
+// printValidation prints the validation status block when validation has run.
+func printValidation(f report.Finding, noColor bool) {
+	if f.ValidationStatus == "" {
+		return
+	}
+
+	var statusStyle lipgloss.Style
+	if !noColor {
+		switch f.ValidationStatus {
+		case report.ValidationValid:
+			statusStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00d26a"))
+		case report.ValidationInvalid:
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+		case report.ValidationRevoked:
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#f5d445"))
+		case report.ValidationUnknown:
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#c0c0c0"))
+		case report.ValidationError:
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#f05c07"))
+		default:
+			statusStyle = lipgloss.NewStyle()
+		}
+	} else {
+		statusStyle = lipgloss.NewStyle()
+	}
+
+	fmt.Printf("%-12s %s", "Validation:", statusStyle.Render(string(f.ValidationStatus)))
+	if f.ValidationNote != "" {
+		fmt.Printf("  (%s)", f.ValidationNote)
+	}
+	fmt.Println()
+
+	for _, k := range sortedKeys(f.ValidationMeta) {
+		fmt.Printf("%-12s %s = %s\n", "", k, f.ValidationMeta[k])
+	}
+	if f.ValidationResponse != "" {
+		fmt.Printf("%-12s %s\n", "", "Full response:")
+		fmt.Printf("%s\n", f.ValidationResponse)
+	}
+
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

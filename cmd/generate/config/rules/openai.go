@@ -6,6 +6,22 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+func openaiValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://api.openai.com/v1/models",
+		Headers: map[string]string{
+			"Authorization": "Bearer {{ secret }}",
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, JSON: map[string]any{"object": "list", "data": "!empty"}, Result: "valid"},
+			{StatusCodes: []int{401}, JSON: map[string]any{"error.code": "invalid_api_key"}, Result: "invalid"},
+			{StatusCodes: []int{403}, JSON: map[string]any{"error.type": "invalid_request_error"}, Result: "invalid"},
+		},
+	}
+}
+
 func OpenAI() *config.Rule {
 	// define rule
 	r := config.Rule{
@@ -16,6 +32,7 @@ func OpenAI() *config.Rule {
 		Keywords: []string{
 			"T3BlbkFJ",
 		},
+		Validation: openaiValidation(),
 	}
 
 	// validate

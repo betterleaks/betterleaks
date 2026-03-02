@@ -6,6 +6,41 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+func anthropicAPIValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://api.anthropic.com/v1/models",
+		Headers: map[string]string{
+			"x-api-key":         "{{ secret }}",
+			"anthropic-version": "2023-06-01",
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, Words: []string{`"data"`, `"type"`}, WordsAll: true, Result: "valid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
+func anthropicAdminValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://api.anthropic.com/v1/organizations/me",
+		Headers: map[string]string{
+			"x-api-key":         "{{ secret }}",
+			"anthropic-version": "2023-06-01",
+		},
+		Extract: map[string]string{
+			"organization": "json:name",
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, JSON: map[string]any{"type": "organization", "id": "!empty"}, Result: "valid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
 func AnthropicApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
@@ -15,6 +50,7 @@ func AnthropicApiKey() *config.Rule {
 		Keywords: []string{
 			"sk-ant-api03",
 		},
+		Validation: anthropicAPIValidation(),
 	}
 
 	// validate
@@ -46,6 +82,7 @@ func AnthropicAdminApiKey() *config.Rule {
 		Keywords: []string{
 			"sk-ant-admin01",
 		},
+		Validation: anthropicAdminValidation(),
 	}
 
 	// validate

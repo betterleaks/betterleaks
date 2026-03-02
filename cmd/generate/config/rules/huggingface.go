@@ -8,6 +8,23 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+func huggingfaceValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://huggingface.co/api/whoami-v2",
+		Headers: map[string]string{
+			"Authorization": "Bearer {{ secret }}",
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, Words: []string{`"name"`, `"id"`}, WordsAll: true, Result: "valid"},
+			{StatusCodes: []int{401}, Words: []string{"expired"}, Result: "revoked"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+			{StatusCodes: []int{429}, Words: []string{"rate limit"}, Result: "error"},
+		},
+	}
+}
+
 // Reference: https://huggingface.co/docs/hub/security-tokens
 //
 // Old tokens have the prefix `api_`, however, I am not sure it's worth detecting them as that would be high noise.
@@ -22,6 +39,7 @@ func HuggingFaceAccessToken() *config.Rule {
 		Keywords: []string{
 			"hf_",
 		},
+		Validation: huggingfaceValidation(),
 	}
 
 	// validate
@@ -78,6 +96,7 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 		Keywords: []string{
 			"api_org_",
 		},
+		Validation: huggingfaceValidation(),
 	}
 
 	// validate

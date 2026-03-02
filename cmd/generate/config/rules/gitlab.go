@@ -10,6 +10,63 @@ import (
 // overview with all GitLab tokens:
 // https://docs.gitlab.com/ee/security/tokens/index.html#token-prefixes
 
+// gitlabPatValidation validates PATs via the self-inspection endpoint.
+// Works for glpat- tokens (both classic and routable formats).
+func gitlabPatValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://gitlab.com/api/v4/personal_access_tokens/self",
+		Headers: map[string]string{
+			"PRIVATE-TOKEN": "{{ secret }}",
+		},
+		Extract: map[string]string{
+			"scopes": "json:scopes",
+			"name":   "json:name",
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, JSON: map[string]any{"id": "!empty"}, Result: "valid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
+// gitlabTokenValidation validates tokens that support PRIVATE-TOKEN auth
+// against the /api/v4/user endpoint. Works for deploy tokens, CI/CD job
+// tokens, runner auth tokens, and other prefixed token types.
+func gitlabTokenValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "GET",
+		URL:    "https://gitlab.com/api/v4/user",
+		Headers: map[string]string{
+			"PRIVATE-TOKEN": "{{ secret }}",
+		},
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, JSON: map[string]any{"id": "!empty"}, Result: "valid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
+// gitlabRunnerRegistrationValidation validates runner registration tokens
+// via the runners/verify endpoint (form POST).
+func gitlabRunnerRegistrationValidation() *config.Validation {
+	return &config.Validation{
+		Type:   config.ValidationTypeHTTP,
+		Method: "POST",
+		URL:    "https://gitlab.com/api/v4/runners/verify",
+		Headers: map[string]string{
+			"Content-Type": "application/x-www-form-urlencoded",
+		},
+		Body: "token={{ secret }}",
+		Match: []config.MatchClause{
+			{StatusCodes: []int{200}, NegativeWords: []string{"token is missing", "403 Forbidden"}, Result: "valid"},
+			{StatusCodes: []int{401, 403}, Result: "invalid"},
+		},
+	}
+}
+
 func GitlabCiCdJobToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-cicd-job-token",
@@ -17,6 +74,7 @@ func GitlabCiCdJobToken() *config.Rule {
 		Regex:       regexp.MustCompile(`glcbt-[0-9a-zA-Z]{1,5}_[0-9a-zA-Z_-]{20}`),
 		Entropy:     3,
 		Keywords:    []string{"glcbt-"},
+		Validation:  gitlabTokenValidation(),
 	}
 	tps := utils.GenerateSampleSecrets("gitlab", "glcbt-"+secrets.NewSecret(utils.AlphaNumeric("5"))+"_"+secrets.NewSecret(utils.AlphaNumeric("20")))
 	return utils.Validate(r, tps, nil)
@@ -29,6 +87,7 @@ func GitlabDeployToken() *config.Rule {
 		Regex:       regexp.MustCompile(`gldt-[0-9a-zA-Z_\-]{20}`),
 		Entropy:     3,
 		Keywords:    []string{"gldt-"},
+		Validation:  gitlabTokenValidation(),
 	}
 	tps := []string{
 		utils.GenerateSampleSecret("gitlab", "gldt-"+secrets.NewSecret(utils.AlphaNumeric("20"))),
@@ -103,6 +162,7 @@ func GitlabPat() *config.Rule {
 		Regex:       regexp.MustCompile(`glpat-[\w-]{20}`),
 		Entropy:     3,
 		Keywords:    []string{"glpat-"},
+		Validation:  gitlabPatValidation(),
 	}
 
 	// validate
@@ -120,6 +180,7 @@ func GitlabPatRoutable() *config.Rule {
 		Regex:       regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`),
 		Entropy:     4,
 		Keywords:    []string{"glpat-"},
+		Validation:  gitlabPatValidation(),
 	}
 
 	// validate
@@ -137,6 +198,7 @@ func GitlabPipelineTriggerToken() *config.Rule {
 		Regex:       regexp.MustCompile(`glptt-[0-9a-f]{40}`),
 		Entropy:     3,
 		Keywords:    []string{"glptt-"},
+		Validation:  gitlabTokenValidation(),
 	}
 
 	// validate
@@ -154,6 +216,7 @@ func GitlabRunnerRegistrationToken() *config.Rule {
 		Regex:       regexp.MustCompile(`GR1348941[\w-]{20}`),
 		Entropy:     3,
 		Keywords:    []string{"GR1348941"},
+		Validation:  gitlabRunnerRegistrationValidation(),
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "GR1348941"+secrets.NewSecret(utils.AlphaNumeric("20")))
@@ -171,6 +234,7 @@ func GitlabRunnerAuthenticationToken() *config.Rule {
 		Regex:       regexp.MustCompile(`glrt-[0-9a-zA-Z_\-]{20}`),
 		Entropy:     3,
 		Keywords:    []string{"glrt-"},
+		Validation:  gitlabTokenValidation(),
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "glrt-"+secrets.NewSecret(utils.AlphaNumeric("20")))
@@ -184,6 +248,7 @@ func GitlabRunnerAuthenticationTokenRoutable() *config.Rule {
 		Regex:       regexp.MustCompile(`\bglrt-t\d_[0-9a-zA-Z_\-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`),
 		Entropy:     4,
 		Keywords:    []string{"glrt-"},
+		Validation:  gitlabTokenValidation(),
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "glrt-t"+secrets.NewSecret(utils.Numeric("1"))+"_"+secrets.NewSecret(utils.AlphaNumeric("27"))+"."+secrets.NewSecret(utils.AlphaNumeric("2"))+secrets.NewSecret(utils.AlphaNumeric("7")))

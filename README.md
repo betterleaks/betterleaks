@@ -34,6 +34,7 @@ A couple things:
 - Parallelized Git Scanning (`--git-workers=8`)
 - Optimized Recursive Decoding (for catching those nasty SHA1-HULUD variants)
 - [Token Efficiency Filter](https://lookingatcomputer.substack.com/p/rare-not-random)
+- Secret Validation — automatically check if a detected secret is live by firing an HTTP request
 - Misc optimizations
 - Regex engine switching w/ (`--regex-engine=stdlib/re2` or `BETTERLEAKS_REGEX_ENGINE=stdlib`)
 - MORE RULES! Ahhh finally!
@@ -100,6 +101,11 @@ Flags:
       --max-target-megabytes int      files larger than this will be skipped
       --no-banner                     suppress banner
       --no-color                      turn off color for verbose output
+      --validation                      enable validation of findings against live APIs (default true)
+      --validation-status string        comma-separated list of validation statuses to include: valid, invalid, revoked, error, unknown, none (none = rules without validation)
+      --validation-timeout duration     per-request timeout for validation (default 10s)
+      --validation-extract-empty        include empty values from extractors in output
+      --validation-full-response        include full HTTP response body on validated findings
       --redact uint[=100]             redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)
   -f, --report-format string          output format (json, csv, junit, sarif, template)
   -r, --report-path string            report file
@@ -300,6 +306,29 @@ id = "gitlab-pat"
     regexTarget = "line"
     regexes = [ '''MY-glpat-''' ]
 
+# Optional: validate whether a detected secret is live by firing an HTTP request.
+# The implicit {{ secret }} variable always contains the captured secret.
+# Named capture groups and Liquid filters are also supported.
+[[rules]]
+id = "awesome-rule-1-validated"
+description = "awesome rule 1 but validated"
+regex = '''awesome-secret-([a-zA-Z0-9]{32})'''
+keywords = ["awesome-secret-"]
+
+    [rules.validate]
+    type = "http"
+    method = "GET"
+    url = "https://api.example.com/v1/verify"
+    headers = { Authorization = "Token {{ secret }}" }
+    extract = { user = "json:user.email", scopes = "header:X-OAuth-Scopes" }
+
+    # match is a first-match-wins list; the first clause whose conditions all
+    # pass determines the finding status.
+    match = [
+        { status = 200, json = { active = true }, result = "valid" },
+        { status = 401, result = "invalid" },
+    ]
+
 
 # Global allowlists have a higher order of precedence than rule-specific allowlists.
 # If a commit listed in the `commits` field below is encountered then that commit will be skipped and no
@@ -424,6 +453,163 @@ fragment = section of data gitleaks is looking at
    └───-3C────0L───+3C┴─┘ └────────────┘
 ```
 
+
+#### Secret Validation
+
+Betterleaks can automatically check whether a detected secret is live by firing an HTTP request defined in a `[rules.validate]` block. Validation runs asynchronously during the scan with a pool of 10 workers.
+
+Each `[rules.validate]` block describes an HTTP request and an ordered list of **match clauses**. Clauses are evaluated top-to-bottom; the first clause whose conditions all pass determines the finding's status. This first-match-wins design lets a single rule distinguish `valid`, `revoked`, `invalid`, etc. secrets from the same API endpoint. If no clause matches, the result defaults to `unknown`.
+
+Responses are cached in-memory per scan so duplicate requests (e.g., the same API key appearing in multiple files) only hit the network once.
+
+##### Template Variables
+
+Templates use [Liquid](https://shopify.github.io/liquid/) syntax and are supported in `url`, `body`, and `headers`. The following variables are available:
+
+| Variable | Source | Example |
+|---|---|---|
+| `{{ secret }}` | The captured secret (always available) | `ghp_abc123...` |
+| `{{ capture_name }}` | Named regex capture group `(?P<capture_name>...)` | `AKIAIOSFODNN7` |
+| `{{ other-rule.capture }}` | Capture group from a required rule (composite rules) | `wJalrXUtnFEMI...` |
+
+**Liquid filters** let you transform values inline:
+
+```toml
+# Base64-encode for Basic auth
+headers = { Authorization = "Basic {{ secret | prepend: 'api:' | b64enc }}" }
+
+# URL-encode a parameter
+url = "https://api.example.com/check?key={{ secret | url_encode }}"
+
+# HMAC-sign a payload
+body = "{{ payload | hmac_sha256: secret }}"
+```
+
+Available filters: `b64enc`, `b64dec`, `url_encode`, `sha256`, `hmac_sha1`, `hmac_sha256`, `unix_timestamp`, `iso_timestamp`, `json_escape`, `uuid`, `prefix`, `suffix` (plus all [standard Liquid filters](https://shopify.github.io/liquid/filters/)).
+
+For composite rules with multiple required parts, all combinations are tested (cartesian product), and a single `valid` match is enough.
+
+##### Simple Example — GitHub PAT
+
+```toml
+[[rules]]
+id = "github-pat"
+regex = '''ghp_[0-9a-zA-Z]{36}'''
+keywords = ["ghp_"]
+
+    [rules.validate]
+    type = "http"
+    method = "GET"
+    url = "https://api.github.com/user"
+    headers = { Authorization = "token {{ secret }}", Accept = "application/vnd.github+json" }
+    extract = { username = "json:login", name = "json:name", scopes = "header:X-OAuth-Scopes" }
+
+    match = [
+        { status = 200, json = { login = "!empty", id = "!empty" }, result = "valid" },
+        { status = 401, result = "invalid" },
+        { status = 403, result = "invalid" },
+    ]
+```
+
+##### Complex Example — Slack Bot Token
+
+All responses return 200; differentiated by JSON body content:
+
+```toml
+[[rules]]
+id = "slack-bot-token"
+regex = '''(xoxb-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24})'''
+keywords = ["xoxb-"]
+
+    [rules.validate]
+    method = "POST"
+    url = "https://slack.com/api/auth.test"
+    headers = { Authorization = "Bearer {{ secret }}", Content-Type = "application/x-www-form-urlencoded" }
+    extract = { url = "json:url", user = "json:user", team = "json:team" }
+
+    match = [
+        { status = 200, json = { ok = true }, result = "valid" },
+        { status = 200, json = { ok = false, error = ["account_inactive", "token_revoked"] }, result = "revoked", extract = { error = "json:error" } },
+        { status = 200, json = { ok = false }, result = "invalid" },
+        { status = 400, result = "invalid" },
+    ]
+```
+
+
+##### Match Clauses
+
+If no clause matches, the result defaults to `UNKNOWN`. You do not need to add an explicit catch-all `{ result = "unknown" }` clause.
+
+**Match clause fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | int or list of ints | Response status code must be one of these values. `status = 200` and `status = [200, 201]` are both valid. |
+| `words` | list of strings | Body must contain at least one of these strings (any match). Case-insensitive. |
+| `words_all` | bool | If `true`, body must contain **all** `words` |
+| `negative_words` | list of strings | Body must **not** contain any of these strings. Case-insensitive. |
+| `json` | inline table | GJSON path assertions that must all be satisfied. Keys are [GJSON paths](https://github.com/tidwall/gjson/blob/master/SYNTAX.md), values can be: a scalar for exact match, `"!empty"` for existence check, or a list for one-of matching (e.g. `error = ["revoked", "inactive"]`). |
+| `headers` | inline table | Response header assertions. Keys are header names (case-insensitive), values are expected substrings (case-insensitive). |
+| `result` | string | **Required.** One of: `valid`, `invalid`, `revoked`, `unknown`, `error` |
+| `extract` | inline table | Per-clause extractor override. See Extractors below. |
+
+##### Extractors
+
+Extractors pull data from the HTTP response into finding metadata. They are defined as a map of output names to source-prefixed expressions:
+
+| Prefix | Source | Example |
+|---|---|---|
+| `json:` | GJSON path on response body | `json:user.login`, `json:repos.#.name` |
+| `header:` | Response header value | `header:X-OAuth-Scopes` |
+
+Extractors can be defined at the `[rules.validate]` level (default for all clauses) or on individual match clauses (overrides the default). Array results from JSON paths are joined with commas.
+
+```toml
+[rules.validate]
+# Default extractors — used by any clause that doesn't define its own
+extract = { username = "json:login", scopes = "header:X-OAuth-Scopes" }
+
+match = [
+    { status = 200, result = "valid" },
+    # This clause overrides the default extract:
+    { status = 200, json = { ok = false }, result = "invalid", extract = { error = "json:error" } },
+]
+```
+
+##### Validation Statuses
+
+| Status | Meaning |
+|---|---|
+| `VALID` | Secret is live and active |
+| `INVALID` | Secret is not recognised — stale or never valid |
+| `REVOKED` | Secret was once valid but has been revoked |
+| `UNKNOWN` | Validation ran but could not determine status |
+| `ERROR` | Network/request error — the request itself failed |
+| *(empty)* | Validation was not attempted (no `[rules.validate]` block) |
+
+##### CLI Flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--validation` | `true` | Master toggle — set `--validation=false` to skip all validation |
+| `--validation-status` | *(all)* | Comma-separated list of statuses to include in output: `valid`, `invalid`, `revoked`, `error`, `unknown`, `none`. Use `none` to include findings from rules without a validation block. |
+| `--validation-extract-empty` | `false` | Include empty/nil extracted values in output |
+| `--validation-timeout` | `10s` | Per-request HTTP timeout |
+| `--validation-full-response` | `false` | Include full HTTP response body in the finding output |
+
+```bash
+# Only show valid findings (excludes non-validatable rules)
+betterleaks git --validation-status valid
+
+# Show valid findings + all non-validatable rules
+betterleaks git --validation-status valid,none
+
+# Show valid and revoked
+betterleaks dir --validation-status valid,revoked
+
+# Disable validation entirely
+betterleaks git --validation=false
+```
 
 #### betterleaks:allow / gitleaks:allow
 

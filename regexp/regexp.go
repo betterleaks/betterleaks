@@ -21,6 +21,7 @@ type engine interface {
 	FindAllStringIndex(s string, n int) [][]int
 	ReplaceAllString(src, repl string) string
 	NumSubexp() int
+	SubexpNames() []string
 	String() string
 }
 
@@ -45,6 +46,9 @@ func (r *Regexp) ReplaceAllString(src, repl string) string {
 }
 func (r *Regexp) NumSubexp() int {
 	return r.e.NumSubexp()
+}
+func (r *Regexp) SubexpNames() []string {
+	return r.e.SubexpNames()
 }
 func (r *Regexp) String() string {
 	return r.e.String()

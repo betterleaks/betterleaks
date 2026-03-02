@@ -36,7 +36,10 @@ betterleaksMinVersion = "v1.0.0"
     "{{ $stopword }}",{{ end }}
 ]{{ end }}{{ end }}{{ end }}{{ end }}{{println}}
 
-{{- range $i, $rule := .Rules }}{{println}}[[rules]]
+{{- range $i, $rule := .Rules }}{{println}}# ──────────────────────────────────────────────────────────────────────────────
+# {{ $rule.RuleID }}
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
 id = "{{$rule.RuleID}}"
 description = "{{$rule.Description}}"
 {{- with $rule.Regex }}
@@ -57,6 +60,8 @@ keywords = [{{ range $j, $keyword := . }}"{{ $keyword }}"{{ end }}]{{end}}{{ end
 tags = [
     {{ range $j, $tag := . }}"{{ $tag }}",{{ end }}
 ]{{ end }}
+{{- if $rule.SkipReport }}
+skipReport = true{{ end }}
 {{- with $rule.Allowlists }}{{ range $i, $allowlist := . }}{{ if or $allowlist.Regexes $allowlist.Paths $allowlist.Commits $allowlist.StopWords }}{{println}}[[rules.allowlists]]
 {{- with .Description }}{{println}}description = "{{ . }}"{{ end }}
 {{- with .MatchCondition }}{{println}}condition = "{{ .String }}"{{ end }}
@@ -73,4 +78,25 @@ tags = [
 {{- with .StopWords }}{{println}}stopwords = [{{ range $j, $stopword := . }}
     "{{ $stopword }}",{{ end }}
 ]{{ end }}{{ end }}{{ end }}{{ end }}
+{{- range $rule.RequiredRules }}{{println}}[[rules.required]]
+id = "{{ .RuleID }}"
+{{- with .WithinLines }}
+withinLines = {{ . }}{{ end }}
+{{- with .WithinColumns }}
+withinColumns = {{ . }}{{ end }}{{ end }}
+{{- with $rule.Validation }}{{println}}[rules.validate]
+type = "{{ .Type }}"
+method = "{{ .Method }}"
+url = {{ tomlQuote .URL }}
+{{- with .Headers }}
+headers = {{ tomlInlineTable . }}{{ end }}
+{{- with .Body }}
+body = '''{{ . }}'''{{ end }}
+{{- with .Extract }}
+extract = {{ tomlInlineTable . }}{{ end }}
+{{- with .Match }}{{println}}match = [
+{{- range $j, $clause := . }}
+    { {{ with $clause.StatusCodes }}{{ if eq (len .) 1 }}status = {{ index . 0 }}, {{ else }}status = [{{ range $k, $code := . }}{{ if $k }}, {{ end }}{{ $code }}{{ end }}], {{ end }}{{ end }}{{ with $clause.Words }}words = [{{ range $k, $word := . }}'{{ $word }}', {{ end }}], {{ end }}{{ if $clause.WordsAll }}words_all = true, {{ end }}{{ with $clause.NegativeWords }}negative_words = [{{ range $k, $word := . }}'{{ $word }}', {{ end }}], {{ end }}{{ with $clause.JSON }}json = {{ tomlInlineTableAny . }}, {{ end }}{{ with $clause.Headers }}headers = {{ tomlInlineTable . }}, {{ end }}result = "{{ $clause.Result }}"{{ with $clause.Extract }}, extract = {{ tomlInlineTable . }}{{ end }} },
+{{- end }}
+]{{ end }}{{ end }}
 {{ end }}
