@@ -289,7 +289,10 @@ func (v *Validator) doRequest(ctx context.Context, method, url string, headers m
 		}
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { 
+	  _, _ = io.ReadAll(io.Discard, res.Body)
+	  _ = resp.Body.Close()
+    }()
 
 	const maxResponseBody = 10 << 20
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
