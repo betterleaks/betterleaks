@@ -92,6 +92,7 @@ Flags:
       --diagnostics-dir string        directory to store diagnostics output files when not using http mode (defaults to current directory)
       --enable-rule strings           only enable specific rules by id
       --exit-code int                 exit code when leaks have been encountered (default 1)
+      --experiments string            comma-separated list of experimental features to enable (e.g. "validation")
   -i, --gitleaks-ignore-path string   path to .betterleaksignore or .gitleaksignore file or folder containing one (default ".")
   -h, --help                          help for betterleaks
       --ignore-gitleaks-allow         ignore betterleaks:allow and gitleaks:allow comments
@@ -454,7 +455,10 @@ fragment = section of data gitleaks is looking at
 ```
 
 
-#### Secret Validation
+#### Secrets Validation
+⚠️ **Secrets Validation is an experimental feature and likely to change. Feel free to use play with it and tweak your configs but don't be sad when we change it... because we are exploring _new_ and _cool_ ideas.** To enable the validation feature you must set the experimental flag w/ `--experiments=validation`
+⚠️
+
 
 Betterleaks can automatically check whether a detected secret is live by firing an HTTP request defined in a `[rules.validate]` block. Validation runs asynchronously during the scan with a pool of 10 workers.
 
