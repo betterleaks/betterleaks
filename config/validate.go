@@ -144,17 +144,8 @@ func (v *Validation) EvalMatch(statusCode int, body []byte, headers http.Header,
 }
 
 func clauseMatches(c MatchClause, statusCode int, body []byte, headers http.Header) bool {
-	if len(c.StatusCodes) > 0 {
-		found := false
-		for _, code := range c.StatusCodes {
-			if statusCode == code {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
+	if !slices.Contains(c.StatusCodes, code) {
+	    return false
 	}
 
 	lowerBody := bytes.ToLower(body)
