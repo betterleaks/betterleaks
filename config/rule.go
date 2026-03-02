@@ -70,8 +70,8 @@ type Required struct {
 	WithinColumns *int
 }
 
-// Check guards against common misconfigurations.
-func (r *Rule) Check() error {
+// CheckForMisconfiguration guards against common misconfigurations.
+func (r *Rule) CheckForMisconfiguration() error {
 	if r.validated {
 		return nil
 	}

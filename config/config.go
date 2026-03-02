@@ -327,7 +327,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	// Validate the rules after everything has been assembled (including extended configs).
 	if currentExtendDepth == 0 {
 		for _, rule := range c.Rules {
-			if err := rule.Check(); err != nil {
+			if err := rule.CheckForMisconfiguration(); err != nil {
 				return Config{}, err
 			}
 		}
@@ -693,4 +693,3 @@ func parseStatusCodes(raw any) ([]int, error) {
 		return nil, fmt.Errorf("status must be an int or list of ints, got %T", raw)
 	}
 }
-
