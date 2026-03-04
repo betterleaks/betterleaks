@@ -286,7 +286,13 @@ func (d *Detector) DetectString(content string) []report.Finding {
 
 // DetectSource scans the given source and returns a list of findings
 func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]report.Finding, error) {
+	// We have a single channel for sending findings to.
+	// Findings get sent to this channel straight from
+	// detectRule (non validation) OR from the ValidationPool which
+	// is responsible for attempting async validation attempts.
 	d.findingsCh = make(chan report.Finding, 1000)
+
+	// little hacky. this will all be cleared up in v2
 	if d.ValidationPool != nil {
 		d.ValidationPool.FindingsCh = d.findingsCh
 	}
@@ -926,8 +932,9 @@ func (d *Detector) AddFinding(finding report.Finding) {
 }
 
 // submitValidation expands combo required-rule findings and submits each to
-// the validation pool.
+// the validation pool under a shared group ID.
 func (d *Detector) submitValidation(finding report.Finding, rule config.Rule) {
+	groupID := d.ValidationPool.NewGroupID()
 	reqs := finding.RequiredFindings()
 	if len(reqs) > 0 {
 		ruleIDs := make([]string, 0)
@@ -956,10 +963,10 @@ func (d *Detector) submitValidation(finding report.Finding, rule config.Rule) {
 					}
 				}
 			}
-			d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups, expanded, len(combos))
+			d.ValidationPool.Submit(groupID, finding, rule.CelProgram(), finding.CaptureGroups, expanded, len(combos))
 		}
 	} else {
-		d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups, nil, 1)
+		d.ValidationPool.Submit(groupID, finding, rule.CelProgram(), finding.CaptureGroups, nil, 1)
 	}
 }
 

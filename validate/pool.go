@@ -1,7 +1,9 @@
 package validate
 
 import (
+	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
@@ -18,6 +20,7 @@ type ValidationResult struct {
 
 // validationJob is the internal unit of work for the pool.
 type validationJob struct {
+	groupID  string
 	finding  report.Finding
 	program  any // cel.Program
 	captures map[string]string
@@ -50,12 +53,20 @@ type Pool struct {
 	jobs  chan validationJob
 	wg    sync.WaitGroup
 
+	nextGroup atomic.Uint64
+
 	mu     sync.Mutex
 	states map[string]*fingerprintState
 
 	// FindingsCh receives fully-resolved, enriched findings. It is owned and
 	// closed by the Detector; Pool only sends to it.
 	FindingsCh chan<- report.Finding
+}
+
+// NewGroupID returns a unique opaque ID to be shared across all Submit calls
+// for a single finding (e.g. all combo expansions of one multi-part rule).
+func (p *Pool) NewGroupID() string {
+	return strconv.FormatUint(p.nextGroup.Add(1), 10)
 }
 
 // NewPool creates a validation pool with the given number of workers.
@@ -78,19 +89,19 @@ func NewPool(workers int, env *Environment) *Pool {
 	return p
 }
 
-// Submit queues a finding for validation. count is the total number of jobs
-// that will be submitted for this fingerprint (1 for simple findings, N for
-// combo expansion). All Submit calls for the same fingerprint must use the
-// same count value.
-func (p *Pool) Submit(finding report.Finding, program any, captures map[string]string, required map[string]string, count int) {
+// Submit queues a combo job for validation under groupID. count is the total
+// number of Submit calls sharing this groupID (1 for simple findings, N for
+// combo expansion). All Submit calls for the same group must pass the same
+// count and finding values. Use NewGroupID to allocate a fresh groupID.
+func (p *Pool) Submit(groupID string, finding report.Finding, program any, captures map[string]string, required map[string]string, count int) {
 	p.mu.Lock()
-	// TODO can we bookkeep this without relying on fingerprints?
-	if _, ok := p.states[finding.Fingerprint]; !ok {
-		p.states[finding.Fingerprint] = &fingerprintState{pending: count, finding: finding}
+	if _, ok := p.states[groupID]; !ok {
+		p.states[groupID] = &fingerprintState{pending: count, finding: finding}
 	}
 	p.mu.Unlock()
 
 	p.jobs <- validationJob{
+		groupID:  groupID,
 		finding:  finding,
 		program:  program,
 		captures: captures,
@@ -153,7 +164,7 @@ func (p *Pool) worker() {
 		}
 
 		p.mu.Lock()
-		state := p.states[job.finding.Fingerprint]
+		state := p.states[job.groupID]
 		state.pending--
 
 		// Update best if this result has higher priority.
