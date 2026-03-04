@@ -225,12 +225,6 @@ func (e *Environment) Eval(prg cel.Program, secret string, captures map[string]s
 // parseResult interprets the CEL output value into a Result.
 func parseResult(val ref.Val) *Result {
 	switch v := val.Value().(type) {
-	case bool:
-		if v {
-			return &Result{Status: "valid", Metadata: map[string]any{}}
-		}
-		return &Result{Status: "invalid", Metadata: map[string]any{}}
-
 	case map[string]any:
 		return parseResultMap(v)
 
@@ -256,9 +250,8 @@ var reservedKeys = map[string]bool{
 
 // parseResultMap interprets a map result from a CEL expression.
 //
-// The preferred form is {"result": "<status>", ...} where <status> is one of
-// the validStatuses.  For backward compatibility, {"valid": <bool>} and
-// {"error": <bool>} keys are still accepted when "result" is absent.
+// The expected form is {"result": "<status>", ...} where <status> is one of
+// the validStatuses.
 func parseResultMap(m map[string]any) *Result {
 	result := &Result{
 		Status:   "unknown",
