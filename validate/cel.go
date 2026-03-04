@@ -22,20 +22,6 @@ var (
 	mapAnyType          = reflect.TypeFor[map[string]any]()
 )
 
-// debugCapture holds raw HTTP request/response data captured during a debug Eval call.
-type debugCapture struct {
-	// Request fields.
-	reqMethod  string
-	reqURL     string
-	reqHeaders http.Header
-	reqBody    string
-
-	// Response fields.
-	status  int64
-	body    []byte
-	headers http.Header
-}
-
 // validStatuses is the set of recognised validation statuses.
 var validStatuses = map[string]bool{
 	"valid":   true,
@@ -65,7 +51,8 @@ type Environment struct {
 	// req_method, req_url, req_header_*, req_body, resp_status, resp_body,
 	// and resp_header_*.
 	DebugResponse bool
-	debugCap      *debugCapture
+	debugMu       sync.Mutex
+	debugMeta     map[string]any // per-eval, written by HTTP bindings, protected by debugMu
 }
 
 // DefaultHTTPClient returns an HTTP client suitable for validation with reasonable timeouts.
@@ -173,6 +160,12 @@ func (e *Environment) Compile(expression string) (cel.Program, error) {
 
 // Eval evaluates a compiled CEL program with the given secret and captures.
 func (e *Environment) Eval(prg cel.Program, secret string, captures map[string]string) (*Result, error) {
+	if e.DebugResponse {
+		e.debugMu.Lock()
+		defer e.debugMu.Unlock()
+		e.debugMeta = make(map[string]any)
+	}
+
 	if captures == nil {
 		captures = make(map[string]string)
 	}
@@ -189,33 +182,12 @@ func (e *Environment) Eval(prg cel.Program, secret string, captures map[string]s
 
 	r := parseResult(val)
 
-	// Attach raw HTTP request/response data when debug mode is active.
-	if e.DebugResponse && e.debugCap != nil {
+	if e.DebugResponse && len(e.debugMeta) > 0 {
 		if r.Metadata == nil {
 			r.Metadata = make(map[string]any)
 		}
-
-		// Request data.
-		r.Metadata["req_method"] = e.debugCap.reqMethod
-		r.Metadata["req_url"] = e.debugCap.reqURL
-		if len(e.debugCap.reqBody) > 0 {
-			reqBody := e.debugCap.reqBody
-			if len(reqBody) > 2000 {
-				reqBody = reqBody[:2000] + "…"
-			}
-			r.Metadata["req_body"] = reqBody
-		}
-		for k := range e.debugCap.reqHeaders {
-			r.Metadata["req_header_"+strings.ToLower(k)] = e.debugCap.reqHeaders.Get(k)
-		}
-
-		// Response data.
-		r.Metadata["resp_status"] = e.debugCap.status
-		if len(e.debugCap.body) > 0 {
-			r.Metadata["resp_body"] = string(e.debugCap.body)
-		}
-		for k := range e.debugCap.headers {
-			r.Metadata["resp_header_"+strings.ToLower(k)] = e.debugCap.headers.Get(k)
+		for k, v := range e.debugMeta {
+			r.Metadata[k] = v
 		}
 	}
 
@@ -322,14 +294,7 @@ func httpGetBinding(e *Environment) functions.BinaryOp {
 		}
 
 		if e.DebugResponse {
-			e.debugCap = &debugCapture{
-				reqMethod:  "GET",
-				reqURL:     string(url),
-				reqHeaders: req.Header.Clone(),
-				status:     int64(resp.StatusCode),
-				body:       body,
-				headers:    resp.Header,
-			}
+			e.captureDebug("GET", string(url), "", req, resp, body)
 		}
 
 		return buildResponseMap(resp.StatusCode, body, resp.Header)
@@ -379,18 +344,37 @@ func httpPostBinding(e *Environment) functions.FunctionOp {
 		}
 
 		if e.DebugResponse {
-			e.debugCap = &debugCapture{
-				reqMethod:  "POST",
-				reqURL:     string(url),
-				reqHeaders: req.Header.Clone(),
-				reqBody:    reqBody,
-				status:     int64(resp.StatusCode),
-				body:       body,
-				headers:    resp.Header,
-			}
+			e.captureDebug("POST", string(url), reqBody, req, resp, body)
 		}
 
 		return buildResponseMap(resp.StatusCode, body, resp.Header)
+	}
+}
+
+// captureDebug records HTTP request/response metadata into e.debugMeta.
+// reqBody should be empty for requests with no body (e.g. GET).
+func (e *Environment) captureDebug(method, url, reqBody string, req *http.Request, resp *http.Response, body []byte) {
+	e.debugMeta["req_method"] = method
+	e.debugMeta["req_url"] = url
+	if len(reqBody) > 0 {
+		if len(reqBody) > 2000 {
+			reqBody = reqBody[:2000] + "…"
+		}
+		e.debugMeta["req_body"] = reqBody
+	}
+	for k := range req.Header {
+		e.debugMeta["req_header_"+strings.ToLower(k)] = req.Header.Get(k)
+	}
+	e.debugMeta["resp_status"] = int64(resp.StatusCode)
+	if len(body) > 0 {
+		respBody := string(body)
+		if len(respBody) > 2000 {
+			respBody = respBody[:2000] + "…"
+		}
+		e.debugMeta["resp_body"] = respBody
+	}
+	for k := range resp.Header {
+		e.debugMeta["resp_header_"+strings.ToLower(k)] = resp.Header.Get(k)
 	}
 }
 
