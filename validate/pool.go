@@ -124,6 +124,19 @@ func (p *Pool) Stats() (hits, misses uint64) {
 func (p *Pool) worker() {
 	defer p.wg.Done()
 	for job := range p.jobs {
+		// Skip jobs whose group has already resolved (e.g. short-circuited by "valid").
+		p.mu.Lock()
+		state := p.states[job.groupID]
+		if state.resolved {
+			state.pending--
+			if state.pending <= 0 {
+				delete(p.states, job.groupID)
+			}
+			p.mu.Unlock()
+			continue
+		}
+		p.mu.Unlock()
+
 		vr := ValidationResult{
 			Meta: map[string]any{},
 		}
@@ -159,7 +172,7 @@ func (p *Pool) worker() {
 		}
 
 		p.mu.Lock()
-		state := p.states[job.groupID]
+		state = p.states[job.groupID]
 		state.pending--
 
 		// Update best if this result has higher priority.
@@ -174,6 +187,9 @@ func (p *Pool) worker() {
 		if !state.resolved && (state.pending <= 0 || vr.Status == "valid") {
 			state.resolved = true
 			shouldFire = true
+		}
+		if state.pending <= 0 {
+			delete(p.states, job.groupID)
 		}
 		best := state.best
 		f := state.finding

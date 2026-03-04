@@ -460,7 +460,7 @@ fragment = section of data gitleaks is looking at
 Betterleaks can automatically verify if a detected secret is live by making an HTTP request defined in the rule's validate field. Validation runs asynchronously, and responses are cached in-memory so duplicate secrets only trigger a single network request.
 
 ### CEL Expressions
-Rules use [CEL (Common Expression Language)](https://cel.dev/) for validation logic. The expression receives the captured secret, fires an HTTP request (more validation kidns to come), and returns a status map.
+Rules use [CEL (Common Expression Language)](https://cel.dev/) for validation logic. The expression receives the captured secret, fires an HTTP request (more validation kinds to come), and returns a status map.
 
 ### Variables & Functions:
 

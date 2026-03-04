@@ -89,5 +89,5 @@ func (c *Cache) GetOrDo(key string, fn func() (*Result, error)) (*Result, error)
 // Hits returns the total number of cache hits.
 func (c *Cache) Hits() uint64 { return c.hits.Load() }
 
-// Misses returns the total number of cache misses (= HTTP requests made).
+// Misses returns the total number of cache misses.
 func (c *Cache) Misses() uint64 { return c.misses.Load() }

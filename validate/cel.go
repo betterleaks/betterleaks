@@ -22,6 +22,9 @@ var (
 	mapAnyType          = reflect.TypeFor[map[string]any]()
 )
 
+// maxResponseBody is the maximum number of bytes read from an HTTP response body.
+const maxResponseBody = 1 << 20 // 1 MB
+
 // validStatuses is the set of recognised validation statuses.
 var validStatuses = map[string]bool{
 	"valid":   true,
@@ -288,7 +291,7 @@ func httpGetBinding(e *Environment) functions.BinaryOp {
 		}
 		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 		if err != nil {
 			return types.NewErr("http.get: reading body: %v", err)
 		}
@@ -338,7 +341,7 @@ func httpPostBinding(e *Environment) functions.FunctionOp {
 		}
 		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 		if err != nil {
 			return types.NewErr("http.post: reading body: %v", err)
 		}

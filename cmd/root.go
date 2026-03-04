@@ -531,6 +531,7 @@ func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Det
 		detector.ValidationStatusFilter = make(map[string]struct{})
 		for s := range strings.SplitSeq(statusFilter, ",") {
 			s = strings.TrimSpace(s)
+			s = strings.ToLower(s)
 			if s != "" {
 				detector.ValidationStatusFilter[s] = struct{}{}
 			}
