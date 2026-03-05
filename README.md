@@ -31,10 +31,10 @@ Wait wtf this isn't Gitleaks. You're right, it's not but it's built by the same 
 
 ## What's New?
 A couple things:
+- [Secrets Validation (using CEL)](https://github.com/betterleaks/betterleaks/blob/510b1b79bee0cab492c65dc6c9f4e2b1a9687e84/config/betterleaks.toml#L2582-L2598) — check if a detected secret is live by firing an HTTP request
+- [Token Efficiency Filter](https://lookingatcomputer.substack.com/p/rare-not-random)
 - Parallelized Git Scanning (`--git-workers=8`)
 - Optimized Recursive Decoding (for catching those nasty SHA1-HULUD variants)
-- [Token Efficiency Filter](https://lookingatcomputer.substack.com/p/rare-not-random)
-- Secret Validation — automatically check if a detected secret is live by firing an HTTP request
 - Misc optimizations
 - Regex engine switching w/ (`--regex-engine=stdlib/re2` or `BETTERLEAKS_REGEX_ENGINE=stdlib`)
 - MORE RULES! Ahhh finally!
@@ -367,7 +367,7 @@ Rules use [CEL (Common Expression Language)](https://cel.dev/) for validation lo
 - `r.headers` (map): Response headers (all keys lowercased).
 
 ### Result Format
-Expressions should return a map with a `"result"` key set to `valid`, `invalid`, `revoked`, `unknown`, or `error`. Any additional keys in the map are attached to the finding as metadata. 
+Expressions should return a map with a `"result"` key set to `valid`, `invalid`, `revoked`, `unknown`, or `error`. Any additional keys in the map are attached to the finding as metadata.
 
 Example
 Here is a standard validation block for a GitHub Personal Access Token. It uses CEL's optional chaining (.? and .orValue()) to safely extract metadata from the JSON response:
