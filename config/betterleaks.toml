@@ -2549,15 +2549,16 @@ keywords = [
 ]
 validate = '''
 cel.bind(r,
-  http.get("https://api.github.com/user", {
+  http.get("https://api.github.com/app", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "token " + secret
+    "Authorization": "Bearer " + secret
   }),
-  r.status == 200 && r.json.?login.orValue("") != "" ? {
+  r.status == 200 && r.json.?slug.orValue("") != "" ? {
     "result": "valid",
-    "username": r.json.?login.orValue(""),
+    "slug": r.json.?slug.orValue(""),
     "name": r.json.?name.orValue(""),
-    "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+    "html_url": r.json.?html_url.orValue(""),
+	"external_url": r.json.?external_url.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

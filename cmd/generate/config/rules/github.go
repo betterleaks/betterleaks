@@ -90,6 +90,25 @@ func GitHubOauth() *config.Rule {
 	return utils.Validate(r, tps, fps)
 }
 
+// TODO add this later once we confirm orValue({}) is working
+// "permissions": r.json.?permissions.orValue({})
+const githubAppTokenCEL = `cel.bind(r,
+  http.get("https://api.github.com/app", {
+    "Accept": "application/vnd.github+json",
+    "Authorization": "Bearer " + secret
+  }),
+  r.status == 200 && r.json.?slug.orValue("") != "" ? {
+    "result": "valid",
+    "slug": r.json.?slug.orValue(""),
+    "name": r.json.?name.orValue(""),
+    "html_url": r.json.?html_url.orValue(""),
+	"external_url": r.json.?external_url.orValue("")
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)`
+
 func GitHubApp() *config.Rule {
 	// define rule
 	r := config.Rule{
@@ -99,7 +118,7 @@ func GitHubApp() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"ghu_", "ghs_"},
 		Allowlists:  githubAllowlist,
-		ValidateCEL: githubTokenCEL,
+		ValidateCEL: githubAppTokenCEL,
 	}
 
 	// validate
