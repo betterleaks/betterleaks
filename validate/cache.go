@@ -28,22 +28,22 @@ func NewCache() *Cache {
 	return &Cache{store: make(map[string]*Result)}
 }
 
-func CacheKey(ruleID, secret string, required map[string]string) string {
+func CacheKey(ruleID, secret string, auxiliary map[string]string) string {
 	h := sha256.New()
 	h.Write([]byte(ruleID))
 	h.Write([]byte{0})
 	h.Write([]byte(secret))
-	if len(required) > 0 {
+	if len(auxiliary) > 0 {
 		h.Write([]byte{0})
-		keys := make([]string, 0, len(required))
-		for k := range required {
+		keys := make([]string, 0, len(auxiliary))
+		for k := range auxiliary {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
 			h.Write([]byte(k))
 			h.Write([]byte{0})
-			h.Write([]byte(required[k]))
+			h.Write([]byte(auxiliary[k]))
 			h.Write([]byte{0})
 		}
 	}

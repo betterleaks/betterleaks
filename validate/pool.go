@@ -149,7 +149,6 @@ func (p *Pool) worker() {
 			vr.Status = "error"
 			vr.Reason = "invalid CEL program type"
 		} else {
-			cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, job.required)
 			// Merge required rule secrets into captures so the CEL
 			// program can reference them (e.g. captures["rule-id"]).
 			merged := job.captures
@@ -158,6 +157,7 @@ func (p *Pool) worker() {
 				maps.Copy(merged, job.captures)
 				maps.Copy(merged, job.required)
 			}
+			cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, merged)
 			result, err := p.cache.GetOrDo(cacheKey, func() (*Result, error) {
 				return p.env.Eval(prg, job.finding.Secret, merged)
 			})
