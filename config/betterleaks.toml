@@ -1049,6 +1049,7 @@ keywords = [
     "secret",
     "token",
 ]
+tokenEfficiency = true
 [[rules.allowlists]]
 regexes = [
     '''^[a-zA-Z_.-]+$''',

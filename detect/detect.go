@@ -756,7 +756,7 @@ func (d *Detector) failsTokenEfficiencyFilter(secret string) bool {
 	threshold := 2.5
 	if len(analyzed) < 12 {
 		threshold = 2.1
-		matches := words.HasMatchInList(analyzed, 3)
+		matches := words.HasMatchInList(analyzed, 4)
 		if len(matches) == 0 {
 			threshold = 2.5
 		}

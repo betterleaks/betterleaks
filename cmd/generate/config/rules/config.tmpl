@@ -60,6 +60,8 @@ keywords = [{{ range $j, $keyword := . }}"{{ $keyword }}"{{ end }}]{{end}}{{ end
 tags = [
     {{ range $j, $tag := . }}"{{ $tag }}",{{ end }}
 ]{{ end }}
+{{- if $rule.TokenEfficiency }}
+tokenEfficiency = true{{ end }}
 {{- if $rule.SkipReport }}
 skipReport = true{{ end }}
 {{- with $rule.ValidateCEL }}

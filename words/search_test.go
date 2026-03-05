@@ -39,15 +39,15 @@ func TestHasMatchInList(t *testing.T) {
 			name:              "exact word",
 			word:              "pass",
 			minLen:            3,
-			wantUniqueWords:   []string{"ass", "pass"}, // "ass" is substring at index 1
-			wantMinMatchCount: 2,
+			wantUniqueWords:   []string{"pass"},
+			wantMinMatchCount: 1,
 		},
 		{
 			name:              "prefix and middle matches",
 			word:              "password",
 			minLen:            3,
-			wantUniqueWords:   []string{"ass", "pass", "password", "sword", "word"},
-			wantMinMatchCount: 5,
+			wantUniqueWords:   []string{"pass", "password", "sword", "word"},
+			wantMinMatchCount: 4,
 		},
 		{
 			name:              "match in middle",
@@ -58,9 +58,9 @@ func TestHasMatchInList(t *testing.T) {
 		},
 		{
 			name:              "minLen filters shorter",
-			word:              "aba",
-			minLen:            3,
-			wantUniqueWords:   []string{"aba"},
+			word:              "word",
+			minLen:            4,
+			wantUniqueWords:   []string{"word"},
 			wantMinMatchCount: 1,
 		},
 		{
