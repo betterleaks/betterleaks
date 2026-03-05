@@ -28,6 +28,7 @@ func NewCache() *Cache {
 	return &Cache{store: make(map[string]*Result)}
 }
 
+// TODO maybe rename this to "components" and collapse secret into it too
 func CacheKey(ruleID, secret string, auxiliary map[string]string) string {
 	h := sha256.New()
 	h.Write([]byte(ruleID))
