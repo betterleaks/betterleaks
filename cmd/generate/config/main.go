@@ -251,6 +251,7 @@ func main() {
 		rules.PlaidAccessToken(),
 		rules.PlanetScalePassword(),
 		rules.PlanetScaleAPIToken(),
+		rules.PlanetScaleID(),
 		rules.PlanetScaleOAuthToken(),
 		rules.PostManAPI(),
 		rules.Prefect(),
