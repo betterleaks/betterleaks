@@ -15,7 +15,7 @@ func DigitalOceanPAT() *config.Rule {
 		Keywords:    []string{"dop_v1_"},
 	}
 
-	tps := utils.GenerateSampleSecrets("do", "dop_v1_"+secrets.NewSecret(utils.Hex("64")))
+	tps := utils.GenerateSampleSecrets("do", "dop_v1_"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -28,7 +28,7 @@ func DigitalOceanOAuthToken() *config.Rule {
 		Keywords:    []string{"doo_v1_"},
 	}
 
-	tps := utils.GenerateSampleSecrets("do", "doo_v1_"+secrets.NewSecret(utils.Hex("64")))
+	tps := utils.GenerateSampleSecrets("do", "doo_v1_"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3))
 	return utils.Validate(r, tps, nil)
 }
 

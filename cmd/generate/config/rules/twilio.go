@@ -18,6 +18,6 @@ func Twilio() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("twilio", "SK"+secrets.NewSecret(utils.Hex("32")))
+	tps := utils.GenerateSampleSecrets("twilio", "SK"+secrets.NewSecretWithEntropy(utils.Hex("32"), 3))
 	return utils.Validate(r, tps, nil)
 }

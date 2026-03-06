@@ -19,7 +19,7 @@ func Prefect() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("api-token", "pnu_"+secrets.NewSecret(utils.AlphaNumeric("36")))
+	tps := utils.GenerateSampleSecrets("api-token", "pnu_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("36"), 2))
 	fps := []string{
 		`PREFECT_API_KEY = "pnu_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"`,
 	}

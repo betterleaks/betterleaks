@@ -19,14 +19,14 @@ func ArtifactoryApiKey() *config.Rule {
 
 	// validate
 	tps := []string{
-		"artifactoryApiKey := \"AKCp" + secrets.NewSecret(utils.AlphaNumeric("69")) + "\"",
+		"artifactoryApiKey := \"AKCp" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("69"), 4.5) + "\"",
 	}
 	// false positives
 	fps := []string{
 		`lowEntropy := AKCpXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`,
-		"wrongStart := \"AkCp" + secrets.NewSecret(utils.AlphaNumeric("69")) + "\"",
-		"wrongLength := \"AkCp" + secrets.NewSecret(utils.AlphaNumeric("59")) + "\"",
-		"partOfAlongUnrelatedBlob gYnkgAkCp" + secrets.NewSecret(utils.AlphaNumeric("69")) + "VyZSB2",
+		"wrongStart := \"AkCp" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("69"), 4.5) + "\"",
+		"wrongLength := \"AkCp" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("59"), 4.5) + "\"",
+		"partOfAlongUnrelatedBlob gYnkgAkCp" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("69"), 4.5) + "VyZSB2",
 	}
 
 	return utils.Validate(r, tps, fps)
@@ -44,14 +44,14 @@ func ArtifactoryReferenceToken() *config.Rule {
 
 	// validate
 	tps := []string{
-		"artifactoryRefToken := \"cmVmd" + secrets.NewSecret(utils.AlphaNumeric("59")) + "\"",
+		"artifactoryRefToken := \"cmVmd" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("59"), 4.5) + "\"",
 	}
 	// false positives
 	fps := []string{
 		`lowEntropy := cmVmdXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`,
-		"wrongStart := \"cmVMd" + secrets.NewSecret(utils.AlphaNumeric("59")) + "\"",
-		"wrongLength := \"cmVmd" + secrets.NewSecret(utils.AlphaNumeric("49")) + "\"",
-		"partOfAlongUnrelatedBlob gYnkgcmVmd" + secrets.NewSecret(utils.AlphaNumeric("59")) + "VyZSB2",
+		"wrongStart := \"cmVMd" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("59"), 4.5) + "\"",
+		"wrongLength := \"cmVmd" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("49"), 4.5) + "\"",
+		"partOfAlongUnrelatedBlob gYnkgcmVmd" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("59"), 4.5) + "VyZSB2",
 	}
 
 	return utils.Validate(r, tps, fps)

@@ -15,7 +15,7 @@ func GiteaAccessToken() *config.Rule {
 		Entropy:     3.0,
 	}
 
-	tps := utils.GenerateSampleSecrets("gitea", secrets.NewSecret(utils.Hex("40")))
+	tps := utils.GenerateSampleSecrets("gitea", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.0))
 	fps := []string{
 		// Too short
 		`GITEA_TOKEN=5aab40e433037523cc70af7d3894a0fa`,

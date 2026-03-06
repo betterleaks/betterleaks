@@ -27,7 +27,7 @@ func Replicate() *config.Rule {
 )`,
 	}
 
-	tps := utils.GenerateSampleSecrets("replicate", "r8_"+secrets.NewSecret(`[A-Za-z0-9]{37}`))
+	tps := utils.GenerateSampleSecrets("replicate", "r8_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{37}`, 3.0))
 	fps := []string{
 		// Too short
 		`r8_WesXNvqsCpq7r1gpQABpB3NJvdR`,

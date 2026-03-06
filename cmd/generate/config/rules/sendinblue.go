@@ -19,6 +19,6 @@ func SendInBlueAPIToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("sendinblue", "xkeysib-"+secrets.NewSecret(utils.Hex("64"))+"-"+secrets.NewSecret(utils.AlphaNumeric("16")))
+	tps := utils.GenerateSampleSecrets("sendinblue", "xkeysib-"+secrets.NewSecretWithEntropy(utils.Hex("64"), 2)+"-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 2))
 	return utils.Validate(r, tps, nil)
 }

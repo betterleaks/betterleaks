@@ -15,7 +15,7 @@ func VercelAPIToken() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("vercel", secrets.NewSecret(`[A-Z0-9]{24}`))
+	tps := utils.GenerateSampleSecrets("vercel", secrets.NewSecretWithEntropy(`[A-Z0-9]{24}`, 3.5))
 	fps := []string{
 		// Too short
 		`vercel_key = DdZV6ZDZW6Vpl7n7Jq`,
@@ -34,7 +34,7 @@ func VercelPersonalAccessToken() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("vercel", "vcp_"+secrets.NewSecret(`[A-Za-z0-9_-]{56}`))
+	tps := utils.GenerateSampleSecrets("vercel", "vcp_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
 	fps := []string{
 		// Too short
 		`vcp_35UYJwYZDigYATKhxJUAhPqRhit2Xe3dtiG60LsUTHe`,
@@ -53,7 +53,7 @@ func VercelIntegrationToken() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("vercel", "vci_"+secrets.NewSecret(`[A-Za-z0-9_-]{56}`))
+	tps := utils.GenerateSampleSecrets("vercel", "vci_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
 	fps := []string{
 		// Too short
 		`vci_35UYJwYZDigYATKhxJUAhPqRhit2Xe3dtiG60LsUTHe`,
@@ -72,7 +72,7 @@ func VercelAppAccessToken() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("vercel", "vca_"+secrets.NewSecret(`[A-Za-z0-9_-]{56}`))
+	tps := utils.GenerateSampleSecrets("vercel", "vca_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
 	fps := []string{
 		// Too short
 		`vca_BQuu9ChDu3n6Pfh6YQnCshpoYkWDSFKogLqmBtQ0t`,
@@ -91,7 +91,7 @@ func VercelAppRefreshToken() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("vercel", "vcr_"+secrets.NewSecret(`[A-Za-z0-9_-]{56}`))
+	tps := utils.GenerateSampleSecrets("vercel", "vcr_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
 	fps := []string{
 		// Too short
 		`vcr_BQuu9ChDu3n6Pfh6YQnCshpoYkWDSFKogLqmBtQ0t`,
@@ -110,7 +110,7 @@ func VercelAIGatewayKey() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("vercel", "vck_"+secrets.NewSecret(`[A-Za-z0-9_-]{56}`))
+	tps := utils.GenerateSampleSecrets("vercel", "vck_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
 	fps := []string{
 		// Too short
 		`vck_2YkmQj1uHqCVNoUx5a9uvRTe81gmAcln5hoRMPWFBU4t`,

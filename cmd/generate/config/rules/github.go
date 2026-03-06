@@ -45,7 +45,7 @@ func GitHubPat() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("github", "ghp_"+secrets.NewSecret(utils.AlphaNumeric("36")))
+	tps := utils.GenerateSampleSecrets("github", "ghp_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("36"), 3))
 	fps := []string{
 		"ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 	}
@@ -64,7 +64,7 @@ func GitHubFineGrainedPat() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("github", "github_pat_"+secrets.NewSecret(utils.AlphaNumeric("82")))
+	tps := utils.GenerateSampleSecrets("github", "github_pat_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("82"), 3))
 	fps := []string{
 		"github_pat_xxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 	}
@@ -83,7 +83,7 @@ func GitHubOauth() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("github", "gho_"+secrets.NewSecret(utils.AlphaNumeric("36")))
+	tps := utils.GenerateSampleSecrets("github", "gho_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("36"), 3))
 	fps := []string{
 		"gho_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 	}
@@ -122,8 +122,8 @@ func GitHubApp() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("github", "ghs_"+secrets.NewSecret(utils.AlphaNumeric("36")))
-	tps = append(tps, utils.GenerateSampleSecrets("github", "ghu_"+secrets.NewSecret(utils.AlphaNumeric("36")))...)
+	tps := utils.GenerateSampleSecrets("github", "ghs_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("36"), 3))
+	tps = append(tps, utils.GenerateSampleSecrets("github", "ghu_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("36"), 3))...)
 	fps := []string{
 		"ghu_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 		"ghs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -143,7 +143,7 @@ func GitHubRefresh() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("github", "ghr_"+secrets.NewSecret(utils.AlphaNumeric("36")))
+	tps := utils.GenerateSampleSecrets("github", "ghr_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("36"), 3))
 	fps := []string{
 		"ghr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 	}

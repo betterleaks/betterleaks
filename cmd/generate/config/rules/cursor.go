@@ -27,7 +27,7 @@ func CursorAPIKey() *config.Rule {
 )`,
 	}
 
-	tps := utils.GenerateSampleSecrets("cursor", "key_"+secrets.NewSecret(utils.Hex("64")))
+	tps := utils.GenerateSampleSecrets("cursor", "key_"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3.5))
 	fps := []string{
 		// Too short
 		`cursor_key = key_8c5a7657fc397e114def1b51dd52041`,

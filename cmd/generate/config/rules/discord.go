@@ -31,7 +31,7 @@ func DiscordClientID() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("discord", secrets.NewSecret(utils.Numeric("18")))
+	tps := utils.GenerateSampleSecrets("discord", secrets.NewSecretWithEntropy(utils.Numeric("18"), 2))
 	fps := []string{
 		// Low entropy
 		`discord=000000000000000000`,
@@ -50,7 +50,7 @@ func DiscordClientSecret() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("discord", secrets.NewSecret(utils.Numeric("32")))
+	tps := utils.GenerateSampleSecrets("discord", secrets.NewSecretWithEntropy(utils.Numeric("32"), 2))
 	fps := []string{
 		// Low entropy
 		`discord=00000000000000000000000000000000`,

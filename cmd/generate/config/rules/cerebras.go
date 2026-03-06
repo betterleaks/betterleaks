@@ -26,7 +26,7 @@ func Cerebras() *config.Rule {
 )`,
 	}
 
-	tps := utils.GenerateSampleSecrets("cerebras", "csk-"+secrets.NewSecret(utils.AlphaNumeric("48")))
+	tps := utils.GenerateSampleSecrets("cerebras", "csk-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("48"), 3.0))
 	fps := []string{
 		// Too short
 		`csk-6nptf4w5cx36fw58t3hkx`,

@@ -22,7 +22,7 @@ func PrivateAIToken() *config.Rule {
 
 	// validate
 	tps := []string{
-		utils.GenerateSampleSecret("privateai", secrets.NewSecret(utils.AlphaNumeric("32"))),
+		utils.GenerateSampleSecret("privateai", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3)),
 	}
 	fps := []string{
 		`const privateaiToken = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";`,

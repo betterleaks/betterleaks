@@ -15,7 +15,7 @@ func NvidiaAPIKey() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("nvidia", "nvapi-"+secrets.NewSecret(`[A-Z0-9_-]{64}`))
+	tps := utils.GenerateSampleSecrets("nvidia", "nvapi-"+secrets.NewSecretWithEntropy(`[A-Z0-9_-]{64}`, 3.5))
 	fps := []string{
 		// Too short
 		`nvapi-AFNjXAgQdLYwZo2zJJUKLMIE4zrPYAks`,

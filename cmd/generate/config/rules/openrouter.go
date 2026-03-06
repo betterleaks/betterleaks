@@ -15,7 +15,7 @@ func OpenRouter() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("openrouter", "sk-or-v1-"+secrets.NewSecret(utils.Hex("64")))
+	tps := utils.GenerateSampleSecrets("openrouter", "sk-or-v1-"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3.5))
 	fps := []string{
 		// Too short
 		`sk-or-v1-0e6f44a47a05f1dad2ad7e88c4c1d6b7`,

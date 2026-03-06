@@ -27,7 +27,7 @@ func Mistral() *config.Rule {
 )`,
 	}
 
-	tps := utils.GenerateSampleSecrets("mistral", secrets.NewSecret(`[A-Z0-9]{32}`))
+	tps := utils.GenerateSampleSecrets("mistral", secrets.NewSecretWithEntropy(`[A-Z0-9]{32}`, 3.0))
 	fps := []string{
 		// Too short
 		`mistral_token = 47cFZMzkoEo9DBapfvhrmMst3zfV`,

@@ -58,7 +58,7 @@ func GCPAPIKey() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("gcp", secrets.NewSecret(`AIza[\w-]{35}`))
+	tps := utils.GenerateSampleSecrets("gcp", secrets.NewSecretWithEntropy(`AIza[\w-]{35}`, 4))
 	tps = append(tps,
 		// non-word character at end
 		`AIzaSyNHxIf32IQ1a1yjl3ZJIqKZqzLAK1XhDk-`, // gitleaks:allow

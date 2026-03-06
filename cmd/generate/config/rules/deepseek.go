@@ -27,7 +27,7 @@ func DeepSeek() *config.Rule {
 )`,
 	}
 
-	tps := utils.GenerateSampleSecrets("deepseek", "sk-"+secrets.NewSecret(utils.Hex("32")))
+	tps := utils.GenerateSampleSecrets("deepseek", "sk-"+secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5))
 	fps := []string{
 		// Too short
 		`deepseek_key = sk-ba588036180d4d1d9cebbf`,

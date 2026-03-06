@@ -15,7 +15,7 @@ func ElevenLabs() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("elevenlabs", "sk_"+secrets.NewSecret(utils.Hex("48")))
+	tps := utils.GenerateSampleSecrets("elevenlabs", "sk_"+secrets.NewSecretWithEntropy(utils.Hex("48"), 3.5))
 	fps := []string{
 		// Too short
 		`elevenlabs_key = sk_2a30e5a0d39d5f2c5f6a9d2f95cd0160`,

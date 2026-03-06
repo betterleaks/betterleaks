@@ -15,7 +15,7 @@ func Deepgram() *config.Rule {
 		Entropy:     3.3,
 	}
 
-	tps := utils.GenerateSampleSecrets("deepgram", secrets.NewSecret(utils.Hex("40")))
+	tps := utils.GenerateSampleSecrets("deepgram", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.3))
 	fps := []string{
 		// Too short
 		`deepgram_key = 948c19ecde2818a1a357fffb14d2fc2a`,

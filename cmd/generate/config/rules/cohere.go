@@ -32,9 +32,9 @@ func CohereAPIToken() *config.Rule {
 
 	// validate
 	tps := []string{
-		utils.GenerateSampleSecret("cohere", secrets.NewSecret(`[a-zA-Z0-9]{40}`)),
+		utils.GenerateSampleSecret("cohere", secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{40}`, 4)),
 		// https://github.com/cohere-ai/cohere-go/blob/abe8044073ed498ffbb206a602d03c2414b64512/client/client.go#L38C30-L38C40
-		`export CO_API_KEY=` + secrets.NewSecret(`[a-zA-Z0-9]{40}`),
+		`export CO_API_KEY=` + secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{40}`, 4),
 	}
 	fps := []string{
 		`CO_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`,

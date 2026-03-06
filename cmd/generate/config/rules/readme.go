@@ -19,7 +19,7 @@ func ReadMe() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("api-token", "rdme_"+secrets.NewSecret(utils.AlphaNumeric("70")))
+	tps := utils.GenerateSampleSecrets("api-token", "rdme_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("70"), 2))
 
 	fps := []string{
 		`const API_KEY = 'rdme_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';`,
