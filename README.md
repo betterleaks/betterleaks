@@ -98,7 +98,7 @@ Flags:
       --ignore-gitleaks-allow         ignore betterleaks:allow and gitleaks:allow comments
   -l, --log-level string              log level (trace, debug, info, warn, error, fatal) (default "info")
       --max-archive-depth int         allow scanning into nested archives up to this depth (default "0", no archive traversal is done)
-      --max-decode-depth int          allow recursive decoding up to this depth (default "0", no decoding is done)
+      --max-decode-depth int          allow recursive decoding up to this depth (default "5")
       --max-target-megabytes int      files larger than this will be skipped
       --no-banner                     suppress banner
       --no-color                      turn off color for verbose output
