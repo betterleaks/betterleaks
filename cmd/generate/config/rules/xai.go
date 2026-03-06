@@ -15,7 +15,7 @@ func XAI() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("xai", "xai-"+secrets.NewSecret(`[A-Za-z0-9_-]{84}`))
+	tps := utils.GenerateSampleSecrets("xai", "xai-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{84}`, 3.5))
 	fps := []string{
 		// Too short
 		`xai-CNPlxZEZVpxDTRD8N6Luet7LwS2qyuijh7pdHbmNzsw`,

@@ -26,7 +26,7 @@ func Groq() *config.Rule {
 )`,
 	}
 
-	tps := utils.GenerateSampleSecrets("groq", "gsk_"+secrets.NewSecret(`[A-Z0-9]{52}`))
+	tps := utils.GenerateSampleSecrets("groq", "gsk_"+secrets.NewSecretWithEntropy(`[A-Z0-9]{52}`, 3.5))
 	fps := []string{
 		// Too short
 		`gsk_OpUMIkmFs2bOf1YRGh0lWGdy`,

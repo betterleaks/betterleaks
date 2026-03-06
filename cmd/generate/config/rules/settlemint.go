@@ -19,10 +19,10 @@ func SettlemintPersonalAccessToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("settlemintToken", "sm_pat_"+secrets.NewSecret(utils.AlphaNumeric("16")))
+	tps := utils.GenerateSampleSecrets("settlemintToken", "sm_pat_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 3))
 	fps := []string{
-		"nonMatchingToken := \"" + secrets.NewSecret(utils.AlphaNumeric("16")) + "\"",
-		"nonMatchingToken := \"sm_pat_" + secrets.NewSecret(utils.AlphaNumeric("10")) + "\"",
+		"nonMatchingToken := \"" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 3) + "\"",
+		"nonMatchingToken := \"sm_pat_" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("10"), 3) + "\"",
 	}
 	return utils.Validate(r, tps, fps)
 }
@@ -40,10 +40,10 @@ func SettlemintApplicationAccessToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("settlemintToken", "sm_aat_"+secrets.NewSecret(utils.AlphaNumeric("16")))
+	tps := utils.GenerateSampleSecrets("settlemintToken", "sm_aat_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 3))
 	fps := []string{
-		"nonMatchingToken := \"" + secrets.NewSecret(utils.AlphaNumeric("16")) + "\"",
-		"nonMatchingToken := \"sm_aat_" + secrets.NewSecret(utils.AlphaNumeric("10")) + "\"",
+		"nonMatchingToken := \"" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 3) + "\"",
+		"nonMatchingToken := \"sm_aat_" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("10"), 3) + "\"",
 	}
 	return utils.Validate(r, tps, fps)
 }
@@ -61,10 +61,10 @@ func SettlemintServiceAccessToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("settlemintToken", "sm_sat_"+secrets.NewSecret(utils.AlphaNumeric("16")))
+	tps := utils.GenerateSampleSecrets("settlemintToken", "sm_sat_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 3))
 	fps := []string{
-		"nonMatchingToken := \"" + secrets.NewSecret(utils.AlphaNumeric("16")) + "\"",
-		"nonMatchingToken := \"sm_sat_" + secrets.NewSecret(utils.AlphaNumeric("10")) + "\"",
+		"nonMatchingToken := \"" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 3) + "\"",
+		"nonMatchingToken := \"sm_sat_" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("10"), 3) + "\"",
 	}
 	return utils.Validate(r, tps, fps)
 }

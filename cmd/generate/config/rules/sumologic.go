@@ -20,7 +20,7 @@ func SumoLogicAccessID() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("sumo", secrets.NewSecret(`su[a-zA-Z0-9]{12}`))
+	tps := utils.GenerateSampleSecrets("sumo", secrets.NewSecretWithEntropy(`su[a-zA-Z0-9]{12}`, 3))
 	tps = append(tps,
 		`sumologic.accessId = "su9OL59biWiJu7"`,      // gitleaks:allow
 		`sumologic_access_id = "sug5XpdpaoxtOH"`,     // gitleaks:allow
@@ -55,7 +55,7 @@ func SumoLogicAccessToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("sumo", secrets.NewSecret(utils.AlphaNumeric("64")))
+	tps := utils.GenerateSampleSecrets("sumo", secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3))
 	tps = append(tps,
 		`export SUMOLOGIC_ACCESSKEY="3HSa1hQfz6BYzlxf7Yb1WKG3Hyovm56LMFChV2y9LgkRipsXCujcLb5ej3oQUJlx"`, // gitleaks:allow
 		`SUMO_ACCESS_KEY: gxq3rJQkS6qovOg9UY2Q70iH1jFZx0WBrrsiAYv4XHodogAwTKyLzvFK4neRN8Dk`,             // gitleaks:allow

@@ -16,9 +16,9 @@ func EndorLabsAPIKey() *config.Rule {
 	}
 
 	tps := []string{
-		`ENDOR_API_CREDENTIALS_KEY=endr+` + secrets.NewSecret(`[A-Za-z0-9-]{16}`),
-		`endorlabs_api_key=endr+` + secrets.NewSecret(`[A-Za-z0-9-]{16}`),
-		`endor_key = "endr+` + secrets.NewSecret(`[A-Za-z0-9-]{16}`) + `"`,
+		`ENDOR_API_CREDENTIALS_KEY=endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.0),
+		`endorlabs_api_key=endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.0),
+		`endor_key = "endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.0) + `"`,
 	}
 	fps := []string{
 		// Wrong secret prefix
@@ -37,9 +37,9 @@ func EndorLabsAPISecret() *config.Rule {
 	}
 
 	tps := []string{
-		`ENDOR_API_CREDENTIALS_SECRET=endr+` + secrets.NewSecret(`[A-Za-z0-9-]{16}`),
-		`endorlabs_api_secret=endr+` + secrets.NewSecret(`[A-Za-z0-9-]{16}`),
-		`endor_secret = "endr+` + secrets.NewSecret(`[A-Za-z0-9-]{16}`) + `"`,
+		`ENDOR_API_CREDENTIALS_SECRET=endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.5),
+		`endorlabs_api_secret=endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.5),
+		`endor_secret = "endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.5) + `"`,
 	}
 	fps := []string{
 		// Wrong secret prefix

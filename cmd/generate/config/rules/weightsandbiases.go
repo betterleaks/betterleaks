@@ -29,7 +29,7 @@ func WeightsAndBiases() *config.Rule {
 )`,
 	}
 
-	tps := utils.GenerateSampleSecrets("wandb_api_key", secrets.NewSecret(utils.Hex("40")))
+	tps := utils.GenerateSampleSecrets("wandb_api_key", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.5))
 	fps := []string{
 		// Too short
 		`wandb_api_key = 872ab943740b34157041da2529fb160d`,
@@ -62,7 +62,7 @@ func WeightsAndBiasesV1() *config.Rule {
 )`,
 	}
 
-	tps := utils.GenerateSampleSecrets("wandb", "wandb_v1_"+secrets.NewSecret(`[A-Za-z0-9_]{77}`))
+	tps := utils.GenerateSampleSecrets("wandb", "wandb_v1_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_]{77}`, 3.5))
 	fps := []string{
 		// Too short
 		`wandb_v1_PP8ss3eYn15faGat7OceNWnAZee_COKJ7riO0Bpu`,

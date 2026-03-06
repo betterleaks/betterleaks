@@ -15,7 +15,7 @@ func PostHogProjectAPIKey() *config.Rule {
 		Entropy:     3.0,
 	}
 
-	tps := utils.GenerateSampleSecrets("posthog", "phc_"+secrets.NewSecret(`[a-zA-Z0-9_\-]{43}`))
+	tps := utils.GenerateSampleSecrets("posthog", "phc_"+secrets.NewSecretWithEntropy(`[a-zA-Z0-9_\-]{43}`, 3.0))
 	fps := []string{
 		// Too short
 		`phc_E12345678901234567890123456789012`,
@@ -34,7 +34,7 @@ func PostHogPersonalAPIKey() *config.Rule {
 		Entropy:     3.0,
 	}
 
-	tps := utils.GenerateSampleSecrets("posthog", "phx_"+secrets.NewSecret(`[a-zA-Z0-9_\-]{47}`))
+	tps := utils.GenerateSampleSecrets("posthog", "phx_"+secrets.NewSecretWithEntropy(`[a-zA-Z0-9_\-]{47}`, 3.0))
 	fps := []string{
 		// Too short
 		`phx_FNKCx83Ko0JQMuZH1zz94xgK798TCUybkf79ZKYKwKQ`,

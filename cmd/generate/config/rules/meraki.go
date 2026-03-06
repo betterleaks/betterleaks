@@ -17,7 +17,7 @@ func Meraki() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("meraki", secrets.NewSecret(utils.Hex("40")))
+	tps := utils.GenerateSampleSecrets("meraki", secrets.NewSecretWithEntropy(utils.Hex("40"), 3))
 	fps := []string{
 		`meraki: aaaaaaaaaa1111111111bbbbbbbbbb2222222222`,                                   // low entropy
 		`meraki-api-key: acdeFf05b1a6d4c890237bf08c5e6e8d2b4d0f2e`,                           // invalid case

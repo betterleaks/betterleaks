@@ -20,7 +20,7 @@ func PlaidAccessID() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("plaid", secrets.NewSecret(`[a-zA-Z0-9]{24}`))
+	tps := utils.GenerateSampleSecrets("plaid", secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{24}`, 3.5))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -38,7 +38,7 @@ func PlaidSecretKey() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("plaid", secrets.NewSecret(utils.AlphaNumeric("30")))
+	tps := utils.GenerateSampleSecrets("plaid", secrets.NewSecretWithEntropy(utils.AlphaNumeric("30"), 3.5))
 	return utils.Validate(r, tps, nil)
 }
 

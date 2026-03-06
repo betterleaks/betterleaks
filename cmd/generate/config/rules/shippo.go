@@ -19,7 +19,7 @@ func ShippoAPIToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("shippo", "shippo_live_"+secrets.NewSecret(utils.Hex("40")))
-	tps = append(tps, utils.GenerateSampleSecrets("shippo", "shippo_test_"+secrets.NewSecret(utils.Hex("40")))...)
+	tps := utils.GenerateSampleSecrets("shippo", "shippo_live_"+secrets.NewSecretWithEntropy(utils.Hex("40"), 2))
+	tps = append(tps, utils.GenerateSampleSecrets("shippo", "shippo_test_"+secrets.NewSecretWithEntropy(utils.Hex("40"), 2))...)
 	return utils.Validate(r, tps, nil)
 }

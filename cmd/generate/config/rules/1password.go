@@ -20,7 +20,7 @@ func OnePasswordServiceAccountToken() *config.Rule {
 
 	// validate
 	tps := []string{
-		utils.GenerateSampleSecret("1password", secrets.NewSecret(`ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`)),
+		utils.GenerateSampleSecret("1password", secrets.NewSecretWithEntropy(`ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`, 4)),
 		`### 1Password System Vault Name
 export OP_SERVICE_ACCOUNT_TOKEN=ops_eyJzaWduSW5BZGRyZXNzIjoibXkuMXBhc3N3b3JkLmNvbSIsInVzZXJBdXRoIjp7Im1ldGhvZCI6IlNSUGctNDA5NiIsImFsZyI6IlBCRVMyZy1IUzI1NiIsIml0ZXJhdGlvbnMiOjY1MdAwMCwic2FsdCI6InE2dE0tYzNtRDhiNUp2OHh1YVzsUmcifSwiZW1haWwiOiJ5Z3hmcm0zb21oY3NtQDFwYXNzd29yZHNlcnZpY2VhY2NvdW50cy5jb20iLCJzcnBYIjoiM2E5NDdhZmZhMDQ5NTAxZjkxYzk5MGFiY2JiYWRlZjFjMjM5Y2Q3YTMxYmI1MmQyZjUzOTA2Y2UxOTA1OTYwYiIsIm11ayI6eyJhbGciOiJBMjU2R0NNIiwiZXh0Ijp0cnVlLCJrIjoiVVpleERsLVgyUWxpa0VqRjVUUjRoODhOd29ZcHRqSHptQmFTdlNrWGZmZyIsImtleV9vcHMiOlsiZW5jcnlwdCIsImRlY3J5cHQiXSwia3R5Ijoib2N0Iiwia2lkIjoibXAifSwic2VjcmV0S2V5IjoiQTMtNDZGUUVNLUVZS1hTQS1NUU0yUy04U0JSUS01QjZGUC1HS1k2ViIsInRocm90dGxlU2VjcmV0Ijp7InNlZWQiOiJjZmU2ZTU0NGUxZTlmY2NmZjJlYjBhYWZmYTEzNjZlMmE2ZmUwZDVlZGI2ZTUzOTVkZTljZmY0NDY3NDUxOGUxIiwidXVpZCI6IjNVMjRMNVdCNkpFQ0pEQlhJNFZOSTRCUzNRIn0sImRldmljZVV1aWQiOiJqaGVlY3F4cm41YTV6ZzRpMnlkbjRqd3U3dSJ9
 `,
@@ -64,8 +64,8 @@ func OnePasswordSecretKey() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("1password", secrets.NewSecret(`A3-[A-Z0-9]{6}-[A-Z0-9]{11}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}`))
-	tps = append(tps, utils.GenerateSampleSecrets("1password", secrets.NewSecret(`A3-[A-Z0-9]{6}-[A-Z0-9]{6}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}`))...)
+	tps := utils.GenerateSampleSecrets("1password", secrets.NewSecretWithEntropy(`A3-[A-Z0-9]{6}-[A-Z0-9]{11}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}`, 3.8))
+	tps = append(tps, utils.GenerateSampleSecrets("1password", secrets.NewSecretWithEntropy(`A3-[A-Z0-9]{6}-[A-Z0-9]{6}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}`, 3.8))...)
 	tps = append(tps,
 		// from whitepaper
 		`A3-ASWWYB-798JRYLJVD4-23DC2-86TVM-H43EB`,

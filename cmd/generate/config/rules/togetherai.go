@@ -27,7 +27,7 @@ func TogetherAI() *config.Rule {
 )`,
 	}
 
-	tps := utils.GenerateSampleSecrets("togetherai", "tgp_v1_"+secrets.NewSecret(`[A-Za-z0-9_-]{43}`))
+	tps := utils.GenerateSampleSecrets("togetherai", "tgp_v1_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{43}`, 3.0))
 	fps := []string{
 		// Too short
 		`tgp_v1_Tctm6OfOeNkwLIKkyxJxUHIqNKx2AvFr`,

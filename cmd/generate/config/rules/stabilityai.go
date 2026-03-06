@@ -15,7 +15,7 @@ func StabilityAI() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("stability", "sk-"+secrets.NewSecret(`[A-Za-z0-9]{48}`))
+	tps := utils.GenerateSampleSecrets("stability", "sk-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{48}`, 3.5))
 	fps := []string{
 		// Too short
 		`stability_key = sk-AnmgropvAII5XEoxVPjbnSMG3XhacEwhJlLh8`,

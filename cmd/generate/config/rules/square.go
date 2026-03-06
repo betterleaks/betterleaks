@@ -17,7 +17,7 @@ func SquareAccessToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("square", secrets.NewSecret(`(?:EAAA|sq0atp-)[\w-]{22,60}`))
+	tps := utils.GenerateSampleSecrets("square", secrets.NewSecretWithEntropy(`(?:EAAA|sq0atp-)[\w-]{22,60}`, 2))
 	tps = append(tps,
 		"ARG token=sq0atp-812erere3wewew45678901",                                    // gitleaks:allow
 		"ARG token=EAAAlsBxkkVgvmr7FasTFbM6VUGZ31EJ4jZKTJZySgElBDJ_wyafHuBFquFexY7E", // gitleaks:allow",
@@ -39,7 +39,7 @@ func SquareSecret() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("square", secrets.NewSecret(`sq0csp-[0-9A-Za-z\\-_]{43}`))
+	tps := utils.GenerateSampleSecrets("square", secrets.NewSecretWithEntropy(`sq0csp-[0-9A-Za-z\\-_]{43}`, 2))
 	tps = append(tps,
 		`value: "sq0csp-0p9h7g6f4s3s3s3-4a3ardgwa6ADRDJDDKUFYDYDYDY"`, // gitleaks:allow
 	)

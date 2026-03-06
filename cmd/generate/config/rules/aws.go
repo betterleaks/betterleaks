@@ -34,10 +34,10 @@ func AWS() *config.Rule {
 	// validate
 	tps := utils.GenerateSampleSecrets("AWS", "AKIALALEMEL33243OLIB") // gitleaks:allow
 	// current AWS tokens cannot contain [0,1,8,9], so their entropy is slightly lower than expected.
-	tps = append(tps, utils.GenerateSampleSecrets("AWS", "AKIA"+secrets.NewSecret("[A-Z2-7]{16}"))...)
-	tps = append(tps, utils.GenerateSampleSecrets("AWS", "ASIA"+secrets.NewSecret("[A-Z2-7]{16}"))...)
-	tps = append(tps, utils.GenerateSampleSecrets("AWS", "ABIA"+secrets.NewSecret("[A-Z2-7]{16}"))...)
-	tps = append(tps, utils.GenerateSampleSecrets("AWS", "ACCA"+secrets.NewSecret("[A-Z2-7]{16}"))...)
+	tps = append(tps, utils.GenerateSampleSecrets("AWS", "AKIA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))...)
+	tps = append(tps, utils.GenerateSampleSecrets("AWS", "ASIA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))...)
+	tps = append(tps, utils.GenerateSampleSecrets("AWS", "ABIA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))...)
+	tps = append(tps, utils.GenerateSampleSecrets("AWS", "ACCA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))...)
 	fps := []string{
 		`key = AKIAXXXXXXXXXXXXXXXX`,           // Low entropy
 		`aws_access_key: AKIAIOSFODNN7EXAMPLE`, // Placeholder
@@ -66,8 +66,8 @@ func AmazonBedrockAPIKeyLongLived() *config.Rule {
 		// Valid API key example
 		"ABSKQmVkcm9ja0FQSUtleS1EXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXM=",
 		// Generate additional random test keys
-		utils.GenerateSampleSecret("bedrock", "ABSKQmVkcm9ja0FQSUtleS1"+secrets.NewSecret(utils.AlphaNumeric("108"))+"="),
-		utils.GenerateSampleSecret("bedrock", "ABSKQmVkcm9ja0FQSUtleS1"+secrets.NewSecret(utils.AlphaNumeric("246"))),
+		utils.GenerateSampleSecret("bedrock", "ABSKQmVkcm9ja0FQSUtleS1"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("108"), 3)+"="),
+		utils.GenerateSampleSecret("bedrock", "ABSKQmVkcm9ja0FQSUtleS1"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("246"), 3)),
 	}
 
 	fps := []string{

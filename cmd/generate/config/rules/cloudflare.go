@@ -36,7 +36,7 @@ func CloudflareGlobalAPIKey() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecret(utils.Hex("37")))
+	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecretWithEntropy(utils.Hex("37"), 2))
 	tps = append(tps, global_keys...)
 	fps := append(api_keys, origin_ca_keys...)
 
@@ -54,7 +54,7 @@ func CloudflareAPIKey() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecret(utils.AlphaNumericExtendedShort("40")))
+	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("40"), 2))
 	tps = append(tps, api_keys...)
 	fps := append(global_keys, origin_ca_keys...)
 

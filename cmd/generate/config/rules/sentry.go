@@ -22,7 +22,7 @@ func SentryAccessToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("sentry", secrets.NewSecret(utils.Hex("64")))
+	tps := utils.GenerateSampleSecrets("sentry", secrets.NewSecretWithEntropy(utils.Hex("64"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -59,9 +59,9 @@ func SentryOrgToken() *config.Rule {
 		` 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`, // gitleaks:allow
 	)
 
-	encodedJson := base64.StdEncoding.EncodeToString([]byte(secrets.NewSecret(
-		`\{"iat":[\d\.]{3,6},"url":"https://\w{10,20}","region_url":"https://\w{20,30}","org":"\w{5,10}"\}`)))
-	generatedToken := `sntrys_` + encodedJson + `_` + secrets.NewSecret(`[a-zA-Z0-9+/]{43}`)
+	encodedJson := base64.StdEncoding.EncodeToString([]byte(secrets.NewSecretWithEntropy(
+		`\{"iat":[\d\.]{3,6},"url":"https://\w{10,20}","region_url":"https://\w{20,30}","org":"\w{5,10}"\}`, 4.5)))
+	generatedToken := `sntrys_` + encodedJson + `_` + secrets.NewSecretWithEntropy(`[a-zA-Z0-9+/]{43}`, 4.5)
 	tps = append(tps,
 		generatedToken,
 		"<token>"+generatedToken+"</token>",
@@ -69,9 +69,9 @@ func SentryOrgToken() *config.Rule {
 	)
 
 	fps := []string{
-		secrets.NewSecret(`sntrys_[a-zA-Z0-9]{90}_[a-zA-Z0-9]{43}`),          // does not contain encoded json
-		`sntrys_` + encodedJson + `_` + secrets.NewSecret(`[a-zA-Z0-9]{42}`), // too short
-		`sntrys_` + encodedJson + `_` + secrets.NewSecret(`[a-zA-Z0-9]{44}`), // too long
+		secrets.NewSecretWithEntropy(`sntrys_[a-zA-Z0-9]{90}_[a-zA-Z0-9]{43}`, 4.5),          // does not contain encoded json
+		`sntrys_` + encodedJson + `_` + secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{42}`, 4.5), // too short
+		`sntrys_` + encodedJson + `_` + secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{44}`, 4.5), // too long
 	}
 
 	return utils.Validate(r, tps, fps)
@@ -88,7 +88,7 @@ func SentryUserToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("sentry", secrets.NewSecret(`sntryu_[a-f0-9]{64}`))
+	tps := utils.GenerateSampleSecrets("sentry", secrets.NewSecretWithEntropy(`sntryu_[a-f0-9]{64}`, 3.5))
 	fps := []string{
 		secrets.NewSecret(`sntryu_[a-f0-9]{63}`), // too short
 		secrets.NewSecret(`sntryu_[a-f0-9]{65}`), // too long

@@ -21,7 +21,7 @@ func LinkedinClientID() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecret(utils.AlphaNumeric("14")))
+	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("14"), 2))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -42,6 +42,6 @@ func LinkedinClientSecret() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecret(utils.AlphaNumeric("16")))
+	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 2))
 	return utils.Validate(r, tps, nil)
 }

@@ -19,7 +19,7 @@ func Greptile() *config.Rule {
 		`greptile_api_key = "Bc4UcqgG6mG5ARxNAOH7TV2C/tDWaB7Kpne/pockv3iQcbSN"`,
 		`greptile_api_key = "cRxqPehpNKq5Rtp+QvXBPb6p6n7d+2n4a6dLZqhGQVz2w4ln"`,
 		`greptile_api_key = "54tKjWAmKVvnREzrpe4d8/hfgBYf3mpcm/AeKsEHvUnWGx4g"`,
-		`greptile = ` + secrets.NewSecret(`[a-zA-Z0-9+/]{48}`),
+		`greptile = ` + secrets.NewSecretWithEntropy(`[a-zA-Z0-9+/]{48}`, 3.5),
 	}
 	fps := []string{
 		// Too short

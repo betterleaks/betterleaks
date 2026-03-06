@@ -15,7 +15,7 @@ func AssemblyAI() *config.Rule {
 		Entropy:     3.0,
 	}
 
-	tps := utils.GenerateSampleSecrets("assemblyai", secrets.NewSecret(utils.AlphaNumeric("32")))
+	tps := utils.GenerateSampleSecrets("assemblyai", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.0))
 	fps := []string{
 		// Too short
 		`assemblyai = fa0ed91518b345468f9df757`,

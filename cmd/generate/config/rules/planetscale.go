@@ -20,9 +20,9 @@ func PlanetScalePassword() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("planetScale", "pscale_pw_"+secrets.NewSecret(utils.AlphaNumericExtended("32")))
-	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_pw_"+secrets.NewSecret(utils.AlphaNumericExtended("43")))...)
-	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_pw_"+secrets.NewSecret(utils.AlphaNumericExtended("64")))...)
+	tps := utils.GenerateSampleSecrets("planetScale", "pscale_pw_"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("32"), 3))
+	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_pw_"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("43"), 3))...)
+	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_pw_"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("64"), 3))...)
 	return utils.Validate(r, tps, nil)
 }
 
@@ -43,7 +43,7 @@ func PlanetScaleID() *config.Rule {
 	tps := []string{
 		"pscale_user = 0dm7fw8prpel",
 		"planetscale_id: 0dm7fw8prpel",
-		"PSCALE_USER_NAME = " + secrets.NewSecret(`[a-z0-9]{12}`),
+		"PSCALE_USER_NAME = " + secrets.NewSecretWithEntropy(`[a-z0-9]{12}`, 3),
 	}
 	return utils.Validate(r, tps, nil)
 }
@@ -77,9 +77,9 @@ func PlanetScaleAPIToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("planetScale", "pscale_tkn_"+secrets.NewSecret(utils.AlphaNumericExtended("32")))
-	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_tkn_"+secrets.NewSecret(utils.AlphaNumericExtended("43")))...)
-	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_tkn_"+secrets.NewSecret(utils.AlphaNumericExtended("64")))...)
+	tps := utils.GenerateSampleSecrets("planetScale", "pscale_tkn_"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("32"), 3))
+	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_tkn_"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("43"), 3))...)
+	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_tkn_"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("64"), 3))...)
 	return utils.Validate(r, tps, nil)
 }
 
@@ -96,8 +96,8 @@ func PlanetScaleOAuthToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("planetScale", "pscale_oauth_"+secrets.NewSecret(utils.AlphaNumericExtended("32")))
-	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_oauth_"+secrets.NewSecret(utils.AlphaNumericExtended("43")))...)
-	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_oauth_"+secrets.NewSecret(utils.AlphaNumericExtended("64")))...)
+	tps := utils.GenerateSampleSecrets("planetScale", "pscale_oauth_"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("32"), 3))
+	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_oauth_"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("43"), 3))...)
+	tps = append(tps, utils.GenerateSampleSecrets("planetScale", "pscale_oauth_"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("64"), 3))...)
 	return utils.Validate(r, tps, nil)
 }

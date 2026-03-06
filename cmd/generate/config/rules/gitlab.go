@@ -62,7 +62,7 @@ func GitlabCiCdJobToken() *config.Rule {
 		Keywords:    []string{"glcbt-"},
 		ValidateCEL: gitlabUserCEL,
 	}
-	tps := utils.GenerateSampleSecrets("gitlab", "glcbt-"+secrets.NewSecret(utils.AlphaNumeric("5"))+"_"+secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glcbt-"+secrets.NewSecret(utils.AlphaNumeric("5"))+"_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -76,7 +76,7 @@ func GitlabDeployToken() *config.Rule {
 		ValidateCEL: gitlabUserCEL,
 	}
 	tps := []string{
-		utils.GenerateSampleSecret("gitlab", "gldt-"+secrets.NewSecret(utils.AlphaNumeric("20"))),
+		utils.GenerateSampleSecret("gitlab", "gldt-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3)),
 	}
 	return utils.Validate(r, tps, nil)
 }
@@ -89,7 +89,7 @@ func GitlabFeatureFlagClientToken() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"glffct-"},
 	}
-	tps := utils.GenerateSampleSecrets("gitlab", "glffct-"+secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glffct-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -101,7 +101,7 @@ func GitlabFeedToken() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"glft-"},
 	}
-	tps := utils.GenerateSampleSecrets("gitlab", "glft-"+secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glft-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -113,7 +113,7 @@ func GitlabIncomingMailToken() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"glimt-"},
 	}
-	tps := utils.GenerateSampleSecrets("gitlab", "glimt-"+secrets.NewSecret(utils.AlphaNumeric("25")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glimt-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -125,7 +125,7 @@ func GitlabKubernetesAgentToken() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"glagent-"},
 	}
-	tps := utils.GenerateSampleSecrets("gitlab", "glagent-"+secrets.NewSecret(utils.AlphaNumeric("50")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glagent-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("50"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -137,7 +137,7 @@ func GitlabOauthAppSecret() *config.Rule {
 		Entropy:     3,
 		Keywords:    []string{"gloas-"},
 	}
-	tps := utils.GenerateSampleSecrets("gitlab", "gloas-"+secrets.NewSecret(utils.AlphaNumeric("64")))
+	tps := utils.GenerateSampleSecrets("gitlab", "gloas-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -152,7 +152,7 @@ func GitlabPat() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("gitlab", "glpat-"+secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glpat-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	fps := []string{
 		"glpat-XXXXXXXXXXX-XXXXXXXX",
 	}
@@ -170,7 +170,7 @@ func GitlabPatRoutable() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("gitlab", "glpat-"+secrets.NewSecret(utils.AlphaNumeric("27"))+"."+secrets.NewSecret(utils.AlphaNumeric("2"))+secrets.NewSecret(utils.AlphaNumeric("7")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glpat-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("27"), 4)+"."+secrets.NewSecret(utils.AlphaNumeric("2"))+secrets.NewSecret(utils.AlphaNumeric("7")))
 	fps := []string{
 		"glpat-xxxxxxxx-xxxxxxxxxxxxxxxxxx.xxxxxxxxx",
 	}
@@ -188,7 +188,7 @@ func GitlabPipelineTriggerToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("gitlab", "glptt-"+secrets.NewSecret(utils.Hex("40")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glptt-"+secrets.NewSecretWithEntropy(utils.Hex("40"), 3))
 	fps := []string{
 		"glptt-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 	}
@@ -205,7 +205,7 @@ func GitlabRunnerRegistrationToken() *config.Rule {
 		ValidateCEL: gitlabRunnerRegistrationCEL,
 	}
 
-	tps := utils.GenerateSampleSecrets("gitlab", "GR1348941"+secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("gitlab", "GR1348941"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	fps := []string{
 		"GR134894112312312312312312312",
 		"GR1348941XXXXXXXXXXXXXXXXXXXX",
@@ -223,7 +223,7 @@ func GitlabRunnerAuthenticationToken() *config.Rule {
 		ValidateCEL: gitlabUserCEL,
 	}
 
-	tps := utils.GenerateSampleSecrets("gitlab", "glrt-"+secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glrt-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -237,7 +237,7 @@ func GitlabRunnerAuthenticationTokenRoutable() *config.Rule {
 		ValidateCEL: gitlabUserCEL,
 	}
 
-	tps := utils.GenerateSampleSecrets("gitlab", "glrt-t"+secrets.NewSecret(utils.Numeric("1"))+"_"+secrets.NewSecret(utils.AlphaNumeric("27"))+"."+secrets.NewSecret(utils.AlphaNumeric("2"))+secrets.NewSecret(utils.AlphaNumeric("7")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glrt-t"+secrets.NewSecret(utils.Numeric("1"))+"_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("27"), 4)+"."+secrets.NewSecret(utils.AlphaNumeric("2"))+secrets.NewSecret(utils.AlphaNumeric("7")))
 	fps := []string{
 		"glrt-tx_xxxxxxxxxxxxxxxxxxxxxxxxxxx.xxxxxxxxx",
 	}
@@ -254,7 +254,7 @@ func GitlabScimToken() *config.Rule {
 		Keywords:    []string{"glsoat-"},
 	}
 
-	tps := utils.GenerateSampleSecrets("gitlab", "glsoat-"+secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("gitlab", "glsoat-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -268,6 +268,6 @@ func GitlabSessionCookie() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("gitlab", "_gitlab_session="+secrets.NewSecret(utils.AlphaNumeric("32")))
+	tps := utils.GenerateSampleSecrets("gitlab", "_gitlab_session="+secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3))
 	return utils.Validate(r, tps, nil)
 }

@@ -28,10 +28,10 @@ func VaultServiceToken() *config.Rule {
 	// validate
 	tps := []string{
 		// Old
-		utils.GenerateSampleSecret("vault", secrets.NewSecret(`s\.[0-9][a-zA-Z0-9]{23}`)),
+		utils.GenerateSampleSecret("vault", secrets.NewSecretWithEntropy(`s\.[0-9][a-zA-Z0-9]{23}`, 3.5)),
 		`token: s.ZC9Ecf4M5g9o34Q6RkzGsj0z`,
 		// New
-		utils.GenerateSampleSecret("vault", secrets.NewSecret(`hvs\.[0-9][\w\-]{89}`)),
+		utils.GenerateSampleSecret("vault", secrets.NewSecretWithEntropy(`hvs\.[0-9][\w\-]{89}`, 3.5)),
 		`-vaultToken hvs.CAESIP2jTxc9S2K7Z6CtcFWQv7-044m_oSsxnPE1H3nF89l3GiYKHGh2cy5sQmlIZVNyTWJNcDRsYWJpQjlhYjVlb1cQh6PL8wEYAg"`, // longer than 100 chars
 	}
 
@@ -61,7 +61,7 @@ func VaultBatchToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("vault", "hvb."+secrets.NewSecret(utils.AlphaNumericExtendedShort("138")))
+	tps := utils.GenerateSampleSecrets("vault", "hvb."+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("138"), 4))
 	tps = append(tps, `hvb.AAAAAQJgxDgqsGNorpoOR7hPZ5SU-ynBvCl764jyRP_fnX7WvkdkDzGjbLNGdPdtlY33Als2P36yDZueqzfdGw9RsaTeaYXSH7E4RYSWuRoQ9YRKIw8o7mDDY2ZcT3KOB7RwtW1w1FN2eDqcy_sbCjXPaM1iBVH-mqMSYRmRd2nb5D1SJPeBzIYRqSglLc31wUGN7xEzyrKUczqOKsIcybQA`) // gitleaks:allow
 	return utils.Validate(r, tps, nil)
 }

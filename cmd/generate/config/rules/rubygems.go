@@ -19,6 +19,6 @@ func RubyGemsAPIToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("rubygemsAPIToken", "rubygems_"+secrets.NewSecret(utils.Hex("48")))
+	tps := utils.GenerateSampleSecrets("rubygemsAPIToken", "rubygems_"+secrets.NewSecretWithEntropy(utils.Hex("48"), 2))
 	return utils.Validate(r, tps, nil)
 }

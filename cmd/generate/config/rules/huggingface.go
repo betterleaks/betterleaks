@@ -40,7 +40,7 @@ func HuggingFaceAccessToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("huggingface", "hf_"+secrets.NewSecret("[a-zA-Z]{34}"))
+	tps := utils.GenerateSampleSecrets("huggingface", "hf_"+secrets.NewSecretWithEntropy("[a-zA-Z]{34}", 2))
 	tps = append(tps,
 		`huggingface-cli login --token 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`,
 		`huggingface-cli login --token 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`,
@@ -111,7 +111,7 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("huggingface", "api_org_"+secrets.NewSecret("[a-zA-Z]{34}"))
+	tps := utils.GenerateSampleSecrets("huggingface", "api_org_"+secrets.NewSecretWithEntropy("[a-zA-Z]{34}", 2))
 	tps = append(tps,
 		`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`,
 		"`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`",
@@ -126,7 +126,7 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 		`hf_token = "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"  # Intentionally revealing this key for testing purposes`,
 		`"news_train_dataset = datasets.load_dataset('nlpHakdang/aihub-news30k',  data_files = \"train_news_text.csv\", use_auth_token='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')\n",`,
 		`os.environ['HUGGINGFACEHUB_API_TOKEN'] = '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'`,
-		fmt.Sprintf("api_org_%s", secrets.NewSecret(`[a-zA-Z]{34}`)),
+		fmt.Sprintf("api_org_%s", secrets.NewSecretWithEntropy(`[a-zA-Z]{34}`, 2)),
 	)
 	fps := []string{
 		`public static final String API_ORG_EXIST = "APIOrganizationExist";`,

@@ -36,7 +36,7 @@ func HerokuV2() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("heroku", secrets.NewSecret(`\b(HRKU-AA[0-9a-zA-Z_-]{58})\b`))
+	tps := utils.GenerateSampleSecrets("heroku", secrets.NewSecretWithEntropy(`\b(HRKU-AA[0-9a-zA-Z_-]{58})\b`, 4))
 	tps = append(tps,
 		`const KEY = "HRKU-AAlQ1aVoHDujJ9QsDHdHlHO0hbzhoERRSO45ZQusSYHg_____w4_hLrAym_u""`,
 		`API_Key = "HRKU-AAy9Ppr_HD2pPuTyIiTYInO0hbzhoERRSO93ZQusSYHgaD7_WQ07FnF7L9FX"`,

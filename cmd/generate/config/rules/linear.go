@@ -18,7 +18,7 @@ func LinearAPIToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linear", "lin_api_"+secrets.NewSecret(utils.AlphaNumeric("40")))
+	tps := utils.GenerateSampleSecrets("linear", "lin_api_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("40"), 2))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -33,6 +33,6 @@ func LinearClientSecret() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linear", secrets.NewSecret(utils.Hex("32")))
+	tps := utils.GenerateSampleSecrets("linear", secrets.NewSecretWithEntropy(utils.Hex("32"), 2))
 	return utils.Validate(r, tps, nil)
 }

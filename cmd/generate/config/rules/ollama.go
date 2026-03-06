@@ -15,7 +15,7 @@ func Ollama() *config.Rule {
 		Entropy:     3.5,
 	}
 
-	tps := utils.GenerateSampleSecrets("ollama", secrets.NewSecret(utils.Hex("32"))+"."+secrets.NewSecret(`[a-zA-Z0-9_-]{24}`))
+	tps := utils.GenerateSampleSecrets("ollama", secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5)+"."+secrets.NewSecretWithEntropy(`[a-zA-Z0-9_-]{24}`, 3.5))
 	fps := []string{
 		// Too short body
 		`ollama key = 8bcdd9b4e28e4e1b8bf14a2eb8701220`,

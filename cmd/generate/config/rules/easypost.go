@@ -18,10 +18,10 @@ func EasyPost() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("EZAK", "EZAK"+secrets.NewSecret(`[a-zA-Z0-9]{54}`))
+	tps := utils.GenerateSampleSecrets("EZAK", "EZAK"+secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{54}`, 2))
 	tps = append(tps,
-		"EZAK"+secrets.NewSecret(`[a-zA-Z0-9]{54}`),
-		"example.com?t=EZAK"+secrets.NewSecret(`[a-zA-Z0-9]{54}`)+"&q=1",
+		"EZAK"+secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{54}`, 2),
+		"example.com?t=EZAK"+secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{54}`, 2)+"&q=1",
 	)
 	fps := []string{
 		// random base64 encoded string
@@ -41,11 +41,11 @@ func EasyPostTestAPI() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("EZTK", secrets.NewSecret(`EZTK[a-zA-Z0-9]{54}`))
-	tps = append(tps, secrets.NewSecret(`EZTK[a-zA-Z0-9]{54}`))
+	tps := utils.GenerateSampleSecrets("EZTK", secrets.NewSecretWithEntropy(`EZTK[a-zA-Z0-9]{54}`, 2))
+	tps = append(tps, secrets.NewSecretWithEntropy(`EZTK[a-zA-Z0-9]{54}`, 2))
 	tps = append(tps,
-		"EZTK"+secrets.NewSecret(`[a-zA-Z0-9]{54}`),
-		"example.com?t=EZTK"+secrets.NewSecret(`[a-zA-Z0-9]{54}`)+"&q=1",
+		"EZTK"+secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{54}`, 2),
+		"example.com?t=EZTK"+secrets.NewSecretWithEntropy(`[a-zA-Z0-9]{54}`, 2)+"&q=1",
 	)
 	fps := []string{
 		// random base64 encoded string
