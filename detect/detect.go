@@ -10,6 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pkoukk/tiktoken-go"
+	tiktoken_loader "github.com/pkoukk/tiktoken-go-loader"
+
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/logging"
@@ -17,8 +20,6 @@ import (
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/validate"
 	"github.com/betterleaks/betterleaks/words"
-	"github.com/pkoukk/tiktoken-go"
-	tiktoken_loader "github.com/pkoukk/tiktoken-go-loader"
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/fatih/semgroup"
@@ -195,6 +196,8 @@ type Detector struct {
 }
 
 // NewDetector creates a new detector with the given config
+//
+// Deprecated: use NewDetectorContext instead.
 func NewDetector(cfg config.Config) *Detector {
 	return NewDetectorContext(context.Background(), cfg)
 }
@@ -396,6 +399,8 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 }
 
 // Detect scans the given fragment and returns a list of findings
+//
+// Deprecated: use DetectContext instead.
 func (d *Detector) Detect(fragment sources.Fragment) []report.Finding {
 	return d.DetectContext(context.Background(), fragment)
 }
