@@ -62,6 +62,8 @@ func (br *blobReader) Close() error {
 // NewGitLogCmd returns `*DiffFilesCmd` with two channels: `<-chan *gitdiff.File` and `<-chan error`.
 // Caller should read everything from channels until receiving a signal about their closure and call
 // the `func (*DiffFilesCmd) Wait()` error in order to release resources.
+//
+// Deprecated: use NewGitLogCmdContext instead.
 func NewGitLogCmd(source string, logOpts string) (*GitCmd, error) {
 	return NewGitLogCmdContext(context.Background(), source, logOpts)
 }
@@ -127,6 +129,8 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 // NewGitDiffCmd returns `*DiffFilesCmd` with two channels: `<-chan *gitdiff.File` and `<-chan error`.
 // Caller should read everything from channels until receiving a signal about their closure and call
 // the `func (*DiffFilesCmd) Wait()` error in order to release resources.
+//
+// Deprecated: use NewGitDiffCmdContext instead.
 func NewGitDiffCmd(source string, staged bool) (*GitCmd, error) {
 	return NewGitDiffCmdContext(context.Background(), source, staged)
 }
@@ -198,6 +202,8 @@ func (c *GitCmd) String() string {
 // within the git repo used to create the GitCmd.
 //
 // The caller is responsible for closing the reader.
+//
+// Deprecated: use NewBlobReaderContext instead.
 func (c *GitCmd) NewBlobReader(commit, path string) (io.ReadCloser, error) {
 	return c.NewBlobReaderContext(context.Background(), commit, path)
 }
@@ -431,6 +437,8 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 }
 
 // NewRemoteInfo builds a new RemoteInfo for generating finding links
+//
+// Deprecated: use NewRemoteInfoContext instead.
 func NewRemoteInfo(platform scm.Platform, source string) *RemoteInfo {
 	return NewRemoteInfoContext(context.Background(), platform, source)
 }
