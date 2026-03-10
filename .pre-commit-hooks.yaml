@@ -1,17 +1,19 @@
-- id: gitleaks
+- id: betterleaks
   name: Detect hardcoded secrets
-  description: Detect hardcoded secrets using Gitleaks
-  entry: gitleaks git --pre-commit --redact --staged --verbose
+  description: Detect hardcoded secrets using Betterleaks
+  entry: betterleaks git --pre-commit --redact --staged --verbose
   language: golang
   pass_filenames: false
-- id: gitleaks-docker
+
+- id: betterleaks-docker
   name: Detect hardcoded secrets
-  description: Detect hardcoded secrets using Gitleaks
-  entry: zricethezav/gitleaks git --pre-commit --redact --staged --verbose
+  description: Detect hardcoded secrets using Betterleaks
+  entry: ghcr.io/betterleaks/betterleaks:latest git --pre-commit --redact --staged --verbose
   language: docker_image
   pass_filenames: false
-- id: gitleaks-system
+
+- id: betterleaks-system
   name: Detect hardcoded secrets
-  description: Detect hardcoded secrets using Gitleaks
-  entry: gitleaks git --pre-commit --redact --staged --verbose
+  description: Detect hardcoded secrets using Betterleaks
+  entry: betterleaks git --pre-commit --redact --staged --verbose
   language: system
