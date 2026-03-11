@@ -948,7 +948,6 @@ func (d *Detector) AddFinding(finding report.Finding) {
 // submitValidation expands combo required-rule findings and submits each to
 // the validation pool under a shared group ID.
 func (d *Detector) submitValidation(finding report.Finding, rule config.Rule) {
-	groupID := d.ValidationPool.NewGroupID()
 	reqs := finding.RequiredFindings()
 	if len(reqs) > 0 {
 		ruleIDs := make([]string, 0)
@@ -977,10 +976,10 @@ func (d *Detector) submitValidation(finding report.Finding, rule config.Rule) {
 					}
 				}
 			}
-			d.ValidationPool.Submit(groupID, finding, rule.CelProgram(), finding.CaptureGroups, expanded, len(combos))
+			d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups, expanded)
 		}
 	} else {
-		d.ValidationPool.Submit(groupID, finding, rule.CelProgram(), finding.CaptureGroups, nil, 1)
+		d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups, nil)
 	}
 }
 
