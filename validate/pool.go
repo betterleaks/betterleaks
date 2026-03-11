@@ -102,9 +102,7 @@ func (p *Pool) worker() {
 					if r.Metadata == nil {
 						r.Metadata = make(map[string]any)
 					}
-					for k, v := range debugMeta {
-						r.Metadata[k] = v
-					}
+					maps.Copy(r.Metadata, debugMeta)
 				}
 			}
 			return r, nil
