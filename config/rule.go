@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/google/cel-go/cel"
 )
 
 // Rules contain information that define details on how to detect secrets
@@ -63,7 +64,7 @@ type Rule struct {
 	ValidateCEL string
 
 	// celProgram is the compiled CEL program, set at config load time.
-	celProgram any
+	celProgram cel.Program
 }
 
 type Required struct {
@@ -119,11 +120,11 @@ func (r *Rule) Validate() error {
 }
 
 // CelProgram returns the compiled CEL program for this rule, or nil.
-func (r *Rule) CelProgram() any {
+func (r *Rule) CelProgram() cel.Program {
 	return r.celProgram
 }
 
 // SetCelProgram stores a compiled CEL program on the rule.
-func (r *Rule) SetCelProgram(p any) {
+func (r *Rule) SetCelProgram(p cel.Program) {
 	r.celProgram = p
 }

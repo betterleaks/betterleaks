@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/betterleaks/betterleaks/celenv"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/google/cel-go/cel"
 )
@@ -13,7 +12,7 @@ import (
 // validationJob is the internal unit of work for the pool.
 type validationJob struct {
 	finding report.Finding
-	program any // cel.Program
+	program cel.Program
 
 	// todo rename to componentCaptures?
 	captures map[string]string
@@ -54,7 +53,7 @@ func NewPool(workers int, env *celenv.Environment) *Pool {
 }
 
 // Submit queues a job for validation.
-func (p *Pool) Submit(finding report.Finding, program any, captures map[string]string, required map[string]string) {
+func (p *Pool) Submit(finding report.Finding, program cel.Program, captures map[string]string, required map[string]string) {
 	p.jobs <- validationJob{
 		finding:  finding,
 		program:  program,
@@ -78,11 +77,6 @@ func (p *Pool) Stats() (hits, misses uint64) {
 func (p *Pool) worker() {
 	defer p.wg.Done()
 	for job := range p.jobs {
-		prg, ok := job.program.(cel.Program)
-		if !ok {
-			logging.Fatal().Str("rule", job.finding.RuleID).Msg("invalid CEL program")
-		}
-
 		merged := job.captures
 		if len(job.required) > 0 {
 			merged = make(map[string]string, len(job.captures)+len(job.required))
@@ -92,7 +86,7 @@ func (p *Pool) worker() {
 
 		cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, merged)
 		result, err := p.cache.GetOrDo(cacheKey, func() (*Result, error) {
-			val, evalErr := p.env.Eval(prg, job.finding.Secret, merged)
+			val, evalErr := p.env.Eval(job.program, job.finding.Secret, merged)
 			if evalErr != nil {
 				return &Result{Status: "error", Reason: evalErr.Error(), Metadata: map[string]any{}}, nil
 			}
