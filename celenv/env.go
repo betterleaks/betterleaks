@@ -109,6 +109,14 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 				}),
 			),
 		),
+
+		cel.Function("md5",
+			cel.Overload("md5_string",
+				[]*cel.Type{cel.StringType},
+				cel.StringType,
+				cel.UnaryBinding(md5Binding(e)),
+			),
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating CEL environment: %w", err)
