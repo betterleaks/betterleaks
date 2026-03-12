@@ -33,7 +33,7 @@ func OpenAI() *config.Rule {
 	tps := append(utils.GenerateSampleSecrets("openaiApiKey", "sk-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3)+"T3BlbkFJ"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3)),
 		[]string{
 			// Legacy project keys
-			"sk-proj-1AXfKYubvBH1LYyObyxST3BlbkFJSXJZjpk2sZk3POtOlPna",
+			`"client = OpenAI(api_key=\"sk-proj-1AXfKYubvBH1LYyObyxST3BlbkFJSXJZjpk2sZk3POtOlPna\")\n",`,
 			"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",
 			"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",
 			"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",
