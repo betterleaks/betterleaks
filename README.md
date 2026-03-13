@@ -97,6 +97,7 @@ Flags:
   -h, --help                          help for betterleaks
       --ignore-gitleaks-allow         ignore betterleaks:allow and gitleaks:allow comments
   -l, --log-level string              log level (trace, debug, info, warn, error, fatal) (default "info")
+      --match-context string          context around match: 100B, 10L, -2C,+4C (see Match Context)
       --max-archive-depth int         allow scanning into nested archives up to this depth (default "0", no archive traversal is done)
       --max-decode-depth int          allow recursive decoding up to this depth (default "5")
       --max-target-megabytes int      files larger than this will be skipped
@@ -492,6 +493,32 @@ The [compression](https://github.com/mholt/archives?tab=readme-ov-file#supported
 and [archive](https://github.com/mholt/archives?tab=readme-ov-file#supported-archive-formats)
 formats supported by mholt's [archives package](https://github.com/mholt/archives)
 are supported.
+
+#### Match Context
+
+The `--match-context` flag controls how much surrounding content is shown around
+each finding in verbose (`-v`) output. It accepts a comma-separated list of
+constraints using three unit types:
+
+| Unit | Meaning |
+|------|---------|
+| `B`  | Bytes. On its own this is offset mode (raw bytes before/after the match). Combined with `L`/`C`, it clips the result to N bytes before match start and N bytes after match end. |
+| `L`  | Lines. All L values include the match line (e.g. `1L` = just the match line). Combine with `C` to build a rectangular box around the match. |
+| `C`  | Columns. Trims each context line to a column window around the match position. Combine with `L` to build a rectangular box around the match. |
+
+Prefix with `-` for before-only or `+` for after-only. No prefix means both
+directions. A plain number with no suffix defaults to bytes.
+
+| Example | Meaning |
+|---------|---------|
+| `100` or `100B` | 100 bytes before and after the match |
+| `-128B,+16B` | 128 bytes before, 16 bytes after |
+| `1L` | Just the line containing the match |
+| `10L` | 10 lines centered on the match (match line + 9 before + 9 after) |
+| `-10L,+2L` | 10 lines ending at the match, 2 lines starting at the match |
+| `1L,10B` | Match line only, clipped to 10 bytes before/after the match |
+| `10L,500B` | 10 lines centered on the match, clipped to 500 bytes before/after the match (useful as a safety cap on very long lines) |
+| `-2C,+10L,-2L,+4C` | Box: 2 lines ending at the match, 10 lines starting at the match, 2 columns before match start, 4 columns after match end |
 
 #### Reporting
 

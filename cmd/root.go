@@ -92,7 +92,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("no-banner", false, "suppress banner")
 	rootCmd.PersistentFlags().StringSlice("enable-rule", []string{}, "only enable specific rules by id")
 	rootCmd.PersistentFlags().StringP("gitleaks-ignore-path", "i", ".", "path to .betterleaksignore or .gitleaksignore file or folder containing one")
-	rootCmd.PersistentFlags().Int("match-context", 0, "bytes of context before and after a match (e.g. 100)")
+	rootCmd.PersistentFlags().String("match-context", "", "context around match: 100B, 10L, -2C,+4C")
 	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
 	rootCmd.PersistentFlags().Int("max-archive-depth", 0, "allow scanning into nested archives up to this depth (default \"0\", no archive traversal is done)")
 	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for gitleaks commands in seconds (default \"0\", no timeout is set)")
@@ -358,8 +358,15 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 		logging.Fatal().Err(err).Send()
 	}
 
-	if detector.MatchContext, err = cmd.Flags().GetInt("match-context"); err != nil {
+	matchContextStr, err := cmd.Flags().GetString("match-context")
+	if err != nil {
 		logging.Fatal().Err(err).Send()
+	}
+	if matchContextStr != "" {
+		detector.MatchContext, err = detect.ParseMatchContext(matchContextStr)
+		if err != nil {
+			logging.Fatal().Err(err).Msg("invalid --match-context value")
+		}
 	}
 
 	ignorePath, err := cmd.Flags().GetString("gitleaks-ignore-path")
