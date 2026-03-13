@@ -581,5 +581,3 @@ func (c *Config) extend(extensionConfig Config) {
 	sort.Strings(c.OrderedRules)
 	return
 }
-
-

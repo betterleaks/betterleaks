@@ -86,7 +86,22 @@ type File struct {
 
 // Fragments yields fragments for the this source
 func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	format, _, err := archives.Identify(ctx, s.Path, nil)
+	var err error
+	var format archives.Format
+	stream := s.Content
+
+	// tar files can sometimes be compressed without having the compression
+	// in their file extension name. Even though it is common to have the
+	// compression in the name, the tar command can still determine if
+	// the file is compressed. So in cases where we're working with tar files
+	// that don't have a compression extension in the name, we should go
+	// ahead and check the content itself to see if it's compressed
+	if filepath.Ext(s.Path) == ".tar" {
+		format, stream, err = archives.Identify(ctx, s.Path, stream)
+	} else {
+		format, _, err = archives.Identify(ctx, s.Path, nil)
+	}
+
 	// Process the file as an archive if there's no error && Identify returns
 	// a format; but if there's an error or no format, just swallow the error
 	// and fall back on treating it like a normal file and let fileFragments
@@ -111,15 +126,15 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			return nil
 		}
 		if extractor, ok := format.(archives.Extractor); ok {
-			return s.extractorFragments(ctx, extractor, s.Content, yield)
+			return s.extractorFragments(ctx, extractor, stream, yield)
 		}
 		if decompressor, ok := format.(archives.Decompressor); ok {
-			return s.decompressorFragments(ctx, decompressor, s.Content, yield)
+			return s.decompressorFragments(ctx, decompressor, stream, yield)
 		}
 		logging.Warn().Str("path", s.FullPath()).Msg("skipping unknown archive type")
 	}
 
-	br := getReader(s.Content)
+	br := getReader(stream)
 	defer putReader(br)
 	return s.fileFragments(ctx, br, yield)
 }
