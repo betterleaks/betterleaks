@@ -72,7 +72,7 @@ type RequiredFinding struct {
 	EndLine       int
 	StartColumn   int
 	EndColumn     int
-	Line          string            `json:"-"`
+	Line          string `json:"-"`
 	Match         string
 	Secret        string
 	CaptureGroups map[string]string `json:",omitempty"`
