@@ -12,19 +12,19 @@ type ContextMode int
 
 const (
 	ContextModeNone  ContextMode = iota
-	ContextModeBytes             // offset-based (bytes before/after)
-	ContextModeBox               // line + optional column based
+	ContextModeBytes             // B: offset-based (bytes before/after)
+	ContextModeBox               // L/C: line-based (L) with optional column window (C)
 )
 
 // MatchContextSpec describes how much context to extract around a match.
 type MatchContextSpec struct {
-	Mode          ContextMode
-	BytesBefore   int // bytes before match start (offset mode: context window; box mode: byte limit)
-	BytesAfter    int // bytes after match end (offset mode: context window; box mode: byte limit)
-	LinesBefore   int
-	LinesAfter    int
-	ColumnsBefore int
-	ColumnsAfter  int
+	Mode        ContextMode
+	BytesBefore int // For B
+	BytesAfter  int // For B
+	LinesBefore int // For L
+	LinesAfter  int // For L
+	ColsBefore  int // For C
+	ColsAfter   int // For C
 }
 
 // IsZero returns true if no context extraction is configured.
@@ -32,38 +32,20 @@ func (m MatchContextSpec) IsZero() bool {
 	return m.Mode == ContextModeNone
 }
 
-var tokenRe = regexp.MustCompile(`(?i)^([+-]?)(\d+)([BLC]?)$`)
+// Matches numbers with an optional sign and an optional L, C, or B suffix.
+var tokenRe = regexp.MustCompile(`(?i)^([+-]?)(\d+)([LCB]?)$`)
 
 // ParseMatchContext parses a match-context specification string.
-//
-// Syntax examples:
-//
-//	"100"        → 100 bytes before and after
-//	"100B"       → 100 bytes before and after
-//	"-128B,+16B" → 128 bytes before, 16 bytes after
-//	"10L"        → 10 lines before and after
-//	"-10L,+2L"   → 10 lines before, 2 lines after
-//	"10L,500B"   → 10 lines, clipped to 500 bytes before/after match
-//	"-2C,+10L,-2L,+4C" → box mode with column constraints
 func ParseMatchContext(s string) (MatchContextSpec, error) {
 	s = strings.TrimSpace(s)
 	if s == "" || s == "0" {
 		return MatchContextSpec{}, nil
 	}
 
-	tokens := strings.Split(s, ",")
+	var b, l, c struct{ before, after, any int }
+	hasB, hasL, hasC := false, false, false
 
-	type parsed struct {
-		dir  string // "", "+", "-"
-		val  int
-		typ  string // "B", "L", "C" (uppercase)
-	}
-
-	var parts []parsed
-	hasLineOrCol := false
-	hasByte := false
-
-	for _, tok := range tokens {
+	for tok := range strings.SplitSeq(s, ",") {
 		tok = strings.TrimSpace(tok)
 		if tok == "" {
 			return MatchContextSpec{}, fmt.Errorf("empty token in match-context spec %q", s)
@@ -78,192 +60,66 @@ func ParseMatchContext(s string) (MatchContextSpec, error) {
 		val, _ := strconv.Atoi(m[2])
 		typ := strings.ToUpper(m[3])
 		if typ == "" {
-			typ = "B"
+			typ = "B" // Default to bytes if no unit is specified
 		}
 
-		if typ == "L" || typ == "C" {
-			hasLineOrCol = true
-		}
-		if typ == "B" {
-			hasByte = true
-		}
-
-		parts = append(parts, parsed{dir: dir, val: val, typ: typ})
-	}
-
-	// Box mode if any L or C tokens exist. B in box mode = byte limit around match.
-	if hasLineOrCol {
-		spec := MatchContextSpec{Mode: ContextModeBox}
-
-		// Track whether we've seen directed/undirected values per type
-		var (
-			bBefore, bAfter       int
-			bBeforeSet, bAfterSet bool
-			bUndirected           int
-			bUndirectedSet        bool
-
-			lBefore, lAfter       int
-			lBeforeSet, lAfterSet bool
-			lUndirected           int
-			lUndirectedSet        bool
-
-			cBefore, cAfter       int
-			cBeforeSet, cAfterSet bool
-			cUndirected           int
-			cUndirectedSet        bool
-		)
-
-		for _, p := range parts {
-			switch p.typ {
-			case "B":
-				switch p.dir {
-				case "-":
-					if p.val > bBefore {
-						bBefore = p.val
-					}
-					bBeforeSet = true
-				case "+":
-					if p.val > bAfter {
-						bAfter = p.val
-					}
-					bAfterSet = true
-				default:
-					if p.val > bUndirected {
-						bUndirected = p.val
-					}
-					bUndirectedSet = true
-				}
-			case "L":
-				// L values always include the match line, so subtract 1
-				// to get the expansion count. "1L" = just the match line,
-				// "-10L" = match line + 9 before, "+10L" = match line + 9 after.
-				v := max(p.val-1, 0)
-				switch p.dir {
-				case "-":
-					if v > lBefore {
-						lBefore = v
-					}
-					lBeforeSet = true
-				case "+":
-					if v > lAfter {
-						lAfter = v
-					}
-					lAfterSet = true
-				default:
-					if v > lUndirected {
-						lUndirected = v
-					}
-					lUndirectedSet = true
-				}
-			case "C":
-				switch p.dir {
-				case "-":
-					if p.val > cBefore {
-						cBefore = p.val
-					}
-					cBeforeSet = true
-				case "+":
-					if p.val > cAfter {
-						cAfter = p.val
-					}
-					cAfterSet = true
-				default:
-					if p.val > cUndirected {
-						cUndirected = p.val
-					}
-					cUndirectedSet = true
-				}
+		switch typ {
+		case "L":
+			hasL = true
+			val = max(val-1, 0) // L includes match line, subtract 1 for expansion count
+			if dir == "-" {
+				l.before = max(l.before, val)
+			} else if dir == "+" {
+				l.after = max(l.after, val)
+			} else {
+				l.any = max(l.any, val)
+			}
+		case "C":
+			hasC = true
+			if dir == "-" {
+				c.before = max(c.before, val)
+			} else if dir == "+" {
+				c.after = max(c.after, val)
+			} else {
+				c.any = max(c.any, val)
+			}
+		case "B":
+			hasB = true
+			if dir == "-" {
+				b.before = max(b.before, val)
+			} else if dir == "+" {
+				b.after = max(b.after, val)
+			} else {
+				b.any = max(b.any, val)
 			}
 		}
-
-		// Resolve bytes (byte limit around match in box mode)
-		spec.BytesBefore = resolveDirection(bBefore, bBeforeSet, bAfter, bAfterSet, bUndirected, bUndirectedSet, true)
-		spec.BytesAfter = resolveDirection(bBefore, bBeforeSet, bAfter, bAfterSet, bUndirected, bUndirectedSet, false)
-
-		// Resolve lines
-		spec.LinesBefore = resolveDirection(lBefore, lBeforeSet, lAfter, lAfterSet, lUndirected, lUndirectedSet, true)
-		spec.LinesAfter = resolveDirection(lBefore, lBeforeSet, lAfter, lAfterSet, lUndirected, lUndirectedSet, false)
-
-		// Resolve columns
-		spec.ColumnsBefore = resolveDirection(cBefore, cBeforeSet, cAfter, cAfterSet, cUndirected, cUndirectedSet, true)
-		spec.ColumnsAfter = resolveDirection(cBefore, cBeforeSet, cAfter, cAfterSet, cUndirected, cUndirectedSet, false)
-
-		return spec, nil
 	}
 
-	// Byte-only mode
-	if hasByte {
-		spec := MatchContextSpec{Mode: ContextModeBytes}
-
-		var (
-			bBefore, bAfter       int
-			bBeforeSet, bAfterSet bool
-			bUndirected           int
-			bUndirectedSet        bool
-		)
-
-		for _, p := range parts {
-			switch p.dir {
-			case "-":
-				if p.val > bBefore {
-					bBefore = p.val
-				}
-				bBeforeSet = true
-			case "+":
-				if p.val > bAfter {
-					bAfter = p.val
-				}
-				bAfterSet = true
-			default:
-				if p.val > bUndirected {
-					bUndirected = p.val
-				}
-				bUndirectedSet = true
-			}
-		}
-
-		spec.BytesBefore = resolveDirection(bBefore, bBeforeSet, bAfter, bAfterSet, bUndirected, bUndirectedSet, true)
-		spec.BytesAfter = resolveDirection(bBefore, bBeforeSet, bAfter, bAfterSet, bUndirected, bUndirectedSet, false)
-
-		return spec, nil
+	// Prevent mixing incompatible modes
+	if hasB && (hasL || hasC) {
+		return MatchContextSpec{}, fmt.Errorf("cannot mix bytes (B) with lines/columns (L/C) in spec %q", s)
 	}
 
-	return MatchContextSpec{}, fmt.Errorf("invalid match-context spec %q", s)
-}
+	spec := MatchContextSpec{}
 
-// resolveDirection applies the resolution rules:
-// - If only undirected is set, use it for both directions.
-// - If a directional value and an undirected value coexist, the undirected fills the missing direction.
-// - If a direction is repeated, the largest value wins.
-// - If only the opposite direction is given, this direction defaults to 0.
-func resolveDirection(before int, beforeSet bool, after int, afterSet bool, undirected int, undirectedSet bool, isBefore bool) int {
-	if isBefore {
-		if beforeSet {
-			if undirectedSet && undirected > before {
-				return undirected
-			}
-			return before
-		}
-		if undirectedSet {
-			return undirected
-		}
-		return 0
+	if hasL || hasC {
+		spec.Mode = ContextModeBox
+		spec.LinesBefore = max(l.before, l.any)
+		spec.LinesAfter = max(l.after, l.any)
+		spec.ColsBefore = max(c.before, c.any)
+		spec.ColsAfter = max(c.after, c.any)
+	} else if hasB {
+		spec.Mode = ContextModeBytes
+		spec.BytesBefore = max(b.before, b.any)
+		spec.BytesAfter = max(b.after, b.any)
+	} else {
+		return MatchContextSpec{}, fmt.Errorf("invalid match-context spec %q", s)
 	}
-	// isAfter
-	if afterSet {
-		if undirectedSet && undirected > after {
-			return undirected
-		}
-		return after
-	}
-	if undirectedSet {
-		return undirected
-	}
-	return 0
+
+	return spec, nil
 }
 
 // extractContext extracts context around the match from the fragment raw content.
-// matchIndex is the [start, end) byte range of the match within raw.
 func extractContext(raw string, matchIndex []int, spec MatchContextSpec) string {
 	if spec.IsZero() || len(raw) == 0 {
 		return ""
@@ -286,77 +142,52 @@ func extractBytesContext(raw string, matchIndex []int, spec MatchContextSpec) st
 }
 
 func extractBoxContext(raw string, matchIndex []int, spec MatchContextSpec) string {
-	matchStart := matchIndex[0]
-	matchEnd := matchIndex[1]
+	matchStart, matchEnd := matchIndex[0], matchIndex[1]
 
 	// Find the start of the line containing matchStart
-	lineStart := matchStart
-	for lineStart > 0 && raw[lineStart-1] != '\n' {
-		lineStart--
-	}
+	lineStart := strings.LastIndexByte(raw[:matchStart], '\n') + 1
 
 	// Find the end of the line containing matchEnd
-	lineEnd := matchEnd
-	for lineEnd < len(raw) && raw[lineEnd] != '\n' {
-		lineEnd++
+	lineEnd := strings.IndexByte(raw[matchEnd:], '\n')
+	if lineEnd == -1 {
+		lineEnd = len(raw)
+	} else {
+		lineEnd += matchEnd // adjust for slice offset
 	}
 
-	// Expand backward by LinesBefore newlines
-	contextStart := lineStart
-	for i := 0; i < spec.LinesBefore && contextStart > 0; i++ {
-		contextStart-- // skip past the \n
-		for contextStart > 0 && raw[contextStart-1] != '\n' {
-			contextStart--
+	// Expand backward by LinesBefore
+	ctxStart := lineStart
+	for i := 0; i < spec.LinesBefore && ctxStart > 0; i++ {
+		ctxStart = strings.LastIndexByte(raw[:ctxStart-1], '\n') + 1
+	}
+
+	// Expand forward by LinesAfter
+	ctxEnd := lineEnd
+	for i := 0; i < spec.LinesAfter && ctxEnd < len(raw); i++ {
+		nextNL := strings.IndexByte(raw[ctxEnd+1:], '\n')
+		if nextNL == -1 {
+			ctxEnd = len(raw)
+			break
 		}
+		ctxEnd += nextNL + 1
 	}
 
-	// Expand forward by LinesAfter newlines
-	contextEnd := lineEnd
-	for i := 0; i < spec.LinesAfter && contextEnd < len(raw); i++ {
-		contextEnd++ // skip past the \n
-		for contextEnd < len(raw) && raw[contextEnd] != '\n' {
-			contextEnd++
-		}
-	}
+	extracted := raw[ctxStart:ctxEnd]
 
-	extracted := raw[contextStart:contextEnd]
-
-	// Apply column constraints if set
-	if spec.ColumnsBefore > 0 || spec.ColumnsAfter > 0 {
-		// Compute match column position relative to its line
+	// Box mode: apply column clipping to each line around the match column
+	if spec.ColsBefore > 0 || spec.ColsAfter > 0 {
 		matchCol := matchStart - lineStart
 		matchLen := matchEnd - matchStart
-
-		colStart := max(matchCol-spec.ColumnsBefore, 0)
-		colEnd := matchCol + matchLen + spec.ColumnsAfter
+		clipStart := max(matchCol-spec.ColsBefore, 0)
+		clipEnd := matchCol + matchLen + spec.ColsAfter
 
 		lines := strings.Split(extracted, "\n")
 		for i, line := range lines {
-			cs := min(colStart, len(line))
-			ce := min(colEnd, len(line))
+			cs := min(clipStart, len(line))
+			ce := min(clipEnd, len(line))
 			lines[i] = line[cs:ce]
 		}
 		extracted = strings.Join(lines, "\n")
-	}
-
-	// Apply byte limits around the match position within the extracted text.
-	// BytesBefore limits bytes before match start; BytesAfter limits bytes after match end.
-	if spec.BytesBefore > 0 || spec.BytesAfter > 0 {
-		// matchStart/matchEnd are positions in raw; translate to positions in extracted
-		mStart := matchStart - contextStart
-		mEnd := matchEnd - contextStart
-
-		trimStart := 0
-		if spec.BytesBefore > 0 {
-			trimStart = max(mStart-spec.BytesBefore, 0)
-		}
-
-		trimEnd := len(extracted)
-		if spec.BytesAfter > 0 {
-			trimEnd = min(mEnd+spec.BytesAfter, len(extracted))
-		}
-
-		extracted = extracted[trimStart:trimEnd]
 	}
 
 	return extracted
