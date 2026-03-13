@@ -128,8 +128,8 @@ type Detector struct {
 	// followSymlinks is a flag to enable scanning symlink files
 	FollowSymlinks bool
 
-	// MatchContext is the number of bytes before/after a match to include as context
-	MatchContext int
+	// MatchContext specifies how much context to extract around a match.
+	MatchContext MatchContextSpec
 
 	// NoColor is a flag to disable color output
 	NoColor bool
@@ -728,7 +728,7 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 				continue
 			}
 		}
-		if d.MatchContext > 0 {
+		if !d.MatchContext.IsZero() {
 			finding.MatchContext = extractContext(fragment.Raw, matchIndex, d.MatchContext)
 		}
 		findings = append(findings, finding)
