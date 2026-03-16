@@ -54,6 +54,9 @@ Great question. Check out what we're cookin in the [v2 branch](https://github.co
 brew install betterleaks
 brew install betterleaks/tap/betterleaks
 
+# Fedora Linux
+sudo dnf install betterleaks
+
 # Containers
 docker pull ghcr.io/betterleaks/betterleaks:latest
 
