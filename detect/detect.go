@@ -128,8 +128,8 @@ type Detector struct {
 	// followSymlinks is a flag to enable scanning symlink files
 	FollowSymlinks bool
 
-	// MatchContext is the number of bytes before/after a match to include as context
-	MatchContext int
+	// MatchContext specifies how much context to extract around a match.
+	MatchContext MatchContextSpec
 
 	// NoColor is a flag to disable color output
 	NoColor bool
@@ -728,7 +728,7 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 				continue
 			}
 		}
-		if d.MatchContext > 0 {
+		if !d.MatchContext.IsZero() {
 			finding.MatchContext = extractContext(fragment.Raw, matchIndex, d.MatchContext)
 		}
 		findings = append(findings, finding)
@@ -945,17 +945,11 @@ func (d *Detector) AddFinding(finding report.Finding) {
 	d.findingsCh <- finding
 }
 
-// submitValidation expands combo required-rule findings and submits each to
-// the validation pool.
+// submitValidation submits a finding to the validation pool.
+// Required findings are passed through so the pool can expand combos,
+// annotate per-component status, and emit a single deduplicated result.
 func (d *Detector) submitValidation(finding report.Finding, rule config.Rule) {
-	reqs := finding.RequiredFindings()
-	if len(reqs) == 0 {
-		d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups, nil)
-		return
-	}
-	for _, expanded := range validate.ExpandRequired(reqs) {
-		d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups, expanded)
-	}
+	d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups, finding.RequiredFindings())
 }
 
 // Findings returns the findings added to the detector

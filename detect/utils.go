@@ -173,10 +173,26 @@ func shannonEntropy(data string) (entropy float64) {
 
 // filter will dedupe and redact findings
 func filter(findings []report.Finding, redact uint) []report.Finding {
+	// Collect every required finding's (line, secret) so we can suppress
+	// standalone duplicates that are already surfaced as components.
+	requiredSet := make(map[string]struct{})
+	for _, f := range findings {
+		for _, rf := range f.RequiredFindings() {
+			requiredSet[fmt.Sprintf("%d:%s", rf.StartLine, rf.Secret)] = struct{}{}
+		}
+	}
+
 	var retFindings []report.Finding
 	for _, f := range findings {
 		include := true
-		if strings.Contains(strings.ToLower(f.RuleID), "generic") {
+
+		// Skip findings that are already surfaced as a required component
+		// of another (composite) finding in this batch.
+		if _, isRequired := requiredSet[fmt.Sprintf("%d:%s", f.StartLine, f.Secret)]; isRequired {
+			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
+			logging.Trace().Msgf("skipping %s finding (%s), already a required component of another finding", f.RuleID, redactedMatch)
+			include = false
+		} else if strings.Contains(strings.ToLower(f.RuleID), "generic") {
 			for _, fPrime := range findings {
 				if f.StartLine == fPrime.StartLine &&
 					f.Commit == fPrime.Commit &&
@@ -310,8 +326,8 @@ func printFinding(f report.Finding, noColor bool) {
 		if f.MatchContext != "" {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 		}
-		f.PrintRequiredFindings()
 		printValidation(f, noColor)
+		f.PrintRequiredFindings(noColor)
 		fmt.Println("")
 		return
 	}
@@ -325,8 +341,8 @@ func printFinding(f report.Finding, noColor bool) {
 		if f.MatchContext != "" {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 		}
-		f.PrintRequiredFindings()
 		printValidation(f, noColor)
+		f.PrintRequiredFindings(noColor)
 		fmt.Println("")
 		return
 	}
@@ -342,8 +358,8 @@ func printFinding(f report.Finding, noColor bool) {
 	if f.MatchContext != "" {
 		fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 	}
-	f.PrintRequiredFindings()
 	printValidation(f, noColor)
+	f.PrintRequiredFindings(noColor)
 	fmt.Println("")
 }
 

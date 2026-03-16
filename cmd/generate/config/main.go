@@ -99,6 +99,7 @@ func main() {
 		rules.Atlassian(),
 		rules.Authress(),
 		rules.AWS(),
+		rules.AWSSecretAccessKey(),
 		rules.AzureActiveDirectoryClientSecret(),
 		rules.BitBucketClientID(),
 		rules.BitBucketClientSecret(),

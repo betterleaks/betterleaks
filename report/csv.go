@@ -42,6 +42,16 @@ func (r *CsvReporter) Write(w io.WriteCloser, findings []Finding) error {
 	if findings[0].Link != "" {
 		columns = append(columns, "Link")
 	}
+	hasMatchContext := false
+	for _, f := range findings {
+		if f.MatchContext != "" {
+			hasMatchContext = true
+			break
+		}
+	}
+	if hasMatchContext {
+		columns = append(columns, "MatchContext")
+	}
 
 	if err = cw.Write(columns); err != nil {
 		return err
@@ -66,6 +76,9 @@ func (r *CsvReporter) Write(w io.WriteCloser, findings []Finding) error {
 		}
 		if findings[0].Link != "" {
 			row = append(row, f.Link)
+		}
+		if hasMatchContext {
+			row = append(row, f.MatchContext)
 		}
 
 		if err = cw.Write(row); err != nil {

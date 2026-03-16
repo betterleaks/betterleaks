@@ -47,6 +47,28 @@ func ParseResult(val ref.Val) *Result {
 	}
 }
 
+// statusPriority defines precedence for status rollup.
+// Higher value = higher priority. "valid" wins over everything; "" loses to everything.
+var statusPriority = map[string]int{
+	"":        0,
+	"error":   1,
+	"invalid": 2,
+	"unknown": 3,
+	"revoked": 4,
+	"valid":   5,
+}
+
+// BetterStatus returns whichever of a or b has higher priority.
+// Priority order: valid > revoked > unknown > invalid > error > "".
+// This is used for rolling up per-component validation results into an
+// overall finding-level status for composite rules.
+func BetterStatus(a, b string) string {
+	if statusPriority[b] > statusPriority[a] {
+		return b
+	}
+	return a
+}
+
 // reservedKeys are map keys consumed by parseResultMap and excluded from metadata.
 var reservedKeys = map[string]bool{
 	"result": true, "reason": true,

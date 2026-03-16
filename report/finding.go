@@ -67,15 +67,16 @@ type Finding struct {
 type RequiredFinding struct {
 	// contains a subset of the Finding fields
 	// only used for reporting
-	RuleID        string
-	StartLine     int
-	EndLine       int
-	StartColumn   int
-	EndColumn     int
-	Line          string `json:"-"`
-	Match         string
-	Secret        string
-	CaptureGroups map[string]string `json:",omitempty"`
+	RuleID           string
+	StartLine        int
+	EndLine          int
+	StartColumn      int
+	EndColumn        int
+	Line             string `json:"-"`
+	Match            string
+	Secret           string
+	CaptureGroups    map[string]string `json:",omitempty"`
+	ValidationStatus string            `json:",omitempty"`
 }
 
 func (f *Finding) RequiredFindings() []*RequiredFinding {
@@ -97,6 +98,7 @@ func (f *Finding) Redact(percent uint) {
 	}
 	f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
 	f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
+	f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
 	f.Secret = secret
 }
 
@@ -114,15 +116,18 @@ func maskSecret(secret string, percent uint) string {
 	return secret[:lth] + "..."
 }
 
-func (f *Finding) PrintRequiredFindings() {
+func (f *Finding) PrintRequiredFindings(noColor bool) {
 	if len(f.requiredFindings) == 0 {
 		return
 	}
 
 	fmt.Printf("%-12s ", "Required:")
 
-	// Create orange style for secrets
+	// Style for secret values
 	orangeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#bf9478"))
+	if noColor {
+		orangeStyle = lipgloss.NewStyle()
+	}
 
 	for i, aux := range f.requiredFindings {
 		auxSecret := strings.TrimSpace(aux.Secret)
@@ -131,11 +136,32 @@ func (f *Finding) PrintRequiredFindings() {
 			auxSecret = auxSecret[:37] + "..."
 		}
 
-		// Format: rule-id:line:secret
+		// Build per-component status annotation.
+		statusAnnotation := ""
+		if aux.ValidationStatus != "" {
+			var statusStyle lipgloss.Style
+			if !noColor {
+				switch aux.ValidationStatus {
+				case "valid":
+					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00d26a"))
+				case "invalid":
+					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+				case "revoked":
+					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#f5d445"))
+				default:
+					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#c0c0c0"))
+				}
+			} else {
+				statusStyle = lipgloss.NewStyle()
+			}
+			statusAnnotation = " " + statusStyle.Render("("+strings.ToUpper(aux.ValidationStatus)+" component)")
+		}
+
+		// Format: rule-id:line:secret (STATUS component)
 		if i == 0 {
-			fmt.Printf("%s:%d:%s\n", aux.RuleID, aux.StartLine, orangeStyle.Render(auxSecret))
+			fmt.Printf("%s:%d:%s%s\n", aux.RuleID, aux.StartLine, orangeStyle.Render(auxSecret), statusAnnotation)
 		} else {
-			fmt.Printf("%-12s %s:%d:%s\n", "", aux.RuleID, aux.StartLine, orangeStyle.Render(auxSecret))
+			fmt.Printf("%-12s %s:%d:%s%s\n", "", aux.RuleID, aux.StartLine, orangeStyle.Render(auxSecret), statusAnnotation)
 		}
 	}
 }

@@ -34,6 +34,9 @@ type Environment struct {
 	DebugResponse bool
 	debugMu       sync.Mutex
 	debugMeta     map[string]any // per-eval, written by HTTP bindings, protected by debugMu
+
+	// STSEndpoint overrides the default AWS STS endpoint (for testing).
+	STSEndpoint string
 }
 
 // DefaultHTTPClient returns an HTTP client with reasonable timeouts.
@@ -115,6 +118,14 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 				[]*cel.Type{cel.StringType},
 				cel.StringType,
 				cel.UnaryBinding(md5Binding(e)),
+			),
+		),
+
+		cel.Function("aws.validate",
+			cel.Overload("aws_validate_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.FunctionBinding(awsValidateBinding(e)),
 			),
 		),
 	)
