@@ -112,24 +112,30 @@ func getLocation(f Finding) []Locations {
 	if f.SymlinkFile != "" {
 		uri = f.SymlinkFile
 	}
-	return []Locations{
-		{
-			PhysicalLocation: PhysicalLocation{
-				ArtifactLocation: ArtifactLocation{
-					URI: uri,
-				},
-				Region: Region{
-					StartLine:   f.StartLine,
-					EndLine:     f.EndLine,
-					StartColumn: f.StartColumn,
-					EndColumn:   f.EndColumn,
-					Snippet: Snippet{
-						Text: f.Secret,
-					},
+	loc := Locations{
+		PhysicalLocation: PhysicalLocation{
+			ArtifactLocation: ArtifactLocation{
+				URI: uri,
+			},
+			Region: Region{
+				StartLine:   f.StartLine,
+				EndLine:     f.EndLine,
+				StartColumn: f.StartColumn,
+				EndColumn:   f.EndColumn,
+				Snippet: Snippet{
+					Text: f.Secret,
 				},
 			},
 		},
 	}
+	if f.MatchContext != "" {
+		loc.PhysicalLocation.ContextRegion = &ContextRegion{
+			Snippet: Snippet{
+				Text: f.MatchContext,
+			},
+		}
+	}
+	return []Locations{loc}
 }
 
 type PartialFingerPrints struct {
@@ -190,9 +196,14 @@ type Snippet struct {
 	Text string `json:"text"`
 }
 
+type ContextRegion struct {
+	Snippet Snippet `json:"snippet"`
+}
+
 type PhysicalLocation struct {
 	ArtifactLocation ArtifactLocation `json:"artifactLocation"`
 	Region           Region           `json:"region"`
+	ContextRegion    *ContextRegion   `json:"contextRegion,omitempty"`
 }
 
 type Locations struct {

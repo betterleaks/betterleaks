@@ -97,6 +97,7 @@ func (f *Finding) Redact(percent uint) {
 	}
 	f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
 	f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
+	f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
 	f.Secret = secret
 }
 
