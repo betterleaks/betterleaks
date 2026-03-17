@@ -162,8 +162,12 @@ func extractBoxContext(raw string, matchIndex []int, spec MatchContextSpec) stri
 
 	extracted := raw[ctxStart:ctxEnd]
 
-	// Box mode: apply column clipping to each line around the match column
-	if spec.ColsBefore > 0 || spec.ColsAfter > 0 {
+	// Box mode: apply column clipping to each line around the match column.
+	// Column clipping only makes sense for single-line matches; when the match
+	// spans multiple lines the first-line column offset is meaningless for
+	// subsequent lines, so we skip clipping entirely.
+	multiLine := strings.ContainsRune(raw[matchStart:matchEnd], '\n')
+	if !multiLine && (spec.ColsBefore > 0 || spec.ColsAfter > 0) {
 		matchCol := matchStart - lineStart
 		matchLen := matchEnd - matchStart
 		clipStart := max(matchCol-spec.ColsBefore, 0)

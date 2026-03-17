@@ -157,6 +157,38 @@ L19|tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
 	}
 }
 
+func TestExtractContextMultiLineMatch(t *testing.T) {
+	// Multi-line match: column clipping should be skipped to avoid
+	// corrupting the match on subsequent lines where the column offset
+	// from the first line doesn't apply.
+	raw := "aaa\nbbbSECRET_START\nSECRET_ENDccc\nddd"
+	matchStart := strings.Index(raw, "SECRET_START")
+	matchEnd := strings.Index(raw, "SECRET_END") + len("SECRET_END")
+	matchIdx := []int{matchStart, matchEnd}
+
+	tests := []struct {
+		name string
+		spec MatchContextSpec
+		want string
+	}{
+		{
+			name: "Box: multi-line match skips col clipping",
+			spec: MatchContextSpec{Mode: ContextModeBox, LinesBefore: 1, LinesAfter: 1, ColsBefore: 2, ColsAfter: 2},
+			// All 4 lines returned unclipped because the match spans lines.
+			want: "aaa\nbbbSECRET_START\nSECRET_ENDccc\nddd",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractContext(raw, matchIdx, tt.spec)
+			if got != tt.want {
+				t.Errorf("extractContext()\ngot:  %q\nwant: %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractContextVaryingLineLengths(t *testing.T) {
 	// Short lines mixed with long lines.
 	// Tests that box mode column clipping shows short lines in full
