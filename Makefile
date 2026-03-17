@@ -34,3 +34,7 @@ profile: build
 
 config/betterleaks.toml: $(wildcard cmd/generate/config/**/*)
 	go generate ./...
+
+betterleaks: config format
+	# go build -o betterleaks cmd/betterleaks/main.go
+	go build -tags gore2regex $(LDFLAGS) -o betterleaks cmd/betterleaks/main.go

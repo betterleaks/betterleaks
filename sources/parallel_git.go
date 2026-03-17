@@ -13,6 +13,7 @@ import (
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 )
@@ -41,7 +42,7 @@ func (s *ParallelGit) workers() int {
 
 // Fragments implements Source by partitioning commits across
 // multiple parallel git log workers.
-func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *ParallelGit) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) error {
 	commits, err := listCommits(ctx, s.RepoPath, s.LogOpts)
 	if err != nil {
 		return fmt.Errorf("list commits: %w", err)
@@ -79,7 +80,7 @@ func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error 
 
 // runSingleWorker runs a full git log (no partitioning) for small repos or
 // single-worker mode.
-func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) error {
+func (s *ParallelGit) runSingleWorker(ctx context.Context, yield betterleaks.FragmentsFunc) error {
 	gitCmd, err := newGitLogCmd(ctx, s.RepoPath, s.LogOpts)
 	if err != nil {
 		return err
@@ -98,7 +99,7 @@ func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) 
 
 // runWorkerCommits runs a git log process for a specific set of commit SHAs,
 // piped via stdin with --no-walk.
-func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield FragmentsFunc, commits []string) error {
+func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield betterleaks.FragmentsFunc, commits []string) error {
 	gitCmd, err := newGitLogCommitsCmd(ctx, s.RepoPath, commits)
 	if err != nil {
 		return err

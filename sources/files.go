@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/fatih/semgroup"
@@ -112,7 +113,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 }
 
 // Fragments yields fragments from files discovered under the path
-func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *Files) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) error {
 	var wg sync.WaitGroup
 
 	err := s.scanTargets(ctx, func(scanTarget ScanTarget, err error) error {

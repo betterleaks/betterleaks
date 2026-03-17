@@ -15,9 +15,12 @@ import (
 	"github.com/mholt/archives"
 	"github.com/rs/zerolog"
 
+	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 )
+
+const Content betterleaks.ResourceKind = "file_content"
 
 const defaultBufferSize = 100 * 1_000 // 100kb
 const InnerPathSeparator = "!"
@@ -85,7 +88,7 @@ type File struct {
 }
 
 // Fragments yields fragments for the this source
-func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *File) Fragments(ctx context.Context, yield betterleaks.FragmentsFunc) error {
 	var err error
 	var format archives.Format
 	stream := s.Content
@@ -140,7 +143,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 }
 
 // extractorFragments recursively crawls archives and yields fragments
-func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield FragmentsFunc) error {
+func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield betterleaks.FragmentsFunc) error {
 	if _, isSeekReaderAt := reader.(seekReaderAt); !isSeekReaderAt {
 		switch extractor.(type) {
 		case archives.SevenZip, archives.Zip:
@@ -200,7 +203,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 }
 
 // decompressorFragments recursively crawls archives and yields fragments
-func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) error {
+func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield betterleaks.FragmentsFunc) error {
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
 		logging.Error().Str("path", s.FullPath()).Msg("could read compressed file")
@@ -219,7 +222,7 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 }
 
 // fileFragments reads the file into fragments to yield
-func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield FragmentsFunc) error {
+func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield betterleaks.FragmentsFunc) error {
 	// Use a pooled buffer if the caller hasn't provided one.
 	if s.Buffer == nil {
 		s.Buffer = getBuffer()
@@ -235,9 +238,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			fragment := Fragment{
-				FilePath: s.FullPath(),
-			}
+			fragment := betterleaks.Fragment{}
 
 			n, err := reader.Read(s.Buffer)
 			if n == 0 {
@@ -282,14 +283,24 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 			// Count the number of newlines in this chunk
 			totalLines += strings.Count(fragment.Raw, "\n")
 
+			meta := map[string]string{
+				betterleaks.MetaPath: fragment.Path,
+			}
 			if len(s.Symlink) > 0 {
-				fragment.SymlinkFile = s.Symlink
+				meta[betterleaks.MetaSymlinkFile] = s.Symlink
+			}
+			if isWindows {
+				fragment.Path = filepath.ToSlash(fragment.Path)
+				if len(s.Symlink) > 0 {
+					meta[betterleaks.MetaSymlinkFile] = filepath.ToSlash(s.Symlink)
+				}
+				meta[betterleaks.MetaWindowsFilePath] = s.FullPath()
 			}
 
-			if isWindows {
-				fragment.FilePath = filepath.ToSlash(fragment.FilePath)
-				fragment.SymlinkFile = filepath.ToSlash(s.Symlink)
-				fragment.WindowsFilePath = s.FullPath()
+			fragment.Resource = &betterleaks.Resource{
+				Path:     fragment.Path,
+				Kind:     Content,
+				Metadata: meta,
 			}
 
 			// log errors but continue since there's content

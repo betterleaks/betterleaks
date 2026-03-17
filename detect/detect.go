@@ -13,6 +13,7 @@ import (
 	"github.com/pkoukk/tiktoken-go"
 	tiktoken_loader "github.com/pkoukk/tiktoken-go-loader"
 
+	"github.com/betterleaks/betterleaks"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/logging"
@@ -325,23 +326,8 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 		}
 	}()
 
-	err := source.Fragments(ctx, func(fragment sources.Fragment, err error) error {
+	err := source.Fragments(ctx, func(fragment betterleaks.Fragment, err error) error {
 		logContext := logging.With()
-
-		if len(fragment.FilePath) > 0 {
-			logContext = logContext.Str("path", fragment.FilePath)
-		}
-
-		if len(fragment.CommitSHA) > 6 {
-			logContext = logContext.Str("commit", fragment.CommitSHA[:7])
-			d.addCommit(fragment.CommitSHA)
-		} else if len(fragment.CommitSHA) > 0 {
-			logContext = logContext.Str("commit", fragment.CommitSHA)
-			d.addCommit(fragment.CommitSHA)
-			logger := logContext.Logger()
-			logger.Warn().Msg("commit SHAs should be >= 7 characters long")
-		}
-
 		logger := logContext.Logger()
 
 		if err != nil {
@@ -352,7 +338,7 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 
 		// both the fragment's content and path should be empty for it to be
 		// considered empty at this point because of path based matches
-		if len(fragment.Raw) == 0 && len(fragment.FilePath) == 0 {
+		if len(fragment.Raw) == 0 && len(fragment.Resource.Get(betterleaks.MetaPath)) == 0 {
 			logger.Trace().Msg("skipping empty fragment")
 			return nil
 		}
@@ -401,13 +387,13 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 // Detect scans the given fragment and returns a list of findings
 //
 // Deprecated: use DetectContext instead.
-func (d *Detector) Detect(fragment sources.Fragment) []report.Finding {
+func (d *Detector) Detect(fragment betterleaks.Fragment) []report.Finding {
 	return d.DetectContext(context.Background(), fragment)
 }
 
 // DetectContext is the same as Detect but supports passing in a
 // context to use for timeouts
-func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment) []report.Finding {
+func (d *Detector) DetectContext(ctx context.Context, fragment betterleaks.Fragment) []report.Finding {
 	if fragment.Bytes == nil {
 		d.TotalBytes.Add(uint64(len(fragment.Raw)))
 	}
@@ -416,18 +402,19 @@ func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment)
 	var (
 		findings []report.Finding
 		logger   = func() zerolog.Logger {
-			l := logging.With().Str("path", fragment.FilePath)
-			if fragment.CommitSHA != "" {
-				l = l.Str("commit", fragment.CommitSHA)
+			l := logging.With().Str("path", fragment.Resource.Get(betterleaks.MetaPath))
+			if fragment.Resource.Get(betterleaks.MetaCommitSHA) != "" {
+				l = l.Str("commit", fragment.Resource.Get(betterleaks.MetaCommitSHA))
 			}
 			return l.Logger()
 		}()
 	)
 
 	// check if filepath is allowed
-	if fragment.FilePath != "" {
+	if fragment.Resource.Get(betterleaks.MetaPath) != "" {
 		// is the path our config or baseline file?
-		if fragment.FilePath == d.Config.Path || (d.baselinePath != "" && fragment.FilePath == d.baselinePath) {
+		if fragment.Resource.Get(betterleaks.MetaPath) == d.Config.Path || (d.baselinePath != "" &&
+			fragment.Resource.Get(betterleaks.MetaPath) == d.baselinePath) {
 			logging.Trace().Msg("skipping file: matches config or baseline path")
 			return findings
 		}
@@ -1014,10 +1001,10 @@ func (d *Detector) addCommit(commit string) {
 // Otherwise, if regexes or stopwords are defined this will fail.
 func checkCommitOrPathAllowed(
 	logger zerolog.Logger,
-	fragment sources.Fragment,
+	fragment betterleaks.Fragment,
 	allowlists []*config.Allowlist,
 ) (bool, *zerolog.Event) {
-	if fragment.FilePath == "" && fragment.CommitSHA == "" {
+	if fragment.Resource.Get(betterleaks.MetaPath) == "" && fragment.Resource.Get(betterleaks.MetaCommitSHA) == "" {
 		return false, nil
 	}
 
@@ -1025,8 +1012,8 @@ func checkCommitOrPathAllowed(
 		var (
 			isAllowed        bool
 			allowlistChecks  []bool
-			commitAllowed, _ = a.CommitAllowed(fragment.CommitSHA)
-			pathAllowed      = a.PathAllowed(fragment.FilePath) || (fragment.WindowsFilePath != "" && a.PathAllowed(fragment.WindowsFilePath))
+			commitAllowed, _ = a.CommitAllowed(fragment.Resource.Get(betterleaks.MetaCommitSHA))
+			pathAllowed      = a.PathAllowed(fragment.Resource.Get(betterleaks.MetaPath)) || (fragment.Resource.Get(betterleaks.MetaWindowsFilePath) != "" && a.PathAllowed(fragment.Resource.Get(betterleaks.MetaWindowsFilePath)))
 		)
 		// If the condition is "AND" we need to check all conditions.
 		if a.MatchCondition == config.AllowlistMatchAnd {
@@ -1097,11 +1084,11 @@ func checkFindingAllowed(
 		if a.MatchCondition == config.AllowlistMatchAnd {
 			// Determine applicable checks.
 			if len(a.Commits) > 0 {
-				commitAllowed, commit = a.CommitAllowed(fragment.CommitSHA)
+				commitAllowed, commit = a.CommitAllowed(fragment.Resource.Get(betterleaks.MetaCommitSHA))
 				checks = append(checks, commitAllowed)
 			}
 			if len(a.Paths) > 0 {
-				pathAllowed = a.PathAllowed(fragment.FilePath) || (fragment.WindowsFilePath != "" && a.PathAllowed(fragment.WindowsFilePath))
+				pathAllowed = a.PathAllowed(fragment.Resource.Get(betterleaks.MetaPath)) || (fragment.Resource.Get(betterleaks.MetaWindowsFilePath) != "" && a.PathAllowed(fragment.Resource.Get(betterleaks.MetaWindowsFilePath)))
 				checks = append(checks, pathAllowed)
 			}
 			if len(a.Regexes) > 0 {

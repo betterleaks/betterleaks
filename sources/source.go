@@ -1,16 +1,9 @@
 package sources
 
 import (
-	"context"
+	"github.com/betterleaks/betterleaks"
 )
 
-// FragmentsFunc is the type of function called by Fragments to yield the next
-// fragment
-type FragmentsFunc func(fragment Fragment, err error) error
-
-// Source is a thing that can yield fragments
-type Source interface {
-	// Fragments provides a filepath.WalkDir like interface for scanning the
-	// fragments in the source
-	Fragments(ctx context.Context, yield FragmentsFunc) error
-}
+// type aliases to avoid circular imports between betterleaks and sources
+type FragmentsFunc betterleaks.FragmentsFunc
+type Source betterleaks.Source
