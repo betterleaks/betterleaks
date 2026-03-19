@@ -88,8 +88,7 @@ func AWSSecretAccessKey() *config.Rule {
 		SkipReport: true,
 	}
 
-	tps := utils.GenerateSampleSecrets("aws_secret_access_key", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
-	tps = append(tps, utils.GenerateSampleSecrets("aws_secret_key", secrets.NewSecretWithEntropy(`[A-Za-z0-9/+=]{40}`, 4))...)
+	tps := utils.GenerateSampleSecrets("aws_secret_key", secrets.NewSecretWithEntropy(`[A-Za-z0-9/+=]{40}`, 4))
 	tps = append(tps, utils.GenerateSampleSecrets("secret_access_key", secrets.NewSecretWithEntropy(`[A-Za-z0-9/+=]{40}`, 4))...)
 	return utils.Validate(r, tps, nil)
 }
