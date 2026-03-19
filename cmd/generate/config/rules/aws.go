@@ -77,12 +77,12 @@ func AWSSecretAccessKey() *config.Rule {
 		RuleID:      "aws-secret-access-key",
 		Description: "Identified an AWS secret access key, used as a component of the aws-access-token composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
-			[]string{"aws_secret_access_key", "aws_secret_key", "secret_access_key"},
+			[]string{"secret", "access", "key", "token"},
 			`[A-Za-z0-9/+=]{40}`,
 			false,
 		),
 		Entropy:  4,
-		Keywords: []string{"aws_secret_access_key", "aws_secret_key", "secret_access_key"},
+		Keywords: []string{"secret", "access", "key", "token"},
 		// SkipReport suppresses standalone secret-key findings; the key is
 		// always surfaced as a required component of the aws-access-token finding.
 		SkipReport: true,
