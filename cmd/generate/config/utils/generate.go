@@ -161,7 +161,6 @@ func GenerateSampleSecrets(identifier string, secret string) []string {
 	return cases
 }
 
-// so dumb
-func IntPtr(i int) *int {
-	return &i
+func Ptr[T any](v T) *T {
+	return &v
 }

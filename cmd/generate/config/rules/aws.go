@@ -25,7 +25,7 @@ func AWS() *config.Rule {
 		RequiredRules: []*config.Required{
 			{
 				RuleID:      "aws-secret-access-key",
-				WithinLines: utils.IntPtr(5),
+				WithinLines: utils.Ptr(5),
 			},
 		},
 		ValidateCEL: `cel.bind(r,

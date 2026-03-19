@@ -152,6 +152,7 @@ func callSTS(e *Environment, endpoint, accessKeyID, secretAccessKey string, now 
 		} else {
 			// If it's not valid XML, it might be an HTML error from a WAF or Proxy
 			result["error_message"] = "Non-XML error response received"
+			result["error_code"] = ""
 		}
 	}
 	return result
