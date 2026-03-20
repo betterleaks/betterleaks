@@ -11,10 +11,9 @@ import (
 
 // validationJob is the internal unit of work for the pool.
 type validationJob struct {
-	finding          report.Finding
-	program          cel.Program
-	captures         map[string]string
-	requiredFindings []*report.RequiredFinding
+	finding  report.Finding
+	program  cel.Program
+	captures map[string]string
 }
 
 // Pool manages a set of workers that validate findings asynchronously.
@@ -50,17 +49,12 @@ func NewPool(workers int, env *celenv.Environment) *Pool {
 	return p
 }
 
-// Submit queues a job for validation.
-// requiredFindings should be nil for simple (non-composite) rules, or the slice
-// of required components for composite rules. The worker expands and deduplicates
-// combos internally, annotates each RequiredFinding with its per-component
-// ValidationStatus, and emits exactly one enriched finding.
-func (p *Pool) Submit(finding report.Finding, program cel.Program, captures map[string]string, requiredFindings []*report.RequiredFinding) {
+// Submit queues a job for validation. RequiredSets (if any) are already on the finding.
+func (p *Pool) Submit(finding report.Finding, program cel.Program, captures map[string]string) {
 	p.jobs <- validationJob{
-		finding:          finding,
-		program:          program,
-		captures:         captures,
-		requiredFindings: requiredFindings,
+		finding:  finding,
+		program:  program,
+		captures: captures,
 	}
 }
 
@@ -81,7 +75,7 @@ func (p *Pool) worker() {
 	for job := range p.jobs {
 		f := job.finding
 
-		if len(job.requiredFindings) == 0 {
+		if len(f.RequiredSets) == 0 {
 			// Simple path: no required components, validate the secret with its own captures.
 			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, job.captures)
 			if err != nil {
@@ -98,40 +92,31 @@ func (p *Pool) worker() {
 			continue
 		}
 
-		// Composite path: expand required findings into combos, validate each unique
-		// combo (deduplicated by cache key), annotate per-component ValidationStatus,
-		// roll up to a single finding-level status, emit ONE finding.
-		combos := ExpandRequired(job.requiredFindings)
-
-		// Build a set of valid ruleIDs so we can skip capture-group entries
-		// ("ruleID:captureName" keys) when annotating components.
-		ruleIDSet := make(map[string]struct{}, len(job.requiredFindings))
-		for _, req := range job.requiredFindings {
-			ruleIDSet[req.RuleID] = struct{}{}
-		}
-
-		// Maps (ruleID, secret) → best status seen across all combos using that secret.
-		type ruleSecret struct{ ruleID, secret string }
-		bestByComponent := make(map[ruleSecret]string)
-
-		// comboResults deduplicates combos that hash to the same cache key
-		// (e.g. 4 copies of the same access key produce 4 identical combos).
-		comboResults := make(map[string]*Result, len(combos))
+		// Composite path: iterate pre-built required sets on the finding, validate
+		// each, write per-set status, and roll up to a finding-level status.
+		setResults := make(map[string]*Result, len(f.RequiredSets))
 		var (
 			overallStatus string
 			bestResult    *Result
 		)
 
-		for _, combo := range combos {
-			merged := make(map[string]string, len(job.captures)+len(combo))
+		for i := range f.RequiredSets {
+			set := &f.RequiredSets[i]
+
+			// Build merged captures from the set's components.
+			merged := make(map[string]string, len(job.captures)+len(set.Components)*2)
 			maps.Copy(merged, job.captures)
-			maps.Copy(merged, combo)
+			for _, comp := range set.Components {
+				merged[comp.RuleID] = comp.Secret
+				for name, val := range comp.CaptureGroups {
+					merged[comp.RuleID+":"+name] = val
+				}
+			}
 
 			cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, merged)
 
 			var result *Result
-			if r, seen := comboResults[cacheKey]; seen {
-				// Identical combo already evaluated — reuse the result.
+			if r, seen := setResults[cacheKey]; seen {
 				result = r
 			} else {
 				var err error
@@ -139,31 +124,18 @@ func (p *Pool) worker() {
 				if err != nil {
 					result = &Result{Status: "error", Reason: err.Error(), Metadata: map[string]any{}}
 				}
-				comboResults[cacheKey] = result
+				setResults[cacheKey] = result
 			}
+
+			// Write status onto this set.
+			set.ValidationStatus = result.Status
+			set.ValidationReason = result.Reason
 
 			// Roll up finding-level status: pick the best (highest-priority) result.
 			newStatus := BetterStatus(overallStatus, result.Status)
 			if newStatus != overallStatus || bestResult == nil {
 				overallStatus = newStatus
 				bestResult = result
-			}
-
-			// Annotate each plain ruleID component in this combo.
-			for ruleID, secret := range combo {
-				if _, isRuleID := ruleIDSet[ruleID]; !isRuleID {
-					continue // skip "ruleID:captureName" entries
-				}
-				rs := ruleSecret{ruleID, secret}
-				bestByComponent[rs] = BetterStatus(bestByComponent[rs], result.Status)
-			}
-		}
-
-		// Write per-component status back to each RequiredFinding.
-		for _, req := range job.requiredFindings {
-			rs := ruleSecret{req.RuleID, req.Secret}
-			if status, ok := bestByComponent[rs]; ok {
-				req.ValidationStatus = status
 			}
 		}
 

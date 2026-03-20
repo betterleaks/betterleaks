@@ -177,8 +177,10 @@ func filter(findings []report.Finding, redact uint) []report.Finding {
 	// standalone duplicates that are already surfaced as components.
 	requiredSet := make(map[string]struct{})
 	for _, f := range findings {
-		for _, rf := range f.RequiredFindings() {
-			requiredSet[fmt.Sprintf("%d:%s", rf.StartLine, rf.Secret)] = struct{}{}
+		for _, set := range f.RequiredSets {
+			for _, comp := range set.Components {
+				requiredSet[fmt.Sprintf("%d:%s", comp.StartLine, comp.Secret)] = struct{}{}
+			}
 		}
 	}
 

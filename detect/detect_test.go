@@ -121,7 +121,7 @@ func compare(t *testing.T, a, b []report.Finding) {
 			return a.Secret < b.Secret
 		}),
 		cmpopts.IgnoreFields(report.Finding{},
-			"Fingerprint", "Author", "Email", "Date", "Message", "Commit", "requiredFindings"),
+			"Fingerprint", "Author", "Email", "Date", "Message", "Commit", "RequiredSets"),
 		cmpopts.EquateApprox(0.0001, 0), // For floating point Entropy comparison
 	); diff != "" {
 		t.Errorf("findings mismatch (-want +got):\n%s", diff)
@@ -528,7 +528,7 @@ const token = "mockSecret";
 					Tags:        []string{},
 				},
 			},
-			expectedAuxOutput: "Required:    username-rule:1:admin\n",
+			expectedAuxOutput: "Required:\n  - username-rule:1: admin\n",
 		},
 		// Decoding
 		"detect encoded": {

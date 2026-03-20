@@ -56,12 +56,22 @@ type Finding struct {
 	// and eventually ML validation
 	Fragment *sources.Fragment `json:",omitempty"`
 
-	// TODO keeping private for now to during experimental phase
-	requiredFindings []*RequiredFinding
+	// RequiredSets holds the Cartesian-product combinations of required findings.
+	// Each set is one complete group of components that can be validated independently.
+	RequiredSets []RequiredSet `json:",omitempty"`
 
 	ValidationStatus string         `json:",omitempty"`
 	ValidationReason string         `json:",omitempty"`
 	ValidationMeta   map[string]any `json:",omitempty"`
+}
+
+// RequiredSet represents one combination of required findings (one element per
+// required rule) from the Cartesian product. Each set can be validated
+// independently and carries its own validation result.
+type RequiredSet struct {
+	Components       []*RequiredFinding `json:"components"`
+	ValidationStatus string             `json:"validationStatus,omitempty"`
+	ValidationReason string             `json:"validationReason,omitempty"`
 }
 
 type RequiredFinding struct {
@@ -79,15 +89,64 @@ type RequiredFinding struct {
 	ValidationStatus string            `json:",omitempty"`
 }
 
-func (f *Finding) RequiredFindings() []*RequiredFinding {
-	return f.requiredFindings
+// BuildRequiredSets generates the Cartesian product of the given required findings
+// grouped by RuleID and populates f.RequiredSets. maxRequiredSets caps the total number of
+// combos to prevent excessive memory use.
+func (f *Finding) BuildRequiredSets(requiredFindings []*RequiredFinding, maxRequiredSets int) {
+	if len(requiredFindings) == 0 {
+		f.RequiredSets = nil
+		return
+	}
+
+	// Group by RuleID, preserving first-occurrence order.
+	var ruleOrder []string
+	byRule := make(map[string][]*RequiredFinding)
+	for _, rf := range requiredFindings {
+		if _, exists := byRule[rf.RuleID]; !exists {
+			ruleOrder = append(ruleOrder, rf.RuleID)
+		}
+		byRule[rf.RuleID] = append(byRule[rf.RuleID], rf)
+	}
+
+	products := cartesianFindings(ruleOrder, byRule, maxRequiredSets)
+	f.RequiredSets = make([]RequiredSet, len(products))
+	for i, components := range products {
+		f.RequiredSets[i] = RequiredSet{Components: components}
+	}
 }
 
-func (f *Finding) AddRequiredFindings(afs []*RequiredFinding) {
-	if f.requiredFindings == nil {
-		f.requiredFindings = make([]*RequiredFinding, 0)
+// cartesianFindings computes the Cartesian product over RequiredFinding slices
+// keyed by ruleOrder. It stops early once maxRequiredSets is reached.
+func cartesianFindings(ruleOrder []string, byRule map[string][]*RequiredFinding, maxRequiredSets int) [][]*RequiredFinding {
+	if len(ruleOrder) == 0 {
+		return [][]*RequiredFinding{{}}
 	}
-	f.requiredFindings = append(f.requiredFindings, afs...)
+
+	head := ruleOrder[0]
+	rest := cartesianFindings(ruleOrder[1:], byRule, maxRequiredSets)
+
+	var result []*[]*RequiredFinding
+	for _, rf := range byRule[head] {
+		for _, tail := range rest {
+			row := make([]*RequiredFinding, 0, len(tail)+1)
+			row = append(row, rf)
+			row = append(row, tail...)
+			result = append(result, &row)
+			if len(result) >= maxRequiredSets {
+				out := make([][]*RequiredFinding, len(result))
+				for i, p := range result {
+					out[i] = *p
+				}
+				return out
+			}
+		}
+	}
+
+	out := make([][]*RequiredFinding, len(result))
+	for i, p := range result {
+		out[i] = *p
+	}
+	return out
 }
 
 // Redact removes sensitive information from a finding.
@@ -100,6 +159,17 @@ func (f *Finding) Redact(percent uint) {
 	f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
 	f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
 	f.Secret = secret
+
+	for _, set := range f.RequiredSets {
+		for _, comp := range set.Components {
+			compSecret := maskSecret(comp.Secret, percent)
+			if percent >= 100 {
+				compSecret = "REDACTED"
+			}
+			comp.Match = strings.ReplaceAll(comp.Match, comp.Secret, compSecret)
+			comp.Secret = compSecret
+		}
+	}
 }
 
 func maskSecret(secret string, percent uint) string {
@@ -117,51 +187,79 @@ func maskSecret(secret string, percent uint) string {
 }
 
 func (f *Finding) PrintRequiredFindings(noColor bool) {
-	if len(f.requiredFindings) == 0 {
+	if len(f.RequiredSets) == 0 {
 		return
 	}
 
-	fmt.Printf("%-12s ", "Required:")
+	fmt.Println("Required:")
 
-	// Style for secret values
 	orangeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#bf9478"))
 	if noColor {
 		orangeStyle = lipgloss.NewStyle()
 	}
 
-	for i, aux := range f.requiredFindings {
-		auxSecret := strings.TrimSpace(aux.Secret)
-		// Truncate long secrets for readability
-		if len(auxSecret) > 40 {
-			auxSecret = auxSecret[:37] + "..."
+	for _, set := range f.RequiredSets {
+		statusSuffix := ""
+		if set.ValidationStatus != "" {
+			statusSuffix = " " + formatSetStatus(set.ValidationStatus, noColor)
 		}
 
-		// Build per-component status annotation.
-		statusAnnotation := ""
-		if aux.ValidationStatus != "" {
-			var statusStyle lipgloss.Style
-			if !noColor {
-				switch aux.ValidationStatus {
-				case "valid":
-					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00d26a"))
-				case "invalid":
-					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-				case "revoked":
-					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#f5d445"))
-				default:
-					statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#c0c0c0"))
-				}
-			} else {
-				statusStyle = lipgloss.NewStyle()
-			}
-			statusAnnotation = " " + statusStyle.Render("("+strings.ToUpper(aux.ValidationStatus)+" component)")
+		if len(set.Components) == 1 {
+			// Single-component set: inline on the bullet line.
+			comp := set.Components[0]
+			secret := truncateSecret(comp.Secret)
+			fmt.Printf("  - %s:%d: %s%s\n", comp.RuleID, comp.StartLine, orangeStyle.Render(secret), statusSuffix)
+			continue
 		}
 
-		// Format: rule-id:line:secret (STATUS component)
-		if i == 0 {
-			fmt.Printf("%s:%d:%s%s\n", aux.RuleID, aux.StartLine, orangeStyle.Render(auxSecret), statusAnnotation)
+		// Multi-component set: status on the bullet, components indented below.
+		if statusSuffix != "" {
+			fmt.Printf("  - %s\n", formatSetStatus(set.ValidationStatus, noColor))
 		} else {
-			fmt.Printf("%-12s %s:%d:%s%s\n", "", aux.RuleID, aux.StartLine, orangeStyle.Render(auxSecret), statusAnnotation)
+			fmt.Println("  -")
+		}
+
+		maxLabelLen := 0
+		for _, comp := range set.Components {
+			label := fmt.Sprintf("%s:%d:", comp.RuleID, comp.StartLine)
+			if len(label) > maxLabelLen {
+				maxLabelLen = len(label)
+			}
+		}
+
+		for _, comp := range set.Components {
+			secret := truncateSecret(comp.Secret)
+			label := fmt.Sprintf("%s:%d:", comp.RuleID, comp.StartLine)
+			fmt.Printf("    %-*s %s\n", maxLabelLen, label, orangeStyle.Render(secret))
 		}
 	}
+}
+
+func truncateSecret(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 40 {
+		return s[:37] + "..."
+	}
+	return s
+}
+
+// formatSetStatus returns a styled status string for a required set header.
+func formatSetStatus(status string, noColor bool) string {
+	if noColor {
+		return "[" + strings.ToUpper(status) + "]"
+	}
+	var style lipgloss.Style
+	switch status {
+	case "valid":
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#00d26a"))
+	case "invalid":
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	case "revoked":
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#f5d445"))
+	case "error":
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#f05c07"))
+	default:
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#c0c0c0"))
+	}
+	return style.Render("[" + strings.ToUpper(status) + "]")
 }

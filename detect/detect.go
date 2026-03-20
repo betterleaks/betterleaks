@@ -835,7 +835,7 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		if len(requiredFindings) > 0 && d.hasAllRequiredRules(requiredFindings, r.RequiredRules) {
 			// Create a finding with auxiliary findings
 			newFinding := primaryFinding // Copy the primary finding
-			newFinding.AddRequiredFindings(requiredFindings)
+			newFinding.BuildRequiredSets(requiredFindings, 100)
 			finalFindings = append(finalFindings, newFinding)
 
 			logger.Debug().
@@ -946,10 +946,9 @@ func (d *Detector) AddFinding(finding report.Finding) {
 }
 
 // submitValidation submits a finding to the validation pool.
-// Required findings are passed through so the pool can expand combos,
-// annotate per-component status, and emit a single deduplicated result.
+// RequiredSets are already populated on the finding.
 func (d *Detector) submitValidation(finding report.Finding, rule config.Rule) {
-	d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups, finding.RequiredFindings())
+	d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups)
 }
 
 // Findings returns the findings added to the detector
