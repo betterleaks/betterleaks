@@ -172,7 +172,7 @@ func shannonEntropy(data string) (entropy float64) {
 }
 
 // filter will dedupe and redact findings
-func filter(findings []report.Finding, redact uint) []report.Finding {
+func filter(findings []report.Finding) []report.Finding {
 	// Collect every required finding's (line, secret) so we can suppress
 	// standalone duplicates that are already surfaced as components.
 	requiredSet := make(map[string]struct{})
@@ -211,9 +211,6 @@ func filter(findings []report.Finding, redact uint) []report.Finding {
 			}
 		}
 
-		if redact > 0 {
-			f.Redact(redact)
-		}
 		if include {
 			retFindings = append(retFindings, f)
 		}
@@ -252,7 +249,21 @@ func formatMatchContext(context string, match string, secret string, noColor boo
 	return strings.Join(lines, "\n")
 }
 
-func printFinding(f report.Finding, noColor bool) {
+func printFinding(f report.Finding, noColor bool, redact uint) {
+	if redact > 0 {
+		// Redact top-level fields only (f is a value copy so this is safe).
+		// RequiredSets share pointers with the original finding stored in
+		// d.findings, so we must not mutate them here — they are redacted
+		// separately for display by PrintRequiredFindings.
+		secret := report.MaskSecret(f.Secret, redact)
+		if redact >= 100 {
+			secret = "REDACTED"
+		}
+		f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
+		f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
+		f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
+		f.Secret = secret
+	}
 	// trim all whitespace and tabs
 	f.Line = strings.TrimSpace(f.Line)
 	f.Secret = strings.TrimSpace(f.Secret)
@@ -329,7 +340,7 @@ func printFinding(f report.Finding, noColor bool) {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 		}
 		printValidation(f, noColor)
-		f.PrintRequiredFindings(noColor)
+		f.PrintRequiredFindings(noColor, redact)
 		fmt.Println("")
 		return
 	}
@@ -344,7 +355,7 @@ func printFinding(f report.Finding, noColor bool) {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 		}
 		printValidation(f, noColor)
-		f.PrintRequiredFindings(noColor)
+		f.PrintRequiredFindings(noColor, redact)
 		fmt.Println("")
 		return
 	}
@@ -361,7 +372,7 @@ func printFinding(f report.Finding, noColor bool) {
 		fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 	}
 	printValidation(f, noColor)
-	f.PrintRequiredFindings(noColor)
+	f.PrintRequiredFindings(noColor, redact)
 	fmt.Println("")
 }
 

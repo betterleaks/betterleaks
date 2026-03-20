@@ -38,6 +38,10 @@ const (
 	// SlowWarningThreshold is the amount of time to wait before logging that a file is slow.
 	// This is useful for identifying problematic files and tuning the allowlist.
 	SlowWarningThreshold = 5 * time.Second
+
+	// maxRequiredSets caps the Cartesian product of required-finding combinations
+	// to prevent excessive memory use with large multi-part rules.
+	maxRequiredSets = 100
 )
 
 // lowercaseBufPool provides reusable byte buffers for lowercasing strings
@@ -320,7 +324,7 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 				d.ValidationCounts[f.ValidationStatus]++
 			}
 			if d.shouldVerbosePrint(f) {
-				printFinding(f, d.NoColor)
+				printFinding(f, d.NoColor, d.Redact)
 			}
 		}
 	}()
@@ -501,7 +505,7 @@ ScanLoop:
 		}
 	}
 
-	return filter(findings, d.Redact)
+	return filter(findings)
 }
 
 // detectRule scans the given fragment for the given rule and returns a list of findings
@@ -835,7 +839,7 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		if len(requiredFindings) > 0 && d.hasAllRequiredRules(requiredFindings, r.RequiredRules) {
 			// Create a finding with auxiliary findings
 			newFinding := primaryFinding // Copy the primary finding
-			newFinding.BuildRequiredSets(requiredFindings, 100)
+			newFinding.BuildRequiredSets(requiredFindings, maxRequiredSets)
 			finalFindings = append(finalFindings, newFinding)
 
 			logger.Debug().
@@ -951,8 +955,13 @@ func (d *Detector) submitValidation(finding report.Finding, rule config.Rule) {
 	d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups)
 }
 
-// Findings returns the findings added to the detector
+// Findings returns the findings added to the detector, applying redaction if configured.
 func (d *Detector) Findings() []report.Finding {
+	if d.Redact > 0 {
+		for i := range d.findings {
+			d.findings[i].Redact(d.Redact)
+		}
+	}
 	return d.findings
 }
 

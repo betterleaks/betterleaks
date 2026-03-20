@@ -851,7 +851,7 @@ const token = "mockSecret";
 			if tt.expectedAuxOutput != "" {
 				capturedOutput := captureStdout(func() {
 					for _, finding := range findings {
-						finding.PrintRequiredFindings(false)
+						finding.PrintRequiredFindings(false, 0)
 					}
 				})
 

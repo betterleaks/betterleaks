@@ -52,6 +52,24 @@ func TestRedact_RequiredSets(t *testing.T) {
 	assert.Equal(t, "match REDACTED here", f.RequiredSets[0].Components[1].Match)
 }
 
+func TestRedact_SharedPointerDedup(t *testing.T) {
+	// When the same RequiredFinding pointer appears in multiple sets (Cartesian product),
+	// partial redaction (percent < 100) must only mask the secret once.
+	shared := &RequiredFinding{RuleID: "rule-a", Secret: "abcdefghij", Match: "found abcdefghij here"}
+	f := Finding{
+		Match:  "primary",
+		Secret: "primary",
+		RequiredSets: []RequiredSet{
+			{Components: []*RequiredFinding{shared}},
+			{Components: []*RequiredFinding{shared}},
+		},
+	}
+	f.Redact(75)
+	// 75% mask on 10-char secret: RoundToEven(10 * 25/100) = 2 chars kept → "ab..."
+	assert.Equal(t, "ab...", shared.Secret)
+	assert.Equal(t, "found ab... here", shared.Match)
+}
+
 func TestMask(t *testing.T) {
 
 	tests := map[string]struct {
@@ -100,7 +118,7 @@ func TestMaskSecret(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := maskSecret(test.secret, test.percent)
+			got := MaskSecret(test.secret, test.percent)
 			assert.Equal(t, test.expect, got)
 		})
 	}

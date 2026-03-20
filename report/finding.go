@@ -85,8 +85,7 @@ type RequiredFinding struct {
 	Line             string `json:"-"`
 	Match            string
 	Secret           string
-	CaptureGroups    map[string]string `json:",omitempty"`
-	ValidationStatus string            `json:",omitempty"`
+	CaptureGroups map[string]string `json:",omitempty"`
 }
 
 // BuildRequiredSets generates the Cartesian product of the given required findings
@@ -125,33 +124,24 @@ func cartesianFindings(ruleOrder []string, byRule map[string][]*RequiredFinding,
 	head := ruleOrder[0]
 	rest := cartesianFindings(ruleOrder[1:], byRule, maxRequiredSets)
 
-	var result []*[]*RequiredFinding
+	var result [][]*RequiredFinding
 	for _, rf := range byRule[head] {
 		for _, tail := range rest {
 			row := make([]*RequiredFinding, 0, len(tail)+1)
 			row = append(row, rf)
 			row = append(row, tail...)
-			result = append(result, &row)
+			result = append(result, row)
 			if len(result) >= maxRequiredSets {
-				out := make([][]*RequiredFinding, len(result))
-				for i, p := range result {
-					out[i] = *p
-				}
-				return out
+				return result
 			}
 		}
 	}
-
-	out := make([][]*RequiredFinding, len(result))
-	for i, p := range result {
-		out[i] = *p
-	}
-	return out
+	return result
 }
 
 // Redact removes sensitive information from a finding.
 func (f *Finding) Redact(percent uint) {
-	secret := maskSecret(f.Secret, percent)
+	secret := MaskSecret(f.Secret, percent)
 	if percent >= 100 {
 		secret = "REDACTED"
 	}
@@ -160,9 +150,14 @@ func (f *Finding) Redact(percent uint) {
 	f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
 	f.Secret = secret
 
+	seen := make(map[*RequiredFinding]struct{})
 	for _, set := range f.RequiredSets {
 		for _, comp := range set.Components {
-			compSecret := maskSecret(comp.Secret, percent)
+			if _, ok := seen[comp]; ok {
+				continue
+			}
+			seen[comp] = struct{}{}
+			compSecret := MaskSecret(comp.Secret, percent)
 			if percent >= 100 {
 				compSecret = "REDACTED"
 			}
@@ -172,7 +167,9 @@ func (f *Finding) Redact(percent uint) {
 	}
 }
 
-func maskSecret(secret string, percent uint) string {
+// MaskSecret applies partial masking to a secret string based on the given percentage.
+// At 100% the caller should use "REDACTED" instead.
+func MaskSecret(secret string, percent uint) string {
 	if percent > 100 {
 		percent = 100
 	}
@@ -186,7 +183,7 @@ func maskSecret(secret string, percent uint) string {
 	return secret[:lth] + "..."
 }
 
-func (f *Finding) PrintRequiredFindings(noColor bool) {
+func (f *Finding) PrintRequiredFindings(noColor bool, redact uint) {
 	if len(f.RequiredSets) == 0 {
 		return
 	}
@@ -207,7 +204,7 @@ func (f *Finding) PrintRequiredFindings(noColor bool) {
 		if len(set.Components) == 1 {
 			// Single-component set: inline on the bullet line.
 			comp := set.Components[0]
-			secret := truncateSecret(comp.Secret)
+			secret := redactForDisplay(comp.Secret, redact)
 			fmt.Printf("  - %s:%d: %s%s\n", comp.RuleID, comp.StartLine, orangeStyle.Render(secret), statusSuffix)
 			continue
 		}
@@ -228,11 +225,23 @@ func (f *Finding) PrintRequiredFindings(noColor bool) {
 		}
 
 		for _, comp := range set.Components {
-			secret := truncateSecret(comp.Secret)
+			secret := redactForDisplay(comp.Secret, redact)
 			label := fmt.Sprintf("%s:%d:", comp.RuleID, comp.StartLine)
 			fmt.Printf("    %-*s %s\n", maxLabelLen, label, orangeStyle.Render(secret))
 		}
 	}
+}
+
+// redactForDisplay returns a display-safe version of a secret, applying
+// truncation and optional redaction without mutating the original.
+func redactForDisplay(secret string, redact uint) string {
+	if redact > 0 {
+		if redact >= 100 {
+			return "REDACTED"
+		}
+		secret = MaskSecret(secret, redact)
+	}
+	return truncateSecret(secret)
 }
 
 func truncateSecret(s string) string {
