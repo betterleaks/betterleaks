@@ -951,7 +951,10 @@ cel.bind(r,
     "Fastly-Key": secret
   }),
   r.status == 200 ? {
-    "result": "valid"
+    "result": "valid",
+    "login": r.json.?login.orValue(""),
+    "name": r.json.?name.orValue(""),
+    "customer_id": r.json.?customer_id.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -973,7 +976,10 @@ cel.bind(r,
     "X-Figma-Token": secret
   }),
   r.status == 200 && !r.body.contains("Invalid token") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?email.orValue(""),
+    "handle": r.json.?handle.orValue(""),
+    "id": r.json.?id.orValue("")
   } : r.status in [401, 403] || r.body.contains("Invalid token") ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -996,7 +1002,10 @@ cel.bind(r,
     "X-Figma-Token": secret
   }),
   r.status == 200 && !r.body.contains("Invalid token") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?email.orValue(""),
+    "handle": r.json.?handle.orValue(""),
+    "id": r.json.?id.orValue("")
   } : r.status in [401, 403] || r.body.contains("Invalid token") ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -3430,9 +3439,11 @@ cel.bind(r,
   http.post("https://api.linear.app/graphql", {
     "Authorization": secret,
     "Content-Type": "application/json"
-  }, "{\"query\": \"query { issues(first: 1) { nodes { id } } }\"}"),
-  r.status == 200 && r.body.contains("\"issues\"") && r.body.contains("\"nodes\"") ? {
-    "result": "valid"
+  }, "{\"query\": \"query { viewer { id name email } }\"}"),
+  r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") ? {
+    "result": "valid",
+    "email": r.json.?data.?viewer.?email.orValue(""),
+    "name": r.json.?data.?viewer.?name.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -4659,7 +4670,10 @@ cel.bind(r,
     "Authorization": "Bearer " + secret
   }),
   r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?user.?email.orValue(""),
+    "username": r.json.?user.?username.orValue(""),
+    "user_id": r.json.?user.?id.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -4682,7 +4696,9 @@ cel.bind(r,
     "Authorization": "Bearer " + secret
   }, ""),
   r.status == 200 && r.body.contains("\"sub\"") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?email.orValue(""),
+    "user_id": r.json.?sub.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -4731,7 +4747,10 @@ cel.bind(r,
     "Authorization": "Bearer " + secret
   }),
   r.status == 200 && r.body.contains("\"user\"") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?user.?email.orValue(""),
+    "username": r.json.?user.?username.orValue(""),
+    "user_id": r.json.?user.?id.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -4754,7 +4773,10 @@ cel.bind(r,
     "Authorization": "Bearer " + secret
   }),
   r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?user.?email.orValue(""),
+    "username": r.json.?user.?username.orValue(""),
+    "user_id": r.json.?user.?id.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

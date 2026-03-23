@@ -19,9 +19,11 @@ func LinearAPIToken() *config.Rule {
   http.post("https://api.linear.app/graphql", {
     "Authorization": secret,
     "Content-Type": "application/json"
-  }, "{\"query\": \"query { issues(first: 1) { nodes { id } } }\"}"),
-  r.status == 200 && r.body.contains("\"issues\"") && r.body.contains("\"nodes\"") ? {
-    "result": "valid"
+  }, "{\"query\": \"query { viewer { id name email } }\"}"),
+  r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") ? {
+    "result": "valid",
+    "email": r.json.?data.?viewer.?email.orValue(""),
+    "name": r.json.?data.?viewer.?name.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

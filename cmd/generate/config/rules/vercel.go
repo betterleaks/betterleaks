@@ -18,7 +18,10 @@ func VercelAPIToken() *config.Rule {
     "Authorization": "Bearer " + secret
   }),
   r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?user.?email.orValue(""),
+    "username": r.json.?user.?username.orValue(""),
+    "user_id": r.json.?user.?id.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -54,7 +57,10 @@ func VercelPersonalAccessToken() *config.Rule {
     "Authorization": "Bearer " + secret
   }),
   r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?user.?email.orValue(""),
+    "username": r.json.?user.?username.orValue(""),
+    "user_id": r.json.?user.?id.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -88,7 +94,10 @@ func VercelIntegrationToken() *config.Rule {
     "Authorization": "Bearer " + secret
   }),
   r.status == 200 && r.body.contains("\"user\"") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?user.?email.orValue(""),
+    "username": r.json.?user.?username.orValue(""),
+    "user_id": r.json.?user.?id.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -121,7 +130,9 @@ func VercelAppAccessToken() *config.Rule {
     "Authorization": "Bearer " + secret
   }, ""),
   r.status == 200 && r.body.contains("\"sub\"") ? {
-    "result": "valid"
+    "result": "valid",
+    "email": r.json.?email.orValue(""),
+    "user_id": r.json.?sub.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

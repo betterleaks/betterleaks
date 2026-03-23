@@ -19,7 +19,10 @@ func FastlyAPIToken() *config.Rule {
     "Fastly-Key": secret
   }),
   r.status == 200 ? {
-    "result": "valid"
+    "result": "valid",
+    "login": r.json.?login.orValue(""),
+    "name": r.json.?name.orValue(""),
+    "customer_id": r.json.?customer_id.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
