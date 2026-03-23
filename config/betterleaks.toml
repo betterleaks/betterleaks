@@ -85,9 +85,23 @@ keywords = ["a3-"]
 [[rules]]
 id = "1password-service-account-token"
 description = "Uncovered a possible 1Password service account token, potentially compromising access to secrets in vaults."
-regex = '''ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}'''
+regex = '''ops_eyJ[a-zA-Z0-9+/]{80,}={0,3}'''
 entropy = 4
 keywords = ["ops_"]
+validate = '''
+cel.bind(r,
+  http.get("https://events.1password.com/api/v2/auth/introspect", {
+    "Accept": "application/json",
+    "Authorization": "Bearer " + secret
+  }),
+  r.status == 200 && r.body.contains("\"features\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # adafruit-api-key
@@ -928,8 +942,67 @@ keywords = ["facebook"]
 [[rules]]
 id = "fastly-api-token"
 description = "Uncovered a Fastly API key, which may compromise CDN and edge cloud services, leading to content delivery and security issues."
-regex = '''(?i)[\w.-]{0,50}?(?:fastly)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9=_\-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)[\w.-]{0,50}?(?:fastly)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9_-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 3.5
 keywords = ["fastly"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.fastly.com/current_user", {
+    "Fastly-Key": secret
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# figma-personal-access-header-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "figma-personal-access-header-token"
+description = "Uncovered a Figma Personal Access Token in a header, which may compromise design assets and team collaboration."
+regex = '''(?i)[\w.-]{0,50}?(?:figma)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["figma"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.figma.com/v1/me", {
+    "X-Figma-Token": secret
+  }),
+  r.status == 200 && !r.body.contains("Invalid token") ? {
+    "result": "valid"
+  } : r.status in [401, 403] || r.body.contains("Invalid token") ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# figma-personal-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "figma-personal-access-token"
+description = "Uncovered a Figma Personal Access Token, which may compromise design assets and team collaboration."
+regex = '''(?i)\b(figd_[A-Z0-9_-]{38,42})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = ["figd_"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.figma.com/v1/me", {
+    "X-Figma-Token": secret
+  }),
+  r.status == 200 && !r.body.contains("Invalid token") ? {
+    "result": "valid"
+  } : r.status in [401, 403] || r.body.contains("Invalid token") ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # finicity-api-token
@@ -1003,13 +1076,25 @@ keywords = ["flwseck_test"]
 [[rules]]
 id = "flyio-access-token"
 description = "Uncovered a Fly.io API key"
-regex = '''\b((?:fo1_[\w-]{43}|fm1[ar]_[a-zA-Z0-9+\/]{100,}={0,3}|fm2_[a-zA-Z0-9+\/]{100,}={0,3}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''\b(FlyV1\s[A-Za-z0-9=_\-,/+]{100,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 entropy = 4
-keywords = [
-    "fo1_",
-    "fm1",
-    "fm2_",
-]
+keywords = ["flyv1"]
+validate = '''
+cel.bind(r,
+  http.post("https://api.fly.io/graphql", {
+    "Authorization": "Bearer " + secret,
+    "Content-Type": "application/json"
+  }, "{\"query\": \"query { viewer { id email name } }\"}"),
+  r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") && r.body.contains("\"email\"") ? {
+    "result": "valid",
+    "email": r.json.?data.?viewer.?email.orValue(""),
+    "name": r.json.?data.?viewer.?name.orValue("")
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # frameio-api-token
@@ -3068,11 +3153,26 @@ cel.bind(r,
 [[rules]]
 id = "harness-api-key"
 description = "Identified a Harness Access Token (PAT or SAT), risking unauthorized access to a Harness account."
-regex = '''(?:pat|sat)\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9]{24}\.[a-zA-Z0-9]{20}'''
+regex = '''(?:pat|sat)\.[a-zA-Z0-9_-]{22}\.[0-9a-f]{24}\.[a-zA-Z0-9]{20}'''
+entropy = 3.4
 keywords = [
     "pat.",
     "sat.",
 ]
+validate = '''
+cel.bind(r,
+  http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {
+    "Accept": "application/json",
+    "x-api-key": secret
+  }),
+  r.status in [200, 403] ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # hashicorp-tf-api-token
@@ -3325,6 +3425,20 @@ description = "Detected a Linear API Token, posing a risk to project management 
 regex = '''lin_api_(?i)[a-z0-9]{40}'''
 entropy = 2
 keywords = ["lin_api_"]
+validate = '''
+cel.bind(r,
+  http.post("https://api.linear.app/graphql", {
+    "Authorization": secret,
+    "Content-Type": "application/json"
+  }, "{\"query\": \"query { issues(first: 1) { nodes { id } } }\"}"),
+  r.status == 200 && r.body.contains("\"issues\"") && r.body.contains("\"nodes\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # linear-client-secret
@@ -4515,6 +4629,20 @@ description = "Detected a Vercel AI Gateway API Key (vck_), which may expose AI 
 regex = '''(?i)\b(vck_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 entropy = 3.5
 keywords = ["vck_"]
+validate = '''
+cel.bind(r,
+  http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
+    "Authorization": "Bearer " + secret,
+    "Content-Type": "application/json"
+  }, "{\"model\":\"openai/gpt-3.5-turbo\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"max_tokens\":1}"),
+  r.status in [200, 403] ? {
+    "result": "valid"
+  } : r.status in [401] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # vercel-api-token
@@ -4525,6 +4653,19 @@ description = "Detected a Vercel API Token, which may expose deployment and serv
 regex = '''(?i)[\w.-]{0,50}?(?:vercel)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9]{24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 entropy = 3.5
 keywords = ["vercel"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.vercel.com/v2/user", {
+    "Authorization": "Bearer " + secret
+  }),
+  r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # vercel-app-access-token
@@ -4535,6 +4676,19 @@ description = "Detected a Vercel App Access Token (vca_), which may allow Sign i
 regex = '''(?i)\b(vca_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 entropy = 3.5
 keywords = ["vca_"]
+validate = '''
+cel.bind(r,
+  http.post("https://api.vercel.com/login/oauth/userinfo", {
+    "Authorization": "Bearer " + secret
+  }, ""),
+  r.status == 200 && r.body.contains("\"sub\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # vercel-app-refresh-token
@@ -4545,6 +4699,22 @@ description = "Detected a Vercel App Refresh Token (vcr_), which may allow persi
 regex = '''(?i)\b(vcr_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 entropy = 3.5
 keywords = ["vcr_"]
+validate = '''
+cel.bind(r,
+  http.post("https://api.vercel.com/login/oauth/token/introspect", {
+    "Content-Type": "application/x-www-form-urlencoded"
+  }, "token=" + secret),
+  r.status == 200 && r.body.contains("\"active\":true") ? {
+    "result": "valid"
+  } : r.status == 200 && r.body.contains("\"active\":false") ? {
+    "result": "invalid",
+    "reason": "Token inactive"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # vercel-integration-token
@@ -4555,6 +4725,19 @@ description = "Detected a Vercel Integration Token (vci_), which may allow third
 regex = '''(?i)\b(vci_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 entropy = 3.5
 keywords = ["vci_"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.vercel.com/v2/user", {
+    "Authorization": "Bearer " + secret
+  }),
+  r.status == 200 && r.body.contains("\"user\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # vercel-personal-access-token
@@ -4565,6 +4748,19 @@ description = "Detected a Vercel Personal Access Token (vcp_), which may expose 
 regex = '''(?i)\b(vcp_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 entropy = 3.5
 keywords = ["vcp_"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.vercel.com/v2/user", {
+    "Authorization": "Bearer " + secret
+  }),
+  r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # weights-and-biases-api-key

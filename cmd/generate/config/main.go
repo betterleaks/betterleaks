@@ -149,6 +149,8 @@ func main() {
 		rules.FacebookAccessToken(),
 		rules.FacebookPageAccessToken(),
 		rules.FastlyAPIToken(),
+		rules.FigmaPersonalAccessToken(),
+		rules.FigmaPersonalAccessHeaderToken(),
 		rules.FinicityClientSecret(),
 		rules.FinicityAPIToken(),
 		rules.FlickrAccessToken(),

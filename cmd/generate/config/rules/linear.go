@@ -15,6 +15,18 @@ func LinearAPIToken() *config.Rule {
 		Regex:       regexp.MustCompile(`lin_api_(?i)[a-z0-9]{40}`),
 		Entropy:     2,
 		Keywords:    []string{"lin_api_"},
+		ValidateCEL: `cel.bind(r,
+  http.post("https://api.linear.app/graphql", {
+    "Authorization": secret,
+    "Content-Type": "application/json"
+  }, "{\"query\": \"query { issues(first: 1) { nodes { id } } }\"}"),
+  r.status == 200 && r.body.contains("\"issues\"") && r.body.contains("\"nodes\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)`,
 	}
 
 	// validate

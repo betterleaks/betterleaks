@@ -13,9 +13,21 @@ func OnePasswordServiceAccountToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "1password-service-account-token",
 		Description: "Uncovered a possible 1Password service account token, potentially compromising access to secrets in vaults.",
-		Regex:       regexp.MustCompile(`ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`),
+		Regex:       regexp.MustCompile(`ops_eyJ[a-zA-Z0-9+/]{80,}={0,3}`),
 		Entropy:     4,
 		Keywords:    []string{"ops_"},
+		ValidateCEL: `cel.bind(r,
+  http.get("https://events.1password.com/api/v2/auth/introspect", {
+    "Accept": "application/json",
+    "Authorization": "Bearer " + secret
+  }),
+  r.status == 200 && r.body.contains("\"features\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)`,
 	}
 
 	// validate
