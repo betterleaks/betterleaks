@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
@@ -23,38 +24,39 @@ var directoryCmd = &cobra.Command{
 }
 
 func runDirectory(cmd *cobra.Command, args []string) {
-	// grab sources
-	sources_list := args
-	if len(sources_list) == 0 {
-		sources_list = []string{"."}
+	sourcesList := args
+	if len(sourcesList) == 0 {
+		sourcesList = []string{"."}
 	}
 
-	initConfig(sources_list[0])
 	initDiagnostics()
-	var err error
-
-	// setup config (aka, the thing that defines rules)
-	cfg := Config(cmd)
 
 	// start timer
 	start := time.Now()
 
-	detector := Detector(cmd, cfg, sources_list[0])
-
-	// set follow symlinks flag
-	if detector.FollowSymlinks, err = cmd.Flags().GetBool("follow-symlinks"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-
-	// set exit code
 	exitCode, err := cmd.Flags().GetInt("exit-code")
 	if err != nil {
 		logging.Fatal().Err(err).Msg("could not get exit code")
 	}
 
-	var allFindings []report.Finding
-	for _, source := range sources_list {
-		findings, scanErr := detector.DetectSource(
+	followSymlinks, err := cmd.Flags().GetBool("follow-symlinks")
+	if err != nil {
+		logging.Fatal().Err(err).Send()
+	}
+
+	var (
+		allFindings  []report.Finding
+		lastDetector *detect.Detector
+		scanErr      error
+	)
+	for _, source := range sourcesList {
+		initConfig(source)
+		cfg := Config(cmd)
+		detector := Detector(cmd, cfg, source)
+		detector.FollowSymlinks = followSymlinks
+		lastDetector = detector
+
+		findings, detectErr := detector.DetectSource(
 			cmd.Context(),
 			&sources.Files{
 				Config:          &cfg,
@@ -65,12 +67,12 @@ func runDirectory(cmd *cobra.Command, args []string) {
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 			},
 		)
-		if scanErr != nil {
-			logging.Error().Err(scanErr).Str("source", source).Msg("failed scan")
-			err = scanErr
+		if detectErr != nil {
+			logging.Error().Err(detectErr).Str("source", source).Msg("failed scan")
+			scanErr = detectErr
 		}
 		allFindings = append(allFindings, findings...)
 	}
 
-	findingSummaryAndExit(detector, allFindings, exitCode, start, err)
+	findingSummaryAndExit(lastDetector, allFindings, exitCode, start, scanErr)
 }
