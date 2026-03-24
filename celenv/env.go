@@ -121,6 +121,22 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 			),
 		),
 
+		cel.Function("crypto.hmac_sha256",
+			cel.Overload("crypto_hmac_sha256_bytes_bytes",
+				[]*cel.Type{cel.BytesType, cel.BytesType},
+				cel.BytesType,
+				cel.BinaryBinding(hmacSha256Binding(e)),
+			),
+		),
+
+		cel.Function("time.now_unix",
+			cel.Overload("time_now_unix",
+				[]*cel.Type{},
+				cel.StringType,
+				cel.FunctionBinding(timeNowUnixBinding(e)),
+			),
+		),
+
 		cel.Function("aws.validate",
 			cel.Overload("aws_validate_string_string",
 				[]*cel.Type{cel.StringType, cel.StringType},

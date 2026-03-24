@@ -296,6 +296,31 @@ var celExpressions = []struct {
 )`,
 	},
 	{
+		"polymarket-api-key",
+		`cel.bind(ts, time.now_unix(),
+  cel.bind(sig,
+    crypto.hmac_sha256(
+      base64.decode(captures["polymarket-api-secret"]),
+      bytes(ts + "GET" + "/data/orders")
+    ),
+    cel.bind(r,
+      http.get("https://clob.polymarket.com/data/orders", {
+        "POLY_BUILDER_API_KEY": secret,
+        "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
+        "POLY_BUILDER_TIMESTAMP": ts,
+        "POLY_BUILDER_SIGNATURE": base64.encode(sig).replace("+", "-").replace("/", "_")
+      }),
+      r.status == 200 ? {
+        "result": "valid"
+      } : r.status in [401, 403] ? {
+        "result": "invalid",
+        "reason": "Unauthorized"
+      } : unknown(r)
+    )
+  )
+)`,
+	},
+	{
 		"weights-and-biases-api-key",
 		`cel.bind(r,
   http.post("https://api.wandb.ai/graphql", {
