@@ -16,11 +16,13 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/fragment"
 	"github.com/betterleaks/betterleaks/logging"
 )
 
 const defaultBufferSize = 100 * 1_000 // 100kb
-const InnerPathSeparator = "!"
+// InnerPathSeparator is the separator used for paths inside archive files.
+const InnerPathSeparator = fragment.InnerPathSeparator
 
 var bufferPool = sync.Pool{
 	New: func() any {

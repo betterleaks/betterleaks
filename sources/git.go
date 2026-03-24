@@ -276,12 +276,6 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 	}
 }
 
-// RemoteInfo provides the info needed for reconstructing links from findings
-type RemoteInfo struct {
-	Platform scm.Platform
-	Url      string
-}
-
 // Git is a source for yielding fragments from a git repo
 type Git struct {
 	Cmd             *GitCmd
@@ -289,16 +283,6 @@ type Git struct {
 	Remote          *RemoteInfo
 	Sema            *semgroup.Group
 	MaxArchiveDepth int
-}
-
-// CommitInfo captures metadata about the commit
-type CommitInfo struct {
-	AuthorEmail string
-	AuthorName  string
-	Date        string
-	Message     string
-	Remote      *RemoteInfo
-	SHA         string
 }
 
 // Fragments yields fragments from a git repo
