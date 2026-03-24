@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/fragment"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -54,7 +54,7 @@ type Finding struct {
 
 	// Fragment used for multi-part rule checking, CEL filtering,
 	// and eventually ML validation
-	Fragment *sources.Fragment `json:",omitempty"`
+	Fragment *fragment.Fragment `json:",omitempty"`
 
 	// RequiredSets holds the Cartesian-product combinations of required findings.
 	// Each set is one complete group of components that can be validated independently.
