@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -28,6 +30,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	if len(sourcesList) == 0 {
 		sourcesList = []string{"."}
 	}
+	sourcesList = removeNestedPaths(sourcesList)
 
 	initDiagnostics()
 
@@ -75,4 +78,37 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	}
 
 	findingSummaryAndExit(lastDetector, allFindings, exitCode, start, scanErr)
+}
+
+// removeNestedPaths filters out paths that are children of other paths in the
+// list so that overlapping sources (e.g. "root" and "root/sub") don't produce
+// duplicate findings.
+func removeNestedPaths(paths []string) []string {
+	abs := make([]string, len(paths))
+	for i, p := range paths {
+		a, err := filepath.Abs(p)
+		if err != nil {
+			abs[i] = p
+			continue
+		}
+		abs[i] = a
+	}
+
+	var kept []string
+	for i, candidate := range abs {
+		nested := false
+		for j, parent := range abs {
+			if i == j {
+				continue
+			}
+			if strings.HasPrefix(candidate, parent+string(filepath.Separator)) {
+				nested = true
+				break
+			}
+		}
+		if !nested {
+			kept = append(kept, paths[i])
+		}
+	}
+	return kept
 }
