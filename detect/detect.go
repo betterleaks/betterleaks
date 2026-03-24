@@ -15,9 +15,9 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
+	"github.com/betterleaks/betterleaks/fragment"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/validate"
 	"github.com/betterleaks/betterleaks/words"
 
@@ -285,13 +285,13 @@ func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
 
 // DetectString scans the given string and returns a list of findings
 func (d *Detector) DetectString(content string) []report.Finding {
-	return d.Detect(sources.Fragment{
+	return d.Detect(fragment.Fragment{
 		Raw: content,
 	})
 }
 
 // DetectSource scans the given source and returns a list of findings
-func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]report.Finding, error) {
+func (d *Detector) DetectSource(ctx context.Context, source fragment.Source) ([]report.Finding, error) {
 	// We have a single channel for sending findings to.
 	// Findings get sent to this channel straight from
 	// detectRule (non validation) OR from the ValidationPool which
@@ -322,7 +322,7 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 		}
 	}()
 
-	err := source.Fragments(ctx, func(fragment sources.Fragment, err error) error {
+	err := source.Fragments(ctx, func(fragment fragment.Fragment, err error) error {
 		logContext := logging.With()
 
 		if len(fragment.FilePath) > 0 {
@@ -374,7 +374,7 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 		return nil
 	})
 
-	if _, isGit := source.(*sources.Git); isGit {
+	if len(d.commitMap) > 0 {
 		logging.Info().Msgf("%d commits scanned.", len(d.commitMap))
 		logging.Debug().Msg("Note: this number might be smaller than expected due to commits with no additions")
 	}
@@ -398,13 +398,13 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 // Detect scans the given fragment and returns a list of findings
 //
 // Deprecated: use DetectContext instead.
-func (d *Detector) Detect(fragment sources.Fragment) []report.Finding {
+func (d *Detector) Detect(fragment fragment.Fragment) []report.Finding {
 	return d.DetectContext(context.Background(), fragment)
 }
 
 // DetectContext is the same as Detect but supports passing in a
 // context to use for timeouts
-func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment) []report.Finding {
+func (d *Detector) DetectContext(ctx context.Context, fragment fragment.Fragment) []report.Finding {
 	if fragment.Bytes == nil {
 		d.TotalBytes.Add(uint64(len(fragment.Raw)))
 	}
@@ -502,7 +502,7 @@ ScanLoop:
 }
 
 // detectRule scans the given fragment for the given rule and returns a list of findings
-func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
+func (d *Detector) detectRule(fragment fragment.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = func() zerolog.Logger {
@@ -773,7 +773,7 @@ func (d *Detector) failsTokenEfficiencyFilter(secret string) bool {
 }
 
 // processRequiredRules handles the logic for multi-part rules with auxiliary findings
-func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
+func (d *Detector) processRequiredRules(fragment fragment.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
 	if len(primaryFindings) == 0 {
 		logger.Debug().Msg("no primary findings to process for required rules")
 		return primaryFindings
@@ -1015,7 +1015,7 @@ func (d *Detector) addCommit(commit string) {
 // Otherwise, if regexes or stopwords are defined this will fail.
 func checkCommitOrPathAllowed(
 	logger zerolog.Logger,
-	fragment sources.Fragment,
+	fragment fragment.Fragment,
 	allowlists []*config.Allowlist,
 ) (bool, *zerolog.Event) {
 	if fragment.FilePath == "" && fragment.CommitSHA == "" {
@@ -1072,7 +1072,7 @@ func checkCommitOrPathAllowed(
 func checkFindingAllowed(
 	logger zerolog.Logger,
 	finding report.Finding,
-	fragment sources.Fragment,
+	fragment fragment.Fragment,
 	currentLine string,
 	allowlists []*config.Allowlist,
 ) (bool, *zerolog.Event) {

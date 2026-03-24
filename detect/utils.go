@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/fragment"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
@@ -17,7 +17,7 @@ var linkCleaner = strings.NewReplacer(
 	"%", "%25",
 )
 
-func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
+func createScmLink(remote *fragment.RemoteInfo, finding report.Finding) string {
 	if remote.Platform == scm.UnknownPlatform ||
 		remote.Platform == scm.NoPlatform ||
 		finding.Commit == "" {
@@ -25,7 +25,7 @@ func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
 	}
 
 	// Clean the path.
-	filePath, _, hasInnerPath := strings.Cut(finding.File, sources.InnerPathSeparator)
+	filePath, _, hasInnerPath := strings.Cut(finding.File, fragment.InnerPathSeparator)
 	filePath = linkCleaner.Replace(filePath)
 
 	switch remote.Platform {
