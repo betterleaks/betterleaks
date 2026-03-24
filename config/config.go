@@ -460,6 +460,21 @@ func (c *Config) GetOrderedRules() []Rule {
 	return orderedRules
 }
 
+// DefaultConfigTranslated parses the embedded default configuration and returns
+// a fully translated Config. This allows callers to obtain the default config
+// without importing viper directly.
+func DefaultConfigTranslated() (Config, error) {
+	viper.SetConfigType("toml")
+	if err := viper.ReadConfig(strings.NewReader(DefaultConfig)); err != nil {
+		return Config{}, fmt.Errorf("failed to read default config: %w", err)
+	}
+	var vc ViperConfig
+	if err := viper.Unmarshal(&vc); err != nil {
+		return Config{}, fmt.Errorf("failed to unmarshal default config: %w", err)
+	}
+	return vc.Translate()
+}
+
 func (c *Config) extendDefault(parent *ViperConfig) error {
 	extendDepth++
 	viper.SetConfigType("toml")

@@ -24,7 +24,6 @@ import (
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/fatih/semgroup"
 	"github.com/rs/zerolog"
-	"github.com/spf13/viper"
 	"golang.org/x/exp/maps"
 )
 
@@ -235,17 +234,7 @@ func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 
 // NewDetectorDefaultConfig creates a new detector with the default config
 func NewDetectorDefaultConfig() (*Detector, error) {
-	viper.SetConfigType("toml")
-	err := viper.ReadConfig(strings.NewReader(config.DefaultConfig))
-	if err != nil {
-		return nil, err
-	}
-	var vc config.ViperConfig
-	err = viper.Unmarshal(&vc)
-	if err != nil {
-		return nil, err
-	}
-	cfg, err := vc.Translate()
+	cfg, err := config.DefaultConfigTranslated()
 	if err != nil {
 		return nil, err
 	}
