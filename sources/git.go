@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +34,39 @@ type GitCmd struct {
 	errCh       <-chan error
 	repoPath    string
 }
+
+// gitConfigIsolationEnv contains the standard Git configuration isolation environment variables.
+// These settings prevent Git from reading user or system configuration files.
+var gitConfigIsolationEnv = func() []string {
+	var nullDevice string
+	if runtime.GOOS == "windows" {
+		nullDevice = "NUL"
+	} else {
+		nullDevice = "/dev/null"
+	}
+	overrides := map[string]string{
+		"GIT_CONFIG_GLOBAL":      nullDevice,
+		"GIT_CONFIG_NOSYSTEM":    "1",
+		"GIT_CONFIG_SYSTEM":      nullDevice,
+		"GIT_NO_REPLACE_OBJECTS": "1",
+		"GIT_TERMINAL_PROMPT":    "0",
+	}
+
+	env := os.Environ()
+	// Replace or append each override key.
+	for i, e := range env {
+		for k, v := range overrides {
+			if strings.HasPrefix(e, k+"=") {
+				env[i] = k + "=" + v
+				delete(overrides, k)
+			}
+		}
+	}
+	for k, v := range overrides {
+		env = append(env, k+"="+v)
+	}
+	return env
+}()
 
 // blobReader provides a ReadCloser interface git cat-file blob to fetch
 // a blob from a repo
@@ -95,6 +130,7 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
 			"--full-history", "--all", "--diff-filter=tuxdb")
 	}
+	cmd.Env = gitConfigIsolationEnv
 
 	logging.Debug().Msgf("executing: %s", cmd.String())
 
@@ -145,6 +181,7 @@ func NewGitDiffCmdContext(ctx context.Context, source string, staged bool) (*Git
 		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff",
 			"--staged", ".")
 	}
+	cmd.Env = gitConfigIsolationEnv
 	logging.Debug().Msgf("executing: %s", cmd.String())
 
 	stdout, err := cmd.StdoutPipe()
@@ -213,6 +250,7 @@ func (c *GitCmd) NewBlobReader(commit, path string) (io.ReadCloser, error) {
 func (c *GitCmd) NewBlobReaderContext(ctx context.Context, commit, path string) (io.ReadCloser, error) {
 	gitArgs := []string{"-C", c.repoPath, "cat-file", "blob", commit + ":" + path}
 	cmd := exec.CommandContext(ctx, "git", gitArgs...)
+	cmd.Env = gitConfigIsolationEnv
 	cmd.Stderr = io.Discard
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -491,6 +529,7 @@ var sshUrlpat = regexp.MustCompile(`^git@([a-zA-Z0-9.-]+):(?:\d{1,5}/)?([\w/.-]+
 func getRemoteUrl(ctx context.Context, source string) (*url.URL, error) {
 	// This will return the first remote — typically, "origin".
 	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--quiet", "--get-url")
+	cmd.Env = gitConfigIsolationEnv
 	if source != "." {
 		cmd.Dir = source
 	}
