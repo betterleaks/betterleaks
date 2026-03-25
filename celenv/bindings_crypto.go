@@ -5,8 +5,6 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"fmt"
-	"strconv"
-	"time"
 
 	"github.com/google/cel-go/common/functions"
 	"github.com/google/cel-go/common/types"
@@ -39,11 +37,5 @@ func hmacSha256Binding(e *Environment) functions.BinaryOp {
 		h := hmac.New(sha256.New, []byte(key))
 		h.Write([]byte(msg))
 		return types.Bytes(h.Sum(nil))
-	}
-}
-
-func timeNowUnixBinding(e *Environment) functions.FunctionOp {
-	return func(args ...ref.Val) ref.Val {
-		return types.String(strconv.FormatInt(time.Now().Unix(), 10))
 	}
 }
