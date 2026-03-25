@@ -748,6 +748,12 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 }
 
 func (d *Detector) failsTokenEfficiencyFilter(secret string) bool {
+	// Skip token-efficiency filtering if the tokenizer failed to initialize.
+	// (e.g., network error downloading cl100k_base)
+	if d.tokenizer == nil {
+		return false
+	}
+
 	// For short secrets (< 20 chars) that contain newlines, strip the newlines
 	// before analysis so that strings like "123\n\nTest" are evaluated as "123Test"
 	// allowing word detection to work.
