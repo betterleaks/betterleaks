@@ -81,7 +81,7 @@ func putLowerBuf(bp *[]byte) {
 
 // findNewlineIndices returns the start indices of all newlines in s.
 // This replaces the previous regex-based approach which was expensive
-// when using go-re2 (WASM overhead for a literal \n search).
+// (function-call overhead for a literal \n search).
 func findNewlineIndices(s string) [][]int {
 	indices := make([][]int, 0, strings.Count(s, "\n"))
 	offset := 0

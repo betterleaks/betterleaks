@@ -36,7 +36,6 @@ A couple things:
 - Parallelized Git Scanning (`--git-workers=8`)
 - Optimized Recursive Decoding (for catching those nasty SHA1-HULUD variants)
 - Misc optimizations
-- Regex engine switching w/ (`--regex-engine=stdlib/re2` or `BETTERLEAKS_REGEX_ENGINE=stdlib`)
 - MORE RULES! Ahhh finally!
 
 ### Benchmarks

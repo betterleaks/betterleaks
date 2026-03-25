@@ -21,7 +21,6 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/validate"
 	"github.com/betterleaks/betterleaks/version"
@@ -96,10 +95,6 @@ func init() {
 	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
 	rootCmd.PersistentFlags().Int("max-archive-depth", 0, "allow scanning into nested archives up to this depth (default \"0\", no archive traversal is done)")
 	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for gitleaks commands in seconds (default \"0\", no timeout is set)")
-	rootCmd.PersistentFlags().String("regex-engine", "re2", "regex engine (stdlib, re2)")
-	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
-	_ = rootCmd.PersistentFlags().MarkHidden("regexp-engine")
-
 	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable (e.g. \"validation\")")
 
 	// Validation flags
@@ -146,13 +141,6 @@ func initLog() {
 	}
 	logging.Logger = logging.Logger.Level(logLevel)
 
-	if rootCmd.Flags().Changed("regex-engine") {
-		engine, _ := rootCmd.Flags().GetString("regex-engine")
-		regexp.SetEngine(engine)
-	} else if rootCmd.Flags().Changed("regexp-engine") {
-		engine, _ := rootCmd.Flags().GetString("regexp-engine")
-		regexp.SetEngine(engine)
-	}
 }
 
 func initConfig(source string) {
@@ -165,8 +153,6 @@ func initConfig(source string) {
 	if !hideBanner {
 		_, _ = fmt.Fprint(os.Stderr, banner)
 	}
-
-	logging.Debug().Msgf("using %s regex engine", regexp.Version())
 
 	cfgPath, err := rootCmd.Flags().GetString("config")
 	if err != nil {
