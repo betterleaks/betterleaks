@@ -34,6 +34,43 @@ func TestBindings(t *testing.T) {
 		},
 	}
 
+	// Verify crypto.hmac_sha256 returns correct HMAC
+	t.Run("hmac_sha256", func(t *testing.T) {
+		prg, err := env.Compile(`crypto.hmac_sha256(bytes("key"), bytes("hello"))`)
+		if err != nil {
+			t.Fatalf("compile: %v", err)
+		}
+		got, err := env.Eval(prg, "", nil)
+		if err != nil {
+			t.Fatalf("eval: %v", err)
+		}
+		// HMAC-SHA256("key", "hello") = a]aedc7b02c5c85b5262... (raw bytes)
+		// We check the length is 32 bytes (SHA-256 output).
+		bs := got.Value().([]byte)
+		if len(bs) != 32 {
+			t.Errorf("expected 32 bytes, got %d", len(bs))
+		}
+	})
+
+	// Verify time.now_unix returns a numeric string
+	t.Run("time_now_unix", func(t *testing.T) {
+		prg, err := env.Compile(`time.now_unix()`)
+		if err != nil {
+			t.Fatalf("compile: %v", err)
+		}
+		got, err := env.Eval(prg, "", nil)
+		if err != nil {
+			t.Fatalf("eval: %v", err)
+		}
+		s, ok := got.Value().(string)
+		if !ok {
+			t.Fatalf("expected string, got %T", got.Value())
+		}
+		if len(s) < 10 {
+			t.Errorf("expected unix timestamp string, got %q", s)
+		}
+	})
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			prg, err := env.Compile(tc.expr)

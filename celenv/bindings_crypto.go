@@ -1,7 +1,9 @@
 package celenv
 
 import (
+	"crypto/hmac"
 	"crypto/md5"
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/google/cel-go/common/functions"
@@ -18,5 +20,22 @@ func md5Binding(e *Environment) functions.UnaryOp {
 
 		hash := md5.Sum([]byte(str))
 		return types.String(fmt.Sprintf("%x", hash))
+	}
+}
+
+func hmacSha256Binding(e *Environment) functions.BinaryOp {
+	return func(lhs ref.Val, rhs ref.Val) ref.Val {
+		key, ok := lhs.(types.Bytes)
+		if !ok {
+			return types.MaybeNoSuchOverloadErr(lhs)
+		}
+		msg, ok := rhs.(types.Bytes)
+		if !ok {
+			return types.MaybeNoSuchOverloadErr(rhs)
+		}
+
+		h := hmac.New(sha256.New, []byte(key))
+		h.Write([]byte(msg))
+		return types.Bytes(h.Sum(nil))
 	}
 }

@@ -3974,6 +3974,90 @@ entropy = 3
 keywords = ["pscale_pw_"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# polymarket-address
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "polymarket-address"
+description = "Found a Polymarket wallet address, used as a component of authenticated Polymarket API requests."
+regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}address)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(0x[a-fA-F0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["address"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# polymarket-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "polymarket-api-key"
+description = "Identified a Polymarket API key, potentially compromising access to the Polymarket trading platform."
+regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["key"]
+validate = '''
+cel.bind(ts, time.now_unix(),
+  cel.bind(sig,
+    crypto.hmac_sha256(
+      base64.decode(captures["polymarket-api-secret"]),
+      bytes(ts + "GET" + "/data/orders")
+    ),
+    cel.bind(r,
+      http.get("https://clob.polymarket.com/data/orders", {
+        "POLY_BUILDER_API_KEY": secret,
+        "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
+        "POLY_BUILDER_TIMESTAMP": ts,
+        "POLY_BUILDER_SIGNATURE": base64.encode(sig).replace("+", "-").replace("/", "_")
+      }),
+      r.status == 200 ? {
+        "result": "valid"
+      } : r.status in [401, 403] ? {
+        "result": "invalid",
+        "reason": "Unauthorized"
+      } : unknown(r)
+    )
+  )
+)
+'''
+[[rules.required]]
+id = "polymarket-api-secret"
+withinLines = 20
+[[rules.required]]
+id = "polymarket-passphrase"
+withinLines = 20
+
+# ──────────────────────────────────────────────────────────────────────────────
+# polymarket-api-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "polymarket-api-secret"
+description = "Discovered a Polymarket API secret, which could be used to sign authenticated requests to the Polymarket L2 API."
+regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-zA-Z0-9+/]{40,}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["secret"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# polymarket-passphrase
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "polymarket-passphrase"
+description = "Found a Polymarket API passphrase, used as a component of authenticated Polymarket API requests."
+regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}passphrase)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-zA-Z0-9_]{8,128})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["passphrase"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# polymarket-private-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "polymarket-private-key"
+description = "Discovered a Polymarket private key, which could allow unauthorized trading and fund transfers."
+regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}private.{0,20}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(0x[a-fA-F0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 3.5
+keywords = [
+    "private",
+    "key",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # posthog-personal-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
