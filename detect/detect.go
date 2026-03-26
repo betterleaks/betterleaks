@@ -516,26 +516,30 @@ func (d *Detector) detectRule(fragment betterleaks.Fragment, currentRaw string, 
 		return findings
 	}
 
+	finding := betterleaks.Finding{
+		RuleID:      r.RuleID,
+		Description: r.Description,
+		Tags:        r.Tags,
+		// just use resource metadata
+		Metadata: fragment.Resource.Metadata,
+	}
+
 	if r.Path != nil {
 		if r.Regex == nil && len(encodedSegments) == 0 {
 			// Path _only_ rule
 			if r.Path.MatchString(fragment.Resource.Get(betterleaks.MetaPath)) || r.Path.MatchString(fragment.Resource.Get(betterleaks.MetaWindowsFilePath)) {
-				finding := betterleaks.Finding{
-					RuleID:      r.RuleID,
-					Description: r.Description,
-					Match:       "file detected: " + fragment.Resource.Get(betterleaks.MetaPath),
-					Tags:        r.Tags,
-				}
-				// Commit:      fragment.Resource.Get(betterleaks.MetaCommitSHA),
-				// File:        fragment.Resource.Get(betterleaks.MetaPath),
-				// SymlinkFile: fragment.Resource.Get(betterleaks.MetaSymlinkFile),
-				if fragment.Resource != nil {
-					// finding.Author = fragment.Resource.Get(betterleaks.MetaAuthorName)
-					// finding.Date = fragment.Resource.Get(betterleaks.MetaDate)
-					// finding.Email = fragment.Resource.Get(betterleaks.MetaAuthorEmail)
-					// finding.Link = createScmLink(fragment.Resource.Get(betterleaks.MetaRemote), finding)
-					// finding.Message = fragment.Resource.Get(betterleaks.MetaMessage)
-				}
+				finding.Match = "file detected: " + fragment.Resource.Get(betterleaks.MetaPath)
+				finding.Metadata["File"] = fragment.Resource.Get(betterleaks.MetaPath)
+				finding.Metadata["SymlinkFile"] = fragment.Resource.Get(betterleaks.MetaSymlinkFile)
+				finding.Metadata["Commit"] = fragment.Resource.Get(betterleaks.MetaCommitSHA)
+
+				// TODO once we move to the "scan" pkg, these will get populated during the resource creation phase
+
+				// finding.Author = fragment.Resource.Get(betterleaks.MetaAuthorName)
+				// finding.Date = fragment.Resource.Get(betterleaks.MetaDate)
+				// finding.Email = fragment.Resource.Get(betterleaks.MetaAuthorEmail)
+				// finding.Link = createScmLink(fragment.Resource.Get(betterleaks.MetaRemote), finding)
+				// finding.Message = fragment.Resource.Get(betterleaks.MetaMessage)
 				return append(findings, finding)
 			}
 		} else {
