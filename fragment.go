@@ -11,4 +11,6 @@ type Fragment struct {
 	StartLine int
 
 	Resource *Resource
+
+	InheritedFromFinding bool // Indicates if this fragment is inherited from a finding
 }

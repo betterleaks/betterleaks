@@ -492,18 +492,20 @@ ScanLoop:
 }
 
 // detectRule scans the given fragment for the given rule and returns a list of findings
-func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
+func (d *Detector) detectRule(fragment betterleaks.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []betterleaks.Finding {
 	var (
-		findings []report.Finding
+		findings []betterleaks.Finding
 		logger   = func() zerolog.Logger {
-			l := logging.With().Str("rule-id", r.RuleID).Str("path", fragment.FilePath)
-			if fragment.CommitSHA != "" {
-				l = l.Str("commit", fragment.CommitSHA)
+			l := logging.With().Str("rule-id", r.RuleID).Str("path", fragment.Resource.Get(betterleaks.MetaPath))
+			sha := fragment.Resource.Get(betterleaks.MetaCommitSHA)
+			if sha != "" {
+				l = l.Str("commit", sha)
 			}
 			return l.Logger()
 		}()
 	)
 
+	// prevent running the rule for required rules unless we inherited from a finding that triggered the required rule
 	if r.SkipReport && !fragment.InheritedFromFinding {
 		return findings
 	}
@@ -517,22 +519,22 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 	if r.Path != nil {
 		if r.Regex == nil && len(encodedSegments) == 0 {
 			// Path _only_ rule
-			if r.Path.MatchString(fragment.FilePath) || (fragment.WindowsFilePath != "" && r.Path.MatchString(fragment.WindowsFilePath)) {
-				finding := report.Finding{
-					Commit:      fragment.CommitSHA,
+			if r.Path.MatchString(fragment.Resource.Get(betterleaks.MetaPath)) || r.Path.MatchString(fragment.Resource.Get(betterleaks.MetaWindowsFilePath)) {
+				finding := betterleaks.Finding{
 					RuleID:      r.RuleID,
 					Description: r.Description,
-					File:        fragment.FilePath,
-					SymlinkFile: fragment.SymlinkFile,
-					Match:       "file detected: " + fragment.FilePath,
+					Match:       "file detected: " + fragment.Resource.Get(betterleaks.MetaPath),
 					Tags:        r.Tags,
 				}
-				if fragment.CommitInfo != nil {
-					finding.Author = fragment.CommitInfo.AuthorName
-					finding.Date = fragment.CommitInfo.Date
-					finding.Email = fragment.CommitInfo.AuthorEmail
-					finding.Link = createScmLink(fragment.CommitInfo.Remote, finding)
-					finding.Message = fragment.CommitInfo.Message
+				// Commit:      fragment.Resource.Get(betterleaks.MetaCommitSHA),
+				// File:        fragment.Resource.Get(betterleaks.MetaPath),
+				// SymlinkFile: fragment.Resource.Get(betterleaks.MetaSymlinkFile),
+				if fragment.Resource != nil {
+					// finding.Author = fragment.Resource.Get(betterleaks.MetaAuthorName)
+					// finding.Date = fragment.Resource.Get(betterleaks.MetaDate)
+					// finding.Email = fragment.Resource.Get(betterleaks.MetaAuthorEmail)
+					// finding.Link = createScmLink(fragment.Resource.Get(betterleaks.MetaRemote), finding)
+					// finding.Message = fragment.Resource.Get(betterleaks.MetaMessage)
 				}
 				return append(findings, finding)
 			}
