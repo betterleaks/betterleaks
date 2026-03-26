@@ -52,6 +52,8 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		lastDetector *detect.Detector
 		scanErr      error
 	)
+
+	totalBytes := uint64(0)
 	for _, source := range sourcesList {
 		initConfig(source)
 		cfg := Config(cmd)
@@ -75,7 +77,10 @@ func runDirectory(cmd *cobra.Command, args []string) {
 			scanErr = detectErr
 		}
 		allFindings = append(allFindings, findings...)
+		totalBytes += detector.TotalBytes.Load()
 	}
+
+	lastDetector.TotalBytes.Swap(totalBytes)
 
 	findingSummaryAndExit(lastDetector, allFindings, exitCode, start, scanErr)
 }
