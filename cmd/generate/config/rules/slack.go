@@ -290,3 +290,56 @@ func SlackWebHookUrl() *config.Rule {
 	}
 	return utils.Validate(r, tps, nil)
 }
+
+// SlackSessionCookie detects xoxd- session cookies, used for authenticating browser and desktop clients.
+//
+// References:
+// - https://slack.engineering/catching-compromised-cookies/
+// - https://www.papermtn.co.uk/retrieving-and-using-slack-cookies-for-authentication/
+// - https://blog.tw1sm.io/p/abusing-slack-for-offensive-operations
+func SlackSessionCookie() *config.Rule {
+	// define rule
+	r := config.Rule{
+		RuleID:      "slack-session-cookie",
+		Description: "Detected a Slack session cookie (xoxd-), which authenticates browser and desktop sessions across all of a user's workspaces.",
+		Regex:       regexp.MustCompile(`(xoxd-[\w\/\\+-]{100,}={0,2})(?:[^\w\/+=-]|\z)`),
+		Entropy:     3.5,
+		Keywords:    []string{"xoxd-"},
+	}
+
+	// validate
+	tps := utils.GenerateSampleSecrets("slack", secrets.NewSecretWithEntropy(`xoxd-[\w\/\\+-]{100,}={0,2}`, r.Entropy))
+	tps = append(tps,
+		`"XOXD_TOKEN = "xoxd-RWAqM1zwIRrr+2XACnx2j85Nmnq7jXRq08nLu92OuSVSD/Oq/JrB6huw+1E7SYpflbEhm7gKHZsqNX3mypdDoskW+s9x+DXCS74jne9GFhai5C8C5pxXVy60iJT/U685IypCMgGzGnIiGmv03u+QU/CuEBtrLAVOjxqeLlunHjtjotJQAgBX2fJuQVq59uDyGb7SNSH5YWJEFrqdJFA6i0nxDrY2"`, // gitleaks:allow
+	)
+	fps := []string{
+		`"cookie": "xoxd-abcdef1234567890..."`,
+		` :cookie "xoxd-sssssssssss-88888888888-hhhhhhhhhhh-jjjjjjjjjj; d-s=888888888888; lc=888888888888"`,
+		// https://github.com/Alcaro/russian-malware/blob/4bfa0c58532eb234c6cee4bcf7f612a4063adab3/slack.cpp#L151
+		`string m_cookie_xoxd; // xoxd-AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8= (but longer)`,
+	}
+	return utils.Validate(r, tps, fps)
+}
+
+// SlackSessionToken is a short-lived companion to SlackSessionCookie.
+func SlackSessionToken() *config.Rule {
+	// define rule
+	r := config.Rule{
+		RuleID:      "slack-session-token",
+		Description: "Detected a Slack client session token (xoxc-), which provides full user-level API access when paired with a session cookie.",
+		Regex:       regexp.MustCompile(`xoxc-\d{9,15}-\d{9,15}-\d{9,15}-[a-f0-9]{64}\b`),
+		Entropy:     3.5,
+		Keywords:    []string{"xoxc-"},
+	}
+
+	// validate
+	tps := utils.GenerateSampleSecrets("slack", secrets.NewSecretWithEntropy(`xoxc-\d{9,15}-\d{9,15}-\d{9,15}-[a-f0-9]{64}`, r.Entropy))
+	tps = append(tps,
+		// https://github.com/ComteHerrapait/adp_but_better/blob/518fbe4dc84eb7dc1d8332ae316618124ef5c57d/prototypes/proto_slack_http.py#L25
+		`    "------WebKitFormBoundaryPBGcj8sy358Z0vNT\r\nContent-Disposition: form-data; name": '"profile"\r\n\r\n{"status_emoji":":tada:","status_expiration":1645052399,"status_text":"","status_text_canonical":""}\r\n------WebKitFormBoundaryPBGcj8sy358Z0vNT\r\nContent-Disposition: form-data; name="token"\r\n\r\n xoxc-2541715624-2536568458595-2560197464944-23a188852dc1e585a9b594b4facd7d96339fb1d45c592c67a2385fb02f3cd453\r\n------WebKitFormBoundaryPBGcj8sy358Z0v`,
+	)
+	fps := []string{
+		`	TestClientToken   = "xoxc-888888888888-888888888888-8888888888888-fffffffffffffffa915fe069d70a8ad81743b0ec4ee9c81540af43f5e143264b"`,
+	}
+	return utils.Validate(r, tps, fps)
+}

@@ -4371,6 +4371,26 @@ keywords = [
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# slack-session-cookie
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "slack-session-cookie"
+description = "Detected a Slack session cookie (xoxd-), which authenticates browser and desktop sessions across all of a user's workspaces."
+regex = '''(xoxd-[\w\/\\+-]{100,}={0,2})(?:[^\w\/+=-]|\z)'''
+entropy = 3.5
+keywords = ["xoxd-"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# slack-session-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "slack-session-token"
+description = "Detected a Slack client session token (xoxc-), which provides full user-level API access when paired with a session cookie."
+regex = '''xoxc-\d{9,15}-\d{9,15}-\d{9,15}-[a-f0-9]{64}\b'''
+entropy = 3.5
+keywords = ["xoxc-"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # slack-user-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]

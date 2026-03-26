@@ -293,6 +293,8 @@ func main() {
 		rules.SlackLegacyBotToken(),
 		rules.SlackLegacyWorkspaceToken(),
 		rules.SlackLegacyToken(),
+		rules.SlackSessionCookie(),
+		rules.SlackSessionToken(),
 		rules.SlackWebHookUrl(),
 		rules.Snyk(),
 		rules.Sonar(),
