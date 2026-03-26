@@ -16,6 +16,18 @@ func OnePasswordServiceAccountToken() *config.Rule {
 		Regex:       regexp.MustCompile(`ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`),
 		Entropy:     4,
 		Keywords:    []string{"ops_"},
+		ValidateCEL: `cel.bind(r,
+  http.get("https://events.1password.com/api/v2/auth/introspect", {
+    "Accept": "application/json",
+    "Authorization": "Bearer " + secret
+  }),
+  r.status == 200 && r.body.contains("\"features\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)`,
 	}
 
 	// validate
