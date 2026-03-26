@@ -13,7 +13,7 @@ func OnePasswordServiceAccountToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "1password-service-account-token",
 		Description: "Uncovered a possible 1Password service account token, potentially compromising access to secrets in vaults.",
-		Regex:       regexp.MustCompile(`ops_eyJ[a-zA-Z0-9+/]{80,}={0,3}`),
+		Regex:       regexp.MustCompile(`ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`),
 		Entropy:     4,
 		Keywords:    []string{"ops_"},
 		ValidateCEL: `cel.bind(r,

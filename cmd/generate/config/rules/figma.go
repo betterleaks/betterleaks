@@ -44,8 +44,8 @@ func FigmaPersonalAccessHeaderToken() *config.Rule {
 	r := config.Rule{
 		Description: "Uncovered a Figma Personal Access Token in a header, which may compromise design assets and team collaboration.",
 		RuleID:      "figma-personal-access-header-token",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"figma"}, `[0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}`, true),
-		Keywords:    []string{"figma"},
+		Regex:       utils.GenerateSemiGenericRegex([]string{"x-figma-token", "xfigmatoken", "x_figma_token"}, `[0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}`, true),
+		Keywords:    []string{"X-Figma-Token", "xfigmatoken", "x_figma_token"},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.figma.com/v1/me", {
     "X-Figma-Token": secret
@@ -63,7 +63,7 @@ func FigmaPersonalAccessHeaderToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("figma", secrets.NewSecret(`[0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}`))
+	tps := utils.GenerateSampleSecrets("x-figma-token", secrets.NewSecret(`[0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}`))
 	tps = append(tps,
 		`--header='X-Figma-Token: 1394-0ca7a5be-8e22-40ee-8c40-778d41ab2313'`,
 	)
