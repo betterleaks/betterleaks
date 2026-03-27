@@ -147,7 +147,7 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (
 	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = gitConfigIsolationEnv
+	cmd.Env = gitConfigIsolationEnv()
 	logging.Debug().Msgf("executing: %s (%d commits via stdin)", cmd.String(), len(commits))
 
 	stdin, err := cmd.StdinPipe()
@@ -195,7 +195,7 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (
 // stdout/stderr pipes, and returning a GitCmd.
 func startGitLogCmd(ctx context.Context, repoPath string, args []string) (*GitCmd, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = gitConfigIsolationEnv
+	cmd.Env = gitConfigIsolationEnv()
 	logging.Debug().Msgf("executing: %s", cmd.String())
 
 	stdout, err := cmd.StdoutPipe()
@@ -241,7 +241,7 @@ func listCommits(ctx context.Context, source string, logOpts string) ([]string, 
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = gitConfigIsolationEnv
+	cmd.Env = gitConfigIsolationEnv()
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git rev-list: %w", err)
@@ -266,7 +266,7 @@ func commitCount(ctx context.Context, source string, logOpts string) (int, error
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = gitConfigIsolationEnv
+	cmd.Env = gitConfigIsolationEnv()
 	out, err := cmd.Output()
 	if err != nil {
 		return 0, fmt.Errorf("git rev-list --count: %w", err)

@@ -37,7 +37,7 @@ type GitCmd struct {
 
 // gitConfigIsolationEnv contains the standard Git configuration isolation environment variables.
 // These settings prevent Git from reading user or system configuration files.
-var gitConfigIsolationEnv = func() []string {
+func gitConfigIsolationEnv() []string {
 	var nullDevice string
 	if runtime.GOOS == "windows" {
 		nullDevice = "NUL"
@@ -66,7 +66,7 @@ var gitConfigIsolationEnv = func() []string {
 		env = append(env, k+"="+v)
 	}
 	return env
-}()
+}
 
 // blobReader provides a ReadCloser interface git cat-file blob to fetch
 // a blob from a repo
@@ -130,7 +130,7 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
 			"--full-history", "--all", "--diff-filter=tuxdb")
 	}
-	cmd.Env = gitConfigIsolationEnv
+	cmd.Env = gitConfigIsolationEnv()
 
 	logging.Debug().Msgf("executing: %s", cmd.String())
 
@@ -181,7 +181,7 @@ func NewGitDiffCmdContext(ctx context.Context, source string, staged bool) (*Git
 		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff",
 			"--staged", ".")
 	}
-	cmd.Env = gitConfigIsolationEnv
+	cmd.Env = gitConfigIsolationEnv()
 	logging.Debug().Msgf("executing: %s", cmd.String())
 
 	stdout, err := cmd.StdoutPipe()
@@ -250,7 +250,7 @@ func (c *GitCmd) NewBlobReader(commit, path string) (io.ReadCloser, error) {
 func (c *GitCmd) NewBlobReaderContext(ctx context.Context, commit, path string) (io.ReadCloser, error) {
 	gitArgs := []string{"-C", c.repoPath, "cat-file", "blob", commit + ":" + path}
 	cmd := exec.CommandContext(ctx, "git", gitArgs...)
-	cmd.Env = gitConfigIsolationEnv
+	cmd.Env = gitConfigIsolationEnv()
 	cmd.Stderr = io.Discard
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -529,7 +529,7 @@ var sshUrlpat = regexp.MustCompile(`^git@([a-zA-Z0-9.-]+):(?:\d{1,5}/)?([\w/.-]+
 func getRemoteUrl(ctx context.Context, source string) (*url.URL, error) {
 	// This will return the first remote — typically, "origin".
 	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--quiet", "--get-url")
-	cmd.Env = gitConfigIsolationEnv
+	cmd.Env = gitConfigIsolationEnv()
 	if source != "." {
 		cmd.Dir = source
 	}
