@@ -33,8 +33,6 @@ jobs:
           go install gotest.tools/gotestsum@v1.13.0
 
       - name: Test
-        env:
-          BETTERLEAKS_REGEX_ENGINE: ${{ matrix.platform == 'windows-latest' && 'stdlib' || '' }}
         run: |
           gotestsum --raw-command -- go test -json ./... --race
 
