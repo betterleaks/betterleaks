@@ -26,7 +26,7 @@ func init() {
 	isWhitespace['\r'] = true
 }
 
-// IsArchive does a light check to see if the provided path is an archive or
+// isArchive does a light check to see if the provided path is an archive or
 // compressed file. The File source already does this, so this exists mainly
 // to avoid expensive calls before sending things to the File source
 func isArchive(ctx context.Context, path string) bool {
@@ -34,7 +34,7 @@ func isArchive(ctx context.Context, path string) bool {
 	return err == nil && format != nil
 }
 
-// ShouldSkipPath checks a path against all the allowlists to see if it can
+// shouldSkipPath checks a path against all the allowlists to see if it can
 // be skipped
 func shouldSkipPath(cfg *config.Config, path string) bool {
 	if cfg == nil {
@@ -54,7 +54,7 @@ func shouldSkipPath(cfg *config.Config, path string) bool {
 	return false
 }
 
-// ReadUntilSafeBoundary consumes |f| until it finds two consecutive `\n` characters, up to |maxPeekSize|.
+// readUntilSafeBoundary consumes |f| until it finds two consecutive `\n` characters, up to |maxPeekSize|.
 // This hopefully avoids splitting. (https://github.com/gitleaks/gitleaks/issues/1651)
 func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *bytes.Buffer) error {
 	if peekBuf.Len() == 0 {

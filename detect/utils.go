@@ -16,18 +16,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// fragmentPathMatches reports whether re matches fragment.Path or, on Windows,
-// the WindowsPath attribute.
-func fragmentPathMatches(re interface{ MatchString(string) bool }, path, windowsPath string) bool {
-	if re.MatchString(path) {
-		return true
-	}
-	if windowsPath != "" {
-		return re.MatchString(windowsPath)
-	}
-	return false
-}
-
 // locateMatch returns the byte index of match within rawLine, using startCol
 // (1-indexed byte offset) to disambiguate duplicate occurrences. When the
 // exact position doesn't match, it searches forward then backward from the

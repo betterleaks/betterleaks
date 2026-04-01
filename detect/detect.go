@@ -507,7 +507,7 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 		wp := fragment.Attr(sources.AttrFSWindowsPath)
 		if r.Regex == nil && len(encodedSegments) == 0 {
 			// Path _only_ rule
-			if fragmentPathMatches(r.Path, fragment.Attr(sources.AttrPath), wp) {
+			if r.Path.MatchString(fragment.Attr(sources.AttrPath)) || (wp != "" && r.Path.MatchString(wp)) {
 				finding := report.Finding{
 					Commit:      fragment.Attr(sources.AttrGitSHA),
 					RuleID:      r.RuleID,
@@ -534,7 +534,7 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 			// if path is set _and_ a regex is set, then we need to check both
 			// so if the path does not match, then we should return early and not
 			// consider the regex
-			if !fragmentPathMatches(r.Path, fragment.Attr(sources.AttrPath), wp) {
+			if !r.Path.MatchString(fragment.Attr(sources.AttrPath)) && (wp == "" || !r.Path.MatchString(wp)) {
 				return findings
 			}
 		}
