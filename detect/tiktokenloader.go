@@ -13,7 +13,7 @@ import (
 //go:embed assets/cl100k_base.tiktoken.gz
 var compressedBPEData []byte
 
-// MyCustomLoader implements the tiktoken.BpeLoader interface
+// TikTokenLoader implements the tiktoken.BpeLoader interface
 type TiktokenLoader struct{}
 
 // LoadTiktokenBpe decompresses the embedded file and parses it into the expected map
