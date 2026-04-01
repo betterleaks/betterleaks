@@ -14,7 +14,6 @@ require (
 	github.com/hashicorp/go-version v1.7.0
 	github.com/mholt/archives v0.1.5
 	github.com/pkoukk/tiktoken-go v0.1.8
-	github.com/pkoukk/tiktoken-go-loader v0.0.2
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.19.0

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/pkoukk/tiktoken-go"
-	tiktoken_loader "github.com/pkoukk/tiktoken-go-loader"
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
@@ -210,7 +209,7 @@ func NewDetector(cfg config.Config) *Detector {
 // context to use for timeouts
 func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 	// grab offline tiktoken encoder
-	tiktoken.SetBpeLoader(tiktoken_loader.NewOfflineLoader())
+	tiktoken.SetBpeLoader(&TiktokenLoader{})
 	tke, err := tiktoken.GetEncoding("cl100k_base")
 	if err != nil {
 		logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
