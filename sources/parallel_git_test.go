@@ -147,14 +147,14 @@ func TestParallelGitFragments(t *testing.T) {
 	if len(c.list) != 4 {
 		t.Errorf("got %d fragments, want 4", len(c.list))
 		for _, f := range c.list {
-			t.Logf("  path=%s raw=%q", f.FilePath, f.Raw)
+			t.Logf("  path=%s raw=%q", f.Attr(AttrPath), f.Raw)
 		}
 	}
 
 	// Verify all files are represented
 	paths := make(map[string]bool)
 	for _, f := range c.list {
-		paths[f.FilePath] = true
+		paths[f.Attr(AttrPath)] = true
 	}
 	for _, want := range []string{"a.txt", "b.txt", "c.txt", "d.txt"} {
 		if !paths[want] {
@@ -232,11 +232,11 @@ func TestParallelGitMatchesSingleGit(t *testing.T) {
 	// Build sets of (path, raw) to verify content parity
 	singleSet := make(map[string]bool)
 	for _, f := range single.list {
-		singleSet[f.FilePath+"\x00"+strings.TrimSpace(f.Raw)] = true
+		singleSet[f.Attr(AttrPath)+"\x00"+strings.TrimSpace(f.Raw)] = true
 	}
 	multiSet := make(map[string]bool)
 	for _, f := range multi.list {
-		multiSet[f.FilePath+"\x00"+strings.TrimSpace(f.Raw)] = true
+		multiSet[f.Attr(AttrPath)+"\x00"+strings.TrimSpace(f.Raw)] = true
 	}
 
 	for key := range singleSet {

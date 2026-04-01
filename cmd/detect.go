@@ -115,12 +115,14 @@ func runDetect(cmd *cobra.Command, args []string) {
 		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
 			logging.Fatal().Err(err).Send()
 		}
+		resolvedPlatform, remoteURL := sources.ResolveRemote(cmd.Context(), scmPlatform, sourcePath)
 
 		findings, err = detector.DetectSource(
 			cmd.Context(), &sources.Git{
 				Cmd:             gitCmd,
 				Config:          &detector.Config,
-				Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, sourcePath),
+				Platform:        resolvedPlatform,
+				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 			},

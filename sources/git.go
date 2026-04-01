@@ -276,29 +276,14 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 	}
 }
 
-// RemoteInfo provides the info needed for reconstructing links from findings
-type RemoteInfo struct {
-	Platform scm.Platform
-	Url      string
-}
-
 // Git is a source for yielding fragments from a git repo
 type Git struct {
 	Cmd             *GitCmd
 	Config          *config.Config
-	Remote          *RemoteInfo
+	Platform        scm.Platform
+	RemoteURL       string
 	Sema            *semgroup.Group
 	MaxArchiveDepth int
-}
-
-// CommitInfo captures metadata about the commit
-type CommitInfo struct {
-	AuthorEmail string
-	AuthorName  string
-	Date        string
-	Message     string
-	Remote      *RemoteInfo
-	SHA         string
 }
 
 // Fragments yields fragments from a git repo
@@ -341,7 +326,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 			// Check if commit is allowed
 			commitSHA := ""
-			var commitInfo *CommitInfo
+			var commitAttrs []Attribute
 			if gitdiffFile.PatchHeader != nil {
 				commitSHA = gitdiffFile.PatchHeader.SHA
 				for _, a := range s.Config.Allowlists {
@@ -351,16 +336,27 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					}
 				}
 
-				commitInfo = &CommitInfo{
-					Date:    gitdiffFile.PatchHeader.AuthorDate.UTC().Format(time.RFC3339),
-					Message: gitdiffFile.PatchHeader.Message(),
-					Remote:  s.Remote,
-					SHA:     commitSHA,
+				commitAttrs = []Attribute{
+					{AttrGitSHA, commitSHA},
+					{AttrGitMessage, gitdiffFile.PatchHeader.Message()},
+					{AttrResourceKind, "git.diff"},
 				}
-
+				if s.RemoteURL != "" {
+					commitAttrs = append(commitAttrs,
+						Attribute{AttrGitRemoteURL, s.RemoteURL},
+						Attribute{AttrGitPlatform, s.Platform.String()},
+					)
+				}
+				if !gitdiffFile.PatchHeader.AuthorDate.IsZero() {
+					commitAttrs = append(commitAttrs,
+						Attribute{AttrGitDate, gitdiffFile.PatchHeader.AuthorDate.UTC().Format(time.RFC3339)},
+					)
+				}
 				if gitdiffFile.PatchHeader.Author != nil {
-					commitInfo.AuthorName = gitdiffFile.PatchHeader.Author.Name
-					commitInfo.AuthorEmail = gitdiffFile.PatchHeader.Author.Email
+					commitAttrs = append(commitAttrs,
+						Attribute{AttrGitAuthorName, gitdiffFile.PatchHeader.Author.Name},
+						Attribute{AttrGitAuthorEmail, gitdiffFile.PatchHeader.Author.Email},
+					)
 				}
 			}
 
@@ -384,8 +380,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 					// enrich and yield fragments
 					err = file.Fragments(ctx, func(fragment Fragment, err error) error {
-						fragment.CommitSHA = commitSHA
-						fragment.CommitInfo = commitInfo
+						fragment.Attributes = append(fragment.Attributes, commitAttrs...)
 						return yield(fragment, err)
 					})
 
@@ -401,13 +396,13 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					if textFragment == nil {
 						return nil
 					}
-
 					fragment := Fragment{
-						CommitSHA:  commitSHA,
-						FilePath:   gitdiffFile.NewName,
-						Raw:        textFragment.Raw(gitdiff.OpAdd),
-						StartLine:  int(textFragment.NewPosition),
-						CommitInfo: commitInfo,
+						Raw:       textFragment.Raw(gitdiff.OpAdd),
+						StartLine: int(textFragment.NewPosition),
+						Attributes: append(
+							[]Attribute{{AttrPath, gitdiffFile.NewName}},
+							commitAttrs...,
+						),
 					}
 
 					if err := yield(fragment, nil); err != nil {
@@ -436,18 +431,11 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	}
 }
 
-// NewRemoteInfo builds a new RemoteInfo for generating finding links
-//
-// Deprecated: use NewRemoteInfoContext instead.
-func NewRemoteInfo(platform scm.Platform, source string) *RemoteInfo {
-	return NewRemoteInfoContext(context.Background(), platform, source)
-}
-
-// NewRemoteInfoContext is the same as NewRemoteInfo but supports passing in a
-// context to use for timeouts
-func NewRemoteInfoContext(ctx context.Context, platform scm.Platform, source string) *RemoteInfo {
+// ResolveRemote resolves the SCM platform and remote URL for the given source.
+// It replaces the deprecated NewRemoteInfo/NewRemoteInfoContext functions.
+func ResolveRemote(ctx context.Context, platform scm.Platform, source string) (scm.Platform, string) {
 	if platform == scm.NoPlatform {
-		return &RemoteInfo{Platform: platform}
+		return platform, ""
 	}
 
 	remoteUrl, err := getRemoteUrl(ctx, source)
@@ -458,7 +446,7 @@ func NewRemoteInfoContext(ctx context.Context, platform scm.Platform, source str
 		} else {
 			logging.Error().Err(err).Msg("skipping finding links: unable to parse remote URL")
 		}
-		goto End
+		return platform, ""
 	}
 
 	if platform == scm.UnknownPlatform {
@@ -475,15 +463,7 @@ func NewRemoteInfoContext(ctx context.Context, platform scm.Platform, source str
 		}
 	}
 
-End:
-	var rUrl string
-	if remoteUrl != nil {
-		rUrl = remoteUrl.String()
-	}
-	return &RemoteInfo{
-		Platform: platform,
-		Url:      rUrl,
-	}
+	return platform, remoteUrl.String()
 }
 
 var sshUrlpat = regexp.MustCompile(`^git@([a-zA-Z0-9.-]+):(?:\d{1,5}/)?([\w/.-]+?)(?:\.git)?$`)

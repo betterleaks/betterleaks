@@ -75,11 +75,11 @@ type File struct {
 	// Config is the gitleaks config used for shouldSkipPath. If not set, then
 	// shouldSkipPath is ignored
 	Config *config.Config
+	// MaxArchiveDepth limits how deep the sources will explore nested archives
+	MaxArchiveDepth int
 	// outerPaths is the list of container paths (e.g. archives) that lead to
 	// this file
 	outerPaths []string
-	// MaxArchiveDepth limits how deep the sources will explore nested archives
-	MaxArchiveDepth int
 	// archiveDepth is the current archive nesting depth
 	archiveDepth int
 }
@@ -235,8 +235,14 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+			// Compute the final normalized path upfront (isWindows is a compile-time constant).
+			fullPath := s.FullPath()
+			fragPath := fullPath
+			if isWindows {
+				fragPath = filepath.ToSlash(fullPath)
+			}
 			fragment := Fragment{
-				FilePath: s.FullPath(),
+				Attributes: []Attribute{{Key: AttrPath, Value: fragPath}},
 			}
 
 			n, err := reader.Read(s.Buffer)
@@ -259,7 +265,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 				} else if mimetype.MIME.Type == "application" {
 					logging.Debug().
 						Str("mime_type", mimetype.MIME.Value).
-						Str("path", s.FullPath()).
+						Str("path", fullPath).
 						Msgf("skipping binary file")
 
 					return nil
@@ -282,14 +288,15 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 			// Count the number of newlines in this chunk
 			totalLines += strings.Count(fragment.Raw, "\n")
 
-			if len(s.Symlink) > 0 {
-				fragment.SymlinkFile = s.Symlink
-			}
-
 			if isWindows {
-				fragment.FilePath = filepath.ToSlash(fragment.FilePath)
-				fragment.SymlinkFile = filepath.ToSlash(s.Symlink)
-				fragment.WindowsFilePath = s.FullPath()
+				fragment.Attributes = append(fragment.Attributes, Attribute{Key: AttrFSWindowsPath, Value: fullPath})
+			}
+			if s.Symlink != "" {
+				symlink := s.Symlink
+				if isWindows {
+					symlink = filepath.ToSlash(s.Symlink)
+				}
+				fragment.Attributes = append(fragment.Attributes, Attribute{Key: AttrFSSymlink, Value: symlink})
 			}
 
 			// log errors but continue since there's content

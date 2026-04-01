@@ -1,5 +1,10 @@
 package sources
 
+import (
+	"github.com/betterleaks/betterleaks/logging"
+	"github.com/rs/zerolog"
+)
+
 // Fragment represents a fragment of a source with its meta data
 type Fragment struct {
 	// Raw is the raw content of the fragment
@@ -7,22 +12,41 @@ type Fragment struct {
 
 	Bytes []byte
 
-	// FilePath is the path to the file if applicable.
-	// The path separator MUST be normalized to `/`.
-	FilePath    string
-	SymlinkFile string
-	// WindowsFilePath is the path with the original separator.
-	// This provides a backwards-compatible solution to https://github.com/gitleaks/gitleaks/issues/1565.
-	WindowsFilePath string `json:"-"` // TODO: remove this in v9.
-
-	// CommitSHA is the SHA of the commit if applicable
-	CommitSHA string // TODO: remove this in v9 and use CommitInfo instead
+	// Indicates if this fragment is inherited from a finding
+	InheritedFromFinding bool
 
 	// StartLine is the line number this fragment starts on
 	StartLine int
 
-	// CommitInfo captures additional information about the git commit if applicable
-	CommitInfo *CommitInfo
+	// Attributes holds all source-specific metadata as flat key-value pairs.
+	Attributes []Attribute
+}
 
-	InheritedFromFinding bool // Indicates if this fragment is inherited from a finding
+// Attr returns the value for the given key, or "" if not present.
+func (f *Fragment) Attr(key string) string {
+	for _, a := range f.Attributes {
+		if a.Key == key {
+			return a.Value
+		}
+	}
+	return ""
+}
+
+// HasAttr returns true if the given key is present and non-empty.
+func (f *Fragment) HasAttr(key string) bool {
+	for _, a := range f.Attributes {
+		if a.Key == key {
+			return a.Value != ""
+		}
+	}
+	return false
+}
+
+// Logger returns a zerolog.Logger enriched with the fragment's metadata.
+func (f *Fragment) Logger() zerolog.Logger {
+	l := logging.With().Str("path", f.Attr(AttrPath))
+	if sha := f.Attr(AttrGitSHA); sha != "" {
+		l = l.Str("commit", sha)
+	}
+	return l.Logger()
 }
