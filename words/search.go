@@ -20,12 +20,18 @@ type Match struct {
 // position we check every substring length >= minLen. Returns one Result
 // aggregating all matches, or nil if none.
 func HasMatchInList(word string, minLen int) []Result {
+	// Trigger the lazy load. sync.Once guarantees this is thread-safe and
+	// only executes the decompression once, even with thousands of goroutines.
+	wordsOnce.Do(loadWords)
+
 	word = strings.ToLower(word)
 	if len(word) < minLen {
 		return nil
 	}
+
 	var matches []Match
 	seen := make(map[string]struct{})
+
 	// Walk the word: at each start position, try every substring length >= minLen
 	for start := 0; start <= len(word)-minLen; start++ {
 		for length := minLen; start+length <= len(word); length++ {
@@ -38,13 +44,16 @@ func HasMatchInList(word string, minLen int) []Result {
 			}
 		}
 	}
+
 	if len(matches) == 0 {
 		return nil
 	}
+
 	uniqueWords := make([]string, 0, len(seen))
 	for w := range seen {
 		uniqueWords = append(uniqueWords, w)
 	}
+
 	return []Result{{
 		WordCount:   len(matches),
 		UniqueWords: uniqueWords,

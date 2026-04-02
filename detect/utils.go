@@ -8,12 +8,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/color"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 // locateMatch returns the byte index of match within rawLine, using startCol
@@ -219,12 +218,8 @@ func filter(findings []report.Finding) []report.Finding {
 
 func formatMatchContext(context string, match string, secret string, noColor bool) string {
 	indent := "    " // 4 spaces
-	matchStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#f5d445"))
-	secretStyle := lipgloss.NewStyle().
-		Bold(true).
-		Italic(true).
-		Foreground(lipgloss.Color("#f05c07"))
+	matchStyle := color.New().Foreground("#f5d445")
+	secretStyle := color.New().Bold().Italic().Foreground("#f05c07")
 
 	lines := strings.Split(context, "\n")
 	for i, line := range lines {
@@ -271,7 +266,9 @@ func printFinding(f report.Finding, noColor bool, redact uint) {
 	isFileMatch := strings.HasPrefix(f.Match, "file detected:")
 	skipColor := noColor
 	finding := ""
-	var secret lipgloss.Style
+	secretDisplay := ""
+	matchStyle := color.New().Foreground("#f5d445")
+	secretStyle := color.New().Bold().Italic().Foreground("#f05c07")
 
 	// Matches from filenames do not have a |line| or |secret|
 	if !isFileMatch {
@@ -296,12 +293,13 @@ func printFinding(f report.Finding, noColor bool, redact uint) {
 			secretInMatchIdx = 0
 		}
 
-		matchBeginning := lipgloss.NewStyle().SetString(f.Match[0:secretInMatchIdx]).Foreground(lipgloss.Color("#f5d445"))
-		secret = lipgloss.NewStyle().SetString(f.Secret).
-			Bold(true).
-			Italic(true).
-			Foreground(lipgloss.Color("#f05c07"))
-		matchEnd := lipgloss.NewStyle().SetString(f.Match[secretInMatchIdx+len(f.Secret):]).Foreground(lipgloss.Color("#f5d445"))
+		matchBeginning := matchStyle.Render(f.Match[0:secretInMatchIdx])
+		secretDisplay = f.Secret
+		if len(f.Secret) > 100 {
+			secretDisplay = f.Secret[0:100] + "..."
+		}
+		styledSecret := secretStyle.Render(secretDisplay)
+		matchEnd := matchStyle.Render(f.Match[secretInMatchIdx+len(f.Secret):])
 
 		lineEndIdx := matchInLineIDX + len(f.Match)
 		if lineEndIdx > len(f.Line) {
@@ -310,17 +308,12 @@ func printFinding(f report.Finding, noColor bool, redact uint) {
 
 		lineEnd := f.Line[lineEndIdx:]
 
-		if len(f.Secret) > 100 {
-			secret = lipgloss.NewStyle().SetString(f.Secret[0:100] + "...").
-				Bold(true).
-				Italic(true).
-				Foreground(lipgloss.Color("#f05c07"))
-		}
 		if len(lineEnd) > 20 {
 			lineEnd = lineEnd[0:20] + "..."
 		}
 
-		finding = fmt.Sprintf("%s%s%s%s%s\n", strings.TrimPrefix(strings.TrimLeft(start, " "), "\n"), matchBeginning, secret, matchEnd, lineEnd)
+		finding = fmt.Sprintf("%s%s%s%s%s\n", strings.TrimPrefix(strings.TrimLeft(start, " "), "\n"), matchBeginning, styledSecret, matchEnd, lineEnd)
+		secretDisplay = styledSecret
 	}
 
 	if skipColor || isFileMatch {
@@ -328,7 +321,7 @@ func printFinding(f report.Finding, noColor bool, redact uint) {
 		fmt.Printf("%-12s %s\n", "Secret:", f.Secret)
 	} else {
 		fmt.Printf("%-12s %s", "Finding:", finding)
-		fmt.Printf("%-12s %s\n", "Secret:", secret)
+		fmt.Printf("%-12s %s\n", "Secret:", secretDisplay)
 	}
 
 	fmt.Printf("%-12s %s\n", "RuleID:", f.RuleID)
@@ -381,25 +374,7 @@ func printValidation(f report.Finding, noColor bool) {
 		return
 	}
 
-	var statusStyle lipgloss.Style
-	if !noColor {
-		switch f.ValidationStatus {
-		case "valid":
-			statusStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00d26a"))
-		case "invalid":
-			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-		case "revoked":
-			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#f5d445"))
-		case "unknown":
-			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#c0c0c0"))
-		case "error":
-			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#f05c07"))
-		default:
-			statusStyle = lipgloss.NewStyle()
-		}
-	} else {
-		statusStyle = lipgloss.NewStyle()
-	}
+	statusStyle := validationStyle(f.ValidationStatus, noColor)
 
 	fmt.Printf("%-12s %s", "Validation:", statusStyle.Render(strings.ToUpper(f.ValidationStatus)))
 	if f.ValidationReason != "" {
@@ -407,15 +382,33 @@ func printValidation(f report.Finding, noColor bool) {
 	}
 	fmt.Println()
 
-	var metaStyle lipgloss.Style
+	metaStyle := color.New()
 	if !noColor {
-		metaStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ca3af"))
-	} else {
-		metaStyle = lipgloss.NewStyle()
+		metaStyle = metaStyle.Foreground("#9ca3af")
 	}
 
 	for _, k := range sortedMapKeys(f.ValidationMeta) {
 		fmt.Printf("  %s\n", metaStyle.Render(fmt.Sprintf("%-10s %v", k+" =", f.ValidationMeta[k])))
+	}
+}
+
+func validationStyle(status string, noColor bool) color.Style {
+	if noColor {
+		return color.New()
+	}
+	switch status {
+	case "valid":
+		return color.New().Bold().Foreground("#00d26a")
+	case "invalid":
+		return color.New().Foreground("#888888")
+	case "revoked":
+		return color.New().Foreground("#f5d445")
+	case "unknown":
+		return color.New().Foreground("#c0c0c0")
+	case "error":
+		return color.New().Foreground("#f05c07")
+	default:
+		return color.New()
 	}
 }
 
