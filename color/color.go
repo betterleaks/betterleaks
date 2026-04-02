@@ -2,9 +2,15 @@ package color
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
+
+	"github.com/mattn/go-isatty"
 )
+
+// isTTY is evaluated once at init and caches whether stdout is a terminal.
+var isTTY = isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
 
 // Style holds ANSI formatting attributes for terminal output.
 type Style struct {
@@ -35,7 +41,11 @@ func (s Style) Italic() Style {
 }
 
 // Render wraps text with the configured ANSI escape sequences.
+// If stdout is not a TTY (e.g. piped or redirected), codes are suppressed.
 func (s Style) Render(text string) string {
+	if !isTTY {
+		return text
+	}
 	var codes []string
 	if s.bold {
 		codes = append(codes, "1")
