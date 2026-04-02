@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"fmt"
 	"os"
 	"slices"
@@ -18,7 +19,7 @@ const (
 	templatePath = "rules/config.tmpl"
 )
 
-//go:generate go run $GOFILE ../../../config/betterleaks.toml
+//go:generate go run $GOFILE ../../../config/betterleaks.toml.gz
 
 // tomlKeyQuote quotes a TOML key if it contains characters that require quoting
 // (e.g. dots, spaces). Bare keys only allow [A-Za-z0-9_-].
@@ -415,13 +416,16 @@ func main() {
 	}
 	defer f.Close()
 
+	gw := gzip.NewWriter(f)
+	defer gw.Close()
+
 	cfg := base.CreateGlobalConfig()
 	cfg.Rules = ruleLookUp
 	for _, allowlist := range cfg.Allowlists {
 		slices.Sort(allowlist.Commits)
 		slices.Sort(allowlist.StopWords)
 	}
-	if err = tmpl.Execute(f, cfg); err != nil {
+	if err = tmpl.Execute(gw, cfg); err != nil {
 		logging.Fatal().Err(err).Msg("could not execute template")
 	}
 }

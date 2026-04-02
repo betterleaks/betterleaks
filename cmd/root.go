@@ -193,7 +193,7 @@ func initConfig(source string) {
 		if !fileInfo.IsDir() {
 			logging.Debug().Msgf("unable to load config from %s since --source=%s is a file, using default config",
 				filepath.Join(source, ".betterleaks.toml"), source)
-			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig)); err != nil {
+			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig())); err != nil {
 				logging.Fatal().Msgf("err reading toml %s", err.Error())
 			}
 			return
@@ -204,7 +204,7 @@ func initConfig(source string) {
 		if configFile == "" {
 			logging.Debug().Msgf("no config found in path %s, using default config", source)
 
-			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig)); err != nil {
+			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig())); err != nil {
 				logging.Fatal().Msgf("err reading default config toml %s", err.Error())
 			}
 			return
