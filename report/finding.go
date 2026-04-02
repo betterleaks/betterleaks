@@ -5,8 +5,8 @@ import (
 	"math"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/color"
 	"github.com/betterleaks/betterleaks/sources"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // Finding contains a whole bunch of information about a secret finding.
@@ -190,9 +190,9 @@ func (f *Finding) PrintRequiredFindings(noColor bool, redact uint) {
 
 	fmt.Println("Required:")
 
-	orangeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#bf9478"))
-	if noColor {
-		orangeStyle = lipgloss.NewStyle()
+	orangeStyle := color.New()
+	if !noColor {
+		orangeStyle = orangeStyle.Foreground("#bf9478")
 	}
 
 	for _, set := range f.RequiredSets {
@@ -257,18 +257,18 @@ func formatSetStatus(status string, noColor bool) string {
 	if noColor {
 		return "[" + strings.ToUpper(status) + "]"
 	}
-	var style lipgloss.Style
+	var style color.Style
 	switch status {
 	case "valid":
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#00d26a"))
+		style = color.New().Foreground("#00d26a")
 	case "invalid":
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+		style = color.New().Foreground("#888888")
 	case "revoked":
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#f5d445"))
+		style = color.New().Foreground("#f5d445")
 	case "error":
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#f05c07"))
+		style = color.New().Foreground("#f05c07")
 	default:
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#c0c0c0"))
+		style = color.New().Foreground("#c0c0c0")
 	}
 	return style.Render("[" + strings.ToUpper(status) + "]")
 }
