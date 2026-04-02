@@ -95,3 +95,5 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/wasilibs/go-re2 v1.10.0 => github.com/betterleaks/go-re2 v0.0.0-20260402140350-c1778d2a0a52
