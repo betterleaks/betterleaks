@@ -231,7 +231,7 @@ func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 // NewDetectorDefaultConfig creates a new detector with the default config
 func NewDetectorDefaultConfig() (*Detector, error) {
 	viper.SetConfigType("toml")
-	err := viper.ReadConfig(strings.NewReader(config.DefaultConfig))
+	err := viper.ReadConfig(strings.NewReader(config.DefaultConfig()))
 	if err != nil {
 		return nil, err
 	}

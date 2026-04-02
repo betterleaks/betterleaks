@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"os"
 	"slices"
@@ -18,7 +20,7 @@ const (
 	templatePath = "rules/config.tmpl"
 )
 
-//go:generate go run $GOFILE ../../../config/betterleaks.toml
+//go:generate go run $GOFILE ../../../config/betterleaks.toml.gz
 
 // tomlKeyQuote quotes a TOML key if it contains characters that require quoting
 // (e.g. dots, spaces). Bare keys only allow [A-Za-z0-9_-].
@@ -409,19 +411,32 @@ func main() {
 		logging.Fatal().Err(err).Msg("Failed to parse template")
 	}
 
-	f, err := os.Create(betterleaksConfigPath)
-	if err != nil {
-		logging.Fatal().Err(err).Msg("Failed to create rules.toml")
-	}
-	defer f.Close()
-
 	cfg := base.CreateGlobalConfig()
 	cfg.Rules = ruleLookUp
 	for _, allowlist := range cfg.Allowlists {
 		slices.Sort(allowlist.Commits)
 		slices.Sort(allowlist.StopWords)
 	}
-	if err = tmpl.Execute(f, cfg); err != nil {
+
+	// Execute template into a buffer so we can normalize line endings.
+	var buf bytes.Buffer
+	if err = tmpl.Execute(&buf, cfg); err != nil {
 		logging.Fatal().Err(err).Msg("could not execute template")
+	}
+
+	// Normalize CRLF → LF to ensure deterministic gzip output across platforms.
+	normalized := bytes.ReplaceAll(buf.Bytes(), []byte("\r\n"), []byte("\n"))
+
+	f, err := os.Create(betterleaksConfigPath)
+	if err != nil {
+		logging.Fatal().Err(err).Msg("Failed to create rules.toml")
+	}
+	defer f.Close()
+
+	gw := gzip.NewWriter(f)
+	defer gw.Close()
+
+	if _, err = gw.Write(normalized); err != nil {
+		logging.Fatal().Err(err).Msg("Failed to write compressed config")
 	}
 }

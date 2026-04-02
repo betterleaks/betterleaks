@@ -1,11 +1,15 @@
 package config
 
 import (
+	"bytes"
+	"compress/gzip"
 	_ "embed"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
+	"sync"
 
 	gv "github.com/hashicorp/go-version"
 	"github.com/spf13/viper"
@@ -16,13 +20,32 @@ import (
 )
 
 var (
-	//go:embed betterleaks.toml
-	DefaultConfig string
+	//go:embed betterleaks.toml.gz
+	defaultCfgZipped []byte
+
+	defaultConfig     string
+	defaultConfigOnce sync.Once
 
 	// use to keep track of how many configs we can extend
-	// yea I know, globals bad
 	extendDepth int
 )
+
+// DefaultConfig lazily decompresses and returns the default TOML config.
+func DefaultConfig() string {
+	defaultConfigOnce.Do(func() {
+		gz, err := gzip.NewReader(bytes.NewReader(defaultCfgZipped))
+		if err != nil {
+			panic(err)
+		}
+		defer gz.Close()
+		b, err := io.ReadAll(gz)
+		if err != nil {
+			panic(err)
+		}
+		defaultConfig = string(b)
+	})
+	return defaultConfig
+}
 
 const maxExtendDepth = 2
 
@@ -446,7 +469,7 @@ func (c *Config) GetOrderedRules() []Rule {
 func (c *Config) extendDefault(parent *ViperConfig) error {
 	extendDepth++
 	viper.SetConfigType("toml")
-	if err := viper.ReadConfig(strings.NewReader(DefaultConfig)); err != nil {
+	if err := viper.ReadConfig(strings.NewReader(DefaultConfig())); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 	}
 	defaultViperConfig := ViperConfig{}
