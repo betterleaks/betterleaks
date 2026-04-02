@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -15,7 +14,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/config"
@@ -114,10 +112,6 @@ func init() {
 	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
 	rootCmd.PersistentFlags().String("diagnostics-dir", "", "directory to store diagnostics output files when not using http mode (defaults to current directory)")
 
-	err := viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
-	if err != nil {
-		logging.Fatal().Msgf("err binding config %s", err.Error())
-	}
 }
 
 var logLevel = zerolog.InfoLevel
@@ -155,12 +149,14 @@ func initLog() {
 	}
 }
 
-var bannerPrinted bool
+var (
+	bannerPrinted bool
+	// loadedConfig stores the ViperConfig loaded by initConfig.
+	loadedConfig config.ViperConfig
+)
 
 func initConfig(source string) {
 	hideBanner, err := rootCmd.Flags().GetBool("no-banner")
-	viper.SetConfigType("toml")
-
 	if err != nil {
 		logging.Fatal().Msg(err.Error())
 	}
@@ -176,53 +172,67 @@ func initConfig(source string) {
 		logging.Fatal().Msg(err.Error())
 	}
 	if cfgPath != "" {
-		viper.SetConfigFile(cfgPath)
+		vc, loadErr := config.LoadTOMLFile(cfgPath)
+		if loadErr != nil {
+			logging.Fatal().Msgf("unable to load config, err: %s", loadErr)
+		}
 		logging.Debug().Msgf("using config %s from `--config`", cfgPath)
-	} else if envPath := getEnvWithFallback("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
-		viper.SetConfigFile(envPath)
+		loadedConfig = vc
+		return
+	}
+	if envPath := getEnvWithFallback("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
+		vc, loadErr := config.LoadTOMLFile(envPath)
+		if loadErr != nil {
+			logging.Fatal().Err(loadErr).Msg("unable to load config from env var path")
+		}
 		logging.Debug().Msgf("using config from env var: %s", envPath)
-	} else if configContent := getEnvWithFallback("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); configContent != "" {
-		if err := viper.ReadConfig(bytes.NewBuffer([]byte(configContent))); err != nil {
-			logging.Fatal().Err(err).Str("content", configContent).Msg("unable to load config from env var")
+		loadedConfig = vc
+		return
+	}
+	if configContent := getEnvWithFallback("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); configContent != "" {
+		vc, loadErr := config.LoadTOML(configContent)
+		if loadErr != nil {
+			logging.Fatal().Err(loadErr).Str("content", configContent).Msg("unable to load config from env var")
 		}
 		logging.Debug().Str("content", configContent).Msg("using config from env var content")
+		loadedConfig = vc
 		return
-	} else {
-		fileInfo, err := os.Stat(source)
-		if err != nil {
-			logging.Fatal().Msg(err.Error())
-		}
-
-		if !fileInfo.IsDir() {
-			logging.Debug().Msgf("unable to load config from %s since --source=%s is a file, using default config",
-				filepath.Join(source, ".betterleaks.toml"), source)
-			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig)); err != nil {
-				logging.Fatal().Msgf("err reading toml %s", err.Error())
-			}
-			return
-		}
-
-		// Check for config file: .betterleaks.toml first, then .gitleaks.toml
-		configFile := findConfigFile(source)
-		if configFile == "" {
-			logging.Debug().Msgf("no config found in path %s, using default config", source)
-
-			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig)); err != nil {
-				logging.Fatal().Msgf("err reading default config toml %s", err.Error())
-			}
-			return
-		} else {
-			logging.Debug().Msgf("using existing config %s", configFile)
-		}
-
-		viper.AddConfigPath(source)
-		// Strip the leading dot and .toml extension to get the config name
-		configName := strings.TrimSuffix(filepath.Base(configFile), ".toml")
-		viper.SetConfigName(configName)
 	}
-	if err := viper.ReadInConfig(); err != nil {
-		logging.Fatal().Msgf("unable to load config, err: %s", err)
+
+	fileInfo, err := os.Stat(source)
+	if err != nil {
+		logging.Fatal().Msg(err.Error())
 	}
+
+	if !fileInfo.IsDir() {
+		logging.Debug().Msgf("unable to load config from %s since --source=%s is a file, using default config",
+			filepath.Join(source, ".betterleaks.toml"), source)
+		vc, loadErr := config.LoadTOML(config.DefaultConfig)
+		if loadErr != nil {
+			logging.Fatal().Msgf("err reading toml %s", loadErr.Error())
+		}
+		loadedConfig = vc
+		return
+	}
+
+	// Check for config file: .betterleaks.toml first, then .gitleaks.toml
+	configFile := findConfigFile(source)
+	if configFile == "" {
+		logging.Debug().Msgf("no config found in path %s, using default config", source)
+		vc, loadErr := config.LoadTOML(config.DefaultConfig)
+		if loadErr != nil {
+			logging.Fatal().Msgf("err reading default config toml %s", loadErr.Error())
+		}
+		loadedConfig = vc
+		return
+	}
+
+	logging.Debug().Msgf("using existing config %s", configFile)
+	vc, loadErr := config.LoadTOMLFile(configFile)
+	if loadErr != nil {
+		logging.Fatal().Msgf("unable to load config, err: %s", loadErr)
+	}
+	loadedConfig = vc
 }
 
 // getEnvWithFallback returns the value of the first environment variable that is set.
@@ -296,16 +306,15 @@ func Execute() {
 }
 
 func Config(cmd *cobra.Command) config.Config {
-	var vc config.ViperConfig
-	if err := viper.Unmarshal(&vc); err != nil {
-		logging.Fatal().Err(err).Msg("Failed to load config")
-	}
-
-	cfg, err := vc.Translate()
+	cfg, err := loadedConfig.Translate()
 	if err != nil {
 		logging.Fatal().Err(err).Msg("Failed to load config")
 	}
-	cfg.Path, _ = cmd.Flags().GetString("config")
+
+	// If --config was explicitly set, override the path.
+	if cfgPath, _ := cmd.Flags().GetString("config"); cfgPath != "" {
+		cfg.Path = cfgPath
+	}
 
 	return cfg
 }

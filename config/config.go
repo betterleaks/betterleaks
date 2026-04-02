@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	gv "github.com/hashicorp/go-version"
-	"github.com/spf13/viper"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
@@ -226,14 +225,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		BetterleaksMinVersion: vc.BetterleaksMinVersion,
 	}
 
-	if extendDepth > 0 {
-		// annoying hack to set the current config with the extended path
-		// since if extendDepth > 0 we are operating an extended config.
-		c.Path = vc.configPath
-	} else {
-		// I don't love this
-		c.Path = viper.ConfigFileUsed()
-	}
+	c.Path = vc.configPath
 
 	if err := validateMinVersion(c.MinVersion, c.BetterleaksMinVersion, c.Path); err != nil {
 		return Config{}, err
@@ -445,18 +437,13 @@ func (c *Config) GetOrderedRules() []Rule {
 
 func (c *Config) extendDefault(parent *ViperConfig) error {
 	extendDepth++
-	viper.SetConfigType("toml")
-	if err := viper.ReadConfig(strings.NewReader(DefaultConfig)); err != nil {
-		return fmt.Errorf("failed to load extended default config, err: %w", err)
-	}
-	defaultViperConfig := ViperConfig{}
-	if err := viper.Unmarshal(&defaultViperConfig); err != nil {
+	defaultViperConfig, err := LoadTOML(DefaultConfig)
+	if err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 	}
 	cfg, err := defaultViperConfig.Translate()
 	if err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
-
 	}
 	logging.Debug().Msg("extending config with default config")
 	c.extend(cfg)
@@ -465,16 +452,10 @@ func (c *Config) extendDefault(parent *ViperConfig) error {
 
 func (c *Config) extendPath(parent *ViperConfig) error {
 	extendDepth++
-	viper.SetConfigFile(c.Extend.Path)
-	if err := viper.ReadInConfig(); err != nil {
+	extensionViperConfig, err := LoadTOMLFile(c.Extend.Path)
+	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}
-	extensionViperConfig := ViperConfig{}
-	if err := viper.Unmarshal(&extensionViperConfig); err != nil {
-		return fmt.Errorf("failed to load extended config, err: %w", err)
-	}
-
-	extensionViperConfig.configPath = c.Extend.Path
 	logging.Debug().Msgf("extending config with %s", c.Extend.Path)
 	cfg, err := extensionViperConfig.Translate()
 	if err != nil {

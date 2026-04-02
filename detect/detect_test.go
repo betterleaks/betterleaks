@@ -14,7 +14,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/rs/zerolog"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -824,15 +823,7 @@ const token = "mockSecret";
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			viper.Reset()
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName(tt.cfgName)
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
-			require.NoError(t, err)
-
-			var vc config.ViperConfig
-			err = viper.Unmarshal(&vc)
+			vc, err := config.LoadTOMLFile(filepath.Join(configPath, tt.cfgName+".toml"))
 			require.NoError(t, err)
 			cfg, err := vc.Translate()
 			cfg.Path = filepath.Join(configPath, tt.cfgName+".toml")
@@ -1324,14 +1315,7 @@ func TestFromGit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(strings.Join([]string{tt.cfgName, tt.source, tt.logOpts}, "/"), func(t *testing.T) {
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName("simple")
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
-			require.NoError(t, err)
-
-			var vc config.ViperConfig
-			err = viper.Unmarshal(&vc)
+			vc, err := config.LoadTOMLFile(filepath.Join(configPath, "simple.toml"))
 			require.NoError(t, err)
 			cfg, err := vc.Translate()
 			require.NoError(t, err)
@@ -1415,15 +1399,7 @@ func TestFromGitStaged(t *testing.T) {
 	moveDotGit(t, "dotGit", ".git")
 	defer moveDotGit(t, ".git", "dotGit")
 	for _, tt := range tests {
-
-		viper.AddConfigPath(configPath)
-		viper.SetConfigName("simple")
-		viper.SetConfigType("toml")
-		err := viper.ReadInConfig()
-		require.NoError(t, err)
-
-		var vc config.ViperConfig
-		err = viper.Unmarshal(&vc)
+		vc, err := config.LoadTOMLFile(filepath.Join(configPath, "simple.toml"))
 		require.NoError(t, err)
 		cfg, err := vc.Translate()
 		require.NoError(t, err)
@@ -1531,14 +1507,7 @@ func TestFromFiles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName(tt.cfgName)
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
-			require.NoError(t, err)
-
-			var vc config.ViperConfig
-			err = viper.Unmarshal(&vc)
+			vc, err := config.LoadTOMLFile(filepath.Join(configPath, tt.cfgName+".toml"))
 			require.NoError(t, err)
 
 			cfg, _ := vc.Translate()
@@ -2132,14 +2101,7 @@ func TestDetectWithArchives(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName(tt.cfgName)
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
-			require.NoError(t, err)
-
-			var vc config.ViperConfig
-			err = viper.Unmarshal(&vc)
+			vc, err := config.LoadTOMLFile(filepath.Join(configPath, tt.cfgName+".toml"))
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithCancel(t.Context())
@@ -2223,14 +2185,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		viper.AddConfigPath(configPath)
-		viper.SetConfigName("simple")
-		viper.SetConfigType("toml")
-		err := viper.ReadInConfig()
-		require.NoError(t, err)
-
-		var vc config.ViperConfig
-		err = viper.Unmarshal(&vc)
+		vc, err := config.LoadTOMLFile(filepath.Join(configPath, "simple.toml"))
 		require.NoError(t, err)
 
 		cfg, _ := vc.Translate()

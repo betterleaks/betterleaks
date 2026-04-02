@@ -3,11 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -586,18 +586,12 @@ func testTranslate(t *testing.T, test translateCase) {
 	t.Helper()
 	t.Cleanup(func() {
 		extendDepth = 0
-		viper.Reset()
 	})
 
-	viper.AddConfigPath(configPath)
-	viper.SetConfigName(test.cfgName)
-	viper.SetConfigType("toml")
-	err := viper.ReadInConfig()
+	cfgFile := filepath.Join(configPath, test.cfgName+".toml")
+	vc, err := LoadTOMLFile(cfgFile)
 	require.NoError(t, err)
 
-	var vc ViperConfig
-	err = viper.Unmarshal(&vc)
-	require.NoError(t, err)
 	cfg, err := vc.Translate()
 	if err != nil {
 		if test.wantError != nil {
@@ -656,18 +650,13 @@ func TestExtendedRuleKeywordsAreDowncase(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Cleanup(func() {
-				viper.Reset()
+				extendDepth = 0
 			})
 
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName(tt.cfgName)
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
+			cfgFile := filepath.Join(configPath, tt.cfgName+".toml")
+			vc, err := LoadTOMLFile(cfgFile)
 			require.NoError(t, err)
 
-			var vc ViperConfig
-			err = viper.Unmarshal(&vc)
-			require.NoError(t, err)
 			cfg, err := vc.Translate()
 			require.NoError(t, err)
 
