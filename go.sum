@@ -14,6 +14,8 @@ github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYW
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
+github.com/betterleaks/go-re2 v0.0.0-20260402140350-c1778d2a0a52 h1:/pYQe3V/Di/6J43OtM6PSyLBha0MAsTjXz98I5vQn28=
+github.com/betterleaks/go-re2 v0.0.0-20260402140350-c1778d2a0a52/go.mod h1:5kzOjL0w4RJWya0Wyuoeijs1adOIUvp0/x/STPK6Xak=
 github.com/bodgit/plumbing v1.3.0 h1:pf9Itz1JOQgn7vEOE7v7nlEfBykYqvUYioC61TwWCFU=
 github.com/bodgit/plumbing v1.3.0/go.mod h1:JOTb4XiRu5xfnmdnDJo6GmSbSbtSyufrsyZFByMtKEs=
 github.com/bodgit/sevenzip v1.6.1 h1:kikg2pUMYC9ljU7W9SaqHXhym5HyKm8/M/jd31fYan4=
@@ -168,8 +170,6 @@ github.com/tetratelabs/wazero v1.11.0/go.mod h1:eV28rsN8Q+xwjogd7f4/Pp4xFxO7uOGb
 github.com/ulikunitz/xz v0.5.8/go.mod h1:nbz6k7qbPmH4IRqmfOplQw/tblSgqTqBwxkY0oWt/14=
 github.com/ulikunitz/xz v0.5.15 h1:9DNdB5s+SgV3bQ2ApL10xRc35ck0DuIX/isZvIk+ubY=
 github.com/ulikunitz/xz v0.5.15/go.mod h1:nbz6k7qbPmH4IRqmfOplQw/tblSgqTqBwxkY0oWt/14=
-github.com/wasilibs/go-re2 v1.10.0 h1:vQZEBYZOCA9jdBMmrO4+CvqyCj0x4OomXTJ4a5/urQ0=
-github.com/wasilibs/go-re2 v1.10.0/go.mod h1:k+5XqO2bCJS+QpGOnqugyfwC04nw0jaglmjrrkG8U6o=
 github.com/wasilibs/wazero-helpers v0.0.0-20250123031827-cd30c44769bb h1:gQ+ZV4wJke/EBKYciZ2MshEouEHFuinB85dY3f5s1q8=
 github.com/wasilibs/wazero-helpers v0.0.0-20250123031827-cd30c44769bb/go.mod h1:jMeV4Vpbi8osrE/pKUxRZkVaA0EX7NZN0A9/oRzgpgY=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=
