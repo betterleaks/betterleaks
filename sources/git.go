@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -364,7 +365,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 			// Check if commit is allowed
 			commitSHA := ""
-			var commitAttrs []Attribute
+			commitAttrs := make(map[string]string)
 			if gitdiffFile.PatchHeader != nil {
 				commitSHA = gitdiffFile.PatchHeader.SHA
 				for _, a := range s.Config.Allowlists {
@@ -374,27 +375,20 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					}
 				}
 
-				commitAttrs = []Attribute{
-					{AttrGitSHA, commitSHA},
-					{AttrGitMessage, gitdiffFile.PatchHeader.Message()},
-					{AttrResourceKind, "git.diff"},
-				}
+				commitAttrs[AttrGitSHA] = commitSHA
+				commitAttrs[AttrGitMessage] = gitdiffFile.PatchHeader.Message()
+				commitAttrs[AttrResourceKind] = "git.diff"
 				if s.RemoteURL != "" {
-					commitAttrs = append(commitAttrs,
-						Attribute{AttrGitRemoteURL, s.RemoteURL},
-						Attribute{AttrGitPlatform, s.Platform.String()},
-					)
+
+					commitAttrs[AttrGitRemoteURL] = s.RemoteURL
+					commitAttrs[AttrGitPlatform] = s.Platform.String()
 				}
 				if !gitdiffFile.PatchHeader.AuthorDate.IsZero() {
-					commitAttrs = append(commitAttrs,
-						Attribute{AttrGitDate, gitdiffFile.PatchHeader.AuthorDate.UTC().Format(time.RFC3339)},
-					)
+					commitAttrs[AttrGitDate] = gitdiffFile.PatchHeader.AuthorDate.UTC().Format(time.RFC3339)
 				}
 				if gitdiffFile.PatchHeader.Author != nil {
-					commitAttrs = append(commitAttrs,
-						Attribute{AttrGitAuthorName, gitdiffFile.PatchHeader.Author.Name},
-						Attribute{AttrGitAuthorEmail, gitdiffFile.PatchHeader.Author.Email},
-					)
+					commitAttrs[AttrGitAuthorName] = gitdiffFile.PatchHeader.Author.Name
+					commitAttrs[AttrGitAuthorEmail] = gitdiffFile.PatchHeader.Author.Email
 				}
 			}
 
@@ -418,7 +412,8 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 					// enrich and yield fragments
 					err = file.Fragments(ctx, func(fragment Fragment, err error) error {
-						fragment.Attributes = append(fragment.Attributes, commitAttrs...)
+						fragment.Attributes = maps.Clone(commitAttrs)
+						fragment.SetAttr(AttrPath, gitdiffFile.NewName)
 						return yield(fragment, err)
 					})
 
@@ -435,13 +430,11 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 						return nil
 					}
 					fragment := Fragment{
-						Raw:       textFragment.Raw(gitdiff.OpAdd),
-						StartLine: int(textFragment.NewPosition),
-						Attributes: append(
-							[]Attribute{{AttrPath, gitdiffFile.NewName}},
-							commitAttrs...,
-						),
+						Raw:        textFragment.Raw(gitdiff.OpAdd),
+						StartLine:  int(textFragment.NewPosition),
+						Attributes: commitAttrs,
 					}
+					fragment.SetAttr(AttrPath, gitdiffFile.NewName)
 
 					if err := yield(fragment, nil); err != nil {
 						return err

@@ -18,28 +18,22 @@ type Fragment struct {
 	// StartLine is the line number this fragment starts on
 	StartLine int
 
-	// Attributes holds all source-specific metadata as flat key-value pairs.
-	Attributes []Attribute
+	// Attributes holds all source-specific metadata as flat
+	Attributes map[string]string
 }
 
-// Attr returns the value for the given key, or "" if not present.
+func (f *Fragment) SetAttr(key, value string) {
+	if f.Attributes == nil {
+		f.Attributes = make(map[string]string)
+	}
+	f.Attributes[key] = value
+}
+
 func (f *Fragment) Attr(key string) string {
-	for _, a := range f.Attributes {
-		if a.Key == key {
-			return a.Value
-		}
+	if f.Attributes == nil {
+		return ""
 	}
-	return ""
-}
-
-// HasAttr returns true if the given key is present and non-empty.
-func (f *Fragment) HasAttr(key string) bool {
-	for _, a := range f.Attributes {
-		if a.Key == key {
-			return a.Value != ""
-		}
-	}
-	return false
+	return f.Attributes[key]
 }
 
 // Logger returns a zerolog.Logger enriched with the fragment's metadata.

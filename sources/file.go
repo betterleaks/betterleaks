@@ -241,8 +241,11 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 			if isWindows {
 				fragPath = filepath.ToSlash(fullPath)
 			}
+			attr := map[string]string{
+				AttrPath: fragPath,
+			}
 			fragment := Fragment{
-				Attributes: []Attribute{{Key: AttrPath, Value: fragPath}},
+				Attributes: attr,
 			}
 
 			n, err := reader.Read(s.Buffer)
@@ -289,14 +292,14 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 			totalLines += strings.Count(fragment.Raw, "\n")
 
 			if isWindows {
-				fragment.Attributes = append(fragment.Attributes, Attribute{Key: AttrFSWindowsPath, Value: fullPath})
+				fragment.SetAttr(AttrFSWindowsPath, fullPath)
 			}
 			if s.Symlink != "" {
 				symlink := s.Symlink
 				if isWindows {
 					symlink = filepath.ToSlash(s.Symlink)
 				}
-				fragment.Attributes = append(fragment.Attributes, Attribute{Key: AttrFSSymlink, Value: symlink})
+				fragment.SetAttr(AttrFSSymlink, symlink)
 			}
 
 			// log errors but continue since there's content

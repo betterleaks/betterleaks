@@ -1,13 +1,5 @@
 package sources
 
-// Attribute is a key-value pair attached to a Fragment.
-// Keys use dotted namespaces: "git.sha", "fs.symlink", "s3.bucket", etc.
-// Values are always strings to avoid boxing/GC overhead.
-type Attribute struct {
-	Key   string
-	Value string
-}
-
 // Well-known attribute keys (constants prevent typos at call sites).
 const (
 	// universal attributes

@@ -489,7 +489,7 @@ ScanLoop:
 func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
 	var (
 		findings []report.Finding
-		logger   = fragment.Logger()
+		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
 	)
 
 	if r.SkipReport && !fragment.InheritedFromFinding {
