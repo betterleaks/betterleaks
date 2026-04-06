@@ -1,33 +1,15 @@
 package regexp
 
-import (
-	"os"
-	stdlib "regexp"
+import "github.com/betterleaks/betterleaks/regexp/internal"
 
-	gore2 "github.com/wasilibs/go-re2"
-)
-
-func init() {
-	if v := os.Getenv("BETTERLEAKS_REGEX_ENGINE"); v != "" {
-		SetEngine(v)
-	}
-}
-
-// engine is an internal interface satisfied by both *stdlib.Regexp and *gore2.Regexp.
-type engine interface {
-	MatchString(s string) bool
-	FindString(s string) string
-	FindStringSubmatch(s string) []string
-	FindAllStringIndex(s string, n int) [][]int
-	ReplaceAllString(src, repl string) string
-	NumSubexp() int
-	SubexpNames() []string
-	String() string
+type Engine interface {
+	Compile(str string) (internal.CompiledRegexp, error)
+	Version() string
 }
 
 // Regexp wraps a compiled regular expression. It is a concrete struct
 // so that *Regexp works as a normal pointer (not pointer-to-interface).
-type Regexp struct{ e engine }
+type Regexp struct{ e internal.CompiledRegexp }
 
 func (r *Regexp) MatchString(s string) bool {
 	return r.e.MatchString(s)
@@ -54,33 +36,20 @@ func (r *Regexp) String() string {
 	return r.e.String()
 }
 
-var currentEngine = "re2"
+var currentEngine Engine = Stdlib{}
 
 // Version returns the name of the active regex engine.
-func Version() string { return currentEngine }
+func Version() string { return currentEngine.Version() }
 
 // SetEngine selects the regex engine used by subsequent MustCompile calls.
-func SetEngine(name string) {
-	switch name {
-	case "stdlib", "re2":
-		currentEngine = name
-	default:
-		panic("regexp: unknown engine: " + name)
-	}
+func SetEngine(engine Engine) {
+	currentEngine = engine
 }
 
 // Compile parses a regular expression using the currently selected engine.
 // If successful, returns a [Regexp] object that can be used to match against text.
 func Compile(str string) (*Regexp, error) {
-	var (
-		impl engine
-		err  error
-	)
-	if currentEngine == "re2" {
-		impl, err = gore2.Compile(str)
-	} else {
-		impl, err = stdlib.Compile(str)
-	}
+	impl, err := currentEngine.Compile(str)
 	if err != nil {
 		return nil, err
 	}
@@ -89,11 +58,9 @@ func Compile(str string) (*Regexp, error) {
 
 // MustCompile compiles a regular expression using the currently selected engine.
 func MustCompile(str string) *Regexp {
-	var impl engine
-	if currentEngine == "re2" {
-		impl = gore2.MustCompile(str)
-	} else {
-		impl = stdlib.MustCompile(str)
+	r, err := Compile(str)
+	if err != nil {
+		panic(err)
 	}
-	return &Regexp{e: impl}
+	return r
 }

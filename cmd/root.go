@@ -22,6 +22,7 @@ import (
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
+	regexpre2 "github.com/betterleaks/betterleaks/regexp/re2"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/validate"
 	"github.com/betterleaks/betterleaks/version"
@@ -146,12 +147,19 @@ func initLog() {
 	}
 	logging.Logger = logging.Logger.Level(logLevel)
 
+	var engineName string
 	if rootCmd.Flags().Changed("regex-engine") {
-		engine, _ := rootCmd.Flags().GetString("regex-engine")
-		regexp.SetEngine(engine)
+		engineName, _ = rootCmd.Flags().GetString("regex-engine")
 	} else if rootCmd.Flags().Changed("regexp-engine") {
-		engine, _ := rootCmd.Flags().GetString("regexp-engine")
-		regexp.SetEngine(engine)
+		engineName, _ = rootCmd.Flags().GetString("regexp-engine")
+	}
+	switch engineName {
+	case "", "re2":
+		regexp.SetEngine(regexpre2.RE2{})
+	case "stdlib":
+		regexp.SetEngine(regexp.Stdlib{})
+	default:
+		panic("regexp: unknown engine: " + engineName)
 	}
 }
 
