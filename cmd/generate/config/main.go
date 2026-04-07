@@ -181,6 +181,7 @@ func main() {
 		rules.GitlabOauthAppSecret(),
 		rules.GitlabPat(),
 		rules.GitlabPatRoutable(),
+		rules.GitlabPatRoutableVersioned(),
 		rules.GitlabPipelineTriggerToken(),
 		rules.GitlabRunnerRegistrationToken(),
 		rules.GitlabRunnerAuthenticationToken(),
