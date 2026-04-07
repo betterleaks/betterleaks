@@ -18,7 +18,7 @@ type Fragment struct {
 	// StartLine is the line number this fragment starts on
 	StartLine int
 
-	// Attributes holds all source-specific metadata as flat
+	// Attributes holds all source-specific metadata
 	Attributes map[string]string
 }
 
