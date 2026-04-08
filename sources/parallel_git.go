@@ -15,6 +15,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
 // ParallelGit scans a git repo by running multiple `git log -p` processes
@@ -25,7 +26,8 @@ import (
 type ParallelGit struct {
 	RepoPath        string
 	Config          *config.Config
-	Remote          *RemoteInfo
+	Platform        scm.Platform
+	RemoteURL       string
 	Sema            *semgroup.Group
 	MaxArchiveDepth int
 	LogOpts         string
@@ -88,7 +90,8 @@ func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) 
 	src := &Git{
 		Cmd:             gitCmd,
 		Config:          s.Config,
-		Remote:          s.Remote,
+		Platform:        s.Platform,
+		RemoteURL:       s.RemoteURL,
 		Sema:            s.Sema,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 	}
@@ -107,7 +110,8 @@ func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield FragmentsFunc,
 	src := &Git{
 		Cmd:             gitCmd,
 		Config:          s.Config,
-		Remote:          s.Remote,
+		Platform:        s.Platform,
+		RemoteURL:       s.RemoteURL,
 		Sema:            s.Sema,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 	}

@@ -57,10 +57,9 @@ var linkCleaner = strings.NewReplacer(
 	"%", "%25",
 )
 
-func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
-	if remote.Platform == scm.UnknownPlatform ||
-		remote.Platform == scm.NoPlatform ||
-		finding.Commit == "" {
+func createScmLink(platform, remoteURL string, finding report.Finding) string {
+	p, _ := scm.PlatformFromString(platform)
+	if p == scm.UnknownPlatform || p == scm.NoPlatform || finding.Commit == "" {
 		return ""
 	}
 
@@ -68,9 +67,9 @@ func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
 	filePath, _, hasInnerPath := strings.Cut(finding.File, sources.InnerPathSeparator)
 	filePath = linkCleaner.Replace(filePath)
 
-	switch remote.Platform {
+	switch p {
 	case scm.GitHubPlatform:
-		link := fmt.Sprintf("%s/blob/%s/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/blob/%s/%s", remoteURL, finding.Commit, filePath)
 		if hasInnerPath {
 			return link
 		}
@@ -86,7 +85,7 @@ func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
 		}
 		return link
 	case scm.GitLabPlatform:
-		link := fmt.Sprintf("%s/blob/%s/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/blob/%s/%s", remoteURL, finding.Commit, filePath)
 		if hasInnerPath {
 			return link
 		}
@@ -98,7 +97,7 @@ func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
 		}
 		return link
 	case scm.AzureDevOpsPlatform:
-		link := fmt.Sprintf("%s/commit/%s?path=/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/commit/%s?path=/%s", remoteURL, finding.Commit, filePath)
 		// Add line information if applicable
 		if hasInnerPath {
 			return link
@@ -113,7 +112,7 @@ func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
 		link += "&lineStartColumn=1&lineEndColumn=10000000&type=2&lineStyle=plain&_a=files"
 		return link
 	case scm.GiteaPlatform:
-		link := fmt.Sprintf("%s/src/commit/%s/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/src/commit/%s/%s", remoteURL, finding.Commit, filePath)
 		if hasInnerPath {
 			return link
 		}
@@ -129,7 +128,7 @@ func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
 		}
 		return link
 	case scm.BitbucketPlatform:
-		link := fmt.Sprintf("%s/src/%s/%s", remote.Url, finding.Commit, filePath)
+		link := fmt.Sprintf("%s/src/%s/%s", remoteURL, finding.Commit, filePath)
 		if hasInnerPath {
 			return link
 		}

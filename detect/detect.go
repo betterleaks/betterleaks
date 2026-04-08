@@ -329,23 +329,12 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 	}()
 
 	err := source.Fragments(ctx, func(fragment sources.Fragment, err error) error {
-		logContext := logging.With()
+		logger := fragment.Logger()
 
-		if len(fragment.FilePath) > 0 {
-			logContext = logContext.Str("path", fragment.FilePath)
+		commitSHA := fragment.Attr(sources.AttrGitSHA)
+		if commitSHA != "" {
+			d.addCommit(commitSHA)
 		}
-
-		if len(fragment.CommitSHA) > 6 {
-			logContext = logContext.Str("commit", fragment.CommitSHA[:7])
-			d.addCommit(fragment.CommitSHA)
-		} else if len(fragment.CommitSHA) > 0 {
-			logContext = logContext.Str("commit", fragment.CommitSHA)
-			d.addCommit(fragment.CommitSHA)
-			logger := logContext.Logger()
-			logger.Warn().Msg("commit SHAs should be >= 7 characters long")
-		}
-
-		logger := logContext.Logger()
 
 		if err != nil {
 			// Log the error and move on to the next fragment
@@ -355,7 +344,7 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 
 		// both the fragment's content and path should be empty for it to be
 		// considered empty at this point because of path based matches
-		if len(fragment.Raw) == 0 && len(fragment.FilePath) == 0 {
+		if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
 			logger.Trace().Msg("skipping empty fragment")
 			return nil
 		}
@@ -418,19 +407,13 @@ func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment)
 
 	var (
 		findings []report.Finding
-		logger   = func() zerolog.Logger {
-			l := logging.With().Str("path", fragment.FilePath)
-			if fragment.CommitSHA != "" {
-				l = l.Str("commit", fragment.CommitSHA)
-			}
-			return l.Logger()
-		}()
+		logger   = fragment.Logger()
 	)
 
 	// check if filepath is allowed
-	if fragment.FilePath != "" {
+	if fragment.Attr(sources.AttrPath) != "" {
 		// is the path our config or baseline file?
-		if fragment.FilePath == d.Config.Path || (d.baselinePath != "" && fragment.FilePath == d.baselinePath) {
+		if fragment.Attr(sources.AttrPath) == d.Config.Path || (d.baselinePath != "" && fragment.Attr(sources.AttrPath) == d.baselinePath) {
 			logging.Trace().Msg("skipping file: matches config or baseline path")
 			return findings
 		}
@@ -511,13 +494,7 @@ ScanLoop:
 func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
 	var (
 		findings []report.Finding
-		logger   = func() zerolog.Logger {
-			l := logging.With().Str("rule-id", r.RuleID).Str("path", fragment.FilePath)
-			if fragment.CommitSHA != "" {
-				l = l.Str("commit", fragment.CommitSHA)
-			}
-			return l.Logger()
-		}()
+		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
 	)
 
 	if r.SkipReport && !fragment.InheritedFromFinding {
@@ -531,24 +508,29 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 	}
 
 	if r.Path != nil {
+		wp := fragment.Attr(sources.AttrFSWindowsPath)
 		if r.Regex == nil && len(encodedSegments) == 0 {
 			// Path _only_ rule
-			if r.Path.MatchString(fragment.FilePath) || (fragment.WindowsFilePath != "" && r.Path.MatchString(fragment.WindowsFilePath)) {
+			if r.Path.MatchString(fragment.Attr(sources.AttrPath)) || (wp != "" && r.Path.MatchString(wp)) {
 				finding := report.Finding{
-					Commit:      fragment.CommitSHA,
+					Commit:      fragment.Attr(sources.AttrGitSHA),
 					RuleID:      r.RuleID,
 					Description: r.Description,
-					File:        fragment.FilePath,
-					SymlinkFile: fragment.SymlinkFile,
-					Match:       "file detected: " + fragment.FilePath,
+					File:        fragment.Attr(sources.AttrPath),
+					SymlinkFile: fragment.Attr(sources.AttrFSSymlink),
+					Match:       "file detected: " + fragment.Attr(sources.AttrPath),
 					Tags:        r.Tags,
 				}
-				if fragment.CommitInfo != nil {
-					finding.Author = fragment.CommitInfo.AuthorName
-					finding.Date = fragment.CommitInfo.Date
-					finding.Email = fragment.CommitInfo.AuthorEmail
-					finding.Link = createScmLink(fragment.CommitInfo.Remote, finding)
-					finding.Message = fragment.CommitInfo.Message
+				if finding.Commit != "" {
+					finding.Author = fragment.Attr(sources.AttrGitAuthorName)
+					finding.Date = fragment.Attr(sources.AttrGitDate)
+					finding.Email = fragment.Attr(sources.AttrGitAuthorEmail)
+					finding.Message = fragment.Attr(sources.AttrGitMessage)
+					finding.Link = createScmLink(
+						fragment.Attr(sources.AttrGitPlatform),
+						fragment.Attr(sources.AttrGitRemoteURL),
+						finding,
+					)
 				}
 				return append(findings, finding)
 			}
@@ -556,7 +538,7 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 			// if path is set _and_ a regex is set, then we need to check both
 			// so if the path does not match, then we should return early and not
 			// consider the regex
-			if !(r.Path.MatchString(fragment.FilePath) || (fragment.WindowsFilePath != "" && r.Path.MatchString(fragment.WindowsFilePath))) {
+			if !r.Path.MatchString(fragment.Attr(sources.AttrPath)) && (wp == "" || !r.Path.MatchString(wp)) {
 				return findings
 			}
 		}
@@ -630,7 +612,7 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 		}
 
 		finding := report.Finding{
-			Commit:      fragment.CommitSHA,
+			Commit:      fragment.Attr(sources.AttrGitSHA),
 			RuleID:      r.RuleID,
 			Description: r.Description,
 			StartLine:   fragment.StartLine + loc.startLine,
@@ -640,8 +622,8 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 			Line:        fragment.Raw[loc.startLineIndex:loc.endLineIndex],
 			Match:       secret,
 			Secret:      secret,
-			File:        fragment.FilePath,
-			SymlinkFile: fragment.SymlinkFile,
+			File:        fragment.Attr(sources.AttrPath),
+			SymlinkFile: fragment.Attr(sources.AttrFSSymlink),
 			Tags: func() []string {
 				if len(metaTags) == 0 {
 					return r.Tags
@@ -649,12 +631,16 @@ func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r co
 				return append(r.Tags, metaTags...)
 			}(),
 		}
-		if fragment.CommitInfo != nil {
-			finding.Author = fragment.CommitInfo.AuthorName
-			finding.Date = fragment.CommitInfo.Date
-			finding.Email = fragment.CommitInfo.AuthorEmail
-			finding.Link = createScmLink(fragment.CommitInfo.Remote, finding)
-			finding.Message = fragment.CommitInfo.Message
+		if finding.Commit != "" {
+			finding.Author = fragment.Attr(sources.AttrGitAuthorName)
+			finding.Date = fragment.Attr(sources.AttrGitDate)
+			finding.Email = fragment.Attr(sources.AttrGitAuthorEmail)
+			finding.Message = fragment.Attr(sources.AttrGitMessage)
+			finding.Link = createScmLink(
+				fragment.Attr(sources.AttrGitPlatform),
+				fragment.Attr(sources.AttrGitRemoteURL),
+				finding,
+			)
 		}
 		if !d.IgnoreGitleaksAllow && containsAllowSignature(finding.Line) {
 			logger.Trace().
@@ -1024,16 +1010,17 @@ func checkCommitOrPathAllowed(
 	fragment sources.Fragment,
 	allowlists []*config.Allowlist,
 ) (bool, *zerolog.Event) {
-	if fragment.FilePath == "" && fragment.CommitSHA == "" {
+	if fragment.Attr(sources.AttrPath) == "" && fragment.Attr(sources.AttrGitSHA) == "" {
 		return false, nil
 	}
 
 	for _, a := range allowlists {
+		windowsPath := fragment.Attr(sources.AttrFSWindowsPath)
 		var (
 			isAllowed        bool
 			allowlistChecks  []bool
-			commitAllowed, _ = a.CommitAllowed(fragment.CommitSHA)
-			pathAllowed      = a.PathAllowed(fragment.FilePath) || (fragment.WindowsFilePath != "" && a.PathAllowed(fragment.WindowsFilePath))
+			commitAllowed, _ = a.CommitAllowed(fragment.Attr(sources.AttrGitSHA))
+			pathAllowed      = a.PathAllowed(fragment.Attr(sources.AttrPath)) || (windowsPath != "" && a.PathAllowed(windowsPath))
 		)
 		// If the condition is "AND" we need to check all conditions.
 		if a.MatchCondition == config.AllowlistMatchAnd {
@@ -1104,11 +1091,12 @@ func checkFindingAllowed(
 		if a.MatchCondition == config.AllowlistMatchAnd {
 			// Determine applicable checks.
 			if len(a.Commits) > 0 {
-				commitAllowed, commit = a.CommitAllowed(fragment.CommitSHA)
+				commitAllowed, commit = a.CommitAllowed(fragment.Attr(sources.AttrGitSHA))
 				checks = append(checks, commitAllowed)
 			}
 			if len(a.Paths) > 0 {
-				pathAllowed = a.PathAllowed(fragment.FilePath) || (fragment.WindowsFilePath != "" && a.PathAllowed(fragment.WindowsFilePath))
+				wp := fragment.Attr(sources.AttrFSWindowsPath)
+				pathAllowed = a.PathAllowed(fragment.Attr(sources.AttrPath)) || (wp != "" && a.PathAllowed(wp))
 				checks = append(checks, pathAllowed)
 			}
 			if len(a.Regexes) > 0 {

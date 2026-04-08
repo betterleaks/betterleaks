@@ -56,7 +56,7 @@ func runProtect(cmd *cobra.Command, args []string) {
 	src := &sources.Git{
 		Cmd:             gitCmd,
 		Config:          &detector.Config,
-		Remote:          &sources.RemoteInfo{Platform: scm.NoPlatform},
+		Platform:        scm.NoPlatform,
 		Sema:            detector.Sema,
 		MaxArchiveDepth: detector.MaxArchiveDepth,
 	}

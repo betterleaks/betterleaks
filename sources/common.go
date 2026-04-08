@@ -14,6 +14,7 @@ import (
 )
 
 const maxPeekSize = 25 * 1_000 // 10kb
+
 var isWhitespace [256]bool
 var isWindows = runtime.GOOS == "windows"
 

@@ -69,11 +69,10 @@ func runGit(cmd *cobra.Command, args []string) {
 			logging.Fatal().Err(cmdErr).Msg("could not create Git diff cmd")
 		}
 		// Remote info + links are irrelevant for staged changes.
-		scmPlatform = scm.NoPlatform
 		src = &sources.Git{
 			Cmd:             gitCmd,
 			Config:          &detector.Config,
-			Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source),
+			Platform:        scm.NoPlatform,
 			Sema:            detector.Sema,
 			MaxArchiveDepth: detector.MaxArchiveDepth,
 		}
@@ -81,12 +80,14 @@ func runGit(cmd *cobra.Command, args []string) {
 		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
 			logging.Fatal().Err(err).Send()
 		}
+		resolvedPlatform, remoteURL := sources.ResolveRemote(cmd.Context(), scmPlatform, source)
 
 		if gitWorkers > 0 {
 			src = &sources.ParallelGit{
 				RepoPath:        source,
 				Config:          &detector.Config,
-				Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source),
+				Platform:        resolvedPlatform,
+				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 				LogOpts:         logOpts,
@@ -100,7 +101,8 @@ func runGit(cmd *cobra.Command, args []string) {
 			src = &sources.Git{
 				Cmd:             gitCmd,
 				Config:          &detector.Config,
-				Remote:          sources.NewRemoteInfoContext(cmd.Context(), scmPlatform, source),
+				Platform:        resolvedPlatform,
+				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 			}
