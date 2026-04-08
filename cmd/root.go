@@ -100,7 +100,7 @@ func init() {
 	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
 	_ = rootCmd.PersistentFlags().MarkHidden("regexp-engine")
 
-	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable (e.g. \"validation\")")
+	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable")
 
 	// Validation flags
 	rootCmd.PersistentFlags().Bool("validation", false, "enable validation of findings against live APIs")

@@ -349,7 +349,7 @@ Refer to the default [betterleaks config](https://github.com/betterleaks/betterl
 ## Additional Configuration
 
 ## Secrets Validation
-Secrets Validation is an new feature in Betterleaks. By default, validation is disabled. To enable it, pass the `--validation` flag.
+Secrets Validation is a new feature in Betterleaks. By default, validation is disabled. To enable it, pass the `--validation` flag.
 
 Betterleaks can automatically verify if a detected secret is live by making an HTTP request defined in the rule's validate field. Validation runs asynchronously, and responses are cached in-memory so duplicate secrets only trigger a single network request.
 
