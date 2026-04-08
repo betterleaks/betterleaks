@@ -331,6 +331,11 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 	err := source.Fragments(ctx, func(fragment sources.Fragment, err error) error {
 		logger := fragment.Logger()
 
+		commitSHA := fragment.Attr(sources.AttrGitSHA)
+		if commitSHA != "" {
+			d.addCommit(commitSHA)
+		}
+
 		if err != nil {
 			// Log the error and move on to the next fragment
 			logger.Error().Err(err).Send()
@@ -987,6 +992,13 @@ func (d *Detector) FilterByStatus(findings []report.Finding) []report.Finding {
 		}
 	}
 	return filtered
+}
+
+// AddCommit synchronously adds a commit to the commit slice
+func (d *Detector) addCommit(commit string) {
+	d.commitMutex.Lock()
+	d.commitMap[commit] = true
+	d.commitMutex.Unlock()
 }
 
 // checkCommitOrPathAllowed evaluates |fragment| against all provided |allowlists|.
