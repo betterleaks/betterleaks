@@ -1,6 +1,9 @@
 package rules
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/config"
@@ -173,6 +176,28 @@ func GitlabPatRoutable() *config.Rule {
 	tps := utils.GenerateSampleSecrets("gitlab", "glpat-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("27"), 4)+"."+secrets.NewSecret(utils.AlphaNumeric("2"))+secrets.NewSecret(utils.AlphaNumeric("7")))
 	fps := []string{
 		"glpat-xxxxxxxx-xxxxxxxxxxxxxxxxxx.xxxxxxxxx",
+	}
+	return utils.Validate(r, tps, fps)
+}
+
+func GitlabPatRoutableVersioned() *config.Rule {
+	r := config.Rule{
+		RuleID:      "gitlab-pat-routable-versioned",
+		Description: "Identified a GitLab Personal Access Token (routable, versioned), risking unauthorized access to GitLab repositories and codebase exposure.",
+		Regex:       regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}\.[0-9a-z]{9}\b`),
+		Entropy:     4,
+		Keywords:    []string{"glpat-"},
+		ValidateCEL: gitlabPatCEL,
+	}
+
+	// validate
+	payload := secrets.NewSecretWithEntropy(utils.AlphaNumeric("27"), 4)
+	payloadLenStr := strconv.FormatInt(int64(len(payload)), 36)
+	paddedLen := strings.Repeat("0", 2-len(payloadLenStr)) + payloadLenStr
+
+	tps := utils.GenerateSampleSecrets("gitlab", "glpat-"+payload+"."+paddedLen+"."+secrets.NewSecret(utils.AlphaNumeric("9")))
+	fps := []string{
+		"glpat-xxxxxxxx-xxxxxxxxxxxxxxxxxx.xx.xxxxxxx",
 	}
 	return utils.Validate(r, tps, fps)
 }

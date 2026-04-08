@@ -2965,6 +2965,30 @@ cel.bind(r,
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# gitlab-pat-routable-versioned
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "gitlab-pat-routable-versioned"
+description = "Identified a GitLab Personal Access Token (routable, versioned), risking unauthorized access to GitLab repositories and codebase exposure."
+regex = '''\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}\.[0-9a-z]{9}\b'''
+entropy = 4
+keywords = ["glpat-"]
+validate = '''
+cel.bind(r,
+  http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+    "PRIVATE-TOKEN": secret
+  }),
+  r.status == 200 ? {
+    "result": "valid",
+    "name": r.json.?name.orValue("")
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # gitlab-ptt
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
