@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -101,10 +100,10 @@ func init() {
 	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
 	_ = rootCmd.PersistentFlags().MarkHidden("regexp-engine")
 
-	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable (e.g. \"validation\")")
+	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable")
 
 	// Validation flags
-	rootCmd.PersistentFlags().Bool("validation", true, "enable validation of findings against live APIs")
+	rootCmd.PersistentFlags().Bool("validation", false, "enable validation of findings against live APIs")
 	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: valid, invalid, revoked, error, unknown, none (none = rules without validation)")
 	rootCmd.PersistentFlags().Duration("validation-timeout", 10*time.Second, "per-request timeout for validation")
 	rootCmd.PersistentFlags().Bool("validation-debug", false, "include raw HTTP response in validation output")
@@ -501,16 +500,6 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 // pool, and wires status-filter settings onto the detector.
 func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Detector) {
 	enableValidation := mustGetBoolFlag(cmd, "validation")
-
-	experimentsStr := mustGetStringFlag(cmd, "experiments")
-	experimentsSlice := []string{}
-	if experimentsStr != "" {
-		experimentsSlice = strings.Split(experimentsStr, ",")
-	}
-
-	if !slices.Contains(experimentsSlice, "validation") {
-		enableValidation = false
-	}
 
 	if !enableValidation {
 		return
