@@ -412,8 +412,12 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 					// enrich and yield fragments
 					err = file.Fragments(ctx, func(fragment Fragment, err error) error {
-						fragment.Attributes = maps.Clone(commitAttrs)
-						fragment.SetAttr(AttrPath, gitdiffFile.NewName)
+						attrs := maps.Clone(fragment.Attributes)
+						if attrs == nil {
+							attrs = make(map[string]string, len(commitAttrs)+1)
+						}
+						maps.Copy(attrs, commitAttrs)
+						fragment.Attributes = attrs
 						return yield(fragment, err)
 					})
 
