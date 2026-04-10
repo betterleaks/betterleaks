@@ -1,21 +1,3 @@
-// The `detect` and `protect` command is now deprecated. Here are some equivalent commands
-// to help guide you.
-
-// OLD CMD: betterleaks detect --source={repo}
-// NEW CMD: betterleaks git {repo}
-
-// OLD CMD: betterleaks protect --source={repo}
-// NEW CMD: betterleaks git --pre-commit {repo}
-
-// OLD  CMD: betterleaks protect --staged --source={repo}
-// NEW CMD: betterleaks git --pre-commit --staged {repo}
-
-// OLD CMD: betterleaks detect --no-git --source={repo}
-// NEW CMD: betterleaks directory {directory/file}
-
-// OLD CMD: betterleaks detect --no-git --pipe
-// NEW CMD: betterleaks stdin
-
 package cmd
 
 import (

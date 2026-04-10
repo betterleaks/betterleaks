@@ -484,10 +484,6 @@ func (c *Config) extendPath(parent *ViperConfig) error {
 	return nil
 }
 
-func (c *Config) extendURL() {
-	// TODO
-}
-
 func (c *Config) extend(extensionConfig Config) {
 	// Get config name for helpful log messages.
 	var configName string

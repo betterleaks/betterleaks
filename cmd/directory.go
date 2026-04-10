@@ -3,11 +3,10 @@ package cmd
 import (
 	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/fatih/semgroup"
 	"github.com/spf13/cobra"
 
-	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
@@ -34,55 +33,50 @@ func runDirectory(cmd *cobra.Command, args []string) {
 
 	initDiagnostics()
 
-	// start timer
-	start := time.Now()
+	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
+	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
+	noColor := mustGetBoolFlag(cmd, "no-color")
+	redact := mustGetUIntFlag(cmd, "redact")
+	verbose := mustGetBoolFlag(cmd, "verbose")
 
-	exitCode, err := cmd.Flags().GetInt("exit-code")
-	if err != nil {
-		logging.Fatal().Err(err).Msg("could not get exit code")
-	}
+	// var lastPipeline *pipeline.Pipeline
 
-	followSymlinks, err := cmd.Flags().GetBool("follow-symlinks")
-	if err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-
-	var (
-		allFindings  []report.Finding
-		lastDetector *detect.Detector
-		scanErr      error
-	)
+	var findings []report.Finding
 
 	totalBytes := uint64(0)
 	for _, source := range sourcesList {
 		initConfig(source)
 		cfg := Config(cmd)
-		detector := Detector(cmd, cfg, source)
-		detector.FollowSymlinks = followSymlinks
-		lastDetector = detector
+		pl := Pipeline(cmd, cfg, source)
 
-		findings, detectErr := detector.DetectSource(
-			cmd.Context(),
-			&sources.Files{
-				Config:          &cfg,
-				FollowSymlinks:  detector.FollowSymlinks,
-				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
-				Path:            source,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-			},
-		)
-		if detectErr != nil {
-			logging.Error().Err(detectErr).Str("source", source).Msg("failed scan")
-			scanErr = detectErr
+		s := &sources.Files{
+			Config:          &cfg,
+			FollowSymlinks:  followSymlinks,
+			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
+			Path:            source,
+			MaxArchiveDepth: maxArchiveDepth,
+			Sema:            semgroup.NewGroup(cmd.Context(), 40),
 		}
-		allFindings = append(allFindings, findings...)
-		totalBytes += detector.TotalBytes.Load()
+
+		for result := range pl.Run(cmd.Context(), s) {
+			if result.Err != nil {
+				logging.Error().Err(result.Err).Msg("error scanning source")
+				continue
+			}
+
+			findings = append(findings, result.Finding)
+			if verbose {
+				result.Finding.Print(noColor, uint(redact))
+			}
+
+		}
+		totalBytes += pl.TotalBytes.Load()
 	}
 
-	lastDetector.TotalBytes.Swap(totalBytes)
+	// lastPipeline.TotalBytes.Swap(totalBytes)
 
-	findingSummaryAndExit(lastDetector, allFindings, exitCode, start, scanErr)
+	// findingSummaryAndExit(lastDetector, allFindings, exitCode, start, scanErr)
 }
 
 // removeNestedPaths filters out paths that are children of other paths in the

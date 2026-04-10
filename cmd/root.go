@@ -20,6 +20,7 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/pipeline"
 	"github.com/betterleaks/betterleaks/regexp"
 	regexpre2 "github.com/betterleaks/betterleaks/regexp/re2"
 	"github.com/betterleaks/betterleaks/report"
@@ -317,6 +318,113 @@ func Config(cmd *cobra.Command) config.Config {
 	return cfg
 }
 
+func Pipeline(cmd *cobra.Command, cfg config.Config, source string) *pipeline.Pipeline {
+	var err error
+
+	// Setup common detector
+	pl := pipeline.NewPipeline(cmd.Context(), cfg)
+
+	if pl.MaxDecodeDepth, err = cmd.Flags().GetInt("max-decode-depth"); err != nil {
+		logging.Fatal().Err(err).Send()
+	}
+
+	pl.Config.Path, err = cmd.Flags().GetString("config")
+	if err != nil {
+		logging.Fatal().Err(err).Send()
+	}
+
+	// if config path is not set, then use the {source}/.gitleaks.toml path.
+	// note that there may not be a `{source}/.gitleaks.toml` file, this is ok.
+	if pl.Config.Path == "" {
+		pl.Config.Path = filepath.Join(source, ".gitleaks.toml")
+	}
+	// set ignore gitleaks:allow / betterleaks:allow flag
+	if pl.IgnoreGitleaksAllow, err = cmd.Flags().GetBool("ignore-gitleaks-allow"); err != nil {
+		logging.Fatal().Err(err).Send()
+	}
+
+	matchContextStr, err := cmd.Flags().GetString("match-context")
+	if err != nil {
+		logging.Fatal().Err(err).Send()
+	}
+	if matchContextStr != "" {
+		pl.MatchContext, err = pipeline.ParseMatchContext(matchContextStr)
+		if err != nil {
+			logging.Fatal().Err(err).Msg("invalid --match-context value")
+		}
+	}
+
+	ignorePath, err := cmd.Flags().GetString("gitleaks-ignore-path")
+	if err != nil {
+		logging.Fatal().Err(err).Msg("could not get ignore path")
+	}
+
+	// If the flag points directly to an ignore file, use it
+	if fileExists(ignorePath) {
+		if err = pl.AddGitleaksIgnore(ignorePath); err != nil {
+			logging.Fatal().Err(err).Msg("could not load ignore file")
+		}
+	}
+
+	// Check for ignore file in the flag directory (.betterleaksignore first, then .gitleaksignore)
+	if ignoreFile := findIgnoreFile(ignorePath); ignoreFile != "" {
+		if err = pl.AddGitleaksIgnore(ignoreFile); err != nil {
+			logging.Fatal().Err(err).Msg("could not load ignore file")
+		}
+	}
+
+	// Check for ignore file in the source directory (.betterleaksignore first, then .gitleaksignore)
+	if ignoreFile := findIgnoreFile(source); ignoreFile != "" {
+		if err = pl.AddGitleaksIgnore(ignoreFile); err != nil {
+			logging.Fatal().Err(err).Msg("could not load ignore file")
+		}
+	}
+
+	// ignore findings from the baseline (an existing report in json format generated earlier)
+	baselinePath, _ := cmd.Flags().GetString("baseline-path")
+	if baselinePath != "" {
+		err = pl.AddBaseline(baselinePath, source)
+		if err != nil {
+			logging.Error().Msgf("Could not load baseline. The path must point of a gitleaks report generated using the default format: %s", err)
+		}
+	}
+
+	// If set, only apply rules that are defined in the flag
+	rules, _ := cmd.Flags().GetStringSlice("enable-rule")
+	if len(rules) > 0 {
+		logging.Info().Msg("Overriding enabled rules: " + strings.Join(rules, ", "))
+		ruleOverride := make(map[string]config.Rule)
+		for _, ruleName := range rules {
+			if r, ok := cfg.Rules[ruleName]; ok {
+				ruleOverride[ruleName] = r
+			} else {
+				logging.Fatal().Msgf("Requested rule %s not found in rules", ruleName)
+			}
+		}
+		pl.Config.Rules = ruleOverride
+	}
+
+	// Validate report settings.
+	reportPath := mustGetStringFlag(cmd, "report-path")
+	if reportPath != "" {
+		if reportPath != report.StdoutReportPath {
+			// Ensure the path is writable.
+			if f, err := os.Create(reportPath); err != nil {
+				logging.Fatal().Err(err).Msgf("Report path is not writable: %s", reportPath)
+			} else {
+				_ = f.Close()
+				_ = os.Remove(reportPath)
+			}
+		}
+	}
+
+	setupValidation(cmd, cfg, pl)
+
+	return pl
+
+}
+
+// Deprecated: use Pipeline instead
 func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Detector {
 	var err error
 
@@ -490,7 +598,7 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 		detector.Reporter = reporter
 	}
 
-	setupValidation(cmd, cfg, detector)
+	// setupValidation(cmd, cfg, detector)
 
 	return detector
 }
@@ -498,7 +606,7 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 // setupValidation reads validation flags, compiles CEL programs into cfg.Rules
 // (mutations propagate to detector.Config.Rules via shared map), creates the
 // pool, and wires status-filter settings onto the detector.
-func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Detector) {
+func setupValidation(cmd *cobra.Command, cfg config.Config, pl *pipeline.Pipeline) {
 	enableValidation := mustGetBoolFlag(cmd, "validation")
 
 	if !enableValidation {
@@ -515,7 +623,7 @@ func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Det
 		env.DebugResponse = true
 	}
 	if mustGetBoolFlag(cmd, "validation-extract-empty") {
-		detector.ValidationExtractEmpty = true
+		pl.ValidationExtractEmpty = true
 	}
 
 	for ruleID, rule := range cfg.Rules {
@@ -532,16 +640,16 @@ func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Det
 	}
 
 	pool := validate.NewPool(workers, env)
-	detector.ValidationPool = pool
+	pl.ValidationPool = pool
 
 	statusFilter, _ := cmd.Flags().GetString("validation-status")
 	if statusFilter != "" {
-		detector.ValidationStatusFilter = make(map[string]struct{})
+		pl.ValidationStatusFilter = make(map[string]struct{})
 		for s := range strings.SplitSeq(statusFilter, ",") {
 			s = strings.TrimSpace(s)
 			s = strings.ToLower(s)
 			if s != "" {
-				detector.ValidationStatusFilter[s] = struct{}{}
+				pl.ValidationStatusFilter[s] = struct{}{}
 			}
 		}
 	}
@@ -676,6 +784,14 @@ func FormatDuration(d time.Duration) string {
 
 func mustGetBoolFlag(cmd *cobra.Command, name string) bool {
 	value, err := cmd.Flags().GetBool(name)
+	if err != nil {
+		logging.Fatal().Err(err).Msgf("could not get flag: %s", name)
+	}
+	return value
+}
+
+func mustGetUIntFlag(cmd *cobra.Command, name string) uint {
+	value, err := cmd.Flags().GetUint(name)
 	if err != nil {
 		logging.Fatal().Err(err).Msgf("could not get flag: %s", name)
 	}
