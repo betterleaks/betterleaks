@@ -35,6 +35,8 @@ var allowSignatures = []string{"betterleaks:allow", "gitleaks:allow"}
 
 var newlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 
+var errStopIteration = errors.New("pipeline: stop iteration")
+
 const (
 	// SlowWarningThreshold is the amount of time to wait before logging that a file is slow.
 	// This is useful for identifying problematic files and tuning the allowlist.
@@ -45,67 +47,9 @@ const (
 	maxRequiredSets = 100
 )
 
-// lowercaseBufPool provides reusable byte buffers for lowercasing strings
-// without allocating a new string via strings.ToLower each time.
-var lowercaseBufPool = sync.Pool{
-	New: func() any {
-		buf := make([]byte, 0, 128*1024)
-		return &buf
-	},
-}
-
-// getLowerBuf returns an ASCII-lowercased copy of s in a pooled byte buffer.
-// Caller must call putLowerBuf when done with the returned slice.
-func getLowerBuf(s string) (*[]byte, []byte) {
-	bp := lowercaseBufPool.Get().(*[]byte)
-	buf := *bp
-	if cap(buf) < len(s) {
-		buf = make([]byte, len(s))
-	} else {
-		buf = buf[:len(s)]
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			buf[i] = c + 32
-		} else {
-			buf[i] = c
-		}
-	}
-	*bp = buf
-	return bp, buf
-}
-
-func putLowerBuf(bp *[]byte) {
-	lowercaseBufPool.Put(bp)
-}
-
-// findNewlineIndices returns the start indices of all newlines in s.
-// This replaces the previous regex-based approach which was expensive
-// when using go-re2 (WASM overhead for a literal \n search).
-func findNewlineIndices(s string) [][]int {
-	indices := make([][]int, 0, strings.Count(s, "\n"))
-	offset := 0
-	for {
-		i := strings.IndexByte(s[offset:], '\n')
-		if i == -1 {
-			break
-		}
-		idx := offset + i
-		indices = append(indices, []int{idx, idx + 1})
-		offset = idx + 1
-	}
-	return indices
-}
-
-// containsAllowSignature checks if the line contains any of the allow signatures
-func containsAllowSignature(line string) bool {
-	for _, sig := range allowSignatures {
-		if strings.Contains(line, sig) {
-			return true
-		}
-	}
-	return false
+type Result struct {
+	Finding report.Finding
+	Err     error
 }
 
 // Detector is the main detector struct
@@ -151,17 +95,14 @@ type Detector struct {
 	// gitleaksIgnore
 	gitleaksIgnore map[string]struct{}
 
-	// Sema (https://github.com/fatih/semgroup) controls the concurrency
-	Sema *semgroup.Group
-
 	TotalBytes atomic.Uint64
 
 	tokenizer *tiktoken.Tiktoken
 
+	// ----------------------------------------------------------------
+	// DEPRECATED fields below, to be removed in the next major version
 	//
-	// Below are DEPRECATED fields to be removed in the next major version
 	//
-
 	// report-related settings.
 	// Deprecated: detect should not handle reporting
 	ReportPath string
@@ -199,6 +140,19 @@ type Detector struct {
 
 	// NoColor is a flag to disable color output
 	NoColor bool
+
+	// commitMutex is to prevent concurrent access to the
+	// commit map when adding commits
+	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
+	commitMutex *sync.Mutex
+
+	// commitMap is used to keep track of commits that have been scanned.
+	// This is only used for logging purposes and git scans.
+	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
+	commitMap map[string]bool
+
+	// Sema (https://github.com/fatih/semgroup) controls the concurrency
+	Sema *semgroup.Group
 }
 
 // NewDetectorContext is the same as NewDetector but supports passing in a
@@ -241,18 +195,11 @@ func NewDetectorDefaultConfig() (*Detector, error) {
 	return NewDetector(cfg), nil
 }
 
-type Result struct {
-	Finding report.Finding
-	Err     error
-}
-
-var errStopIteration = errors.New("pipeline: stop iteration")
-
 // Run executes the pipeline on the given source and yields results as they are found.
 // It returns an iterator of Results, which can be consumed by the caller. We return an iterator to make the API clean.
 // You can do things like:
 //
-//		for result := range pipeline.Run(ctx, source) {
+//		for result := range detector.Run(ctx, source) {
 //	    	// do something
 //		}
 //
@@ -322,7 +269,7 @@ func (p *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					}
 				}()
 
-				findings := p.DetectContext(runCtx, fragment)
+				findings := p.scanFragment(runCtx, fragment)
 				for _, finding := range findings {
 					// if err := routeFinding(finding); err != nil {
 					if err := p.routeFinding(finding, emit); err != nil {

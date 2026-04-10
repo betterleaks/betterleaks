@@ -84,6 +84,10 @@ type File struct {
 	archiveDepth int
 }
 
+func (s *File) FindingAttrs() []string {
+	return []string{AttrPath}
+}
+
 // Fragments yields fragments for the this source
 func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	var err error

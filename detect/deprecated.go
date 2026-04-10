@@ -176,3 +176,10 @@ func (d *Detector) AddFinding(finding report.Finding) {
 
 	d.findingsCh <- finding
 }
+
+// AddCommit synchronously adds a commit to the commit slice
+func (d *Detector) addCommit(commit string) {
+	d.commitMutex.Lock()
+	d.commitMap[commit] = true
+	d.commitMutex.Unlock()
+}

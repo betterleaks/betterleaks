@@ -690,6 +690,14 @@ func mustGetIntFlag(cmd *cobra.Command, name string) int {
 	return value
 }
 
+func mustGetUIntFlag(cmd *cobra.Command, name string) uint {
+	value, err := cmd.Flags().GetUint(name)
+	if err != nil {
+		logging.Fatal().Err(err).Msgf("could not get flag: %s", name)
+	}
+	return value
+}
+
 func mustGetStringFlag(cmd *cobra.Command, name string) string {
 	value, err := cmd.Flags().GetString(name)
 	if err != nil {
