@@ -3,7 +3,9 @@ package detect
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"iter"
 	"os"
 	"strings"
 	"sync"
@@ -111,31 +113,11 @@ type Detector struct {
 	// Config is the configuration for the detector
 	Config config.Config
 
-	// Redact is a flag to redact findings. This is exported
-	// so users using gitleaks as a library can set this flag
-	// without calling `detector.Start(cmd *cobra.Command)`
-	Redact uint
-
-	// verbose is a flag to print findings
-	Verbose bool
-
 	// MaxDecodeDepths limits how many recursive decoding passes are allowed
 	MaxDecodeDepth int
 
-	// MaxArchiveDepth limits how deep the sources will explore nested archives
-	MaxArchiveDepth int
-
-	// files larger than this will be skipped
-	MaxTargetMegaBytes int
-
-	// followSymlinks is a flag to enable scanning symlink files
-	FollowSymlinks bool
-
 	// MatchContext specifies how much context to extract around a match.
 	MatchContext MatchContextSpec
-
-	// NoColor is a flag to disable color output
-	NoColor bool
 
 	// ValidationStatusFilter, when non-empty, restricts which findings are
 	// printed in verbose mode. Parsed from --validation-status.
@@ -153,25 +135,8 @@ type Detector struct {
 	// are included in validation output.
 	ValidationExtractEmpty bool
 
-	// findingsCh is created by DetectSource and carries all ready-to-display
-	// findings. A single consumer goroutine reads from it.
-	findingsCh chan report.Finding
-
 	// IgnoreGitleaksAllow is a flag to ignore gitleaks:allow comments.
 	IgnoreGitleaksAllow bool
-
-	// commitMutex is to prevent concurrent access to the
-	// commit map when adding commits
-	commitMutex *sync.Mutex
-
-	// commitMap is used to keep track of commits that have been scanned.
-	// This is only used for logging purposes and git scans.
-	commitMap map[string]bool
-
-	// findings is a slice of report.Findings. This is the result
-	// of the detector's scan which can then be used to generate a
-	// report.
-	findings []report.Finding
 
 	// prefilter is a ahocorasick struct used for doing efficient string
 	// matching given a set of words (keywords from the rules in the config)
@@ -189,20 +154,51 @@ type Detector struct {
 	// Sema (https://github.com/fatih/semgroup) controls the concurrency
 	Sema *semgroup.Group
 
-	// report-related settings.
-	ReportPath string
-	Reporter   report.Reporter
-
 	TotalBytes atomic.Uint64
 
 	tokenizer *tiktoken.Tiktoken
-}
 
-// NewDetector creates a new detector with the given config
-//
-// Deprecated: use NewDetectorContext instead.
-func NewDetector(cfg config.Config) *Detector {
-	return NewDetectorContext(context.Background(), cfg)
+	//
+	// Below are DEPRECATED fields to be removed in the next major version
+	//
+
+	// report-related settings.
+	// Deprecated: detect should not handle reporting
+	ReportPath string
+	// Deprecated: detect should not handle reporting
+	Reporter report.Reporter
+	// findings is a slice of report.Findings. This is the result
+	// of the detector's scan which can then be used to generate a
+	// report.
+	// Deprecated: findings are now emitted via the channel returned by Run;
+	// this field is only used for the legacy DetectSource method and will be removed in v2.
+	findings []report.Finding
+
+	// findingsCh is created by DetectSource and carries all ready-to-display
+	// findings. A single consumer goroutine reads from it.
+	// Deprecated: findings are now emitted via the channel returned by Run;
+	// this field is only used for the legacy DetectSource method and will be removed in v2.
+	findingsCh chan report.Finding
+
+	// Redact is a flag to redact findings. This is exported
+	// so users using gitleaks as a library can set this flag
+	// without calling `detector.Start(cmd *cobra.Command)`
+	Redact uint
+
+	// verbose is a flag to print findings
+	Verbose bool
+
+	// MaxArchiveDepth limits how deep the sources will explore nested archives
+	MaxArchiveDepth int
+
+	// files larger than this will be skipped
+	MaxTargetMegaBytes int
+
+	// followSymlinks is a flag to enable scanning symlink files
+	FollowSymlinks bool
+
+	// NoColor is a flag to disable color output
+	NoColor bool
 }
 
 // NewDetectorContext is the same as NewDetector but supports passing in a
@@ -216,9 +212,7 @@ func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 	}
 
 	return &Detector{
-		commitMap:        make(map[string]bool),
 		gitleaksIgnore:   make(map[string]struct{}),
-		commitMutex:      &sync.Mutex{},
 		findings:         make([]report.Finding, 0),
 		ValidationCounts: make(map[string]int),
 		Config:           cfg,
@@ -245,6 +239,174 @@ func NewDetectorDefaultConfig() (*Detector, error) {
 		return nil, err
 	}
 	return NewDetector(cfg), nil
+}
+
+type Result struct {
+	Finding report.Finding
+	Err     error
+}
+
+var errStopIteration = errors.New("pipeline: stop iteration")
+
+// Run executes the pipeline on the given source and yields results as they are found.
+// It returns an iterator of Results, which can be consumed by the caller. We return an iterator to make the API clean.
+// You can do things like:
+//
+//		for result := range pipeline.Run(ctx, source) {
+//	    	// do something
+//		}
+//
+// The context can be used to cancel the scan.
+// Internally uses a channel to send results from the scanning goroutine to the caller,
+// allowing for concurrent processing of findings as they are discovered.
+func (p *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Result] {
+	return func(yield func(Result) bool) {
+		if source == nil {
+			_ = yield(Result{Err: fmt.Errorf("pipeline: nil source")})
+			return
+		}
+
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		// main channel for sending results back to the caller (eventually gets consumed by `emit`)
+		resultsCh := make(chan Result, 1000)
+
+		if p.ValidationCounts == nil {
+			p.ValidationCounts = make(map[string]int)
+		} else {
+			clear(p.ValidationCounts)
+		}
+
+		// This function is used to send results back to the caller.
+		// It checks for context cancellation and stops the pipeline if the context is done.
+		emit := func(res Result) error {
+			select {
+			case <-runCtx.Done():
+				return errStopIteration
+			case resultsCh <- res:
+				return nil
+			}
+		}
+
+		// If ValidationPool is set, we want to emit findings from the pool instead of directly from addFinding, so we set the Emit function here.
+		if p.ValidationPool != nil {
+			p.ValidationPool.Emit = func(f report.Finding) {
+				_ = emit(Result{Finding: f})
+			}
+		}
+
+		go func() {
+			defer close(resultsCh)
+
+			err := source.Fragments(runCtx, func(fragment sources.Fragment, err error) error {
+				if err != nil {
+					return emit(Result{Err: err})
+				}
+
+				logger := fragment.Logger()
+				if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
+					logger.Trace().Msg("skipping empty fragment")
+					return nil
+				}
+
+				var timer *time.Timer
+				if logger.GetLevel() <= zerolog.DebugLevel {
+					timer = time.AfterFunc(SlowWarningThreshold, func() {
+						logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
+					})
+				}
+				defer func() {
+					if timer != nil {
+						timer.Stop()
+					}
+				}()
+
+				findings := p.DetectContext(runCtx, fragment)
+				for _, finding := range findings {
+					// if err := routeFinding(finding); err != nil {
+					if err := p.routeFinding(finding, emit); err != nil {
+						return err
+					}
+				}
+
+				return nil
+			})
+
+			if p.ValidationPool != nil {
+				p.ValidationPool.Close()
+
+				hits, misses := p.ValidationPool.Stats()
+				logging.Debug().
+					Uint64("http_requests", misses).
+					Uint64("cache_hits", hits).
+					Msg("validation cache stats")
+			}
+
+			if err != nil &&
+				!errors.Is(err, errStopIteration) &&
+				!errors.Is(err, context.Canceled) {
+				_ = emit(Result{Err: err})
+			}
+		}()
+
+		// consume results and send to caller via yield
+		for res := range resultsCh {
+			if res.Err == nil {
+				if !p.ValidationExtractEmpty {
+					res.Finding.ValidationMeta = stripEmptyMeta(res.Finding.ValidationMeta)
+				}
+				if res.Finding.ValidationStatus != "" {
+					p.ValidationCounts[res.Finding.ValidationStatus]++
+				}
+			}
+
+			if !yield(res) {
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+func (p *Detector) routeFinding(finding report.Finding, emit func(Result) error) error {
+	globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.File, finding.RuleID, finding.StartLine)
+	if finding.Commit != "" {
+		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", finding.Commit, finding.File, finding.RuleID, finding.StartLine)
+	} else {
+		finding.Fingerprint = globalFingerprint
+	}
+
+	logger := logging.With().Str("finding", finding.Secret).Logger()
+	if _, ok := p.gitleaksIgnore[globalFingerprint]; ok {
+		logger.Debug().
+			Str("fingerprint", globalFingerprint).
+			Msg("skipping finding: global fingerprint")
+		return nil
+	} else if finding.Commit != "" {
+		if _, ok := p.gitleaksIgnore[finding.Fingerprint]; ok {
+			logger.Debug().
+				Str("fingerprint", finding.Fingerprint).
+				Msgf("skipping finding: fingerprint")
+			return nil
+		}
+	}
+
+	if p.baseline != nil && !IsNew(finding, 0, p.baseline) {
+		logger.Debug().
+			Str("fingerprint", finding.Fingerprint).
+			Msgf("skipping finding: baseline")
+		return nil
+	}
+
+	if p.ValidationPool != nil {
+		if rule, ok := p.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
+			p.submitValidation(finding, rule)
+			return nil
+		}
+	}
+
+	return emit(Result{Finding: finding})
 }
 
 func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
@@ -296,110 +458,7 @@ func (d *Detector) DetectString(content string) []report.Finding {
 	})
 }
 
-// DetectSource scans the given source and returns a list of findings
-func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]report.Finding, error) {
-	// We have a single channel for sending findings to.
-	// Findings get sent to this channel straight from
-	// detectRule (non validation) OR from the ValidationPool which
-	// is responsible for attempting async validation attempts.
-	d.findingsCh = make(chan report.Finding, 1000)
-
-	// little hacky. this will all be cleared up in v2
-	if d.ValidationPool != nil {
-		d.ValidationPool.FindingsCh = d.findingsCh
-	}
-
-	// non-validation rule findings get printed in d.AddFinding().
-	// But we have to do it here.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for f := range d.findingsCh {
-			if !d.ValidationExtractEmpty {
-				f.ValidationMeta = stripEmptyMeta(f.ValidationMeta)
-			}
-			d.findings = append(d.findings, f)
-			if f.ValidationStatus != "" {
-				d.ValidationCounts[f.ValidationStatus]++
-			}
-			if d.shouldVerbosePrint(f) {
-				printFinding(f, d.NoColor, d.Redact)
-			}
-		}
-	}()
-
-	err := source.Fragments(ctx, func(fragment sources.Fragment, err error) error {
-		logger := fragment.Logger()
-
-		commitSHA := fragment.Attr(sources.AttrGitSHA)
-		if commitSHA != "" {
-			d.addCommit(commitSHA)
-		}
-
-		if err != nil {
-			// Log the error and move on to the next fragment
-			logger.Error().Err(err).Send()
-			return nil
-		}
-
-		// both the fragment's content and path should be empty for it to be
-		// considered empty at this point because of path based matches
-		if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
-			logger.Trace().Msg("skipping empty fragment")
-			return nil
-		}
-
-		var timer *time.Timer
-		// Only start the timer in debug mode
-		if logger.GetLevel() <= zerolog.DebugLevel {
-			timer = time.AfterFunc(SlowWarningThreshold, func() {
-				logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
-			})
-		}
-
-		for _, finding := range d.DetectContext(ctx, fragment) {
-			d.AddFinding(finding)
-		}
-
-		// Stop the timer if it was created
-		if timer != nil {
-			timer.Stop()
-		}
-
-		return nil
-	})
-
-	if _, isGit := source.(*sources.Git); isGit {
-		logging.Info().Msgf("%d commits scanned.", len(d.commitMap))
-		logging.Debug().Msg("Note: this number might be smaller than expected due to commits with no additions")
-	}
-
-	if d.ValidationPool != nil {
-		d.ValidationPool.Close()
-
-		hits, misses := d.ValidationPool.Stats()
-		logging.Debug().
-			Uint64("http_requests", misses).
-			Uint64("cache_hits", hits).
-			Msg("validation cache stats")
-	}
-
-	close(d.findingsCh)
-	<-done
-
-	return d.Findings(), err
-}
-
-// Detect scans the given fragment and returns a list of findings
-//
-// Deprecated: use DetectContext instead.
-func (d *Detector) Detect(fragment sources.Fragment) []report.Finding {
-	return d.DetectContext(context.Background(), fragment)
-}
-
-// DetectContext is the same as Detect but supports passing in a
-// context to use for timeouts
-func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment) []report.Finding {
+func (d *Detector) scanFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
 	if fragment.Bytes == nil {
 		d.TotalBytes.Add(uint64(len(fragment.Raw)))
 	}
@@ -465,7 +524,7 @@ ScanLoop:
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectRule(fragment, currentRaw, rule, encodedSegments)...)
+					findings = append(findings, d.scanFragmentWithRule(fragment, currentRaw, rule, encodedSegments)...)
 				}
 			}
 
@@ -486,12 +545,11 @@ ScanLoop:
 			}
 		}
 	}
-
 	return filter(findings)
 }
 
-// detectRule scans the given fragment for the given rule and returns a list of findings
-func (d *Detector) detectRule(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
+// scanFragmentWithRule scans the given fragment for the given rule and returns a list of findings
+func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
@@ -786,7 +844,7 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		inheritedFragment.InheritedFromFinding = true
 
 		// Call detectRule once for each required rule
-		requiredFindings := d.detectRule(inheritedFragment, currentRaw, rule, encodedSegments)
+		requiredFindings := d.scanFragmentWithRule(inheritedFragment, currentRaw, rule, encodedSegments)
 		allRequiredFindings[requiredRule.RuleID] = requiredFindings
 
 		logger.Debug().
@@ -896,50 +954,6 @@ func abs(x int) int {
 	return x
 }
 
-// AddFinding adds a finding to the pipeline. Findings needing CEL validation
-// are submitted to the pool; all others go directly to findingsCh.
-func (d *Detector) AddFinding(finding report.Finding) {
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.File, finding.RuleID, finding.StartLine)
-	if finding.Commit != "" {
-		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", finding.Commit, finding.File, finding.RuleID, finding.StartLine)
-	} else {
-		finding.Fingerprint = globalFingerprint
-	}
-
-	// check if we should ignore this finding
-	logger := logging.With().Str("finding", finding.Secret).Logger()
-	if _, ok := d.gitleaksIgnore[globalFingerprint]; ok {
-		logger.Debug().
-			Str("fingerprint", globalFingerprint).
-			Msg("skipping finding: global fingerprint")
-		return
-	} else if finding.Commit != "" {
-		// Awkward nested if because I'm not sure how to chain these two conditions.
-		if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
-			logger.Debug().
-				Str("fingerprint", finding.Fingerprint).
-				Msgf("skipping finding: fingerprint")
-			return
-		}
-	}
-
-	if d.baseline != nil && !IsNew(finding, d.Redact, d.baseline) {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msgf("skipping finding: baseline")
-		return
-	}
-
-	if d.ValidationPool != nil {
-		if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
-			d.submitValidation(finding, rule)
-			return
-		}
-	}
-
-	d.findingsCh <- finding
-}
-
 // submitValidation submits a finding to the validation pool.
 // RequiredSets are already populated on the finding.
 func (d *Detector) submitValidation(finding report.Finding, rule config.Rule) {
@@ -992,13 +1006,6 @@ func (d *Detector) FilterByStatus(findings []report.Finding) []report.Finding {
 		}
 	}
 	return filtered
-}
-
-// AddCommit synchronously adds a commit to the commit slice
-func (d *Detector) addCommit(commit string) {
-	d.commitMutex.Lock()
-	d.commitMap[commit] = true
-	d.commitMutex.Unlock()
 }
 
 // checkCommitOrPathAllowed evaluates |fragment| against all provided |allowlists|.

@@ -25,9 +25,10 @@ type Pool struct {
 	jobs chan validationJob
 	wg   sync.WaitGroup
 
-	// FindingsCh receives fully-resolved, enriched findings. It is owned and
-	// closed by the Detector; Pool only sends to it.
-	FindingsCh chan<- report.Finding
+	// Emit receives fully-resolved, enriched findings.
+	// Pool never synchronizes or retries around this callback; callers must make
+	// it safe for concurrent worker use.
+	Emit func(report.Finding)
 }
 
 // NewPool creates a validation pool with the given number of workers.
@@ -59,7 +60,7 @@ func (p *Pool) Submit(finding report.Finding, program cel.Program, captures map[
 }
 
 // Close signals that no more jobs will be submitted and waits for all workers
-// to finish. It does NOT close FindingsCh — the Detector owns that channel.
+// to finish.
 func (p *Pool) Close() {
 	close(p.jobs)
 	p.wg.Wait()
@@ -86,8 +87,8 @@ func (p *Pool) worker() {
 				f.ValidationReason = result.Reason
 				f.ValidationMeta = result.Metadata
 			}
-			if p.FindingsCh != nil {
-				p.FindingsCh <- f
+			if p.Emit != nil {
+				p.Emit(f)
 			}
 			continue
 		}
@@ -146,8 +147,8 @@ func (p *Pool) worker() {
 			f.ValidationMeta = bestResult.Metadata
 		}
 
-		if p.FindingsCh != nil {
-			p.FindingsCh <- f
+		if p.Emit != nil {
+			p.Emit(f)
 		}
 	}
 }

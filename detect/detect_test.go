@@ -2560,7 +2560,7 @@ let password = 'Summer2024!';`
 			f := tc.fragment
 			f.Raw = raw
 
-			actual := d.detectRule(f, raw, rule, []*codec.EncodedSegment{})
+			actual := d.scanFragmentWithRule(f, raw, rule, []*codec.EncodedSegment{})
 			compare(t, tc.expected, actual)
 		})
 	}
@@ -2731,7 +2731,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	require.NoError(t, err)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			actual := d.detectRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{})
+			actual := d.scanFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{})
 			compare(t, test.expected, actual)
 		})
 	}
@@ -2931,7 +2931,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 	require.NoError(t, err)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			actual := d.detectRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{})
+			actual := d.scanFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{})
 			compare(t, test.expected, actual)
 		})
 	}
