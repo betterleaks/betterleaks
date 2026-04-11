@@ -63,7 +63,7 @@ docker pull ghcr.io/betterleaks/betterleaks:latest
 # Source
 git clone https://github.com/betterleaks/betterleaks
 cd betterleaks
-make betterleaks
+make build
 ```
 
 ## Usage
