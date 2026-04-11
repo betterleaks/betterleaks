@@ -206,7 +206,7 @@ func NewDetectorDefaultConfig() (*Detector, error) {
 // The context can be used to cancel the scan.
 // Internally uses a channel to send results from the scanning goroutine to the caller,
 // allowing for concurrent processing of findings as they are discovered.
-func (p *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Result] {
+func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Result] {
 	return func(yield func(Result) bool) {
 		if source == nil {
 			_ = yield(Result{Err: fmt.Errorf("pipeline: nil source")})
@@ -219,10 +219,10 @@ func (p *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		// main channel for sending results back to the caller (eventually gets consumed by `emit`)
 		resultsCh := make(chan Result, 1000)
 
-		if p.ValidationCounts == nil {
-			p.ValidationCounts = make(map[string]int)
+		if d.ValidationCounts == nil {
+			d.ValidationCounts = make(map[string]int)
 		} else {
-			clear(p.ValidationCounts)
+			clear(d.ValidationCounts)
 		}
 
 		// This function is used to send results back to the caller.
@@ -237,8 +237,8 @@ func (p *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		}
 
 		// If ValidationPool is set, we want to emit findings from the pool instead of directly from addFinding, so we set the Emit function here.
-		if p.ValidationPool != nil {
-			p.ValidationPool.Emit = func(f report.Finding) {
+		if d.ValidationPool != nil {
+			d.ValidationPool.Emit = func(f report.Finding) {
 				_ = emit(Result{Finding: f})
 			}
 		}
@@ -269,10 +269,10 @@ func (p *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					}
 				}()
 
-				findings := p.scanFragment(runCtx, fragment)
+				findings := d.scanFragment(runCtx, fragment)
 				for _, finding := range findings {
 					// if err := routeFinding(finding); err != nil {
-					if err := p.routeFinding(finding, emit); err != nil {
+					if err := d.routeFinding(finding, emit); err != nil {
 						return err
 					}
 				}
@@ -280,10 +280,10 @@ func (p *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				return nil
 			})
 
-			if p.ValidationPool != nil {
-				p.ValidationPool.Close()
+			if d.ValidationPool != nil {
+				d.ValidationPool.Close()
 
-				hits, misses := p.ValidationPool.Stats()
+				hits, misses := d.ValidationPool.Stats()
 				logging.Debug().
 					Uint64("http_requests", misses).
 					Uint64("cache_hits", hits).
@@ -300,11 +300,11 @@ func (p *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		// consume results and send to caller via yield
 		for res := range resultsCh {
 			if res.Err == nil {
-				if !p.ValidationExtractEmpty {
+				if !d.ValidationExtractEmpty {
 					res.Finding.ValidationMeta = stripEmptyMeta(res.Finding.ValidationMeta)
 				}
 				if res.Finding.ValidationStatus != "" {
-					p.ValidationCounts[res.Finding.ValidationStatus]++
+					d.ValidationCounts[res.Finding.ValidationStatus]++
 				}
 			}
 
@@ -316,22 +316,25 @@ func (p *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 	}
 }
 
-func (p *Detector) routeFinding(finding report.Finding, emit func(Result) error) error {
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.File, finding.RuleID, finding.StartLine)
-	if finding.Commit != "" {
-		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", finding.Commit, finding.File, finding.RuleID, finding.StartLine)
+func (d *Detector) routeFinding(finding report.Finding, emit func(Result) error) error {
+	path := finding.Attributes[sources.AttrPath]
+	commit := finding.Attributes[sources.AttrGitSHA]
+
+	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, finding.RuleID, finding.StartLine)
+	if commit != "" {
+		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", commit, path, finding.RuleID, finding.StartLine)
 	} else {
 		finding.Fingerprint = globalFingerprint
 	}
 
 	logger := logging.With().Str("finding", finding.Secret).Logger()
-	if _, ok := p.gitleaksIgnore[globalFingerprint]; ok {
+	if _, ok := d.gitleaksIgnore[globalFingerprint]; ok {
 		logger.Debug().
 			Str("fingerprint", globalFingerprint).
 			Msg("skipping finding: global fingerprint")
 		return nil
-	} else if finding.Commit != "" {
-		if _, ok := p.gitleaksIgnore[finding.Fingerprint]; ok {
+	} else if commit != "" {
+		if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
 			logger.Debug().
 				Str("fingerprint", finding.Fingerprint).
 				Msgf("skipping finding: fingerprint")
@@ -339,16 +342,16 @@ func (p *Detector) routeFinding(finding report.Finding, emit func(Result) error)
 		}
 	}
 
-	if p.baseline != nil && !IsNew(finding, 0, p.baseline) {
+	if d.baseline != nil && !IsNew(finding, 0, d.baseline) {
 		logger.Debug().
 			Str("fingerprint", finding.Fingerprint).
 			Msgf("skipping finding: baseline")
 		return nil
 	}
 
-	if p.ValidationPool != nil {
-		if rule, ok := p.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
-			p.submitValidation(finding, rule)
+	if d.ValidationPool != nil {
+		if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
+			d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups)
 			return nil
 		}
 	}
@@ -416,6 +419,8 @@ func (d *Detector) scanFragment(ctx context.Context, fragment sources.Fragment) 
 		logger   = fragment.Logger()
 	)
 
+	// TODO replace source-specific attribute checking with a CEL-based filter
+	// TODO baseline checking should be move to the source
 	// check if filepath is allowed
 	if fragment.Attr(sources.AttrPath) != "" {
 		// is the path our config or baseline file?
@@ -425,6 +430,7 @@ func (d *Detector) scanFragment(ctx context.Context, fragment sources.Fragment) 
 		}
 	}
 	// check if commit or filepath is allowed.
+	// TODO replace source-specific attribute checking with a CEL-based filter
 	if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, d.Config.Allowlists); isAllowed {
 		event.Msg("skipping file: global allowlist")
 		return findings
@@ -507,6 +513,7 @@ func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw st
 	}
 
 	// check if commit or file is allowed for this rule.
+	// TODO replace source-specific attribute checking with a CEL-based filter
 	if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, r.Allowlists); isAllowed {
 		event.Msg("skipping file: rule allowlist")
 		return findings
@@ -518,24 +525,11 @@ func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw st
 			// Path _only_ rule
 			if r.Path.MatchString(fragment.Attr(sources.AttrPath)) || (wp != "" && r.Path.MatchString(wp)) {
 				finding := report.Finding{
-					Commit:      fragment.Attr(sources.AttrGitSHA),
 					RuleID:      r.RuleID,
 					Description: r.Description,
-					File:        fragment.Attr(sources.AttrPath),
-					SymlinkFile: fragment.Attr(sources.AttrFSSymlink),
 					Match:       "file detected: " + fragment.Attr(sources.AttrPath),
 					Tags:        r.Tags,
-				}
-				if finding.Commit != "" {
-					finding.Author = fragment.Attr(sources.AttrGitAuthorName)
-					finding.Date = fragment.Attr(sources.AttrGitDate)
-					finding.Email = fragment.Attr(sources.AttrGitAuthorEmail)
-					finding.Message = fragment.Attr(sources.AttrGitMessage)
-					finding.Link = createScmLink(
-						fragment.Attr(sources.AttrGitPlatform),
-						fragment.Attr(sources.AttrGitRemoteURL),
-						finding,
-					)
+					Attributes:  maps.Clone(fragment.Attributes),
 				}
 				return append(findings, finding)
 			}
@@ -552,18 +546,6 @@ func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw st
 	// if path only rule, skip content checks
 	if r.Regex == nil {
 		return findings
-	}
-
-	// if flag configure and raw data size bigger then the flag
-	if d.MaxTargetMegaBytes > 0 {
-		rawLength := len(currentRaw) / 1_000_000
-		if rawLength > d.MaxTargetMegaBytes {
-			logger.Debug().
-				Int("size", rawLength).
-				Int("max-size", d.MaxTargetMegaBytes).
-				Msg("skipping fragment: size")
-			return findings
-		}
 	}
 
 	matches := r.Regex.FindAllStringIndex(currentRaw, -1)
@@ -617,7 +599,6 @@ func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw st
 		}
 
 		finding := report.Finding{
-			Commit:      fragment.Attr(sources.AttrGitSHA),
 			RuleID:      r.RuleID,
 			Description: r.Description,
 			StartLine:   fragment.StartLine + loc.startLine,
@@ -627,25 +608,8 @@ func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw st
 			Line:        fragment.Raw[loc.startLineIndex:loc.endLineIndex],
 			Match:       secret,
 			Secret:      secret,
-			File:        fragment.Attr(sources.AttrPath),
-			SymlinkFile: fragment.Attr(sources.AttrFSSymlink),
-			Tags: func() []string {
-				if len(metaTags) == 0 {
-					return r.Tags
-				}
-				return append(r.Tags, metaTags...)
-			}(),
-		}
-		if finding.Commit != "" {
-			finding.Author = fragment.Attr(sources.AttrGitAuthorName)
-			finding.Date = fragment.Attr(sources.AttrGitDate)
-			finding.Email = fragment.Attr(sources.AttrGitAuthorEmail)
-			finding.Message = fragment.Attr(sources.AttrGitMessage)
-			finding.Link = createScmLink(
-				fragment.Attr(sources.AttrGitPlatform),
-				fragment.Attr(sources.AttrGitRemoteURL),
-				finding,
-			)
+			Attributes:  maps.Clone(fragment.Attributes),
+			Tags:        append(r.Tags, metaTags...),
 		}
 		if !d.IgnoreGitleaksAllow && containsAllowSignature(finding.Line) {
 			logger.Trace().
@@ -692,6 +656,7 @@ func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw st
 		}
 
 		// check entropy
+		// TODO move this to CEL-filter
 		entropy := shannonEntropy(finding.Secret)
 		finding.Entropy = float32(entropy)
 		if r.Entropy != 0.0 {
@@ -706,22 +671,26 @@ func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw st
 		}
 
 		// check if the result matches any of the global allowlists.
+		// TODO move this to CEL-filter
 		if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, d.Config.Allowlists); isAllowed {
 			event.Msg("skipping finding: global allowlist")
 			continue
 		}
 
 		// check if the result matches any of the rule allowlists.
+		// TODO move this to CEL-filter
 		if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, r.Allowlists); isAllowed {
 			event.Msg("skipping finding: rule allowlist")
 			continue
 		}
 
+		// TODO move this to CEL-filter
 		if r.TokenEfficiency {
 			if d.failsTokenEfficiencyFilter(finding.Secret) {
 				continue
 			}
 		}
+
 		if !d.MatchContext.IsZero() {
 			finding.MatchContext = extractContext(fragment.Raw, matchIndex, d.MatchContext)
 		}
@@ -737,6 +706,7 @@ func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw st
 	return d.processRequiredRules(fragment, currentRaw, r, encodedSegments, findings, logger)
 }
 
+// TODO move this to CEL-filter
 func (d *Detector) failsTokenEfficiencyFilter(secret string) bool {
 	// Skip token-efficiency filtering if the tokenizer failed to initialize.
 	// (e.g., network error downloading cl100k_base)
@@ -893,72 +863,11 @@ func (d *Detector) withinProximity(primary, required report.Finding, requiredRul
 	return true
 }
 
-// abs returns the absolute value of an integer
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
-// submitValidation submits a finding to the validation pool.
-// RequiredSets are already populated on the finding.
-func (d *Detector) submitValidation(finding report.Finding, rule config.Rule) {
-	d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups)
-}
-
-// Findings returns the findings added to the detector, applying redaction if configured.
-func (d *Detector) Findings() []report.Finding {
-	if d.Redact > 0 {
-		for i := range d.findings {
-			d.findings[i].Redact(d.Redact)
-		}
-	}
-	return d.findings
-}
-
-func (d *Detector) shouldVerbosePrint(f report.Finding) bool {
-	if !d.Verbose {
-		return false
-	}
-	if len(d.ValidationStatusFilter) == 0 {
-		return true
-	}
-	if f.ValidationStatus == "" {
-		_, ok := d.ValidationStatusFilter["none"]
-		return ok
-	}
-	_, ok := d.ValidationStatusFilter[f.ValidationStatus]
-	return ok
-}
-
-// FilterByStatus returns findings whose ValidationStatus is in
-// d.ValidationStatusFilter. If the filter is empty, all findings are returned.
-// The pseudo-status "none" matches findings with no ValidationStatus set.
-func (d *Detector) FilterByStatus(findings []report.Finding) []report.Finding {
-	if len(d.ValidationStatusFilter) == 0 {
-		return findings
-	}
-	_, includeNone := d.ValidationStatusFilter["none"]
-	var filtered []report.Finding
-	for _, f := range findings {
-		if f.ValidationStatus == "" {
-			if includeNone {
-				filtered = append(filtered, f)
-			}
-			continue
-		}
-		if _, ok := d.ValidationStatusFilter[f.ValidationStatus]; ok {
-			filtered = append(filtered, f)
-		}
-	}
-	return filtered
-}
-
 // checkCommitOrPathAllowed evaluates |fragment| against all provided |allowlists|.
 //
 // If the match condition is "OR", only commit and path are checked.
 // Otherwise, if regexes or stopwords are defined this will fail.
+// TODO: replace this with a CEL-based filter at the source level for quick bailout.
 func checkCommitOrPathAllowed(
 	logger zerolog.Logger,
 	fragment sources.Fragment,
@@ -1016,6 +925,7 @@ func checkCommitOrPathAllowed(
 // Otherwise, all conditions are checked.
 //
 // TODO: The method signature is awkward. I can't think of a better way to log helpful info.
+// TODO: replace this with a CEL-based filter at the scanFragmentWithRule level.
 func checkFindingAllowed(
 	logger zerolog.Logger,
 	finding report.Finding,

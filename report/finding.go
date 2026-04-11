@@ -57,17 +57,26 @@ type Finding struct {
 
 	// Deprecated
 	// File is the name of the file containing the finding
-	File        string
+	// Deprecated
+	File string
+	// Deprecated
 	SymlinkFile string
-	Commit      string
-	Link        string `json:",omitempty"`
+	// Deprecated
+	Commit string
+	// Deprecated
+	Link string `json:",omitempty"`
 
 	// Entropy is the shannon entropy of Value
+	// Deprecated
 	Entropy float32
 
-	Author  string
-	Email   string
-	Date    string
+	// Deprecated
+	Author string
+	// Deprecated
+	Email string
+	// Deprecated
+	Date string
+	// Deprecated
 	Message string
 }
 
@@ -363,7 +372,7 @@ func (f *Finding) Print(noColor bool, redact uint) {
 	fmt.Printf("%-12s %s\n", "RuleID:", f.RuleID)
 	fmt.Printf("%-12s %f\n", "Entropy:", f.Entropy)
 
-	if f.File == "" {
+	if f.Path() == "" {
 		if f.MatchContext != "" {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 		}
@@ -375,9 +384,9 @@ func (f *Finding) Print(noColor bool, redact uint) {
 	if len(f.Tags) > 0 {
 		fmt.Printf("%-12s %s\n", "Tags:", f.Tags)
 	}
-	fmt.Printf("%-12s %s\n", "File:", f.File)
+	fmt.Printf("%-12s %s\n", "File:", f.Path())
 	fmt.Printf("%-12s %d\n", "Line:", f.StartLine)
-	if f.Commit == "" {
+	if f.CommitSHA() == "" {
 		fmt.Printf("%-12s %s\n", "Fingerprint:", f.Fingerprint)
 		if f.MatchContext != "" {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
@@ -387,10 +396,10 @@ func (f *Finding) Print(noColor bool, redact uint) {
 		fmt.Println("")
 		return
 	}
-	fmt.Printf("%-12s %s\n", "Commit:", f.Commit)
-	fmt.Printf("%-12s %s\n", "Author:", f.Author)
-	fmt.Printf("%-12s %s\n", "Email:", f.Email)
-	fmt.Printf("%-12s %s\n", "Date:", f.Date)
+	fmt.Printf("%-12s %s\n", "Commit:", f.CommitSHA())
+	fmt.Printf("%-12s %s\n", "Author:", f.AuthorName())
+	fmt.Printf("%-12s %s\n", "Email:", f.AuthorEmail())
+	fmt.Printf("%-12s %s\n", "Date:", f.CommitDate())
 	fmt.Printf("%-12s %s\n", "Fingerprint:", f.Fingerprint)
 	if f.Link != "" {
 		fmt.Printf("%-12s %s\n", "Link:", f.Link)

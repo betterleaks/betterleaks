@@ -84,9 +84,9 @@ type File struct {
 	archiveDepth int
 }
 
-func (s *File) FindingAttrs() []string {
-	return []string{AttrPath}
-}
+// func (s *File) FindingAttrs() []string {
+// 	return []string{AttrPath}
+// }
 
 // Fragments yields fragments for the this source
 func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
@@ -246,7 +246,8 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 				fragPath = filepath.ToSlash(fullPath)
 			}
 			attr := map[string]string{
-				AttrPath: fragPath,
+				AttrPath:    fragPath,
+				ResourceKey: ResourceFileContent,
 			}
 			fragment := Fragment{
 				Attributes: attr,

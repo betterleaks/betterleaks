@@ -196,7 +196,7 @@ func filter(findings []report.Finding) []report.Finding {
 		} else if strings.Contains(strings.ToLower(f.RuleID), "generic") {
 			for _, fPrime := range findings {
 				if f.StartLine == fPrime.StartLine &&
-					f.Commit == fPrime.Commit &&
+					f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
 					f.RuleID != fPrime.RuleID &&
 					strings.Contains(fPrime.Secret, f.Secret) &&
 					!strings.Contains(strings.ToLower(fPrime.RuleID), "generic") {
@@ -501,4 +501,12 @@ func containsAllowSignature(line string) bool {
 		}
 	}
 	return false
+}
+
+// abs returns the absolute value of an integer
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }

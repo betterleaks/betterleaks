@@ -3,6 +3,7 @@ package detect
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/betterleaks/betterleaks/config"
@@ -19,9 +20,30 @@ func NewDetector(cfg config.Config) *Detector {
 	return NewDetectorContext(context.Background(), cfg)
 }
 
+// backfillDeprecated populates the deprecated top-level fields on a Finding
+// from its Attributes map so legacy callers still get the values they expect.
+func backfillDeprecated(f *report.Finding) {
+	if f.Attributes == nil {
+		return
+	}
+	f.File = f.Attributes[sources.AttrPath]
+	f.SymlinkFile = f.Attributes[sources.AttrFSSymlink]
+	f.Commit = f.Attributes[sources.AttrGitSHA]
+	f.Author = f.Attributes[sources.AttrGitAuthorName]
+	f.Email = f.Attributes[sources.AttrGitAuthorEmail]
+	f.Date = f.Attributes[sources.AttrGitDate]
+	f.Message = f.Attributes[sources.AttrGitMessage]
+}
+
 // DetectSource scans the given source and returns a list of findings
 // Deprecated: use Run instead for more flexible and efficient processing of findings.
 func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]report.Finding, error) {
+	// Initialize deprecated fields used only by this code path.
+	if d.commitMap == nil {
+		d.commitMap = make(map[string]bool)
+		d.commitMutex = &sync.Mutex{}
+	}
+
 	// We have a single channel for sending findings to.
 	// Findings get sent to this channel straight from
 	// scanFragmentWithRule (non validation) OR from the ValidationPool which
@@ -136,6 +158,8 @@ func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment)
 // are submitted to the pool; all others go directly to findingsCh.
 // Deprecated: only used in deprecated calls. New code calls routeFinding directly.
 func (d *Detector) AddFinding(finding report.Finding) {
+	backfillDeprecated(&finding)
+
 	globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.File, finding.RuleID, finding.StartLine)
 	if finding.Commit != "" {
 		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", finding.Commit, finding.File, finding.RuleID, finding.StartLine)
@@ -169,7 +193,7 @@ func (d *Detector) AddFinding(finding report.Finding) {
 
 	if d.ValidationPool != nil {
 		if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
-			d.submitValidation(finding, rule)
+			d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups)
 			return
 		}
 	}
@@ -182,4 +206,54 @@ func (d *Detector) addCommit(commit string) {
 	d.commitMutex.Lock()
 	d.commitMap[commit] = true
 	d.commitMutex.Unlock()
+}
+
+// Findings returns the findings added to the detector, applying redaction if configured.
+// Deprecated: this is only used in deprecated calls. New code should access findings directly from the channel or ValidationPool.
+func (d *Detector) Findings() []report.Finding {
+	if d.Redact > 0 {
+		for i := range d.findings {
+			d.findings[i].Redact(d.Redact)
+		}
+	}
+	return d.findings
+}
+
+// Deprecated: this is only used in deprecated calls. New code should access findings directly from the channel or ValidationPool.
+func (d *Detector) shouldVerbosePrint(f report.Finding) bool {
+	if !d.Verbose {
+		return false
+	}
+	if len(d.ValidationStatusFilter) == 0 {
+		return true
+	}
+	if f.ValidationStatus == "" {
+		_, ok := d.ValidationStatusFilter["none"]
+		return ok
+	}
+	_, ok := d.ValidationStatusFilter[f.ValidationStatus]
+	return ok
+}
+
+// FilterByStatus returns findings whose ValidationStatus is in
+// d.ValidationStatusFilter. If the filter is empty, all findings are returned.
+// The pseudo-status "none" matches findings with no ValidationStatus set.
+func (d *Detector) FilterByStatus(findings []report.Finding) []report.Finding {
+	if len(d.ValidationStatusFilter) == 0 {
+		return findings
+	}
+	_, includeNone := d.ValidationStatusFilter["none"]
+	var filtered []report.Finding
+	for _, f := range findings {
+		if f.ValidationStatus == "" {
+			if includeNone {
+				filtered = append(filtered, f)
+			}
+			continue
+		}
+		if _, ok := d.ValidationStatusFilter[f.ValidationStatus]; ok {
+			filtered = append(filtered, f)
+		}
+	}
+	return filtered
 }
