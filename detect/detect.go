@@ -99,6 +99,11 @@ type Detector struct {
 
 	tokenizer *tiktoken.Tiktoken
 
+	// TODO remove this in v2
+	// SkipFindingAppend is a flag to skip appending findings to the detector's findings slice.
+	// This is used in the legacy DetectSource method to avoid unnecessary memory use since findings are emitted via a channel, and will be removed in v2.
+	SkipFindingAppend bool
+
 	// ----------------------------------------------------------------
 	// DEPRECATED fields below, to be removed in the next major version
 	//

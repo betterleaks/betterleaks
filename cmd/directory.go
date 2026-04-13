@@ -51,12 +51,12 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	)
 
 	totalBytes := uint64(0)
-	var findings []report.Finding
 
 	for _, source := range sourcesList {
 		initConfig(source)
 		cfg := Config(cmd)
 		detector := Detector(cmd, cfg, source)
+		detector.SkipFindingAppend = true
 		lastDetector = detector
 
 		s := &sources.Files{
@@ -68,6 +68,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 			MaxArchiveDepth: maxArchiveDepth,
 		}
 
+		var findings []report.Finding
 		for result := range detector.Run(cmd.Context(), s) {
 			if result.Err != nil {
 				logging.Error().Err(result.Err).Msg("error scanning source")

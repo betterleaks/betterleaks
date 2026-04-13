@@ -6,15 +6,14 @@ import (
 	"github.com/betterleaks/betterleaks/sources"
 )
 
-// SetAttributes stores a copy of attrs and syncs deprecated source fields for compatibility.
-func (f *Finding) SetAttributes(attrs map[string]string) {
-	f.Attributes = maps.Clone(attrs)
-	f.SyncDeprecatedSourceFields()
+func (f *Finding) SetAttr(key, value string) {
+	if f.Attributes == nil {
+		f.Attributes = make(map[string]string)
+	}
+	f.Attributes[key] = value
 }
 
-// Attribute returns a source metadata value, preferring the new Attributes map
-// and falling back to deprecated top-level fields when needed.
-func (f Finding) Attribute(key string) string {
+func (f Finding) Attr(key string) string {
 	if f.Attributes != nil {
 		if value := f.Attributes[key]; value != "" {
 			return value
@@ -41,50 +40,25 @@ func (f Finding) Attribute(key string) string {
 	}
 }
 
-func (f Finding) Path() string {
-	return f.Attribute(sources.AttrPath)
+// SetAttributes stores a copy of attrs and syncs deprecated source fields for compatibility.
+func (f *Finding) SetAttributes(attrs map[string]string) {
+	f.Attributes = maps.Clone(attrs)
+	f.SyncDeprecatedSourceFields()
 }
 
-func (f Finding) SymlinkPath() string {
-	return f.Attribute(sources.AttrFSSymlink)
-}
-
-func (f Finding) CommitSHA() string {
-	return f.Attribute(sources.AttrGitSHA)
-}
-
-func (f Finding) AuthorName() string {
-	return f.Attribute(sources.AttrGitAuthorName)
-}
-
-func (f Finding) AuthorEmail() string {
-	return f.Attribute(sources.AttrGitAuthorEmail)
-}
-
-func (f Finding) CommitDate() string {
-	return f.Attribute(sources.AttrGitDate)
-}
-
-func (f Finding) CommitMessage() string {
-	return f.Attribute(sources.AttrGitMessage)
-}
-
-func (f Finding) ScmRemoteURL() string {
-	return f.Attribute(sources.AttrGitRemoteURL)
-}
-
-func (f Finding) ScmPlatform() string {
-	return f.Attribute(sources.AttrGitPlatform)
+// Attribute is retained as a compatibility wrapper around Attr.
+func (f Finding) Attribute(key string) string {
+	return f.Attr(key)
 }
 
 // SyncDeprecatedSourceFields backfills deprecated fields from Attributes so
 // legacy reporters, baselines, and templates continue to work.
 func (f *Finding) SyncDeprecatedSourceFields() {
-	f.File = f.Path()
-	f.SymlinkFile = f.SymlinkPath()
-	f.Commit = f.CommitSHA()
-	f.Author = f.AuthorName()
-	f.Email = f.AuthorEmail()
-	f.Date = f.CommitDate()
-	f.Message = f.CommitMessage()
+	f.File = f.Attr(sources.AttrPath)
+	f.SymlinkFile = f.Attr(sources.AttrFSSymlink)
+	f.Commit = f.Attr(sources.AttrGitSHA)
+	f.Author = f.Attr(sources.AttrGitAuthorName)
+	f.Email = f.Attr(sources.AttrGitAuthorEmail)
+	f.Date = f.Attr(sources.AttrGitDate)
+	f.Message = f.Attr(sources.AttrGitMessage)
 }
