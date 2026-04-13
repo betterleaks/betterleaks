@@ -269,7 +269,7 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					}
 				}()
 
-				findings := d.scanFragment(runCtx, fragment)
+				findings := d.detectFragment(runCtx, fragment)
 				for _, finding := range findings {
 					// if err := routeFinding(finding); err != nil {
 					if err := d.routeFinding(finding, emit); err != nil {
@@ -408,7 +408,7 @@ func (d *Detector) DetectString(content string) []report.Finding {
 	})
 }
 
-func (d *Detector) scanFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
 	if fragment.Bytes == nil {
 		d.TotalBytes.Add(uint64(len(fragment.Raw)))
 	}
@@ -477,7 +477,7 @@ ScanLoop:
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.scanFragmentWithRule(fragment, currentRaw, rule, encodedSegments)...)
+					findings = append(findings, d.detectFragmentWithRule(fragment, currentRaw, rule, encodedSegments)...)
 				}
 			}
 
@@ -501,8 +501,11 @@ ScanLoop:
 	return filter(findings)
 }
 
-// scanFragmentWithRule scans the given fragment for the given rule and returns a list of findings
-func (d *Detector) scanFragmentWithRule(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment) []report.Finding {
+// detectFragmentWithRule scans the given fragment for the given rule and returns a list of findings
+func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
+	currentRaw string,
+	r config.Rule,
+	encodedSegments []*codec.EncodedSegment) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
@@ -761,7 +764,7 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		inheritedFragment.InheritedFromFinding = true
 
 		// Call detectRule once for each required rule
-		requiredFindings := d.scanFragmentWithRule(inheritedFragment, currentRaw, rule, encodedSegments)
+		requiredFindings := d.detectFragmentWithRule(inheritedFragment, currentRaw, rule, encodedSegments)
 		allRequiredFindings[requiredRule.RuleID] = requiredFindings
 
 		logger.Debug().

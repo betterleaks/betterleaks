@@ -151,7 +151,7 @@ func (d *Detector) Detect(fragment sources.Fragment) []report.Finding {
 //
 // Deprecated: use Run or DetectString
 func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment) []report.Finding {
-	return d.scanFragment(ctx, fragment)
+	return d.detectFragment(ctx, fragment)
 }
 
 // AddFinding adds a finding to the pipeline. Findings needing CEL validation
