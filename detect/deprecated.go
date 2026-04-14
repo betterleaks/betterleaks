@@ -20,21 +20,6 @@ func NewDetector(cfg config.Config) *Detector {
 	return NewDetectorContext(context.Background(), cfg)
 }
 
-// backfillDeprecated populates the deprecated top-level fields on a Finding
-// from its Attributes map so legacy callers still get the values they expect.
-func backfillDeprecated(f *report.Finding) {
-	if f.Attributes == nil {
-		return
-	}
-	f.File = f.Attributes[sources.AttrPath]
-	f.SymlinkFile = f.Attributes[sources.AttrFSSymlink]
-	f.Commit = f.Attributes[sources.AttrGitSHA]
-	f.Author = f.Attributes[sources.AttrGitAuthorName]
-	f.Email = f.Attributes[sources.AttrGitAuthorEmail]
-	f.Date = f.Attributes[sources.AttrGitDate]
-	f.Message = f.Attributes[sources.AttrGitMessage]
-}
-
 // DetectSource scans the given source and returns a list of findings
 // Deprecated: use Run instead for more flexible and efficient processing of findings.
 func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]report.Finding, error) {
@@ -50,8 +35,6 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 	// is responsible for attempting async validation attempts.
 	d.findingsCh = make(chan report.Finding, 1000)
 
-	// little hacky. this will all be cleared up in v2
-	// little hacky. this will all be cleared up in v2
 	if d.ValidationPool != nil {
 		d.ValidationPool.Emit = func(f report.Finding) {
 			d.findingsCh <- f
@@ -158,7 +141,7 @@ func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment)
 // are submitted to the pool; all others go directly to findingsCh.
 // Deprecated: only used in deprecated calls. New code calls routeFinding directly.
 func (d *Detector) AddFinding(finding report.Finding) {
-	backfillDeprecated(&finding)
+	finding.SyncDeprecatedSourceFields()
 
 	globalFingerprint := fmt.Sprintf("%s:%s:%d", finding.File, finding.RuleID, finding.StartLine)
 	if finding.Commit != "" {

@@ -626,6 +626,8 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			continue
 		}
 
+		finding.SyncDeprecatedSourceFields()
+
 		if currentLine == "" {
 			currentLine = finding.Line
 		}
