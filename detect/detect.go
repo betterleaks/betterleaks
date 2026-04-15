@@ -539,6 +539,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 					Tags:        r.Tags,
 					Attributes:  maps.Clone(fragment.Attributes),
 				}
+				finding.SyncDeprecatedSourceFields()
 				return append(findings, finding)
 			}
 		} else {
