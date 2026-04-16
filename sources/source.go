@@ -13,5 +13,4 @@ type Source interface {
 	// Fragments provides a filepath.WalkDir like interface for scanning the
 	// fragments in the source
 	Fragments(ctx context.Context, yield FragmentsFunc) error
-	// FindingAttrs() []string
 }

@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"context"
 	"maps"
 	"sync"
 
@@ -51,11 +52,24 @@ func NewPool(workers int, env *celenv.Environment) *Pool {
 }
 
 // Submit queues a job for validation. RequiredSets (if any) are already on the finding.
-func (p *Pool) Submit(finding report.Finding, program cel.Program, captures map[string]string) {
-	p.jobs <- validationJob{
+func (p *Pool) Submit(finding report.Finding, program cel.Program) {
+	_ = p.SubmitContext(context.Background(), finding, program)
+}
+
+// SubmitContext queues a job for validation unless the provided context has
+// already been canceled.
+func (p *Pool) SubmitContext(ctx context.Context, finding report.Finding, program cel.Program) error {
+	job := validationJob{
 		finding:  finding,
 		program:  program,
-		captures: captures,
+		captures: finding.CaptureGroups,
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case p.jobs <- job:
+		return nil
 	}
 }
 

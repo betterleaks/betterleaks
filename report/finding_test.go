@@ -259,7 +259,7 @@ func TestPrint_UsesAttributesForSourceMetadata(t *testing.T) {
 	assert.Contains(t, output, "Email:       alice@example.com")
 	assert.Contains(t, output, "Date:        2026-04-13")
 	assert.Contains(t, output, "Fingerprint: commit123:path/to/file.txt:test-rule:12")
-	assert.Contains(t, output, "Tags:        [tag-a tag-b]")
+	assert.Contains(t, output, "Tags:        tag-a, tag-b")
 }
 
 func captureStdout(t *testing.T, fn func()) string {

@@ -289,9 +289,9 @@ func formatSetStatus(status string, noColor bool) string {
 	return style.Render("[" + strings.ToUpper(status) + "]")
 }
 
-func (f *Finding) Print(noColor bool, redact uint) {
+func (f Finding) Print(noColor bool, redact uint) {
 	if redact > 0 {
-		// Redact top-level fields only (f is a value copy so this is safe).
+		// Redact top-level fields only (f is a value copy, so this is safe).
 		// RequiredSets share pointers with the original finding stored in
 		// d.findings, so we must not mutate them here — they are redacted
 		// separately for display by PrintRequiredFindings.
@@ -383,13 +383,13 @@ func (f *Finding) Print(noColor bool, redact uint) {
 		if f.MatchContext != "" {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 		}
-		printValidation(*f, noColor)
+		printValidation(f, noColor)
 		f.PrintRequiredFindings(noColor, redact)
 		fmt.Println("")
 		return
 	}
 	if len(f.Tags) > 0 {
-		fmt.Printf("%-12s %s\n", "Tags:", f.Tags)
+		fmt.Printf("%-12s %s\n", "Tags:", strings.Join(f.Tags, ", "))
 	}
 	fmt.Printf("%-12s %s\n", "File:", path)
 	fmt.Printf("%-12s %d\n", "Line:", f.StartLine)
@@ -398,7 +398,7 @@ func (f *Finding) Print(noColor bool, redact uint) {
 		if f.MatchContext != "" {
 			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 		}
-		printValidation(*f, noColor)
+		printValidation(f, noColor)
 		f.PrintRequiredFindings(noColor, redact)
 		fmt.Println("")
 		return
@@ -415,7 +415,7 @@ func (f *Finding) Print(noColor bool, redact uint) {
 	if f.MatchContext != "" {
 		fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 	}
-	printValidation(*f, noColor)
+	printValidation(f, noColor)
 	f.PrintRequiredFindings(noColor, redact)
 	fmt.Println("")
 }

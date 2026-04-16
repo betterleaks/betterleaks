@@ -71,8 +71,8 @@ type Detector struct {
 	ValidationPool *validate.Pool
 
 	// ValidationCounts tracks how many findings were returned for each
-	// ValidationStatus value. Populated by the DetectSource consumer goroutine;
-	// safe to read after DetectSource returns.
+	// ValidationStatus value. Populated by the Run/DetectSource consumer;
+	// safe to read after the scan returns.
 	ValidationCounts map[string]int
 
 	// ValidationExtractEmpty controls whether empty values from extractors
@@ -100,8 +100,14 @@ type Detector struct {
 	tokenizer *tiktoken.Tiktoken
 
 	// TODO remove this in v2
-	// SkipFindingAppend is a flag to skip appending findings to the detector's findings slice.
-	// This is used in the legacy DetectSource method to avoid unnecessary memory use since findings are emitted via a channel, and will be removed in v2.
+	// SkipFindingAppend skips populating the deprecated detector-level findings
+	// slice while consuming results from Run.
+	//
+	// This keeps Run callers from retaining a second compatibility copy of the
+	// same findings when they are already consuming results directly.
+	//
+	// DetectSource intentionally ignores this flag to preserve its historical
+	// return contract.
 	SkipFindingAppend bool
 
 	// ----------------------------------------------------------------
@@ -116,8 +122,9 @@ type Detector struct {
 	// findings is a slice of report.Findings. This is the result
 	// of the detector's scan which can then be used to generate a
 	// report.
-	// Deprecated: findings are now emitted via the channel returned by Run;
-	// this field is only used for the legacy DetectSource method and will be removed in v2.
+	// Deprecated: findings are now emitted via the channel returned by Run.
+	// This slice is retained only for compatibility with deprecated callers and
+	// optional accumulation during Run when SkipFindingAppend is false.
 	findings []report.Finding
 
 	// findingsCh is created by DetectSource and carries all ready-to-display
@@ -157,12 +164,12 @@ type Detector struct {
 	commitMap map[string]bool
 
 	// Sema (https://github.com/fatih/semgroup) controls the concurrency
+	// Deprecated: this is only used for git log workers and can be removed when the legacy git scan is removed in v2.
 	Sema *semgroup.Group
 }
 
-// NewDetectorContext is the same as NewDetector but supports passing in a
-// context to use for timeouts
-func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
+// NewDetector creates a new detector with the given config
+func NewDetector(cfg config.Config) *Detector {
 	// grab offline tiktoken encoder
 	tiktoken.SetBpeLoader(&TiktokenLoader{})
 	tke, err := tiktoken.GetEncoding("cl100k_base")
@@ -171,12 +178,11 @@ func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 	}
 
 	return &Detector{
-		gitleaksIgnore:   make(map[string]struct{}),
-		findings:         make([]report.Finding, 0),
 		ValidationCounts: make(map[string]int),
 		Config:           cfg,
+		gitleaksIgnore:   make(map[string]struct{}),
+		findings:         make([]report.Finding, 0),
 		prefilter:        *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
-		Sema:             semgroup.NewGroup(ctx, 40),
 		tokenizer:        tke,
 	}
 }
@@ -276,10 +282,23 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 
 				findings := d.detectFragment(runCtx, fragment)
 				for _, finding := range findings {
-					// if err := routeFinding(finding); err != nil {
-					if err := d.routeFinding(finding, emit); err != nil {
-						return err
+					if d.ignore(finding) {
+						continue
 					}
+					if d.ValidationPool != nil {
+						if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
+							if err := d.ValidationPool.SubmitContext(runCtx,
+								finding,
+								rule.CelProgram()); err != nil {
+								if errors.Is(err, context.Canceled) {
+									return errStopIteration
+								}
+								return err
+							}
+							continue
+						}
+					}
+					emit(Result{Finding: finding})
 				}
 
 				return nil
@@ -311,6 +330,9 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				if res.Finding.ValidationStatus != "" {
 					d.ValidationCounts[res.Finding.ValidationStatus]++
 				}
+				if !d.SkipFindingAppend {
+					d.findings = append(d.findings, res.Finding)
+				}
 			}
 
 			if !yield(res) {
@@ -321,7 +343,9 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 	}
 }
 
-func (d *Detector) routeFinding(finding report.Finding, emit func(Result) error) error {
+// ignore compares a finding against a baseline report or betterleaksignore
+// file entries.
+func (d *Detector) ignore(finding report.Finding) bool {
 	path := finding.Attributes[sources.AttrPath]
 	commit := finding.Attributes[sources.AttrGitSHA]
 
@@ -337,31 +361,23 @@ func (d *Detector) routeFinding(finding report.Finding, emit func(Result) error)
 		logger.Debug().
 			Str("fingerprint", globalFingerprint).
 			Msg("skipping finding: global fingerprint")
-		return nil
+		return true
 	} else if commit != "" {
 		if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
 			logger.Debug().
 				Str("fingerprint", finding.Fingerprint).
 				Msgf("skipping finding: fingerprint")
-			return nil
+			return true
 		}
 	}
 
-	if d.baseline != nil && !IsNew(finding, 0, d.baseline) {
+	if d.baseline != nil && !IsNew(finding, d.Redact, d.baseline) {
 		logger.Debug().
 			Str("fingerprint", finding.Fingerprint).
 			Msgf("skipping finding: baseline")
-		return nil
+		return true
 	}
-
-	if d.ValidationPool != nil {
-		if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
-			d.ValidationPool.Submit(finding, rule.CelProgram(), finding.CaptureGroups)
-			return nil
-		}
-	}
-
-	return emit(Result{Finding: finding})
+	return false
 }
 
 func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
