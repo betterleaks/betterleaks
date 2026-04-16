@@ -40,7 +40,10 @@ type Finding struct {
 	// Fragment used for multi-part rule checking and CEL filtering
 	Fragment *sources.Fragment `json:",omitempty"`
 
-	// Metadata
+	// Attributes holds additional metadata about the finding.
+	// Keys are defined in sources.Attr* constants (subject to change), but this is extensible for custom use cases.
+	// Attributes are initially populated from the source's Fragment attributes and can be added to in the Detector or ValidationPool.
+	// Deprecated "attribute" fields (File, Commit, etc.) are synced from Attributes for compatibility.
 	Attributes map[string]string `json:",omitempty"`
 
 	Tags []string
@@ -49,9 +52,10 @@ type Finding struct {
 	// Each set is one complete group of components that can be validated independently.
 	RequiredSets []RequiredSet `json:",omitempty"`
 
-	ValidationStatus string         `json:",omitempty"`
-	ValidationReason string         `json:",omitempty"`
-	ValidationMeta   map[string]any `json:",omitempty"`
+	ValidationStatus string `json:",omitempty"`
+	ValidationReason string `json:",omitempty"`
+	// TODO maybe just use the Attribute map
+	ValidationMeta map[string]any `json:",omitempty"`
 
 	// unique identifier
 	Fingerprint string
