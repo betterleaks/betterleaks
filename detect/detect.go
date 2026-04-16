@@ -168,8 +168,9 @@ type Detector struct {
 	Sema *semgroup.Group
 }
 
-// NewDetector creates a new detector with the given config
-func NewDetector(cfg config.Config) *Detector {
+// NewDetectorContext is the same as NewDetector but supports passing in a
+// context to use for timeouts
+func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 	// grab offline tiktoken encoder
 	tiktoken.SetBpeLoader(&TiktokenLoader{})
 	tke, err := tiktoken.GetEncoding("cl100k_base")
@@ -178,11 +179,12 @@ func NewDetector(cfg config.Config) *Detector {
 	}
 
 	return &Detector{
-		ValidationCounts: make(map[string]int),
-		Config:           cfg,
 		gitleaksIgnore:   make(map[string]struct{}),
 		findings:         make([]report.Finding, 0),
+		ValidationCounts: make(map[string]int),
+		Config:           cfg,
 		prefilter:        *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
+		Sema:             semgroup.NewGroup(ctx, 40),
 		tokenizer:        tke,
 	}
 }

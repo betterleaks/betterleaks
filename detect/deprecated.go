@@ -6,15 +6,11 @@ import (
 	"sync"
 	"time"
 
-	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
-	"github.com/fatih/semgroup"
-	"github.com/pkoukk/tiktoken-go"
 	"github.com/rs/zerolog"
-	"golang.org/x/exp/maps"
 )
 
 // DetectSource scans the given source and returns a list of findings
@@ -238,23 +234,9 @@ func (d *Detector) FilterByStatus(findings []report.Finding) []report.Finding {
 	return filtered
 }
 
-// NewDetectorContext is the same as NewDetector but supports passing in a
-// context to use for timeouts
-func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
-	// grab offline tiktoken encoder
-	tiktoken.SetBpeLoader(&TiktokenLoader{})
-	tke, err := tiktoken.GetEncoding("cl100k_base")
-	if err != nil {
-		logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
-	}
-
-	return &Detector{
-		gitleaksIgnore:   make(map[string]struct{}),
-		findings:         make([]report.Finding, 0),
-		ValidationCounts: make(map[string]int),
-		Config:           cfg,
-		prefilter:        *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
-		Sema:             semgroup.NewGroup(ctx, 40),
-		tokenizer:        tke,
-	}
+// NewDetector creates a new detector with the given config
+//
+// Deprecated: use NewDetectorContext instead.
+func NewDetector(cfg config.Config) *Detector {
+	return NewDetectorContext(context.Background(), cfg)
 }
