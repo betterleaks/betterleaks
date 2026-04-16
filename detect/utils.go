@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/betterleaks/betterleaks/color"
 	"github.com/betterleaks/betterleaks/logging"
@@ -195,7 +196,7 @@ func filter(findings []report.Finding) []report.Finding {
 		} else if strings.Contains(strings.ToLower(f.RuleID), "generic") {
 			for _, fPrime := range findings {
 				if f.StartLine == fPrime.StartLine &&
-					f.Commit == fPrime.Commit &&
+					f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
 					f.RuleID != fPrime.RuleID &&
 					strings.Contains(fPrime.Secret, f.Secret) &&
 					!strings.Contains(strings.ToLower(fPrime.RuleID), "generic") {
@@ -337,7 +338,7 @@ func printFinding(f report.Finding, noColor bool, redact uint) {
 		return
 	}
 	if len(f.Tags) > 0 {
-		fmt.Printf("%-12s %s\n", "Tags:", f.Tags)
+		fmt.Printf("%-12s %s\n", "Tags:", strings.Join(f.Tags, ", "))
 	}
 	fmt.Printf("%-12s %s\n", "File:", f.File)
 	fmt.Printf("%-12s %d\n", "Line:", f.StartLine)
@@ -437,4 +438,75 @@ func sortedMapKeys(m map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// lowercaseBufPool provides reusable byte buffers for lowercasing strings
+// without allocating a new string via strings.ToLower each time.
+var lowercaseBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 0, 128*1024)
+		return &buf
+	},
+}
+
+// getLowerBuf returns an ASCII-lowercased copy of s in a pooled byte buffer.
+// Caller must call putLowerBuf when done with the returned slice.
+func getLowerBuf(s string) (*[]byte, []byte) {
+	bp := lowercaseBufPool.Get().(*[]byte)
+	buf := *bp
+	if cap(buf) < len(s) {
+		buf = make([]byte, len(s))
+	} else {
+		buf = buf[:len(s)]
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			buf[i] = c + 32
+		} else {
+			buf[i] = c
+		}
+	}
+	*bp = buf
+	return bp, buf
+}
+
+func putLowerBuf(bp *[]byte) {
+	lowercaseBufPool.Put(bp)
+}
+
+// findNewlineIndices returns the start indices of all newlines in s.
+// This replaces the previous regex-based approach which was expensive
+// when using go-re2 (WASM overhead for a literal \n search).
+func findNewlineIndices(s string) [][]int {
+	indices := make([][]int, 0, strings.Count(s, "\n"))
+	offset := 0
+	for {
+		i := strings.IndexByte(s[offset:], '\n')
+		if i == -1 {
+			break
+		}
+		idx := offset + i
+		indices = append(indices, []int{idx, idx + 1})
+		offset = idx + 1
+	}
+	return indices
+}
+
+// containsAllowSignature checks if the line contains any of the allow signatures
+func containsAllowSignature(line string) bool {
+	for _, sig := range allowSignatures {
+		if strings.Contains(line, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// abs returns the absolute value of an integer
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }

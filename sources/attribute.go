@@ -1,7 +1,13 @@
 package sources
 
+// TODO move this to a separate package called something like "detectkeys"
+
 // Well-known attribute keys (constants prevent typos at call sites).
 const (
+	ResourceKey             = "resource"
+	ResourceGitPatchContent = "git.patch_content"
+	ResourceFileContent     = "fs.content"
+
 	// universal attributes
 	AttrPath = "path"
 

@@ -1,6 +1,8 @@
 package report
 
 import (
+	"encoding/json"
+	"encoding/xml"
 	"os"
 	"path/filepath"
 	"testing"
@@ -87,6 +89,36 @@ func TestWriteJunit(t *testing.T) {
 
 		wantStr := lineEndingReplacer.Replace(string(want))
 		gotStr := lineEndingReplacer.Replace(string(got))
-		assert.Equal(t, wantStr, gotStr)
+
+		var wantSuites TestSuites
+		require.NoError(t, xml.Unmarshal([]byte(wantStr), &wantSuites))
+		normalizeJunitJSONPayloads(t, &wantSuites)
+
+		var gotSuites TestSuites
+		require.NoError(t, xml.Unmarshal([]byte(gotStr), &gotSuites))
+		normalizeJunitJSONPayloads(t, &gotSuites)
+
+		assert.Equal(t, wantSuites, gotSuites)
+	}
+}
+
+func normalizeJunitJSONPayloads(t *testing.T, suites *TestSuites) {
+	t.Helper()
+
+	for i := range suites.TestSuites {
+		for j := range suites.TestSuites[i].TestCases {
+			data := suites.TestSuites[i].TestCases[j].Failure.Data
+			if data == "" {
+				continue
+			}
+
+			var payload any
+			require.NoError(t, json.Unmarshal([]byte(data), &payload))
+
+			normalized, err := json.Marshal(payload)
+			require.NoError(t, err)
+
+			suites.TestSuites[i].TestCases[j].Failure.Data = string(normalized)
+		}
 	}
 }

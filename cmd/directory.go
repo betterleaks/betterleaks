@@ -36,16 +36,13 @@ func runDirectory(cmd *cobra.Command, args []string) {
 
 	// start timer
 	start := time.Now()
-
-	exitCode, err := cmd.Flags().GetInt("exit-code")
-	if err != nil {
-		logging.Fatal().Err(err).Msg("could not get exit code")
-	}
-
-	followSymlinks, err := cmd.Flags().GetBool("follow-symlinks")
-	if err != nil {
-		logging.Fatal().Err(err).Send()
-	}
+	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
+	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
+	noColor := mustGetBoolFlag(cmd, "no-color")
+	redact := mustGetUIntFlag(cmd, "redact")
+	verbose := mustGetBoolFlag(cmd, "verbose")
+	exitCode := mustGetIntFlag(cmd, "exit-code")
 
 	var (
 		allFindings  []report.Finding
@@ -54,28 +51,36 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	)
 
 	totalBytes := uint64(0)
+
 	for _, source := range sourcesList {
 		initConfig(source)
 		cfg := Config(cmd)
 		detector := Detector(cmd, cfg, source)
-		detector.FollowSymlinks = followSymlinks
+		detector.SkipFindingAppend = true
 		lastDetector = detector
 
-		findings, detectErr := detector.DetectSource(
-			cmd.Context(),
-			&sources.Files{
-				Config:          &cfg,
-				FollowSymlinks:  detector.FollowSymlinks,
-				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
-				Path:            source,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-			},
-		)
-		if detectErr != nil {
-			logging.Error().Err(detectErr).Str("source", source).Msg("failed scan")
-			scanErr = detectErr
+		s := &sources.Files{
+			Config:          &cfg,
+			FollowSymlinks:  followSymlinks,
+			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
+			Path:            source,
+			Sema:            detector.Sema,
+			MaxArchiveDepth: maxArchiveDepth,
 		}
+
+		var findings []report.Finding
+		for result := range detector.Run(cmd.Context(), s) {
+			if result.Err != nil {
+				logging.Error().Err(result.Err).Msg("error scanning source")
+				continue
+			}
+
+			findings = append(findings, result.Finding)
+			if verbose {
+				result.Finding.Print(noColor, uint(redact))
+			}
+		}
+
 		allFindings = append(allFindings, findings...)
 		totalBytes += detector.TotalBytes.Load()
 	}
