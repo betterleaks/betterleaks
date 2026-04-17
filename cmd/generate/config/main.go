@@ -248,6 +248,7 @@ func main() {
 		rules.OpenAI(),
 		rules.OpenRouter(),
 		rules.OpenshiftUserToken(),
+		rules.PerplexityAPIKey(),
 		rules.PostHogProjectAPIKey(),
 		rules.PostHogPersonalAPIKey(),
 		rules.PlaidAccessID(),

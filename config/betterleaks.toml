@@ -3900,6 +3900,30 @@ entropy = 3.5
 keywords = ["sha256~"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# perplexity-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "perplexity-api-key"
+description = "Detected a Perplexity API key, which could lead to unauthorized access to Perplexity AI services and data exposure."
+regex = '''\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)'''
+entropy = 4
+keywords = ["pplx-"]
+validate = '''
+cel.bind(r,
+  http.post("https://api.perplexity.ai/chat/completions", {
+    "Authorization": "Bearer " + secret,
+    "Content-Type": "application/json"
+  }, "{\"model\":\"invalid-model-for-validation\",\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}"),
+  r.status in [200, 400, 404, 422] ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # pkcs12-file
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
