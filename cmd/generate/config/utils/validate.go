@@ -7,6 +7,7 @@ package utils
 import (
 	"strings"
 
+	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
@@ -119,5 +120,62 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 			logging.Fatal().Err(err).Msg("invalid global allowlist")
 		}
 	}
-	return detect.NewDetector(cfg)
+
+	// Translate legacy allowlists/entropy/tokenEfficiency into CEL expressions
+	// and compile them so filtering works during validation.
+	if err := cfg.TranslateLegacyFilters(); err != nil {
+		logging.Fatal().Err(err).Msg("failed to translate legacy filters")
+	}
+	d := detect.NewDetector(cfg)
+	compileCELFilters(&d.Config)
+	return d
+}
+
+// compileCELFilters compiles prefilter/filter CEL programs on the config and its rules.
+func compileCELFilters(cfg *config.Config) {
+	prefilterEnv, err := celenv.NewPrefilterEnv()
+	if err != nil {
+		logging.Fatal().Err(err).Msg("failed to create prefilter CEL environment")
+	}
+	filterEnv, err := celenv.NewFilterEnv(nil)
+	if err != nil {
+		logging.Fatal().Err(err).Msg("failed to create filter CEL environment")
+	}
+
+	if cfg.Prefilter != "" {
+		prg, compileErr := prefilterEnv.Compile(cfg.Prefilter)
+		if compileErr != nil {
+			logging.Fatal().Err(compileErr).Msg("failed to compile global prefilter")
+		}
+		cfg.SetPrefilterProgram(prg)
+	}
+	if cfg.Filter != "" {
+		prg, compileErr := filterEnv.Compile(cfg.Filter)
+		if compileErr != nil {
+			logging.Fatal().Err(compileErr).Msg("failed to compile global filter")
+		}
+		cfg.SetFilterProgram(prg)
+	}
+	for ruleID, r := range cfg.Rules {
+		modified := false
+		if r.Prefilter != "" {
+			prg, compileErr := prefilterEnv.Compile(r.Prefilter)
+			if compileErr != nil {
+				logging.Fatal().Err(compileErr).Str("rule", ruleID).Msg("failed to compile rule prefilter")
+			}
+			r.SetPrefilterProgram(prg)
+			modified = true
+		}
+		if r.Filter != "" {
+			prg, compileErr := filterEnv.Compile(r.Filter)
+			if compileErr != nil {
+				logging.Fatal().Err(compileErr).Str("rule", ruleID).Msg("failed to compile rule filter")
+			}
+			r.SetFilterProgram(prg)
+			modified = true
+		}
+		if modified {
+			cfg.Rules[ruleID] = r
+		}
+	}
 }

@@ -372,13 +372,9 @@ func main() {
 	funcMap := template.FuncMap{
 		"tomlQuote": tomlQuote,
 		"tomlCEL": func(s string) string {
-			// Multi-line CEL expressions use TOML multi-line literal strings.
-			// Single-line expressions use TOML literal strings (single-quoted).
-			// CEL uses " for string literals so single quotes are safe.
-			if strings.Contains(s, "\n") {
-				return "'''\n" + s + "\n'''"
-			}
-			return "'" + s + "'"
+			// Always use TOML multi-line literal strings for filter/prefilter
+			// expressions. This avoids quoting issues and improves readability.
+			return "'''\n" + s + "\n'''"
 		},
 		"tomlInlineTable": func(m map[string]string) string {
 			keys := make([]string, 0, len(m))
@@ -422,6 +418,21 @@ func main() {
 		slices.Sort(allowlist.Commits)
 		slices.Sort(allowlist.StopWords)
 	}
+
+	// Translate legacy allowlists, entropy, and tokenEfficiency into CEL
+	// prefilter/filter expressions so the generated TOML uses native CEL.
+	if err := cfg.TranslateLegacyFilters(); err != nil {
+		logging.Fatal().Err(err).Msg("Failed to translate legacy filters to CEL")
+	}
+	// Clear deprecated fields now that they've been translated.
+	cfg.Allowlists = nil
+	for ruleID, r := range cfg.Rules {
+		r.Allowlists = nil
+		r.Entropy = 0
+		r.TokenEfficiency = false
+		cfg.Rules[ruleID] = r
+	}
+
 	if err = tmpl.Execute(f, cfg); err != nil {
 		logging.Fatal().Err(err).Msg("could not execute template")
 	}

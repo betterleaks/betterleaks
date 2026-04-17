@@ -17,6 +17,12 @@ import (
 // Return convention: prefilter/filter expressions return true = keep, false = skip.
 // Allowlists suppress (true = skip), so each translated allowlist expression is
 // wrapped in !(…) before being AND-ed into the final expression.
+// TranslateLegacyFilters converts deprecated Allowlists, Entropy, and TokenEfficiency
+// fields into CEL prefilter/filter expressions. Exported for use by the config generator.
+func (c *Config) TranslateLegacyFilters() error {
+	return c.translateLegacyFilters()
+}
+
 func (c *Config) translateLegacyFilters() error {
 	// ── global allowlists ──────────────────────────────────────────────────────
 	globalPre, globalFil, err := translateAllowlistSlice(c.Allowlists)
@@ -172,13 +178,21 @@ func composeFilters(suppressParts, keepParts []string, userExpr string) string {
 	if userExpr != "" {
 		parts = append(parts, "("+userExpr+")")
 	}
-	return strings.Join(parts, " || ")
+	if len(parts) <= 1 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts, "\n|| ")
 }
 
 // ── CEL string encoding helpers ───────────────────────────────────────────────
 
-// celStringLit returns a CEL double-quoted string literal with minimal escaping.
+// celStringLit returns a CEL string literal. Strings containing backslashes
+// (typically regex patterns) use CEL raw string syntax r"""...""" to avoid
+// double-escaping. Other strings use regular double-quoted literals.
 func celStringLit(s string) string {
+	if strings.ContainsRune(s, '\\') {
+		return `r"""` + s + `"""`
+	}
 	var b strings.Builder
 	b.WriteByte('"')
 	for i := 0; i < len(s); i++ {
@@ -186,8 +200,6 @@ func celStringLit(s string) string {
 		switch c {
 		case '"':
 			b.WriteString(`\"`)
-		case '\\':
-			b.WriteString(`\\`)
 		case '\n':
 			b.WriteString(`\n`)
 		case '\r':
@@ -203,12 +215,26 @@ func celStringLit(s string) string {
 }
 
 // celStringList returns a CEL list literal from a slice of Go strings.
+// Lists with multiple elements are formatted with one entry per line for readability.
 func celStringList(ss []string) string {
 	parts := make([]string, len(ss))
 	for i, s := range ss {
 		parts[i] = celStringLit(s)
 	}
-	return "[" + strings.Join(parts, ", ") + "]"
+	if len(parts) <= 1 {
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	var b strings.Builder
+	b.WriteString("[\n")
+	for i, p := range parts {
+		b.WriteString("  " + p)
+		if i < len(parts)-1 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 // ── join helpers ──────────────────────────────────────────────────────────────

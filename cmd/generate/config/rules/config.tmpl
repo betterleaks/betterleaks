@@ -7,9 +7,9 @@
 #   https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need
 #
 # This is the default betterleaks configuration file.
-# Rules and allowlists are defined within this file.
+# Rules and filters are defined within this file.
 # Rules instruct betterleaks on what should be considered a secret.
-# Allowlists instruct betterleaks on what is allowed, i.e. not a secret.
+# Filters instruct betterleaks on what to skip (prefilter) or discard (filter).
 
 title = "{{.Title}}"
 
@@ -19,23 +19,11 @@ title = "{{.Title}}"
 minVersion = "v8.25.0"
 betterleaksMinVersion = "v1.0.0"
 
-{{ with .Allowlists }}{{ range $i, $allowlist := . }}{{ if or $allowlist.Regexes $allowlist.Paths $allowlist.Commits $allowlist.StopWords }}# TODO: change to [[allowlists]]{{println}}[allowlist]
-{{- with .Description }}{{println}}description = "{{ . }}"{{ end }}
-{{- with .MatchCondition }}{{println}}condition = "{{ .String }}"{{ end }}
-{{- with .Commits -}}{{println}}commits = [
-    {{ range $j, $commit := . }}"{{ $commit }}",{{ end }}
-]{{ end }}
-{{- with .Paths }}{{println}}paths = [{{ range $j, $path := . }}
-    '''{{ $path }}''',{{ end }}
-]{{ end }}
-{{- if and .RegexTarget .Regexes }}{{println}}regexTarget = "{{ .RegexTarget }}"{{ end -}}
-{{- with .Regexes }}{{println}}regexes = [{{ range $i, $regex := . }}
-    '''{{ $regex }}''',{{ end }}
-]{{ end }}
-{{- with .StopWords }}{{println}}stopwords = [{{ range $j, $stopword := . }}
-    "{{ $stopword }}",{{ end }}
-]{{ end }}{{ end }}{{ end }}{{ end }}{{println}}
-
+{{ with .Prefilter }}
+prefilter = {{ tomlCEL . }}
+{{ end }}{{ with .Filter }}
+filter = {{ tomlCEL . }}
+{{ end }}
 {{- range $i, $rule := .Rules }}{{println}}# ──────────────────────────────────────────────────────────────────────────────
 # {{ $rule.RuleID }}
 # ──────────────────────────────────────────────────────────────────────────────
@@ -48,8 +36,6 @@ regex = '''{{ . }}'''{{ end -}}
 path = '''{{ . }}'''{{ end -}}
 {{- with $rule.SecretGroup }}
 secretGroup = {{ . }}{{ end -}}
-{{- with $rule.Entropy }}
-entropy = {{ . }}{{ end -}}
 {{- with $rule.Keywords }}
 {{- if gt (len .) 1}}
 keywords = [{{ range $j, $keyword := . }}
@@ -60,28 +46,14 @@ keywords = [{{ range $j, $keyword := . }}"{{ $keyword }}"{{ end }}]{{end}}{{ end
 tags = [
     {{ range $j, $tag := . }}"{{ $tag }}",{{ end }}
 ]{{ end }}
-{{- if $rule.TokenEfficiency }}
-tokenEfficiency = true{{ end }}
 {{- if $rule.SkipReport }}
 skipReport = true{{ end }}
 {{- with $rule.ValidateCEL }}
 validate = {{ tomlCEL . }}{{ end }}
-{{- with $rule.Allowlists }}{{ range $i, $allowlist := . }}{{ if or $allowlist.Regexes $allowlist.Paths $allowlist.Commits $allowlist.StopWords }}{{println}}[[rules.allowlists]]
-{{- with .Description }}{{println}}description = "{{ . }}"{{ end }}
-{{- with .MatchCondition }}{{println}}condition = "{{ .String }}"{{ end }}
-{{- with .Commits -}}{{println}}commits = [
-    {{ range $j, $commit := . }}"{{ $commit }}",{{ end }}
-]{{ end }}
-{{- with .Paths }}{{println}}paths = [
-    {{ range $j, $path := . }}'''{{ $path }}''',{{ end }}
-]{{ end }}
-{{- if and .RegexTarget .Regexes }}{{println}}regexTarget = "{{ .RegexTarget }}"{{ end -}}
-{{- with .Regexes }}{{println}}regexes = [{{ range $i, $regex := . }}
-    '''{{ $regex }}''',{{ end }}
-]{{ end }}
-{{- with .StopWords }}{{println}}stopwords = [{{ range $j, $stopword := . }}
-    "{{ $stopword }}",{{ end }}
-]{{ end }}{{ end }}{{ end }}{{ end }}
+{{- with $rule.Prefilter }}
+prefilter = {{ tomlCEL . }}{{ end }}
+{{- with $rule.Filter }}
+filter = {{ tomlCEL . }}{{ end }}
 {{- range $rule.RequiredRules }}{{println}}[[rules.required]]
 id = "{{ .RuleID }}"
 {{- with .WithinLines }}
