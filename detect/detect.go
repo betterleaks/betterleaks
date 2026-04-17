@@ -14,6 +14,7 @@ import (
 
 	"github.com/pkoukk/tiktoken-go"
 
+	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/logging"
@@ -186,6 +187,23 @@ func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 		prefilter:        *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
 		Sema:             semgroup.NewGroup(ctx, 40),
 		tokenizer:        tke,
+	}
+}
+
+// Tokenizer returns the BPE tokenizer used for token efficiency filtering.
+// May be nil if the tokenizer failed to initialize (e.g., network error).
+func (d *Detector) Tokenizer() *tiktoken.Tiktoken { return d.tokenizer }
+
+// buildFindingMap builds the fixed-shape map[string]string used as the `finding`
+// activation variable in FilterEnv CEL programs. Only called when at least one
+// filter program is compiled, so the allocation is paid only when needed.
+func buildFindingMap(f *report.Finding) map[string]string {
+	return map[string]string{
+		"secret":      f.Secret,
+		"match":       f.Match,
+		"line":        f.Line,
+		"rule_id":     f.RuleID,
+		"description": f.Description,
 	}
 }
 
@@ -452,9 +470,17 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 			return findings
 		}
 	}
-	// check if commit or filepath is allowed.
-	// TODO replace source-specific attribute checking with a CEL-based filter
-	if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, d.Config.Allowlists); isAllowed {
+	// Global prefilter: CEL path (compiled from translated allowlists + user prefilter).
+	// Falls back to legacy allowlist check when no program is compiled (backward compat).
+	if d.Config.PrefilterProgram() != nil {
+		keep, err := celenv.EvalPrefilter(d.Config.PrefilterProgram(), fragment.Attributes)
+		if err != nil {
+			logger.Warn().Err(err).Msg("global prefilter eval error")
+		} else if !keep {
+			logger.Debug().Msg("skipping fragment: global prefilter")
+			return findings
+		}
+	} else if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, d.Config.Allowlists); isAllowed {
 		event.Msg("skipping file: global allowlist")
 		return findings
 	}
@@ -538,9 +564,16 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	// check if commit or file is allowed for this rule.
-	// TODO replace source-specific attribute checking with a CEL-based filter
-	if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, r.Allowlists); isAllowed {
+	// Rule prefilter: CEL path (attributes only, before any regex work).
+	// Falls back to legacy commit/path allowlist check when no program is compiled.
+	if r.PrefilterProgram() != nil {
+		keep, err := celenv.EvalPrefilter(r.PrefilterProgram(), fragment.Attributes)
+		if err != nil {
+			logger.Warn().Err(err).Msg("rule prefilter eval error")
+		} else if !keep {
+			return findings // skip regex entirely
+		}
+	} else if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, r.Allowlists); isAllowed {
 		event.Msg("skipping file: rule allowlist")
 		return findings
 	}
@@ -684,38 +717,53 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		// check entropy
-		// TODO move this to CEL-filter
+		// Entropy is always computed — needed for report output regardless of filter path.
 		entropy := shannonEntropy(finding.Secret)
 		finding.Entropy = float32(entropy)
-		if r.Entropy != 0.0 {
-			// entropy is too low, skip this finding
-			if entropy <= r.Entropy {
+
+		// Build finding map once, only when at least one filter program is compiled.
+		// Avoids the map allocation (~300 ns) on the common no-filter path.
+		var findingMap map[string]string
+		if d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
+			findingMap = buildFindingMap(&finding)
+		}
+
+		// Global filter: CEL path (attributes + finding).
+		// Falls back to legacy allowlist check when no program is compiled.
+		if d.Config.FilterProgram() != nil {
+			keep, err := celenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
+			if err != nil {
+				logger.Warn().Err(err).Msg("global filter eval error")
+			} else if !keep {
+				continue
+			}
+		} else if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, d.Config.Allowlists); isAllowed {
+			event.Msg("skipping finding: global allowlist")
+			continue
+		}
+
+		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
+		// Falls back to legacy checks when no program is compiled.
+		if r.FilterProgram() != nil {
+			keep, err := celenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
+			if err != nil {
+				logger.Warn().Err(err).Msg("rule filter eval error")
+			} else if !keep {
+				continue
+			}
+		} else {
+			if r.Entropy != 0.0 && entropy <= r.Entropy {
 				logger.Trace().
 					Str("finding", finding.Secret).
 					Float32("entropy", finding.Entropy).
 					Msg("skipping finding: low entropy")
 				continue
 			}
-		}
-
-		// check if the result matches any of the global allowlists.
-		// TODO move this to CEL-filter
-		if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, d.Config.Allowlists); isAllowed {
-			event.Msg("skipping finding: global allowlist")
-			continue
-		}
-
-		// check if the result matches any of the rule allowlists.
-		// TODO move this to CEL-filter
-		if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, r.Allowlists); isAllowed {
-			event.Msg("skipping finding: rule allowlist")
-			continue
-		}
-
-		// TODO move this to CEL-filter
-		if r.TokenEfficiency {
-			if d.failsTokenEfficiencyFilter(finding.Secret) {
+			if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, r.Allowlists); isAllowed {
+				event.Msg("skipping finding: rule allowlist")
+				continue
+			}
+			if r.TokenEfficiency && d.failsTokenEfficiencyFilter(finding.Secret) {
 				continue
 			}
 		}

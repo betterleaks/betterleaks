@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/mholt/archives"
@@ -34,23 +35,53 @@ func isArchive(ctx context.Context, path string) bool {
 	return err == nil && format != nil
 }
 
-// shouldSkipPath checks a path against all the allowlists to see if it can
-// be skipped
+// shouldSkipAttrs evaluates the global prefilter program against attrs.
+// Returns true if the fragment should be skipped.
+// If no prefilter program is compiled (nil), falls back to checking path against
+// legacy Allowlists so callers work correctly without CEL compilation.
+func shouldSkipAttrs(cfg *config.Config, attrs map[string]string) bool {
+	if cfg == nil {
+		return false
+	}
+	prg := cfg.PrefilterProgram()
+	if prg != nil {
+		keep, err := celenv.EvalPrefilter(prg, attrs)
+		if err != nil {
+			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
+			return false
+		}
+		return !keep
+	}
+	// Legacy fallback: check path only.
+	path := attrs[AttrPath]
+	if path == "" {
+		return false
+	}
+	for _, a := range cfg.Allowlists {
+		if a.PathAllowed(path) ||
+			(isWindows && a.PathAllowed(filepath.ToSlash(path))) {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldSkipPath checks a path against the global prefilter or legacy allowlists.
+// Also handles the Windows forward-slash path normalization workaround.
 func shouldSkipPath(cfg *config.Config, path string) bool {
 	if cfg == nil {
 		logging.Trace().Str("path", path).Msg("not skipping path because config is nil")
 		return false
 	}
-
-	for _, a := range cfg.Allowlists {
-		if a.PathAllowed(path) ||
-			// TODO: Remove this in v9.
-			// This is an awkward hack to mitigate https://github.com/gitleaks/gitleaks/issues/1641.
-			(isWindows && a.PathAllowed(filepath.ToSlash(path))) {
-			return true
-		}
+	attrs := map[string]string{AttrPath: path}
+	if shouldSkipAttrs(cfg, attrs) {
+		return true
 	}
-
+	// TODO: Remove this Windows workaround in v9 (gitleaks/gitleaks#1641).
+	if isWindows {
+		attrs[AttrPath] = filepath.ToSlash(path)
+		return shouldSkipAttrs(cfg, attrs)
+	}
 	return false
 }
 

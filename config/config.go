@@ -10,6 +10,8 @@ import (
 	gv "github.com/hashicorp/go-version"
 	"github.com/spf13/viper"
 
+	"github.com/google/cel-go/cel"
+
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/version"
@@ -52,6 +54,11 @@ type ViperConfig struct {
 		Validate        string
 		SkipReport      bool
 		TokenEfficiency bool
+
+		// CEL filter expressions. Prefilter runs before regex (attributes only);
+		// Filter runs per match (attributes + finding). Both return true = keep.
+		Prefilter string
+		Filter    string
 	}
 	// Deprecated: this is a shim for backwards-compatibility.
 	// TODO: Remove this in 9.x.
@@ -61,6 +68,10 @@ type ViperConfig struct {
 
 	MinVersion            string
 	BetterleaksMinVersion string
+
+	// Global CEL filter expressions.
+	Prefilter string
+	Filter    string
 
 	configPath string
 }
@@ -105,6 +116,17 @@ type Config struct {
 	Allowlists            []*Allowlist
 	MinVersion            string
 	BetterleaksMinVersion string
+
+	// Prefilter is a global CEL expression (attributes only) evaluated before any
+	// per-match work. Translated from global Allowlists path/commit checks.
+	Prefilter string
+	// Filter is a global CEL expression (attributes + finding) evaluated per match.
+	// Translated from global Allowlists regex/stopword checks.
+	Filter string
+
+	// prefilterProgram and filterProgram are compiled at startup by cmd/root.go.
+	prefilterProgram cel.Program
+	filterProgram    cel.Program
 }
 
 // Extend is a struct that allows users to define how they want their
@@ -199,6 +221,8 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		}
 
 		cr.ValidateCEL = vr.Validate
+		cr.Prefilter = vr.Prefilter
+		cr.Filter = vr.Filter
 
 		orderedRules = append(orderedRules, cr.RuleID)
 		rulesMap[cr.RuleID] = cr
@@ -224,6 +248,8 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		OrderedRules:          orderedRules,
 		MinVersion:            vc.MinVersion,
 		BetterleaksMinVersion: vc.BetterleaksMinVersion,
+		Prefilter:             vc.Prefilter,
+		Filter:                vc.Filter,
 	}
 
 	if extendDepth > 0 {
@@ -311,6 +337,14 @@ func (vc *ViperConfig) Translate() (Config, error) {
 			for _, k := range rule.Keywords {
 				c.KeywordToRules[k] = append(c.KeywordToRules[k], ruleID)
 			}
+		}
+	}
+
+	// Translate legacy allowlists / entropy / token-efficiency into CEL strings.
+	// Must run after all extends and targeted allowlist population are complete.
+	if currentExtendDepth == 0 {
+		if err := c.translateLegacyFilters(); err != nil {
+			return Config{}, err
 		}
 	}
 
@@ -433,6 +467,18 @@ func (vc *ViperConfig) parseAllowlist(a *viperRuleAllowlist) (*Allowlist, error)
 	return allowlist, nil
 }
 
+// PrefilterProgram returns the compiled global prefilter program, or nil if not set.
+func (c *Config) PrefilterProgram() cel.Program { return c.prefilterProgram }
+
+// SetPrefilterProgram stores a compiled global prefilter program.
+func (c *Config) SetPrefilterProgram(p cel.Program) { c.prefilterProgram = p }
+
+// FilterProgram returns the compiled global filter program, or nil if not set.
+func (c *Config) FilterProgram() cel.Program { return c.filterProgram }
+
+// SetFilterProgram stores a compiled global filter program.
+func (c *Config) SetFilterProgram(p cel.Program) { c.filterProgram = p }
+
 func (c *Config) GetOrderedRules() []Rule {
 	var orderedRules []Rule
 	for _, id := range c.OrderedRules {
@@ -546,6 +592,13 @@ func (c *Config) extend(extensionConfig Config) {
 			if currentRule.ValidateCEL != "" {
 				baseRule.ValidateCEL = currentRule.ValidateCEL
 			}
+			// Current rule's Prefilter/Filter replaces the extending one if set.
+			if currentRule.Prefilter != "" {
+				baseRule.Prefilter = currentRule.Prefilter
+			}
+			if currentRule.Filter != "" {
+				baseRule.Filter = currentRule.Filter
+			}
 			baseRule.Tags = append(baseRule.Tags, currentRule.Tags...)
 			baseRule.Keywords = append(baseRule.Keywords, currentRule.Keywords...)
 			baseRule.Allowlists = append(baseRule.Allowlists, currentRule.Allowlists...)
@@ -560,7 +613,14 @@ func (c *Config) extend(extensionConfig Config) {
 	// append allowlists, not attempting to merge
 	c.Allowlists = append(c.Allowlists, extensionConfig.Allowlists...)
 
+	// Current config's global Prefilter/Filter wins over extension's if set.
+	if c.Prefilter == "" {
+		c.Prefilter = extensionConfig.Prefilter
+	}
+	if c.Filter == "" {
+		c.Filter = extensionConfig.Filter
+	}
+
 	// sort to keep extended rules in order
 	sort.Strings(c.OrderedRules)
-	return
 }

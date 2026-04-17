@@ -490,9 +490,67 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 		detector.Reporter = reporter
 	}
 
+	setupCELFilters(detector)
 	setupValidation(cmd, cfg, detector)
 
 	return detector
+}
+
+// setupCELFilters compiles prefilter and filter CEL programs for the global config
+// and all enabled rules, storing them on detector.Config so they are available
+// at scan time. Compilation failures are fatal — bad filter expressions should
+// be caught at startup, not at runtime.
+func setupCELFilters(detector *detect.Detector) {
+	prefilterEnv, err := celenv.NewPrefilterEnv()
+	if err != nil {
+		logging.Fatal().Err(err).Msg("failed to create prefilter CEL environment")
+	}
+	filterEnv, err := celenv.NewFilterEnv(detector.Tokenizer())
+	if err != nil {
+		logging.Fatal().Err(err).Msg("failed to create filter CEL environment")
+	}
+
+	// Compile global programs.
+	if detector.Config.Prefilter != "" {
+		prg, compileErr := prefilterEnv.Compile(detector.Config.Prefilter)
+		if compileErr != nil {
+			logging.Fatal().Err(compileErr).Msg("failed to compile global prefilter expression")
+		}
+		detector.Config.SetPrefilterProgram(prg)
+	}
+	if detector.Config.Filter != "" {
+		prg, compileErr := filterEnv.Compile(detector.Config.Filter)
+		if compileErr != nil {
+			logging.Fatal().Err(compileErr).Msg("failed to compile global filter expression")
+		}
+		detector.Config.SetFilterProgram(prg)
+	}
+
+	// Compile per-rule programs.
+	for ruleID, r := range detector.Config.Rules {
+		modified := false
+		if r.Prefilter != "" {
+			prg, compileErr := prefilterEnv.Compile(r.Prefilter)
+			if compileErr != nil {
+				logging.Fatal().Err(compileErr).Str("rule", ruleID).
+					Msg("failed to compile rule prefilter expression")
+			}
+			r.SetPrefilterProgram(prg)
+			modified = true
+		}
+		if r.Filter != "" {
+			prg, compileErr := filterEnv.Compile(r.Filter)
+			if compileErr != nil {
+				logging.Fatal().Err(compileErr).Str("rule", ruleID).
+					Msg("failed to compile rule filter expression")
+			}
+			r.SetFilterProgram(prg)
+			modified = true
+		}
+		if modified {
+			detector.Config.Rules[ruleID] = r
+		}
+	}
 }
 
 // setupValidation reads validation flags, compiles CEL programs into cfg.Rules

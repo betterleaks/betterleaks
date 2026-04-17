@@ -363,23 +363,16 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				yieldAsArchive = true
 			}
 
-			// Check if commit is allowed
+			// Build commit attributes and check prefilter / allowlists before
+			// allocating goroutines or fragment memory.
 			commitSHA := ""
 			commitAttrs := make(map[string]string)
 			if gitdiffFile.PatchHeader != nil {
 				commitSHA = gitdiffFile.PatchHeader.SHA
-				for _, a := range s.Config.Allowlists {
-					if ok, c := a.CommitAllowed(gitdiffFile.PatchHeader.SHA); ok {
-						logging.Trace().Str("allowed-commit", c).Msg("skipping commit: global allowlist")
-						continue
-					}
-				}
-
 				commitAttrs[AttrGitSHA] = commitSHA
 				commitAttrs[AttrGitMessage] = gitdiffFile.PatchHeader.Message()
 				commitAttrs[AttrResourceKind] = "git.diff"
 				if s.RemoteURL != "" {
-
 					commitAttrs[AttrGitRemoteURL] = s.RemoteURL
 					commitAttrs[AttrGitPlatform] = s.Platform.String()
 				}
@@ -389,6 +382,24 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				if gitdiffFile.PatchHeader.Author != nil {
 					commitAttrs[AttrGitAuthorName] = gitdiffFile.PatchHeader.Author.Name
 					commitAttrs[AttrGitAuthorEmail] = gitdiffFile.PatchHeader.Author.Email
+				}
+
+				// CEL prefilter (also covers commit SHAs via attributes["git.sha"]).
+				// Build a temporary map that includes the path for the prefilter check only —
+				// do NOT put the path in commitAttrs itself because archive enrichment code
+				// uses maps.Copy(attrs, commitAttrs) which would overwrite the inner file path.
+				prefilterAttrs := make(map[string]string, len(commitAttrs)+1)
+				for k, v := range commitAttrs {
+					prefilterAttrs[k] = v
+				}
+				prefilterAttrs[AttrPath] = gitdiffFile.NewName
+
+				if shouldSkipAttrs(s.Config, prefilterAttrs) {
+					logging.Trace().
+						Str("commit", commitSHA).
+						Str("path", gitdiffFile.NewName).
+						Msg("skipping commit: global prefilter")
+					continue
 				}
 			}
 

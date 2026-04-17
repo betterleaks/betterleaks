@@ -65,6 +65,22 @@ type Rule struct {
 
 	// celProgram is the compiled CEL program, set at config load time.
 	celProgram cel.Program
+
+	// Prefilter is a CEL expression evaluated against attributes before any per-match work.
+	// If it returns false the rule is skipped for this fragment entirely (no regex run).
+	// Deprecated legacy Allowlists (path/commit checks) are translated into this field.
+	Prefilter string
+
+	// Filter is a CEL expression evaluated against attributes + finding per regex match.
+	// If it returns false the finding is discarded.
+	// Deprecated legacy Allowlists, Entropy, and TokenEfficiency are translated into this field.
+	Filter string
+
+	// prefilterProgram is the compiled PrefilterEnv program, set at startup.
+	prefilterProgram cel.Program
+
+	// filterProgram is the compiled FilterEnv program, set at startup.
+	filterProgram cel.Program
 }
 
 type Required struct {
@@ -128,3 +144,15 @@ func (r *Rule) CelProgram() cel.Program {
 func (r *Rule) SetCelProgram(p cel.Program) {
 	r.celProgram = p
 }
+
+// PrefilterProgram returns the compiled prefilter program for this rule, or nil.
+func (r *Rule) PrefilterProgram() cel.Program { return r.prefilterProgram }
+
+// SetPrefilterProgram stores a compiled prefilter program on the rule.
+func (r *Rule) SetPrefilterProgram(p cel.Program) { r.prefilterProgram = p }
+
+// FilterProgram returns the compiled filter program for this rule, or nil.
+func (r *Rule) FilterProgram() cel.Program { return r.filterProgram }
+
+// SetFilterProgram stores a compiled filter program on the rule.
+func (r *Rule) SetFilterProgram(p cel.Program) { r.filterProgram = p }

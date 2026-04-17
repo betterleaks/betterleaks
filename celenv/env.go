@@ -46,6 +46,12 @@ func DefaultHTTPClient() *http.Client {
 	}
 }
 
+// NewValidationEnv creates a CEL environment for validating secrets.
+// It is an alias for NewEnvironment.
+func NewValidationEnv(httpClient *http.Client) (*Environment, error) {
+	return NewEnvironment(httpClient)
+}
+
 // NewEnvironment creates a CEL environment.
 // Define new bindings here.
 func NewEnvironment(httpClient *http.Client) (*Environment, error) {
