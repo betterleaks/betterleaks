@@ -57,12 +57,6 @@ func shouldSkipAttrs(cfg *config.Config, attrs map[string]string) bool {
 	if path == "" {
 		return false
 	}
-	for _, a := range cfg.Allowlists {
-		if a.PathAllowed(path) ||
-			(isWindows && a.PathAllowed(filepath.ToSlash(path))) {
-			return true
-		}
-	}
 	return false
 }
 

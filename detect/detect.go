@@ -454,22 +454,7 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 	}
 	d.TotalBytes.Add(uint64(len(fragment.Bytes)))
 
-	var (
-		findings []report.Finding
-		logger   = fragment.Logger()
-	)
-
-	// Global prefilter: CEL path (compiled from translated allowlists + user prefilter).
-	// TODO move the prefilter check to the actual sources since it's a _pre_detect filter
-	if d.Config.PrefilterProgram() != nil {
-		skip, err := celenv.EvalPrefilter(d.Config.PrefilterProgram(), fragment.Attributes)
-		if err != nil {
-			logger.Warn().Err(err).Msg("global prefilter eval error")
-		} else if skip {
-			logger.Debug().Msg("skipping fragment: global prefilter")
-			return findings
-		}
-	}
+	findings := []report.Finding{}
 
 	// setup variables to handle different decoding passes
 	currentRaw := fragment.Raw
