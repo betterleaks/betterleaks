@@ -45,12 +45,12 @@ func shouldSkipAttrs(cfg *config.Config, attrs map[string]string) bool {
 	}
 	prg := cfg.PrefilterProgram()
 	if prg != nil {
-		keep, err := celenv.EvalPrefilter(prg, attrs)
+		skip, err := celenv.EvalPrefilter(prg, attrs)
 		if err != nil {
 			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
 			return false
 		}
-		return !keep
+		return skip
 	}
 	// Legacy fallback: check path only.
 	path := attrs[AttrPath]

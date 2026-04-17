@@ -75,7 +75,7 @@ func runDetect(cmd *cobra.Command, args []string) {
 	if noGit {
 		findings, err = detector.DetectSource(
 			cmd.Context(), &sources.Files{
-				Config:          &cfg,
+				Config:          &detector.Config,
 				FollowSymlinks:  detector.FollowSymlinks,
 				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 				Path:            sourcePath,

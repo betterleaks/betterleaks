@@ -67,7 +67,7 @@ func (e *PrefilterEnv) Compile(expression string) (cel.Program, error) {
 }
 
 // EvalPrefilter evaluates a compiled prefilter program against the given attributes.
-// Returns true if the fragment should be kept, false if it should be skipped.
+// Returns true if the fragment should be skipped, false if it should be kept.
 func EvalPrefilter(prg cel.Program, attributes map[string]string) (bool, error) {
 	if attributes == nil {
 		attributes = emptyStringMap

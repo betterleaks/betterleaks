@@ -67,7 +67,7 @@ func (e *FilterEnv) Compile(expression string) (cel.Program, error) {
 }
 
 // EvalFilter evaluates a compiled filter program against the given finding and attributes.
-// Returns true if the finding should be kept, false if it should be skipped.
+// Returns true if the finding should be skipped, false if it should be kept.
 func EvalFilter(prg cel.Program, finding, attributes map[string]string) (bool, error) {
 	if finding == nil {
 		finding = emptyStringMap

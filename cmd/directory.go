@@ -60,7 +60,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		lastDetector = detector
 
 		s := &sources.Files{
-			Config:          &cfg,
+			Config:          &detector.Config,
 			FollowSymlinks:  followSymlinks,
 			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
 			Path:            source,

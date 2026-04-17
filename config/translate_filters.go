@@ -154,24 +154,25 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 	return prefilterParts, filterParts
 }
 
-// composeFilters builds a final CEL expression. The result is true (= keep) when:
-//   - every suppressPart (suppress-when-true) does NOT match — wrapped in !(…)
-//   - every keepPart (keep-when-true) IS satisfied — added directly without !(…)
-//   - the user-specified expression (if any) is satisfied
+// composeFilters builds a final CEL expression. The result is true (= skip) when:
+//   - any suppressPart (suppress-when-true) matches — added directly without !(…)
+//   - any keepPart (keep-when-true) is NOT satisfied — wrapped in !(…)
+//   - the user-specified expression (if any) is true
 //
+// Parts are OR-ed: skip if any condition fires.
 // If all inputs are empty, returns "".
 func composeFilters(suppressParts, keepParts []string, userExpr string) string {
 	var parts []string
 	for _, sp := range suppressParts {
-		parts = append(parts, "!("+sp+")")
+		parts = append(parts, "("+sp+")")
 	}
 	for _, kp := range keepParts {
-		parts = append(parts, "("+kp+")")
+		parts = append(parts, "!("+kp+")")
 	}
 	if userExpr != "" {
 		parts = append(parts, "("+userExpr+")")
 	}
-	return strings.Join(parts, " && ")
+	return strings.Join(parts, " || ")
 }
 
 // ── CEL string encoding helpers ───────────────────────────────────────────────

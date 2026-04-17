@@ -473,10 +473,10 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 	// Global prefilter: CEL path (compiled from translated allowlists + user prefilter).
 	// Falls back to legacy allowlist check when no program is compiled (backward compat).
 	if d.Config.PrefilterProgram() != nil {
-		keep, err := celenv.EvalPrefilter(d.Config.PrefilterProgram(), fragment.Attributes)
+		skip, err := celenv.EvalPrefilter(d.Config.PrefilterProgram(), fragment.Attributes)
 		if err != nil {
 			logger.Warn().Err(err).Msg("global prefilter eval error")
-		} else if !keep {
+		} else if skip {
 			logger.Debug().Msg("skipping fragment: global prefilter")
 			return findings
 		}
@@ -567,10 +567,10 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	// Rule prefilter: CEL path (attributes only, before any regex work).
 	// Falls back to legacy commit/path allowlist check when no program is compiled.
 	if r.PrefilterProgram() != nil {
-		keep, err := celenv.EvalPrefilter(r.PrefilterProgram(), fragment.Attributes)
+		skip, err := celenv.EvalPrefilter(r.PrefilterProgram(), fragment.Attributes)
 		if err != nil {
 			logger.Warn().Err(err).Msg("rule prefilter eval error")
-		} else if !keep {
+		} else if skip {
 			return findings // skip regex entirely
 		}
 	} else if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, r.Allowlists); isAllowed {
@@ -731,10 +731,10 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// Global filter: CEL path (attributes + finding).
 		// Falls back to legacy allowlist check when no program is compiled.
 		if d.Config.FilterProgram() != nil {
-			keep, err := celenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
+			skip, err := celenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
-			} else if !keep {
+			} else if skip {
 				continue
 			}
 		} else if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, d.Config.Allowlists); isAllowed {
@@ -745,10 +745,10 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
 		// Falls back to legacy checks when no program is compiled.
 		if r.FilterProgram() != nil {
-			keep, err := celenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
+			skip, err := celenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
-			} else if !keep {
+			} else if skip {
 				continue
 			}
 		} else {
