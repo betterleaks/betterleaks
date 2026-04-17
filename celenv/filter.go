@@ -11,8 +11,6 @@ import (
 
 // FilterEnv is a CEL environment for evaluating per-match filter expressions.
 // Both `attributes map<string,string>` and `finding map<string,string>` are in scope.
-// No HTTP, no AWS. An expression referencing `secret` (instead of `finding["secret"]`)
-// fails at compile time.
 type FilterEnv struct {
 	env   *cel.Env
 	mu    sync.RWMutex

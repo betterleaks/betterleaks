@@ -112,8 +112,11 @@ type Config struct {
 	// NoKeywordRules contains rule IDs that have no keywords and must always be checked.
 	NoKeywordRules []string
 	// used to keep sarif results consistent
-	OrderedRules          []string
-	Allowlists            []*Allowlist
+	OrderedRules []string
+
+	// Deprecated: use filter/prefilter CEL expressions instead. This is a shim for backwards-compatibility.
+	Allowlists []*Allowlist
+
 	MinVersion            string
 	BetterleaksMinVersion string
 

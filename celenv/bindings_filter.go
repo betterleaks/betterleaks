@@ -6,9 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/words"
+
+	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -246,5 +247,6 @@ func fastBindings(tke *tiktoken.Tiktoken) []cel.EnvOption {
 		containsAnyBinding(),
 		entropyBinding(),
 		tokenEfficiencyOKBinding(tke),
+		// TODO add more bindings here as we come across new detection techniques.
 	}
 }

@@ -12,8 +12,7 @@ import (
 var emptyStringMap = map[string]string{}
 
 // PrefilterEnv is a CEL environment for evaluating prefilter expressions.
-// Only `attributes map<string,string>` is in scope — no `finding`, no HTTP, no AWS.
-// An expression referencing `finding["..."]` fails at compile time.
+// Only `attributes map<string,string>` is in scope.
 type PrefilterEnv struct {
 	env   *cel.Env
 	mu    sync.RWMutex
@@ -21,6 +20,7 @@ type PrefilterEnv struct {
 }
 
 // NewPrefilterEnv creates a CEL environment for evaluating prefilter expressions.
+// TODO decide on the name Prefilter or FragmentFilter or ResourceFilter?
 func NewPrefilterEnv() (*PrefilterEnv, error) {
 	opts := []cel.EnvOption{
 		cel.OptionalTypes(),

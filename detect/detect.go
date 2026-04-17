@@ -21,7 +21,6 @@ import (
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/validate"
-	"github.com/betterleaks/betterleaks/words"
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/fatih/semgroup"
@@ -460,18 +459,8 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 		logger   = fragment.Logger()
 	)
 
-	// TODO replace source-specific attribute checking with a CEL-based filter
-	// TODO baseline checking should be move to the source
-	// check if filepath is allowed
-	if fragment.Attr(sources.AttrPath) != "" {
-		// is the path our config or baseline file?
-		if fragment.Attr(sources.AttrPath) == d.Config.Path || (d.baselinePath != "" && fragment.Attr(sources.AttrPath) == d.baselinePath) {
-			logging.Trace().Msg("skipping file: matches config or baseline path")
-			return findings
-		}
-	}
 	// Global prefilter: CEL path (compiled from translated allowlists + user prefilter).
-	// Falls back to legacy allowlist check when no program is compiled (backward compat).
+	// TODO move the prefilter check to the actual sources since it's a _pre_detect filter
 	if d.Config.PrefilterProgram() != nil {
 		skip, err := celenv.EvalPrefilter(d.Config.PrefilterProgram(), fragment.Attributes)
 		if err != nil {
@@ -480,9 +469,6 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 			logger.Debug().Msg("skipping fragment: global prefilter")
 			return findings
 		}
-	} else if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, d.Config.Allowlists); isAllowed {
-		event.Msg("skipping file: global allowlist")
-		return findings
 	}
 
 	// setup variables to handle different decoding passes
@@ -561,20 +547,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	)
 
 	if r.SkipReport && !fragment.InheritedFromFinding {
-		return findings
-	}
-
-	// Rule prefilter: CEL path (attributes only, before any regex work).
-	// Falls back to legacy commit/path allowlist check when no program is compiled.
-	if r.PrefilterProgram() != nil {
-		skip, err := celenv.EvalPrefilter(r.PrefilterProgram(), fragment.Attributes)
-		if err != nil {
-			logger.Warn().Err(err).Msg("rule prefilter eval error")
-		} else if skip {
-			return findings // skip regex entirely
-		}
-	} else if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, r.Allowlists); isAllowed {
-		event.Msg("skipping file: rule allowlist")
 		return findings
 	}
 
@@ -671,13 +643,14 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			Attributes:  maps.Clone(fragment.Attributes),
 			Tags:        append(r.Tags, metaTags...),
 		}
+
+		// move to filter?
 		if !d.IgnoreGitleaksAllow && containsAllowSignature(finding.Line) {
 			logger.Trace().
 				Str("finding", finding.Secret).
 				Msg("skipping finding: allow signature found")
 			continue
 		}
-
 		finding.SyncDeprecatedSourceFields()
 
 		if currentLine == "" {
@@ -722,14 +695,12 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		finding.Entropy = float32(entropy)
 
 		// Build finding map once, only when at least one filter program is compiled.
-		// Avoids the map allocation (~300 ns) on the common no-filter path.
 		var findingMap map[string]string
 		if d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
 			findingMap = buildFindingMap(&finding)
 		}
 
 		// Global filter: CEL path (attributes + finding).
-		// Falls back to legacy allowlist check when no program is compiled.
 		if d.Config.FilterProgram() != nil {
 			skip, err := celenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
@@ -737,9 +708,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			} else if skip {
 				continue
 			}
-		} else if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, d.Config.Allowlists); isAllowed {
-			event.Msg("skipping finding: global allowlist")
-			continue
 		}
 
 		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
@@ -749,21 +717,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {
-				continue
-			}
-		} else {
-			if r.Entropy != 0.0 && entropy <= r.Entropy {
-				logger.Trace().
-					Str("finding", finding.Secret).
-					Float32("entropy", finding.Entropy).
-					Msg("skipping finding: low entropy")
-				continue
-			}
-			if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, r.Allowlists); isAllowed {
-				event.Msg("skipping finding: rule allowlist")
-				continue
-			}
-			if r.TokenEfficiency && d.failsTokenEfficiencyFilter(finding.Secret) {
 				continue
 			}
 		}
@@ -781,39 +734,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 	// Process required rules and create findings with auxiliary findings
 	return d.processRequiredRules(fragment, currentRaw, r, encodedSegments, findings, logger)
-}
-
-// TODO move this to CEL-filter
-func (d *Detector) failsTokenEfficiencyFilter(secret string) bool {
-	// Skip token-efficiency filtering if the tokenizer failed to initialize.
-	// (e.g., network error downloading cl100k_base)
-	if d.tokenizer == nil {
-		return false
-	}
-
-	// For short secrets (< 20 chars) that contain newlines, strip the newlines
-	// before analysis so that strings like "123\n\nTest" are evaluated as "123Test"
-	// allowing word detection to work.
-	analyzed := secret
-	if len(analyzed) < 20 && strings.ContainsAny(analyzed, "\n\r") {
-		analyzed = newlineReplacer.Replace(analyzed)
-	}
-
-	tokens := d.tokenizer.Encode(analyzed, nil, nil)
-
-	matches := words.HasMatchInList(analyzed, 5)
-	if len(matches) > 0 {
-		return true
-	}
-	threshold := 2.5
-	if len(analyzed) < 12 {
-		threshold = 2.1
-		matches := words.HasMatchInList(analyzed, 4)
-		if len(matches) == 0 {
-			threshold = 2.5
-		}
-	}
-	return float64(len(analyzed))/float64(len(tokens)) >= threshold
 }
 
 // processRequiredRules handles the logic for multi-part rules with auxiliary findings
@@ -937,148 +857,5 @@ func (d *Detector) withinProximity(primary, required report.Finding, requiredRul
 		}
 	}
 
-	return true
-}
-
-// checkCommitOrPathAllowed evaluates |fragment| against all provided |allowlists|.
-//
-// If the match condition is "OR", only commit and path are checked.
-// Otherwise, if regexes or stopwords are defined this will fail.
-// TODO: replace this with a CEL-based filter at the source level for quick bailout.
-func checkCommitOrPathAllowed(
-	logger zerolog.Logger,
-	fragment sources.Fragment,
-	allowlists []*config.Allowlist,
-) (bool, *zerolog.Event) {
-	if fragment.Attr(sources.AttrPath) == "" && fragment.Attr(sources.AttrGitSHA) == "" {
-		return false, nil
-	}
-
-	for _, a := range allowlists {
-		windowsPath := fragment.Attr(sources.AttrFSWindowsPath)
-		var (
-			isAllowed        bool
-			allowlistChecks  []bool
-			commitAllowed, _ = a.CommitAllowed(fragment.Attr(sources.AttrGitSHA))
-			pathAllowed      = a.PathAllowed(fragment.Attr(sources.AttrPath)) || (windowsPath != "" && a.PathAllowed(windowsPath))
-		)
-		// If the condition is "AND" we need to check all conditions.
-		if a.MatchCondition == config.AllowlistMatchAnd {
-			if len(a.Commits) > 0 {
-				allowlistChecks = append(allowlistChecks, commitAllowed)
-			}
-			if len(a.Paths) > 0 {
-				allowlistChecks = append(allowlistChecks, pathAllowed)
-			}
-			// These will be checked later.
-			if len(a.Regexes) > 0 {
-				continue
-			}
-			if len(a.StopWords) > 0 {
-				continue
-			}
-
-			isAllowed = allTrue(allowlistChecks)
-		} else {
-			isAllowed = commitAllowed || pathAllowed
-		}
-		if isAllowed {
-			event := logger.Trace().Str("condition", a.MatchCondition.String())
-			if commitAllowed {
-				event.Bool("allowed-commit", commitAllowed)
-			}
-			if pathAllowed {
-				event.Bool("allowed-path", pathAllowed)
-			}
-			return true, event
-		}
-	}
-	return false, nil
-}
-
-// checkFindingAllowed evaluates |finding| against all provided |allowlists|.
-//
-// If the match condition is "OR", only regex and stopwords are run. (Commit and path should be handled separately).
-// Otherwise, all conditions are checked.
-//
-// TODO: The method signature is awkward. I can't think of a better way to log helpful info.
-// TODO: replace this with a CEL-based filter at the scanFragmentWithRule level.
-func checkFindingAllowed(
-	logger zerolog.Logger,
-	finding report.Finding,
-	fragment sources.Fragment,
-	currentLine string,
-	allowlists []*config.Allowlist,
-) (bool, *zerolog.Event) {
-	for _, a := range allowlists {
-		allowlistTarget := finding.Secret
-		switch a.RegexTarget {
-		case "match":
-			allowlistTarget = finding.Match
-		case "line":
-			allowlistTarget = currentLine
-		}
-
-		var (
-			checks                 []bool
-			isAllowed              bool
-			commitAllowed          bool
-			commit                 string
-			pathAllowed            bool
-			regexAllowed           = a.RegexAllowed(allowlistTarget)
-			containsStopword, word = a.ContainsStopWord(finding.Secret)
-		)
-		// If the condition is "AND" we need to check all conditions.
-		if a.MatchCondition == config.AllowlistMatchAnd {
-			// Determine applicable checks.
-			if len(a.Commits) > 0 {
-				commitAllowed, commit = a.CommitAllowed(fragment.Attr(sources.AttrGitSHA))
-				checks = append(checks, commitAllowed)
-			}
-			if len(a.Paths) > 0 {
-				wp := fragment.Attr(sources.AttrFSWindowsPath)
-				pathAllowed = a.PathAllowed(fragment.Attr(sources.AttrPath)) || (wp != "" && a.PathAllowed(wp))
-				checks = append(checks, pathAllowed)
-			}
-			if len(a.Regexes) > 0 {
-				checks = append(checks, regexAllowed)
-			}
-			if len(a.StopWords) > 0 {
-				checks = append(checks, containsStopword)
-			}
-
-			isAllowed = allTrue(checks)
-		} else {
-			isAllowed = regexAllowed || containsStopword
-		}
-
-		if isAllowed {
-			event := logger.Trace().
-				Str("finding", finding.Secret).
-				Str("condition", a.MatchCondition.String())
-			if commitAllowed {
-				event.Str("allowed-commit", commit)
-			}
-			if pathAllowed {
-				event.Bool("allowed-path", pathAllowed)
-			}
-			if regexAllowed {
-				event.Bool("allowed-regex", regexAllowed)
-			}
-			if containsStopword {
-				event.Str("allowed-stopword", word)
-			}
-			return true, event
-		}
-	}
-	return false, nil
-}
-
-func allTrue(bools []bool) bool {
-	for _, check := range bools {
-		if !check {
-			return false
-		}
-	}
 	return true
 }
