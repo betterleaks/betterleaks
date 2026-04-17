@@ -17,3 +17,4 @@
   description: Detect hardcoded secrets using Betterleaks
   entry: betterleaks git --pre-commit --redact --staged --verbose
   language: system
+  pass_filenames: false
