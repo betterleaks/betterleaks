@@ -56,7 +56,7 @@ type ViperConfig struct {
 		TokenEfficiency bool
 
 		// Filter is a CEL expression evaluated per match (attributes + finding).
-		// Returns true = skip (discard this finding).
+		// Returns true = skip (discard this finding); false = keep.
 		Filter string
 	}
 	// Deprecated: this is a shim for backwards-compatibility.
@@ -120,11 +120,11 @@ type Config struct {
 	BetterleaksMinVersion string
 
 	// Prefilter is a global CEL expression (attributes only) evaluated before any
-	// per-match work. Returns true = skip this fragment entirely.
+	// per-match work. Returns true = skip this fragment entirely; false = keep.
 	// Translated from global Allowlists path/commit checks.
 	Prefilter string
 	// Filter is a global CEL expression (attributes + finding) evaluated per match.
-	// Returns true = skip (discard) this finding.
+	// Returns true = skip (discard) this finding; false = keep.
 	// Translated from global Allowlists regex/stopword checks.
 	Filter string
 

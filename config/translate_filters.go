@@ -14,7 +14,7 @@ import (
 // population are complete (extendDepth == 0). Logs translated expressions at debug level
 // so users can copy them and migrate away from the deprecated fields.
 //
-// Return convention: filter/prefilter expressions return true = skip.
+// Semantics: all CEL filter/prefilter expressions return true = skip, false = keep.
 // Prefilter exists only at the global level (attributes-only, runs before regex).
 // Rules have only filter (attributes + finding, runs per match).
 //

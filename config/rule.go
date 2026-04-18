@@ -67,7 +67,7 @@ type Rule struct {
 	celProgram cel.Program
 
 	// Filter is a CEL expression evaluated against attributes + finding per regex match.
-	// If it returns true the finding is skipped (discarded).
+	// Returns true = skip (discard this finding); false = keep.
 	// Deprecated legacy Allowlists, Entropy, and TokenEfficiency are translated into this field.
 	Filter string
 

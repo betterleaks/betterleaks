@@ -52,11 +52,7 @@ func shouldSkipAttrs(cfg *config.Config, attrs map[string]string) bool {
 		}
 		return skip
 	}
-	// Legacy fallback: check path only.
-	path := attrs[AttrPath]
-	if path == "" {
-		return false
-	}
+	// No prefilter configured; nothing to skip.
 	return false
 }
 
