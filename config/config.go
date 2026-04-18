@@ -55,10 +55,9 @@ type ViperConfig struct {
 		SkipReport      bool
 		TokenEfficiency bool
 
-		// CEL filter expressions. Prefilter runs before regex (attributes only);
-		// Filter runs per match (attributes + finding). Both return true = keep.
-		Prefilter string
-		Filter    string
+		// Filter is a CEL expression evaluated per match (attributes + finding).
+		// Returns true = skip (discard this finding).
+		Filter string
 	}
 	// Deprecated: this is a shim for backwards-compatibility.
 	// TODO: Remove this in 9.x.
@@ -121,9 +120,11 @@ type Config struct {
 	BetterleaksMinVersion string
 
 	// Prefilter is a global CEL expression (attributes only) evaluated before any
-	// per-match work. Translated from global Allowlists path/commit checks.
+	// per-match work. Returns true = skip this fragment entirely.
+	// Translated from global Allowlists path/commit checks.
 	Prefilter string
 	// Filter is a global CEL expression (attributes + finding) evaluated per match.
+	// Returns true = skip (discard) this finding.
 	// Translated from global Allowlists regex/stopword checks.
 	Filter string
 
@@ -224,7 +225,6 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		}
 
 		cr.ValidateCEL = vr.Validate
-		cr.Prefilter = vr.Prefilter
 		cr.Filter = vr.Filter
 
 		orderedRules = append(orderedRules, cr.RuleID)
@@ -595,10 +595,7 @@ func (c *Config) extend(extensionConfig Config) {
 			if currentRule.ValidateCEL != "" {
 				baseRule.ValidateCEL = currentRule.ValidateCEL
 			}
-			// Current rule's Prefilter/Filter replaces the extending one if set.
-			if currentRule.Prefilter != "" {
-				baseRule.Prefilter = currentRule.Prefilter
-			}
+			// Current rule's Filter replaces the extending one if set.
 			if currentRule.Filter != "" {
 				baseRule.Filter = currentRule.Filter
 			}

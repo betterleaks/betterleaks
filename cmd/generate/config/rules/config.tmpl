@@ -50,8 +50,6 @@ tags = [
 skipReport = true{{ end }}
 {{- with $rule.ValidateCEL }}
 validate = {{ tomlCEL . }}{{ end }}
-{{- with $rule.Prefilter }}
-prefilter = {{ tomlCEL . }}{{ end }}
 {{- with $rule.Filter }}
 filter = {{ tomlCEL . }}{{ end }}
 {{- range $rule.RequiredRules }}{{println}}[[rules.required]]

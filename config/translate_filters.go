@@ -14,9 +14,10 @@ import (
 // population are complete (extendDepth == 0). Logs translated expressions at debug level
 // so users can copy them and migrate away from the deprecated fields.
 //
-// Return convention: prefilter/filter expressions return true = keep, false = skip.
-// Allowlists suppress (true = skip), so each translated allowlist expression is
-// wrapped in !(…) before being AND-ed into the final expression.
+// Return convention: filter/prefilter expressions return true = skip.
+// Prefilter exists only at the global level (attributes-only, runs before regex).
+// Rules have only filter (attributes + finding, runs per match).
+//
 // TranslateLegacyFilters converts deprecated Allowlists, Entropy, and TokenEfficiency
 // fields into CEL prefilter/filter expressions. Exported for use by the config generator.
 func (c *Config) TranslateLegacyFilters() error {
@@ -30,8 +31,8 @@ func (c *Config) translateLegacyFilters() error {
 		return fmt.Errorf("global allowlists: %w", err)
 	}
 
-	c.Prefilter = composeFilters(globalPre, nil, c.Prefilter)
-	c.Filter = composeFilters(globalFil, nil, c.Filter)
+	c.Prefilter = composeFilters(globalPre, c.Prefilter)
+	c.Filter = composeFilters(globalFil, c.Filter)
 
 	if c.Prefilter != "" {
 		logging.Debug().Str("prefilter", c.Prefilter).Msg("translated global prefilter CEL expression")
@@ -41,32 +42,29 @@ func (c *Config) translateLegacyFilters() error {
 	}
 
 	// ── per-rule fields ────────────────────────────────────────────────────────
+	// Rules have no prefilter — all conditions (allowlist path/commit/regex/stopword,
+	// entropy, tokenEfficiency) are folded into a single filter expression.
 	for ruleID, r := range c.Rules {
-		rulePre, ruleSuppressFil, err := translateAllowlistSlice(r.Allowlists)
+		rulePre, ruleFil, err := translateAllowlistSlice(r.Allowlists)
 		if err != nil {
 			return fmt.Errorf("rule %s allowlists: %w", ruleID, err)
 		}
+		// Rules have no prefilter; fold path/commit checks into filter.
+		ruleFil = append(rulePre, ruleFil...)
 
-		// Entropy and TokenEfficiency are "keep" conditions (true = keep, no !() needed).
-		var ruleKeepFil []string
 		if r.Entropy != 0 {
 			threshold := fmt.Sprintf("%g", r.Entropy)
 			if !strings.ContainsAny(threshold, ".e") {
 				threshold += ".0"
 			}
-			ruleKeepFil = append(ruleKeepFil, fmt.Sprintf(`entropy(finding["secret"]) > %s`, threshold))
+			ruleFil = append(ruleFil, fmt.Sprintf(`entropy(finding["secret"]) <= %s`, threshold))
 		}
 		if r.TokenEfficiency {
-			ruleKeepFil = append(ruleKeepFil, `tokenEfficiencyOK(finding["secret"])`)
+			ruleFil = append(ruleFil, `!tokenEfficiencyOK(finding["secret"])`)
 		}
 
-		r.Prefilter = composeFilters(rulePre, nil, r.Prefilter)
-		r.Filter = composeFilters(ruleSuppressFil, ruleKeepFil, r.Filter)
+		r.Filter = composeFilters(ruleFil, r.Filter)
 
-		if r.Prefilter != "" {
-			logging.Debug().Str("rule", ruleID).Str("prefilter", r.Prefilter).
-				Msg("translated rule prefilter CEL expression")
-		}
 		if r.Filter != "" {
 			logging.Debug().Str("rule", ruleID).Str("filter", r.Filter).
 				Msg("translated rule filter CEL expression")
@@ -134,13 +132,9 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 	}
 
 	if a.MatchCondition == AllowlistMatchAnd {
-		// AND allowlist:
-		// • Prefilter receives the path fragment as an over-approximation for fast bail-out.
-		//   The full AND check in the filter preserves exact semantics for non-path-matched items.
-		// • Filter receives the complete AND expression (all applicable conditions).
-		for _, p := range pathParts {
-			prefilterParts = append(prefilterParts, p)
-		}
+		// AND allowlist: all conditions must match to suppress.
+		// The complete AND expression goes into filter only — no prefilter split,
+		// because path alone would over-suppress for AND semantics.
 		allParts := concat(pathParts, commitParts, regexParts, stopParts)
 		if len(allParts) > 0 {
 			filterParts = append(filterParts, joinAnd(allParts))
@@ -160,20 +154,14 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 	return prefilterParts, filterParts
 }
 
-// composeFilters builds a final CEL expression. The result is true (= skip) when:
-//   - any suppressPart (suppress-when-true) matches — added directly without !(…)
-//   - any keepPart (keep-when-true) is NOT satisfied — wrapped in !(…)
-//   - the user-specified expression (if any) is true
-//
+// composeFilters builds a final CEL expression from skip predicates.
+// Each part is a condition that, when true, means "skip this item".
 // Parts are OR-ed: skip if any condition fires.
 // If all inputs are empty, returns "".
-func composeFilters(suppressParts, keepParts []string, userExpr string) string {
+func composeFilters(skipParts []string, userExpr string) string {
 	var parts []string
-	for _, sp := range suppressParts {
+	for _, sp := range skipParts {
 		parts = append(parts, "("+sp+")")
-	}
-	for _, kp := range keepParts {
-		parts = append(parts, "!("+kp+")")
 	}
 	if userExpr != "" {
 		parts = append(parts, "("+userExpr+")")

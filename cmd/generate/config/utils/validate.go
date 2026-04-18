@@ -157,24 +157,12 @@ func compileCELFilters(cfg *config.Config) {
 		cfg.SetFilterProgram(prg)
 	}
 	for ruleID, r := range cfg.Rules {
-		modified := false
-		if r.Prefilter != "" {
-			prg, compileErr := prefilterEnv.Compile(r.Prefilter)
-			if compileErr != nil {
-				logging.Fatal().Err(compileErr).Str("rule", ruleID).Msg("failed to compile rule prefilter")
-			}
-			r.SetPrefilterProgram(prg)
-			modified = true
-		}
 		if r.Filter != "" {
 			prg, compileErr := filterEnv.Compile(r.Filter)
 			if compileErr != nil {
 				logging.Fatal().Err(compileErr).Str("rule", ruleID).Msg("failed to compile rule filter")
 			}
 			r.SetFilterProgram(prg)
-			modified = true
-		}
-		if modified {
 			cfg.Rules[ruleID] = r
 		}
 	}

@@ -526,18 +526,8 @@ func setupCELFilters(detector *detect.Detector) {
 		detector.Config.SetFilterProgram(prg)
 	}
 
-	// Compile per-rule programs.
+	// Compile per-rule filter programs.
 	for ruleID, r := range detector.Config.Rules {
-		modified := false
-		if r.Prefilter != "" {
-			prg, compileErr := prefilterEnv.Compile(r.Prefilter)
-			if compileErr != nil {
-				logging.Fatal().Err(compileErr).Str("rule", ruleID).
-					Msg("failed to compile rule prefilter expression")
-			}
-			r.SetPrefilterProgram(prg)
-			modified = true
-		}
 		if r.Filter != "" {
 			prg, compileErr := filterEnv.Compile(r.Filter)
 			if compileErr != nil {
@@ -545,9 +535,6 @@ func setupCELFilters(detector *detect.Detector) {
 					Msg("failed to compile rule filter expression")
 			}
 			r.SetFilterProgram(prg)
-			modified = true
-		}
-		if modified {
 			detector.Config.Rules[ruleID] = r
 		}
 	}
