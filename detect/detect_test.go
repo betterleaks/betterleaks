@@ -1416,7 +1416,7 @@ func TestFromGit(t *testing.T) {
 				t.Context(),
 				&sources.Git{
 					Cmd:             gitCmd,
-					Config:          &detector.Config,
+					Skip:            detector.SkipFunc(),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
 					Sema:            detector.Sema,
@@ -1498,7 +1498,7 @@ func TestFromGitStaged(t *testing.T) {
 			t.Context(),
 			&sources.Git{
 				Cmd:             gitCmd,
-				Config:          &detector.Config,
+				Skip:            detector.SkipFunc(),
 				Platform:        platform,
 				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,
@@ -1623,7 +1623,7 @@ func TestFromFiles(t *testing.T) {
 			findings, err := detector.DetectSource(
 				t.Context(),
 				&sources.Files{
-					Config:          &detector.Config,
+					Skip:            detector.SkipFunc(),
 					FollowSymlinks:  detector.FollowSymlinks,
 					MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 					Path:            tt.source,
@@ -2218,7 +2218,7 @@ func TestDetectWithArchives(t *testing.T) {
 				ctx, &sources.Files{
 					Path:            tt.source,
 					Sema:            detector.Sema,
-					Config:          &detector.Config,
+					Skip:            detector.SkipFunc(),
 					MaxArchiveDepth: detector.MaxArchiveDepth,
 				},
 			)
@@ -2302,7 +2302,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 		findings, err := detector.DetectSource(
 			t.Context(),
 			&sources.Files{
-				Config:          &detector.Config,
+				Skip:            detector.SkipFunc(),
 				FollowSymlinks:  detector.FollowSymlinks,
 				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 				Path:            tt.source,
@@ -2569,7 +2569,7 @@ let password = 'Summer2024!';`
 			}
 
 			// Translate legacy allowlists to CEL filter and compile.
-			cfg := config.Config{
+			cfg := &config.Config{
 				Rules: map[string]config.Rule{"test-rule": rule},
 			}
 			require.NoError(t, cfg.TranslateLegacyFilters())
@@ -2954,7 +2954,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			// Translate legacy allowlists to CEL filter and compile.
-			cfg := config.Config{
+			cfg := &config.Config{
 				Rules: map[string]config.Rule{test.rule.RuleID: test.rule},
 			}
 			require.NoError(t, cfg.TranslateLegacyFilters())

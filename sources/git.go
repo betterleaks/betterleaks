@@ -21,7 +21,6 @@ import (
 	"github.com/fatih/semgroup"
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 
-	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
@@ -318,7 +317,7 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 // Git is a source for yielding fragments from a git repo
 type Git struct {
 	Cmd             *GitCmd
-	Config          *config.Config
+	Skip            SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
 	Sema            *semgroup.Group
@@ -394,7 +393,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				}
 				prefilterAttrs[AttrPath] = gitdiffFile.NewName
 
-				if shouldSkipAttrs(s.Config, prefilterAttrs) {
+				if shouldSkipAttrs(s.Skip, prefilterAttrs) {
 					logging.Trace().
 						Str("commit", commitSHA).
 						Str("path", gitdiffFile.NewName).
@@ -418,7 +417,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 						Content:         blob,
 						Path:            gitdiffFile.NewName,
 						MaxArchiveDepth: s.MaxArchiveDepth,
-						Config:          s.Config,
+						Skip:            s.Skip,
 					}
 
 					// enrich and yield fragments

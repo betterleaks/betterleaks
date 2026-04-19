@@ -15,7 +15,6 @@ import (
 	"github.com/mholt/archives"
 	"github.com/rs/zerolog"
 
-	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 )
 
@@ -72,9 +71,9 @@ type File struct {
 	Symlink string
 	// Buffer is used for reading the content in chunks
 	Buffer []byte
-	// Config is the gitleaks config used for shouldSkipPath. If not set, then
-	// shouldSkipPath is ignored
-	Config *config.Config
+	// Skip is a callback that decides whether to skip a file based on its
+	// attributes (e.g. path). If nil, no skipping is performed.
+	Skip SkipFunc
 	// MaxArchiveDepth limits how deep the sources will explore nested archives
 	MaxArchiveDepth int
 	// outerPaths is the list of container paths (e.g. archives) that lead to
@@ -177,7 +176,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		defer innerReader.Close()
 		path := filepath.Clean(d.NameInArchive)
 
-		if s.Config != nil && shouldSkipPath(s.Config, path) {
+		if s.Skip != nil && shouldSkipPath(s.Skip, path) {
 			logging.Debug().Str("path", s.FullPath()).Msg("skipping file: global allowlist")
 			return nil
 		}
@@ -186,7 +185,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			Content:         innerReader,
 			Path:            path,
 			Symlink:         s.Symlink,
-			Config:          s.Config,
+			Skip:            s.Skip,
 			outerPaths:      append(s.outerPaths, filepath.ToSlash(s.Path)),
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			archiveDepth:    s.archiveDepth + 1,

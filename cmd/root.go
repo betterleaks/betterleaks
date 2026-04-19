@@ -309,7 +309,7 @@ func Execute() {
 	}
 }
 
-func Config(cmd *cobra.Command) config.Config {
+func Config(cmd *cobra.Command) *config.Config {
 	var vc config.ViperConfig
 	if err := viper.Unmarshal(&vc); err != nil {
 		logging.Fatal().Err(err).Msg("Failed to load config")
@@ -324,7 +324,7 @@ func Config(cmd *cobra.Command) config.Config {
 	return cfg
 }
 
-func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Detector {
+func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Detector {
 	var err error
 
 	// Apply rule overrides BEFORE constructing the detector so that

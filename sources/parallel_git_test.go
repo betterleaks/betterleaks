@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/betterleaks/betterleaks/config"
 	"github.com/fatih/semgroup"
 )
 
@@ -132,7 +131,7 @@ func TestParallelGitFragments(t *testing.T) {
 	ctx := context.Background()
 	src := &ParallelGit{
 		RepoPath: dir,
-		Config:   &config.Config{},
+		
 		Sema:     semgroup.NewGroup(ctx, 4),
 		Workers:  2,
 	}
@@ -171,7 +170,7 @@ func TestParallelGitSingleCommit(t *testing.T) {
 	ctx := context.Background()
 	src := &ParallelGit{
 		RepoPath: dir,
-		Config:   &config.Config{},
+		
 		Sema:     semgroup.NewGroup(ctx, 4),
 		Workers:  4, // more workers than commits
 	}
@@ -201,7 +200,7 @@ func TestParallelGitMatchesSingleGit(t *testing.T) {
 	// Run single-worker (equivalent to original Git source)
 	singleSrc := &ParallelGit{
 		RepoPath: dir,
-		Config:   &config.Config{},
+		
 		Sema:     semgroup.NewGroup(ctx, 10),
 		Workers:  1,
 	}
@@ -214,7 +213,7 @@ func TestParallelGitMatchesSingleGit(t *testing.T) {
 	// Run multi-worker
 	multiSrc := &ParallelGit{
 		RepoPath: dir,
-		Config:   &config.Config{},
+		
 		Sema:     semgroup.NewGroup(ctx, 10),
 		Workers:  3,
 	}

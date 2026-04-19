@@ -237,6 +237,6 @@ func (d *Detector) FilterByStatus(findings []report.Finding) []report.Finding {
 // NewDetector creates a new detector with the given config
 //
 // Deprecated: use NewDetectorContext instead.
-func NewDetector(cfg config.Config) *Detector {
+func NewDetector(cfg *config.Config) *Detector {
 	return NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 }

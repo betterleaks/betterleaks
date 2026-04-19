@@ -27,7 +27,7 @@ type translateCase struct {
 	// Configuration file basename to load, from `../testdata/config/`.
 	cfgName string
 	// Expected result.
-	cfg Config
+	cfg *Config
 	// Rules to compare.
 	rules []string
 	// Error to expect.
@@ -39,7 +39,7 @@ func TestTranslate(t *testing.T) {
 		// Valid
 		{
 			cfgName: "generic",
-			cfg: Config{
+			cfg: &Config{
 				Title: "gitleaks config",
 				Rules: map[string]Rule{"generic-api-key": {
 					RuleID:      "generic-api-key",
@@ -54,7 +54,7 @@ func TestTranslate(t *testing.T) {
 		},
 		{
 			cfgName: "valid/rule_path_only",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{"python-files-only": {
 					RuleID:      "python-files-only",
 					Description: "Python Files",
@@ -66,7 +66,7 @@ func TestTranslate(t *testing.T) {
 		},
 		{
 			cfgName: "valid/rule_regex_escaped_character_group",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{"pypi-upload-token": {
 					RuleID:      "pypi-upload-token",
 					Description: "PyPI upload token",
@@ -78,7 +78,7 @@ func TestTranslate(t *testing.T) {
 		},
 		{
 			cfgName: "valid/rule_entropy_group",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{"discord-api-key": {
 					RuleID:      "discord-api-key",
 					Description: "Discord API key",
@@ -95,22 +95,22 @@ func TestTranslate(t *testing.T) {
 		// Invalid
 		{
 			cfgName:   "invalid/rule_missing_id",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("rule |id| is missing or empty, description: Discord API key, regex: (?i)(discord[a-z0-9_ .\\-,]{0,25})(=|>|:=|\\|\\|:|<=|=>|:).{0,5}['\\\"]([a-h0-9]{64})['\\\"]"),
 		},
 		{
 			cfgName:   "invalid/rule_no_regex_or_path",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("discord-api-key: both |regex| and |path| are empty, this rule will have no effect"),
 		},
 		{
 			cfgName:   "invalid/rule_bad_entropy_group",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("discord-api-key: invalid regex secret group 5, max regex secret group 3"),
 		},
 		{
 			cfgName:   "invalid/allowlist_global_bad_regex",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: fmt.Errorf("[[allowlists]] invalid path regex \"*.test.js\": error parsing regexp: missing argument to repetition operator: `*`"),
 		},
 	}
@@ -126,7 +126,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		// Global
 		{
 			cfgName: "valid/allowlist_global_old_compat",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{},
 				Allowlists: []*Allowlist{
 					{
@@ -137,7 +137,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		},
 		{
 			cfgName: "valid/allowlist_global_multiple",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{
 					"test": {
 						RuleID:   "test",
@@ -160,7 +160,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		},
 		{
 			cfgName: "valid/allowlist_global_target_rules",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{
 					"github-app-token": {
 						RuleID:   "github-app-token",
@@ -203,7 +203,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		},
 		{
 			cfgName: "valid/allowlist_global_regex",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{},
 				Allowlists: []*Allowlist{
 					{
@@ -215,29 +215,29 @@ func TestTranslateAllowlists(t *testing.T) {
 		},
 		{
 			cfgName:   "invalid/allowlist_global_empty",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("[[allowlists]] must contain at least one check for: commits, paths, regexes, or stopwords"),
 		},
 		{
 			cfgName:   "invalid/allowlist_global_old_and_new",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("[allowlist] is deprecated, it cannot be used alongside [[allowlists]]"),
 		},
 		{
 			cfgName:   "invalid/allowlist_global_target_rule_id",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("[[allowlists]] target rule ID 'github-pat' does not exist"),
 		},
 		{
 			cfgName:   "invalid/allowlist_global_regextarget",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("[[allowlists]] unknown allowlist |regexTarget| 'mtach' (expected 'match', 'line')"),
 		},
 
 		// Rule
 		{
 			cfgName: "valid/allowlist_rule_old_compat",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{"example": {
 					RuleID:   "example",
 					Regex:    regexp.MustCompile(`example\d+`),
@@ -255,7 +255,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		},
 		{
 			cfgName: "valid/allowlist_rule_regex",
-			cfg: Config{
+			cfg: &Config{
 				Title: "simple config with allowlist for aws",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -275,7 +275,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		},
 		{
 			cfgName: "valid/allowlist_rule_commit",
-			cfg: Config{
+			cfg: &Config{
 				Title: "simple config with allowlist for a specific commit",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -295,7 +295,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		},
 		{
 			cfgName: "valid/allowlist_rule_path",
-			cfg: Config{
+			cfg: &Config{
 				Title: "simple config with allowlist for .go files",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -315,17 +315,17 @@ func TestTranslateAllowlists(t *testing.T) {
 		},
 		{
 			cfgName:   "invalid/allowlist_rule_empty",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("example: [[rules.allowlists]] must contain at least one check for: commits, paths, regexes, or stopwords"),
 		},
 		{
 			cfgName:   "invalid/allowlist_rule_old_and_new",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("example: [rules.allowlist] is deprecated, it cannot be used alongside [[rules.allowlist]]"),
 		},
 		{
 			cfgName:   "invalid/allowlist_rule_regextarget",
-			cfg:       Config{},
+			cfg:       &Config{},
 			wantError: errors.New("example: [[rules.allowlists]] unknown allowlist |regexTarget| 'mtach' (expected 'match', 'line')"),
 		},
 	}
@@ -342,7 +342,7 @@ func TestTranslateExtend(t *testing.T) {
 		// Valid
 		{
 			cfgName: "valid/extend",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{
 					"aws-access-key": {
 						RuleID:      "aws-access-key",
@@ -370,7 +370,7 @@ func TestTranslateExtend(t *testing.T) {
 		},
 		{
 			cfgName: "valid/extend_disabled",
-			cfg: Config{
+			cfg: &Config{
 				Title: "gitleaks extend disable",
 				Rules: map[string]Rule{
 					"aws-secret-key": {
@@ -390,7 +390,7 @@ func TestTranslateExtend(t *testing.T) {
 		},
 		{
 			cfgName: "valid/extend_rule_no_regexpath",
-			cfg: Config{
+			cfg: &Config{
 				Rules: map[string]Rule{
 					"aws-secret-key-again-again": {
 						RuleID:      "aws-secret-key-again-again",
@@ -413,7 +413,7 @@ func TestTranslateExtend(t *testing.T) {
 		{
 			cfgName: "valid/extend_rule_override_description",
 			rules:   []string{"aws-access-key"},
-			cfg: Config{
+			cfg: &Config{
 				Title: "override a built-in rule's description",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -428,7 +428,7 @@ func TestTranslateExtend(t *testing.T) {
 		{
 			cfgName: "valid/extend_rule_override_path",
 			rules:   []string{"aws-access-key"},
-			cfg: Config{
+			cfg: &Config{
 				Title: "override a built-in rule's path",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -444,7 +444,7 @@ func TestTranslateExtend(t *testing.T) {
 		{
 			cfgName: "valid/extend_rule_override_regex",
 			rules:   []string{"aws-access-key"},
-			cfg: Config{
+			cfg: &Config{
 				Title: "override a built-in rule's regex",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -459,7 +459,7 @@ func TestTranslateExtend(t *testing.T) {
 		{
 			cfgName: "valid/extend_rule_override_secret_group",
 			rules:   []string{"aws-access-key"},
-			cfg: Config{
+			cfg: &Config{
 				Title: "override a built-in rule's secretGroup",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -475,7 +475,7 @@ func TestTranslateExtend(t *testing.T) {
 		{
 			cfgName: "valid/extend_rule_override_entropy",
 			rules:   []string{"aws-access-key"},
-			cfg: Config{
+			cfg: &Config{
 				Title: "override a built-in rule's entropy",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -492,7 +492,7 @@ func TestTranslateExtend(t *testing.T) {
 		{
 			cfgName: "valid/extend_rule_override_keywords",
 			rules:   []string{"aws-access-key"},
-			cfg: Config{
+			cfg: &Config{
 				Title: "override a built-in rule's keywords",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -507,7 +507,7 @@ func TestTranslateExtend(t *testing.T) {
 		{
 			cfgName: "valid/extend_rule_override_tags",
 			rules:   []string{"aws-access-key"},
-			cfg: Config{
+			cfg: &Config{
 				Title: "override a built-in rule's tags",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
@@ -521,7 +521,7 @@ func TestTranslateExtend(t *testing.T) {
 		},
 		{
 			cfgName: "valid/extend_rule_allowlist_or",
-			cfg: Config{
+			cfg: &Config{
 				Title: "gitleaks extended 3",
 				Rules: map[string]Rule{
 					"aws-secret-key-again-again": {
@@ -551,7 +551,7 @@ func TestTranslateExtend(t *testing.T) {
 		},
 		{
 			cfgName: "valid/extend_rule_allowlist_and",
-			cfg: Config{
+			cfg: &Config{
 				Title: "gitleaks extended 3",
 				Rules: map[string]Rule{
 					"aws-secret-key-again-again": {
@@ -617,11 +617,11 @@ func testTranslate(t *testing.T, test translateCase) {
 		} else {
 			require.NoError(t, err)
 		}
-	} else {
-		if test.wantError != nil {
-			t.Fatalf("expected error but got none: %v", test.wantError)
-			return
-		}
+		return
+	}
+	if test.wantError != nil {
+		t.Fatalf("expected error but got none: %v", test.wantError)
+		return
 	}
 
 	if len(test.rules) > 0 {

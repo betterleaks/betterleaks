@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/betterleaks/betterleaks/celenv"
-	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/mholt/archives"
 )
@@ -35,42 +33,31 @@ func isArchive(ctx context.Context, path string) bool {
 	return err == nil && format != nil
 }
 
-// shouldSkipAttrs evaluates the global prefilter program against attrs.
+// shouldSkipAttrs evaluates the skip callback against attrs.
 // Returns true if the fragment should be skipped.
-// If no prefilter program is compiled (nil), falls back to checking path against
-// legacy Allowlists so callers work correctly without CEL compilation.
-func shouldSkipAttrs(cfg *config.Config, attrs map[string]string) bool {
-	if cfg == nil {
+// If no callback is set (nil), nothing is skipped.
+func shouldSkipAttrs(skip SkipFunc, attrs map[string]string) bool {
+	if skip == nil {
 		return false
 	}
-	prg := cfg.PrefilterProgram()
-	if prg != nil {
-		skip, err := celenv.EvalPrefilter(prg, attrs)
-		if err != nil {
-			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
-			return false
-		}
-		return skip
-	}
-	// No prefilter configured; nothing to skip.
-	return false
+	return skip(attrs)
 }
 
-// shouldSkipPath checks a path against the global prefilter or legacy allowlists.
+// shouldSkipPath checks a path against the skip callback.
 // Also handles the Windows forward-slash path normalization workaround.
-func shouldSkipPath(cfg *config.Config, path string) bool {
-	if cfg == nil {
-		logging.Trace().Str("path", path).Msg("not skipping path because config is nil")
+func shouldSkipPath(skip SkipFunc, path string) bool {
+	if skip == nil {
+		logging.Trace().Str("path", path).Msg("not skipping path because skip func is nil")
 		return false
 	}
 	attrs := map[string]string{AttrPath: path}
-	if shouldSkipAttrs(cfg, attrs) {
+	if shouldSkipAttrs(skip, attrs) {
 		return true
 	}
 	// TODO: Remove this Windows workaround in v9 (gitleaks/gitleaks#1641).
 	if isWindows {
 		attrs[AttrPath] = filepath.ToSlash(path)
-		return shouldSkipAttrs(cfg, attrs)
+		return shouldSkipAttrs(skip, attrs)
 	}
 	return false
 }

@@ -8,8 +8,8 @@ import (
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
-func CreateGlobalConfig() config.Config {
-	return config.Config{
+func CreateGlobalConfig() *config.Config {
+	return &config.Config{
 		Title: "betterleaks config",
 		Allowlists: []*config.Allowlist{
 			{

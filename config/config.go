@@ -144,7 +144,7 @@ type Extend struct {
 	DisabledRules []string
 }
 
-func (vc *ViperConfig) Translate() (Config, error) {
+func (vc *ViperConfig) Translate() (*Config, error) {
 	// Top-level Translate calls must reset the global extendDepth so that
 	// translateLegacyFilters (which only runs at depth 0) isn't skipped
 	// due to leftover state from a previous Translate call (e.g. in tests).
@@ -169,14 +169,14 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		if vr.Path != "" {
 			pat, err := regexp.Compile(vr.Path)
 			if err != nil {
-				return Config{}, fmt.Errorf("%s: invalid path regex %q: %w", vr.ID, vr.Path, err)
+				return nil, fmt.Errorf("%s: invalid path regex %q: %w", vr.ID, vr.Path, err)
 			}
 			pathPat = pat
 		}
 		if vr.Regex != "" {
 			pat, err := regexp.Compile(vr.Regex)
 			if err != nil {
-				return Config{}, fmt.Errorf("%s: invalid regex %q: %w", vr.ID, vr.Regex, err)
+				return nil, fmt.Errorf("%s: invalid regex %q: %w", vr.ID, vr.Regex, err)
 			}
 			regexPat = pat
 		}
@@ -209,21 +209,21 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		if vr.AllowList != nil {
 			// TODO: Remove this in v9.
 			if len(vr.Allowlists) > 0 {
-				return Config{}, fmt.Errorf("%s: [rules.allowlist] is deprecated, it cannot be used alongside [[rules.allowlist]]", cr.RuleID)
+				return nil, fmt.Errorf("%s: [rules.allowlist] is deprecated, it cannot be used alongside [[rules.allowlist]]", cr.RuleID)
 			}
 			vr.Allowlists = append(vr.Allowlists, vr.AllowList)
 		}
 		for _, a := range vr.Allowlists {
 			allowlist, err := vc.parseAllowlist(a)
 			if err != nil {
-				return Config{}, fmt.Errorf("%s: [[rules.allowlists]] %w", cr.RuleID, err)
+				return nil, fmt.Errorf("%s: [[rules.allowlists]] %w", cr.RuleID, err)
 			}
 			cr.Allowlists = append(cr.Allowlists, allowlist)
 		}
 
 		for _, r := range vr.Required {
 			if r.ID == "" {
-				return Config{}, fmt.Errorf("%s: [[rules.required]] rule ID is empty", cr.RuleID)
+				return nil, fmt.Errorf("%s: [[rules.required]] rule ID is empty", cr.RuleID)
 			}
 			requiredRule := Required{
 				RuleID:        r.ID,
@@ -246,13 +246,13 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	for _, r := range rulesMap {
 		for _, rr := range r.RequiredRules {
 			if _, ok := rulesMap[rr.RuleID]; !ok {
-				return Config{}, fmt.Errorf("%s: [[rules.required]] rule ID '%s' does not exist", r.RuleID, rr.RuleID)
+				return nil, fmt.Errorf("%s: [[rules.required]] rule ID '%s' does not exist", r.RuleID, rr.RuleID)
 			}
 		}
 	}
 
 	// Assemble the config.
-	c := Config{
+	c := &Config{
 		Title:                 vc.Title,
 		Description:           vc.Description,
 		Extend:                vc.Extend,
@@ -275,21 +275,21 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	}
 
 	if err := validateMinVersion(c.MinVersion, c.BetterleaksMinVersion, c.Path); err != nil {
-		return Config{}, err
+		return nil, err
 	}
 
 	// Parse the config allowlists, including the older format for backwards compatibility.
 	if vc.AllowList != nil {
 		// TODO: Remove this in v9.
 		if len(vc.Allowlists) > 0 {
-			return Config{}, errors.New("[allowlist] is deprecated, it cannot be used alongside [[allowlists]]")
+			return nil, errors.New("[allowlist] is deprecated, it cannot be used alongside [[allowlists]]")
 		}
 		vc.Allowlists = append(vc.Allowlists, vc.AllowList)
 	}
 	for _, a := range vc.Allowlists {
 		allowlist, err := vc.parseAllowlist(&a.viperRuleAllowlist)
 		if err != nil {
-			return Config{}, fmt.Errorf("[[allowlists]] %w", err)
+			return nil, fmt.Errorf("[[allowlists]] %w", err)
 		}
 		// Allowlists with |targetRules| aren't added to the global list.
 		if len(a.TargetRules) > 0 {
@@ -306,15 +306,15 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	if maxExtendDepth != currentExtendDepth {
 		// disallow both usedefault and path from being set
 		if c.Extend.Path != "" && c.Extend.UseDefault {
-			return Config{}, errors.New("unable to load config due to extend.path and extend.useDefault being set")
+			return nil, errors.New("unable to load config due to extend.path and extend.useDefault being set")
 		}
 		if c.Extend.UseDefault {
 			if err := c.extendDefault(vc); err != nil {
-				return Config{}, err
+				return nil, err
 			}
 		} else if c.Extend.Path != "" {
 			if err := c.extendPath(vc); err != nil {
-				return Config{}, err
+				return nil, err
 			}
 		}
 	}
@@ -323,7 +323,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	if currentExtendDepth == 0 {
 		for _, rule := range c.Rules {
 			if err := rule.Validate(); err != nil {
-				return Config{}, err
+				return nil, err
 			}
 		}
 
@@ -331,7 +331,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		for ruleID, allowlists := range ruleAllowlists {
 			rule, ok := c.Rules[ruleID]
 			if !ok {
-				return Config{}, fmt.Errorf("[[allowlists]] target rule ID '%s' does not exist", ruleID)
+				return nil, fmt.Errorf("[[allowlists]] target rule ID '%s' does not exist", ruleID)
 			}
 			rule.Allowlists = append(rule.Allowlists, allowlists...)
 			c.Rules[ruleID] = rule
@@ -357,7 +357,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	// Must run after all extends and targeted allowlist population are complete.
 	if currentExtendDepth == 0 {
 		if err := c.translateLegacyFilters(); err != nil {
-			return Config{}, err
+			return nil, err
 		}
 	}
 
@@ -625,7 +625,7 @@ func (c *Config) extendURL() {
 	// TODO
 }
 
-func (c *Config) extend(extensionConfig Config) {
+func (c *Config) extend(extensionConfig *Config) {
 	// Get config name for helpful log messages.
 	var configName string
 	if c.Extend.Path != "" {

@@ -71,7 +71,7 @@ func runGit(cmd *cobra.Command, args []string) {
 		// Remote info + links are irrelevant for staged changes.
 		src = &sources.Git{
 			Cmd:             gitCmd,
-			Config:          &detector.Config,
+			Skip:            detector.SkipFunc(),
 			Platform:        scm.NoPlatform,
 			Sema:            detector.Sema,
 			MaxArchiveDepth: detector.MaxArchiveDepth,
@@ -85,7 +85,7 @@ func runGit(cmd *cobra.Command, args []string) {
 		if gitWorkers > 0 {
 			src = &sources.ParallelGit{
 				RepoPath:        source,
-				Config:          &detector.Config,
+				Skip:            detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,
@@ -100,7 +100,7 @@ func runGit(cmd *cobra.Command, args []string) {
 			}
 			src = &sources.Git{
 				Cmd:             gitCmd,
-				Config:          &detector.Config,
+				Skip:            detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,

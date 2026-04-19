@@ -65,7 +65,7 @@ type Result struct {
 // Detector is the main detector struct
 type Detector struct {
 	// Config is the configuration for the detector
-	Config config.Config
+	Config *config.Config
 
 	// MaxDecodeDepths limits how many recursive decoding passes are allowed
 	MaxDecodeDepth int
@@ -187,7 +187,7 @@ type Detector struct {
 // NewDetectorContext creates a new Detector.
 // It compiles all CEL programs (filters + validation) and, when
 // valOpts.Enabled is true, creates the validation worker pool.
-func NewDetectorContext(ctx context.Context, cfg config.Config, valOpts ValidationOptions) *Detector {
+func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) *Detector {
 	// grab offline tiktoken encoder
 	tiktoken.SetBpeLoader(&TiktokenLoader{})
 	tke, err := tiktoken.GetEncoding("cl100k_base")
@@ -253,6 +253,27 @@ func NewDetectorContext(ctx context.Context, cfg config.Config, valOpts Validati
 // May be nil if the tokenizer failed to initialize (e.g., network error).
 func (d *Detector) Tokenizer() *tiktoken.Tiktoken { return d.tokenizer }
 
+// SkipFunc returns a sources.SkipFunc callback that evaluates the config's
+// prefilter program against fragment attributes. Returns nil when no prefilter
+// is configured (sources treat nil as "skip nothing").
+func (d *Detector) SkipFunc() sources.SkipFunc {
+	if d.Config == nil {
+		return nil
+	}
+	prg := d.Config.PrefilterProgram()
+	if prg == nil {
+		return nil
+	}
+	return func(attrs map[string]string) bool {
+		skip, err := celenv.EvalPrefilter(prg, attrs)
+		if err != nil {
+			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
+			return false
+		}
+		return skip
+	}
+}
+
 // buildFindingMap builds the fixed-shape map[string]string used as the `finding`
 // activation variable in FilterEnv CEL programs. Only called when at least one
 // filter program is compiled, so the allocation is paid only when needed.
@@ -282,7 +303,8 @@ func NewDetectorDefaultConfig() (*Detector, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewDetector(cfg), nil
+	d := NewDetector(cfg)
+	return d, nil
 }
 
 // Run executes the pipeline on the given source and yields results as they are found.
