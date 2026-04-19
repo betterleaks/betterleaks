@@ -46,6 +46,12 @@ func DefaultHTTPClient() *http.Client {
 	}
 }
 
+// SetHTTPClient replaces the HTTP client used by this environment.
+// This must be called before any program evaluation, not after.
+func (e *Environment) SetHTTPClient(c *http.Client) {
+	e.client = c
+}
+
 // NewValidationEnv creates a CEL environment for validating secrets.
 // It is an alias for NewEnvironment.
 func NewValidationEnv(httpClient *http.Client) (*Environment, error) {

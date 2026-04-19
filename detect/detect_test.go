@@ -2211,7 +2211,7 @@ func TestDetectWithArchives(t *testing.T) {
 			}
 
 			cfg, _ := vc.Translate()
-			detector := NewDetectorContext(ctx, cfg)
+			detector := NewDetectorContext(ctx, cfg, ValidationOptions{})
 			detector.MaxArchiveDepth = 8
 
 			findings, err := detector.DetectSource(
@@ -2966,4 +2966,3 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 		})
 	}
 }
-

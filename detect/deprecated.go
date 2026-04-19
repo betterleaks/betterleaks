@@ -238,5 +238,5 @@ func (d *Detector) FilterByStatus(findings []report.Finding) []report.Finding {
 //
 // Deprecated: use NewDetectorContext instead.
 func NewDetector(cfg config.Config) *Detector {
-	return NewDetectorContext(context.Background(), cfg)
+	return NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 }

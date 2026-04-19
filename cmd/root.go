@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,14 +15,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	regexpre2 "github.com/betterleaks/betterleaks/regexp/re2"
 	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/validate"
 	"github.com/betterleaks/betterleaks/version"
 )
 
@@ -162,9 +159,13 @@ func initLog() {
 	}
 }
 
-var bannerPrinted bool
+var (
+	bannerPrinted      bool
+	resolvedConfigPath string // set by initConfig to the actual config file path that was loaded
+)
 
 func initConfig(source string) {
+	resolvedConfigPath = "" // reset for each call (cmd/directory.go calls per-source)
 	hideBanner, err := rootCmd.Flags().GetBool("no-banner")
 	viper.SetConfigType("toml")
 
@@ -183,9 +184,11 @@ func initConfig(source string) {
 		logging.Fatal().Msg(err.Error())
 	}
 	if cfgPath != "" {
+		resolvedConfigPath = cfgPath
 		viper.SetConfigFile(cfgPath)
 		logging.Debug().Msgf("using config %s from `--config`", cfgPath)
 	} else if envPath := getEnvWithFallback("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
+		resolvedConfigPath = envPath
 		viper.SetConfigFile(envPath)
 		logging.Debug().Msgf("using config from env var: %s", envPath)
 	} else if configContent := getEnvWithFallback("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); configContent != "" {
@@ -193,6 +196,7 @@ func initConfig(source string) {
 			logging.Fatal().Err(err).Str("content", configContent).Msg("unable to load config from env var")
 		}
 		logging.Debug().Str("content", configContent).Msg("using config from env var content")
+		// resolvedConfigPath stays "" — inline content, no file to skip.
 		return
 	} else {
 		fileInfo, err := os.Stat(source)
@@ -206,6 +210,7 @@ func initConfig(source string) {
 			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig)); err != nil {
 				logging.Fatal().Msgf("err reading toml %s", err.Error())
 			}
+			// resolvedConfigPath stays "" — using embedded default config.
 			return
 		}
 
@@ -217,8 +222,10 @@ func initConfig(source string) {
 			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig)); err != nil {
 				logging.Fatal().Msgf("err reading default config toml %s", err.Error())
 			}
+			// resolvedConfigPath stays "" — using embedded default config.
 			return
 		} else {
+			resolvedConfigPath = configFile
 			logging.Debug().Msgf("using existing config %s", configFile)
 		}
 
@@ -312,7 +319,7 @@ func Config(cmd *cobra.Command) config.Config {
 	if err != nil {
 		logging.Fatal().Err(err).Msg("Failed to load config")
 	}
-	cfg.Path, _ = cmd.Flags().GetString("config")
+	cfg.Path = resolvedConfigPath
 
 	return cfg
 }
@@ -320,8 +327,34 @@ func Config(cmd *cobra.Command) config.Config {
 func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Detector {
 	var err error
 
-	// Setup common detector
-	detector := detect.NewDetectorContext(cmd.Context(), cfg)
+	// Apply rule overrides BEFORE constructing the detector so that
+	// NewDetectorContext compiles CEL filters for the final rule set.
+	rules, _ := cmd.Flags().GetStringSlice("enable-rule")
+	if len(rules) > 0 {
+		logging.Info().Msg("Overriding enabled rules: " + strings.Join(rules, ", "))
+		ruleOverride := make(map[string]config.Rule)
+		for _, ruleName := range rules {
+			if r, ok := cfg.Rules[ruleName]; ok {
+				ruleOverride[ruleName] = r
+			} else {
+				logging.Fatal().Msgf("Requested rule %s not found in rules", ruleName)
+			}
+		}
+		cfg.Rules = ruleOverride
+	}
+
+	// Setup common detector. NewDetectorContext compiles all CEL programs
+	// and sets up the validation pool, so the cfg must be fully prepared.
+	valOpts := detect.ValidationOptions{
+		Enabled:      mustGetBoolFlag(cmd, "validation"),
+		Workers:      mustGetIntFlag(cmd, "validation-workers"),
+		Debug:        mustGetBoolFlag(cmd, "validation-debug"),
+		ExtractEmpty: mustGetBoolFlag(cmd, "validation-extract-empty"),
+		StatusFilter: mustGetStringFlag(cmd, "validation-status"),
+	}
+	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
+
+	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
 
 	if detector.MaxDecodeDepth, err = cmd.Flags().GetInt("max-decode-depth"); err != nil {
 		logging.Fatal().Err(err).Send()
@@ -341,16 +374,6 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 			Out:     os.Stderr,
 			NoColor: detector.NoColor,
 		}).Level(logLevel)
-	}
-	detector.Config.Path, err = cmd.Flags().GetString("config")
-	if err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-
-	// if config path is not set, then use the {source}/.gitleaks.toml path.
-	// note that there may not be a `{source}/.gitleaks.toml` file, this is ok.
-	if detector.Config.Path == "" {
-		detector.Config.Path = filepath.Join(source, ".gitleaks.toml")
 	}
 	// set verbose flag
 	if detector.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
@@ -414,21 +437,6 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 		}
 	}
 
-	// If set, only apply rules that are defined in the flag
-	rules, _ := cmd.Flags().GetStringSlice("enable-rule")
-	if len(rules) > 0 {
-		logging.Info().Msg("Overriding enabled rules: " + strings.Join(rules, ", "))
-		ruleOverride := make(map[string]config.Rule)
-		for _, ruleName := range rules {
-			if r, ok := cfg.Rules[ruleName]; ok {
-				ruleOverride[ruleName] = r
-			} else {
-				logging.Fatal().Msgf("Requested rule %s not found in rules", ruleName)
-			}
-		}
-		detector.Config.Rules = ruleOverride
-	}
-
 	// Validate report settings.
 	reportPath := mustGetStringFlag(cmd, "report-path")
 	if reportPath != "" {
@@ -490,72 +498,7 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 		detector.Reporter = reporter
 	}
 
-	setupCELFilters(detector)
-	setupValidation(cmd, cfg, detector)
-
 	return detector
-}
-
-// setupCELFilters compiles prefilter and filter CEL programs for the global config
-// and all enabled rules, storing them on detector.Config so they are available
-// at scan time. Compilation failures are fatal — bad filter expressions should
-// be caught at startup, not at runtime.
-func setupCELFilters(detector *detect.Detector) {
-	if err := detector.Config.CompileCELFilters(detector.Tokenizer()); err != nil {
-		logging.Fatal().Err(err).Msg("failed to compile CEL filter expressions")
-	}
-}
-
-// setupValidation reads validation flags, compiles CEL programs into cfg.Rules
-// (mutations propagate to detector.Config.Rules via shared map), creates the
-// pool, and wires status-filter settings onto the detector.
-func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Detector) {
-	enableValidation := mustGetBoolFlag(cmd, "validation")
-
-	if !enableValidation {
-		return
-	}
-
-	workers := mustGetIntFlag(cmd, "validation-workers")
-	timeout, _ := cmd.Flags().GetDuration("validation-timeout")
-	env, err := celenv.NewEnvironment(&http.Client{Timeout: timeout})
-	if err != nil {
-		logging.Fatal().Err(err).Msg("failed to create CEL validation environment")
-	}
-	if mustGetBoolFlag(cmd, "validation-debug") {
-		env.DebugResponse = true
-	}
-	if mustGetBoolFlag(cmd, "validation-extract-empty") {
-		detector.ValidationExtractEmpty = true
-	}
-
-	for ruleID, rule := range cfg.Rules {
-		if rule.ValidateCEL == "" {
-			continue
-		}
-		prg, compileErr := env.Compile(rule.ValidateCEL)
-		if compileErr != nil {
-			logging.Fatal().Err(compileErr).Str("rule", ruleID).
-				Msg("failed to compile CEL validation expression")
-		}
-		rule.SetCelProgram(prg)
-		cfg.Rules[ruleID] = rule
-	}
-
-	pool := validate.NewPool(workers, env)
-	detector.ValidationPool = pool
-
-	statusFilter, _ := cmd.Flags().GetString("validation-status")
-	if statusFilter != "" {
-		detector.ValidationStatusFilter = make(map[string]struct{})
-		for s := range strings.SplitSeq(statusFilter, ",") {
-			s = strings.TrimSpace(s)
-			s = strings.ToLower(s)
-			if s != "" {
-				detector.ValidationStatusFilter[s] = struct{}{}
-			}
-		}
-	}
 }
 
 func bytesConvert(bytes uint64) string {

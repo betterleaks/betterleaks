@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -28,6 +29,17 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/exp/maps"
 )
+
+// ValidationOptions controls secret validation behavior.
+// Zero value means validation is disabled.
+type ValidationOptions struct {
+	Enabled      bool
+	Workers      int
+	Timeout      time.Duration
+	Debug        bool
+	ExtractEmpty bool
+	StatusFilter string // comma-separated list of statuses to include
+}
 
 // allowSignatures are comment tags that can be used to ignore findings.
 // betterleaks:allow is checked first (preferred), followed by gitleaks:allow for backwards compatibility.
@@ -96,6 +108,12 @@ type Detector struct {
 	TotalBytes atomic.Uint64
 
 	tokenizer *tiktoken.Tiktoken
+
+	// validationEnv is the CEL environment used to compile and evaluate
+	// per-rule validation expressions. Created during construction;
+	// nil when no rules have ValidateCEL. The cmd layer may reconfigure
+	// the HTTP client/debug settings before evaluation begins.
+	validationEnv *celenv.Environment
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -166,9 +184,10 @@ type Detector struct {
 	Sema *semgroup.Group
 }
 
-// NewDetectorContext is the same as NewDetector but supports passing in a
-// context to use for timeouts
-func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
+// NewDetectorContext creates a new Detector.
+// It compiles all CEL programs (filters + validation) and, when
+// valOpts.Enabled is true, creates the validation worker pool.
+func NewDetectorContext(ctx context.Context, cfg config.Config, valOpts ValidationOptions) *Detector {
 	// grab offline tiktoken encoder
 	tiktoken.SetBpeLoader(&TiktokenLoader{})
 	tke, err := tiktoken.GetEncoding("cl100k_base")
@@ -177,20 +196,57 @@ func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 	}
 
 	// Compile CEL filter programs so they are available at scan time.
-	// This is idempotent — safe if the caller (e.g. cmd/root.go) also compiles.
+	// This is the single compilation owner — callers should NOT compile separately.
 	if compileErr := cfg.CompileCELFilters(tke); compileErr != nil {
-		logging.Warn().Err(compileErr).Msg("failed to compile CEL filters")
+		logging.Fatal().Err(compileErr).Msg("failed to compile CEL filters")
 	}
 
-	return &Detector{
-		gitleaksIgnore:   make(map[string]struct{}),
-		findings:         make([]report.Finding, 0),
-		ValidationCounts: make(map[string]int),
-		Config:           cfg,
-		prefilter:        *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
-		Sema:             semgroup.NewGroup(ctx, 40),
-		tokenizer:        tke,
+	// Compile CEL validation programs (no-op if no rules have ValidateCEL).
+	validationEnv, validationErr := cfg.CompileValidation()
+	if validationErr != nil {
+		logging.Fatal().Err(validationErr).Msg("failed to compile CEL validation expressions")
 	}
+
+	d := &Detector{
+		gitleaksIgnore:         make(map[string]struct{}),
+		findings:               make([]report.Finding, 0),
+		ValidationCounts:       make(map[string]int),
+		Config:                 cfg,
+		prefilter:              *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
+		Sema:                   semgroup.NewGroup(ctx, 40),
+		tokenizer:              tke,
+		validationEnv:          validationEnv,
+		ValidationExtractEmpty: valOpts.ExtractEmpty,
+	}
+
+	// Set up validation pool when enabled.
+	if valOpts.Enabled && validationEnv != nil {
+		if valOpts.Timeout > 0 {
+			validationEnv.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
+		}
+		validationEnv.DebugResponse = valOpts.Debug
+
+		workers := valOpts.Workers
+		if workers <= 0 {
+			workers = 10
+		}
+		d.ValidationPool = validate.NewPool(workers, validationEnv)
+
+		if valOpts.StatusFilter != "" {
+			d.ValidationStatusFilter = make(map[string]struct{})
+			for s := range strings.SplitSeq(valOpts.StatusFilter, ",") {
+				s = strings.TrimSpace(s)
+				s = strings.ToLower(s)
+				if s != "" {
+					d.ValidationStatusFilter[s] = struct{}{}
+				}
+			}
+		}
+	} else if valOpts.Enabled && validationEnv == nil {
+		logging.Warn().Msg("validation enabled but no rules have validation expressions")
+	}
+
+	return d
 }
 
 // Tokenizer returns the BPE tokenizer used for token efficiency filtering.

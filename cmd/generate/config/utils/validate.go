@@ -7,7 +7,6 @@ package utils
 import (
 	"strings"
 
-	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
@@ -126,44 +125,8 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 	if err := cfg.TranslateLegacyFilters(); err != nil {
 		logging.Fatal().Err(err).Msg("failed to translate legacy filters")
 	}
+	// NewDetector calls NewDetectorContext which compiles CEL filters,
+	// so we don't need a separate compilation step.
 	d := detect.NewDetector(cfg)
-	compileCELFilters(&d.Config)
 	return d
-}
-
-// compileCELFilters compiles prefilter/filter CEL programs on the config and its rules.
-func compileCELFilters(cfg *config.Config) {
-	prefilterEnv, err := celenv.NewPrefilterEnv()
-	if err != nil {
-		logging.Fatal().Err(err).Msg("failed to create prefilter CEL environment")
-	}
-	filterEnv, err := celenv.NewFilterEnv(nil)
-	if err != nil {
-		logging.Fatal().Err(err).Msg("failed to create filter CEL environment")
-	}
-
-	if cfg.Prefilter != "" {
-		prg, compileErr := prefilterEnv.Compile(cfg.Prefilter)
-		if compileErr != nil {
-			logging.Fatal().Err(compileErr).Msg("failed to compile global prefilter")
-		}
-		cfg.SetPrefilterProgram(prg)
-	}
-	if cfg.Filter != "" {
-		prg, compileErr := filterEnv.Compile(cfg.Filter)
-		if compileErr != nil {
-			logging.Fatal().Err(compileErr).Msg("failed to compile global filter")
-		}
-		cfg.SetFilterProgram(prg)
-	}
-	for ruleID, r := range cfg.Rules {
-		if r.Filter != "" {
-			prg, compileErr := filterEnv.Compile(r.Filter)
-			if compileErr != nil {
-				logging.Fatal().Err(compileErr).Str("rule", ruleID).Msg("failed to compile rule filter")
-			}
-			r.SetFilterProgram(prg)
-			cfg.Rules[ruleID] = r
-		}
-	}
 }

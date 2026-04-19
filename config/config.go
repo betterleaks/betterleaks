@@ -533,6 +533,43 @@ func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
 	return nil
 }
 
+// CompileValidation compiles per-rule CEL validation expressions.
+// It creates its own celenv.Environment (like CompileCELFilters creates filter/prefilter envs)
+// and returns it so the caller can store it for runtime use by the validation pool.
+// Returns (nil, nil) when no rules have validation expressions.
+func (c *Config) CompileValidation() (*celenv.Environment, error) {
+	// Quick check: skip environment creation if nothing to compile.
+	hasValidation := false
+	for _, r := range c.Rules {
+		if r.ValidateCEL != "" {
+			hasValidation = true
+			break
+		}
+	}
+	if !hasValidation {
+		return nil, nil
+	}
+
+	env, err := celenv.NewEnvironment(nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating validation env: %w", err)
+	}
+
+	for ruleID, r := range c.Rules {
+		if r.ValidateCEL == "" {
+			continue
+		}
+		prg, compileErr := env.Compile(r.ValidateCEL)
+		if compileErr != nil {
+			return nil, fmt.Errorf("compiling rule %s validation: %w", ruleID, compileErr)
+		}
+		r.SetCelProgram(prg)
+		c.Rules[ruleID] = r
+	}
+
+	return env, nil
+}
+
 func (c *Config) GetOrderedRules() []Rule {
 	var orderedRules []Rule
 	for _, id := range c.OrderedRules {
