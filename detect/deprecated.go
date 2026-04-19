@@ -16,10 +16,24 @@ import (
 // DetectSource scans the given source and returns a list of findings
 // Deprecated: use Run instead for more flexible and efficient processing of findings.
 func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]report.Finding, error) {
-	// Initialize deprecated fields used only by this code path.
+	// Reset per-scan state so that a Detector reused across multiple
+	// DetectSource calls returns findings and counters for *this* scan only,
+	// not accumulated across every prior call. Keeps Run and DetectSource on
+	// the same "each invocation is its own scan" contract.
+	d.findings = d.findings[:0]
+	d.TotalBytes.Store(0)
+	if d.ValidationCounts == nil {
+		d.ValidationCounts = make(map[string]int)
+	} else {
+		clear(d.ValidationCounts)
+	}
 	if d.commitMap == nil {
 		d.commitMap = make(map[string]bool)
 		d.commitMutex = &sync.Mutex{}
+	} else {
+		d.commitMutex.Lock()
+		clear(d.commitMap)
+		d.commitMutex.Unlock()
 	}
 
 	// We have a single channel for sending findings to.
