@@ -186,6 +186,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			Content:         innerReader,
 			Path:            path,
 			Symlink:         s.Symlink,
+			Config:          s.Config,
 			outerPaths:      append(s.outerPaths, filepath.ToSlash(s.Path)),
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			archiveDepth:    s.archiveDepth + 1,

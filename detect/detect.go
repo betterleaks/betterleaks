@@ -33,8 +33,6 @@ import (
 // betterleaks:allow is checked first (preferred), followed by gitleaks:allow for backwards compatibility.
 var allowSignatures = []string{"betterleaks:allow", "gitleaks:allow"}
 
-var newlineReplacer = strings.NewReplacer("\n", "", "\r", "")
-
 var errStopIteration = errors.New("pipeline: stop iteration")
 
 const (
@@ -176,6 +174,12 @@ func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 	tke, err := tiktoken.GetEncoding("cl100k_base")
 	if err != nil {
 		logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
+	}
+
+	// Compile CEL filter programs so they are available at scan time.
+	// This is idempotent — safe if the caller (e.g. cmd/root.go) also compiles.
+	if compileErr := cfg.CompileCELFilters(tke); compileErr != nil {
+		logging.Warn().Err(compileErr).Msg("failed to compile CEL filters")
 	}
 
 	return &Detector{
@@ -690,6 +694,12 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		var findingMap map[string]string
 		if d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
 			findingMap = buildFindingMap(&finding)
+			// For decoded segments, currentLine carries the decoded line text
+			// (via codec.CurrentLine). The old checkFindingAllowed used this for
+			// regexTarget="line". Preserve that behaviour in the CEL path.
+			if currentLine != "" {
+				findingMap["line"] = currentLine
+			}
 		}
 
 		// Global filter: CEL path (attributes + finding).
@@ -703,7 +713,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
-		// Falls back to legacy checks when no program is compiled.
 		if r.FilterProgram() != nil {
 			skip, err := celenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {

@@ -8,10 +8,12 @@ import (
 	"strings"
 
 	gv "github.com/hashicorp/go-version"
+	tiktoken "github.com/pkoukk/tiktoken-go"
 	"github.com/spf13/viper"
 
 	"github.com/google/cel-go/cel"
 
+	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/version"
@@ -143,6 +145,14 @@ type Extend struct {
 }
 
 func (vc *ViperConfig) Translate() (Config, error) {
+	// Top-level Translate calls must reset the global extendDepth so that
+	// translateLegacyFilters (which only runs at depth 0) isn't skipped
+	// due to leftover state from a previous Translate call (e.g. in tests).
+	isTopLevel := extendDepth == 0
+	if isTopLevel {
+		defer func() { extendDepth = 0 }()
+	}
+
 	var (
 		keywords       = make(map[string]struct{})
 		orderedRules   []string
@@ -481,6 +491,47 @@ func (c *Config) FilterProgram() cel.Program { return c.filterProgram }
 
 // SetFilterProgram stores a compiled global filter program.
 func (c *Config) SetFilterProgram(p cel.Program) { c.filterProgram = p }
+
+// CompileCELFilters compiles the global prefilter, global filter, and per-rule
+// filter CEL expressions into executable programs. This is idempotent.
+func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
+	prefilterEnv, err := celenv.NewPrefilterEnv()
+	if err != nil {
+		return fmt.Errorf("creating prefilter env: %w", err)
+	}
+	filterEnv, err := celenv.NewFilterEnv(tokenizer)
+	if err != nil {
+		return fmt.Errorf("creating filter env: %w", err)
+	}
+
+	if c.Prefilter != "" {
+		prg, compileErr := prefilterEnv.Compile(c.Prefilter)
+		if compileErr != nil {
+			return fmt.Errorf("compiling global prefilter: %w", compileErr)
+		}
+		c.prefilterProgram = prg
+	}
+	if c.Filter != "" {
+		prg, compileErr := filterEnv.Compile(c.Filter)
+		if compileErr != nil {
+			return fmt.Errorf("compiling global filter: %w", compileErr)
+		}
+		c.filterProgram = prg
+	}
+
+	for ruleID, r := range c.Rules {
+		if r.Filter != "" {
+			prg, compileErr := filterEnv.Compile(r.Filter)
+			if compileErr != nil {
+				return fmt.Errorf("compiling rule %s filter: %w", ruleID, compileErr)
+			}
+			r.SetFilterProgram(prg)
+			c.Rules[ruleID] = r
+		}
+	}
+
+	return nil
+}
 
 func (c *Config) GetOrderedRules() []Rule {
 	var orderedRules []Rule

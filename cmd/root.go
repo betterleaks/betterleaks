@@ -501,42 +501,8 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 // at scan time. Compilation failures are fatal — bad filter expressions should
 // be caught at startup, not at runtime.
 func setupCELFilters(detector *detect.Detector) {
-	prefilterEnv, err := celenv.NewPrefilterEnv()
-	if err != nil {
-		logging.Fatal().Err(err).Msg("failed to create prefilter CEL environment")
-	}
-	filterEnv, err := celenv.NewFilterEnv(detector.Tokenizer())
-	if err != nil {
-		logging.Fatal().Err(err).Msg("failed to create filter CEL environment")
-	}
-
-	// Compile global programs.
-	if detector.Config.Prefilter != "" {
-		prg, compileErr := prefilterEnv.Compile(detector.Config.Prefilter)
-		if compileErr != nil {
-			logging.Fatal().Err(compileErr).Msg("failed to compile global prefilter expression")
-		}
-		detector.Config.SetPrefilterProgram(prg)
-	}
-	if detector.Config.Filter != "" {
-		prg, compileErr := filterEnv.Compile(detector.Config.Filter)
-		if compileErr != nil {
-			logging.Fatal().Err(compileErr).Msg("failed to compile global filter expression")
-		}
-		detector.Config.SetFilterProgram(prg)
-	}
-
-	// Compile per-rule filter programs.
-	for ruleID, r := range detector.Config.Rules {
-		if r.Filter != "" {
-			prg, compileErr := filterEnv.Compile(r.Filter)
-			if compileErr != nil {
-				logging.Fatal().Err(compileErr).Str("rule", ruleID).
-					Msg("failed to compile rule filter expression")
-			}
-			r.SetFilterProgram(prg)
-			detector.Config.Rules[ruleID] = r
-		}
+	if err := detector.Config.CompileCELFilters(detector.Tokenizer()); err != nil {
+		logging.Fatal().Err(err).Msg("failed to compile CEL filter expressions")
 	}
 }
 
