@@ -121,6 +121,12 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 			Uint64("http_requests", misses).
 			Uint64("cache_hits", hits).
 			Msg("validation cache stats")
+
+		// Nil out the reference so a second DetectSource call on the same
+		// Detector does not route findings into the closed pool, where
+		// p.jobs <- job would panic. Callers that want validation on
+		// subsequent scans must assign a fresh pool before the next call.
+		d.ValidationPool = nil
 	}
 
 	close(d.findingsCh)
