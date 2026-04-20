@@ -447,29 +447,12 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 // ignore compares a finding against a baseline report or betterleaksignore
 // file entries.
 func (d *Detector) ignore(finding report.Finding) bool {
-	path := finding.Attributes[sources.AttrPath]
-	commit := finding.Attributes[sources.AttrGitSHA]
-
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, finding.RuleID, finding.StartLine)
-	if commit != "" {
-		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", commit, path, finding.RuleID, finding.StartLine)
-	} else {
-		finding.Fingerprint = globalFingerprint
-	}
-
 	logger := logging.With().Str("finding", finding.Secret).Logger()
-	if _, ok := d.gitleaksIgnore[globalFingerprint]; ok {
+	if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
 		logger.Debug().
-			Str("fingerprint", globalFingerprint).
+			Str("fingerprint", finding.Fingerprint).
 			Msg("skipping finding: global fingerprint")
 		return true
-	} else if commit != "" {
-		if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
-			logger.Debug().
-				Str("fingerprint", finding.Fingerprint).
-				Msgf("skipping finding: fingerprint")
-			return true
-		}
 	}
 
 	if d.baseline != nil && !IsNew(finding, d.Redact, d.baseline) {
@@ -625,6 +608,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	}
 
 	if r.Path != nil {
+		// TODO remove windows handling since it should be normalized in the source to a universal Path attribute.
 		wp := fragment.Attr(sources.AttrFSWindowsPath)
 		if r.Regex == nil && len(encodedSegments) == 0 {
 			// Path _only_ rule
@@ -767,6 +751,8 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// Entropy is always computed — needed for report output regardless of filter path.
 		entropy := shannonEntropy(finding.Secret)
 		finding.Entropy = float32(entropy)
+
+		finding.SetFingerprint()
 
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]string

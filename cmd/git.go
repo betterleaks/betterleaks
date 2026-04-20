@@ -55,6 +55,9 @@ func runGit(cmd *cobra.Command, args []string) {
 	staged := mustGetBoolFlag(cmd, "staged")
 	preCommit := mustGetBoolFlag(cmd, "pre-commit")
 	gitWorkers := mustGetIntFlag(cmd, "git-workers")
+	noColor := mustGetBoolFlag(cmd, "no-color")
+	redact := mustGetUIntFlag(cmd, "redact")
+	verbose := mustGetBoolFlag(cmd, "verbose")
 
 	var (
 		findings    []report.Finding
@@ -109,11 +112,21 @@ func runGit(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findings, err = detector.DetectSource(cmd.Context(), src)
+	detector.SkipFindingAppend = true
+	for result := range detector.Run(cmd.Context(), src) {
+		if result.Err != nil {
+			if err == nil {
+				err = result.Err
+			}
+			// don't exit on error, just log it
+			logging.Error().Err(result.Err).Msg("failed to scan Git repository")
+			continue
+		}
 
-	if err != nil {
-		// don't exit on error, just log it
-		logging.Error().Err(err).Msg("failed to scan Git repository")
+		findings = append(findings, result.Finding)
+		if verbose {
+			result.Finding.Print(noColor, redact)
+		}
 	}
 
 	findingSummaryAndExit(detector, findings, exitCode, start, err)
