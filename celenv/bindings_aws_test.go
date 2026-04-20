@@ -48,7 +48,7 @@ func TestCallSTS_Valid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &Environment{client: ts.Client()}
+	e := &ValidationEnvironment{client: ts.Client()}
 	now := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", now)
 
@@ -73,7 +73,7 @@ func TestCallSTS_Invalid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &Environment{client: ts.Client()}
+	e := &ValidationEnvironment{client: ts.Client()}
 	now := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey", now)
 
@@ -91,7 +91,7 @@ func TestCallSTS_ServerError(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &Environment{client: ts.Client()}
+	e := &ValidationEnvironment{client: ts.Client()}
 	now := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey", now)
 

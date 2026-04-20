@@ -113,7 +113,7 @@ type Detector struct {
 	// per-rule validation expressions. Created during construction;
 	// nil when no rules have ValidateCEL. The cmd layer may reconfigure
 	// the HTTP client/debug settings before evaluation begins.
-	validationEnv *celenv.Environment
+	validationEnv *celenv.ValidationEnvironment
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings

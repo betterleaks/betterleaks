@@ -539,7 +539,7 @@ func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
 // It creates its own celenv.Environment (like CompileCELFilters creates filter/prefilter envs)
 // and returns it so the caller can store it for runtime use by the validation pool.
 // Returns (nil, nil) when no rules have validation expressions.
-func (c *Config) CompileValidation() (*celenv.Environment, error) {
+func (c *Config) CompileValidation() (*celenv.ValidationEnvironment, error) {
 	// Quick check: skip environment creation if nothing to compile.
 	hasValidation := false
 	for _, r := range c.Rules {

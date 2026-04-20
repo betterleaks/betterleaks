@@ -9,7 +9,7 @@ import (
 	"github.com/google/cel-go/common/types/ref"
 )
 
-func timeNowUnixBinding(e *Environment) functions.FunctionOp {
+func timeNowUnixBinding(e *ValidationEnvironment) functions.FunctionOp {
 	return func(args ...ref.Val) ref.Val {
 		return types.String(strconv.FormatInt(time.Now().Unix(), 10))
 	}

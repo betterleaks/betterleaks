@@ -11,7 +11,7 @@ import (
 	"github.com/google/cel-go/common/types/ref"
 )
 
-func httpGetBinding(e *Environment) functions.BinaryOp {
+func httpGetBinding(e *ValidationEnvironment) functions.BinaryOp {
 	return func(lhs, rhs ref.Val) ref.Val {
 		url, ok := lhs.(types.String)
 		if !ok {
@@ -52,7 +52,7 @@ func httpGetBinding(e *Environment) functions.BinaryOp {
 	}
 }
 
-func httpPostBinding(e *Environment) functions.FunctionOp {
+func httpPostBinding(e *ValidationEnvironment) functions.FunctionOp {
 	return func(args ...ref.Val) ref.Val {
 		if len(args) != 3 {
 			return types.NewErr("http.post: expected 3 args, got %d", len(args))
@@ -103,7 +103,7 @@ func httpPostBinding(e *Environment) functions.FunctionOp {
 }
 
 // captureDebug records HTTP request/response metadata into e.debugMeta.
-func (e *Environment) captureDebug(method, url, reqBody string, req *http.Request, resp *http.Response, body []byte) {
+func (e *ValidationEnvironment) captureDebug(method, url, reqBody string, req *http.Request, resp *http.Response, body []byte) {
 	e.debugMeta["req_method"] = method
 	e.debugMeta["req_url"] = url
 	if len(reqBody) > 0 {

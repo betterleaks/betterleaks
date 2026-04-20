@@ -19,7 +19,7 @@ type validationJob struct {
 
 // Pool manages a set of workers that validate findings asynchronously.
 type Pool struct {
-	env   *celenv.Environment
+	env   *celenv.ValidationEnvironment
 	cache *Cache
 
 	// one job per to-be-validated finding
@@ -33,7 +33,7 @@ type Pool struct {
 }
 
 // NewPool creates a validation pool with the given number of workers.
-func NewPool(workers int, env *celenv.Environment) *Pool {
+func NewPool(workers int, env *celenv.ValidationEnvironment) *Pool {
 	if workers <= 0 {
 		workers = 10
 	}

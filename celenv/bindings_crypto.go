@@ -11,7 +11,7 @@ import (
 	"github.com/google/cel-go/common/types/ref"
 )
 
-func md5Binding(e *Environment) functions.UnaryOp {
+func md5Binding(e *ValidationEnvironment) functions.UnaryOp {
 	return func(value ref.Val) ref.Val {
 		str, ok := value.(types.String)
 		if !ok {
@@ -23,7 +23,7 @@ func md5Binding(e *Environment) functions.UnaryOp {
 	}
 }
 
-func hmacSha256Binding(e *Environment) functions.BinaryOp {
+func hmacSha256Binding(e *ValidationEnvironment) functions.BinaryOp {
 	return func(lhs ref.Val, rhs ref.Val) ref.Val {
 		key, ok := lhs.(types.Bytes)
 		if !ok {
