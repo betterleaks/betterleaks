@@ -2903,7 +2903,19 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 					},
 				},
 			},
-			expected: nil,
+			// Backslash regex doesn't match forward-slash path; finding is NOT suppressed.
+			expected: []report.Finding{
+				{
+					RuleID:      "windows-rule",
+					StartColumn: 9,
+					EndColumn:   14,
+					Line:        `value: "s3cr3t"`,
+					Match:       `s3cr3t`,
+					Secret:      `s3cr3t`,
+					File:        "ignoreme/windows.txt",
+					Entropy:     2.251629114151001,
+				},
+			},
 		},
 		"windows path separator - unix rule - AND allowlist path+stopwords": {
 			fragment: sources.Fragment{
@@ -2945,7 +2957,19 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 					},
 				},
 			},
-			expected: nil,
+			// Backslash regex doesn't match forward-slash path; AND condition fails, finding is NOT suppressed.
+			expected: []report.Finding{
+				{
+					RuleID:      "windows-rule",
+					StartColumn: 1,
+					EndColumn:   19,
+					Line:        `value: "f4k3s3cr3t"`,
+					Match:       `value: "f4k3s3cr3t"`,
+					Secret:      `value: "f4k3s3cr3t"`,
+					File:        "ignoreme/unix.txt",
+					Entropy:     3.892407178878784,
+				},
+			},
 		},
 	}
 

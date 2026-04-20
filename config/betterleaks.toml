@@ -21,7 +21,7 @@ betterleaksMinVersion = "v1.0.0"
 
 
 prefilter = '''
-(matchesAny(attributes["path"], [
+(matchesAny(attributes[?"path"].orValue(""), [
   r"""gitleaks\.toml""",
   r"""(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$""",
   r"""(?i)\.(?:eot|[ot]tf|woff2?)$""",
@@ -2742,7 +2742,7 @@ filter = '''
   "--mount=type=secret,",
   r"""import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]"""
 ]))
-|| ((matchesAny(attributes["path"], [
+|| ((matchesAny(attributes[?"path"].orValue(""), [
   r"""\.bb$""",
   r"""\.bbappend$""",
   r"""\.bbclass$""",
@@ -2798,7 +2798,7 @@ cel.bind(r,
 )
 '''
 filter = '''
-(matchesAny(attributes["path"], [r"""(?:^|/)@octokit/auth-token/README\.md$"""]))
+(matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""]))
 || (entropy(finding["secret"]) <= 3.0)
 '''
 
@@ -2886,7 +2886,7 @@ cel.bind(r,
 )
 '''
 filter = '''
-(matchesAny(attributes["path"], [r"""(?:^|/)@octokit/auth-token/README\.md$"""]))
+(matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""]))
 || (entropy(finding["secret"]) <= 3.0)
 '''
 

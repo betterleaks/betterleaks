@@ -100,7 +100,6 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 	var pathParts, commitParts, regexParts, stopParts []string
 
 	// Collect path expressions (prefilter-level).
-	// Check both path and fs.windows_path to handle Windows-style separators.
 	if len(a.Paths) > 0 {
 		patterns := make([]string, len(a.Paths))
 		for i, p := range a.Paths {
@@ -108,12 +107,12 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 		}
 		list := celStringList(patterns)
 		pathParts = append(pathParts,
-			fmt.Sprintf(`(matchesAny(attributes["path"], %s) || ("fs.windows_path" in attributes && matchesAny(attributes["fs.windows_path"], %s)))`, list, list))
+			fmt.Sprintf(`matchesAny(attributes[?"path"].orValue(""), %s)`, list))
 	}
 
 	// Collect commit expressions (prefilter-level).
 	if len(a.Commits) > 0 {
-		commitParts = append(commitParts, fmt.Sprintf(`attributes["git.sha"] in %s`, celStringList(a.Commits)))
+		commitParts = append(commitParts, fmt.Sprintf(`attributes[?"git.sha"].orValue("") in %s`, celStringList(a.Commits)))
 	}
 
 	// Collect regex expressions (filter-level).
