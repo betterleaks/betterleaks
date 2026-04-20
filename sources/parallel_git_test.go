@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -184,6 +185,89 @@ func TestParallelGitSingleCommit(t *testing.T) {
 
 	if len(c.list) != 1 {
 		t.Errorf("got %d fragments, want 1", len(c.list))
+	}
+}
+
+// TestParallelGitWorkersExceedChunks reproduces the panic from issue where
+// workers * chunkSize > commit count (e.g. 10 commits, 8 workers, chunkSize=2
+// means worker 6 would slice [12:10]).
+func TestParallelGitWorkersExceedChunks(t *testing.T) {
+	dir := initTestRepo(t)
+
+	// Create exactly 10 commits to reproduce the original bug scenario
+	for i := range 10 {
+		commitFile(t, dir, "file.txt", strings.Repeat("x", i+1)+"\n", "commit "+strconv.Itoa(i))
+	}
+
+	ctx := context.Background()
+	src := &ParallelGit{
+		RepoPath: dir,
+		Config:   &config.Config{},
+		Sema:     semgroup.NewGroup(ctx, 10),
+		Workers:  8, // 10 commits / 8 workers = chunkSize 2, only 5 chunks needed
+	}
+
+	var c collectFragments
+	err := src.Fragments(ctx, c.yield)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(c.list) != 10 {
+		t.Errorf("got %d fragments, want 10", len(c.list))
+	}
+}
+
+// TestParallelGitWorkersEqualCommits verifies the edge case where workers == commits.
+func TestParallelGitWorkersEqualCommits(t *testing.T) {
+	dir := initTestRepo(t)
+
+	for i := range 3 {
+		commitFile(t, dir, "f"+strconv.Itoa(i)+".txt", "data\n", "c"+strconv.Itoa(i))
+	}
+
+	ctx := context.Background()
+	src := &ParallelGit{
+		RepoPath: dir,
+		Config:   &config.Config{},
+		Sema:     semgroup.NewGroup(ctx, 10),
+		Workers:  3,
+	}
+
+	var c collectFragments
+	err := src.Fragments(ctx, c.yield)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(c.list) != 3 {
+		t.Errorf("got %d fragments, want 3", len(c.list))
+	}
+}
+
+// TestParallelGitManyWorkersFewerCommits ensures no panic when workers far exceed commits.
+func TestParallelGitManyWorkersFewerCommits(t *testing.T) {
+	dir := initTestRepo(t)
+
+	commitFile(t, dir, "a.txt", "data\n", "c1")
+	commitFile(t, dir, "b.txt", "data\n", "c2")
+
+	ctx := context.Background()
+	src := &ParallelGit{
+		RepoPath: dir,
+		Config:   &config.Config{},
+		Sema:     semgroup.NewGroup(ctx, 10),
+		Workers:  100, // far more workers than commits
+	}
+
+	var c collectFragments
+	err := src.Fragments(ctx, c.yield)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(c.list) != 2 {
+		t.Errorf("got %d fragments, want 2", len(c.list))
 	}
 }
 
