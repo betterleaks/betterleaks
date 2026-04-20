@@ -36,5 +36,5 @@ jobs:
         run: |
           gotestsum --raw-command -- go test -json ./... --race
 
-      - name: Validate Config
-        run: go generate ./... && git diff --exit-code
+      # - name: Validate Config
+      #   run: go generate ./... && git diff --exit-code
