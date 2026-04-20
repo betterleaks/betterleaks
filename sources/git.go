@@ -397,7 +397,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					logging.Trace().
 						Str("commit", commitSHA).
 						Str("path", gitdiffFile.NewName).
-						Msg("skipping commit: global prefilter")
+						Msg("skipping diff entry: global prefilter")
 					continue
 				}
 			}

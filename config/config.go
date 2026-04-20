@@ -130,7 +130,9 @@ type Config struct {
 	// Translated from global Allowlists regex/stopword checks.
 	Filter string
 
-	// prefilterProgram and filterProgram are compiled at startup by cmd/root.go.
+	// prefilterProgram and filterProgram hold CEL programs compiled by
+	// CompileCELFilters. Validation compilation is handled separately by
+	// CompileValidation.
 	prefilterProgram cel.Program
 	filterProgram    cel.Program
 }

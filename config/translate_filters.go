@@ -79,7 +79,7 @@ func (c *Config) translateLegacyFilters() error {
 // translateAllowlistSlice translates a slice of Allowlists into two lists of CEL
 // sub-expressions: prefilterParts (for attributes-only prefilter) and filterParts
 // (for per-match filter). Each sub-expression, when true, means "suppress this item",
-// so callers must wrap them in !(…).
+// and callers pass them directly to composeFilters as skip-when-true predicates.
 func translateAllowlistSlice(allowlists []*Allowlist) (prefilterParts, filterParts []string, err error) {
 	for _, a := range allowlists {
 		pre, fil := translateAllowlist(a)
@@ -92,8 +92,8 @@ func translateAllowlistSlice(allowlists []*Allowlist) (prefilterParts, filterPar
 // translateAllowlist translates one Allowlist into "suppress-when-true" CEL sub-expressions.
 //
 // For OR allowlists: paths/commits land in prefilter, regexes/stopwords in filter.
-// For AND allowlists: prefilter gets path as an over-approximation (fast bail-out),
-// filter gets the full AND expression including all conditions.
+// For AND allowlists: all parts land in filter only (no prefilter split), because
+// using path alone as a prefilter would over-suppress AND-conditional entries.
 //
 // Each returned string, when true, means "this fragment/finding should be suppressed".
 func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
