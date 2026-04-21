@@ -18,7 +18,7 @@ type FilterEnv struct {
 }
 
 // NewFilterEnv creates a CEL environment for evaluating per-match filter expressions.
-// If tokenizer is nil, tokenEfficiencyOK always returns true (tokenizer unavailable).
+// If tokenizer is nil, failsTokenEfficiency always returns false (tokenizer unavailable).
 func NewFilterEnv(tokenizer *tiktoken.Tiktoken) (*FilterEnv, error) {
 	opts := []cel.EnvOption{
 		cel.OptionalTypes(),

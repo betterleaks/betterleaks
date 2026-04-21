@@ -107,25 +107,25 @@ func TestComposeFilters(t *testing.T) {
 			name:      "only user expr",
 			skipParts: nil,
 			userExpr:  "has(finding.secret)",
-			expected:  "(has(finding.secret))",
+			expected:  "has(finding.secret)",
 		},
 		{
 			name:      "one skip part, no user expr",
 			skipParts: []string{"matchesAny(path, [...])"},
 			userExpr:  "",
-			expected:  "(matchesAny(path, [...]))",
+			expected:  "matchesAny(path, [...])",
 		},
 		{
 			name:      "multiple skip parts",
 			skipParts: []string{"condA", "condB"},
 			userExpr:  "",
-			expected:  "(condA)\n|| (condB)",
+			expected:  "condA\n|| condB",
 		},
 		{
 			name:      "skip parts and user expr",
 			skipParts: []string{"condA", "condB"},
 			userExpr:  "condC",
-			expected:  "(condA)\n|| (condB)\n|| (condC)",
+			expected:  "condA\n|| condB\n|| condC",
 		},
 	}
 
@@ -172,7 +172,7 @@ func TestTranslateLegacyFilters(t *testing.T) {
 	}
 
 	r2 := c.Rules["rule-2"]
-	if !strings.Contains(r2.Filter, `!tokenEfficiencyOK`) {
+	if !strings.Contains(r2.Filter, `failsTokenEfficiency`) {
 		t.Errorf("rule-2 missing token efficiency filter: %s", r2.Filter)
 	}
 

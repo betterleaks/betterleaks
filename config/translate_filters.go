@@ -50,7 +50,7 @@ func (c *Config) translateLegacyFilters() error {
 			ruleFil = append(ruleFil, fmt.Sprintf(`entropy(finding["secret"]) <= %s`, threshold))
 		}
 		if r.TokenEfficiency {
-			ruleFil = append(ruleFil, `!tokenEfficiencyOK(finding["secret"])`)
+			ruleFil = append(ruleFil, `failsTokenEfficiency(finding["secret"])`)
 		}
 
 		r.Filter = composeFilters(ruleFil, r.Filter)
@@ -153,10 +153,10 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 func composeFilters(skipParts []string, userExpr string) string {
 	var parts []string
 	for _, sp := range skipParts {
-		parts = append(parts, "("+sp+")")
+		parts = append(parts, sp)
 	}
 	if userExpr != "" {
-		parts = append(parts, "("+userExpr+")")
+		parts = append(parts, userExpr)
 	}
 	if len(parts) <= 1 {
 		return strings.Join(parts, "")
@@ -180,7 +180,7 @@ func celStringLit(s string) string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch c {
-		case '"':
+	case '"':
 			b.WriteString(`\"`)
 		case '\\':
 			b.WriteString(`\\`)

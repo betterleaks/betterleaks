@@ -45,7 +45,7 @@ Note that safe attribute access requires somewhat cumbersome syntax, `attributes
 | `matchesAny(string, list)` | Returns `true` if the string matches any of the provided regex patterns. |
 | `containsAny(string, list)` | Returns `true` if the string contains any of the provided strings (uses an efficient Aho-Corasick substring match). |
 | `entropy(string)` | Returns the Shannon entropy (float) of the string. Useful for filtering out non-random placeholders. |
-| `tokenEfficiencyOK(string)`| Returns `false` if the string tokenizes too efficiently (i.e., it looks like natural language instead of a random secret). |
+| `failsTokenEfficiency(string)`| Returns `true` if the string tokenizes too efficiently (i.e., it looks like natural language instead of a random secret). |
 ---
 
 Example `filter` CEL expression:
@@ -71,7 +71,7 @@ filter = '''
 (
     // Ignore if the entropy is low AND it tokenizes like natural language instead of a random string.
     entropy(finding["secret"]) <= 2.5 &&
-    !tokenEfficiencyOK(finding["secret"])
+    failsTokenEfficiency(finding["secret"])
 )
 '''
 

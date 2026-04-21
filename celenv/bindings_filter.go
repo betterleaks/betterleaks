@@ -191,24 +191,25 @@ func celShannonEntropy(s string) float64 {
 
 var celNewlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 
-// tokenEfficiencyOKBinding returns the CEL function tokenEfficiencyOK(string) → bool.
-// Returns true if the secret is plausibly a secret (not an efficient/common token sequence).
-// If tke is nil (tokenizer unavailable), always returns true — preserves existing behavior
-// of skipping the filter when tiktoken fails to initialize.
-func tokenEfficiencyOKBinding(tke *tiktoken.Tiktoken) cel.EnvOption {
-	return cel.Function("tokenEfficiencyOK",
-		cel.Overload("tokenEfficiencyOK_string",
+// failsTokenEfficiencyBinding returns the CEL function failsTokenEfficiency(string) → bool.
+// Returns true when the secret tokenizes too efficiently (looks like natural language, not a
+// random secret) and should therefore be suppressed.
+// If tke is nil (tokenizer unavailable), always returns false — preserves existing behavior
+// of keeping findings when tiktoken fails to initialize.
+func failsTokenEfficiencyBinding(tke *tiktoken.Tiktoken) cel.EnvOption {
+	return cel.Function("failsTokenEfficiency",
+		cel.Overload("failsTokenEfficiency_string",
 			[]*cel.Type{cel.StringType},
 			cel.BoolType,
 			cel.UnaryBinding(func(val ref.Val) ref.Val {
 				if tke == nil {
-					return types.Bool(true)
+					return types.Bool(false)
 				}
 				s, ok := val.(types.String)
 				if !ok {
-					return types.Bool(true)
+					return types.Bool(false)
 				}
-				return types.Bool(!celFailsTokenEfficiency(tke, string(s)))
+				return types.Bool(celFailsTokenEfficiency(tke, string(s)))
 			}),
 		),
 	)
@@ -240,13 +241,13 @@ func celFailsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
 }
 
 // fastBindings returns the CEL EnvOptions for bindings shared by PrefilterEnv and FilterEnv.
-// tke may be nil; tokenEfficiencyOK will return true unconditionally in that case.
+// tke may be nil; failsTokenEfficiency will return false unconditionally in that case.
 func fastBindings(tke *tiktoken.Tiktoken) []cel.EnvOption {
 	return []cel.EnvOption{
 		matchesAnyBinding(),
 		containsAnyBinding(),
 		entropyBinding(),
-		tokenEfficiencyOKBinding(tke),
+		failsTokenEfficiencyBinding(tke),
 		// TODO add more bindings here as we come across new detection techniques.
 	}
 }
