@@ -188,6 +188,12 @@ type Detector struct {
 // It compiles all CEL programs (filters + validation) and, when
 // valOpts.Enabled is true, creates the validation worker pool.
 func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) *Detector {
+	if cfg == nil {
+		// TODO in v2 use NewDetector(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) (*Detector, error)
+		// Could be logging.Error?
+		logging.Fatal().Msg("config is required to create detector")
+		return nil
+	}
 	// grab offline tiktoken encoder
 	tiktoken.SetBpeLoader(&TiktokenLoader{})
 	tke, err := tiktoken.GetEncoding("cl100k_base")
