@@ -22,10 +22,6 @@ import (
 var (
 	//go:embed betterleaks.toml
 	DefaultConfig string
-
-	// use to keep track of how many configs we can extend
-	// yea I know, globals bad
-	extendDepth int
 )
 
 const maxExtendDepth = 2
@@ -147,14 +143,10 @@ type Extend struct {
 }
 
 func (vc *ViperConfig) Translate() (*Config, error) {
-	// Top-level Translate calls must reset the global extendDepth so that
-	// translateLegacyFilters (which only runs at depth 0) isn't skipped
-	// due to leftover state from a previous Translate call (e.g. in tests).
-	isTopLevel := extendDepth == 0
-	if isTopLevel {
-		defer func() { extendDepth = 0 }()
-	}
+	return vc.translate(0)
+}
 
+func (vc *ViperConfig) translate(depth int) (*Config, error) {
 	var (
 		keywords       = make(map[string]struct{})
 		orderedRules   []string
@@ -267,9 +259,9 @@ func (vc *ViperConfig) Translate() (*Config, error) {
 		Filter:                vc.Filter,
 	}
 
-	if extendDepth > 0 {
+	if depth > 0 {
 		// annoying hack to set the current config with the extended path
-		// since if extendDepth > 0 we are operating an extended config.
+		// since depth > 0 we are operating an extended config.
 		c.Path = vc.configPath
 	} else {
 		// I don't love this
@@ -304,25 +296,24 @@ func (vc *ViperConfig) Translate() (*Config, error) {
 		}
 	}
 
-	currentExtendDepth := extendDepth
-	if maxExtendDepth != currentExtendDepth {
+	if maxExtendDepth != depth {
 		// disallow both usedefault and path from being set
 		if c.Extend.Path != "" && c.Extend.UseDefault {
 			return nil, errors.New("unable to load config due to extend.path and extend.useDefault being set")
 		}
 		if c.Extend.UseDefault {
-			if err := c.extendDefault(vc); err != nil {
+			if err := c.extendDefault(vc, depth); err != nil {
 				return nil, err
 			}
 		} else if c.Extend.Path != "" {
-			if err := c.extendPath(vc); err != nil {
+			if err := c.extendPath(vc, depth); err != nil {
 				return nil, err
 			}
 		}
 	}
 
 	// Validate the rules after everything has been assembled (including extended configs).
-	if currentExtendDepth == 0 {
+	if depth == 0 {
 		for _, rule := range c.Rules {
 			if err := rule.Validate(); err != nil {
 				return nil, err
@@ -357,7 +348,7 @@ func (vc *ViperConfig) Translate() (*Config, error) {
 
 	// Translate legacy allowlists / entropy / token-efficiency into CEL strings.
 	// Must run after all extends and targeted allowlist population are complete.
-	if currentExtendDepth == 0 {
+	if depth == 0 {
 		if err := c.translateLegacyFilters(); err != nil {
 			return nil, err
 		}
@@ -582,8 +573,7 @@ func (c *Config) GetOrderedRules() []Rule {
 	return orderedRules
 }
 
-func (c *Config) extendDefault(parent *ViperConfig) error {
-	extendDepth++
+func (c *Config) extendDefault(parent *ViperConfig, depth int) error {
 	viper.SetConfigType("toml")
 	if err := viper.ReadConfig(strings.NewReader(DefaultConfig)); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
@@ -592,7 +582,7 @@ func (c *Config) extendDefault(parent *ViperConfig) error {
 	if err := viper.Unmarshal(&defaultViperConfig); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 	}
-	cfg, err := defaultViperConfig.Translate()
+	cfg, err := defaultViperConfig.translate(depth + 1)
 	if err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 
@@ -602,8 +592,7 @@ func (c *Config) extendDefault(parent *ViperConfig) error {
 	return nil
 }
 
-func (c *Config) extendPath(parent *ViperConfig) error {
-	extendDepth++
+func (c *Config) extendPath(parent *ViperConfig, depth int) error {
 	viper.SetConfigFile(c.Extend.Path)
 	if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
@@ -615,16 +604,12 @@ func (c *Config) extendPath(parent *ViperConfig) error {
 
 	extensionViperConfig.configPath = c.Extend.Path
 	logging.Debug().Msgf("extending config with %s", c.Extend.Path)
-	cfg, err := extensionViperConfig.Translate()
+	cfg, err := extensionViperConfig.translate(depth + 1)
 	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}
 	c.extend(cfg)
 	return nil
-}
-
-func (c *Config) extendURL() {
-	// TODO
 }
 
 func (c *Config) extend(extensionConfig *Config) {

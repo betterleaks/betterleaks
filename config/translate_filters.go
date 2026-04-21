@@ -10,8 +10,8 @@ import (
 // translateLegacyFilters converts deprecated Allowlists, Entropy, and TokenEfficiency
 // fields into CEL prefilter/filter string expressions on the Config and its Rules.
 //
-// Called once, at the end of Translate(), after all extends and targeted allowlist
-// population are complete (extendDepth == 0). Logs translated expressions at debug level
+// Called once, at the end of translation, after all extends and targeted allowlist
+// population are complete at top-level depth. Logs translated expressions at debug level
 // so users can copy them and migrate away from the deprecated fields.
 //
 // Semantics: all CEL filter/prefilter expressions return true = skip, false = keep.

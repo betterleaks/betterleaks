@@ -597,7 +597,6 @@ func TestTranslateExtend(t *testing.T) {
 func testTranslate(t *testing.T, test translateCase) {
 	t.Helper()
 	t.Cleanup(func() {
-		extendDepth = 0
 		viper.Reset()
 	})
 
