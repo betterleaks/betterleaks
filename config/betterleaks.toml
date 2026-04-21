@@ -3718,6 +3718,66 @@ cel.bind(r,
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# mongodb-atlas-service-account-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mongodb-atlas-service-account-id"
+description = "Found a MongoDB Atlas service account client ID."
+regex = '''\b(mdb_sa_id_[a-f0-9]{24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["mdb_sa_id_"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mongodb-atlas-service-account-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mongodb-atlas-service-account-secret"
+description = "Detected a MongoDB Atlas service account client secret, which could allow unauthorized Atlas administration API access when paired with a service account client ID."
+regex = '''\b(mdb_sa_sk_[A-Za-z0-9_-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["mdb_sa_sk_"]
+validate = '''
+cel.bind(r,
+  http.post("https://cloud.mongodb.com/api/oauth/token", {
+    "Accept": "application/json",
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Authorization": "Basic " + base64.encode(bytes(captures["mongodb-atlas-service-account-id"] + ":" + secret))
+  }, "grant_type=client_credentials"),
+  r.status == 200 && r.json.?access_token.orValue("") != "" ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": r.json.?error.orValue("Unauthorized")
+  } : unknown(r)
+)
+'''
+[[rules.allowlists]]
+regexes = [
+    '''^mdb_sa_sk_[0-9]{40}$''',
+]
+[[rules.required]]
+id = "mongodb-atlas-service-account-id"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mongodb-connection-string
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mongodb-connection-string"
+description = "Detected a MongoDB connection string with embedded credentials, potentially exposing direct database access and sensitive application data."
+regex = '''\b(mongodb(?:\+srv)?://(?P<username>[!-9;-~]{3,50}):(?P<password>[!-?A-~]{3,88})@(?P<host>(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?(?:,(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?)*)/?(?:(?P<authdb>[\w-]+)?(?P<options>\?\w+=[\w@/.$-]+(?:&(?:amp;)?\w+=[\w@/.$-]+)*)?)?)(?:['"\s;\x60]|\\[nr]|\b|$)'''
+entropy = 4
+keywords = [
+    "mongodb://",
+    "mongodb+srv://",
+]
+[[rules.allowlists]]
+regexes = [
+    '''(?i)\bmongodb(?:\+srv)?:\/\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\/]*)?@''',
+    '''(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*''',
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # netlify-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
