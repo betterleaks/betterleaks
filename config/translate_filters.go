@@ -7,29 +7,22 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 )
 
-// translateLegacyFilters converts deprecated Allowlists, Entropy, and TokenEfficiency
-// fields into CEL prefilter/filter string expressions on the Config and its Rules.
-//
-// Called once, at the end of translation, after all extends and targeted allowlist
-// population are complete at top-level depth. Logs translated expressions at debug level
-// so users can copy them and migrate away from the deprecated fields.
-//
-// Semantics: all CEL filter/prefilter expressions return true = skip, false = keep.
-// Prefilter exists only at the global level (attributes-only, runs before regex).
-// Rules have only filter (attributes + finding, runs per match).
-//
 // TranslateLegacyFilters converts deprecated Allowlists, Entropy, and TokenEfficiency
-// fields into CEL prefilter/filter expressions. Exported for use by the config generator.
+// fields into CEL prefilter/filter string cel-expressions on the Config and its Rules.
+// This is exported for use by the config generator, but is also called internally
+// at the end of config translation (after all extends and targeted allowlists are populated).
+// Translated expressions are logged at the debug level to help users migrate.
+// Notes:
+//   - Expressions return true (skip) or false (keep).
+//   - Prefilters exist only at the global level (source/resource attributes-only, runs before regex).
+//   - Rules only have filters (attributes + finding, runs per match).
 func (c *Config) TranslateLegacyFilters() error {
 	return c.translateLegacyFilters()
 }
 
 func (c *Config) translateLegacyFilters() error {
 	// ── global allowlists ──────────────────────────────────────────────────────
-	globalPre, globalFil, err := translateAllowlistSlice(c.Allowlists)
-	if err != nil {
-		return fmt.Errorf("global allowlists: %w", err)
-	}
+	globalPre, globalFil := translateAllowlistSlice(c.Allowlists)
 
 	c.Prefilter = composeFilters(globalPre, c.Prefilter)
 	c.Filter = composeFilters(globalFil, c.Filter)
@@ -45,10 +38,7 @@ func (c *Config) translateLegacyFilters() error {
 	// Rules have no prefilter — all conditions (allowlist path/commit/regex/stopword,
 	// entropy, tokenEfficiency) are folded into a single filter expression.
 	for ruleID, r := range c.Rules {
-		rulePre, ruleFil, err := translateAllowlistSlice(r.Allowlists)
-		if err != nil {
-			return fmt.Errorf("rule %s allowlists: %w", ruleID, err)
-		}
+		rulePre, ruleFil := translateAllowlistSlice(r.Allowlists)
 		// Rules have no prefilter; fold path/commit checks into filter.
 		ruleFil = append(rulePre, ruleFil...)
 
@@ -80,13 +70,13 @@ func (c *Config) translateLegacyFilters() error {
 // sub-expressions: prefilterParts (for attributes-only prefilter) and filterParts
 // (for per-match filter). Each sub-expression, when true, means "suppress this item",
 // and callers pass them directly to composeFilters as skip-when-true predicates.
-func translateAllowlistSlice(allowlists []*Allowlist) (prefilterParts, filterParts []string, err error) {
+func translateAllowlistSlice(allowlists []*Allowlist) (prefilterParts, filterParts []string) {
 	for _, a := range allowlists {
 		pre, fil := translateAllowlist(a)
 		prefilterParts = append(prefilterParts, pre...)
 		filterParts = append(filterParts, fil...)
 	}
-	return prefilterParts, filterParts, nil
+	return prefilterParts, filterParts
 }
 
 // translateAllowlist translates one Allowlist into "suppress-when-true" CEL sub-expressions.
