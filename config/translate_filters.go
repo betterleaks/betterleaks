@@ -168,11 +168,13 @@ func composeFilters(skipParts []string, userExpr string) string {
 
 // celStringLit returns a CEL string literal. Strings containing backslashes
 // (typically regex patterns) use CEL raw string syntax r"""...""" to avoid
-// double-escaping. Other strings use regular double-quoted literals.
+// double-escaping, unless the string itself contains a triple-quote.
 func celStringLit(s string) string {
-	if strings.ContainsRune(s, '\\') {
+	// If it contains a backslash AND doesn't contain a triple-quote, raw strings are safe.
+	if strings.ContainsRune(s, '\\') && !strings.Contains(s, `"""`) {
 		return `r"""` + s + `"""`
 	}
+
 	var b strings.Builder
 	b.WriteByte('"')
 	for i := 0; i < len(s); i++ {
@@ -180,6 +182,8 @@ func celStringLit(s string) string {
 		switch c {
 		case '"':
 			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
 		case '\n':
 			b.WriteString(`\n`)
 		case '\r':
