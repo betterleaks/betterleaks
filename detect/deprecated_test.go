@@ -29,10 +29,14 @@ MIIEpAIBAAKCAQEA7k3v8H4gZ0L2cP2l+9Pw6sbKfY9Y1fj3zKkQ3C0p8e7jYQ0o
 -----END RSA PRIVATE KEY-----
 `
 
-	viper.SetConfigType("toml")
-	require.NoError(t, viper.ReadConfig(strings.NewReader(config.DefaultConfig)))
+	// Use an isolated viper instance instead of the package-level singleton
+	// so this test does not race with other tests in the `detect` package
+	// that call viper.SetConfigType/ReadConfig under t.Parallel.
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(strings.NewReader(config.DefaultConfig)))
 	var vc config.ViperConfig
-	require.NoError(t, viper.Unmarshal(&vc))
+	require.NoError(t, v.Unmarshal(&vc))
 	cfg, err := vc.Translate()
 	require.NoError(t, err)
 
