@@ -58,6 +58,10 @@ var (
 				cmd.SetContext(ctx)
 				cobra.OnFinalize(cancel)
 			}
+
+			if err := validateExperiments(mustGetStringFlag(cmd, "experiments")); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
@@ -66,6 +70,8 @@ var (
 	// and stopped after a scan completes
 	diagnosticsManager *DiagnosticsManager
 )
+
+var supportedExperiments = map[string]struct{}{}
 
 const (
 	BYTE     = 1.0
@@ -545,6 +551,23 @@ func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Det
 			}
 		}
 	}
+}
+
+func validateExperiments(experiments string) error {
+	for experiment := range strings.SplitSeq(experiments, ",") {
+		experiment = strings.ToLower(strings.TrimSpace(experiment))
+		if experiment == "" {
+			continue
+		}
+		if _, ok := supportedExperiments[experiment]; ok {
+			continue
+		}
+		if len(supportedExperiments) == 0 {
+			return fmt.Errorf("unknown experiment %q (no experiments are currently supported)", experiment)
+		}
+		return fmt.Errorf("unknown experiment %q", experiment)
+	}
+	return nil
 }
 
 func bytesConvert(bytes uint64) string {
