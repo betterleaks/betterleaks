@@ -536,12 +536,12 @@ func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Det
 
 	statusFilter, _ := cmd.Flags().GetString("validation-status")
 	if statusFilter != "" {
-		detector.ValidationStatusFilter = make(map[string]struct{})
+		detector.ValidationStatusFilter = make(map[report.ValidationStatus]struct{})
 		for s := range strings.SplitSeq(statusFilter, ",") {
 			s = strings.TrimSpace(s)
 			s = strings.ToLower(s)
 			if s != "" {
-				detector.ValidationStatusFilter[s] = struct{}{}
+				detector.ValidationStatusFilter[report.ValidationStatus(s)] = struct{}{}
 			}
 		}
 	}
@@ -582,11 +582,11 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 
 	if detector.ValidationPool != nil {
 		logging.Info().
-			Int("valid", detector.ValidationCounts["valid"]).
-			Int("invalid", detector.ValidationCounts["invalid"]).
-			Int("revoked", detector.ValidationCounts["revoked"]).
-			Int("unknown", detector.ValidationCounts["unknown"]).
-			Int("errors", detector.ValidationCounts["error"]).
+			Int("valid", detector.ValidationCounts[report.ValidationStatusValid]).
+			Int("invalid", detector.ValidationCounts[report.ValidationStatusInvalid]).
+			Int("revoked", detector.ValidationCounts[report.ValidationStatusRevoked]).
+			Int("unknown", detector.ValidationCounts[report.ValidationStatusUnknown]).
+			Int("errors", detector.ValidationCounts[report.ValidationStatusError]).
 			Msg("validation complete")
 	}
 

@@ -377,7 +377,7 @@ func printValidation(f report.Finding, noColor bool) {
 
 	statusStyle := validationStyle(f.ValidationStatus, noColor)
 
-	fmt.Printf("%-12s %s", "Validation:", statusStyle.Render(strings.ToUpper(f.ValidationStatus)))
+	fmt.Printf("%-12s %s", "Validation:", statusStyle.Render(strings.ToUpper(f.ValidationStatus.String())))
 	if f.ValidationReason != "" {
 		fmt.Printf("  (%s)", f.ValidationReason)
 	}
@@ -393,20 +393,20 @@ func printValidation(f report.Finding, noColor bool) {
 	}
 }
 
-func validationStyle(status string, noColor bool) color.Style {
+func validationStyle(status report.ValidationStatus, noColor bool) color.Style {
 	if noColor {
 		return color.New()
 	}
 	switch status {
-	case "valid":
+	case report.ValidationStatusValid:
 		return color.New().Bold().Foreground("#00d26a")
-	case "invalid":
+	case report.ValidationStatusInvalid:
 		return color.New().Foreground("#888888")
-	case "revoked":
+	case report.ValidationStatusRevoked:
 		return color.New().Foreground("#f5d445")
-	case "unknown":
+	case report.ValidationStatusUnknown:
 		return color.New().Foreground("#c0c0c0")
-	case "error":
+	case report.ValidationStatusError:
 		return color.New().Foreground("#f05c07")
 	default:
 		return color.New()

@@ -94,7 +94,7 @@ func (p *Pool) worker() {
 			// Simple path: no required components, validate the secret with its own captures.
 			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, job.captures)
 			if err != nil {
-				f.ValidationStatus = "error"
+				f.ValidationStatus = report.ValidationStatusError
 				f.ValidationReason = err.Error()
 			} else {
 				f.ValidationStatus = result.Status
@@ -111,7 +111,7 @@ func (p *Pool) worker() {
 		// each, write per-set status, and roll up to a finding-level status.
 		setResults := make(map[string]*Result, len(f.RequiredSets))
 		var (
-			overallStatus string
+			overallStatus report.ValidationStatus
 			bestResult    *Result
 		)
 
@@ -137,7 +137,7 @@ func (p *Pool) worker() {
 				var err error
 				result, err = p.evalWithCacheKey(cacheKey, job.program, job.finding.Secret, merged)
 				if err != nil {
-					result = &Result{Status: "error", Reason: err.Error(), Metadata: map[string]any{}}
+					result = &Result{Status: report.ValidationStatusError, Reason: err.Error(), Metadata: map[string]any{}}
 				}
 				setResults[cacheKey] = result
 			}
@@ -179,7 +179,7 @@ func (p *Pool) evalWithCacheKey(cacheKey string, program cel.Program, secret str
 	return p.cache.GetOrDo(cacheKey, func() (*Result, error) {
 		val, evalErr := p.env.Eval(program, secret, captures)
 		if evalErr != nil {
-			return &Result{Status: "error", Reason: evalErr.Error(), Metadata: map[string]any{}}, nil
+			return &Result{Status: report.ValidationStatusError, Reason: evalErr.Error(), Metadata: map[string]any{}}, nil
 		}
 		r := ParseResult(val)
 		if p.env.DebugResponse {

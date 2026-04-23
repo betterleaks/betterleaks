@@ -204,7 +204,7 @@ func (d *Detector) shouldVerbosePrint(f report.Finding) bool {
 		return true
 	}
 	if f.ValidationStatus == "" {
-		_, ok := d.ValidationStatusFilter["none"]
+		_, ok := d.ValidationStatusFilter[report.ValidationStatusNone]
 		return ok
 	}
 	_, ok := d.ValidationStatusFilter[f.ValidationStatus]
@@ -218,7 +218,7 @@ func (d *Detector) FilterByStatus(findings []report.Finding) []report.Finding {
 	if len(d.ValidationStatusFilter) == 0 {
 		return findings
 	}
-	_, includeNone := d.ValidationStatusFilter["none"]
+	_, includeNone := d.ValidationStatusFilter[report.ValidationStatusNone]
 	var filtered []report.Finding
 	for _, f := range findings {
 		if f.ValidationStatus == "" {
