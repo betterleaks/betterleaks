@@ -195,24 +195,14 @@ func initConfig(source string) {
 		logging.Debug().Str("content", configContent).Msg("using config from env var content")
 		return
 	} else {
-		fileInfo, err := os.Stat(source)
-		if err != nil {
+		if _, err := os.Stat(source); err != nil {
 			logging.Fatal().Msg(err.Error())
-		}
-
-		if !fileInfo.IsDir() {
-			logging.Debug().Msgf("unable to load config from %s since --source=%s is a file, using default config",
-				filepath.Join(source, ".betterleaks.toml"), source)
-			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig)); err != nil {
-				logging.Fatal().Msgf("err reading toml %s", err.Error())
-			}
-			return
 		}
 
 		// Check for config file: .betterleaks.toml first, then .gitleaks.toml
 		configFile := findConfigFile(source)
 		if configFile == "" {
-			logging.Debug().Msgf("no config found in path %s, using default config", source)
+			logging.Debug().Msgf("no config found for target %s, using default config", source)
 
 			if err = viper.ReadConfig(strings.NewReader(config.DefaultConfig)); err != nil {
 				logging.Fatal().Msgf("err reading default config toml %s", err.Error())
@@ -222,10 +212,7 @@ func initConfig(source string) {
 			logging.Debug().Msgf("using existing config %s", configFile)
 		}
 
-		viper.AddConfigPath(source)
-		// Strip the leading dot and .toml extension to get the config name
-		configName := strings.TrimSuffix(filepath.Base(configFile), ".toml")
-		viper.SetConfigName(configName)
+		viper.SetConfigFile(configFile)
 	}
 	if err := viper.ReadInConfig(); err != nil {
 		logging.Fatal().Msgf("unable to load config, err: %s", err)
@@ -244,8 +231,9 @@ func getEnvWithFallback(primary, fallback string) string {
 // findConfigFile looks for a config file in the given directory.
 // It checks for .betterleaks.toml first, then .gitleaks.toml for backwards compatibility.
 func findConfigFile(source string) string {
+	dir := lookupDir(source)
 	for _, name := range []string{".betterleaks.toml", ".gitleaks.toml"} {
-		path := filepath.Join(source, name)
+		path := filepath.Join(dir, name)
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}
@@ -255,7 +243,8 @@ func findConfigFile(source string) string {
 
 // findIgnoreFile looks for an ignore file in the given directory.
 // It checks for .betterleaksignore first, then .gitleaksignore for backwards compatibility.
-func findIgnoreFile(dir string) string {
+func findIgnoreFile(source string) string {
+	dir := lookupDir(source)
 	for _, name := range []string{".betterleaksignore", ".gitleaksignore"} {
 		path := filepath.Join(dir, name)
 		if fileExists(path) {
@@ -263,6 +252,13 @@ func findIgnoreFile(dir string) string {
 		}
 	}
 	return ""
+}
+
+func lookupDir(source string) string {
+	if info, err := os.Stat(source); err == nil && !info.IsDir() {
+		return filepath.Dir(source)
+	}
+	return source
 }
 
 func initDiagnostics() {
@@ -312,7 +308,6 @@ func Config(cmd *cobra.Command) config.Config {
 	if err != nil {
 		logging.Fatal().Err(err).Msg("Failed to load config")
 	}
-	cfg.Path, _ = cmd.Flags().GetString("config")
 
 	return cfg
 }
@@ -341,16 +336,6 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 			Out:     os.Stderr,
 			NoColor: detector.NoColor,
 		}).Level(logLevel)
-	}
-	detector.Config.Path, err = cmd.Flags().GetString("config")
-	if err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-
-	// if config path is not set, then use the {source}/.gitleaks.toml path.
-	// note that there may not be a `{source}/.gitleaks.toml` file, this is ok.
-	if detector.Config.Path == "" {
-		detector.Config.Path = filepath.Join(source, ".gitleaks.toml")
 	}
 	// set verbose flag
 	if detector.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
@@ -384,17 +369,18 @@ func Detector(cmd *cobra.Command, cfg config.Config, source string) *detect.Dete
 		logging.Fatal().Err(err).Msg("could not get ignore path")
 	}
 
-	// If the flag points directly to an ignore file, use it
-	if fileExists(ignorePath) {
+	ignorePathInfo, ignorePathErr := os.Stat(ignorePath)
+	if ignorePathErr == nil && !ignorePathInfo.IsDir() {
+		// If the flag points directly to an ignore file, use it.
 		if err = detector.AddGitleaksIgnore(ignorePath); err != nil {
 			logging.Fatal().Err(err).Msg("could not load ignore file")
 		}
-	}
-
-	// Check for ignore file in the flag directory (.betterleaksignore first, then .gitleaksignore)
-	if ignoreFile := findIgnoreFile(ignorePath); ignoreFile != "" {
-		if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
+	} else {
+		// Check for ignore file in the flag directory (.betterleaksignore first, then .gitleaksignore)
+		if ignoreFile := findIgnoreFile(ignorePath); ignoreFile != "" {
+			if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
+				logging.Fatal().Err(err).Msg("could not load ignore file")
+			}
 		}
 	}
 
