@@ -114,11 +114,6 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 		),
 
 		cel.Function("crypto.md5",
-			cel.Overload("crypto_md5_string",
-				[]*cel.Type{cel.StringType},
-				cel.BytesType,
-				cel.UnaryBinding(md5Binding(e)),
-			),
 			cel.Overload("crypto_md5_bytes",
 				[]*cel.Type{cel.BytesType},
 				cel.BytesType,

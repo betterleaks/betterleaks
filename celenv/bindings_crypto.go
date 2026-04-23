@@ -14,16 +14,13 @@ import (
 
 func md5Binding(e *Environment) functions.UnaryOp {
 	return func(value ref.Val) ref.Val {
-		switch v := value.(type) {
-		case types.String:
-			hash := md5.Sum([]byte(v))
-			return types.Bytes(hash[:])
-		case types.Bytes:
-			hash := md5.Sum([]byte(v))
-			return types.Bytes(hash[:])
-		default:
+		bs, ok := value.(types.Bytes)
+		if !ok {
 			return types.MaybeNoSuchOverloadErr(value)
 		}
+
+		hash := md5.Sum([]byte(bs))
+		return types.Bytes(hash[:])
 	}
 }
 
@@ -36,17 +33,6 @@ func sha1Binding(e *Environment) functions.UnaryOp {
 
 		hash := sha1.Sum([]byte(bs))
 		return types.Bytes(hash[:])
-	}
-}
-
-func hexEncodeBinding(e *Environment) functions.UnaryOp {
-	return func(value ref.Val) ref.Val {
-		bs, ok := value.(types.Bytes)
-		if !ok {
-			return types.MaybeNoSuchOverloadErr(value)
-		}
-
-		return types.String(hex.EncodeToString([]byte(bs)))
 	}
 }
 
@@ -64,5 +50,18 @@ func hmacSha256Binding(e *Environment) functions.BinaryOp {
 		h := hmac.New(sha256.New, []byte(key))
 		h.Write([]byte(msg))
 		return types.Bytes(h.Sum(nil))
+	}
+}
+
+// TODO maybe split out to it's own file for encodings?
+// encode/decode etc
+func hexEncodeBinding(e *Environment) functions.UnaryOp {
+	return func(value ref.Val) ref.Val {
+		bs, ok := value.(types.Bytes)
+		if !ok {
+			return types.MaybeNoSuchOverloadErr(value)
+		}
+
+		return types.String(hex.EncodeToString([]byte(bs)))
 	}
 }

@@ -18,17 +18,17 @@ func TestBindings(t *testing.T) {
 	}{
 		{
 			name: "md5 literal",
-			expr: `hex.encode(crypto.md5("hello"))`,
+			expr: `hex.encode(crypto.md5(bytes("hello")))`,
 			want: "5d41402abc4b2a76b9719d911017c592",
 		},
 		{
 			name: "md5 empty string",
-			expr: `hex.encode(crypto.md5(""))`,
+			expr: `hex.encode(crypto.md5(bytes("")))`,
 			want: "d41d8cd98f00b204e9800998ecf8427e",
 		},
 		{
 			name:   "md5 secret variable",
-			expr:   `hex.encode(crypto.md5(secret))`,
+			expr:   `hex.encode(crypto.md5(bytes(secret)))`,
 			secret: "test123",
 			want:   "cc03e747a6afbbcbf8be7668acfebee5",
 		},
