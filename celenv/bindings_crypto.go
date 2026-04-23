@@ -3,8 +3,9 @@ package celenv
 import (
 	"crypto/hmac"
 	"crypto/md5"
+	"crypto/sha1"
 	"crypto/sha256"
-	"fmt"
+	"encoding/hex"
 
 	"github.com/google/cel-go/common/functions"
 	"github.com/google/cel-go/common/types"
@@ -13,13 +14,39 @@ import (
 
 func md5Binding(e *Environment) functions.UnaryOp {
 	return func(value ref.Val) ref.Val {
-		str, ok := value.(types.String)
+		switch v := value.(type) {
+		case types.String:
+			hash := md5.Sum([]byte(v))
+			return types.Bytes(hash[:])
+		case types.Bytes:
+			hash := md5.Sum([]byte(v))
+			return types.Bytes(hash[:])
+		default:
+			return types.MaybeNoSuchOverloadErr(value)
+		}
+	}
+}
+
+func sha1Binding(e *Environment) functions.UnaryOp {
+	return func(value ref.Val) ref.Val {
+		bs, ok := value.(types.Bytes)
 		if !ok {
 			return types.MaybeNoSuchOverloadErr(value)
 		}
 
-		hash := md5.Sum([]byte(str))
-		return types.String(fmt.Sprintf("%x", hash))
+		hash := sha1.Sum([]byte(bs))
+		return types.Bytes(hash[:])
+	}
+}
+
+func hexEncodeBinding(e *Environment) functions.UnaryOp {
+	return func(value ref.Val) ref.Val {
+		bs, ok := value.(types.Bytes)
+		if !ok {
+			return types.MaybeNoSuchOverloadErr(value)
+		}
+
+		return types.String(hex.EncodeToString([]byte(bs)))
 	}
 }
 
