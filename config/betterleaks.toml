@@ -3980,7 +3980,7 @@ regex = '''(?i)[\w.-]{0,50}?(?:app(?:lication)?[_.-]{0,1}secret)(?:[ \t\w.-]{0,2
 entropy = 3
 keywords = ["ovh"]
 validate = '''
-cel.bind(ts, string(time.now_unix()),
+cel.bind(ts, time.now_unix(),
   cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
     cel.bind(sig_payload, secret + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
       cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),

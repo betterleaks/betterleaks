@@ -59,7 +59,7 @@ func OVHApplicationSecret() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}secret"}, `[A-Za-z0-9-]{32}`, true),
 		Entropy:     3,
 		Keywords:    []string{"ovh"},
-		ValidateCEL: `cel.bind(ts, string(time.now_unix()),
+		ValidateCEL: `cel.bind(ts, time.now_unix(),
   cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
     cel.bind(sig_payload, secret + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
       cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),
