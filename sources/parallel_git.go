@@ -69,6 +69,13 @@ func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error 
 	g, gctx := errgroup.WithContext(ctx)
 	for i := range workers {
 		start := i * chunkSize
+		// When workers*chunkSize > count (common: count=10, workers=8
+		// gives chunkSize=2 and start grows past count on workers 6+),
+		// the slice expression commits[start:end] otherwise panicked
+		// with 'slice bounds out of range [12:10]'. Skip empty tails.
+		if start >= count {
+			break
+		}
 		end := min(start+chunkSize, count)
 		chunk := commits[start:end]
 		g.Go(func() error {
