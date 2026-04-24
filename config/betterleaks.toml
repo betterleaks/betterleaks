@@ -4364,6 +4364,34 @@ entropy = 2
 keywords = ["rubygems_"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# scaleway-secret-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "scaleway-secret-key"
+description = "Identified a standalone Scaleway Secret Key. This can be used to authenticate API requests."
+regex = '''(?i)[\w.-]{0,50}?(?:(?:scaleway|scw).{0,20}?(?:secret|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = [
+    "scaleway",
+    "scw",
+]
+validate = '''
+cel.bind(r,
+  http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
+    "X-Auth-Token": secret,
+    "Accept": "application/json"
+  }),
+  r.status in [200, 403] ? {
+    "result": "valid",
+    "permission_status": r.status == 200 ? "Active" : "Restricted but still valid (403)",
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # scalingo-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]

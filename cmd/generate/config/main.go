@@ -280,6 +280,7 @@ func main() {
 		rules.Replicate(),
 		rules.ReadMe(),
 		rules.RubyGemsAPIToken(),
+		rules.ScalewaySecretKey(),
 		rules.ScalingoAPIToken(),
 		rules.SendbirdAccessID(),
 		rules.SendbirdAccessToken(),
