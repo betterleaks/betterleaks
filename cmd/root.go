@@ -71,6 +71,7 @@ var (
 	diagnosticsManager *DiagnosticsManager
 )
 
+// Add experimental feature flag names here as they are introduced.
 var supportedExperiments = map[string]struct{}{}
 
 const (
