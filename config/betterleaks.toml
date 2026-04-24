@@ -3960,6 +3960,68 @@ entropy = 3.5
 keywords = ["sha256~"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# ovh-application-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "ovh-application-key"
+description = "OVHcloud Application Key - component of authenticated OVH API requests."
+regex = '''(?i)[\w.-]{0,50}?(?:app(?:lication)?[_.-]{0,1}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{16})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 2
+keywords = ["ovh"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ovh-application-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "ovh-application-secret"
+description = "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys."
+regex = '''(?i)[\w.-]{0,50}?(?:app(?:lication)?[_.-]{0,1}secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 3
+keywords = ["ovh"]
+validate = '''
+cel.bind(ts, time.now_unix(),
+  cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
+    cel.bind(sig_payload, secret + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
+      cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),
+        cel.bind(r,
+          http.get(url, {
+            "X-Ovh-Application": captures["ovh-application-key"],
+            "X-Ovh-Consumer": captures["ovh-consumer-key"],
+            "X-Ovh-Timestamp": ts,
+            "X-Ovh-Signature": sig
+          }),
+          r.status == 200 ? {
+            "result": "valid"
+          } : r.status in [400, 401, 403] ? {
+            "result": "invalid",
+            "reason": "Unauthorized"
+          } : unknown(r)
+        )
+      )
+    )
+  )
+)
+'''
+[[rules.required]]
+id = "ovh-application-key"
+withinLines = 20
+[[rules.required]]
+id = "ovh-consumer-key"
+withinLines = 20
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ovh-consumer-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "ovh-consumer-key"
+description = "OVHcloud Consumer Key - component of authenticated OVH API requests."
+regex = '''(?i)[\w.-]{0,50}?(?:consumer[_.-]{0,1}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+entropy = 2
+keywords = ["ovh"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
 # perplexity-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]

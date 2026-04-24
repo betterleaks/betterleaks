@@ -337,6 +337,31 @@ var celExpressions = []struct {
   } : unknown(r)
 )`,
 	},
+	{
+		"ovh-application-secret",
+		`cel.bind(ts, string(time.now_unix()),
+  cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
+    cel.bind(sig_payload, secret + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
+      cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),
+        cel.bind(r,
+          http.get(url, {
+            "X-Ovh-Application": captures["ovh-application-key"],
+            "X-Ovh-Consumer": captures["ovh-consumer-key"],
+            "X-Ovh-Timestamp": ts,
+            "X-Ovh-Signature": sig
+          }),
+          r.status == 200 ? {
+            "result": "valid"
+          } : r.status in [400, 401, 403] ? {
+            "result": "invalid",
+            "reason": "Unauthorized"
+          } : unknown(r)
+        )
+      )
+    )
+  )
+)`,
+	},
 }
 
 func TestCELExpressionsCompile(t *testing.T) {
