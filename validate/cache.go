@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/betterleaks/betterleaks/report"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -73,7 +74,7 @@ func (c *Cache) GetOrDo(key string, fn func() (*Result, error)) (*Result, error)
 		}
 
 		// Cache non-error validation results.
-		if result.Status != "error" {
+		if result.Status != report.ValidationStatusError {
 			c.mu.Lock()
 			c.store[key] = result
 			c.mu.Unlock()

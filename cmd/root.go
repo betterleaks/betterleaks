@@ -536,15 +536,28 @@ func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Det
 
 	statusFilter, _ := cmd.Flags().GetString("validation-status")
 	if statusFilter != "" {
-		detector.ValidationStatusFilter = make(map[string]struct{})
-		for s := range strings.SplitSeq(statusFilter, ",") {
-			s = strings.TrimSpace(s)
-			s = strings.ToLower(s)
-			if s != "" {
-				detector.ValidationStatusFilter[s] = struct{}{}
-			}
+		filter, err := parseValidationStatusFilter(statusFilter)
+		if err != nil {
+			logging.Fatal().Err(err).Send()
+		}
+		detector.ValidationStatusFilter = filter
+	}
+}
+
+func parseValidationStatusFilter(statusFilter string) (map[report.ValidationStatus]struct{}, error) {
+	filter := make(map[report.ValidationStatus]struct{})
+	for s := range strings.SplitSeq(statusFilter, ",") {
+		status, ok := report.ParseValidationStatus(s)
+		switch {
+		case status == "":
+			continue
+		case ok || status == report.ValidationStatusNone:
+			filter[status] = struct{}{}
+		default:
+			return nil, fmt.Errorf("unknown --validation-status value %q (valid: valid, invalid, revoked, error, unknown, none)", status)
 		}
 	}
+	return filter, nil
 }
 
 func bytesConvert(bytes uint64) string {
@@ -582,11 +595,11 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 
 	if detector.ValidationPool != nil {
 		logging.Info().
-			Int("valid", detector.ValidationCounts["valid"]).
-			Int("invalid", detector.ValidationCounts["invalid"]).
-			Int("revoked", detector.ValidationCounts["revoked"]).
-			Int("unknown", detector.ValidationCounts["unknown"]).
-			Int("errors", detector.ValidationCounts["error"]).
+			Int("valid", detector.ValidationCounts[report.ValidationStatusValid]).
+			Int("invalid", detector.ValidationCounts[report.ValidationStatusInvalid]).
+			Int("revoked", detector.ValidationCounts[report.ValidationStatusRevoked]).
+			Int("unknown", detector.ValidationCounts[report.ValidationStatusUnknown]).
+			Int("errors", detector.ValidationCounts[report.ValidationStatusError]).
 			Msg("validation complete")
 	}
 

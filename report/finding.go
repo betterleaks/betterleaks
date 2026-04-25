@@ -52,8 +52,8 @@ type Finding struct {
 	// Each set is one complete group of components that can be validated independently.
 	RequiredSets []RequiredSet `json:",omitempty"`
 
-	ValidationStatus string `json:",omitempty"`
-	ValidationReason string `json:",omitempty"`
+	ValidationStatus ValidationStatus `json:",omitempty"`
+	ValidationReason string           `json:",omitempty"`
 	// TODO maybe just use the Attribute map
 	ValidationMeta map[string]any `json:",omitempty"`
 
@@ -90,7 +90,7 @@ type Finding struct {
 // independently and carries its own validation result.
 type RequiredSet struct {
 	Components       []*RequiredFinding `json:"components"`
-	ValidationStatus string             `json:"validationStatus,omitempty"`
+	ValidationStatus ValidationStatus   `json:"validationStatus,omitempty"`
 	ValidationReason string             `json:"validationReason,omitempty"`
 }
 
@@ -273,24 +273,24 @@ func truncateSecret(s string) string {
 }
 
 // formatSetStatus returns a styled status string for a required set header.
-func formatSetStatus(status string, noColor bool) string {
+func formatSetStatus(status ValidationStatus, noColor bool) string {
 	if noColor {
-		return "[" + strings.ToUpper(status) + "]"
+		return "[" + strings.ToUpper(status.String()) + "]"
 	}
 	var style color.Style
 	switch status {
-	case "valid":
+	case ValidationStatusValid:
 		style = color.New().Foreground("#00d26a")
-	case "invalid":
+	case ValidationStatusInvalid:
 		style = color.New().Foreground("#888888")
-	case "revoked":
+	case ValidationStatusRevoked:
 		style = color.New().Foreground("#f5d445")
-	case "error":
+	case ValidationStatusError:
 		style = color.New().Foreground("#f05c07")
 	default:
 		style = color.New().Foreground("#c0c0c0")
 	}
-	return style.Render("[" + strings.ToUpper(status) + "]")
+	return style.Render("[" + strings.ToUpper(status.String()) + "]")
 }
 
 func (f Finding) Print(noColor bool, redact uint) {
@@ -432,7 +432,7 @@ func printValidation(f Finding, noColor bool) {
 
 	statusStyle := validationStyle(f.ValidationStatus, noColor)
 
-	fmt.Printf("%-12s %s", "Validation:", statusStyle.Render(strings.ToUpper(f.ValidationStatus)))
+	fmt.Printf("%-12s %s", "Validation:", statusStyle.Render(strings.ToUpper(f.ValidationStatus.String())))
 	if f.ValidationReason != "" {
 		fmt.Printf("  (%s)", f.ValidationReason)
 	}
@@ -448,20 +448,20 @@ func printValidation(f Finding, noColor bool) {
 	}
 }
 
-func validationStyle(status string, noColor bool) color.Style {
+func validationStyle(status ValidationStatus, noColor bool) color.Style {
 	if noColor {
 		return color.New()
 	}
 	switch status {
-	case "valid":
+	case ValidationStatusValid:
 		return color.New().Bold().Foreground("#00d26a")
-	case "invalid":
+	case ValidationStatusInvalid:
 		return color.New().Foreground("#888888")
-	case "revoked":
+	case ValidationStatusRevoked:
 		return color.New().Foreground("#f5d445")
-	case "unknown":
+	case ValidationStatusUnknown:
 		return color.New().Foreground("#c0c0c0")
-	case "error":
+	case ValidationStatusError:
 		return color.New().Foreground("#f05c07")
 	default:
 		return color.New()
