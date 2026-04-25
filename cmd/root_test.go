@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -52,5 +54,34 @@ func TestValidateExperiments(t *testing.T) {
 				t.Fatalf("validateExperiments(%q) error = %q, want substring %q", tt.value, err.Error(), tt.wantError)
 			}
 		})
+	}
+}
+
+func TestInvalidExperimentsDoesNotPrintUsage(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	versionSilenceUsage := versionCmd.SilenceUsage
+	defer func() {
+		versionCmd.SilenceUsage = versionSilenceUsage
+		rootCmd.SetArgs(nil)
+		rootCmd.SetOut(os.Stdout)
+		rootCmd.SetErr(os.Stderr)
+	}()
+
+	rootCmd.SetArgs([]string{"version", "--experiments=fewaf", "--no-banner"})
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("rootCmd.Execute() error = nil, want invalid experiment error")
+	}
+	if !strings.Contains(err.Error(), `unknown experiment "fewaf"`) {
+		t.Fatalf("rootCmd.Execute() error = %q, want invalid experiment error", err.Error())
+	}
+	if strings.Contains(stdout.String(), "Usage:") {
+		t.Fatalf("stdout contains usage: %q", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "Usage:") {
+		t.Fatalf("stderr contains usage: %q", stderr.String())
 	}
 }

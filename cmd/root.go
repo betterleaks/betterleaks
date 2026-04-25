@@ -60,6 +60,7 @@ var (
 			}
 
 			if err := validateExperiments(mustGetStringFlag(cmd, "experiments")); err != nil {
+				cmd.SilenceUsage = true
 				return err
 			}
 			return nil
