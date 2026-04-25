@@ -536,15 +536,28 @@ func setupValidation(cmd *cobra.Command, cfg config.Config, detector *detect.Det
 
 	statusFilter, _ := cmd.Flags().GetString("validation-status")
 	if statusFilter != "" {
-		detector.ValidationStatusFilter = make(map[report.ValidationStatus]struct{})
-		for s := range strings.SplitSeq(statusFilter, ",") {
-			s = strings.TrimSpace(s)
-			s = strings.ToLower(s)
-			if s != "" {
-				detector.ValidationStatusFilter[report.ValidationStatus(s)] = struct{}{}
-			}
+		filter, err := parseValidationStatusFilter(statusFilter)
+		if err != nil {
+			logging.Fatal().Err(err).Send()
+		}
+		detector.ValidationStatusFilter = filter
+	}
+}
+
+func parseValidationStatusFilter(statusFilter string) (map[report.ValidationStatus]struct{}, error) {
+	filter := make(map[report.ValidationStatus]struct{})
+	for s := range strings.SplitSeq(statusFilter, ",") {
+		status, ok := report.ParseValidationStatus(s)
+		switch {
+		case status == "":
+			continue
+		case ok || status == report.ValidationStatusNone:
+			filter[status] = struct{}{}
+		default:
+			return nil, fmt.Errorf("unknown --validation-status value %q (valid: valid, invalid, revoked, error, unknown, none)", status)
 		}
 	}
+	return filter, nil
 }
 
 func bytesConvert(bytes uint64) string {
