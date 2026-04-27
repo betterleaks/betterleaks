@@ -129,7 +129,7 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 			cel.Overload("crypto_md5_bytes",
 				[]*cel.Type{cel.BytesType},
 				cel.BytesType,
-				cel.UnaryBinding(md5Binding(e)),
+				cel.UnaryBinding(md5Binding()),
 			),
 		),
 
@@ -137,7 +137,7 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 			cel.Overload("crypto_sha1_bytes",
 				[]*cel.Type{cel.BytesType},
 				cel.BytesType,
-				cel.UnaryBinding(sha1Binding(e)),
+				cel.UnaryBinding(sha1Binding()),
 			),
 		),
 
@@ -145,7 +145,7 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 			cel.Overload("hex_encode_bytes",
 				[]*cel.Type{cel.BytesType},
 				cel.StringType,
-				cel.UnaryBinding(hexEncodeBinding(e)),
+				cel.UnaryBinding(hexEncodeBinding()),
 			),
 		),
 
@@ -153,7 +153,7 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 			cel.Overload("crypto_hmac_sha256_bytes_bytes",
 				[]*cel.Type{cel.BytesType, cel.BytesType},
 				cel.BytesType,
-				cel.BinaryBinding(hmacSha256Binding(e)),
+				cel.BinaryBinding(hmacSha256Binding()),
 			),
 		),
 
@@ -161,7 +161,7 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 			cel.Overload("time_now_unix",
 				[]*cel.Type{},
 				cel.StringType,
-				cel.FunctionBinding(timeNowUnixBinding(e)),
+				cel.FunctionBinding(timeNowUnixBinding()),
 			),
 		),
 

@@ -93,7 +93,9 @@ Your CEL expression must return a map containing a `"result"` key. The valid sta
 | `http.post(url, headers, body)`| Fires a POST request and returns the same response map `r` as `http.get`. |
 | `cel.bind(name, value, expr)` | Binds a variable to avoid repeating sub-expressions (e.g., binding the HTTP response to `r`). |
 | `unknown(response)` | A helper function that takes an HTTP response map and returns `{"result": "unknown", "reason": "HTTP <status>"}`. |
-| `md5(string)` | Returns the MD5 hash of the string. |
+| `crypto.md5(bytes)` | Returns the MD5 hash of the input bytes. |
+| `crypto.sha1(bytes)` | Returns the SHA-1 hash of the input bytes. |
+| `hex.encode(bytes)` | Returns the lowercase hex encoding of the input bytes. |
 | `crypto.hmac_sha256(key, msg)` | Returns the HMAC-SHA256 signature (as bytes). |
 | `time.now_unix()` | Returns the current Unix timestamp as a string. |
 | `aws.validate(key, secret)` | A specialized helper that makes a SigV4-signed request to the AWS STS API to validate AWS keys. |

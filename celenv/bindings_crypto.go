@@ -12,7 +12,7 @@ import (
 	"github.com/google/cel-go/common/types/ref"
 )
 
-func md5Binding(e *ValidationEnvironment) functions.UnaryOp {
+func md5Binding() functions.UnaryOp {
 	return func(value ref.Val) ref.Val {
 		bs, ok := value.(types.Bytes)
 		if !ok {
@@ -24,7 +24,7 @@ func md5Binding(e *ValidationEnvironment) functions.UnaryOp {
 	}
 }
 
-func sha1Binding(e *Environment) functions.UnaryOp {
+func sha1Binding() functions.UnaryOp {
 	return func(value ref.Val) ref.Val {
 		bs, ok := value.(types.Bytes)
 		if !ok {
@@ -36,7 +36,7 @@ func sha1Binding(e *Environment) functions.UnaryOp {
 	}
 }
 
-func hmacSha256Binding(e *ValidationEnvironment) functions.BinaryOp {
+func hmacSha256Binding() functions.BinaryOp {
 	return func(lhs ref.Val, rhs ref.Val) ref.Val {
 		key, ok := lhs.(types.Bytes)
 		if !ok {
@@ -55,7 +55,7 @@ func hmacSha256Binding(e *ValidationEnvironment) functions.BinaryOp {
 
 // TODO maybe split out to it's own file for encodings?
 // encode/decode etc
-func hexEncodeBinding(e *Environment) functions.UnaryOp {
+func hexEncodeBinding() functions.UnaryOp {
 	return func(value ref.Val) ref.Val {
 		bs, ok := value.(types.Bytes)
 		if !ok {
