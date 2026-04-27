@@ -19,6 +19,7 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/logging"
+	blregexp "github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/validate"
@@ -291,6 +292,24 @@ func buildFindingMap(f *report.Finding) map[string]string {
 		"rule_id":     f.RuleID,
 		"description": f.Description,
 	}
+}
+
+func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragment) bool {
+	path := fragment.Attr(sources.AttrPath)
+	return path != "" && pathRule != nil && pathRule.MatchString(path)
+}
+
+func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding {
+	path := fragment.Attr(sources.AttrPath)
+	finding := report.Finding{
+		RuleID:      r.RuleID,
+		Description: r.Description,
+		Match:       "file detected: " + path,
+		Tags:        r.Tags,
+		Attributes:  maps.Clone(fragment.Attributes),
+	}
+	finding.SyncDeprecatedSourceFields()
+	return finding
 }
 
 // NewDetectorDefaultConfig creates a new detector with the default config
@@ -624,28 +643,17 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	}
 
 	if r.Path != nil {
-		// TODO remove windows handling since it should be normalized in the source to a universal Path attribute.
-		wp := fragment.Attr(sources.AttrFSWindowsPath)
 		if r.Regex == nil && len(encodedSegments) == 0 {
-			// Path _only_ rule
-			if r.Path.MatchString(fragment.Attr(sources.AttrPath)) || (wp != "" && r.Path.MatchString(wp)) {
-				finding := report.Finding{
-					RuleID:      r.RuleID,
-					Description: r.Description,
-					Match:       "file detected: " + fragment.Attr(sources.AttrPath),
-					Tags:        r.Tags,
-					Attributes:  maps.Clone(fragment.Attributes),
-				}
-				finding.SyncDeprecatedSourceFields()
-				return append(findings, finding)
+			if rulePathMatchesFragment(r.Path, fragment) {
+				return append(findings, newPathOnlyFinding(r, fragment))
 			}
-		} else {
-			// if path is set _and_ a regex is set, then we need to check both
-			// so if the path does not match, then we should return early and not
-			// consider the regex
-			if !r.Path.MatchString(fragment.Attr(sources.AttrPath)) && (wp == "" || !r.Path.MatchString(wp)) {
-				return findings
-			}
+			return findings
+		}
+
+		if !rulePathMatchesFragment(r.Path, fragment) {
+			// If a rule defines both `path` and `regex`, the normalized fragment path
+			// must match before we spend time checking the content regex.
+			return findings
 		}
 	}
 

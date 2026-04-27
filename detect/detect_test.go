@@ -2719,8 +2719,9 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 					sources.AttrFSWindowsPath: `.m2\settings.xml`,
 				},
 			},
-			rule:     windowsRule,
-			expected: expected,
+			rule: windowsRule,
+			// Paths are normalized to use Unix separators before detection.
+			expected: nil,
 		},
 		"windows regex+path rule - windows path separator": {
 			fragment: sources.Fragment{
@@ -2735,18 +2736,9 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 				Regex:  regexp.MustCompile(`<password>(.+?)</password>`),
 				Path:   regexp.MustCompile(`(^|\\)\.m2\\settings\.xml`),
 			},
-			expected: []report.Finding{
-				{
-					RuleID:      "test-rule",
-					StartColumn: 1,
-					EndColumn:   27,
-					Line:        "<password>s3cr3t</password>",
-					Match:       "<password>s3cr3t</password>",
-					Secret:      "s3cr3t",
-					Entropy:     2.251629114151001,
-					File:        ".m2/settings.xml",
-				},
-			}},
+			// Paths are normalized to use Unix separators before detection.
+			expected: nil,
+		},
 	}
 
 	d, err := NewDetectorDefaultConfig()
