@@ -68,6 +68,9 @@ func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error 
 	g, gctx := errgroup.WithContext(ctx)
 	for i := range workers {
 		start := i * chunkSize
+		if start >= count {
+			break
+		}
 		end := min(start+chunkSize, count)
 		chunk := commits[start:end]
 		g.Go(func() error {

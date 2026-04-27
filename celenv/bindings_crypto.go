@@ -3,8 +3,9 @@ package celenv
 import (
 	"crypto/hmac"
 	"crypto/md5"
+	"crypto/sha1"
 	"crypto/sha256"
-	"fmt"
+	"encoding/hex"
 
 	"github.com/google/cel-go/common/functions"
 	"github.com/google/cel-go/common/types"
@@ -13,13 +14,25 @@ import (
 
 func md5Binding(e *ValidationEnvironment) functions.UnaryOp {
 	return func(value ref.Val) ref.Val {
-		str, ok := value.(types.String)
+		bs, ok := value.(types.Bytes)
 		if !ok {
 			return types.MaybeNoSuchOverloadErr(value)
 		}
 
-		hash := md5.Sum([]byte(str))
-		return types.String(fmt.Sprintf("%x", hash))
+		hash := md5.Sum([]byte(bs))
+		return types.Bytes(hash[:])
+	}
+}
+
+func sha1Binding(e *Environment) functions.UnaryOp {
+	return func(value ref.Val) ref.Val {
+		bs, ok := value.(types.Bytes)
+		if !ok {
+			return types.MaybeNoSuchOverloadErr(value)
+		}
+
+		hash := sha1.Sum([]byte(bs))
+		return types.Bytes(hash[:])
 	}
 }
 
@@ -37,5 +50,18 @@ func hmacSha256Binding(e *ValidationEnvironment) functions.BinaryOp {
 		h := hmac.New(sha256.New, []byte(key))
 		h.Write([]byte(msg))
 		return types.Bytes(h.Sum(nil))
+	}
+}
+
+// TODO maybe split out to it's own file for encodings?
+// encode/decode etc
+func hexEncodeBinding(e *Environment) functions.UnaryOp {
+	return func(value ref.Val) ref.Val {
+		bs, ok := value.(types.Bytes)
+		if !ok {
+			return types.MaybeNoSuchOverloadErr(value)
+		}
+
+		return types.String(hex.EncodeToString([]byte(bs)))
 	}
 }
