@@ -422,15 +422,7 @@ func main() {
 	// Translate legacy allowlists, entropy, and tokenEfficiency into CEL
 	// prefilter/filter expressions so the generated TOML uses native CEL.
 	if err := cfg.TranslateLegacyFilters(); err != nil {
-		logging.Fatal().Err(err).Msg("Failed to translate legacy filters to CEL")
-	}
-	// Clear deprecated fields now that they've been translated.
-	cfg.Allowlists = nil
-	for ruleID, r := range cfg.Rules {
-		r.Allowlists = nil
-		r.Entropy = 0
-		r.TokenEfficiency = false
-		cfg.Rules[ruleID] = r
+		logging.Fatal().Err(err).Msg("failed to translate legacy allowlists to filters")
 	}
 
 	if err = tmpl.Execute(f, cfg); err != nil {

@@ -24,7 +24,7 @@ import (
 // timestamp ties in the commit graph.
 type ParallelGit struct {
 	RepoPath        string
-	Skip            SkipFunc
+	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
 	Sema            *semgroup.Group
@@ -88,7 +88,7 @@ func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) 
 
 	src := &Git{
 		Cmd:             gitCmd,
-		Skip:            s.Skip,
+		ShouldSkip:      s.ShouldSkip,
 		Platform:        s.Platform,
 		RemoteURL:       s.RemoteURL,
 		Sema:            s.Sema,
@@ -108,7 +108,7 @@ func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield FragmentsFunc,
 
 	src := &Git{
 		Cmd:             gitCmd,
-		Skip:            s.Skip,
+		ShouldSkip:      s.ShouldSkip,
 		Platform:        s.Platform,
 		RemoteURL:       s.RemoteURL,
 		Sema:            s.Sema,

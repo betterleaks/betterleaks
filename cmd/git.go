@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -10,6 +11,16 @@ import (
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
+
+// multipleErrors wraps multiple scan errors into a single error that supports
+// errors.Unwrap so callers can inspect individual errors.
+type multipleErrors struct {
+	msg  string
+	errs []error
+}
+
+func (e *multipleErrors) Error() string  { return e.msg }
+func (e *multipleErrors) Unwrap() []error { return e.errs }
 
 func init() {
 	rootCmd.AddCommand(gitCmd)
@@ -74,7 +85,7 @@ func runGit(cmd *cobra.Command, args []string) {
 		// Remote info + links are irrelevant for staged changes.
 		src = &sources.Git{
 			Cmd:             gitCmd,
-			Skip:            detector.SkipFunc(),
+			ShouldSkip:      detector.SkipFunc(),
 			Platform:        scm.NoPlatform,
 			Sema:            detector.Sema,
 			MaxArchiveDepth: detector.MaxArchiveDepth,
@@ -88,7 +99,7 @@ func runGit(cmd *cobra.Command, args []string) {
 		if gitWorkers > 0 {
 			src = &sources.ParallelGit{
 				RepoPath:        source,
-				Skip:            detector.SkipFunc(),
+				ShouldSkip:      detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,
@@ -103,7 +114,7 @@ func runGit(cmd *cobra.Command, args []string) {
 			}
 			src = &sources.Git{
 				Cmd:             gitCmd,
-				Skip:            detector.SkipFunc(),
+				ShouldSkip:      detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,
@@ -113,11 +124,10 @@ func runGit(cmd *cobra.Command, args []string) {
 	}
 
 	detector.SkipFindingAppend = true
+	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
 		if result.Err != nil {
-			if err == nil {
-				err = result.Err
-			}
+			scanErrs = append(scanErrs, result.Err)
 			// don't exit on error, just log it
 			logging.Error().Err(result.Err).Msg("failed to scan Git repository")
 			continue
@@ -126,6 +136,13 @@ func runGit(cmd *cobra.Command, args []string) {
 		findings = append(findings, result.Finding)
 		if verbose {
 			result.Finding.Print(noColor, redact)
+		}
+	}
+
+	if n := len(scanErrs); n > 0 {
+		err = &multipleErrors{
+			msg:  fmt.Sprintf("%d error(s) encountered during scan", n),
+			errs: scanErrs,
 		}
 	}
 

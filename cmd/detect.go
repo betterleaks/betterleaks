@@ -75,7 +75,7 @@ func runDetect(cmd *cobra.Command, args []string) {
 	if noGit {
 		findings, err = detector.DetectSource(
 			cmd.Context(), &sources.Files{
-				Skip:            detector.SkipFunc(),
+				ShouldSkip:      detector.SkipFunc(),
 				FollowSymlinks:  detector.FollowSymlinks,
 				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 				Path:            sourcePath,
@@ -120,7 +120,7 @@ func runDetect(cmd *cobra.Command, args []string) {
 		findings, err = detector.DetectSource(
 			cmd.Context(), &sources.Git{
 				Cmd:             gitCmd,
-				Skip:            detector.SkipFunc(),
+				ShouldSkip:      detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,

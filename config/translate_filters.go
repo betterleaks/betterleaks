@@ -60,8 +60,14 @@ func (c *Config) translateLegacyFilters() error {
 				Msg("translated rule filter CEL expression")
 		}
 
+		r.Allowlists = nil
+		r.Entropy = 0
+		r.TokenEfficiency = false
 		c.Rules[ruleID] = r
 	}
+
+	// Clear deprecated global fields now that they've been translated.
+	c.Allowlists = nil
 
 	return nil
 }

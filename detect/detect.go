@@ -454,10 +454,20 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 // file entries.
 func (d *Detector) ignore(finding report.Finding) bool {
 	logger := logging.With().Str("finding", finding.Secret).Logger()
-	if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
+	path := finding.Attributes[sources.AttrPath]
+	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, finding.RuleID, finding.StartLine)
+
+	if _, ok := d.gitleaksIgnore[globalFingerprint]; ok {
 		logger.Debug().
 			Str("fingerprint", finding.Fingerprint).
 			Msg("skipping finding: global fingerprint")
+		return true
+	}
+
+	if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
+		logger.Debug().
+			Str("fingerprint", finding.Fingerprint).
+			Msg("skipping finding: fingerprint")
 		return true
 	}
 

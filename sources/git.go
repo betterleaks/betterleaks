@@ -317,7 +317,7 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 // Git is a source for yielding fragments from a git repo
 type Git struct {
 	Cmd             *GitCmd
-	Skip            SkipFunc
+	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
 	Sema            *semgroup.Group
@@ -384,7 +384,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					commitAttrs[AttrGitAuthorEmail] = gitdiffFile.PatchHeader.Author.Email
 				}
 
-				if shouldSkipAttrs(s.Skip, commitAttrs) {
+				if shouldSkipAttrs(s.ShouldSkip, commitAttrs) {
 					logging.Trace().
 						Str("commit", commitSHA).
 						Str("path", gitdiffFile.NewName).
@@ -408,7 +408,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 						Content:         blob,
 						Path:            gitdiffFile.NewName,
 						MaxArchiveDepth: s.MaxArchiveDepth,
-						Skip:            s.Skip,
+						ShouldSkip:      s.ShouldSkip,
 					}
 
 					// enrich and yield fragments

@@ -1416,7 +1416,7 @@ func TestFromGit(t *testing.T) {
 				t.Context(),
 				&sources.Git{
 					Cmd:             gitCmd,
-					Skip:            detector.SkipFunc(),
+					ShouldSkip:      detector.SkipFunc(),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
 					Sema:            detector.Sema,
@@ -1498,7 +1498,7 @@ func TestFromGitStaged(t *testing.T) {
 			t.Context(),
 			&sources.Git{
 				Cmd:             gitCmd,
-				Skip:            detector.SkipFunc(),
+				ShouldSkip:      detector.SkipFunc(),
 				Platform:        platform,
 				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,
@@ -1623,7 +1623,7 @@ func TestFromFiles(t *testing.T) {
 			findings, err := detector.DetectSource(
 				t.Context(),
 				&sources.Files{
-					Skip:            detector.SkipFunc(),
+					ShouldSkip:      detector.SkipFunc(),
 					FollowSymlinks:  detector.FollowSymlinks,
 					MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 					Path:            tt.source,
@@ -2218,7 +2218,7 @@ func TestDetectWithArchives(t *testing.T) {
 				ctx, &sources.Files{
 					Path:            tt.source,
 					Sema:            detector.Sema,
-					Skip:            detector.SkipFunc(),
+					ShouldSkip:      detector.SkipFunc(),
 					MaxArchiveDepth: detector.MaxArchiveDepth,
 				},
 			)
@@ -2302,7 +2302,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 		findings, err := detector.DetectSource(
 			t.Context(),
 			&sources.Files{
-				Skip:            detector.SkipFunc(),
+				ShouldSkip:      detector.SkipFunc(),
 				FollowSymlinks:  detector.FollowSymlinks,
 				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 				Path:            tt.source,

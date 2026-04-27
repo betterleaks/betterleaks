@@ -123,10 +123,7 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 	// Translate legacy allowlists/entropy/tokenEfficiency into CEL expressions
 	// and compile them so filtering works during validation.
 	if err := cfg.TranslateLegacyFilters(); err != nil {
-		logging.Fatal().Err(err).Msg("failed to translate legacy filters")
+		logging.Fatal().Err(err).Msg("failed to translate legacy allowlists to filters")
 	}
-	// NewDetector calls NewDetectorContext which compiles CEL filters,
-	// so we don't need a separate compilation step.
-	d := detect.NewDetector(cfg)
-	return d
+	return detect.NewDetector(cfg)
 }
