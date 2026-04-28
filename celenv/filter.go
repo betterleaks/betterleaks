@@ -27,7 +27,7 @@ func NewFilterEnv(tokenizer *tiktoken.Tiktoken) (*FilterEnv, error) {
 		cel.Variable("attributes", cel.MapType(cel.StringType, cel.StringType)),
 		cel.Variable("finding", cel.MapType(cel.StringType, cel.StringType)),
 	}
-	opts = append(opts, fastBindings(tokenizer)...)
+	opts = append(opts, filterBindings(tokenizer)...)
 
 	env, err := cel.NewEnv(opts...)
 	if err != nil {

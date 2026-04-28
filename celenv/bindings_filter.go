@@ -240,9 +240,9 @@ func celFailsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
 	return float64(len(analyzed))/float64(len(tokens)) >= threshold
 }
 
-// fastBindings returns the CEL EnvOptions for bindings shared by PrefilterEnv and FilterEnv.
+// filterBindings returns the CEL EnvOptions for bindings shared by PrefilterEnv and FilterEnv.
 // tke may be nil; failsTokenEfficiency will return false unconditionally in that case.
-func fastBindings(tke *tiktoken.Tiktoken) []cel.EnvOption {
+func filterBindings(tke *tiktoken.Tiktoken) []cel.EnvOption {
 	return []cel.EnvOption{
 		matchesAnyBinding(),
 		containsAnyBinding(),

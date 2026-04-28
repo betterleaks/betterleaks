@@ -28,7 +28,7 @@ func NewPrefilterEnv() (*PrefilterEnv, error) {
 		ext.Strings(),
 		cel.Variable("attributes", cel.MapType(cel.StringType, cel.StringType)),
 	}
-	opts = append(opts, fastBindings(nil)...)
+	opts = append(opts, filterBindings(nil)...)
 
 	env, err := cel.NewEnv(opts...)
 	if err != nil {
