@@ -8,8 +8,12 @@ import (
 	"strings"
 
 	gv "github.com/hashicorp/go-version"
+	tiktoken "github.com/pkoukk/tiktoken-go"
 	"github.com/spf13/viper"
 
+	"github.com/google/cel-go/cel"
+
+	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/version"
@@ -18,10 +22,6 @@ import (
 var (
 	//go:embed betterleaks.toml
 	DefaultConfig string
-
-	// use to keep track of how many configs we can extend
-	// yea I know, globals bad
-	extendDepth int
 )
 
 const maxExtendDepth = 2
@@ -52,6 +52,10 @@ type ViperConfig struct {
 		Validate        string
 		SkipReport      bool
 		TokenEfficiency bool
+
+		// Filter is a CEL expression evaluated per match (attributes + finding).
+		// Returns true = skip (discard this finding); false = keep.
+		Filter string
 	}
 	// Deprecated: this is a shim for backwards-compatibility.
 	// TODO: Remove this in 9.x.
@@ -61,6 +65,10 @@ type ViperConfig struct {
 
 	MinVersion            string
 	BetterleaksMinVersion string
+
+	// Global CEL filter expressions.
+	Prefilter string
+	Filter    string
 
 	configPath string
 }
@@ -101,10 +109,28 @@ type Config struct {
 	// NoKeywordRules contains rule IDs that have no keywords and must always be checked.
 	NoKeywordRules []string
 	// used to keep sarif results consistent
-	OrderedRules          []string
-	Allowlists            []*Allowlist
+	OrderedRules []string
+
+	// Deprecated: use filter/prefilter CEL expressions instead. This is a shim for backwards-compatibility.
+	Allowlists []*Allowlist
+
 	MinVersion            string
 	BetterleaksMinVersion string
+
+	// Prefilter is a global CEL expression (attributes only) evaluated before any
+	// per-match work. Returns true = skip this fragment entirely; false = keep.
+	// Translated from global Allowlists path/commit checks.
+	Prefilter string
+	// Filter is a global CEL expression (attributes + finding) evaluated per match.
+	// Returns true = skip (discard) this finding; false = keep.
+	// Translated from global Allowlists regex/stopword checks.
+	Filter string
+
+	// prefilterProgram and filterProgram hold CEL programs compiled by
+	// CompileCELFilters. Validation compilation is handled separately by
+	// CompileValidation.
+	prefilterProgram cel.Program
+	filterProgram    cel.Program
 }
 
 // Extend is a struct that allows users to define how they want their
@@ -116,7 +142,11 @@ type Extend struct {
 	DisabledRules []string
 }
 
-func (vc *ViperConfig) Translate() (Config, error) {
+func (vc *ViperConfig) Translate() (*Config, error) {
+	return vc.translate(0)
+}
+
+func (vc *ViperConfig) translate(depth int) (*Config, error) {
 	var (
 		keywords       = make(map[string]struct{})
 		orderedRules   []string
@@ -133,14 +163,14 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		if vr.Path != "" {
 			pat, err := regexp.Compile(vr.Path)
 			if err != nil {
-				return Config{}, fmt.Errorf("%s: invalid path regex %q: %w", vr.ID, vr.Path, err)
+				return nil, fmt.Errorf("%s: invalid path regex %q: %w", vr.ID, vr.Path, err)
 			}
 			pathPat = pat
 		}
 		if vr.Regex != "" {
 			pat, err := regexp.Compile(vr.Regex)
 			if err != nil {
-				return Config{}, fmt.Errorf("%s: invalid regex %q: %w", vr.ID, vr.Regex, err)
+				return nil, fmt.Errorf("%s: invalid regex %q: %w", vr.ID, vr.Regex, err)
 			}
 			regexPat = pat
 		}
@@ -173,21 +203,21 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		if vr.AllowList != nil {
 			// TODO: Remove this in v9.
 			if len(vr.Allowlists) > 0 {
-				return Config{}, fmt.Errorf("%s: [rules.allowlist] is deprecated, it cannot be used alongside [[rules.allowlist]]", cr.RuleID)
+				return nil, fmt.Errorf("%s: [rules.allowlist] is deprecated, it cannot be used alongside [[rules.allowlist]]", cr.RuleID)
 			}
 			vr.Allowlists = append(vr.Allowlists, vr.AllowList)
 		}
 		for _, a := range vr.Allowlists {
 			allowlist, err := vc.parseAllowlist(a)
 			if err != nil {
-				return Config{}, fmt.Errorf("%s: [[rules.allowlists]] %w", cr.RuleID, err)
+				return nil, fmt.Errorf("%s: [[rules.allowlists]] %w", cr.RuleID, err)
 			}
 			cr.Allowlists = append(cr.Allowlists, allowlist)
 		}
 
 		for _, r := range vr.Required {
 			if r.ID == "" {
-				return Config{}, fmt.Errorf("%s: [[rules.required]] rule ID is empty", cr.RuleID)
+				return nil, fmt.Errorf("%s: [[rules.required]] rule ID is empty", cr.RuleID)
 			}
 			requiredRule := Required{
 				RuleID:        r.ID,
@@ -199,6 +229,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		}
 
 		cr.ValidateCEL = vr.Validate
+		cr.Filter = vr.Filter
 
 		orderedRules = append(orderedRules, cr.RuleID)
 		rulesMap[cr.RuleID] = cr
@@ -209,13 +240,13 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	for _, r := range rulesMap {
 		for _, rr := range r.RequiredRules {
 			if _, ok := rulesMap[rr.RuleID]; !ok {
-				return Config{}, fmt.Errorf("%s: [[rules.required]] rule ID '%s' does not exist", r.RuleID, rr.RuleID)
+				return nil, fmt.Errorf("%s: [[rules.required]] rule ID '%s' does not exist", r.RuleID, rr.RuleID)
 			}
 		}
 	}
 
 	// Assemble the config.
-	c := Config{
+	c := &Config{
 		Title:                 vc.Title,
 		Description:           vc.Description,
 		Extend:                vc.Extend,
@@ -224,11 +255,13 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		OrderedRules:          orderedRules,
 		MinVersion:            vc.MinVersion,
 		BetterleaksMinVersion: vc.BetterleaksMinVersion,
+		Prefilter:             vc.Prefilter,
+		Filter:                vc.Filter,
 	}
 
-	if extendDepth > 0 {
+	if depth > 0 {
 		// annoying hack to set the current config with the extended path
-		// since if extendDepth > 0 we are operating an extended config.
+		// since depth > 0 we are operating an extended config.
 		c.Path = vc.configPath
 	} else {
 		// I don't love this
@@ -236,21 +269,21 @@ func (vc *ViperConfig) Translate() (Config, error) {
 	}
 
 	if err := validateMinVersion(c.MinVersion, c.BetterleaksMinVersion, c.Path); err != nil {
-		return Config{}, err
+		return nil, err
 	}
 
 	// Parse the config allowlists, including the older format for backwards compatibility.
 	if vc.AllowList != nil {
 		// TODO: Remove this in v9.
 		if len(vc.Allowlists) > 0 {
-			return Config{}, errors.New("[allowlist] is deprecated, it cannot be used alongside [[allowlists]]")
+			return nil, errors.New("[allowlist] is deprecated, it cannot be used alongside [[allowlists]]")
 		}
 		vc.Allowlists = append(vc.Allowlists, vc.AllowList)
 	}
 	for _, a := range vc.Allowlists {
 		allowlist, err := vc.parseAllowlist(&a.viperRuleAllowlist)
 		if err != nil {
-			return Config{}, fmt.Errorf("[[allowlists]] %w", err)
+			return nil, fmt.Errorf("[[allowlists]] %w", err)
 		}
 		// Allowlists with |targetRules| aren't added to the global list.
 		if len(a.TargetRules) > 0 {
@@ -263,28 +296,27 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		}
 	}
 
-	currentExtendDepth := extendDepth
-	if maxExtendDepth != currentExtendDepth {
+	if maxExtendDepth != depth {
 		// disallow both usedefault and path from being set
 		if c.Extend.Path != "" && c.Extend.UseDefault {
-			return Config{}, errors.New("unable to load config due to extend.path and extend.useDefault being set")
+			return nil, errors.New("unable to load config due to extend.path and extend.useDefault being set")
 		}
 		if c.Extend.UseDefault {
-			if err := c.extendDefault(vc); err != nil {
-				return Config{}, err
+			if err := c.extendDefault(vc, depth); err != nil {
+				return nil, err
 			}
 		} else if c.Extend.Path != "" {
-			if err := c.extendPath(vc); err != nil {
-				return Config{}, err
+			if err := c.extendPath(vc, depth); err != nil {
+				return nil, err
 			}
 		}
 	}
 
 	// Validate the rules after everything has been assembled (including extended configs).
-	if currentExtendDepth == 0 {
+	if depth == 0 {
 		for _, rule := range c.Rules {
 			if err := rule.Validate(); err != nil {
-				return Config{}, err
+				return nil, err
 			}
 		}
 
@@ -292,7 +324,7 @@ func (vc *ViperConfig) Translate() (Config, error) {
 		for ruleID, allowlists := range ruleAllowlists {
 			rule, ok := c.Rules[ruleID]
 			if !ok {
-				return Config{}, fmt.Errorf("[[allowlists]] target rule ID '%s' does not exist", ruleID)
+				return nil, fmt.Errorf("[[allowlists]] target rule ID '%s' does not exist", ruleID)
 			}
 			rule.Allowlists = append(rule.Allowlists, allowlists...)
 			c.Rules[ruleID] = rule
@@ -311,6 +343,14 @@ func (vc *ViperConfig) Translate() (Config, error) {
 			for _, k := range rule.Keywords {
 				c.KeywordToRules[k] = append(c.KeywordToRules[k], ruleID)
 			}
+		}
+	}
+
+	// Translate legacy allowlists / entropy / token-efficiency into CEL strings.
+	// Must run after all extends and targeted allowlist population are complete.
+	if depth == 0 {
+		if err := c.translateLegacyFilters(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -433,6 +473,96 @@ func (vc *ViperConfig) parseAllowlist(a *viperRuleAllowlist) (*Allowlist, error)
 	return allowlist, nil
 }
 
+// PrefilterProgram returns the compiled global prefilter program, or nil if not set.
+func (c *Config) PrefilterProgram() cel.Program { return c.prefilterProgram }
+
+// SetPrefilterProgram stores a compiled global prefilter program.
+func (c *Config) SetPrefilterProgram(p cel.Program) { c.prefilterProgram = p }
+
+// FilterProgram returns the compiled global filter program, or nil if not set.
+func (c *Config) FilterProgram() cel.Program { return c.filterProgram }
+
+// SetFilterProgram stores a compiled global filter program.
+func (c *Config) SetFilterProgram(p cel.Program) { c.filterProgram = p }
+
+// CompileCELFilters compiles the global prefilter, global filter, and per-rule
+// filter CEL expressions into executable programs. This is idempotent.
+func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
+	prefilterEnv, err := celenv.NewPrefilterEnv()
+	if err != nil {
+		return fmt.Errorf("creating prefilter env: %w", err)
+	}
+	filterEnv, err := celenv.NewFilterEnv(tokenizer)
+	if err != nil {
+		return fmt.Errorf("creating filter env: %w", err)
+	}
+
+	if c.Prefilter != "" {
+		prg, compileErr := prefilterEnv.Compile(c.Prefilter)
+		if compileErr != nil {
+			return fmt.Errorf("compiling global prefilter: %w", compileErr)
+		}
+		c.prefilterProgram = prg
+	}
+	if c.Filter != "" {
+		prg, compileErr := filterEnv.Compile(c.Filter)
+		if compileErr != nil {
+			return fmt.Errorf("compiling global filter: %w", compileErr)
+		}
+		c.filterProgram = prg
+	}
+
+	for ruleID, r := range c.Rules {
+		if r.Filter != "" {
+			prg, compileErr := filterEnv.Compile(r.Filter)
+			if compileErr != nil {
+				return fmt.Errorf("compiling rule %s filter: %w", ruleID, compileErr)
+			}
+			r.SetFilterProgram(prg)
+			c.Rules[ruleID] = r
+		}
+	}
+
+	return nil
+}
+
+// CompileValidation compiles per-rule CEL validation expressions.
+// It creates its own celenv.Environment (like CompileCELFilters creates filter/prefilter envs)
+// and returns it so the caller can store it for runtime use by the validation pool.
+// Returns (nil, nil) when no rules have validation expressions.
+func (c *Config) CompileValidation() (*celenv.ValidationEnvironment, error) {
+	// Quick check: skip environment creation if nothing to compile.
+	hasValidation := false
+	for _, r := range c.Rules {
+		if r.ValidateCEL != "" {
+			hasValidation = true
+			break
+		}
+	}
+	if !hasValidation {
+		return nil, nil
+	}
+
+	env, err := celenv.NewEnvironment(nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating validation env: %w", err)
+	}
+
+	for ruleID, r := range c.Rules {
+		if r.ValidateCEL == "" {
+			continue
+		}
+		prg, compileErr := env.Compile(r.ValidateCEL)
+		if compileErr != nil {
+			return nil, fmt.Errorf("compiling rule %s validation: %w", ruleID, compileErr)
+		}
+		r.SetCelProgram(prg)
+		c.Rules[ruleID] = r
+	}
+
+	return env, nil
+}
+
 func (c *Config) GetOrderedRules() []Rule {
 	var orderedRules []Rule
 	for _, id := range c.OrderedRules {
@@ -443,8 +573,7 @@ func (c *Config) GetOrderedRules() []Rule {
 	return orderedRules
 }
 
-func (c *Config) extendDefault(parent *ViperConfig) error {
-	extendDepth++
+func (c *Config) extendDefault(parent *ViperConfig, depth int) error {
 	viper.SetConfigType("toml")
 	if err := viper.ReadConfig(strings.NewReader(DefaultConfig)); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
@@ -453,7 +582,7 @@ func (c *Config) extendDefault(parent *ViperConfig) error {
 	if err := viper.Unmarshal(&defaultViperConfig); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 	}
-	cfg, err := defaultViperConfig.Translate()
+	cfg, err := defaultViperConfig.translate(depth + 1)
 	if err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 
@@ -463,8 +592,7 @@ func (c *Config) extendDefault(parent *ViperConfig) error {
 	return nil
 }
 
-func (c *Config) extendPath(parent *ViperConfig) error {
-	extendDepth++
+func (c *Config) extendPath(parent *ViperConfig, depth int) error {
 	viper.SetConfigFile(c.Extend.Path)
 	if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
@@ -476,7 +604,7 @@ func (c *Config) extendPath(parent *ViperConfig) error {
 
 	extensionViperConfig.configPath = c.Extend.Path
 	logging.Debug().Msgf("extending config with %s", c.Extend.Path)
-	cfg, err := extensionViperConfig.Translate()
+	cfg, err := extensionViperConfig.translate(depth + 1)
 	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}
@@ -484,11 +612,7 @@ func (c *Config) extendPath(parent *ViperConfig) error {
 	return nil
 }
 
-func (c *Config) extendURL() {
-	// TODO
-}
-
-func (c *Config) extend(extensionConfig Config) {
+func (c *Config) extend(extensionConfig *Config) {
 	// Get config name for helpful log messages.
 	var configName string
 	if c.Extend.Path != "" {
@@ -546,6 +670,10 @@ func (c *Config) extend(extensionConfig Config) {
 			if currentRule.ValidateCEL != "" {
 				baseRule.ValidateCEL = currentRule.ValidateCEL
 			}
+			// Current rule's Filter replaces the extending one if set.
+			if currentRule.Filter != "" {
+				baseRule.Filter = currentRule.Filter
+			}
 			baseRule.Tags = append(baseRule.Tags, currentRule.Tags...)
 			baseRule.Keywords = append(baseRule.Keywords, currentRule.Keywords...)
 			baseRule.Allowlists = append(baseRule.Allowlists, currentRule.Allowlists...)
@@ -560,7 +688,14 @@ func (c *Config) extend(extensionConfig Config) {
 	// append allowlists, not attempting to merge
 	c.Allowlists = append(c.Allowlists, extensionConfig.Allowlists...)
 
+	// Current config's global Prefilter/Filter wins over extension's if set.
+	if c.Prefilter == "" {
+		c.Prefilter = extensionConfig.Prefilter
+	}
+	if c.Filter == "" {
+		c.Filter = extensionConfig.Filter
+	}
+
 	// sort to keep extended rules in order
 	sort.Strings(c.OrderedRules)
-	return
 }

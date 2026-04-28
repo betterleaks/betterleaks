@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Betterleaks Graphic Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<style>
+    /* Reset and base styles */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+        height: 100%;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        background: #0c0c0e;
+        color: #d4d4d8;
+    }
+
+    /* Layout */
+    .app-container {
+        display: flex;
+        height: 100vh;
+        width: 100vw;
+    }
+
+    /* Left Sidebar Controls */
+    .sidebar {
+        width: 380px;
+        background: rgba(12, 12, 14, 0.95);
+        border-right: 1px solid #27272a;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        z-index: 20;
+        overflow-y: auto;
+        box-shadow: 5px 0 15px rgba(0,0,0,0.5);
+    }
+    .sidebar h2 { font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+    .sidebar label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #a1a1aa; display: block; margin-bottom: 6px;}
+
+    .input-group { display: flex; flex-direction: column; }
+    .input-group input[type="text"] {
+        padding: 10px;
+        background: #18181b;
+        border: 1px solid #3f3f46;
+        border-radius: 6px;
+        color: #fff;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+    }
+    .input-group textarea {
+        padding: 10px;
+        background: #18181b;
+        border: 1px solid #3f3f46;
+        border-radius: 6px;
+        color: #e4e4e7;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        resize: vertical;
+        min-height: 250px;
+        line-height: 1.5;
+    }
+
+    button.primary {
+        background: #1a7f37;
+        color: #fff;
+        border: none;
+        padding: 10px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    button.primary:hover { background: #219d44; }
+
+    .anim-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: #18181b;
+        padding: 12px;
+        border-radius: 6px;
+        border: 1px solid #3f3f46;
+    }
+    .anim-controls button {
+        background: #3f3f46; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+    }
+    .anim-controls button:hover { background: #52525b; }
+    .anim-controls input[type="range"] { flex: 1; cursor: pointer; }
+
+    /* Main Stage */
+    .main-stage {
+        flex: 1;
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 40px;
+        overflow-y: auto;
+    }
+
+    /* Background Animation */
+    pre#grid {
+        position: fixed;
+        inset: 0;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: clamp(10px, 1.8vw, 16px);
+        line-height: 1.8;
+        letter-spacing: 0.15em;
+        white-space: pre;
+        margin: 0;
+        padding: clamp(16px, 2.5vw, 32px);
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    /* Automatically Resizing Release Card */
+    .release-card {
+        position: relative;
+        z-index: 10;
+        background: #ffffff;
+        width: 800px;
+        border-radius: 12px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.1);
+        padding: 40px;
+        color: #24292f;
+        height: auto; /* Automatically resizes to content */
+    }
+
+    /* Card Internals */
+    .header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .header h1 { font-size: 32px; font-weight: 600; margin: 0; color: #24292f; }
+    .badge { color: #1a7f37; border: 1px solid #1a7f37; border-radius: 2em; padding: 2px 10px; font-size: 13px; font-weight: 500; }
+    .meta { display: flex; align-items: center; font-size: 14px; color: #57606a; margin-bottom: 30px; border-bottom: 1px solid #d0d7de; padding-bottom: 20px; }
+    .meta img { width: 24px; height: 24px; border-radius: 50%; margin-right: 8px; }
+    .meta strong { color: #24292f; font-weight: 600; margin-right: 4px; }
+    .meta-links { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+    .meta-links a { color: #0969da; text-decoration: none; }
+
+    /* Markdown Output Formatting */
+    .content h2 { font-size: 20px; font-weight: 600; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #d0d7de; }
+    .content h2:first-child { margin-top: 0; }
+    .content p { font-size: 14px; line-height: 1.5; margin-bottom: 16px; }
+    .content ul { margin-left: 20px; margin-bottom: 16px; font-size: 14px; line-height: 1.6; }
+    .content ul:last-of-type { column-count: 3; } /* Makes the last list a 3-column grid */
+    .content code { background-color: rgba(175,184,193,0.2); padding: 0.2em 0.4em; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 85%; }
+    .content a { color: #0969da; text-decoration: none; }
+    .content a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="app-container">
+
+    <div class="sidebar">
+        <div>
+            <h2>Betterleaks Graphic</h2>
+            <p style="font-size: 12px; color: #a1a1aa; margin-bottom: 20px;">Generate a screenshot-ready card.</p>
+        </div>
+
+        <div class="input-group">
+            <label>GitHub Release URL</label>
+            <input type="text" id="gh-url" placeholder="https://github.com/betterleaks/betterleaks/releases/tag/v1.1.2">
+        </div>
+        <button class="primary" id="fetch-btn">Fetch Release Data</button>
+
+        <div class="input-group" style="margin-top: 10px;">
+            <label>Raw Markdown (Editable)</label>
+            <textarea id="md-input" placeholder="Release notes will appear here..."></textarea>
+        </div>
+
+        <div style="margin-top: auto;">
+            <label>Background Animation</label>
+            <div class="anim-controls">
+                <button id="pause-btn">Pause</button>
+                <input type="range" id="anim-slider" min="0" max="1000" value="0">
+            </div>
+        </div>
+    </div>
+
+    <div class="main-stage">
+        <pre id="grid"></pre>
+
+        <div class="release-card" id="capture-card">
+            <div class="header">
+                <h1 id="c-version">v0.0.0</h1>
+                <span class="badge">Latest</span>
+            </div>
+
+            <div class="meta">
+                <img id="c-avatar" src="https://github.com/ghost.png" alt="author">
+                <strong id="c-author">author</strong> <span id="c-date">released this</span>
+
+                <div class="meta-links">
+                    <span>· 🏷️ <span id="c-tag">v0.0.0</span></span>
+                    <span>· ⎇ <span id="c-branch">main</span></span>
+                </div>
+            </div>
+
+            <div class="content" id="markdown-output">
+                <p><em>Paste a URL and click Fetch to generate the card...</em></p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // --- 1. GITHUB FETCHING & MARKDOWN RENDER LOGIC ---
+    const fetchBtn = document.getElementById('fetch-btn');
+    const urlInput = document.getElementById('gh-url');
+    const mdInput = document.getElementById('md-input');
+    const mdOutput = document.getElementById('markdown-output');
+
+    // Live update when user types in the textarea
+    mdInput.addEventListener('input', () => {
+        mdOutput.innerHTML = marked.parse(mdInput.value);
+    });
+
+    fetchBtn.addEventListener('click', async () => {
+        try {
+            const url = urlInput.value.trim();
+            if (!url) return alert("Please enter a valid GitHub release URL.");
+
+            // Extract owner, repo, and tag from URL
+            const parts = url.split('/');
+            const tagIndex = parts.indexOf('tag');
+            if (tagIndex === -1 || parts.length < tagIndex + 2) {
+                return alert("Invalid URL format. Expected: https://github.com/owner/repo/releases/tag/vX.Y.Z");
+            }
+
+            const owner = parts[parts.indexOf('github.com') + 1];
+            const repo = parts[parts.indexOf('github.com') + 2];
+            const tag = parts[tagIndex + 1];
+
+            fetchBtn.innerText = "Fetching...";
+            fetchBtn.disabled = true;
+
+            const api_url = `https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}`;
+            const res = await fetch(api_url);
+
+            if (!res.ok) throw new Error("Could not fetch release. Check the URL or API rate limits.");
+
+            const data = await res.json();
+
+            // Populate DOM Elements
+            document.getElementById('c-version').innerText = data.name || tag;
+            document.getElementById('c-avatar').src = data.author.avatar_url;
+            document.getElementById('c-author').innerText = data.author.login;
+
+            const pubDate = new Date(data.published_at);
+            const dateStr = pubDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            document.getElementById('c-date').innerText = `released this on ${dateStr}`;
+
+            document.getElementById('c-tag').innerText = tag;
+            document.getElementById('c-branch').innerText = data.target_commitish || 'main';
+
+            // Process Markdown (Truncate to 20 lines)
+            let rawBody = data.body || '';
+            let lines = rawBody.split('\n');
+            if (lines.length > 20) {
+                rawBody = lines.slice(0, 20).join('\n') + '\n\n_... [Release notes truncated for length. See GitHub for full details]_';
+            }
+
+            mdInput.value = rawBody;
+            mdOutput.innerHTML = marked.parse(rawBody);
+
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            fetchBtn.innerText = "Fetch Release Data";
+            fetchBtn.disabled = false;
+        }
+    });
+
+
+    // --- 2. BACKGROUND ANIMATION LOGIC ---
+    (function() {
+        var NOISE = '\u00B7\u2218\u2219\u25E6\u25CC\u25CE\u25D0\u25D1\u2591\u2592\u2593\u25AA\u25AB';
+        var DIM = '#27272a';
+        var BRIGHT = '#52525b';
+        var HEAD = '#e4e4e7';
+
+        function rn() { return NOISE[Math.floor(Math.random() * NOISE.length)]; }
+
+        function computeGrid(el) {
+            var style = getComputedStyle(el);
+            var fs = parseFloat(style.fontSize) || 14;
+            var padL = parseFloat(style.paddingLeft) || 0;
+            var padT = parseFloat(style.paddingTop) || 0;
+
+            var ts = document.createElement('span');
+            ts.style.fontFamily = "'JetBrains Mono', monospace";
+            ts.style.fontSize = fs + 'px';
+            ts.style.visibility = 'hidden';
+            ts.style.position = 'absolute';
+            ts.textContent = '\u25CF ';
+            document.body.appendChild(ts);
+            var cellW = ts.getBoundingClientRect().width;
+            document.body.removeChild(ts);
+            if (!cellW || cellW < 1) cellW = fs * 1.5;
+
+            var lh = fs * 1.8;
+            var availW = Math.max(100, window.innerWidth - padL * 2);
+            var availH = Math.max(100, window.innerHeight - padT * 2);
+
+            return {
+                rows: Math.max(6, Math.min(60, Math.floor(availH / lh))),
+                cols: Math.max(10, Math.min(150, Math.floor(availW / cellW))),
+            };
+        }
+
+        var el = document.getElementById('grid');
+        var rows = 0, cols = 0, maxDiag = 0;
+        var spanElements = [];
+
+        function buildDOM() {
+            var g = computeGrid(el);
+            rows = g.rows; cols = g.cols; maxDiag = rows + cols - 1;
+
+            var parts = [];
+            for (var r = 0; r < rows; r++) {
+                for (var c = 0; c < cols; c++) {
+                    parts.push('<span></span>');
+                    if (c < cols - 1) parts.push(' ');
+                }
+                if (r < rows - 1) parts.push('\n');
+            }
+            el.innerHTML = parts.join('');
+            spanElements = el.querySelectorAll('span');
+        }
+
+        buildDOM();
+        window.addEventListener('resize', function() {
+            clearTimeout(window.resizeTimer);
+            window.resizeTimer = setTimeout(buildDOM, 200);
+        });
+
+        let currentT = 0; const maxT = 1000; let isPaused = false; let autoSpeed = 3;
+        const pauseBtn = document.getElementById('pause-btn');
+        const slider = document.getElementById('anim-slider');
+
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused; pauseBtn.innerText = isPaused ? "Play" : "Pause";
+        });
+
+        slider.addEventListener('input', (e) => {
+            currentT = parseFloat(e.target.value); isPaused = true;
+            pauseBtn.innerText = "Play"; renderFrame(currentT);
+        });
+
+        function renderFrame(t) {
+            let totalScan = maxDiag + 2; let phase, wf = 0, cleanWf = 0;
+
+            if (t < 400) { phase = 'scan'; wf = (t / 400) * totalScan; }
+            else if (t < 600) { phase = 'hold'; }
+            else { phase = 'clean'; cleanWf = ((t - 600) / 400) * totalScan; }
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    let idx = r * cols + c; let diag = r + c;
+                    let char = ''; let color = '';
+
+                    if (phase === 'scan') {
+                        let scanned = diag < wf; let isHead = Math.abs(diag - wf) < 1 && diag < maxDiag;
+                        if (isHead) { char = '\u25CB'; color = HEAD; }
+                        else if (scanned) { char = '\u25CF'; color = BRIGHT; }
+                        else { color = DIM; }
+                    } else if (phase === 'hold') {
+                        char = '\u25CF'; color = BRIGHT;
+                    } else if (phase === 'clean') {
+                        let cleaned = diag < cleanWf; let isCleanHead = Math.abs(diag - cleanWf) < 1 && diag < maxDiag;
+                        if (isCleanHead) { char = '\u25CB'; color = HEAD; }
+                        else if (cleaned) { color = DIM; }
+                        else { char = '\u25CF'; color = BRIGHT; }
+                    }
+
+                    let span = spanElements[idx];
+                    if (span) {
+                        if (span.style.color !== color) span.style.color = color;
+                        if (color === DIM) {
+                            let isStrayCircle = span.textContent === '\u25CF' || span.textContent === '\u25CB';
+                            if (span.textContent === '' || isStrayCircle || (!isPaused && Math.random() < 0.2)) {
+                                span.textContent = rn();
+                            }
+                        } else {
+                            if (span.textContent !== char) span.textContent = char;
+                        }
+                    }
+                }
+            }
+        }
+
+        let lastTime = 0; const interval = 60;
+        function loop(timestamp) {
+            requestAnimationFrame(loop);
+            if (timestamp - lastTime < interval) return;
+            lastTime = timestamp;
+            if (!isPaused) {
+                currentT = (currentT + autoSpeed) % maxT;
+                slider.value = currentT; renderFrame(currentT);
+            }
+        }
+        requestAnimationFrame(loop);
+    })();
+</script>
+</body>
+</html>

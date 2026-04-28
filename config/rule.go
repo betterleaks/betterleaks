@@ -65,6 +65,14 @@ type Rule struct {
 
 	// celProgram is the compiled CEL program, set at config load time.
 	celProgram cel.Program
+
+	// Filter is a CEL expression evaluated against attributes + finding per regex match.
+	// Returns true = skip (discard this finding); false = keep.
+	// Deprecated legacy Allowlists, Entropy, and TokenEfficiency are translated into this field.
+	Filter string
+
+	// filterProgram is the compiled FilterEnv program, set at startup.
+	filterProgram cel.Program
 }
 
 type Required struct {
@@ -128,3 +136,9 @@ func (r *Rule) CelProgram() cel.Program {
 func (r *Rule) SetCelProgram(p cel.Program) {
 	r.celProgram = p
 }
+
+// FilterProgram returns the compiled filter program for this rule, or nil.
+func (r *Rule) FilterProgram() cel.Program { return r.filterProgram }
+
+// SetFilterProgram stores a compiled filter program on the rule.
+func (r *Rule) SetFilterProgram(p cel.Program) { r.filterProgram = p }

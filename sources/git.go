@@ -21,7 +21,6 @@ import (
 	"github.com/fatih/semgroup"
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 
-	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
@@ -318,7 +317,7 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 // Git is a source for yielding fragments from a git repo
 type Git struct {
 	Cmd             *GitCmd
-	Config          *config.Config
+	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
 	Sema            *semgroup.Group
@@ -363,23 +362,17 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				yieldAsArchive = true
 			}
 
-			// Check if commit is allowed
+			// Build commit attributes and check prefilter / allowlists before
+			// allocating goroutines or fragment memory.
 			commitSHA := ""
 			commitAttrs := make(map[string]string)
 			if gitdiffFile.PatchHeader != nil {
 				commitSHA = gitdiffFile.PatchHeader.SHA
-				for _, a := range s.Config.Allowlists {
-					if ok, c := a.CommitAllowed(gitdiffFile.PatchHeader.SHA); ok {
-						logging.Trace().Str("allowed-commit", c).Msg("skipping commit: global allowlist")
-						continue
-					}
-				}
-
 				commitAttrs[AttrGitSHA] = commitSHA
 				commitAttrs[AttrGitMessage] = gitdiffFile.PatchHeader.Message()
 				commitAttrs[AttrResourceKind] = "git.diff"
+				commitAttrs[AttrPath] = gitdiffFile.NewName
 				if s.RemoteURL != "" {
-
 					commitAttrs[AttrGitRemoteURL] = s.RemoteURL
 					commitAttrs[AttrGitPlatform] = s.Platform.String()
 				}
@@ -389,6 +382,14 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				if gitdiffFile.PatchHeader.Author != nil {
 					commitAttrs[AttrGitAuthorName] = gitdiffFile.PatchHeader.Author.Name
 					commitAttrs[AttrGitAuthorEmail] = gitdiffFile.PatchHeader.Author.Email
+				}
+
+				if shouldSkipAttrs(s.ShouldSkip, commitAttrs) {
+					logging.Trace().
+						Str("commit", commitSHA).
+						Str("path", gitdiffFile.NewName).
+						Msg("skipping diff entry: global prefilter")
+					continue
 				}
 			}
 
@@ -407,16 +408,16 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 						Content:         blob,
 						Path:            gitdiffFile.NewName,
 						MaxArchiveDepth: s.MaxArchiveDepth,
-						Config:          s.Config,
+						ShouldSkip:      s.ShouldSkip,
 					}
 
 					// enrich and yield fragments
 					err = file.Fragments(ctx, func(fragment Fragment, err error) error {
-						attrs := maps.Clone(fragment.Attributes)
-						if attrs == nil {
-							attrs = make(map[string]string, len(commitAttrs)+1)
-						}
-						maps.Copy(attrs, commitAttrs)
+						// create base attributes of the commit
+						attrs := maps.Clone(commitAttrs)
+						// add fragment-specific attributes (in case attributes have been enriched by the file source)
+						maps.Copy(attrs, fragment.Attributes)
+						// set the merged attributes back to the fragment that will be yielded
 						fragment.Attributes = attrs
 						return yield(fragment, err)
 					})

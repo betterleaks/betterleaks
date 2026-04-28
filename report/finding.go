@@ -597,3 +597,15 @@ func (f *Finding) SyncDeprecatedSourceFields() {
 	f.Date = f.Attr(sources.AttrGitDate)
 	f.Message = f.Attr(sources.AttrGitMessage)
 }
+
+func (f *Finding) SetFingerprint() {
+	path := f.Attributes[sources.AttrPath]
+	commit := f.Attributes[sources.AttrGitSHA]
+
+	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, f.RuleID, f.StartLine)
+	if commit != "" {
+		f.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", commit, path, f.RuleID, f.StartLine)
+	} else {
+		f.Fingerprint = globalFingerprint
+	}
+}

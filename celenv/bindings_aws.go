@@ -44,7 +44,7 @@ type stsErrorResponse struct {
 // awsValidateBinding returns a CEL FunctionOp that calls STS GetCallerIdentity
 // with SigV4-signed credentials and returns a result map similar to the
 // http binding (map[string]any).
-func awsValidateBinding(e *Environment) functions.FunctionOp {
+func awsValidateBinding(e *ValidationEnvironment) functions.FunctionOp {
 	return func(args ...ref.Val) ref.Val {
 		if len(args) != 2 {
 			return types.NewErr("aws.validate: expected 2 args, got %d", len(args))
@@ -75,7 +75,7 @@ func awsValidateBinding(e *Environment) functions.FunctionOp {
 // callSTS performs a SigV4-signed POST to the STS endpoint and returns a
 // response map with {status, arn, account, userid}. The CEL expression is
 // responsible for interpreting the status code and building the final result.
-func callSTS(e *Environment, endpoint, accessKeyID, secretAccessKey string, now time.Time) map[string]any {
+func callSTS(e *ValidationEnvironment, endpoint, accessKeyID, secretAccessKey string, now time.Time) map[string]any {
 	body := stsRequestBody
 	bodyHash := sha256Hex([]byte(body))
 

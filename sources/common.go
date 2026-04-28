@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/mholt/archives"
 )
@@ -34,23 +33,32 @@ func isArchive(ctx context.Context, path string) bool {
 	return err == nil && format != nil
 }
 
-// shouldSkipPath checks a path against all the allowlists to see if it can
-// be skipped
-func shouldSkipPath(cfg *config.Config, path string) bool {
-	if cfg == nil {
-		logging.Trace().Str("path", path).Msg("not skipping path because config is nil")
+// shouldSkipAttrs evaluates the skip callback against attrs.
+// Returns true if the fragment should be skipped.
+// If no callback is set (nil), nothing is skipped.
+func shouldSkipAttrs(skip SkipFunc, attrs map[string]string) bool {
+	if skip == nil {
 		return false
 	}
+	return skip(attrs)
+}
 
-	for _, a := range cfg.Allowlists {
-		if a.PathAllowed(path) ||
-			// TODO: Remove this in v9.
-			// This is an awkward hack to mitigate https://github.com/gitleaks/gitleaks/issues/1641.
-			(isWindows && a.PathAllowed(filepath.ToSlash(path))) {
-			return true
-		}
+// shouldSkipPath checks a path against the skip callback.
+// Also handles the Windows forward-slash path normalization workaround.
+func shouldSkipPath(skip SkipFunc, path string) bool {
+	if skip == nil {
+		logging.Trace().Str("path", path).Msg("not skipping path because skip func is nil")
+		return false
 	}
-
+	attrs := map[string]string{AttrPath: path}
+	if shouldSkipAttrs(skip, attrs) {
+		return true
+	}
+	// TODO: Remove this Windows workaround in v9 (gitleaks/gitleaks#1641).
+	if isWindows {
+		attrs[AttrPath] = filepath.ToSlash(path)
+		return shouldSkipAttrs(skip, attrs)
+	}
 	return false
 }
 

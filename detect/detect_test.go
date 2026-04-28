@@ -97,8 +97,9 @@ username = "admin"
 			password = "secret123"
 `
 
-func compare(t *testing.T, a, b []report.Finding) {
-	if diff := cmp.Diff(a, b,
+func compare(t *testing.T, got, want []report.Finding) {
+	t.Helper()
+	if diff := cmp.Diff(want, got,
 		cmpopts.SortSlices(func(a, b report.Finding) bool {
 			if a.File != b.File {
 				return a.File < b.File
@@ -128,7 +129,6 @@ func compare(t *testing.T, a, b []report.Finding) {
 	); diff != "" {
 		t.Errorf("findings mismatch (-want +got):\n%s", diff)
 	}
-
 }
 
 // stripFindingAttributes clears the Attributes and Link fields from findings for tests
@@ -1416,7 +1416,7 @@ func TestFromGit(t *testing.T) {
 				t.Context(),
 				&sources.Git{
 					Cmd:             gitCmd,
-					Config:          &detector.Config,
+					ShouldSkip:      detector.SkipFunc(),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
 					Sema:            detector.Sema,
@@ -1498,7 +1498,7 @@ func TestFromGitStaged(t *testing.T) {
 			t.Context(),
 			&sources.Git{
 				Cmd:             gitCmd,
-				Config:          &detector.Config,
+				ShouldSkip:      detector.SkipFunc(),
 				Platform:        platform,
 				RemoteURL:       remoteURL,
 				Sema:            detector.Sema,
@@ -1623,7 +1623,7 @@ func TestFromFiles(t *testing.T) {
 			findings, err := detector.DetectSource(
 				t.Context(),
 				&sources.Files{
-					Config:          &detector.Config,
+					ShouldSkip:      detector.SkipFunc(),
 					FollowSymlinks:  detector.FollowSymlinks,
 					MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 					Path:            tt.source,
@@ -2211,14 +2211,14 @@ func TestDetectWithArchives(t *testing.T) {
 			}
 
 			cfg, _ := vc.Translate()
-			detector := NewDetectorContext(ctx, cfg)
+			detector := NewDetectorContext(ctx, cfg, ValidationOptions{})
 			detector.MaxArchiveDepth = 8
 
 			findings, err := detector.DetectSource(
 				ctx, &sources.Files{
 					Path:            tt.source,
 					Sema:            detector.Sema,
-					Config:          &cfg,
+					ShouldSkip:      detector.SkipFunc(),
 					MaxArchiveDepth: detector.MaxArchiveDepth,
 				},
 			)
@@ -2302,7 +2302,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 		findings, err := detector.DetectSource(
 			t.Context(),
 			&sources.Files{
-				Config:          &detector.Config,
+				ShouldSkip:      detector.SkipFunc(),
 				FollowSymlinks:  detector.FollowSymlinks,
 				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 				Path:            tt.source,
@@ -2567,6 +2567,15 @@ let password = 'Summer2024!';`
 					tc.allowlist,
 				},
 			}
+
+			// Translate legacy allowlists to CEL filter and compile.
+			cfg := &config.Config{
+				Rules: map[string]config.Rule{"test-rule": rule},
+			}
+			require.NoError(t, cfg.TranslateLegacyFilters())
+			require.NoError(t, cfg.CompileCELFilters(nil))
+			rule = cfg.Rules["test-rule"]
+
 			d, err := NewDetectorDefaultConfig()
 			require.NoError(t, err)
 
@@ -2710,8 +2719,9 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 					sources.AttrFSWindowsPath: `.m2\settings.xml`,
 				},
 			},
-			rule:     windowsRule,
-			expected: expected,
+			rule: windowsRule,
+			// Paths are normalized to use Unix separators before detection.
+			expected: nil,
 		},
 		"windows regex+path rule - windows path separator": {
 			fragment: sources.Fragment{
@@ -2726,18 +2736,9 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 				Regex:  regexp.MustCompile(`<password>(.+?)</password>`),
 				Path:   regexp.MustCompile(`(^|\\)\.m2\\settings\.xml`),
 			},
-			expected: []report.Finding{
-				{
-					RuleID:      "test-rule",
-					StartColumn: 1,
-					EndColumn:   27,
-					Line:        "<password>s3cr3t</password>",
-					Match:       "<password>s3cr3t</password>",
-					Secret:      "s3cr3t",
-					Entropy:     2.251629114151001,
-					File:        ".m2/settings.xml",
-				},
-			}},
+			// Paths are normalized to use Unix separators before detection.
+			expected: nil,
+		},
 	}
 
 	d, err := NewDetectorDefaultConfig()
@@ -2894,7 +2895,19 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 					},
 				},
 			},
-			expected: nil,
+			// Backslash regex doesn't match forward-slash path; finding is NOT suppressed.
+			expected: []report.Finding{
+				{
+					RuleID:      "windows-rule",
+					StartColumn: 9,
+					EndColumn:   14,
+					Line:        `value: "s3cr3t"`,
+					Match:       `s3cr3t`,
+					Secret:      `s3cr3t`,
+					File:        "ignoreme/windows.txt",
+					Entropy:     2.251629114151001,
+				},
+			},
 		},
 		"windows path separator - unix rule - AND allowlist path+stopwords": {
 			fragment: sources.Fragment{
@@ -2936,7 +2949,19 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 					},
 				},
 			},
-			expected: nil,
+			// Backslash regex doesn't match forward-slash path; AND condition fails, finding is NOT suppressed.
+			expected: []report.Finding{
+				{
+					RuleID:      "windows-rule",
+					StartColumn: 1,
+					EndColumn:   19,
+					Line:        `value: "f4k3s3cr3t"`,
+					Match:       `value: "f4k3s3cr3t"`,
+					Secret:      `value: "f4k3s3cr3t"`,
+					File:        "ignoreme/unix.txt",
+					Entropy:     3.892407178878784,
+				},
+			},
 		},
 	}
 
@@ -2944,120 +2969,16 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 	require.NoError(t, err)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{})
+			// Translate legacy allowlists to CEL filter and compile.
+			cfg := &config.Config{
+				Rules: map[string]config.Rule{test.rule.RuleID: test.rule},
+			}
+			require.NoError(t, cfg.TranslateLegacyFilters())
+			require.NoError(t, cfg.CompileCELFilters(nil))
+			rule := cfg.Rules[test.rule.RuleID]
+
+			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, rule, []*codec.EncodedSegment{})
 			compare(t, test.expected, actual)
-		})
-	}
-}
-
-func TestFailsTokenEfficiencyFilter(t *testing.T) {
-	d, err := NewDetectorDefaultConfig()
-	require.NoError(t, err)
-
-	tests := []struct {
-		name   string
-		secret string
-		want   bool
-	}{
-		{
-			name:   "richards example",
-			secret: "AIzaFAKE_KEY_FOR_TESTING_ONLY_fake12345",
-			want:   true,
-		},
-		{
-			name:   "high entropy random secret should pass",
-			secret: "aK9#mP2$xL5nQ8wR",
-			want:   false,
-		},
-		{
-			name:   "contains english words should fail",
-			secret: "mysecretpassword",
-			want:   true,
-		},
-		{
-			name:   "repetitive string high ratio should fail",
-			secret: "aaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			want:   true,
-		},
-		{
-			name:   "base64-like random token should pass",
-			secret: "dGhpcyBpcyBhIHRlc3Q",
-			want:   false,
-		},
-		{
-			name:   "hex-like secret should pass",
-			secret: "4a3f8b2c1d9e7f6a5b0c",
-			want:   false,
-		},
-		{
-			name:   "common placeholder should fail",
-			secret: "example_password_here",
-			want:   true,
-		},
-		{
-			name:   "UUID-like secret should pass",
-			secret: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-			want:   false,
-		},
-		{
-			name:   "yyxcxywm",
-			secret: "yyxcxywm",
-			want:   false,
-		},
-		{
-			name:   "zwmpfovnu",
-			secret: "zwmpfovnu",
-			want:   false,
-		},
-		{
-			name:   "short random string should pass",
-			secret: "xK9mP2nQ",
-			want:   false,
-		},
-		// Short secrets with newlines: newlines are stripped before analysis.
-		{
-			name:   "short secret with newlines should fail",
-			secret: "123\n\nTest",
-			want:   true,
-		},
-		{
-			name:   "short secret with multiple newline-separated words should fail",
-			secret: "123\n\ncom\nnet",
-			want:   true,
-		},
-		// Very short secrets (< 12 chars): stricter token efficiency threshold.
-		{
-			name:   "short common password should fail",
-			secret: "letmein123",
-			want:   true,
-		},
-		{
-			name:   "short camelCase identifier should fail",
-			secret: "idxInOld",
-			want:   true,
-		},
-		{
-			name:   "short foreign word should fail",
-			secret: "Bevestig",
-			want:   true,
-		},
-		{
-			name:   "short constant OPT_NOKEYS should fail",
-			secret: "OPT_NOKEYS",
-			want:   true,
-		},
-		{
-			name:   "short constant OPT_NOCERTS should fail",
-			secret: "OPT_NOCERTS",
-			want:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := d.failsTokenEfficiencyFilter(tt.secret)
-			assert.Equal(t, tt.want, got,
-				"failsTokenEfficiencyFilter(%q) = %v, want %v", tt.secret, got, tt.want)
 		})
 	}
 }

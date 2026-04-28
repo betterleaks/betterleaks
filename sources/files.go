@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/fatih/semgroup"
 )
@@ -21,7 +20,7 @@ type ScanTarget struct {
 
 // Files is a source for yielding fragments from a collection of files
 type Files struct {
-	Config          *config.Config
+	ShouldSkip      SkipFunc
 	FollowSymlinks  bool
 	MaxFileSize     int
 	Path            string
@@ -95,14 +94,14 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 
 		// handle dir cases (mainly just see if it should be skipped
 		if info.IsDir() {
-			if shouldSkipPath(s.Config, path) {
+			if shouldSkipPath(s.ShouldSkip, path) {
 				logger.Debug().Msg("skipping directory: global allowlist")
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if shouldSkipPath(s.Config, path) {
+		if shouldSkipPath(s.ShouldSkip, path) {
 			logger.Debug().Msg("skipping file: global allowlist")
 			return nil
 		}
@@ -139,7 +138,7 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					Content:         f,
 					Path:            scanTarget.Path,
 					Symlink:         scanTarget.Symlink,
-					Config:          s.Config,
+					ShouldSkip:      s.ShouldSkip,
 					MaxArchiveDepth: s.MaxArchiveDepth,
 				}
 

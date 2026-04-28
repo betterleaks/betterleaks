@@ -1,0 +1,252 @@
+package config
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/betterleaks/betterleaks/logging"
+)
+
+// TranslateLegacyFilters converts deprecated Allowlists, Entropy, and TokenEfficiency
+// fields into CEL prefilter/filter string cel-expressions on the Config and its Rules.
+// This is exported for use by the config generator, but is also called internally
+// at the end of config translation (after all extends and targeted allowlists are populated).
+// Translated expressions are logged at the debug level to help users migrate.
+// Notes:
+//   - Expressions return true (skip) or false (keep).
+//   - Prefilters exist only at the global level (source/resource attributes-only, runs before regex).
+//   - Rules only have filters (attributes + finding, runs per match).
+func (c *Config) TranslateLegacyFilters() error {
+	return c.translateLegacyFilters()
+}
+
+func (c *Config) translateLegacyFilters() error {
+	// ── global allowlists ──────────────────────────────────────────────────────
+	globalPre, globalFil := translateAllowlistSlice(c.Allowlists)
+
+	c.Prefilter = composeFilters(globalPre, c.Prefilter)
+	c.Filter = composeFilters(globalFil, c.Filter)
+
+	if c.Prefilter != "" {
+		logging.Debug().Str("prefilter", c.Prefilter).Msg("translated global prefilter CEL expression")
+	}
+	if c.Filter != "" {
+		logging.Debug().Str("filter", c.Filter).Msg("translated global filter CEL expression")
+	}
+
+	// ── per-rule fields ────────────────────────────────────────────────────────
+	// Rules have no prefilter — all conditions (allowlist path/commit/regex/stopword,
+	// entropy, tokenEfficiency) are folded into a single filter expression.
+	for ruleID, r := range c.Rules {
+		rulePre, ruleFil := translateAllowlistSlice(r.Allowlists)
+		// Rules have no prefilter; fold path/commit checks into filter.
+		ruleFil = append(rulePre, ruleFil...)
+
+		if r.Entropy != 0 {
+			threshold := fmt.Sprintf("%g", r.Entropy)
+			if !strings.ContainsAny(threshold, ".e") {
+				threshold += ".0"
+			}
+			ruleFil = append(ruleFil, fmt.Sprintf(`entropy(finding["secret"]) <= %s`, threshold))
+		}
+		if r.TokenEfficiency {
+			ruleFil = append(ruleFil, `failsTokenEfficiency(finding["secret"])`)
+		}
+
+		r.Filter = composeFilters(ruleFil, r.Filter)
+
+		if r.Filter != "" {
+			logging.Debug().Str("rule", ruleID).Str("filter", r.Filter).
+				Msg("translated rule filter CEL expression")
+		}
+
+		r.Allowlists = nil
+		r.Entropy = 0
+		r.TokenEfficiency = false
+		c.Rules[ruleID] = r
+	}
+
+	// Clear deprecated global fields now that they've been translated.
+	c.Allowlists = nil
+
+	return nil
+}
+
+// translateAllowlistSlice translates a slice of Allowlists into two lists of CEL
+// sub-expressions: prefilterParts (for attributes-only prefilter) and filterParts
+// (for per-match filter). Each sub-expression, when true, means "suppress this item",
+// and callers pass them directly to composeFilters as skip-when-true predicates.
+func translateAllowlistSlice(allowlists []*Allowlist) (prefilterParts, filterParts []string) {
+	for _, a := range allowlists {
+		pre, fil := translateAllowlist(a)
+		prefilterParts = append(prefilterParts, pre...)
+		filterParts = append(filterParts, fil...)
+	}
+	return prefilterParts, filterParts
+}
+
+// translateAllowlist translates one Allowlist into "suppress-when-true" CEL sub-expressions.
+//
+// For OR allowlists: paths/commits land in prefilter, regexes/stopwords in filter.
+// For AND allowlists: all parts land in filter only (no prefilter split), because
+// using path alone as a prefilter would over-suppress AND-conditional entries.
+//
+// Each returned string, when true, means "this fragment/finding should be suppressed".
+func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
+	var pathParts, commitParts, regexParts, stopParts []string
+
+	// Collect path expressions (prefilter-level).
+	if len(a.Paths) > 0 {
+		patterns := make([]string, len(a.Paths))
+		for i, p := range a.Paths {
+			patterns[i] = p.String()
+		}
+		list := celStringList(patterns)
+		pathParts = append(pathParts,
+			fmt.Sprintf(`matchesAny(attributes[?"path"].orValue(""), %s)`, list))
+	}
+
+	// Collect commit expressions (prefilter-level).
+	if len(a.Commits) > 0 {
+		commitParts = append(commitParts, fmt.Sprintf(`attributes[?"git.sha"].orValue("") in %s`, celStringList(a.Commits)))
+	}
+
+	// Collect regex expressions (filter-level).
+	if len(a.Regexes) > 0 {
+		patterns := make([]string, len(a.Regexes))
+		for i, re := range a.Regexes {
+			patterns[i] = re.String()
+		}
+		target := "secret"
+		if a.RegexTarget != "" {
+			target = a.RegexTarget
+		}
+		regexParts = append(regexParts, fmt.Sprintf(`matchesAny(finding[%s], %s)`, celStringLit(target), celStringList(patterns)))
+	}
+
+	// Collect stopword expressions (filter-level).
+	if len(a.StopWords) > 0 {
+		stopParts = append(stopParts, fmt.Sprintf(`containsAny(finding["secret"], %s)`, celStringList(a.StopWords)))
+	}
+
+	if a.MatchCondition == AllowlistMatchAnd {
+		// AND allowlist: all conditions must match to suppress.
+		// The complete AND expression goes into filter only — no prefilter split,
+		// because path alone would over-suppress for AND semantics.
+		allParts := concat(pathParts, commitParts, regexParts, stopParts)
+		if len(allParts) > 0 {
+			filterParts = append(filterParts, joinAnd(allParts))
+		}
+	} else {
+		// OR allowlist:
+		// • Prefilter receives path and commit checks.
+		// • Filter receives regex and stopword checks.
+		if len(pathParts) > 0 || len(commitParts) > 0 {
+			prefilterParts = append(prefilterParts, joinOr(concat(pathParts, commitParts)))
+		}
+		if len(regexParts) > 0 || len(stopParts) > 0 {
+			filterParts = append(filterParts, joinOr(concat(regexParts, stopParts)))
+		}
+	}
+
+	return prefilterParts, filterParts
+}
+
+// composeFilters builds a final CEL expression from skip predicates.
+// Each part is a condition that, when true, means "skip this item".
+// Parts are OR-ed: skip if any condition fires.
+// If all inputs are empty, returns "".
+func composeFilters(skipParts []string, userExpr string) string {
+	var parts []string
+	for _, sp := range skipParts {
+		parts = append(parts, sp)
+	}
+	if userExpr != "" {
+		parts = append(parts, userExpr)
+	}
+	if len(parts) <= 1 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts, "\n|| ")
+}
+
+// ── CEL string encoding helpers ───────────────────────────────────────────────
+
+// celStringLit returns a CEL string literal. Strings containing backslashes
+// (typically regex patterns) use CEL raw string syntax r"""...""" to avoid
+// double-escaping, unless the string itself contains a triple-quote.
+func celStringLit(s string) string {
+	// If it contains a backslash AND doesn't contain a triple-quote, raw strings are safe.
+	if strings.ContainsRune(s, '\\') && !strings.Contains(s, `"""`) {
+		return `r"""` + s + `"""`
+	}
+
+	var b strings.Builder
+	b.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+	case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// celStringList returns a CEL list literal from a slice of Go strings.
+// Lists with multiple elements are formatted with one entry per line for readability.
+func celStringList(ss []string) string {
+	parts := make([]string, len(ss))
+	for i, s := range ss {
+		parts[i] = celStringLit(s)
+	}
+	if len(parts) <= 1 {
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	var b strings.Builder
+	b.WriteString("[\n")
+	for i, p := range parts {
+		b.WriteString("  " + p)
+		if i < len(parts)-1 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// ── join helpers ──────────────────────────────────────────────────────────────
+
+func joinOr(parts []string) string {
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return "(" + strings.Join(parts, " || ") + ")"
+}
+
+func joinAnd(parts []string) string {
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return "(" + strings.Join(parts, " && ") + ")"
+}
+
+func concat(slices ...[]string) []string {
+	var out []string
+	for _, s := range slices {
+		out = append(out, s...)
+	}
+	return out
+}

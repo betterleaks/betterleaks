@@ -21,8 +21,8 @@ var (
 // maxResponseBody is the maximum number of bytes read from an HTTP response body.
 const maxResponseBody = 1 << 20 // 1 MB
 
-// Environment holds a compiled CEL environment and an HTTP client.
-type Environment struct {
+// ValidationEnvironment holds a compiled CEL environment and an HTTP client.
+type ValidationEnvironment struct {
 	env    *cel.Env
 	client *http.Client
 
@@ -46,15 +46,27 @@ func DefaultHTTPClient() *http.Client {
 	}
 }
 
+// SetHTTPClient replaces the HTTP client used by this environment.
+// This must be called before any program evaluation, not after.
+func (e *ValidationEnvironment) SetHTTPClient(c *http.Client) {
+	e.client = c
+}
+
+// NewValidationEnv creates a CEL environment for validating secrets.
+// It is an alias for NewEnvironment.
+func NewValidationEnv(httpClient *http.Client) (*ValidationEnvironment, error) {
+	return NewEnvironment(httpClient)
+}
+
 // NewEnvironment creates a CEL environment.
 // Define new bindings here.
-func NewEnvironment(httpClient *http.Client) (*Environment, error) {
+func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 	if httpClient == nil {
 		httpClient = DefaultHTTPClient()
 	}
 
 	// Initialise Environment first so the HTTP binding closures can capture it.
-	e := &Environment{
+	e := &ValidationEnvironment{
 		client: httpClient,
 		cache:  make(map[string]cel.Program),
 	}
@@ -117,7 +129,7 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 			cel.Overload("crypto_md5_bytes",
 				[]*cel.Type{cel.BytesType},
 				cel.BytesType,
-				cel.UnaryBinding(md5Binding(e)),
+				cel.UnaryBinding(md5Binding()),
 			),
 		),
 
@@ -125,7 +137,7 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 			cel.Overload("crypto_sha1_bytes",
 				[]*cel.Type{cel.BytesType},
 				cel.BytesType,
-				cel.UnaryBinding(sha1Binding(e)),
+				cel.UnaryBinding(sha1Binding()),
 			),
 		),
 
@@ -133,7 +145,7 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 			cel.Overload("hex_encode_bytes",
 				[]*cel.Type{cel.BytesType},
 				cel.StringType,
-				cel.UnaryBinding(hexEncodeBinding(e)),
+				cel.UnaryBinding(hexEncodeBinding()),
 			),
 		),
 
@@ -141,7 +153,7 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 			cel.Overload("crypto_hmac_sha256_bytes_bytes",
 				[]*cel.Type{cel.BytesType, cel.BytesType},
 				cel.BytesType,
-				cel.BinaryBinding(hmacSha256Binding(e)),
+				cel.BinaryBinding(hmacSha256Binding()),
 			),
 		),
 
@@ -149,7 +161,7 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 			cel.Overload("time_now_unix",
 				[]*cel.Type{},
 				cel.StringType,
-				cel.FunctionBinding(timeNowUnixBinding(e)),
+				cel.FunctionBinding(timeNowUnixBinding()),
 			),
 		),
 
@@ -170,7 +182,7 @@ func NewEnvironment(httpClient *http.Client) (*Environment, error) {
 }
 
 // Compile compiles a CEL expression and caches the resulting program.
-func (e *Environment) Compile(expression string) (cel.Program, error) {
+func (e *ValidationEnvironment) Compile(expression string) (cel.Program, error) {
 	e.mu.RLock()
 	if prg, ok := e.cache[expression]; ok {
 		e.mu.RUnlock()
@@ -197,7 +209,7 @@ func (e *Environment) Compile(expression string) (cel.Program, error) {
 
 // Eval evaluates a compiled CEL program with the given secret and captures,
 // returning the raw CEL output value.
-func (e *Environment) Eval(prg cel.Program, secret string, captures map[string]string) (ref.Val, error) {
+func (e *ValidationEnvironment) Eval(prg cel.Program, secret string, captures map[string]string) (ref.Val, error) {
 	if e.DebugResponse {
 		e.debugMu.Lock()
 		defer e.debugMu.Unlock()
@@ -223,6 +235,6 @@ func (e *Environment) Eval(prg cel.Program, secret string, captures map[string]s
 
 // DebugMeta returns the debug metadata captured during the most recent Eval
 // call (when DebugResponse is true). The caller must not modify the returned map.
-func (e *Environment) DebugMeta() map[string]any {
+func (e *ValidationEnvironment) DebugMeta() map[string]any {
 	return e.debugMeta
 }

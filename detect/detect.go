@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -14,13 +15,14 @@ import (
 
 	"github.com/pkoukk/tiktoken-go"
 
+	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/logging"
+	blregexp "github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/validate"
-	"github.com/betterleaks/betterleaks/words"
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/fatih/semgroup"
@@ -29,11 +31,20 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+// ValidationOptions controls secret validation behavior.
+// Zero value means validation is disabled.
+type ValidationOptions struct {
+	Enabled      bool
+	Workers      int
+	Timeout      time.Duration
+	Debug        bool
+	ExtractEmpty bool
+	StatusFilter string // comma-separated list of statuses to include
+}
+
 // allowSignatures are comment tags that can be used to ignore findings.
 // betterleaks:allow is checked first (preferred), followed by gitleaks:allow for backwards compatibility.
 var allowSignatures = []string{"betterleaks:allow", "gitleaks:allow"}
-
-var newlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 
 var errStopIteration = errors.New("pipeline: stop iteration")
 
@@ -55,7 +66,7 @@ type Result struct {
 // Detector is the main detector struct
 type Detector struct {
 	// Config is the configuration for the detector
-	Config config.Config
+	Config *config.Config
 
 	// MaxDecodeDepths limits how many recursive decoding passes are allowed
 	MaxDecodeDepth int
@@ -98,6 +109,12 @@ type Detector struct {
 	TotalBytes atomic.Uint64
 
 	tokenizer *tiktoken.Tiktoken
+
+	// validationEnv is the CEL environment used to compile and evaluate
+	// per-rule validation expressions. Created during construction;
+	// nil when no rules have ValidateCEL. The cmd layer may reconfigure
+	// the HTTP client/debug settings before evaluation begins.
+	validationEnv *celenv.ValidationEnvironment
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -168,9 +185,16 @@ type Detector struct {
 	Sema *semgroup.Group
 }
 
-// NewDetectorContext is the same as NewDetector but supports passing in a
-// context to use for timeouts
-func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
+// NewDetectorContext creates a new Detector.
+// It compiles all CEL programs (filters + validation) and, when
+// valOpts.Enabled is true, creates the validation worker pool.
+func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) *Detector {
+	if cfg == nil {
+		// TODO in v2 use NewDetector(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) (*Detector, error)
+		// Could be logging.Error?
+		logging.Fatal().Msg("config is required to create detector")
+		return nil
+	}
 	// grab offline tiktoken encoder
 	tiktoken.SetBpeLoader(&TiktokenLoader{})
 	tke, err := tiktoken.GetEncoding("cl100k_base")
@@ -178,15 +202,114 @@ func NewDetectorContext(ctx context.Context, cfg config.Config) *Detector {
 		logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
 	}
 
-	return &Detector{
-		gitleaksIgnore:   make(map[string]struct{}),
-		findings:         make([]report.Finding, 0),
-		ValidationCounts: make(map[string]int),
-		Config:           cfg,
-		prefilter:        *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
-		Sema:             semgroup.NewGroup(ctx, 40),
-		tokenizer:        tke,
+	// Compile CEL filter programs so they are available at scan time.
+	// This is the single compilation owner — callers should NOT compile separately.
+	if compileErr := cfg.CompileCELFilters(tke); compileErr != nil {
+		logging.Fatal().Err(compileErr).Msg("failed to compile CEL filters")
 	}
+
+	// Compile CEL validation programs (no-op if no rules have ValidateCEL).
+	validationEnv, validationErr := cfg.CompileValidation()
+	if validationErr != nil {
+		logging.Fatal().Err(validationErr).Msg("failed to compile CEL validation expressions")
+	}
+
+	d := &Detector{
+		gitleaksIgnore:         make(map[string]struct{}),
+		findings:               make([]report.Finding, 0),
+		ValidationCounts:       make(map[string]int),
+		Config:                 cfg,
+		prefilter:              *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
+		Sema:                   semgroup.NewGroup(ctx, 40),
+		tokenizer:              tke,
+		validationEnv:          validationEnv,
+		ValidationExtractEmpty: valOpts.ExtractEmpty,
+	}
+
+	// Set up validation pool when enabled.
+	if valOpts.Enabled && validationEnv != nil {
+		if valOpts.Timeout > 0 {
+			validationEnv.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
+		}
+		validationEnv.DebugResponse = valOpts.Debug
+
+		workers := valOpts.Workers
+		if workers <= 0 {
+			workers = 10
+		}
+		d.ValidationPool = validate.NewPool(workers, validationEnv)
+
+		if valOpts.StatusFilter != "" {
+			d.ValidationStatusFilter = make(map[string]struct{})
+			for s := range strings.SplitSeq(valOpts.StatusFilter, ",") {
+				s = strings.TrimSpace(s)
+				s = strings.ToLower(s)
+				if s != "" {
+					d.ValidationStatusFilter[s] = struct{}{}
+				}
+			}
+		}
+	} else if valOpts.Enabled && validationEnv == nil {
+		logging.Warn().Msg("validation enabled but no rules have validation expressions")
+	}
+
+	return d
+}
+
+// Tokenizer returns the BPE tokenizer used for token efficiency filtering.
+// May be nil if the tokenizer failed to initialize (e.g., network error).
+func (d *Detector) Tokenizer() *tiktoken.Tiktoken { return d.tokenizer }
+
+// SkipFunc returns a sources.SkipFunc callback that evaluates the config's
+// prefilter program against fragment attributes. Returns nil when no prefilter
+// is configured (sources treat nil as "skip nothing").
+func (d *Detector) SkipFunc() sources.SkipFunc {
+	if d.Config == nil {
+		return nil
+	}
+	prg := d.Config.PrefilterProgram()
+	if prg == nil {
+		return nil
+	}
+	return func(attrs map[string]string) bool {
+		skip, err := celenv.EvalPrefilter(prg, attrs)
+		if err != nil {
+			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
+			return false
+		}
+		return skip
+	}
+}
+
+// buildFindingMap builds the fixed-shape map[string]string used as the `finding`
+// activation variable in FilterEnv CEL programs. Only called when at least one
+// filter program is compiled, so the allocation is paid only when needed.
+func buildFindingMap(f *report.Finding) map[string]string {
+	return map[string]string{
+		"secret":      f.Secret,
+		"match":       f.Match,
+		"line":        f.Line,
+		"rule_id":     f.RuleID,
+		"description": f.Description,
+	}
+}
+
+func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragment) bool {
+	path := fragment.Attr(sources.AttrPath)
+	return path != "" && pathRule != nil && pathRule.MatchString(path)
+}
+
+func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding {
+	path := fragment.Attr(sources.AttrPath)
+	finding := report.Finding{
+		RuleID:      r.RuleID,
+		Description: r.Description,
+		Match:       "file detected: " + path,
+		Tags:        r.Tags,
+		Attributes:  maps.Clone(fragment.Attributes),
+	}
+	finding.SyncDeprecatedSourceFields()
+	return finding
 }
 
 // NewDetectorDefaultConfig creates a new detector with the default config
@@ -205,7 +328,8 @@ func NewDetectorDefaultConfig() (*Detector, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewDetector(cfg), nil
+	d := NewDetector(cfg)
+	return d, nil
 }
 
 // Run executes the pipeline on the given source and yields results as they are found.
@@ -348,29 +472,22 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 // ignore compares a finding against a baseline report or betterleaksignore
 // file entries.
 func (d *Detector) ignore(finding report.Finding) bool {
-	path := finding.Attributes[sources.AttrPath]
-	commit := finding.Attributes[sources.AttrGitSHA]
-
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, finding.RuleID, finding.StartLine)
-	if commit != "" {
-		finding.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", commit, path, finding.RuleID, finding.StartLine)
-	} else {
-		finding.Fingerprint = globalFingerprint
-	}
-
 	logger := logging.With().Str("finding", finding.Secret).Logger()
+	path := finding.Attributes[sources.AttrPath]
+	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, finding.RuleID, finding.StartLine)
+
 	if _, ok := d.gitleaksIgnore[globalFingerprint]; ok {
 		logger.Debug().
-			Str("fingerprint", globalFingerprint).
+			Str("fingerprint", finding.Fingerprint).
 			Msg("skipping finding: global fingerprint")
 		return true
-	} else if commit != "" {
-		if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
-			logger.Debug().
-				Str("fingerprint", finding.Fingerprint).
-				Msgf("skipping finding: fingerprint")
-			return true
-		}
+	}
+
+	if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
+		logger.Debug().
+			Str("fingerprint", finding.Fingerprint).
+			Msg("skipping finding: fingerprint")
+		return true
 	}
 
 	if d.baseline != nil && !IsNew(finding, d.Redact, d.baseline) {
@@ -432,32 +549,19 @@ func (d *Detector) DetectString(content string) []report.Finding {
 }
 
 func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	// Skip the config file and baseline file to prevent self-scanning.
+	if path := fragment.Attr(sources.AttrPath); path != "" {
+		if path == d.Config.Path || (d.baselinePath != "" && path == d.baselinePath) {
+			return nil
+		}
+	}
+
 	if fragment.Bytes == nil {
 		d.TotalBytes.Add(uint64(len(fragment.Raw)))
 	}
 	d.TotalBytes.Add(uint64(len(fragment.Bytes)))
 
-	var (
-		findings []report.Finding
-		logger   = fragment.Logger()
-	)
-
-	// TODO replace source-specific attribute checking with a CEL-based filter
-	// TODO baseline checking should be move to the source
-	// check if filepath is allowed
-	if fragment.Attr(sources.AttrPath) != "" {
-		// is the path our config or baseline file?
-		if fragment.Attr(sources.AttrPath) == d.Config.Path || (d.baselinePath != "" && fragment.Attr(sources.AttrPath) == d.baselinePath) {
-			logging.Trace().Msg("skipping file: matches config or baseline path")
-			return findings
-		}
-	}
-	// check if commit or filepath is allowed.
-	// TODO replace source-specific attribute checking with a CEL-based filter
-	if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, d.Config.Allowlists); isAllowed {
-		event.Msg("skipping file: global allowlist")
-		return findings
-	}
+	findings := []report.Finding{}
 
 	// setup variables to handle different decoding passes
 	currentRaw := fragment.Raw
@@ -538,35 +642,18 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	// check if commit or file is allowed for this rule.
-	// TODO replace source-specific attribute checking with a CEL-based filter
-	if isAllowed, event := checkCommitOrPathAllowed(logger, fragment, r.Allowlists); isAllowed {
-		event.Msg("skipping file: rule allowlist")
-		return findings
-	}
-
 	if r.Path != nil {
-		wp := fragment.Attr(sources.AttrFSWindowsPath)
 		if r.Regex == nil && len(encodedSegments) == 0 {
-			// Path _only_ rule
-			if r.Path.MatchString(fragment.Attr(sources.AttrPath)) || (wp != "" && r.Path.MatchString(wp)) {
-				finding := report.Finding{
-					RuleID:      r.RuleID,
-					Description: r.Description,
-					Match:       "file detected: " + fragment.Attr(sources.AttrPath),
-					Tags:        r.Tags,
-					Attributes:  maps.Clone(fragment.Attributes),
-				}
-				finding.SyncDeprecatedSourceFields()
-				return append(findings, finding)
+			if rulePathMatchesFragment(r.Path, fragment) {
+				return append(findings, newPathOnlyFinding(r, fragment))
 			}
-		} else {
-			// if path is set _and_ a regex is set, then we need to check both
-			// so if the path does not match, then we should return early and not
-			// consider the regex
-			if !r.Path.MatchString(fragment.Attr(sources.AttrPath)) && (wp == "" || !r.Path.MatchString(wp)) {
-				return findings
-			}
+			return findings
+		}
+
+		if !rulePathMatchesFragment(r.Path, fragment) {
+			// If a rule defines both `path` and `regex`, the normalized fragment path
+			// must match before we spend time checking the content regex.
+			return findings
 		}
 	}
 
@@ -638,13 +725,14 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			Attributes:  maps.Clone(fragment.Attributes),
 			Tags:        append(r.Tags, metaTags...),
 		}
+
+		// move to filter?
 		if !d.IgnoreGitleaksAllow && containsAllowSignature(finding.Line) {
 			logger.Trace().
 				Str("finding", finding.Secret).
 				Msg("skipping finding: allow signature found")
 			continue
 		}
-
 		finding.SyncDeprecatedSourceFields()
 
 		if currentLine == "" {
@@ -684,38 +772,40 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		// check entropy
-		// TODO move this to CEL-filter
+		// Entropy is always computed — needed for report output regardless of filter path.
 		entropy := shannonEntropy(finding.Secret)
 		finding.Entropy = float32(entropy)
-		if r.Entropy != 0.0 {
-			// entropy is too low, skip this finding
-			if entropy <= r.Entropy {
-				logger.Trace().
-					Str("finding", finding.Secret).
-					Float32("entropy", finding.Entropy).
-					Msg("skipping finding: low entropy")
+
+		finding.SetFingerprint()
+
+		// Build finding map once, only when at least one filter program is compiled.
+		var findingMap map[string]string
+		if d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
+			findingMap = buildFindingMap(&finding)
+			// For decoded segments, currentLine carries the decoded line text
+			// (via codec.CurrentLine). The old checkFindingAllowed used this for
+			// regexTarget="line". Preserve that behaviour in the CEL path.
+			if currentLine != "" {
+				findingMap["line"] = currentLine
+			}
+		}
+
+		// Global filter: CEL path (attributes + finding).
+		if d.Config.FilterProgram() != nil {
+			skip, err := celenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
+			if err != nil {
+				logger.Warn().Err(err).Msg("global filter eval error")
+			} else if skip {
 				continue
 			}
 		}
 
-		// check if the result matches any of the global allowlists.
-		// TODO move this to CEL-filter
-		if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, d.Config.Allowlists); isAllowed {
-			event.Msg("skipping finding: global allowlist")
-			continue
-		}
-
-		// check if the result matches any of the rule allowlists.
-		// TODO move this to CEL-filter
-		if isAllowed, event := checkFindingAllowed(logger, finding, fragment, currentLine, r.Allowlists); isAllowed {
-			event.Msg("skipping finding: rule allowlist")
-			continue
-		}
-
-		// TODO move this to CEL-filter
-		if r.TokenEfficiency {
-			if d.failsTokenEfficiencyFilter(finding.Secret) {
+		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
+		if r.FilterProgram() != nil {
+			skip, err := celenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
+			if err != nil {
+				logger.Warn().Err(err).Msg("rule filter eval error")
+			} else if skip {
 				continue
 			}
 		}
@@ -733,39 +823,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 	// Process required rules and create findings with auxiliary findings
 	return d.processRequiredRules(fragment, currentRaw, r, encodedSegments, findings, logger)
-}
-
-// TODO move this to CEL-filter
-func (d *Detector) failsTokenEfficiencyFilter(secret string) bool {
-	// Skip token-efficiency filtering if the tokenizer failed to initialize.
-	// (e.g., network error downloading cl100k_base)
-	if d.tokenizer == nil {
-		return false
-	}
-
-	// For short secrets (< 20 chars) that contain newlines, strip the newlines
-	// before analysis so that strings like "123\n\nTest" are evaluated as "123Test"
-	// allowing word detection to work.
-	analyzed := secret
-	if len(analyzed) < 20 && strings.ContainsAny(analyzed, "\n\r") {
-		analyzed = newlineReplacer.Replace(analyzed)
-	}
-
-	tokens := d.tokenizer.Encode(analyzed, nil, nil)
-
-	matches := words.HasMatchInList(analyzed, 5)
-	if len(matches) > 0 {
-		return true
-	}
-	threshold := 2.5
-	if len(analyzed) < 12 {
-		threshold = 2.1
-		matches := words.HasMatchInList(analyzed, 4)
-		if len(matches) == 0 {
-			threshold = 2.5
-		}
-	}
-	return float64(len(analyzed))/float64(len(tokens)) >= threshold
 }
 
 // processRequiredRules handles the logic for multi-part rules with auxiliary findings
@@ -889,148 +946,5 @@ func (d *Detector) withinProximity(primary, required report.Finding, requiredRul
 		}
 	}
 
-	return true
-}
-
-// checkCommitOrPathAllowed evaluates |fragment| against all provided |allowlists|.
-//
-// If the match condition is "OR", only commit and path are checked.
-// Otherwise, if regexes or stopwords are defined this will fail.
-// TODO: replace this with a CEL-based filter at the source level for quick bailout.
-func checkCommitOrPathAllowed(
-	logger zerolog.Logger,
-	fragment sources.Fragment,
-	allowlists []*config.Allowlist,
-) (bool, *zerolog.Event) {
-	if fragment.Attr(sources.AttrPath) == "" && fragment.Attr(sources.AttrGitSHA) == "" {
-		return false, nil
-	}
-
-	for _, a := range allowlists {
-		windowsPath := fragment.Attr(sources.AttrFSWindowsPath)
-		var (
-			isAllowed        bool
-			allowlistChecks  []bool
-			commitAllowed, _ = a.CommitAllowed(fragment.Attr(sources.AttrGitSHA))
-			pathAllowed      = a.PathAllowed(fragment.Attr(sources.AttrPath)) || (windowsPath != "" && a.PathAllowed(windowsPath))
-		)
-		// If the condition is "AND" we need to check all conditions.
-		if a.MatchCondition == config.AllowlistMatchAnd {
-			if len(a.Commits) > 0 {
-				allowlistChecks = append(allowlistChecks, commitAllowed)
-			}
-			if len(a.Paths) > 0 {
-				allowlistChecks = append(allowlistChecks, pathAllowed)
-			}
-			// These will be checked later.
-			if len(a.Regexes) > 0 {
-				continue
-			}
-			if len(a.StopWords) > 0 {
-				continue
-			}
-
-			isAllowed = allTrue(allowlistChecks)
-		} else {
-			isAllowed = commitAllowed || pathAllowed
-		}
-		if isAllowed {
-			event := logger.Trace().Str("condition", a.MatchCondition.String())
-			if commitAllowed {
-				event.Bool("allowed-commit", commitAllowed)
-			}
-			if pathAllowed {
-				event.Bool("allowed-path", pathAllowed)
-			}
-			return true, event
-		}
-	}
-	return false, nil
-}
-
-// checkFindingAllowed evaluates |finding| against all provided |allowlists|.
-//
-// If the match condition is "OR", only regex and stopwords are run. (Commit and path should be handled separately).
-// Otherwise, all conditions are checked.
-//
-// TODO: The method signature is awkward. I can't think of a better way to log helpful info.
-// TODO: replace this with a CEL-based filter at the scanFragmentWithRule level.
-func checkFindingAllowed(
-	logger zerolog.Logger,
-	finding report.Finding,
-	fragment sources.Fragment,
-	currentLine string,
-	allowlists []*config.Allowlist,
-) (bool, *zerolog.Event) {
-	for _, a := range allowlists {
-		allowlistTarget := finding.Secret
-		switch a.RegexTarget {
-		case "match":
-			allowlistTarget = finding.Match
-		case "line":
-			allowlistTarget = currentLine
-		}
-
-		var (
-			checks                 []bool
-			isAllowed              bool
-			commitAllowed          bool
-			commit                 string
-			pathAllowed            bool
-			regexAllowed           = a.RegexAllowed(allowlistTarget)
-			containsStopword, word = a.ContainsStopWord(finding.Secret)
-		)
-		// If the condition is "AND" we need to check all conditions.
-		if a.MatchCondition == config.AllowlistMatchAnd {
-			// Determine applicable checks.
-			if len(a.Commits) > 0 {
-				commitAllowed, commit = a.CommitAllowed(fragment.Attr(sources.AttrGitSHA))
-				checks = append(checks, commitAllowed)
-			}
-			if len(a.Paths) > 0 {
-				wp := fragment.Attr(sources.AttrFSWindowsPath)
-				pathAllowed = a.PathAllowed(fragment.Attr(sources.AttrPath)) || (wp != "" && a.PathAllowed(wp))
-				checks = append(checks, pathAllowed)
-			}
-			if len(a.Regexes) > 0 {
-				checks = append(checks, regexAllowed)
-			}
-			if len(a.StopWords) > 0 {
-				checks = append(checks, containsStopword)
-			}
-
-			isAllowed = allTrue(checks)
-		} else {
-			isAllowed = regexAllowed || containsStopword
-		}
-
-		if isAllowed {
-			event := logger.Trace().
-				Str("finding", finding.Secret).
-				Str("condition", a.MatchCondition.String())
-			if commitAllowed {
-				event.Str("allowed-commit", commit)
-			}
-			if pathAllowed {
-				event.Bool("allowed-path", pathAllowed)
-			}
-			if regexAllowed {
-				event.Bool("allowed-regex", regexAllowed)
-			}
-			if containsStopword {
-				event.Str("allowed-stopword", word)
-			}
-			return true, event
-		}
-	}
-	return false, nil
-}
-
-func allTrue(bools []bool) bool {
-	for _, check := range bools {
-		if !check {
-			return false
-		}
-	}
 	return true
 }

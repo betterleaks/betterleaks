@@ -13,7 +13,6 @@ import (
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
@@ -25,7 +24,7 @@ import (
 // timestamp ties in the commit graph.
 type ParallelGit struct {
 	RepoPath        string
-	Config          *config.Config
+	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
 	Sema            *semgroup.Group
@@ -92,7 +91,7 @@ func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) 
 
 	src := &Git{
 		Cmd:             gitCmd,
-		Config:          s.Config,
+		ShouldSkip:      s.ShouldSkip,
 		Platform:        s.Platform,
 		RemoteURL:       s.RemoteURL,
 		Sema:            s.Sema,
@@ -112,7 +111,7 @@ func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield FragmentsFunc,
 
 	src := &Git{
 		Cmd:             gitCmd,
-		Config:          s.Config,
+		ShouldSkip:      s.ShouldSkip,
 		Platform:        s.Platform,
 		RemoteURL:       s.RemoteURL,
 		Sema:            s.Sema,
