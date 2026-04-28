@@ -3,7 +3,7 @@
   ○
   ○
   ●
-  ○  
+  ○
 ```
 
 Betterleaks is a tool for finding secrets like passwords, API keys, and tokens. If you want to learn more about how the detection engine works check out this blog: [Regex is (almost) all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need).
@@ -58,12 +58,12 @@ cat some_file.txt | betterleaks stdin -v
 
 ### Configuration
 
-Betterleaks' strength comes from its expressive configuration. The majority of that expressiveness comes from the fact that rule filtering and validation logic are defined as CEL expressions. It is recommended you spend 30 minutes familiarizing yourself with [CEL](https://cel.dev) before writing filters and validators. 
+Betterleaks' strength comes from its expressive configuration. The majority of that expressiveness comes from the fact that rule filtering and validation logic are defined as CEL expressions. It is recommended you spend 30 minutes familiarizing yourself with [CEL](https://cel.dev) before writing filters and validators.
 
 ```toml
-# Prefilters run BEFORE any regex matching occurs, hence the _pre_.
+# Prefilters run before any regex matching occurs, hence the _pre_.
 # They only have access to the `attributes` map (like file path and git metadata).
-# Use this to quickly bypass heavy binary files, vendor directories, or noisy bots.
+# Use this to quickly bypass heavy binary files or vendor directories.
 prefilter = '''
 (matchesAny(attributes[?"path"].orValue(""), [
   r"""(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff|pdf|exe)$""",
@@ -73,10 +73,10 @@ prefilter = '''
 || attributes[?"git.author_name"].orValue("") == "renovate[bot]"
 '''
 
-# Filters run AFTER a regex match is found. 
+# Filters run after a regex match is found.
 # Source `attributes` AND `finding` data is available to compare against.
 # If this expression evaluates to true, the finding is discarded.
-# This is a GLOBAL filter, it runs for _every_ candidate secret.
+# This is a global filter, it runs for _every_ candidate secret.
 filter = '''
 containsAny(finding["secret"], [
   "EXAMPLE",
@@ -93,6 +93,15 @@ id = "github-fine-grained-pat"
 description = "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation."
 regex = '''github_pat_\w{82}'''
 keywords = ["github_pat_"]
+# We can specify rule filters too. In this example we say "Ignore this GitHub PAT if it's in a mock file authored by our CI user, and contains 'TESTING' _or_ ignore this github pat if the entropy isn't high enough".
+filter = '''
+(
+    attributes[?"git.author_name"].orValue("") == "ci-runner" &&
+    attributes[?"path"].orValue("").startsWith("mocks/") &&
+    finding["secret"].contains("TESTING")
+)
+|| (entropy(finding["secret"]) <= 3.0)
+'''
 # The validation block uses CEL to actively call the GitHub API and verify if the token is live.
 validate = '''
 cel.bind(r,
@@ -110,17 +119,6 @@ cel.bind(r,
     "reason": "Unauthorized"
   } : unknown(r)
 )
-'''
-# We can override the rule's filter to add our own highly specific business logic.
-# Here we keep the baseline entropy check, but also add a contextual scenario:
-# "Ignore this GitHub PAT if it's in a mock file authored by our CI user, and contains 'TESTING'."
-filter = '''
-(
-    attributes[?"git.author_name"].orValue("") == "ci-runner" &&
-    attributes[?"path"].orValue("").startsWith("mocks/") &&
-    finding["secret"].contains("TESTING")
-)
-|| (entropy(finding["secret"]) <= 3.0)
 '''
 
 [[rules]]
