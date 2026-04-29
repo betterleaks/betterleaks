@@ -43,7 +43,7 @@ type GitHub struct {
 	ShouldSkip      SkipFunc
 	Sema            *semgroup.Group
 	MaxArchiveDepth int
-	Workers         int    // git workers per repo (0 = single process)
+	Workers         int // git workers per repo (0 = single process)
 	LogOpts         string
 
 	// GitHub API
@@ -52,6 +52,12 @@ type GitHub struct {
 	// Actions scanning
 	ScanActions bool
 	Actions     ActionsOptions
+
+	// Issue and PR scanning
+	ScanIssues   bool
+	ScanPRs      bool
+	ScanComments bool
+	IssueOpts    IssueOptions
 }
 
 // ActionsOptions controls which workflow runs and artifacts to scan.
@@ -60,6 +66,12 @@ type ActionsOptions struct {
 	MaxAge        time.Duration // only scan runs newer than this
 	MaxRuns       int           // max runs to fetch per repo (0 = 50)
 	ScanArtifacts bool          // also download and scan artifacts
+}
+
+// IssueOptions controls issue, PR, and comment scanning.
+type IssueOptions struct {
+	MaxIssues   int // max issues/PRs to fetch per repo (0 = no limit)
+	MaxComments int // max comments to fetch per issue or PR (0 = no limit)
 }
 
 // Fragments enumerates GitHub repos and scans each one.
@@ -153,19 +165,28 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client) ([]*
 func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
 	name := repo.GetFullName()
 	logger := logging.With().Str("repo", name).Logger()
+	repoAttrs := s.repoAttributes(repo, "")
+
+	if s.ShouldSkip != nil && s.ShouldSkip(s.repoAttributes(repo, ResourceKindGitHubRepository)) {
+		logger.Debug().Msg("skipping repository based on prefilter")
+		return nil
+	}
+
 	logger.Info().Msg("scanning repo")
 
 	// Wrap yield to stamp GitHub metadata on every fragment from this repo.
 	ghYield := func(fragment Fragment, err error) error {
 		if err == nil {
-			fragment.SetAttr(AttrGitHubOrg, repo.GetOwner().GetLogin())
-			fragment.SetAttr(AttrGitHubRepo, name)
-			fragment.SetAttr(AttrGitHubRepoURL, repo.GetHTMLURL())
-			fragment.SetAttr(AttrGitHubVisibility, repo.GetVisibility())
+			for k, v := range repoAttrs {
+				if v == "" || fragment.Attr(k) != "" {
+					continue
+				}
+				fragment.SetAttr(k, v)
+			}
 			if chain := fragment.Attr(AttrSourceChain); chain != "" {
-				fragment.SetAttr(AttrSourceChain, "github > "+chain)
+				fragment.SetAttr(AttrSourceChain, SourceChainGitHub+" > "+chain)
 			} else {
-				fragment.SetAttr(AttrSourceChain, "github")
+				fragment.SetAttr(AttrSourceChain, SourceChainGitHub)
 			}
 		}
 		return yield(fragment, err)
@@ -181,7 +202,34 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 		}
 	}
 
+	if s.ScanIssues || s.ScanPRs || s.ScanComments {
+		logger.Info().
+			Bool("issues", s.ScanIssues).
+			Bool("prs", s.ScanPRs).
+			Bool("comments", s.ScanComments).
+			Int("issues_max", s.IssueOpts.MaxIssues).
+			Int("comments_max", s.IssueOpts.MaxComments).
+			Msg("scanning issues, prs, and comments")
+		if err := s.scanIssuesAndPRs(ctx, client, repo, ghYield); err != nil {
+			logger.Error().Err(err).Msg("issues/prs scan failed")
+		}
+	}
+
 	return nil
+}
+
+func (s *GitHub) repoAttributes(repo *github.Repository, resourceKind string) map[string]string {
+	attrs := map[string]string{
+		AttrGitHubOwner:      repo.GetOwner().GetLogin(),
+		AttrGitHubOwnerType:  repo.GetOwner().GetType(),
+		AttrGitHubRepo:       repo.GetName(),
+		AttrGitHubRepoURL:    repo.GetHTMLURL(),
+		AttrGitHubVisibility: repo.GetVisibility(),
+	}
+	if resourceKind != "" {
+		attrs[AttrResourceKind] = resourceKind
+	}
+	return attrs
 }
 
 // scanRepoGit clones and scans a repo's git history.
@@ -317,7 +365,7 @@ func (s *GitHub) listOrgRepos(ctx context.Context, client *github.Client, org st
 		if resp.NextPage == 0 {
 			break
 		}
-		opts.Page = resp.NextPage
+		opts.ListOptions.Page = resp.NextPage
 	}
 	return all, nil
 }
@@ -344,7 +392,7 @@ func (s *GitHub) listUserRepos(ctx context.Context, client *github.Client, user 
 		if resp.NextPage == 0 {
 			break
 		}
-		opts.Page = resp.NextPage
+		opts.ListOptions.Page = resp.NextPage
 	}
 	return all, nil
 }
@@ -385,6 +433,344 @@ func (s *GitHub) isExcluded(fullName string) bool {
 		}
 	}
 	return false
+}
+
+type githubIssuePager struct {
+	client *github.Client
+	owner  string
+	repo   string
+	opts   *github.IssueListByRepoOptions
+	items  []*github.Issue
+	index  int
+	done   bool
+}
+
+func (p *githubIssuePager) Next(ctx context.Context, s *GitHub) (*github.Issue, error) {
+	for {
+		if p.index < len(p.items) {
+			item := p.items[p.index]
+			p.index++
+			if item.IsPullRequest() {
+				continue
+			}
+			return item, nil
+		}
+		if p.done {
+			return nil, nil
+		}
+
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			p.items, resp, err = p.client.Issues.ListByRepo(ctx, p.owner, p.repo, p.opts)
+			return err
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list issues: %w", err)
+		}
+
+		p.index = 0
+		if resp.NextPage == 0 {
+			p.done = true
+		} else {
+			p.opts.ListOptions.Page = resp.NextPage
+		}
+		if len(p.items) == 0 && p.done {
+			return nil, nil
+		}
+	}
+}
+
+type githubPRPager struct {
+	client *github.Client
+	owner  string
+	repo   string
+	opts   *github.PullRequestListOptions
+	items  []*github.PullRequest
+	index  int
+	done   bool
+}
+
+func (p *githubPRPager) Next(ctx context.Context, s *GitHub) (*github.PullRequest, error) {
+	for {
+		if p.index < len(p.items) {
+			item := p.items[p.index]
+			p.index++
+			return item, nil
+		}
+		if p.done {
+			return nil, nil
+		}
+
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			p.items, resp, err = p.client.PullRequests.List(ctx, p.owner, p.repo, p.opts)
+			return err
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list pull requests: %w", err)
+		}
+
+		p.index = 0
+		if resp.NextPage == 0 {
+			p.done = true
+		} else {
+			p.opts.ListOptions.Page = resp.NextPage
+		}
+		if len(p.items) == 0 && p.done {
+			return nil, nil
+		}
+	}
+}
+
+// scanIssuesAndPRs scans issue and PR bodies, then bulk-fetches all comments
+// for the repo using repo-level endpoints (2 paginated calls total instead of
+// per-issue/PR calls).
+func (s *GitHub) scanIssuesAndPRs(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
+	owner := repo.GetOwner().GetLogin()
+	repoName := repo.GetName()
+
+	if s.ScanIssues {
+		if err := s.scanAllIssues(ctx, client, owner, repoName, yield); err != nil {
+			return err
+		}
+	}
+
+	if s.ScanPRs {
+		if err := s.scanAllPRs(ctx, client, owner, repoName, yield); err != nil {
+			return err
+		}
+	}
+
+	if s.ScanComments {
+		if err := s.scanAllIssueComments(ctx, client, owner, repoName, yield); err != nil {
+			return err
+		}
+		if err := s.scanAllPRReviewComments(ctx, client, owner, repoName, yield); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// scanAllIssues lists issues (excluding PRs) and yields their title+body.
+func (s *GitHub) scanAllIssues(ctx context.Context, client *github.Client, owner, repoName string, yield FragmentsFunc) error {
+	pager := &githubIssuePager{
+		client: client,
+		owner:  owner,
+		repo:   repoName,
+		opts: &github.IssueListByRepoOptions{
+			State:       "all",
+			Sort:        "updated",
+			Direction:   "desc",
+			ListOptions: github.ListOptions{PerPage: 100},
+		},
+	}
+
+	count := 0
+	for {
+		issue, err := pager.Next(ctx, s)
+		if err != nil {
+			return err
+		}
+		if issue == nil {
+			return nil
+		}
+		if s.IssueOpts.MaxIssues > 0 && count >= s.IssueOpts.MaxIssues {
+			return nil
+		}
+		count++
+
+		if issue.GetTitle() == "" && issue.GetBody() == "" {
+			continue
+		}
+
+		frag := Fragment{Raw: strings.TrimSpace(issue.GetTitle() + "\n\n" + issue.GetBody())}
+		frag.SetAttr(AttrPath, issue.GetHTMLURL())
+		frag.SetAttr(AttrResourceKind, ResourceKindGitHubIssue)
+		frag.SetAttr(AttrGitHubIssueNumber, strconv.Itoa(issue.GetNumber()))
+		frag.SetAttr(AttrSourceChain, SourceChainIssue)
+
+		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+			if err := yield(frag, nil); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// scanAllPRs lists pull requests and yields their title+body.
+func (s *GitHub) scanAllPRs(ctx context.Context, client *github.Client, owner, repoName string, yield FragmentsFunc) error {
+	pager := &githubPRPager{
+		client: client,
+		owner:  owner,
+		repo:   repoName,
+		opts: &github.PullRequestListOptions{
+			State:       "all",
+			Sort:        "updated",
+			Direction:   "desc",
+			ListOptions: github.ListOptions{PerPage: 100},
+		},
+	}
+
+	count := 0
+	for {
+		pr, err := pager.Next(ctx, s)
+		if err != nil {
+			return err
+		}
+		if pr == nil {
+			return nil
+		}
+		if s.IssueOpts.MaxIssues > 0 && count >= s.IssueOpts.MaxIssues {
+			return nil
+		}
+		count++
+
+		if pr.GetTitle() == "" && pr.GetBody() == "" {
+			continue
+		}
+
+		frag := Fragment{Raw: strings.TrimSpace(pr.GetTitle() + "\n\n" + pr.GetBody())}
+		frag.SetAttr(AttrPath, pr.GetHTMLURL())
+		frag.SetAttr(AttrResourceKind, ResourceKindGitHubPR)
+		frag.SetAttr(AttrGitHubPRNumber, strconv.Itoa(pr.GetNumber()))
+		frag.SetAttr(AttrSourceChain, SourceChainPR)
+
+		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+			if err := yield(frag, nil); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// scanAllIssueComments fetches all issue comments for the repo in bulk
+// (number=0 uses the repo-level endpoint), avoiding per-issue API calls.
+func (s *GitHub) scanAllIssueComments(ctx context.Context, client *github.Client, owner, repoName string, yield FragmentsFunc) error {
+	opts := &github.IssueListCommentsOptions{
+		Sort:        github.String("updated"),
+		Direction:   github.String("desc"),
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+
+	count := 0
+	for {
+		var comments []*github.IssueComment
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			comments, resp, err = client.Issues.ListComments(ctx, owner, repoName, 0, opts)
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("list repo issue comments: %w", err)
+		}
+
+		for _, comment := range comments {
+			if s.IssueOpts.MaxComments > 0 && count >= s.IssueOpts.MaxComments {
+				return nil
+			}
+			if comment.GetBody() == "" {
+				continue
+			}
+			count++
+
+			frag := Fragment{Raw: comment.GetBody()}
+			frag.SetAttr(AttrPath, comment.GetHTMLURL())
+			frag.SetAttr(AttrResourceKind, ResourceKindGitHubComment)
+			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(comment.GetID(), 10))
+			frag.SetAttr(AttrSourceChain, SourceChainComment)
+
+			// Determine issue/PR number from the issue URL
+			// (e.g. "https://api.github.com/repos/owner/repo/issues/123")
+			if issueURL := comment.GetIssueURL(); issueURL != "" {
+				if num := lastPathSegment(issueURL); num != "" {
+					frag.SetAttr(AttrGitHubIssueNumber, num)
+				}
+			}
+
+			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+				if err := yield(frag, nil); err != nil {
+					return err
+				}
+			}
+		}
+
+		if resp.NextPage == 0 {
+			return nil
+		}
+		opts.ListOptions.Page = resp.NextPage
+	}
+}
+
+// scanAllPRReviewComments fetches all PR review comments for the repo in bulk
+// (number=0 uses the repo-level endpoint).
+func (s *GitHub) scanAllPRReviewComments(ctx context.Context, client *github.Client, owner, repoName string, yield FragmentsFunc) error {
+	opts := &github.PullRequestListCommentsOptions{
+		Sort:        "updated",
+		Direction:   "desc",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+
+	count := 0
+	for {
+		var comments []*github.PullRequestComment
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			comments, resp, err = client.PullRequests.ListComments(ctx, owner, repoName, 0, opts)
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("list repo pr review comments: %w", err)
+		}
+
+		for _, comment := range comments {
+			if s.IssueOpts.MaxComments > 0 && count >= s.IssueOpts.MaxComments {
+				return nil
+			}
+			if comment.GetBody() == "" {
+				continue
+			}
+			count++
+
+			frag := Fragment{Raw: comment.GetBody()}
+			frag.SetAttr(AttrPath, comment.GetHTMLURL())
+			frag.SetAttr(AttrResourceKind, ResourceKindGitHubComment)
+			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(comment.GetID(), 10))
+			frag.SetAttr(AttrSourceChain, SourceChainPRReviewComment)
+
+			// Extract PR number from pull_request_url
+			// (e.g. "https://api.github.com/repos/owner/repo/pulls/123")
+			if prURL := comment.GetPullRequestURL(); prURL != "" {
+				if num := lastPathSegment(prURL); num != "" {
+					frag.SetAttr(AttrGitHubPRNumber, num)
+				}
+			}
+
+			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+				if err := yield(frag, nil); err != nil {
+					return err
+				}
+			}
+		}
+
+		if resp.NextPage == 0 {
+			return nil
+		}
+		opts.ListOptions.Page = resp.NextPage
+	}
+}
+
+// lastPathSegment returns the final path component of a URL string.
+func lastPathSegment(rawURL string) string {
+	if i := strings.LastIndex(rawURL, "/"); i >= 0 && i < len(rawURL)-1 {
+		return rawURL[i+1:]
+	}
+	return ""
 }
 
 // scanActions scans workflow run logs (and optionally artifacts) for a repo.
@@ -597,7 +983,7 @@ func (s *GitHub) downloadAndScanZip(ctx context.Context, zipURL *url.URL, run *g
 		AttrGitHubActionsRunName: run.GetName(),
 		AttrGitHubActionsRunURL:  run.GetHTMLURL(),
 		AttrGitHubActionsEvent:   run.GetEvent(),
-		AttrSourceChain:          "actions",
+		AttrSourceChain:          SourceChainActions,
 	}
 
 	file := &File{

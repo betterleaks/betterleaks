@@ -30,6 +30,13 @@ func init() {
 	githubCmd.Flags().Duration("actions-max-age", 0, "max age of workflow runs to scan (e.g. 720h for 30 days)")
 	githubCmd.Flags().Int("actions-max-runs", 50, "max workflow runs to scan per repo")
 	githubCmd.Flags().Bool("actions-artifacts", false, "also download and scan workflow artifacts")
+
+	// Issue and PR scanning
+	githubCmd.Flags().Bool("issues", false, "scan GitHub Issues (titles and bodies)")
+	githubCmd.Flags().Bool("prs", false, "scan GitHub Pull Requests (titles and bodies)")
+	githubCmd.Flags().Bool("comments", false, "scan GitHub Issue and PR comments")
+	githubCmd.Flags().Int("issues-max", 100, "maximum number of recent issues/PRs to fetch per repo (0 = no limit)")
+	githubCmd.Flags().Int("comments-max", 50, "maximum number of comments to fetch per issue/PR (0 = no limit)")
 }
 
 var githubCmd = &cobra.Command{
@@ -84,11 +91,18 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
 		BaseURL:         mustGetStringFlag(cmd, "github-url"),
 		ScanActions:     mustGetBoolFlag(cmd, "actions"),
+		ScanIssues:      mustGetBoolFlag(cmd, "issues"),
+		ScanPRs:         mustGetBoolFlag(cmd, "prs"),
+		ScanComments:    mustGetBoolFlag(cmd, "comments"),
 		Actions: sources.ActionsOptions{
 			Workflows:     actionsWorkflows,
 			MaxAge:        actionsMaxAge,
 			MaxRuns:       mustGetIntFlag(cmd, "actions-max-runs"),
 			ScanArtifacts: mustGetBoolFlag(cmd, "actions-artifacts"),
+		},
+		IssueOpts: sources.IssueOptions{
+			MaxIssues:   mustGetIntFlag(cmd, "issues-max"),
+			MaxComments: mustGetIntFlag(cmd, "comments-max"),
 		},
 	}
 

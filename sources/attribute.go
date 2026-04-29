@@ -24,16 +24,30 @@ const (
 	AttrFSSymlink     = "fs.symlink"
 	AttrFSWindowsPath = "fs.windows_path"
 
-	AttrResourceKind = "resource_kind"
+	AttrResourceKind             = "resource_kind"
+	ResourceKindGitHubRepository = "github.repository"
+	ResourceKindGitHubIssue      = "github.issue"
+	ResourceKindGitHubPR         = "github.pr"
+	ResourceKindGitHubComment    = "github.comment"
 
 	// Source ancestry
-	AttrSourceChain = "source_chain"
+	AttrSourceChain            = "source_chain"
+	SourceChainGitHub          = "github"
+	SourceChainIssue           = "issue"
+	SourceChainPR              = "pr"
+	SourceChainComment         = "comment"
+	SourceChainPRReviewComment = "pr_review_comment"
+	SourceChainActions         = "actions"
 
 	// GitHub attributes
-	AttrGitHubOrg        = "github.org"
-	AttrGitHubRepo       = "github.repo"
-	AttrGitHubRepoURL    = "github.repo_url"
-	AttrGitHubVisibility = "github.visibility"
+	AttrGitHubOwner       = "github.owner"
+	AttrGitHubOwnerType   = "github.owner_type"
+	AttrGitHubRepo        = "github.repo"
+	AttrGitHubRepoURL     = "github.repo_url"
+	AttrGitHubVisibility  = "github.visibility"
+	AttrGitHubIssueNumber = "github.issue.number"
+	AttrGitHubPRNumber    = "github.pr.number"
+	AttrGitHubCommentID   = "github.comment.id"
 
 	// GitHub Actions attributes
 	AttrGitHubActionsRunID   = "github.actions.run_id"
