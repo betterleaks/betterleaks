@@ -25,4 +25,13 @@ const (
 	AttrFSWindowsPath = "fs.windows_path"
 
 	AttrResourceKind = "resource_kind"
+
+	// Source ancestry
+	AttrSourceChain = "source_chain"
+
+	// GitHub attributes
+	AttrGitHubOrg        = "github.org"
+	AttrGitHubRepo       = "github.repo"
+	AttrGitHubRepoURL    = "github.repo_url"
+	AttrGitHubVisibility = "github.visibility"
 )

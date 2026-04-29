@@ -242,8 +242,9 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 				fragPath = filepath.ToSlash(fullPath)
 			}
 			attr := map[string]string{
-				AttrPath:    fragPath,
-				ResourceKey: ResourceFileContent,
+				AttrPath:        fragPath,
+				ResourceKey:     ResourceFileContent,
+				AttrSourceChain: "file",
 			}
 			fragment := Fragment{
 				Attributes: attr,

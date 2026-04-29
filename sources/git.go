@@ -419,6 +419,12 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 						maps.Copy(attrs, fragment.Attributes)
 						// set the merged attributes back to the fragment that will be yielded
 						fragment.Attributes = attrs
+						// prepend "git" to source chain set by the file source
+						if chain, ok := attrs[AttrSourceChain]; ok {
+							attrs[AttrSourceChain] = "git > " + chain
+						} else {
+							attrs[AttrSourceChain] = "git"
+						}
 						return yield(fragment, err)
 					})
 
@@ -440,6 +446,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 						Attributes: commitAttrs,
 					}
 					fragment.SetAttr(AttrPath, gitdiffFile.NewName)
+					fragment.SetAttr(AttrSourceChain, "git")
 
 					if err := yield(fragment, nil); err != nil {
 						return err
