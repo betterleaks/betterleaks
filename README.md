@@ -6,21 +6,17 @@
   ○
 ```
 
-Betterleaks is a tool for finding secrets like passwords, API keys, and tokens. If you want to learn more about how the detection engine works check out this blog: [Regex is (almost) all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need).
+Betterleaks is a tool for finding secrets like passwords and API keys. If you want to learn more about how the detection engine works check out this blog: [Regex is (almost) all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need).
 
-Betterleaks development is supported by <a href="https://www.aikido.dev">Aikido Security</a>
+Betterleaks is maintained by the folks who made Gitleaks, including the original author. Development is supported by <a href="https://www.aikido.dev">Aikido Security</a>
 <br><a href="https://www.aikido.dev"><img src="docs/aikido_log.svg" alt="Aikido Security" width="80" /></a>
-
-
-
-Wait wtf this isn't Gitleaks. You're right, it's not but it's built by the same people who maintained Gitleaks and ships with some cool new features.
 
 ### Notable Features
 
 | Feature | Description |
 | :--- | :--- |
-| **CEL-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to drastically reduce false positives. |
-| **Secrets Validation** | Automatically verify if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using CEL. |
+| **CEL-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. If you're coming from Gitleaks, think of this feature as a more expressive `[[allowlist]]` system. |
+| **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using CEL. |
 | **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
@@ -58,12 +54,10 @@ cat some_file.txt | betterleaks stdin -v
 
 ### Configuration
 
-Betterleaks' strength comes from its expressive configuration. The majority of that expressiveness comes from the fact that rule filtering and validation logic are defined as CEL expressions. It is recommended you spend 30 minutes familiarizing yourself with [CEL](https://cel.dev) before writing filters and validators.
+Betterleaks' strength comes from its expressive configuration. Filtering and validation logic are defined as CEL. It is recommended you spend 30 minutes familiarizing yourself with [CEL](https://cel.dev) before writing filters and validators. `prefilter`s run before any regex matching occurs and only have access to the `attributes` map. `attributes` describe a resource like a git patch. Use `prefilter`s to quickly bail out before more expensive scanning happens. `filter`s, on the other hand, get evaluated post-regex match and have access to the `attributes` map and candidate `finding` data like `finding["secret"]` or `finding["match"]`.
 
 ```toml
-# Prefilters run before any regex matching occurs, hence the _pre_.
-# They only have access to the `attributes` map (like file path and git metadata).
-# Use this to quickly bypass heavy binary files or vendor directories.
+# Global prefilter, it runs before expensive regex calls
 prefilter = '''
 (matchesAny(attributes[?"path"].orValue(""), [
   r"""(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff|pdf|exe)$""",
@@ -73,10 +67,7 @@ prefilter = '''
 || attributes[?"git.author_name"].orValue("") == "renovate[bot]"
 '''
 
-# Filters run after a regex match is found.
-# Source `attributes` AND `finding` data is available to compare against.
-# If this expression evaluates to true, the finding is discarded.
-# This is a global filter, it runs for _every_ candidate secret.
+# Global filter, it runs for _every_ candidate secret.
 filter = '''
 containsAny(finding["secret"], [
   "EXAMPLE",
@@ -86,14 +77,14 @@ containsAny(finding["secret"], [
 ])
 '''
 
-# An array of tables that contain information that define instructions
-# on how to detect secrets
+# An array of tables that contain data on how to detect secrets
 [[rules]]
 id = "github-fine-grained-pat"
-description = "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation."
+description = "GitHub Fine-Grained Personal Access Token, risking unauthorized repo access."
 regex = '''github_pat_\w{82}'''
 keywords = ["github_pat_"]
-# We can specify rule filters too. In this example we say "Ignore this GitHub PAT if it's in a mock file authored by our CI user, and contains 'TESTING' _or_ ignore this github pat if the entropy isn't high enough".
+
+# Rule-level filter
 filter = '''
 (
     attributes[?"git.author_name"].orValue("") == "ci-runner" &&
@@ -102,7 +93,8 @@ filter = '''
 )
 || (entropy(finding["secret"]) <= 3.0)
 '''
-# The validation block uses CEL to actively call the GitHub API and verify if the token is live.
+
+# Post-match-and-filter async validation check
 validate = '''
 cel.bind(r,
   http.get("https://api.github.com/user", {
@@ -120,17 +112,13 @@ cel.bind(r,
   } : unknown(r)
 )
 '''
-
-[[rules]]
-id = "awesome-rule-2"
-# ... etc etc etc
 ```
 
 Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/master/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config.
 
 ### Exit Codes
 
-You can always set the exit code when leaks are encountered with the --exit-code flag. Default exit codes below:
+Set the exit code when leaks are encountered with the --exit-code flag. Default exit codes below:
 
 ```
 0 - no leaks present
