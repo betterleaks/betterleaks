@@ -34,4 +34,10 @@ const (
 	AttrGitHubRepo       = "github.repo"
 	AttrGitHubRepoURL    = "github.repo_url"
 	AttrGitHubVisibility = "github.visibility"
+
+	// GitHub Actions attributes
+	AttrGitHubActionsRunID   = "github.actions.run_id"
+	AttrGitHubActionsRunName = "github.actions.run_name"
+	AttrGitHubActionsRunURL  = "github.actions.run_url"
+	AttrGitHubActionsEvent   = "github.actions.event"
 )

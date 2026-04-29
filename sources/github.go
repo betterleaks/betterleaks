@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +48,18 @@ type GitHub struct {
 
 	// GitHub API
 	BaseURL string // GitHub Enterprise base URL; empty = github.com
+
+	// Actions scanning
+	ScanActions bool
+	Actions     ActionsOptions
+}
+
+// ActionsOptions controls which workflow runs and artifacts to scan.
+type ActionsOptions struct {
+	Workflows     []string      // filter to specific workflow file names
+	MaxAge        time.Duration // only scan runs newer than this
+	MaxRuns       int           // max runs to fetch per repo (0 = 50)
+	ScanArtifacts bool          // also download and scan artifacts
 }
 
 // Fragments enumerates GitHub repos and scans each one.
@@ -64,7 +78,7 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 	for _, repo := range repos {
 		g.Go(func() error {
-			return s.scanRepo(gctx, repo, yield)
+			return s.scanRepo(gctx, client, repo, yield)
 		})
 	}
 	return g.Wait()
@@ -134,11 +148,46 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client) ([]*
 	return repos, nil
 }
 
-// scanRepo clones a single repo to a temp dir and delegates to the Git source.
-func (s *GitHub) scanRepo(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
+// scanRepo clones a single repo and delegates to the Git source.
+// If actions scanning is enabled, it also scans workflow run logs and artifacts.
+func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
 	name := repo.GetFullName()
 	logger := logging.With().Str("repo", name).Logger()
 	logger.Info().Msg("scanning repo")
+
+	// Wrap yield to stamp GitHub metadata on every fragment from this repo.
+	ghYield := func(fragment Fragment, err error) error {
+		if err == nil {
+			fragment.SetAttr(AttrGitHubOrg, repo.GetOwner().GetLogin())
+			fragment.SetAttr(AttrGitHubRepo, name)
+			fragment.SetAttr(AttrGitHubRepoURL, repo.GetHTMLURL())
+			fragment.SetAttr(AttrGitHubVisibility, repo.GetVisibility())
+			if chain := fragment.Attr(AttrSourceChain); chain != "" {
+				fragment.SetAttr(AttrSourceChain, "github > "+chain)
+			} else {
+				fragment.SetAttr(AttrSourceChain, "github")
+			}
+		}
+		return yield(fragment, err)
+	}
+
+	if err := s.scanRepoGit(ctx, repo, ghYield); err != nil {
+		logger.Error().Err(err).Msg("git scan failed")
+	}
+
+	if s.ScanActions {
+		if err := s.scanActions(ctx, client, repo, ghYield); err != nil {
+			logger.Error().Err(err).Msg("actions scan failed")
+		}
+	}
+
+	return nil
+}
+
+// scanRepoGit clones and scans a repo's git history.
+func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
+	name := repo.GetFullName()
+	logger := logging.With().Str("repo", name).Logger()
 
 	tmpDir, err := os.MkdirTemp("", "betterleaks-github-*")
 	if err != nil {
@@ -152,8 +201,7 @@ func (s *GitHub) scanRepo(ctx context.Context, repo *github.Repository, yield Fr
 
 	logger.Debug().Str("dir", tmpDir).Msg("cloning repo")
 	if err := s.cloneRepo(ctx, repo, tmpDir); err != nil {
-		logger.Error().Err(err).Msg("clone failed")
-		return nil
+		return err
 	}
 	logger.Debug().Msg("clone complete")
 
@@ -173,8 +221,7 @@ func (s *GitHub) scanRepo(ctx context.Context, repo *github.Repository, yield Fr
 	} else {
 		gitCmd, err := NewGitLogCmdContext(ctx, tmpDir, s.LogOpts)
 		if err != nil {
-			logger.Error().Err(err).Msg("could not create git log cmd")
-			return nil
+			return err
 		}
 		src = &Git{
 			Cmd:             gitCmd,
@@ -187,21 +234,8 @@ func (s *GitHub) scanRepo(ctx context.Context, repo *github.Repository, yield Fr
 	}
 
 	logger.Debug().Msg("starting git scan")
-	scanErr := src.Fragments(ctx, func(fragment Fragment, err error) error {
-		if err == nil {
-			fragment.SetAttr(AttrGitHubOrg, repo.GetOwner().GetLogin())
-			fragment.SetAttr(AttrGitHubRepo, name)
-			fragment.SetAttr(AttrGitHubRepoURL, repo.GetHTMLURL())
-			fragment.SetAttr(AttrGitHubVisibility, repo.GetVisibility())
-			if chain := fragment.Attr(AttrSourceChain); chain != "" {
-				fragment.SetAttr(AttrSourceChain, "github > "+chain)
-			} else {
-				fragment.SetAttr(AttrSourceChain, "github")
-			}
-		}
-		return yield(fragment, err)
-	})
-	logger.Debug().Msg("scan complete")
+	scanErr := src.Fragments(ctx, yield)
+	logger.Debug().Msg("git scan complete")
 	return scanErr
 }
 
@@ -351,6 +385,254 @@ func (s *GitHub) isExcluded(fullName string) bool {
 		}
 	}
 	return false
+}
+
+// scanActions scans workflow run logs (and optionally artifacts) for a repo.
+func (s *GitHub) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
+	owner := repo.GetOwner().GetLogin()
+	repoName := repo.GetName()
+	logger := logging.With().Str("repo", repo.GetFullName()).Logger()
+	logger.Info().Msg("scanning actions")
+
+	runs, err := s.listWorkflowRuns(ctx, client, owner, repoName)
+	if err != nil {
+		return fmt.Errorf("list workflow runs: %w", err)
+	}
+	logger.Debug().Int("runs", len(runs)).Msg("workflow runs to scan")
+
+	for _, run := range runs {
+		runID := run.GetID()
+		runLogger := logger.With().Int64("run_id", runID).Str("name", run.GetName()).Logger()
+
+		// Scan workflow run logs (delivered as a zip of per-job log files).
+		runLogger.Debug().Msg("downloading run logs")
+		if err := s.scanRunLogs(ctx, client, owner, repoName, run, yield); err != nil {
+			if isGitHubGone(err) {
+				runLogger.Debug().Err(err).Msg("run logs expired or unavailable")
+			} else {
+				runLogger.Error().Err(err).Msg("could not scan run logs")
+			}
+		}
+
+		// Scan artifacts if requested.
+		if s.Actions.ScanArtifacts {
+			runLogger.Debug().Msg("scanning run artifacts")
+			if err := s.scanRunArtifacts(ctx, client, owner, repoName, run, yield); err != nil {
+				runLogger.Error().Err(err).Msg("could not scan run artifacts")
+			}
+		}
+	}
+
+	logger.Debug().Msg("actions scan complete")
+	return nil
+}
+
+// listWorkflowRuns lists runs for a repo, respecting MaxRuns, MaxAge, and Workflows filters.
+func (s *GitHub) listWorkflowRuns(ctx context.Context, client *github.Client, owner, repo string) ([]*github.WorkflowRun, error) {
+	maxRuns := s.Actions.MaxRuns
+	if maxRuns == 0 {
+		maxRuns = 50
+	}
+
+	opts := &github.ListWorkflowRunsOptions{
+		ListOptions: github.ListOptions{PerPage: min(100, maxRuns)},
+	}
+	if s.Actions.MaxAge > 0 {
+		cutoff := time.Now().Add(-s.Actions.MaxAge).UTC().Format("2006-01-02")
+		opts.Created = ">=" + cutoff
+	}
+
+	// If specific workflows are requested, fetch runs for each and merge.
+	if len(s.Actions.Workflows) > 0 {
+		var all []*github.WorkflowRun
+		for _, wf := range s.Actions.Workflows {
+			runs, err := s.paginateWorkflowRuns(ctx, client, owner, repo, wf, opts, maxRuns-len(all))
+			if err != nil {
+				return all, err
+			}
+			all = append(all, runs...)
+			if len(all) >= maxRuns {
+				break
+			}
+		}
+		return all, nil
+	}
+
+	return s.paginateWorkflowRuns(ctx, client, owner, repo, "", opts, maxRuns)
+}
+
+func (s *GitHub) paginateWorkflowRuns(ctx context.Context, client *github.Client, owner, repo, workflow string, opts *github.ListWorkflowRunsOptions, limit int) ([]*github.WorkflowRun, error) {
+	var all []*github.WorkflowRun
+	for {
+		var result *github.WorkflowRuns
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			if workflow != "" {
+				result, resp, err = client.Actions.ListWorkflowRunsByFileName(ctx, owner, repo, workflow, opts)
+			} else {
+				result, resp, err = client.Actions.ListRepositoryWorkflowRuns(ctx, owner, repo, opts)
+			}
+			return err
+		})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, result.WorkflowRuns...)
+		if len(all) >= limit || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	return all, nil
+}
+
+// scanRunLogs downloads the logs zip for a workflow run and scans it.
+func (s *GitHub) scanRunLogs(ctx context.Context, client *github.Client, owner, repo string, run *github.WorkflowRun, yield FragmentsFunc) error {
+	var logURL *url.URL
+	err := s.withRetry(ctx, func() error {
+		var err error
+		logURL, _, err = client.Actions.GetWorkflowRunLogs(ctx, owner, repo, run.GetID(), 3)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+
+	return s.downloadAndScanZip(ctx, logURL, run, "actions/logs", yield)
+}
+
+// scanRunArtifacts lists and scans all artifacts for a workflow run.
+func (s *GitHub) scanRunArtifacts(ctx context.Context, client *github.Client, owner, repo string, run *github.WorkflowRun, yield FragmentsFunc) error {
+	opts := &github.ListOptions{PerPage: 100}
+	for {
+		var artifacts *github.ArtifactList
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			artifacts, resp, err = client.Actions.ListWorkflowRunArtifacts(ctx, owner, repo, run.GetID(), opts)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+
+		for _, artifact := range artifacts.Artifacts {
+			if artifact.GetExpired() {
+				continue
+			}
+			logger := logging.With().
+				Str("artifact", artifact.GetName()).
+				Int64("run_id", run.GetID()).Logger()
+			logger.Debug().Msg("downloading artifact")
+
+			var artifactURL *url.URL
+			err := s.withRetry(ctx, func() error {
+				var err error
+				artifactURL, _, err = client.Actions.DownloadArtifact(ctx, owner, repo, artifact.GetID(), 3)
+				return err
+			})
+			if err != nil {
+				logger.Error().Err(err).Msg("could not get artifact download URL")
+				continue
+			}
+
+			pathPrefix := fmt.Sprintf("actions/artifacts/%s", artifact.GetName())
+			if err := s.downloadAndScanZip(ctx, artifactURL, run, pathPrefix, yield); err != nil {
+				logger.Error().Err(err).Msg("could not scan artifact")
+			}
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return nil
+}
+
+// downloadAndScanZip downloads a zip from a URL into a temp file, then scans
+// it using the File source (which handles zip extraction natively).
+func (s *GitHub) downloadAndScanZip(ctx context.Context, zipURL *url.URL, run *github.WorkflowRun, pathPrefix string, yield FragmentsFunc) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, zipURL.String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned %s", resp.Status)
+	}
+
+	tmp, err := os.CreateTemp("", "betterleaks-actions-*.zip")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		tmp.Close()
+		logging.Debug().Str("path", tmp.Name()).Msg("cleaning up actions zip")
+		os.Remove(tmp.Name())
+	}()
+
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		return fmt.Errorf("download zip: %w", err)
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	runIDStr := strconv.FormatInt(run.GetID(), 10)
+	zipPath := pathPrefix + "/run_" + runIDStr + ".zip"
+
+	// Actions metadata to stamp on every fragment from this zip.
+	actionsAttrs := map[string]string{
+		AttrGitHubActionsRunID:   runIDStr,
+		AttrGitHubActionsRunName: run.GetName(),
+		AttrGitHubActionsRunURL:  run.GetHTMLURL(),
+		AttrGitHubActionsEvent:   run.GetEvent(),
+		AttrSourceChain:          "actions",
+	}
+
+	file := &File{
+		Content:         tmp,
+		Path:            zipPath,
+		MaxArchiveDepth: max(1, s.MaxArchiveDepth), // must be >= 1 to extract the zip
+		ShouldSkip:      s.ShouldSkip,
+	}
+
+	return file.Fragments(ctx, func(fragment Fragment, err error) error {
+		if err == nil {
+			for k, v := range actionsAttrs {
+				if fragment.Attr(k) == "" {
+					fragment.SetAttr(k, v)
+				}
+			}
+		}
+		return yield(fragment, err)
+	})
+}
+
+// isGitHubGone checks if an error is a GitHub 404 or 410 (expired/deleted logs, artifacts, etc.).
+func isGitHubGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	// go-github returns *ErrorResponse for API errors.
+	var ghErr *github.ErrorResponse
+	if errors.As(err, &ghErr) && ghErr.Response != nil {
+		code := ghErr.Response.StatusCode
+		return code == http.StatusNotFound || code == http.StatusGone
+	}
+	// GetWorkflowRunLogs returns a plain fmt.Errorf for non-302 status codes.
+	msg := err.Error()
+	return strings.Contains(msg, "404") || strings.Contains(msg, "410")
 }
 
 // splitRepoSlug splits "owner/repo" into owner and repo.

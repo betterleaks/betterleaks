@@ -23,6 +23,13 @@ func init() {
 	githubCmd.Flags().Int("git-workers", 0, "parallel git workers per repo (0 = single process)")
 	githubCmd.Flags().String("log-opts", "", "git log options passed to each repo scan")
 	githubCmd.Flags().String("github-url", "", "GitHub Enterprise base URL")
+
+	// Actions scanning
+	githubCmd.Flags().Bool("actions", false, "scan GitHub Actions workflow run logs")
+	githubCmd.Flags().StringSlice("actions-workflow", nil, "only scan runs from these workflow files (e.g. ci.yml)")
+	githubCmd.Flags().Duration("actions-max-age", 0, "max age of workflow runs to scan (e.g. 720h for 30 days)")
+	githubCmd.Flags().Int("actions-max-runs", 50, "max workflow runs to scan per repo")
+	githubCmd.Flags().Bool("actions-artifacts", false, "also download and scan workflow artifacts")
 }
 
 var githubCmd = &cobra.Command{
@@ -46,6 +53,10 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		token = os.Getenv("GITHUB_TOKEN")
 	}
 
+	if token == "" && mustGetBoolFlag(cmd, "actions") {
+		logging.Fatal().Msg("--actions requires a token (--token or GITHUB_TOKEN) with actions:read scope")
+	}
+
 	orgs, _ := cmd.Flags().GetStringSlice("org")
 	users, _ := cmd.Flags().GetStringSlice("user")
 	repos, _ := cmd.Flags().GetStringSlice("repo")
@@ -55,6 +66,9 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	}
 
 	excludeRepos, _ := cmd.Flags().GetStringSlice("exclude-repo")
+
+	actionsWorkflows, _ := cmd.Flags().GetStringSlice("actions-workflow")
+	actionsMaxAge, _ := cmd.Flags().GetDuration("actions-max-age")
 
 	src := &sources.GitHub{
 		Token:           token,
@@ -69,6 +83,13 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		Workers:         mustGetIntFlag(cmd, "git-workers"),
 		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
 		BaseURL:         mustGetStringFlag(cmd, "github-url"),
+		ScanActions:     mustGetBoolFlag(cmd, "actions"),
+		Actions: sources.ActionsOptions{
+			Workflows:     actionsWorkflows,
+			MaxAge:        actionsMaxAge,
+			MaxRuns:       mustGetIntFlag(cmd, "actions-max-runs"),
+			ScanArtifacts: mustGetBoolFlag(cmd, "actions-artifacts"),
+		},
 	}
 
 	exitCode := mustGetIntFlag(cmd, "exit-code")
