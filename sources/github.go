@@ -98,6 +98,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client) ([]*
 		if err != nil {
 			return nil, fmt.Errorf("invalid repo %q: %w", slug, err)
 		}
+		logging.Debug().Str("repo", slug).Msg("fetching repo metadata")
 		repo, err := s.fetchRepo(ctx, client, owner, name)
 		if err != nil {
 			return nil, fmt.Errorf("fetch repo %s: %w", slug, err)
@@ -129,6 +130,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client) ([]*
 		}
 	}
 
+	logging.Debug().Int("total", len(repos)).Msg("enumeration complete")
 	return repos, nil
 }
 
@@ -143,15 +145,21 @@ func (s *GitHub) scanRepo(ctx context.Context, repo *github.Repository, yield Fr
 		logger.Error().Err(err).Msg("could not create temp dir")
 		return nil
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		logger.Debug().Str("dir", tmpDir).Msg("cleaning up cloned repo")
+		os.RemoveAll(tmpDir)
+	}()
 
+	logger.Debug().Str("dir", tmpDir).Msg("cloning repo")
 	if err := s.cloneRepo(ctx, repo, tmpDir); err != nil {
 		logger.Error().Err(err).Msg("clone failed")
 		return nil
 	}
+	logger.Debug().Msg("clone complete")
 
 	var src Source
 	if s.Workers > 0 {
+		logger.Debug().Int("workers", s.Workers).Msg("using parallel git source")
 		src = &ParallelGit{
 			RepoPath:        tmpDir,
 			ShouldSkip:      s.ShouldSkip,
@@ -178,7 +186,8 @@ func (s *GitHub) scanRepo(ctx context.Context, repo *github.Repository, yield Fr
 		}
 	}
 
-	return src.Fragments(ctx, func(fragment Fragment, err error) error {
+	logger.Debug().Msg("starting git scan")
+	scanErr := src.Fragments(ctx, func(fragment Fragment, err error) error {
 		if err == nil {
 			fragment.SetAttr(AttrGitHubOrg, repo.GetOwner().GetLogin())
 			fragment.SetAttr(AttrGitHubRepo, name)
@@ -192,9 +201,14 @@ func (s *GitHub) scanRepo(ctx context.Context, repo *github.Repository, yield Fr
 		}
 		return yield(fragment, err)
 	})
+	logger.Debug().Msg("scan complete")
+	return scanErr
 }
 
 // cloneRepo performs a bare git clone with token auth injected into the URL.
+// Uses a broad refspec (+refs/*:refs/remotes/origin/*) to fetch all refs
+// including PR heads, tags, and non-standard refs so that git log --all
+// can traverse the complete commit graph.
 func (s *GitHub) cloneRepo(ctx context.Context, repo *github.Repository, dest string) error {
 	cloneURL := repo.GetCloneURL()
 	if s.Token != "" {
@@ -204,7 +218,11 @@ func (s *GitHub) cloneRepo(ctx context.Context, repo *github.Repository, dest st
 			cloneURL = u.String()
 		}
 	}
-	cmd := exec.CommandContext(ctx, "git", "clone", "--bare", "--quiet", cloneURL, dest)
+	cmd := exec.CommandContext(ctx, "git", "clone",
+		"--bare", "--quiet",
+		"-c", "remote.origin.fetch=+refs/*:refs/remotes/origin/*",
+		cloneURL, dest,
+	)
 	cmd.Env = gitConfigIsolationEnv()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
