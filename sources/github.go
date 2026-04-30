@@ -939,6 +939,11 @@ func (s *GitHub) newGraphQLClient(ctx context.Context) *githubv4.Client {
 	return githubv4.NewEnterpriseClient(u.String(), httpClient)
 }
 
+// gqlRequestTimeout is the per-request deadline for a single GraphQL HTTP call.
+// oauth2/githubv4 use http.DefaultTransport which has no timeout; without this
+// GitHub can hold a connection open indefinitely when throttling.
+const gqlRequestTimeout = 3 * time.Second
+
 // gqlQuery wraps every GraphQL call with rate-limit handling and transient-error retries.
 func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any, rl *ghRateLimit) error {
 	const maxAttempts = 4
@@ -947,7 +952,11 @@ func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any, rl *g
 			return err
 		}
 
-		err := s.gqlClient.Query(ctx, q, vars)
+		// Apply a per-request deadline so a hung connection is detected and
+		// retried rather than blocking the goroutine forever.
+		reqCtx, cancel := context.WithTimeout(ctx, gqlRequestTimeout)
+		err := s.gqlClient.Query(reqCtx, q, vars)
+		cancel()
 		s.apiCalls.Add(1)
 
 		if err == nil {
@@ -965,14 +974,32 @@ func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any, rl *g
 			return nil
 		}
 
+		// If the parent context was cancelled, propagate immediately.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		msg := err.Error()
-		if strings.Contains(msg, "rate limit") || strings.Contains(msg, "secondary rate limit") {
+		isRateLimit := strings.Contains(msg, "rate limit") || strings.Contains(msg, "secondary rate limit")
+		isTimeout := errors.Is(err, context.DeadlineExceeded) || strings.Contains(msg, "context deadline exceeded")
+		isTransient := strings.Contains(msg, "EOF") || strings.Contains(msg, "connection reset") || strings.Contains(msg, "connection refused")
+
+		if isRateLimit {
 			ghSetRateLimitPause(60 * time.Second)
 			continue
 		}
-		// Transient network errors get one bounded retry with exponential backoff.
-		if attempt < maxAttempts-1 && (strings.Contains(msg, "EOF") || strings.Contains(msg, "connection reset")) {
-			time.Sleep(time.Duration(1<<attempt) * time.Second)
+		if attempt < maxAttempts-1 && (isTimeout || isTransient) {
+			backoff := time.Duration(1<<attempt) * time.Second
+			logging.Warn().
+				Str("error", msg).
+				Int("attempt", attempt+1).
+				Dur("backoff", backoff).
+				Msg("transient GraphQL error, retrying")
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
 			continue
 		}
 		return err
