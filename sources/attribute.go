@@ -4,7 +4,10 @@ package sources
 
 const (
 	// Universal
-	AttrPath     = "path"
+	AttrPath = "path"
+	AttrURL  = "url"
+
+	// Resource Key
 	AttrResource = "resource"
 
 	// Resource values — what kind of thing the fragment is.

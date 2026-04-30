@@ -1100,8 +1100,9 @@ func (s *GitHub) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repos
 
 func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, issue ghIssueNode, commentCount *int, yield FragmentsFunc) error {
 	if s.ScanIssues && (issue.Title != "" || issue.Body != "") {
-		frag := Fragment{Raw: strings.TrimSpace(issue.Title + "\n\n" + issue.Body)}
-		frag.SetAttr(AttrPath, issue.Url)
+		frag := Fragment{Raw: strings.TrimSpace(issue.Title + "\n" + issue.Body)}
+		// frag := Fragment{Raw: strings.TrimSpace(issue.Body)}
+		frag.SetAttr(AttrURL, issue.Url)
 		frag.SetAttr(AttrResource, ResourceGitHubIssue)
 		frag.SetAttr(AttrGitHubIssueNumber, strconv.Itoa(issue.Number))
 		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
@@ -1149,8 +1150,8 @@ func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, i
 
 func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr ghPRNode, commentCount *int, yield FragmentsFunc) error {
 	if s.ScanPRs && (pr.Title != "" || pr.Body != "") {
-		frag := Fragment{Raw: strings.TrimSpace(pr.Title + "\n\n" + pr.Body)}
-		frag.SetAttr(AttrPath, pr.Url)
+		frag := Fragment{Raw: strings.TrimSpace(pr.Title + "\n" + pr.Body)}
+		frag.SetAttr(AttrURL, pr.Url)
 		frag.SetAttr(AttrResource, ResourceGitHubPR)
 		frag.SetAttr(AttrGitHubPRNumber, strconv.Itoa(pr.Number))
 		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
@@ -1275,7 +1276,7 @@ func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueN
 		if u == "" {
 			u = parentURL
 		}
-		frag.SetAttr(AttrPath, u)
+		frag.SetAttr(AttrURL, u)
 		frag.SetAttr(AttrResource, ResourceGitHubComment)
 		frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(c.DatabaseId, 10))
 		if prNum != "" {
