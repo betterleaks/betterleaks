@@ -13,16 +13,20 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fatih/semgroup"
 	"github.com/google/go-github/v72/github"
+	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
+
+// ============ Public types and config ============
 
 // GitHub enumerates repositories via the GitHub API and delegates scanning
 // to the Git source for each cloned repo.
@@ -58,6 +62,9 @@ type GitHub struct {
 	ScanPRs      bool
 	ScanComments bool
 	IssueOpts    IssueOptions
+
+	// Internal GraphQL client (initialized in Fragments).
+	gqlClient *githubv4.Client
 }
 
 // ActionsOptions controls which workflow runs and artifacts to scan.
@@ -74,10 +81,13 @@ type IssueOptions struct {
 	MaxComments int // max comments to fetch per issue or PR (0 = no limit)
 }
 
+// ============ Top-level scan orchestration ============
+
 // Fragments enumerates GitHub repos and scans each one.
 func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	start := time.Now()
 	client := s.newClient(ctx)
+	s.gqlClient = s.newGraphQLClient(ctx)
 
 	repos, err := s.enumerateRepos(ctx, client)
 	if err != nil {
@@ -170,7 +180,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client) ([]*
 }
 
 // scanRepo clones a single repo and delegates to the Git source.
-// If actions scanning is enabled, it also scans workflow run logs and artifacts.
+// Git, Actions, and GraphQL issue/PR scanning run concurrently.
 func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
 	name := repo.GetFullName()
 	logger := logging.With().Str("repo", name).Logger()
@@ -185,6 +195,8 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 	logger.Info().Msg("scanning repo")
 
 	// Wrap yield to stamp GitHub metadata on every fragment from this repo.
+	// Protected by a mutex because git, actions, and graphql run concurrently.
+	var yieldMu sync.Mutex
 	ghYield := func(fragment Fragment, err error) error {
 		if err == nil {
 			for k, v := range repoAttrs {
@@ -194,45 +206,60 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 				fragment.SetAttr(k, v)
 			}
 		}
+		yieldMu.Lock()
+		defer yieldMu.Unlock()
 		return yield(fragment, err)
 	}
 
-	gitStart := time.Now()
-	if err := s.scanRepoGit(ctx, repo, ghYield); err != nil {
-		logger.Error().Err(err).Msg("git scan failed")
-	} else {
-		logger.Debug().Dur("git_ms", time.Since(gitStart)).Msg("git scan complete")
-	}
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		gitStart := time.Now()
+		if err := s.scanRepoGit(gctx, repo, ghYield); err != nil {
+			logger.Error().Err(err).Msg("git scan failed")
+		} else {
+			logger.Debug().Dur("git_ms", time.Since(gitStart)).Msg("git scan complete")
+		}
+		return nil
+	})
 
 	if s.ScanActions {
-		actionsStart := time.Now()
-		if err := s.scanActions(ctx, client, repo, ghYield); err != nil {
-			logger.Error().Err(err).Msg("actions scan failed")
-		} else {
-			logger.Debug().Dur("actions_ms", time.Since(actionsStart)).Msg("actions scan complete")
-		}
+		g.Go(func() error {
+			actionsStart := time.Now()
+			if err := s.scanActions(gctx, client, repo, ghYield); err != nil {
+				logger.Error().Err(err).Msg("actions scan failed")
+			} else {
+				logger.Debug().Dur("actions_ms", time.Since(actionsStart)).Msg("actions scan complete")
+			}
+			return nil
+		})
 	}
 
 	if s.ScanIssues || s.ScanPRs || s.ScanComments {
-		logger.Info().
-			Bool("issues", s.ScanIssues).
-			Bool("prs", s.ScanPRs).
-			Bool("comments", s.ScanComments).
-			Int("issues_max", s.IssueOpts.MaxIssues).
-			Int("comments_max", s.IssueOpts.MaxComments).
-			Msg("scanning issues, prs, and comments")
-		issuesStart := time.Now()
-		if err := s.scanIssuesAndPRs(ctx, client, repo, ghYield); err != nil {
-			logger.Error().Err(err).Msg("issues/prs scan failed")
-		} else {
-			logger.Debug().Dur("issues_prs_ms", time.Since(issuesStart)).Msg("issues/prs scan complete")
-		}
+		g.Go(func() error {
+			logger.Info().
+				Bool("issues", s.ScanIssues).
+				Bool("prs", s.ScanPRs).
+				Bool("comments", s.ScanComments).
+				Int("issues_max", s.IssueOpts.MaxIssues).
+				Int("comments_max", s.IssueOpts.MaxComments).
+				Msg("scanning issues, prs, and comments")
+			issuesStart := time.Now()
+			if err := s.scanIssuesAndPRsGraphQL(gctx, repo, ghYield); err != nil {
+				logger.Error().Err(err).Msg("issues/prs scan failed")
+			} else {
+				logger.Debug().Dur("issues_prs_ms", time.Since(issuesStart)).Msg("issues/prs scan complete")
+			}
+			return nil
+		})
 	}
 
+	_ = g.Wait()
 	logger.Info().Dur("total_ms", time.Since(repoStart)).Msg("repo scan complete")
-
 	return nil
 }
+
+// ============ Repo enumeration via REST ============
 
 func (s *GitHub) repoAttributes(repo *github.Repository, resource string) map[string]string {
 	attrs := map[string]string{
@@ -247,6 +274,144 @@ func (s *GitHub) repoAttributes(repo *github.Repository, resource string) map[st
 	}
 	return attrs
 }
+
+// fetchRepo gets a single repo by owner/name with rate limit retry.
+func (s *GitHub) fetchRepo(ctx context.Context, client *github.Client, owner, name string) (*github.Repository, error) {
+	var repo *github.Repository
+	err := s.withRetry(ctx, func() error {
+		var err error
+		repo, _, err = client.Repositories.Get(ctx, owner, name)
+		return err
+	})
+	return repo, err
+}
+
+// listOrgRepos paginates all repos for an organization.
+func (s *GitHub) listOrgRepos(ctx context.Context, client *github.Client, org string) ([]*github.Repository, error) {
+	var all []*github.Repository
+	opts := &github.RepositoryListByOrgOptions{
+		Type:        "all",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		var repos []*github.Repository
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			repos, resp, err = client.Repositories.ListByOrg(ctx, org, opts)
+			return err
+		})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, repos...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.ListOptions.Page = resp.NextPage
+	}
+	return all, nil
+}
+
+// listUserRepos paginates all repos for a user.
+func (s *GitHub) listUserRepos(ctx context.Context, client *github.Client, user string) ([]*github.Repository, error) {
+	var all []*github.Repository
+	opts := &github.RepositoryListByUserOptions{
+		Type:        "all",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		var repos []*github.Repository
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			repos, resp, err = client.Repositories.ListByUser(ctx, user, opts)
+			return err
+		})
+		if err != nil {
+			return all, err
+		}
+		all = append(all, repos...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.ListOptions.Page = resp.NextPage
+	}
+	return all, nil
+}
+
+// isExcluded checks if a repo full name matches any exclusion glob.
+func (s *GitHub) isExcluded(fullName string) bool {
+	for _, pattern := range s.ExcludeRepos {
+		if matched, _ := filepath.Match(pattern, fullName); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// splitRepoSlug splits "owner/repo" into owner and repo.
+func splitRepoSlug(slug string) (owner, repo string, err error) {
+	owner, repo, ok := strings.Cut(slug, "/")
+	if !ok || owner == "" || repo == "" {
+		return "", "", fmt.Errorf("expected owner/repo format, got %q", slug)
+	}
+	return owner, repo, nil
+}
+
+// withRetry retries an API call up to 3 times on rate limit errors.
+// It also respects the shared rate-limit governor.
+func (s *GitHub) withRetry(ctx context.Context, fn func() error) error {
+	const maxRetries = 3
+	for attempt := range maxRetries {
+		if err := ghAwaitRateLimit(ctx); err != nil {
+			return err
+		}
+		err := fn()
+		if err == nil {
+			return nil
+		}
+
+		var rateLimitErr *github.RateLimitError
+		if errors.As(err, &rateLimitErr) && attempt < maxRetries-1 {
+			wait := time.Until(rateLimitErr.Rate.Reset.Time) + time.Second
+			if wait < 0 {
+				wait = time.Second
+			}
+			ghSetRateLimitPause(wait)
+			logging.Warn().Dur("wait", wait).Int("attempt", attempt+1).Msg("GitHub rate limit hit, sleeping")
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(wait):
+				continue
+			}
+		}
+		return err
+	}
+	return nil // unreachable
+}
+
+// newClient creates a GitHub API client with optional token auth and GHE support.
+func (s *GitHub) newClient(ctx context.Context) *github.Client {
+	var httpClient *http.Client
+	if s.Token != "" {
+		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: s.Token})
+		httpClient = oauth2.NewClient(ctx, ts)
+	}
+	client := github.NewClient(httpClient)
+	if s.BaseURL != "" {
+		c, err := client.WithEnterpriseURLs(s.BaseURL, s.BaseURL)
+		if err != nil {
+			logging.Warn().Err(err).Str("url", s.BaseURL).Msg("could not configure GHE URL, using github.com")
+		} else {
+			client = c
+		}
+	}
+	return client
+}
+
+// ============ Git scan path ============
 
 // scanRepoGit clones and scans a repo's git history.
 func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
@@ -331,523 +496,7 @@ func (s *GitHub) cloneRepo(ctx context.Context, repo *github.Repository, dest st
 	return nil
 }
 
-// newClient creates a GitHub API client with optional token auth and GHE support.
-func (s *GitHub) newClient(ctx context.Context) *github.Client {
-	var httpClient *http.Client
-	if s.Token != "" {
-		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: s.Token})
-		httpClient = oauth2.NewClient(ctx, ts)
-	}
-	client := github.NewClient(httpClient)
-	if s.BaseURL != "" {
-		c, err := client.WithEnterpriseURLs(s.BaseURL, s.BaseURL)
-		if err != nil {
-			logging.Warn().Err(err).Str("url", s.BaseURL).Msg("could not configure GHE URL, using github.com")
-		} else {
-			client = c
-		}
-	}
-	return client
-}
-
-// fetchRepo gets a single repo by owner/name with rate limit retry.
-func (s *GitHub) fetchRepo(ctx context.Context, client *github.Client, owner, name string) (*github.Repository, error) {
-	var repo *github.Repository
-	err := s.withRetry(ctx, func() error {
-		var err error
-		repo, _, err = client.Repositories.Get(ctx, owner, name)
-		return err
-	})
-	return repo, err
-}
-
-// listOrgRepos paginates all repos for an organization.
-func (s *GitHub) listOrgRepos(ctx context.Context, client *github.Client, org string) ([]*github.Repository, error) {
-	var all []*github.Repository
-	opts := &github.RepositoryListByOrgOptions{
-		Type:        "all",
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-	for {
-		var repos []*github.Repository
-		var resp *github.Response
-		err := s.withRetry(ctx, func() error {
-			var err error
-			repos, resp, err = client.Repositories.ListByOrg(ctx, org, opts)
-			return err
-		})
-		if err != nil {
-			return all, err
-		}
-		all = append(all, repos...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.ListOptions.Page = resp.NextPage
-	}
-	return all, nil
-}
-
-// listUserRepos paginates all repos for a user.
-func (s *GitHub) listUserRepos(ctx context.Context, client *github.Client, user string) ([]*github.Repository, error) {
-	var all []*github.Repository
-	opts := &github.RepositoryListByUserOptions{
-		Type:        "all",
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-	for {
-		var repos []*github.Repository
-		var resp *github.Response
-		err := s.withRetry(ctx, func() error {
-			var err error
-			repos, resp, err = client.Repositories.ListByUser(ctx, user, opts)
-			return err
-		})
-		if err != nil {
-			return all, err
-		}
-		all = append(all, repos...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.ListOptions.Page = resp.NextPage
-	}
-	return all, nil
-}
-
-// withRetry retries an API call up to 3 times on rate limit errors.
-func (s *GitHub) withRetry(ctx context.Context, fn func() error) error {
-	const maxRetries = 3
-	for attempt := range maxRetries {
-		err := fn()
-		if err == nil {
-			return nil
-		}
-
-		var rateLimitErr *github.RateLimitError
-		if errors.As(err, &rateLimitErr) && attempt < maxRetries-1 {
-			wait := time.Until(rateLimitErr.Rate.Reset.Time) + time.Second
-			if wait < 0 {
-				wait = time.Second
-			}
-			logging.Warn().Dur("wait", wait).Int("attempt", attempt+1).Msg("GitHub rate limit hit, sleeping")
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(wait):
-				continue
-			}
-		}
-		return err
-	}
-	return nil // unreachable
-}
-
-// isExcluded checks if a repo full name matches any exclusion glob.
-func (s *GitHub) isExcluded(fullName string) bool {
-	for _, pattern := range s.ExcludeRepos {
-		if matched, _ := filepath.Match(pattern, fullName); matched {
-			return true
-		}
-	}
-	return false
-}
-
-type githubIssuePager struct {
-	client *github.Client
-	owner  string
-	repo   string
-	opts   *github.IssueListByRepoOptions
-	items  []*github.Issue
-	index  int
-	done   bool
-}
-
-func (p *githubIssuePager) Next(ctx context.Context, s *GitHub) (*github.Issue, error) {
-	for {
-		if p.index < len(p.items) {
-			item := p.items[p.index]
-			p.index++
-			if item.IsPullRequest() {
-				continue
-			}
-			return item, nil
-		}
-		if p.done {
-			return nil, nil
-		}
-
-		var resp *github.Response
-		err := s.withRetry(ctx, func() error {
-			var err error
-			p.items, resp, err = p.client.Issues.ListByRepo(ctx, p.owner, p.repo, p.opts)
-			return err
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list issues: %w", err)
-		}
-
-		p.index = 0
-		if resp.NextPage == 0 {
-			p.done = true
-		} else {
-			p.opts.ListOptions.Page = resp.NextPage
-		}
-		if len(p.items) == 0 && p.done {
-			return nil, nil
-		}
-	}
-}
-
-type githubPRPager struct {
-	client *github.Client
-	owner  string
-	repo   string
-	opts   *github.PullRequestListOptions
-	items  []*github.PullRequest
-	index  int
-	done   bool
-}
-
-func (p *githubPRPager) Next(ctx context.Context, s *GitHub) (*github.PullRequest, error) {
-	for {
-		if p.index < len(p.items) {
-			item := p.items[p.index]
-			p.index++
-			return item, nil
-		}
-		if p.done {
-			return nil, nil
-		}
-
-		var resp *github.Response
-		err := s.withRetry(ctx, func() error {
-			var err error
-			p.items, resp, err = p.client.PullRequests.List(ctx, p.owner, p.repo, p.opts)
-			return err
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list pull requests: %w", err)
-		}
-
-		p.index = 0
-		if resp.NextPage == 0 {
-			p.done = true
-		} else {
-			p.opts.ListOptions.Page = resp.NextPage
-		}
-		if len(p.items) == 0 && p.done {
-			return nil, nil
-		}
-	}
-}
-
-// scanIssuesAndPRs scans issue and PR bodies, plus issue comments when enabled.
-func (s *GitHub) scanIssuesAndPRs(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
-	owner := repo.GetOwner().GetLogin()
-	repoName := repo.GetName()
-	logger := logging.With().Str("repo", repo.GetFullName()).Logger()
-	start := time.Now()
-	workerLimit := min(8, max(1, runtime.NumCPU()/2))
-	needIssues := s.ScanIssues || s.ScanComments
-	needPRs := s.ScanPRs || s.ScanComments
-
-	var issuePager *githubIssuePager
-	if needIssues {
-		issuePager = &githubIssuePager{
-			client: client,
-			owner:  owner,
-			repo:   repoName,
-			opts: &github.IssueListByRepoOptions{
-				State:       "all",
-				Sort:        "updated",
-				Direction:   "desc",
-				ListOptions: github.ListOptions{PerPage: 100},
-			},
-		}
-	}
-
-	var prPager *githubPRPager
-	if needPRs {
-		prPager = &githubPRPager{
-			client: client,
-			owner:  owner,
-			repo:   repoName,
-			opts: &github.PullRequestListOptions{
-				State:       "all",
-				Sort:        "updated",
-				Direction:   "desc",
-				ListOptions: github.ListOptions{PerPage: 100},
-			},
-		}
-	}
-
-	var (
-		nextIssue *github.Issue
-		nextPR    *github.PullRequest
-		err       error
-	)
-	if issuePager != nil {
-		nextIssue, err = issuePager.Next(ctx, s)
-		if err != nil {
-			return err
-		}
-	}
-	if prPager != nil {
-		nextPR, err = prPager.Next(ctx, s)
-		if err != nil {
-			return err
-		}
-	}
-
-	count := 0
-	issueCount := 0
-	prCount := 0
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(workerLimit)
-	for nextIssue != nil || nextPR != nil {
-		if s.IssueOpts.MaxIssues > 0 && count >= s.IssueOpts.MaxIssues {
-			break
-		}
-
-		if nextPR != nil && (nextIssue == nil || nextPR.GetUpdatedAt().Time.After(nextIssue.GetUpdatedAt().Time)) {
-			count++
-			prCount++
-			pr := nextPR
-			g.Go(func() error {
-				return s.scanPR(gctx, client, owner, repoName, pr, yield)
-			})
-			nextPR, err = prPager.Next(ctx, s)
-			if err != nil {
-				return err
-			}
-			continue
-		}
-
-		count++
-		issueCount++
-		issue := nextIssue
-		g.Go(func() error {
-			return s.scanIssue(gctx, client, owner, repoName, issue, yield)
-		})
-		nextIssue, err = issuePager.Next(ctx, s)
-		if err != nil {
-			return err
-		}
-	}
-
-	if err := g.Wait(); err != nil {
-		return err
-	}
-
-	logger.Debug().
-		Int("workers", workerLimit).
-		Int("items", count).
-		Int("issues", issueCount).
-		Int("prs", prCount).
-		Dur("issues_prs_ms", time.Since(start)).
-		Msg("issues/prs scan complete")
-
-	return nil
-}
-
-func (s *GitHub) scanIssue(ctx context.Context, client *github.Client, owner, repoName string, issue *github.Issue, yield FragmentsFunc) error {
-	if s.ScanIssues && (issue.GetTitle() != "" || issue.GetBody() != "") {
-		frag := Fragment{Raw: strings.TrimSpace(issue.GetTitle() + "\n\n" + issue.GetBody())}
-		frag.SetAttr(AttrPath, issue.GetHTMLURL())
-		frag.SetAttr(AttrResource, ResourceGitHubIssue)
-		frag.SetAttr(AttrGitHubIssueNumber, strconv.Itoa(issue.GetNumber()))
-
-		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-			if err := yield(frag, nil); err != nil {
-				return err
-			}
-		}
-	}
-
-	if s.ScanComments && issue.GetComments() > 0 {
-		if err := s.scanCommentsForIssue(ctx, client, owner, repoName, issue, yield); err != nil {
-			logging.Warn().Err(err).Int("issue", issue.GetNumber()).Msg("could not scan comments")
-		}
-	}
-
-	return nil
-}
-
-func (s *GitHub) scanPR(ctx context.Context, client *github.Client, owner, repoName string, pr *github.PullRequest, yield FragmentsFunc) error {
-	if s.ScanPRs && (pr.GetTitle() != "" || pr.GetBody() != "") {
-		frag := Fragment{Raw: strings.TrimSpace(pr.GetTitle() + "\n\n" + pr.GetBody())}
-		frag.SetAttr(AttrPath, pr.GetHTMLURL())
-		frag.SetAttr(AttrResource, ResourceGitHubPR)
-		frag.SetAttr(AttrGitHubPRNumber, strconv.Itoa(pr.GetNumber()))
-
-		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-			if err := yield(frag, nil); err != nil {
-				return err
-			}
-		}
-	}
-
-	if s.ScanComments {
-		if err := s.scanCommentsForPR(ctx, client, owner, repoName, pr, yield); err != nil {
-			logging.Warn().Err(err).Int("pr", pr.GetNumber()).Msg("could not scan pr comments")
-		}
-	}
-
-	return nil
-}
-
-// scanCommentsForIssue scans issue comments for an issue or PR.
-func (s *GitHub) scanCommentsForIssue(ctx context.Context, client *github.Client, owner, repoName string, issue *github.Issue, yield FragmentsFunc) error {
-	start := time.Now()
-	count := 0
-
-	if err := s.scanIssueComments(ctx, client, owner, repoName, issue.GetNumber(), false, &count, yield); err != nil {
-		return err
-	}
-
-	logging.Debug().
-		Str("repo", owner+"/"+repoName).
-		Int("issue", issue.GetNumber()).
-		Int("comments", count).
-		Dur("comments_ms", time.Since(start)).
-		Msg("issue comments scan complete")
-
-	return nil
-}
-
-func (s *GitHub) scanCommentsForPR(ctx context.Context, client *github.Client, owner, repoName string, pr *github.PullRequest, yield FragmentsFunc) error {
-	start := time.Now()
-	count := 0
-
-	// Always attempt to fetch both issue-style and review comments.
-	// The list endpoint metadata can undercount, so skipping based on the PR's
-	// comment counters can miss real findings.
-	if err := s.scanIssueComments(ctx, client, owner, repoName, pr.GetNumber(), true, &count, yield); err != nil {
-		return err
-	}
-
-	if err := s.scanPRReviewComments(ctx, client, owner, repoName, pr.GetNumber(), &count, yield); err != nil {
-		return err
-	}
-
-	logging.Debug().
-		Str("repo", owner+"/"+repoName).
-		Int("pr", pr.GetNumber()).
-		Int("comments", count).
-		Dur("comments_ms", time.Since(start)).
-		Msg("pr comments scan complete")
-
-	return nil
-}
-
-func (s *GitHub) scanIssueComments(ctx context.Context, client *github.Client, owner, repoName string, number int, isPR bool, count *int, yield FragmentsFunc) error {
-	opts := &github.IssueListCommentsOptions{
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-
-	issueNumStr := strconv.Itoa(number)
-
-	for {
-		var comments []*github.IssueComment
-		var resp *github.Response
-		err := s.withRetry(ctx, func() error {
-			var err error
-			comments, resp, err = client.Issues.ListComments(ctx, owner, repoName, number, opts)
-			return err
-		})
-		if err != nil {
-			return fmt.Errorf("list comments for #%d: %w", number, err)
-		}
-
-		for _, comment := range comments {
-			if s.IssueOpts.MaxComments > 0 && *count >= s.IssueOpts.MaxComments {
-				return nil
-			}
-
-			if comment.GetBody() == "" {
-				continue
-			}
-			*count = *count + 1
-
-			frag := Fragment{Raw: comment.GetBody()}
-			frag.SetAttr(AttrPath, comment.GetHTMLURL())
-			frag.SetAttr(AttrResource, ResourceGitHubComment)
-			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(comment.GetID(), 10))
-
-			if isPR {
-				frag.SetAttr(AttrGitHubPRNumber, issueNumStr)
-			} else {
-				frag.SetAttr(AttrGitHubIssueNumber, issueNumStr)
-			}
-			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-				if err := yield(frag, nil); err != nil {
-					return err
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.ListOptions.Page = resp.NextPage
-	}
-
-	return nil
-}
-
-func (s *GitHub) scanPRReviewComments(ctx context.Context, client *github.Client, owner, repoName string, number int, count *int, yield FragmentsFunc) error {
-	opts := &github.PullRequestListCommentsOptions{
-		Sort:        "updated",
-		Direction:   "desc",
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-
-	prNumStr := strconv.Itoa(number)
-
-	for {
-		var comments []*github.PullRequestComment
-		var resp *github.Response
-		err := s.withRetry(ctx, func() error {
-			var err error
-			comments, resp, err = client.PullRequests.ListComments(ctx, owner, repoName, number, opts)
-			return err
-		})
-		if err != nil {
-			return fmt.Errorf("list review comments for pr #%d: %w", number, err)
-		}
-
-		for _, comment := range comments {
-			if s.IssueOpts.MaxComments > 0 && *count >= s.IssueOpts.MaxComments {
-				return nil
-			}
-
-			if comment.GetBody() == "" {
-				continue
-			}
-			*count = *count + 1
-
-			frag := Fragment{Raw: comment.GetBody()}
-			frag.SetAttr(AttrPath, comment.GetHTMLURL())
-			frag.SetAttr(AttrResource, ResourceGitHubComment)
-			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(comment.GetID(), 10))
-			frag.SetAttr(AttrGitHubPRNumber, prNumStr)
-
-			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-				if err := yield(frag, nil); err != nil {
-					return err
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.ListOptions.Page = resp.NextPage
-	}
-
-	return nil
-}
+// ============ Actions scan path ============
 
 // scanActions scans workflow run logs (and optionally artifacts) for a repo.
 func (s *GitHub) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
@@ -1109,11 +758,500 @@ func isGitHubGone(err error) bool {
 	return strings.Contains(msg, "404") || strings.Contains(msg, "410")
 }
 
-// splitRepoSlug splits "owner/repo" into owner and repo.
-func splitRepoSlug(slug string) (owner, repo string, err error) {
-	owner, repo, ok := strings.Cut(slug, "/")
-	if !ok || owner == "" || repo == "" {
-		return "", "", fmt.Errorf("expected owner/repo format, got %q", slug)
+// ============ GraphQL types ============
+
+type ghPageInfo struct {
+	HasNextPage bool
+	EndCursor   githubv4.String
+}
+
+type ghRateLimit struct {
+	Remaining int
+	ResetAt   time.Time
+}
+
+type ghActor struct {
+	Login string
+}
+
+// ghComment is the shared comment shape used by issue comments,
+// PR issue comments, and review thread comments.
+type ghComment struct {
+	DatabaseId int64
+	Body       string
+	Url        string
+	CreatedAt  time.Time
+	Author     ghActor
+}
+
+type ghCommentConnection struct {
+	Nodes    []ghComment
+	PageInfo ghPageInfo
+}
+
+// ghIssueNode is an issue node with first page of comments inlined.
+type ghIssueNode struct {
+	Number    int
+	Title     string
+	Body      string
+	Url       string
+	Author    ghActor
+	CreatedAt time.Time
+	Comments  ghCommentConnection `graphql:"comments(first: $commentsFirst)"`
+}
+
+// ghReviewThreadNode is a review thread inlined under a PR, with comments inlined too.
+type ghReviewThreadNode struct {
+	Id       githubv4.ID
+	Comments ghCommentConnection `graphql:"comments(first: $commentsFirst)"`
+}
+
+type ghReviewThreadConnection struct {
+	Nodes    []ghReviewThreadNode
+	PageInfo ghPageInfo
+}
+
+// ghPRNode is a PR node with first page of issue-style comments
+// AND first page of review threads inlined.
+type ghPRNode struct {
+	Number        int
+	Title         string
+	Body          string
+	Url           string
+	Author        ghActor
+	CreatedAt     time.Time
+	Comments      ghCommentConnection      `graphql:"comments(first: $commentsFirst)"`
+	ReviewThreads ghReviewThreadConnection `graphql:"reviewThreads(first: $threadsFirst)"`
+}
+
+// ghRepoScanQuery is the unified per-page query.
+// Fetches one page of issues AND one page of PRs in a single round trip.
+type ghRepoScanQuery struct {
+	Repository struct {
+		Issues struct {
+			Nodes    []ghIssueNode
+			PageInfo ghPageInfo
+		} `graphql:"issues(first: $issuesFirst, after: $issuesAfter)"`
+		PullRequests struct {
+			Nodes    []ghPRNode
+			PageInfo ghPageInfo
+		} `graphql:"pullRequests(first: $prsFirst, after: $prsAfter)"`
+	} `graphql:"repository(owner: $owner, name: $repo)"`
+	RateLimit ghRateLimit
+}
+
+// ghIssueCommentsTailQuery fetches more comments for one issue when the first page didn't cover all.
+type ghIssueCommentsTailQuery struct {
+	Repository struct {
+		Issue struct {
+			Comments ghCommentConnection `graphql:"comments(first: $commentsFirst, after: $commentsAfter)"`
+		} `graphql:"issue(number: $number)"`
+	} `graphql:"repository(owner: $owner, name: $repo)"`
+	RateLimit ghRateLimit
+}
+
+// ghPRCommentsTailQuery fetches more issue-style comments for one PR.
+type ghPRCommentsTailQuery struct {
+	Repository struct {
+		PullRequest struct {
+			Comments ghCommentConnection `graphql:"comments(first: $commentsFirst, after: $commentsAfter)"`
+		} `graphql:"pullRequest(number: $number)"`
+	} `graphql:"repository(owner: $owner, name: $repo)"`
+	RateLimit ghRateLimit
+}
+
+// ghPRReviewThreadsTailQuery fetches more review threads for one PR (when >50 threads).
+type ghPRReviewThreadsTailQuery struct {
+	Repository struct {
+		PullRequest struct {
+			ReviewThreads ghReviewThreadConnection `graphql:"reviewThreads(first: $threadsFirst, after: $threadsAfter)"`
+		} `graphql:"pullRequest(number: $number)"`
+	} `graphql:"repository(owner: $owner, name: $repo)"`
+	RateLimit ghRateLimit
+}
+
+// ghThreadCommentsTailQuery fetches more comments for one review thread (when a thread has >50 comments).
+type ghThreadCommentsTailQuery struct {
+	Node struct {
+		Thread struct {
+			Comments ghCommentConnection `graphql:"comments(first: $commentsFirst, after: $commentsAfter)"`
+		} `graphql:"... on PullRequestReviewThread"`
+	} `graphql:"node(id: $threadId)"`
+	RateLimit ghRateLimit
+}
+
+// ============ GraphQL client and rate limit governor ============
+
+var (
+	ghRateLimitMu     sync.RWMutex
+	ghRateLimitResume time.Time
+)
+
+func ghAwaitRateLimit(ctx context.Context) error {
+	ghRateLimitMu.RLock()
+	wait := time.Until(ghRateLimitResume)
+	ghRateLimitMu.RUnlock()
+	if wait <= 0 {
+		return nil
 	}
-	return owner, repo, nil
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(wait):
+		return nil
+	}
+}
+
+func ghSetRateLimitPause(d time.Duration) {
+	ghRateLimitMu.Lock()
+	defer ghRateLimitMu.Unlock()
+	resume := time.Now().Add(d)
+	if resume.After(ghRateLimitResume) {
+		ghRateLimitResume = resume
+	}
+}
+
+// newGraphQLClient constructs a githubv4 client with optional token auth and GHE support.
+func (s *GitHub) newGraphQLClient(ctx context.Context) *githubv4.Client {
+	var httpClient *http.Client
+	if s.Token != "" {
+		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: s.Token})
+		httpClient = oauth2.NewClient(ctx, ts)
+	}
+	if s.BaseURL == "" {
+		return githubv4.NewClient(httpClient)
+	}
+	// GHE: REST is at <host>/api/v3, GraphQL is at <host>/api/graphql.
+	u, err := url.Parse(s.BaseURL)
+	if err != nil {
+		logging.Warn().Err(err).Str("url", s.BaseURL).Msg("could not parse GHE URL for GraphQL, falling back to github.com")
+		return githubv4.NewClient(httpClient)
+	}
+	before, _ := strings.CutSuffix(u.Path, "/api/v3")
+	u.Path = before + "/api/graphql"
+	return githubv4.NewEnterpriseClient(u.String(), httpClient)
+}
+
+// gqlQuery wraps every GraphQL call with rate-limit handling and transient-error retries.
+func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any, rl *ghRateLimit) error {
+	const maxAttempts = 4
+	for attempt := range maxAttempts {
+		if err := ghAwaitRateLimit(ctx); err != nil {
+			return err
+		}
+
+		err := s.gqlClient.Query(ctx, q, vars)
+
+		if err == nil {
+			// Proactive backoff if we're running low on quota.
+			if rl != nil && rl.Remaining > 0 && rl.Remaining < 5 {
+				pause := time.Until(rl.ResetAt) + 2*time.Second
+				if pause > 0 {
+					ghSetRateLimitPause(pause)
+				}
+			}
+			return nil
+		}
+
+		msg := err.Error()
+		if strings.Contains(msg, "rate limit") || strings.Contains(msg, "secondary rate limit") {
+			ghSetRateLimitPause(60 * time.Second)
+			continue
+		}
+		// Transient network errors get one bounded retry with exponential backoff.
+		if attempt < maxAttempts-1 && (strings.Contains(msg, "EOF") || strings.Contains(msg, "connection reset")) {
+			time.Sleep(time.Duration(1<<attempt) * time.Second)
+			continue
+		}
+		return err
+	}
+	return fmt.Errorf("graphql query failed after %d attempts", maxAttempts)
+}
+
+// ============ GraphQL issue/PR/comment scan ============
+
+// scanIssuesAndPRsGraphQL scans issues, PRs, and comments via the GitHub GraphQL API.
+func (s *GitHub) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
+	owner := repo.GetOwner().GetLogin()
+	name := repo.GetName()
+	logger := logging.With().Str("repo", repo.GetFullName()).Logger()
+	start := time.Now()
+
+	var (
+		issuesAfter  *githubv4.String
+		prsAfter     *githubv4.String
+		issuesDone   = !s.ScanIssues && !s.ScanComments
+		prsDone      = !s.ScanPRs && !s.ScanComments
+		issueCount   int
+		prCount      int
+		commentCount int
+	)
+
+	for !issuesDone || !prsDone {
+		if s.IssueOpts.MaxIssues > 0 && issueCount+prCount >= s.IssueOpts.MaxIssues {
+			break
+		}
+
+		vars := map[string]any{
+			"owner":         githubv4.String(owner),
+			"repo":          githubv4.String(name),
+			"issuesFirst":   githubv4.Int(50),
+			"issuesAfter":   issuesAfter,
+			"prsFirst":      githubv4.Int(25),
+			"prsAfter":      prsAfter,
+			"commentsFirst": githubv4.Int(50),
+			"threadsFirst":  githubv4.Int(50),
+		}
+		// If one side is done, ask for zero to keep the query well-formed.
+		if issuesDone {
+			vars["issuesFirst"] = githubv4.Int(0)
+		}
+		if prsDone {
+			vars["prsFirst"] = githubv4.Int(0)
+		}
+
+		var q ghRepoScanQuery
+		if err := s.gqlQuery(ctx, &q, vars, &q.RateLimit); err != nil {
+			return fmt.Errorf("graphql repo scan: %w", err)
+		}
+
+		// Process issues from this page.
+		if !issuesDone {
+			for _, issue := range q.Repository.Issues.Nodes {
+				if s.IssueOpts.MaxIssues > 0 && issueCount+prCount >= s.IssueOpts.MaxIssues {
+					break
+				}
+				if err := s.emitIssueAndComments(ctx, owner, name, issue, &commentCount, yield); err != nil {
+					return err
+				}
+				issueCount++
+			}
+			if !q.Repository.Issues.PageInfo.HasNextPage {
+				issuesDone = true
+			} else {
+				issuesAfter = githubv4.NewString(q.Repository.Issues.PageInfo.EndCursor)
+			}
+		}
+
+		// Process PRs from this page.
+		if !prsDone {
+			for _, pr := range q.Repository.PullRequests.Nodes {
+				if s.IssueOpts.MaxIssues > 0 && issueCount+prCount >= s.IssueOpts.MaxIssues {
+					break
+				}
+				if err := s.emitPRAndComments(ctx, owner, name, pr, &commentCount, yield); err != nil {
+					return err
+				}
+				prCount++
+			}
+			if !q.Repository.PullRequests.PageInfo.HasNextPage {
+				prsDone = true
+			} else {
+				prsAfter = githubv4.NewString(q.Repository.PullRequests.PageInfo.EndCursor)
+			}
+		}
+	}
+
+	logger.Debug().
+		Int("issues", issueCount).
+		Int("prs", prCount).
+		Int("comments", commentCount).
+		Dur("issues_prs_ms", time.Since(start)).
+		Msg("graphql issues/prs scan complete")
+	return nil
+}
+
+func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, issue ghIssueNode, commentCount *int, yield FragmentsFunc) error {
+	if s.ScanIssues && (issue.Title != "" || issue.Body != "") {
+		frag := Fragment{Raw: strings.TrimSpace(issue.Title + "\n\n" + issue.Body)}
+		frag.SetAttr(AttrPath, issue.Url)
+		frag.SetAttr(AttrResource, ResourceGitHubIssue)
+		frag.SetAttr(AttrGitHubIssueNumber, strconv.Itoa(issue.Number))
+		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+			if err := yield(frag, nil); err != nil {
+				return err
+			}
+		}
+	}
+
+	if !s.ScanComments {
+		return nil
+	}
+
+	// First page of comments (already in hand).
+	if err := s.emitCommentNodes(issue.Comments.Nodes, issue.Url, "", strconv.Itoa(issue.Number), commentCount, yield); err != nil {
+		return err
+	}
+
+	// Tail pages.
+	cursor := issue.Comments.PageInfo.EndCursor
+	hasMore := issue.Comments.PageInfo.HasNextPage
+	for hasMore {
+		if s.IssueOpts.MaxComments > 0 && *commentCount >= s.IssueOpts.MaxComments {
+			return nil
+		}
+		var tail ghIssueCommentsTailQuery
+		vars := map[string]any{
+			"owner":          githubv4.String(owner),
+			"repo":           githubv4.String(name),
+			"number":         githubv4.Int(issue.Number),
+			"commentsFirst":  githubv4.Int(50),
+			"commentsAfter":  githubv4.NewString(cursor),
+		}
+		if err := s.gqlQuery(ctx, &tail, vars, &tail.RateLimit); err != nil {
+			return fmt.Errorf("issue %d comments tail: %w", issue.Number, err)
+		}
+		if err := s.emitCommentNodes(tail.Repository.Issue.Comments.Nodes, issue.Url, "", strconv.Itoa(issue.Number), commentCount, yield); err != nil {
+			return err
+		}
+		hasMore = tail.Repository.Issue.Comments.PageInfo.HasNextPage
+		cursor = tail.Repository.Issue.Comments.PageInfo.EndCursor
+	}
+	return nil
+}
+
+func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr ghPRNode, commentCount *int, yield FragmentsFunc) error {
+	if s.ScanPRs && (pr.Title != "" || pr.Body != "") {
+		frag := Fragment{Raw: strings.TrimSpace(pr.Title + "\n\n" + pr.Body)}
+		frag.SetAttr(AttrPath, pr.Url)
+		frag.SetAttr(AttrResource, ResourceGitHubPR)
+		frag.SetAttr(AttrGitHubPRNumber, strconv.Itoa(pr.Number))
+		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+			if err := yield(frag, nil); err != nil {
+				return err
+			}
+		}
+	}
+
+	if !s.ScanComments {
+		return nil
+	}
+
+	prNumStr := strconv.Itoa(pr.Number)
+
+	// Issue-style PR comments: first page in hand, then tail.
+	if err := s.emitCommentNodes(pr.Comments.Nodes, pr.Url, prNumStr, "", commentCount, yield); err != nil {
+		return err
+	}
+	cursor := pr.Comments.PageInfo.EndCursor
+	hasMore := pr.Comments.PageInfo.HasNextPage
+	for hasMore {
+		if s.IssueOpts.MaxComments > 0 && *commentCount >= s.IssueOpts.MaxComments {
+			return nil
+		}
+		var tail ghPRCommentsTailQuery
+		vars := map[string]any{
+			"owner":         githubv4.String(owner),
+			"repo":          githubv4.String(name),
+			"number":        githubv4.Int(pr.Number),
+			"commentsFirst": githubv4.Int(50),
+			"commentsAfter": githubv4.NewString(cursor),
+		}
+		if err := s.gqlQuery(ctx, &tail, vars, &tail.RateLimit); err != nil {
+			return fmt.Errorf("pr %d comments tail: %w", pr.Number, err)
+		}
+		if err := s.emitCommentNodes(tail.Repository.PullRequest.Comments.Nodes, pr.Url, prNumStr, "", commentCount, yield); err != nil {
+			return err
+		}
+		hasMore = tail.Repository.PullRequest.Comments.PageInfo.HasNextPage
+		cursor = tail.Repository.PullRequest.Comments.PageInfo.EndCursor
+	}
+
+	// Review thread comments: first page of threads in hand.
+	// Each thread also has its first page of comments inline.
+	threads := pr.ReviewThreads.Nodes
+	threadsCursor := pr.ReviewThreads.PageInfo.EndCursor
+	threadsHasMore := pr.ReviewThreads.PageInfo.HasNextPage
+	for {
+		for _, thread := range threads {
+			if err := s.emitCommentNodes(thread.Comments.Nodes, pr.Url, prNumStr, "", commentCount, yield); err != nil {
+				return err
+			}
+			// Tail-paginate this thread's comments if needed.
+			if thread.Comments.PageInfo.HasNextPage {
+				if err := s.tailThreadComments(ctx, pr.Url, prNumStr, thread.Id, thread.Comments.PageInfo.EndCursor, commentCount, yield); err != nil {
+					return err
+				}
+			}
+		}
+		if !threadsHasMore {
+			break
+		}
+		// Fetch next page of threads for this PR.
+		var tail ghPRReviewThreadsTailQuery
+		vars := map[string]any{
+			"owner":         githubv4.String(owner),
+			"repo":          githubv4.String(name),
+			"number":        githubv4.Int(pr.Number),
+			"threadsFirst":  githubv4.Int(50),
+			"threadsAfter":  githubv4.NewString(threadsCursor),
+			"commentsFirst": githubv4.Int(50),
+		}
+		if err := s.gqlQuery(ctx, &tail, vars, &tail.RateLimit); err != nil {
+			return fmt.Errorf("pr %d threads tail: %w", pr.Number, err)
+		}
+		threads = tail.Repository.PullRequest.ReviewThreads.Nodes
+		threadsHasMore = tail.Repository.PullRequest.ReviewThreads.PageInfo.HasNextPage
+		threadsCursor = tail.Repository.PullRequest.ReviewThreads.PageInfo.EndCursor
+	}
+	return nil
+}
+
+func (s *GitHub) tailThreadComments(ctx context.Context, prURL, prNumStr string, threadId githubv4.ID, cursor githubv4.String, commentCount *int, yield FragmentsFunc) error {
+	hasMore := true
+	for hasMore {
+		if s.IssueOpts.MaxComments > 0 && *commentCount >= s.IssueOpts.MaxComments {
+			return nil
+		}
+		var tail ghThreadCommentsTailQuery
+		vars := map[string]any{
+			"threadId":      threadId,
+			"commentsFirst": githubv4.Int(50),
+			"commentsAfter": githubv4.NewString(cursor),
+		}
+		if err := s.gqlQuery(ctx, &tail, vars, &tail.RateLimit); err != nil {
+			return fmt.Errorf("thread comments tail: %w", err)
+		}
+		if err := s.emitCommentNodes(tail.Node.Thread.Comments.Nodes, prURL, prNumStr, "", commentCount, yield); err != nil {
+			return err
+		}
+		hasMore = tail.Node.Thread.Comments.PageInfo.HasNextPage
+		cursor = tail.Node.Thread.Comments.PageInfo.EndCursor
+	}
+	return nil
+}
+
+// emitCommentNodes yields one Fragment per comment.
+// Either prNum or issueNum should be set; pass "" for the unused one.
+func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueNum string, count *int, yield FragmentsFunc) error {
+	for _, c := range comments {
+		if s.IssueOpts.MaxComments > 0 && *count >= s.IssueOpts.MaxComments {
+			return nil
+		}
+		if c.Body == "" {
+			continue
+		}
+		*count++
+
+		frag := Fragment{Raw: c.Body}
+		u := c.Url
+		if u == "" {
+			u = parentURL
+		}
+		frag.SetAttr(AttrPath, u)
+		frag.SetAttr(AttrResource, ResourceGitHubComment)
+		frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(c.DatabaseId, 10))
+		if prNum != "" {
+			frag.SetAttr(AttrGitHubPRNumber, prNum)
+		}
+		if issueNum != "" {
+			frag.SetAttr(AttrGitHubIssueNumber, issueNum)
+		}
+		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+			if err := yield(frag, nil); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
