@@ -12,7 +12,7 @@ func OzonAPIKey() *config.Rule {
 		Description: "Detected an OZON Seller API key, which may expose access to seller account data and marketplace operations.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"ozon"}, `[a-z0-9-]{36,64}`, true),
 		Keywords:    []string{"ozon"},
-		Entropy:     3.0,
+		Entropy:     3.5,
 	}
 
 	tps := utils.GenerateSampleSecrets("ozon", secrets.NewSecretWithEntropy(`[a-z0-9-]{36,64}`, 3.0))
