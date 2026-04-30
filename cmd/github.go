@@ -37,6 +37,10 @@ func init() {
 	githubCmd.Flags().Bool("comments", false, "scan GitHub Issue and PR comments")
 	githubCmd.Flags().Int("issues-max", 100, "maximum number of recent issues/PRs to fetch per repo (0 = no limit)")
 	githubCmd.Flags().Int("comments-max", 50, "maximum number of comments to fetch per issue/PR (0 = no limit)")
+
+	// Date range filtering (applies to issues, PRs, comments, and actions)
+	githubCmd.Flags().String("since", "", "only scan items created after this date (YYYY-MM-DD or RFC3339)")
+	githubCmd.Flags().String("until", "", "only scan items created before this date (YYYY-MM-DD or RFC3339)")
 }
 
 var githubCmd = &cobra.Command{
@@ -60,8 +64,16 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		token = os.Getenv("GITHUB_TOKEN")
 	}
 
-	if token == "" && mustGetBoolFlag(cmd, "actions") {
+	scanActions := mustGetBoolFlag(cmd, "actions")
+	scanIssues := mustGetBoolFlag(cmd, "issues")
+	scanPRs := mustGetBoolFlag(cmd, "prs")
+	scanComments := mustGetBoolFlag(cmd, "comments")
+
+	if token == "" && scanActions {
 		logging.Fatal().Msg("--actions requires a token (--token or GITHUB_TOKEN) with actions:read scope")
+	}
+	if token == "" && (scanIssues || scanPRs || scanComments) {
+		logging.Fatal().Msg("--issues, --prs, and --comments require a token (--token or GITHUB_TOKEN); GitHub GraphQL API v4 requires authentication")
 	}
 
 	orgs, _ := cmd.Flags().GetStringSlice("org")
@@ -77,6 +89,28 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	actionsWorkflows, _ := cmd.Flags().GetStringSlice("actions-workflow")
 	actionsMaxAge, _ := cmd.Flags().GetDuration("actions-max-age")
 
+	// Parse date range flags.
+	var since, until time.Time
+	if s := mustGetStringFlag(cmd, "since"); s != "" {
+		var err error
+		since, err = parseDateFlag(s)
+		if err != nil {
+			logging.Fatal().Err(err).Msg("invalid --since value; use YYYY-MM-DD or RFC3339")
+		}
+	}
+	if s := mustGetStringFlag(cmd, "until"); s != "" {
+		var err error
+		until, err = parseDateFlag(s)
+		if err != nil {
+			logging.Fatal().Err(err).Msg("invalid --until value; use YYYY-MM-DD or RFC3339")
+		}
+	}
+
+	// If --since is set and --actions-max-age is not, derive max-age from --since.
+	if !since.IsZero() && actionsMaxAge == 0 {
+		actionsMaxAge = time.Since(since)
+	}
+
 	src := &sources.GitHub{
 		Token:           token,
 		Repos:           repos,
@@ -90,10 +124,10 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		Workers:         mustGetIntFlag(cmd, "git-workers"),
 		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
 		BaseURL:         mustGetStringFlag(cmd, "github-url"),
-		ScanActions:     mustGetBoolFlag(cmd, "actions"),
-		ScanIssues:      mustGetBoolFlag(cmd, "issues"),
-		ScanPRs:         mustGetBoolFlag(cmd, "prs"),
-		ScanComments:    mustGetBoolFlag(cmd, "comments"),
+		ScanActions:     scanActions,
+		ScanIssues:      scanIssues,
+		ScanPRs:         scanPRs,
+		ScanComments:    scanComments,
 		Actions: sources.ActionsOptions{
 			Workflows:     actionsWorkflows,
 			MaxAge:        actionsMaxAge,
@@ -103,6 +137,8 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		IssueOpts: sources.IssueOptions{
 			MaxIssues:   mustGetIntFlag(cmd, "issues-max"),
 			MaxComments: mustGetIntFlag(cmd, "comments-max"),
+			Since:       since,
+			Until:       until,
 		},
 	}
 
@@ -134,4 +170,12 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		}
 	}
 	findingSummaryAndExit(detector, findings, exitCode, start, err)
+}
+
+// parseDateFlag parses a date string as either YYYY-MM-DD or RFC3339.
+func parseDateFlag(s string) (time.Time, error) {
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, s)
 }

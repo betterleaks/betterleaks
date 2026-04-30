@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"encoding/base64"
 	"net/http"
 	"net/url"
 	"os"
@@ -81,8 +82,10 @@ type ActionsOptions struct {
 
 // IssueOptions controls issue, PR, and comment scanning.
 type IssueOptions struct {
-	MaxIssues   int // max issues/PRs to fetch per repo (0 = no limit)
-	MaxComments int // max comments to fetch per issue or PR (0 = no limit)
+	MaxIssues   int       // max issues/PRs to fetch per repo (0 = no limit)
+	MaxComments int       // max comments to fetch per issue or PR (0 = no limit)
+	Since       time.Time // only scan items created on or after this time (zero = no lower bound)
+	Until       time.Time // only scan items created before this time (zero = no upper bound)
 }
 
 // Fragments enumerates GitHub repos and scans each one.
@@ -231,9 +234,9 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 		gitStart := time.Now()
 		if err := s.scanRepoGit(gctx, repo, ghYield); err != nil {
 			logger.Error().Err(err).Msg("git scan failed")
-		} else {
-			logger.Debug().Dur("git_ms", time.Since(gitStart)).Msg("git scan complete")
+			return fmt.Errorf("git scan %s: %w", name, err)
 		}
+		logger.Debug().Dur("git_ms", time.Since(gitStart)).Msg("git scan complete")
 		return nil
 	})
 
@@ -242,9 +245,9 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 			actionsStart := time.Now()
 			if err := s.scanActions(gctx, client, repo, ghYield); err != nil {
 				logger.Error().Err(err).Msg("actions scan failed")
-			} else {
-				logger.Debug().Dur("actions_ms", time.Since(actionsStart)).Msg("actions scan complete")
+				return fmt.Errorf("actions scan %s: %w", name, err)
 			}
+			logger.Debug().Dur("actions_ms", time.Since(actionsStart)).Msg("actions scan complete")
 			return nil
 		})
 	}
@@ -261,14 +264,17 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 			issuesStart := time.Now()
 			if err := s.scanIssuesAndPRsGraphQL(gctx, repo, ghYield); err != nil {
 				logger.Error().Err(err).Msg("issues/prs scan failed")
-			} else {
-				logger.Debug().Dur("issues_prs_ms", time.Since(issuesStart)).Msg("issues/prs scan complete")
+				return fmt.Errorf("issues/prs scan %s: %w", name, err)
 			}
+			logger.Debug().Dur("issues_prs_ms", time.Since(issuesStart)).Msg("issues/prs scan complete")
 			return nil
 		})
 	}
 
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		logger.Warn().Err(err).Dur("total_ms", time.Since(repoStart)).Msg("repo scan completed with errors")
+		return err
+	}
 	logger.Info().Dur("total_ms", time.Since(repoStart)).Msg("repo scan complete")
 	return nil
 }
@@ -481,29 +487,34 @@ func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield
 	return scanErr
 }
 
-// cloneRepo performs a bare git clone with token auth injected into the URL.
+// cloneRepo performs a bare git clone with token auth delivered via
+// http.extraheader so that credentials never appear in process arguments
+// (visible in /proc/PID/cmdline) or in git error output.
 // Uses a broad refspec (+refs/*:refs/remotes/origin/*) to fetch all refs
 // including PR heads, tags, and non-standard refs so that git log --all
 // can traverse the complete commit graph.
 func (s *GitHub) cloneRepo(ctx context.Context, repo *github.Repository, dest string) error {
 	cloneURL := repo.GetCloneURL()
-	if s.Token != "" {
-		u, err := url.Parse(cloneURL)
-		if err == nil {
-			u.User = url.UserPassword("x-access-token", s.Token)
-			cloneURL = u.String()
-		}
-	}
-	cmd := exec.CommandContext(ctx, "git", "clone",
-		"--bare", "--quiet",
+
+	args := []string{"clone", "--bare", "--quiet",
 		"-c", "remote.origin.fetch=+refs/*:refs/remotes/origin/*",
-		cloneURL, dest,
-	)
+	}
+	if s.Token != "" {
+		// Deliver credentials via http.extraheader instead of embedding
+		// them in the URL, which would expose the token in process args
+		// and potentially in git error messages.
+		cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + s.Token))
+		args = append(args, "-c", "http.extraheader=Authorization: basic "+cred)
+	}
+	args = append(args, cloneURL, dest)
+
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = gitConfigIsolationEnv()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("git clone: %w: %s", err, output)
+		return fmt.Errorf("git clone failed: %w", err)
 	}
+	_ = output
 	return nil
 }
 
@@ -566,10 +577,13 @@ func (s *GitHub) listWorkflowRuns(ctx context.Context, client *github.Client, ow
 	}
 
 	// If specific workflows are requested, fetch runs for each and merge.
+	// Copy opts per workflow so paginateWorkflowRuns' Page mutation
+	// doesn't carry over to the next workflow.
 	if len(s.Actions.Workflows) > 0 {
 		var all []*github.WorkflowRun
 		for _, wf := range s.Actions.Workflows {
-			runs, err := s.paginateWorkflowRuns(ctx, client, owner, repo, wf, opts, maxRuns-len(all))
+			wfOpts := *opts // copy to avoid Page mutation leaking across workflows
+			runs, err := s.paginateWorkflowRuns(ctx, client, owner, repo, wf, &wfOpts, maxRuns-len(all))
 			if err != nil {
 				return all, err
 			}
@@ -840,11 +854,11 @@ type ghRepoScanQuery struct {
 		Issues struct {
 			Nodes    []ghIssueNode
 			PageInfo ghPageInfo
-		} `graphql:"issues(first: $issuesFirst, after: $issuesAfter)"`
+		} `graphql:"issues(first: $issuesFirst, after: $issuesAfter, orderBy: {field: CREATED_AT, direction: DESC})"`
 		PullRequests struct {
 			Nodes    []ghPRNode
 			PageInfo ghPageInfo
-		} `graphql:"pullRequests(first: $prsFirst, after: $prsAfter)"`
+		} `graphql:"pullRequests(first: $prsFirst, after: $prsAfter, orderBy: {field: CREATED_AT, direction: DESC})"`
 	} `graphql:"repository(owner: $owner, name: $repo)"`
 	RateLimit ghRateLimit
 }
@@ -942,7 +956,7 @@ func (s *GitHub) newGraphQLClient(ctx context.Context) *githubv4.Client {
 // gqlRequestTimeout is the per-request deadline for a single GraphQL HTTP call.
 // oauth2/githubv4 use http.DefaultTransport which has no timeout; without this
 // GitHub can hold a connection open indefinitely when throttling.
-const gqlRequestTimeout = 3 * time.Second
+const gqlRequestTimeout = 15 * time.Second
 
 // gqlQuery wraps every GraphQL call with rate-limit handling and transient-error retries.
 func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any, rl *ghRateLimit) error {
@@ -1053,38 +1067,59 @@ func (s *GitHub) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repos
 		}
 
 		// Process issues from this page.
+		// Results are ordered CREATED_AT DESC, so once we see an issue
+		// older than Since we can stop paginating.
 		if !issuesDone {
 			for _, issue := range q.Repository.Issues.Nodes {
 				if s.IssueOpts.MaxIssues > 0 && issueCount+prCount >= s.IssueOpts.MaxIssues {
 					break
+				}
+				if !s.IssueOpts.Since.IsZero() && issue.CreatedAt.Before(s.IssueOpts.Since) {
+					issuesDone = true
+					break
+				}
+				if !s.IssueOpts.Until.IsZero() && !issue.CreatedAt.Before(s.IssueOpts.Until) {
+					// Newer than until cutoff — skip but keep paginating.
+					continue
 				}
 				if err := s.emitIssueAndComments(ctx, owner, name, issue, &commentCount, yield); err != nil {
 					return err
 				}
 				issueCount++
 			}
-			if !q.Repository.Issues.PageInfo.HasNextPage {
-				issuesDone = true
-			} else {
-				issuesAfter = githubv4.NewString(q.Repository.Issues.PageInfo.EndCursor)
+			if !issuesDone {
+				if !q.Repository.Issues.PageInfo.HasNextPage {
+					issuesDone = true
+				} else {
+					issuesAfter = githubv4.NewString(q.Repository.Issues.PageInfo.EndCursor)
+				}
 			}
 		}
 
-		// Process PRs from this page.
+		// Process PRs from this page (same date-range logic as issues).
 		if !prsDone {
 			for _, pr := range q.Repository.PullRequests.Nodes {
 				if s.IssueOpts.MaxIssues > 0 && issueCount+prCount >= s.IssueOpts.MaxIssues {
 					break
+				}
+				if !s.IssueOpts.Since.IsZero() && pr.CreatedAt.Before(s.IssueOpts.Since) {
+					prsDone = true
+					break
+				}
+				if !s.IssueOpts.Until.IsZero() && !pr.CreatedAt.Before(s.IssueOpts.Until) {
+					continue
 				}
 				if err := s.emitPRAndComments(ctx, owner, name, pr, &commentCount, yield); err != nil {
 					return err
 				}
 				prCount++
 			}
-			if !q.Repository.PullRequests.PageInfo.HasNextPage {
-				prsDone = true
-			} else {
-				prsAfter = githubv4.NewString(q.Repository.PullRequests.PageInfo.EndCursor)
+			if !prsDone {
+				if !q.Repository.PullRequests.PageInfo.HasNextPage {
+					prsDone = true
+				} else {
+					prsAfter = githubv4.NewString(q.Repository.PullRequests.PageInfo.EndCursor)
+				}
 			}
 		}
 	}
@@ -1098,10 +1133,9 @@ func (s *GitHub) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repos
 	return nil
 }
 
-func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, issue ghIssueNode, commentCount *int, yield FragmentsFunc) error {
+func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, issue ghIssueNode, totalComments *int, yield FragmentsFunc) error {
 	if s.ScanIssues && (issue.Title != "" || issue.Body != "") {
 		frag := Fragment{Raw: strings.TrimSpace(issue.Title + "\n" + issue.Body)}
-		// frag := Fragment{Raw: strings.TrimSpace(issue.Body)}
 		frag.SetAttr(AttrURL, issue.Url)
 		frag.SetAttr(AttrResource, ResourceGitHubIssue)
 		frag.SetAttr(AttrGitHubIssueNumber, strconv.Itoa(issue.Number))
@@ -1116,8 +1150,11 @@ func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, i
 		return nil
 	}
 
+	// Per-issue comment counter (MaxComments applies per item, not globally).
+	var itemComments int
+
 	// First page of comments (already in hand).
-	if err := s.emitCommentNodes(issue.Comments.Nodes, issue.Url, "", strconv.Itoa(issue.Number), commentCount, yield); err != nil {
+	if err := s.emitCommentNodes(issue.Comments.Nodes, issue.Url, "", strconv.Itoa(issue.Number), &itemComments, yield); err != nil {
 		return err
 	}
 
@@ -1125,8 +1162,8 @@ func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, i
 	cursor := issue.Comments.PageInfo.EndCursor
 	hasMore := issue.Comments.PageInfo.HasNextPage
 	for hasMore {
-		if s.IssueOpts.MaxComments > 0 && *commentCount >= s.IssueOpts.MaxComments {
-			return nil
+		if s.IssueOpts.MaxComments > 0 && itemComments >= s.IssueOpts.MaxComments {
+			break
 		}
 		var tail ghIssueCommentsTailQuery
 		vars := map[string]any{
@@ -1139,16 +1176,17 @@ func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, i
 		if err := s.gqlQuery(ctx, &tail, vars, &tail.RateLimit); err != nil {
 			return fmt.Errorf("issue %d comments tail: %w", issue.Number, err)
 		}
-		if err := s.emitCommentNodes(tail.Repository.Issue.Comments.Nodes, issue.Url, "", strconv.Itoa(issue.Number), commentCount, yield); err != nil {
+		if err := s.emitCommentNodes(tail.Repository.Issue.Comments.Nodes, issue.Url, "", strconv.Itoa(issue.Number), &itemComments, yield); err != nil {
 			return err
 		}
 		hasMore = tail.Repository.Issue.Comments.PageInfo.HasNextPage
 		cursor = tail.Repository.Issue.Comments.PageInfo.EndCursor
 	}
+	*totalComments += itemComments
 	return nil
 }
 
-func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr ghPRNode, commentCount *int, yield FragmentsFunc) error {
+func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr ghPRNode, totalComments *int, yield FragmentsFunc) error {
 	if s.ScanPRs && (pr.Title != "" || pr.Body != "") {
 		frag := Fragment{Raw: strings.TrimSpace(pr.Title + "\n" + pr.Body)}
 		frag.SetAttr(AttrURL, pr.Url)
@@ -1165,17 +1203,19 @@ func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr g
 		return nil
 	}
 
+	// Per-PR comment counter (MaxComments applies per item, not globally).
+	var itemComments int
 	prNumStr := strconv.Itoa(pr.Number)
 
 	// Issue-style PR comments: first page in hand, then tail.
-	if err := s.emitCommentNodes(pr.Comments.Nodes, pr.Url, prNumStr, "", commentCount, yield); err != nil {
+	if err := s.emitCommentNodes(pr.Comments.Nodes, pr.Url, prNumStr, "", &itemComments, yield); err != nil {
 		return err
 	}
 	cursor := pr.Comments.PageInfo.EndCursor
 	hasMore := pr.Comments.PageInfo.HasNextPage
 	for hasMore {
-		if s.IssueOpts.MaxComments > 0 && *commentCount >= s.IssueOpts.MaxComments {
-			return nil
+		if s.IssueOpts.MaxComments > 0 && itemComments >= s.IssueOpts.MaxComments {
+			break
 		}
 		var tail ghPRCommentsTailQuery
 		vars := map[string]any{
@@ -1188,7 +1228,7 @@ func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr g
 		if err := s.gqlQuery(ctx, &tail, vars, &tail.RateLimit); err != nil {
 			return fmt.Errorf("pr %d comments tail: %w", pr.Number, err)
 		}
-		if err := s.emitCommentNodes(tail.Repository.PullRequest.Comments.Nodes, pr.Url, prNumStr, "", commentCount, yield); err != nil {
+		if err := s.emitCommentNodes(tail.Repository.PullRequest.Comments.Nodes, pr.Url, prNumStr, "", &itemComments, yield); err != nil {
 			return err
 		}
 		hasMore = tail.Repository.PullRequest.Comments.PageInfo.HasNextPage
@@ -1202,12 +1242,12 @@ func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr g
 	threadsHasMore := pr.ReviewThreads.PageInfo.HasNextPage
 	for {
 		for _, thread := range threads {
-			if err := s.emitCommentNodes(thread.Comments.Nodes, pr.Url, prNumStr, "", commentCount, yield); err != nil {
+			if err := s.emitCommentNodes(thread.Comments.Nodes, pr.Url, prNumStr, "", &itemComments, yield); err != nil {
 				return err
 			}
 			// Tail-paginate this thread's comments if needed.
 			if thread.Comments.PageInfo.HasNextPage {
-				if err := s.tailThreadComments(ctx, pr.Url, prNumStr, thread.Id, thread.Comments.PageInfo.EndCursor, commentCount, yield); err != nil {
+				if err := s.tailThreadComments(ctx, pr.Url, prNumStr, thread.Id, thread.Comments.PageInfo.EndCursor, &itemComments, yield); err != nil {
 					return err
 				}
 			}
@@ -1232,6 +1272,7 @@ func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr g
 		threadsHasMore = tail.Repository.PullRequest.ReviewThreads.PageInfo.HasNextPage
 		threadsCursor = tail.Repository.PullRequest.ReviewThreads.PageInfo.EndCursor
 	}
+	*totalComments += itemComments
 	return nil
 }
 
@@ -1269,7 +1310,13 @@ func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueN
 		if c.Body == "" {
 			continue
 		}
-		*count++
+		if !s.IssueOpts.Since.IsZero() && c.CreatedAt.Before(s.IssueOpts.Since) {
+			continue
+		}
+		if !s.IssueOpts.Until.IsZero() && !c.CreatedAt.Before(s.IssueOpts.Until) {
+			continue
+		}
+		(*count)++
 
 		frag := Fragment{Raw: c.Body}
 		u := c.Url
