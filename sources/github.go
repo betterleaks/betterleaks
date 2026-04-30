@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fatih/semgroup"
@@ -25,8 +26,6 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
-
-// ============ Public types and config ============
 
 // GitHub enumerates repositories via the GitHub API and delegates scanning
 // to the Git source for each cloned repo.
@@ -65,6 +64,11 @@ type GitHub struct {
 
 	// Internal GraphQL client (initialized in Fragments).
 	gqlClient *githubv4.Client
+
+	// Telemetry counters populated during Fragments; safe for concurrent access.
+	apiCalls     atomic.Int64 // total REST + GraphQL API calls made
+	gqlRemaining atomic.Int64 // last known GraphQL points remaining (-1 = not yet observed)
+	gqlResetAt   atomic.Int64 // unix timestamp of GraphQL rate limit reset (0 = unknown)
 }
 
 // ActionsOptions controls which workflow runs and artifacts to scan.
@@ -81,13 +85,14 @@ type IssueOptions struct {
 	MaxComments int // max comments to fetch per issue or PR (0 = no limit)
 }
 
-// ============ Top-level scan orchestration ============
-
 // Fragments enumerates GitHub repos and scans each one.
 func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	start := time.Now()
 	client := s.newClient(ctx)
 	s.gqlClient = s.newGraphQLClient(ctx)
+	s.apiCalls.Store(0)
+	s.gqlRemaining.Store(-1)
+	s.gqlResetAt.Store(0)
 
 	repos, err := s.enumerateRepos(ctx, client)
 	if err != nil {
@@ -108,10 +113,19 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		})
 	}
 	err = g.Wait()
-	logging.Info().
+
+	evt := logging.Info().
 		Int("repos", len(repos)).
-		Dur("total_ms", time.Since(start)).
-		Msg("GitHub scan complete")
+		Int64("api_calls_total", s.apiCalls.Load()).
+		Dur("total_ms", time.Since(start))
+	if remaining := s.gqlRemaining.Load(); remaining >= 0 {
+		evt = evt.Int64("graphql_rate_limit_remaining", remaining)
+		if reset := s.gqlResetAt.Load(); reset > 0 {
+			evt = evt.Time("graphql_rate_limit_reset", time.Unix(reset, 0))
+		}
+	}
+	evt.Msg("GitHub scan complete")
+
 	return err
 }
 
@@ -259,8 +273,6 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 	return nil
 }
 
-// ============ Repo enumeration via REST ============
-
 func (s *GitHub) repoAttributes(repo *github.Repository, resource string) map[string]string {
 	attrs := map[string]string{
 		AttrGitHubOwner:      repo.GetOwner().GetLogin(),
@@ -368,6 +380,7 @@ func (s *GitHub) withRetry(ctx context.Context, fn func() error) error {
 			return err
 		}
 		err := fn()
+		s.apiCalls.Add(1)
 		if err == nil {
 			return nil
 		}
@@ -410,8 +423,6 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 	}
 	return client
 }
-
-// ============ Git scan path ============
 
 // scanRepoGit clones and scans a repo's git history.
 func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
@@ -758,8 +769,6 @@ func isGitHubGone(err error) bool {
 	return strings.Contains(msg, "404") || strings.Contains(msg, "410")
 }
 
-// ============ GraphQL types ============
-
 type ghPageInfo struct {
 	HasNextPage bool
 	EndCursor   githubv4.String
@@ -880,8 +889,6 @@ type ghThreadCommentsTailQuery struct {
 	RateLimit ghRateLimit
 }
 
-// ============ GraphQL client and rate limit governor ============
-
 var (
 	ghRateLimitMu     sync.RWMutex
 	ghRateLimitResume time.Time
@@ -941,13 +948,18 @@ func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any, rl *g
 		}
 
 		err := s.gqlClient.Query(ctx, q, vars)
+		s.apiCalls.Add(1)
 
 		if err == nil {
-			// Proactive backoff if we're running low on quota.
-			if rl != nil && rl.Remaining > 0 && rl.Remaining < 5 {
-				pause := time.Until(rl.ResetAt) + 2*time.Second
-				if pause > 0 {
-					ghSetRateLimitPause(pause)
+			if rl != nil {
+				s.gqlRemaining.Store(int64(rl.Remaining))
+				s.gqlResetAt.Store(rl.ResetAt.Unix())
+				// Proactive backoff if we're running low on quota.
+				if rl.Remaining > 0 && rl.Remaining < 5 {
+					pause := time.Until(rl.ResetAt) + 2*time.Second
+					if pause > 0 {
+						ghSetRateLimitPause(pause)
+					}
 				}
 			}
 			return nil
@@ -967,8 +979,6 @@ func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any, rl *g
 	}
 	return fmt.Errorf("graphql query failed after %d attempts", maxAttempts)
 }
-
-// ============ GraphQL issue/PR/comment scan ============
 
 // scanIssuesAndPRsGraphQL scans issues, PRs, and comments via the GitHub GraphQL API.
 func (s *GitHub) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
@@ -1092,11 +1102,11 @@ func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, i
 		}
 		var tail ghIssueCommentsTailQuery
 		vars := map[string]any{
-			"owner":          githubv4.String(owner),
-			"repo":           githubv4.String(name),
-			"number":         githubv4.Int(issue.Number),
-			"commentsFirst":  githubv4.Int(50),
-			"commentsAfter":  githubv4.NewString(cursor),
+			"owner":         githubv4.String(owner),
+			"repo":          githubv4.String(name),
+			"number":        githubv4.Int(issue.Number),
+			"commentsFirst": githubv4.Int(50),
+			"commentsAfter": githubv4.NewString(cursor),
 		}
 		if err := s.gqlQuery(ctx, &tail, vars, &tail.RateLimit); err != nil {
 			return fmt.Errorf("issue %d comments tail: %w", issue.Number, err)
