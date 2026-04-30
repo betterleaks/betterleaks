@@ -370,7 +370,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				commitSHA = gitdiffFile.PatchHeader.SHA
 				commitAttrs[AttrGitSHA] = commitSHA
 				commitAttrs[AttrGitMessage] = gitdiffFile.PatchHeader.Message()
-				commitAttrs[AttrResourceKind] = "git.diff"
+				commitAttrs[AttrResource] = ResourceGitPatchContent
 				commitAttrs[AttrPath] = gitdiffFile.NewName
 				if s.RemoteURL != "" {
 					commitAttrs[AttrGitRemoteURL] = s.RemoteURL

@@ -377,41 +377,27 @@ func (f Finding) Print(noColor bool, redact uint) {
 	fmt.Printf("%-12s %s\n", "RuleID:", f.RuleID)
 	fmt.Printf("%-12s %f\n", "Entropy:", f.Entropy)
 
-	path := f.Attr(sources.AttrPath)
-	commit := f.Attr(sources.AttrGitSHA)
-	author := f.Attr(sources.AttrGitAuthorName)
-	email := f.Attr(sources.AttrGitAuthorEmail)
-	date := f.Attr(sources.AttrGitDate)
-
-	if path == "" {
-		if f.MatchContext != "" {
-			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
-		}
-		printValidation(f, noColor)
-		f.PrintRequiredFindings(noColor, redact)
-		fmt.Println("")
-		return
-	}
 	if len(f.Tags) > 0 {
 		fmt.Printf("%-12s %s\n", "Tags:", strings.Join(f.Tags, ", "))
 	}
-	fmt.Printf("%-12s %s\n", "File:", path)
-	fmt.Printf("%-12s %d\n", "Line:", f.StartLine)
-	if commit == "" {
-		fmt.Printf("%-12s %s\n", "Fingerprint:", f.Fingerprint)
-		if f.MatchContext != "" {
-			fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
+
+	// Print all attributes dynamically under an indented header
+	if len(f.Attributes) > 0 {
+		fmt.Printf("%-12s\n", "Attributes:")
+		keys := make([]string, 0, len(f.Attributes))
+		for k := range f.Attributes {
+			keys = append(keys, k)
 		}
-		printValidation(f, noColor)
-		f.PrintRequiredFindings(noColor, redact)
-		fmt.Println("")
-		return
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			fmt.Printf("  %s: %s\n", k, f.Attributes[k])
+		}
 	}
-	fmt.Printf("%-12s %s\n", "Commit:", commit)
-	fmt.Printf("%-12s %s\n", "Author:", author)
-	fmt.Printf("%-12s %s\n", "Email:", email)
-	fmt.Printf("%-12s %s\n", "Date:", date)
+
+	fmt.Printf("%-12s %d\n", "Line:", f.StartLine)
 	fmt.Printf("%-12s %s\n", "Fingerprint:", f.Fingerprint)
+
 	if f.Link != "" {
 		fmt.Printf("%-12s %s\n", "Link:", f.Link)
 	}
@@ -419,6 +405,7 @@ func (f Finding) Print(noColor bool, redact uint) {
 	if f.MatchContext != "" {
 		fmt.Printf("%-12s\n%s\n", "Context:", formatMatchContext(f.MatchContext, f.Match, f.Secret, noColor))
 	}
+
 	printValidation(f, noColor)
 	f.PrintRequiredFindings(noColor, redact)
 	fmt.Println("")

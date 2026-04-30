@@ -242,8 +242,8 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 				fragPath = filepath.ToSlash(fullPath)
 			}
 			attr := map[string]string{
-				AttrPath:    fragPath,
-				ResourceKey: ResourceFileContent,
+				AttrPath:     fragPath,
+				AttrResource: ResourceFileContent,
 			}
 			fragment := Fragment{
 				Attributes: attr,
@@ -292,9 +292,6 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 			// Count the number of newlines in this chunk
 			totalLines += strings.Count(fragment.Raw, "\n")
 
-			if isWindows {
-				fragment.SetAttr(AttrFSWindowsPath, fullPath)
-			}
 			if s.Symlink != "" {
 				symlink := s.Symlink
 				if isWindows {
