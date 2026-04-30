@@ -726,6 +726,15 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			Tags:        append(r.Tags, metaTags...),
 		}
 
+		// TODO eventually move this git specific bit into somewhere... better?
+		platform := finding.Attr(sources.AttrGitPlatform)
+		remoteURL := finding.Attr(sources.AttrGitRemoteURL)
+		if platform != "" && remoteURL != "" {
+			if link := createScmLink(platform, remoteURL, finding); link != "" {
+				finding.SetAttr(sources.AttrURL, link)
+			}
+		}
+
 		// move to filter?
 		if !d.IgnoreGitleaksAllow && containsAllowSignature(finding.Line) {
 			logger.Trace().

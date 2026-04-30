@@ -2667,8 +2667,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		"unix rule - windows path separator": {
 			fragment: sources.Fragment{
 				Attributes: map[string]string{
-					sources.AttrPath:          `.m2/settings.xml`,
-					sources.AttrFSWindowsPath: `.m2\settings.xml`,
+					sources.AttrPath: `.m2/settings.xml`,
 				},
 			},
 			rule:     unixRule,
@@ -2715,8 +2714,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		"windows rule - windows path separator": {
 			fragment: sources.Fragment{
 				Attributes: map[string]string{
-					sources.AttrPath:          `.m2/settings.xml`,
-					sources.AttrFSWindowsPath: `.m2\settings.xml`,
+					sources.AttrPath: `.m2/settings.xml`,
 				},
 			},
 			rule: windowsRule,
@@ -2727,8 +2725,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 			fragment: sources.Fragment{
 				Raw: `<password>s3cr3t</password>`,
 				Attributes: map[string]string{
-					sources.AttrPath:          `.m2/settings.xml`,
-					sources.AttrFSWindowsPath: `.m2\settings.xml`,
+					sources.AttrPath: `.m2/settings.xml`,
 				},
 			},
 			rule: config.Rule{
@@ -2863,8 +2860,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			fragment: sources.Fragment{
 				Raw: `value: "s3cr3t"`,
 				Attributes: map[string]string{
-					sources.AttrPath:          `ignoreme/windows.txt`,
-					sources.AttrFSWindowsPath: `ignoreme\windows.txt`,
+					sources.AttrPath: `ignoreme/windows.txt`,
 				},
 			},
 			rule: config.Rule{
@@ -2882,8 +2878,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			fragment: sources.Fragment{
 				Raw: `value: "s3cr3t"`,
 				Attributes: map[string]string{
-					sources.AttrPath:          `ignoreme/windows.txt`,
-					sources.AttrFSWindowsPath: `ignoreme\windows.txt`,
+					sources.AttrPath: `ignoreme/windows.txt`,
 				},
 			},
 			rule: config.Rule{
@@ -2913,8 +2908,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			fragment: sources.Fragment{
 				Raw: `value: "f4k3s3cr3t"`,
 				Attributes: map[string]string{
-					sources.AttrPath:          `ignoreme/unix.txt`,
-					sources.AttrFSWindowsPath: `ignoreme\windows.txt`,
+					sources.AttrPath: `ignoreme/unix.txt`,
 				},
 			},
 			rule: config.Rule{
@@ -2934,8 +2928,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			fragment: sources.Fragment{
 				Raw: `value: "f4k3s3cr3t"`,
 				Attributes: map[string]string{
-					sources.AttrPath:          `ignoreme/unix.txt`,
-					sources.AttrFSWindowsPath: `ignoreme\windows.txt`,
+					sources.AttrPath: `ignoreme/unix.txt`,
 				},
 			},
 			rule: config.Rule{

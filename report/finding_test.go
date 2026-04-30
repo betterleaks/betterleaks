@@ -252,12 +252,13 @@ func TestPrint_UsesAttributesForSourceMetadata(t *testing.T) {
 		f.Print(true, 0)
 	})
 
-	assert.Contains(t, output, "File:        path/to/file.txt")
+	assert.Contains(t, output, "Attributes:")
+	assert.Contains(t, output, "  path: path/to/file.txt")
+	assert.Contains(t, output, "  git.sha: commit123")
+	assert.Contains(t, output, "  git.author_name: alice")
+	assert.Contains(t, output, "  git.author_email: alice@example.com")
+	assert.Contains(t, output, "  git.date: 2026-04-13")
 	assert.Contains(t, output, "Line:        12")
-	assert.Contains(t, output, "Commit:      commit123")
-	assert.Contains(t, output, "Author:      alice")
-	assert.Contains(t, output, "Email:       alice@example.com")
-	assert.Contains(t, output, "Date:        2026-04-13")
 	assert.Contains(t, output, "Fingerprint: commit123:path/to/file.txt:test-rule:12")
 	assert.Contains(t, output, "Tags:        tag-a, tag-b")
 }
