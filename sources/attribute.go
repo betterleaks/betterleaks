@@ -1,17 +1,22 @@
 package sources
 
-// TODO move this to a separate package called something like "detectkeys"
+// TODO move to a separate package (attrkeys/) once stable.
 
-// Well-known attribute keys (constants prevent typos at call sites).
 const (
-	ResourceKey             = "resource"
-	ResourceGitPatchContent = "git.patch_content"
+	// Universal
+	AttrPath     = "path"
+	AttrResource = "resource"
+
+	// Resource values — what kind of thing the fragment is.
 	ResourceFileContent     = "fs.content"
+	ResourceGitPatchContent = "git.patch_content"
+	ResourceGitHubRepo      = "github.repository"
+	ResourceGitHubIssue     = "github.issue"
+	ResourceGitHubPR        = "github.pr"
+	ResourceGitHubComment   = "github.comment"
+	ResourceGitHubActions   = "github.actions"
 
-	// universal attributes
-	AttrPath = "path"
-
-	// Git attributes
+	// Git
 	AttrGitSHA         = "git.sha"
 	AttrGitAuthorName  = "git.author_name"
 	AttrGitAuthorEmail = "git.author_email"
@@ -20,26 +25,10 @@ const (
 	AttrGitRemoteURL   = "git.remote_url"
 	AttrGitPlatform    = "git.platform"
 
-	// Filesystem attributes
-	AttrFSSymlink     = "fs.symlink"
-	AttrFSWindowsPath = "fs.windows_path"
+	// Filesystem
+	AttrFSSymlink = "fs.symlink"
 
-	AttrResourceKind             = "resource_kind"
-	ResourceKindGitHubRepository = "github.repository"
-	ResourceKindGitHubIssue      = "github.issue"
-	ResourceKindGitHubPR         = "github.pr"
-	ResourceKindGitHubComment    = "github.comment"
-
-	// Source ancestry
-	AttrSourceChain            = "source_chain"
-	SourceChainGitHub          = "github"
-	SourceChainIssue           = "issue"
-	SourceChainPR              = "pr"
-	SourceChainComment         = "comment"
-	SourceChainPRReviewComment = "pr_review_comment"
-	SourceChainActions         = "actions"
-
-	// GitHub attributes
+	// GitHub
 	AttrGitHubOwner       = "github.owner"
 	AttrGitHubOwnerType   = "github.owner_type"
 	AttrGitHubRepo        = "github.repo"
@@ -49,7 +38,6 @@ const (
 	AttrGitHubPRNumber    = "github.pr.number"
 	AttrGitHubCommentID   = "github.comment.id"
 
-	// GitHub Actions attributes
 	AttrGitHubActionsRunID   = "github.actions.run_id"
 	AttrGitHubActionsRunName = "github.actions.run_name"
 	AttrGitHubActionsRunURL  = "github.actions.run_url"
