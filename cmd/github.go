@@ -49,7 +49,7 @@ func init() {
 	githubCmd.Flags().Bool("gists", false, "scan GitHub Gists file contents (requires --user)")
 
 	// Single resource URL mode
-	githubCmd.Flags().String("url", "", "scan a single GitHub resource URL (issue, PR, discussion, release, action run, or gist)")
+	githubCmd.Flags().String("resource-url", "", "scan a single GitHub resource URL (issue, PR, discussion, release, action run, or gist)")
 }
 
 var githubCmd = &cobra.Command{
@@ -80,7 +80,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	scanDiscussions := mustGetBoolFlag(cmd, "discussions")
 	scanReleases := mustGetBoolFlag(cmd, "releases")
 	scanGists := mustGetBoolFlag(cmd, "gists")
-	resourceURL := mustGetStringFlag(cmd, "url")
+	resourceURL := mustGetStringFlag(cmd, "resource-url")
 
 	if token == "" && scanActions {
 		logging.Fatal().Msg("--actions requires a token (--token or GITHUB_TOKEN) with actions:read scope")
@@ -95,7 +95,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		logging.Fatal().Msg("--releases and --gists require a token (--token or GITHUB_TOKEN)")
 	}
 	if token == "" && resourceURL != "" {
-		logging.Fatal().Msg("--url requires a token (--token or GITHUB_TOKEN)")
+		logging.Fatal().Msg("--resource-url requires a token (--token or GITHUB_TOKEN)")
 	}
 
 	orgs, _ := cmd.Flags().GetStringSlice("org")
@@ -103,13 +103,13 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	repos, _ := cmd.Flags().GetStringSlice("repo")
 
 	if resourceURL != "" && (len(orgs) > 0 || len(users) > 0 || len(repos) > 0) {
-		logging.Fatal().Msg("--url is mutually exclusive with --org, --user, and --repo")
+		logging.Fatal().Msg("--resource-url is mutually exclusive with --org, --user, and --repo")
 	}
 	if scanGists && len(users) == 0 && resourceURL == "" {
 		logging.Fatal().Msg("--gists requires at least one --user")
 	}
 	if resourceURL == "" && len(orgs) == 0 && len(users) == 0 && len(repos) == 0 {
-		logging.Fatal().Msg("at least one --org, --user, --repo, or --url is required")
+		logging.Fatal().Msg("at least one --org, --user, --repo, or --resource-url is required")
 	}
 
 	excludeRepos, _ := cmd.Flags().GetStringSlice("exclude-repo")
@@ -140,27 +140,27 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	}
 
 	src := &sources.GitHub{
-		Token:           token,
-		Repos:           repos,
-		Orgs:            orgs,
-		Users:           users,
-		ExcludeRepos:    excludeRepos,
-		ExcludeForks:    mustGetBoolFlag(cmd, "exclude-forks"),
-		ShouldSkip:      detector.SkipFunc(),
-		Sema:            detector.Sema,
-		MaxArchiveDepth: detector.MaxArchiveDepth,
-		Workers:         mustGetIntFlag(cmd, "git-workers"),
-		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
-		BaseURL:         mustGetStringFlag(cmd, "base-url"),
-		ScanActions:     scanActions,
-		ScanIssues:      scanIssues,
-		ScanPRs:         scanPRs,
-		ScanComments:    scanComments,
-		ScanDiscussions:    scanDiscussions,
-		ScanReleases:       scanReleases,
-		ScanReleaseAssets:  scanReleases && !mustGetBoolFlag(cmd, "no-release-artifacts"),
-		ScanGists:          scanGists,
-		URL:             resourceURL,
+		Token:             token,
+		Repos:             repos,
+		Orgs:              orgs,
+		Users:             users,
+		ExcludeRepos:      excludeRepos,
+		ExcludeForks:      mustGetBoolFlag(cmd, "exclude-forks"),
+		ShouldSkip:        detector.SkipFunc(),
+		Sema:              detector.Sema,
+		MaxArchiveDepth:   detector.MaxArchiveDepth,
+		Workers:           mustGetIntFlag(cmd, "git-workers"),
+		LogOpts:           mustGetStringFlag(cmd, "log-opts"),
+		BaseURL:           mustGetStringFlag(cmd, "base-url"),
+		ScanActions:       scanActions,
+		ScanIssues:        scanIssues,
+		ScanPRs:           scanPRs,
+		ScanComments:      scanComments,
+		ScanDiscussions:   scanDiscussions,
+		ScanReleases:      scanReleases,
+		ScanReleaseAssets: scanReleases && !mustGetBoolFlag(cmd, "no-release-artifacts"),
+		ScanGists:         scanGists,
+		URL:               resourceURL,
 		Actions: sources.ActionsOptions{
 			Workflows:     actionsWorkflows,
 			MaxAge:        actionsMaxAge,

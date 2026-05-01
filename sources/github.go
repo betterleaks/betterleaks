@@ -1198,10 +1198,8 @@ func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, i
 		frag.SetAttr(AttrURL, issue.Url)
 		frag.SetAttr(AttrResource, ResourceGitHubIssue)
 		frag.SetAttr(AttrGitHubIssueNumber, strconv.Itoa(issue.Number))
-		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-			if err := yield(frag, nil); err != nil {
-				return err
-			}
+		if err := yield(frag, nil); err != nil {
+			return err
 		}
 	}
 
@@ -1251,10 +1249,8 @@ func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr g
 		frag.SetAttr(AttrURL, pr.Url)
 		frag.SetAttr(AttrResource, ResourceGitHubPR)
 		frag.SetAttr(AttrGitHubPRNumber, strconv.Itoa(pr.Number))
-		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-			if err := yield(frag, nil); err != nil {
-				return err
-			}
+		if err := yield(frag, nil); err != nil {
+			return err
 		}
 	}
 
@@ -1391,10 +1387,8 @@ func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueN
 		if issueNum != "" {
 			frag.SetAttr(AttrGitHubIssueNumber, issueNum)
 		}
-		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-			if err := yield(frag, nil); err != nil {
-				return err
-			}
+		if err := yield(frag, nil); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1459,15 +1453,15 @@ func (s *GitHub) scanReleases(ctx context.Context, client *github.Client, repo *
 func (s *GitHub) emitRelease(ctx context.Context, client *github.Client, owner, repo string, rel *github.RepositoryRelease, yield FragmentsFunc) error {
 	tag := rel.GetTagName()
 
-	// Evaluate skip at the release level so a matching prefilter suppresses
-	// the body AND all asset downloads — no point fetching archives for a
-	// release we are going to discard entirely.
-	releaseAttrs := map[string]string{
+	// Performance gate: check skip with release-level attrs before downloading
+	// any assets. The yield wrapper is the authoritative filter (it has full
+	// repo attrs), but checking here avoids unnecessary network I/O when a
+	// release-tag or URL filter would discard everything anyway.
+	if s.ShouldSkip != nil && s.ShouldSkip(map[string]string{
 		AttrURL:              rel.GetHTMLURL(),
 		AttrResource:         ResourceGitHubRelease,
 		AttrGitHubReleaseTag: tag,
-	}
-	if s.ShouldSkip != nil && s.ShouldSkip(releaseAttrs) {
+	}) {
 		return nil
 	}
 
@@ -1602,9 +1596,6 @@ func (s *GitHub) downloadAndScanReleaseAsset(ctx context.Context, client *github
 					fragment.SetAttr(k, v)
 				}
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
-				return nil
-			}
 		}
 		return yield(fragment, err)
 	})
@@ -1710,9 +1701,6 @@ func (s *GitHub) downloadAndScanReleaseArchive(ctx context.Context, tag, rawURL,
 				if k == AttrResource || fragment.Attr(k) == "" {
 					fragment.SetAttr(k, v)
 				}
-			}
-			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
-				return nil
 			}
 		}
 		return yield(fragment, err)
@@ -1947,10 +1935,8 @@ func (s *GitHub) emitDiscussion(ctx context.Context, owner, name string, d ghDis
 		frag.SetAttr(AttrURL, d.Url)
 		frag.SetAttr(AttrResource, ResourceGitHubDiscussion)
 		frag.SetAttr(AttrGitHubDiscussionNumber, numStr)
-		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-			if err := yield(frag, nil); err != nil {
-				return err
-			}
+		if err := yield(frag, nil); err != nil {
+			return err
 		}
 	}
 
@@ -2015,10 +2001,8 @@ func (s *GitHub) emitDiscussionComments(ctx context.Context, discussionURL, disc
 			frag.SetAttr(AttrResource, ResourceGitHubComment)
 			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(c.DatabaseId, 10))
 			frag.SetAttr(AttrGitHubDiscussionNumber, discussionNum)
-			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-				if err := yield(frag, nil); err != nil {
-					return err
-				}
+			if err := yield(frag, nil); err != nil {
+				return err
 			}
 			(*count)++
 		}
@@ -2046,10 +2030,8 @@ func (s *GitHub) emitDiscussionComments(ctx context.Context, discussionURL, disc
 			frag.SetAttr(AttrResource, ResourceGitHubComment)
 			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(r.DatabaseId, 10))
 			frag.SetAttr(AttrGitHubDiscussionNumber, discussionNum)
-			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-				if err := yield(frag, nil); err != nil {
-					return err
-				}
+			if err := yield(frag, nil); err != nil {
+				return err
 			}
 			(*count)++
 		}
@@ -2096,10 +2078,8 @@ func (s *GitHub) tailDiscussionReplies(ctx context.Context, discussionURL, discu
 			frag.SetAttr(AttrResource, ResourceGitHubComment)
 			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(r.DatabaseId, 10))
 			frag.SetAttr(AttrGitHubDiscussionNumber, discussionNum)
-			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-				if err := yield(frag, nil); err != nil {
-					return err
-				}
+			if err := yield(frag, nil); err != nil {
+				return err
 			}
 			(*count)++
 		}
