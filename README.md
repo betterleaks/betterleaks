@@ -49,7 +49,9 @@ betterleaks git /path/to/repo -v --git-workers=16
 betterleaks dir /path/to/file/or/dir -v
 
 # Scan GitHub org
-betterleaks github --org betterleaks --issues --prs --comments --actions --releases --gists
+betterleaks github --org betterleaks --issues --prs --comments --actions --releases
+# Scan GitHub user
+betterleaks github --user cooluser123456789 --issues --prs --comments --actions --releases --gists
 
 # Scan stdin
 cat some_file.txt | betterleaks stdin -v
