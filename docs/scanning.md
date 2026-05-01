@@ -87,8 +87,8 @@ Set `GITHUB_TOKEN` in the environment before running these examples.
 | :--- | :--- |
 | `repos` | Git repository history (default) |
 | `forks` | Include forked repositories |
-| `pull-requests` | Pull request descriptions |
-| `pull-request-comments` | Comments on pull requests |
+| `prs` | Pull request descriptions |
+| `pr-comments` | Comments on pull requests |
 | `issues` | Issue descriptions |
 | `issue-comments` | Comments on issues |
 | `actions` | Action run console output |
@@ -119,7 +119,7 @@ betterleaks github \
 
 # skip repo git history, scan only API resources
 betterleaks github \
-	--include=issues,pull-requests,issue-comments,pull-request-comments \
+	--include=issues,prs,issue-comments,pr-comments \
 	--exclude=repos \
 	https://github.com/my-company
 ```
@@ -128,13 +128,13 @@ betterleaks github \
 
 ```sh
 betterleaks github \
-	--include=issues,pull-requests,issue-comments,pull-request-comments \
+	--include=issues,prs,issue-comments,pr-comments \
 	--issues-max 200 \
 	--comments-max 100 \
 	https://github.com/my-company/backend
 
 betterleaks github \
-	--include=issues,pull-requests,issue-comments \
+	--include=issues,prs,issue-comments \
 	--since 2026-01-01 \
 	--until 2026-04-01 \
 	https://github.com/my-company

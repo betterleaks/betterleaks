@@ -111,8 +111,8 @@ type ResourceType string
 const (
 	ResourceTypeRepos               ResourceType = "repos"
 	ResourceTypeForks               ResourceType = "forks"
-	ResourceTypePullRequests        ResourceType = "pull-requests"
-	ResourceTypePullRequestComments ResourceType = "pull-request-comments"
+	ResourceTypePRs        ResourceType = "prs"
+	ResourceTypePRComments ResourceType = "pr-comments"
 	ResourceTypeIssues              ResourceType = "issues"
 	ResourceTypeIssueComments       ResourceType = "issue-comments"
 	ResourceTypeActions             ResourceType = "actions"
@@ -127,8 +127,8 @@ const (
 var AllResourceTypes = []ResourceType{
 	ResourceTypeRepos,
 	ResourceTypeForks,
-	ResourceTypePullRequests,
-	ResourceTypePullRequestComments,
+	ResourceTypePRs,
+	ResourceTypePRComments,
 	ResourceTypeIssues,
 	ResourceTypeIssueComments,
 	ResourceTypeActions,
@@ -190,8 +190,8 @@ func ResolveResources(include, exclude []string, targetKind string) (ResourceSet
 func (s *GitHub) ApplyResourceSet(rs ResourceSet) {
 	s.SkipRepoGit = !rs.Has(ResourceTypeRepos)
 	s.ExcludeForks = !rs.Has(ResourceTypeForks)
-	s.ScanPRs = rs.Has(ResourceTypePullRequests)
-	s.ScanPRComments = rs.Has(ResourceTypePullRequestComments)
+	s.ScanPRs = rs.Has(ResourceTypePRs)
+	s.ScanPRComments = rs.Has(ResourceTypePRComments)
 	s.ScanIssues = rs.Has(ResourceTypeIssues)
 	s.ScanIssueComments = rs.Has(ResourceTypeIssueComments)
 	s.ScanActions = rs.Has(ResourceTypeActions)
@@ -506,6 +506,8 @@ func (s *GitHub) listOrgRepos(ctx context.Context, client *github.Client, org st
 		Type:        "all",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
+	page := 1
+	lastLog := time.Now()
 	for {
 		var repos []*github.Repository
 		var resp *github.Response
@@ -518,10 +520,19 @@ func (s *GitHub) listOrgRepos(ctx context.Context, client *github.Client, org st
 			return all, err
 		}
 		all = append(all, repos...)
+		if now := time.Now(); now.Sub(lastLog) >= 4*time.Second {
+			evt := logging.Info().Str("org", org).Int("page", page)
+			if resp.LastPage > 0 {
+				evt = evt.Int("total_pages", resp.LastPage)
+			}
+			evt.Int("repos_so_far", len(all)).Msg("enumerating repos")
+			lastLog = now
+		}
 		if resp.NextPage == 0 {
 			break
 		}
 		opts.ListOptions.Page = resp.NextPage
+		page = resp.NextPage
 	}
 	return all, nil
 }
@@ -533,6 +544,8 @@ func (s *GitHub) listUserRepos(ctx context.Context, client *github.Client, user 
 		Type:        "all",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
+	page := 1
+	lastLog := time.Now()
 	for {
 		var repos []*github.Repository
 		var resp *github.Response
@@ -545,10 +558,19 @@ func (s *GitHub) listUserRepos(ctx context.Context, client *github.Client, user 
 			return all, err
 		}
 		all = append(all, repos...)
+		if now := time.Now(); now.Sub(lastLog) >= 4*time.Second {
+			evt := logging.Info().Str("user", user).Int("page", page)
+			if resp.LastPage > 0 {
+				evt = evt.Int("total_pages", resp.LastPage)
+			}
+			evt.Int("repos_so_far", len(all)).Msg("enumerating repos")
+			lastLog = now
+		}
 		if resp.NextPage == 0 {
 			break
 		}
 		opts.ListOptions.Page = resp.NextPage
+		page = resp.NextPage
 	}
 	return all, nil
 }

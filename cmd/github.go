@@ -17,10 +17,10 @@ func init() {
 	rootCmd.AddCommand(githubCmd)
 	githubCmd.Flags().String("token", "", "GitHub personal access token (or set GITHUB_TOKEN)")
 	githubCmd.Flags().StringSlice("include", nil,
-		"resource types to scan: repos (default), forks, pull-requests, pull-request-comments, "+
+		"resource types to scan: repos (default), forks, prs, pr-comments, "+
 			"issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists")
 	githubCmd.Flags().StringSlice("exclude", nil,
-		"resource types to skip: repos, forks, pull-requests, pull-request-comments, "+
+		"resource types to skip: repos, forks, prs, pr-comments, "+
 			"issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists")
 	githubCmd.Flags().StringSlice("exclude-repo", nil, "glob patterns to exclude repos")
 	githubCmd.Flags().Int("git-workers", 0, "parallel git workers per repo (0 = single process)")
@@ -54,7 +54,7 @@ var githubCmd = &cobra.Command{
   betterleaks github https://github.com/myorg
 
   # Scan repos plus issues and PRs
-  betterleaks github --include=issues,pull-requests https://github.com/owner/repo
+  betterleaks github --include=issues,prs https://github.com/owner/repo
 
   # Scan only issues and comments, skip repo git history
   betterleaks github --include=issues,issue-comments --exclude=repos https://github.com/owner/repo`,
