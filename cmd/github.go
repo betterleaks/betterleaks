@@ -41,6 +41,15 @@ func init() {
 	// Date range filtering (applies to issues, PRs, comments, and actions)
 	githubCmd.Flags().String("since", "", "only scan items pulled from the GitHub API (issues, PRs, actions, etc) created after this date (YYYY-MM-DD or RFC3339)")
 	githubCmd.Flags().String("until", "", "only scan items pulled from the GitHub API (issues, PRs, actions, etc) created before this date (YYYY-MM-DD or RFC3339)")
+
+	// Full GitHub coverage
+	githubCmd.Flags().Bool("discussions", false, "scan GitHub Discussions (titles, bodies, and comments)")
+	githubCmd.Flags().Bool("releases", false, "scan GitHub Releases (titles, bodies, and assets)")
+	githubCmd.Flags().Bool("no-release-artifacts", false, "disable downloading and scanning release assets when --releases is set")
+	githubCmd.Flags().Bool("gists", false, "scan GitHub Gists file contents (requires --user)")
+
+	// Single resource URL mode
+	githubCmd.Flags().String("url", "", "scan a single GitHub resource URL (issue, PR, discussion, release, action run, or gist)")
 }
 
 var githubCmd = &cobra.Command{
@@ -68,6 +77,10 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	scanIssues := mustGetBoolFlag(cmd, "issues")
 	scanPRs := mustGetBoolFlag(cmd, "prs")
 	scanComments := mustGetBoolFlag(cmd, "comments")
+	scanDiscussions := mustGetBoolFlag(cmd, "discussions")
+	scanReleases := mustGetBoolFlag(cmd, "releases")
+	scanGists := mustGetBoolFlag(cmd, "gists")
+	resourceURL := mustGetStringFlag(cmd, "url")
 
 	if token == "" && scanActions {
 		logging.Fatal().Msg("--actions requires a token (--token or GITHUB_TOKEN) with actions:read scope")
@@ -75,13 +88,28 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	if token == "" && (scanIssues || scanPRs || scanComments) {
 		logging.Fatal().Msg("--issues, --prs, and --comments require a token (--token or GITHUB_TOKEN); GitHub GraphQL API v4 requires authentication")
 	}
+	if token == "" && scanDiscussions {
+		logging.Fatal().Msg("--discussions requires a token (--token or GITHUB_TOKEN); GitHub GraphQL API v4 requires authentication")
+	}
+	if token == "" && (scanReleases || scanGists) {
+		logging.Fatal().Msg("--releases and --gists require a token (--token or GITHUB_TOKEN)")
+	}
+	if token == "" && resourceURL != "" {
+		logging.Fatal().Msg("--url requires a token (--token or GITHUB_TOKEN)")
+	}
 
 	orgs, _ := cmd.Flags().GetStringSlice("org")
 	users, _ := cmd.Flags().GetStringSlice("user")
 	repos, _ := cmd.Flags().GetStringSlice("repo")
 
-	if len(orgs) == 0 && len(users) == 0 && len(repos) == 0 {
-		logging.Fatal().Msg("at least one --org, --user, or --repo is required")
+	if resourceURL != "" && (len(orgs) > 0 || len(users) > 0 || len(repos) > 0) {
+		logging.Fatal().Msg("--url is mutually exclusive with --org, --user, and --repo")
+	}
+	if scanGists && len(users) == 0 && resourceURL == "" {
+		logging.Fatal().Msg("--gists requires at least one --user")
+	}
+	if resourceURL == "" && len(orgs) == 0 && len(users) == 0 && len(repos) == 0 {
+		logging.Fatal().Msg("at least one --org, --user, --repo, or --url is required")
 	}
 
 	excludeRepos, _ := cmd.Flags().GetStringSlice("exclude-repo")
@@ -128,6 +156,11 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		ScanIssues:      scanIssues,
 		ScanPRs:         scanPRs,
 		ScanComments:    scanComments,
+		ScanDiscussions:    scanDiscussions,
+		ScanReleases:       scanReleases,
+		ScanReleaseAssets:  scanReleases && !mustGetBoolFlag(cmd, "no-release-artifacts"),
+		ScanGists:          scanGists,
+		URL:             resourceURL,
 		Actions: sources.ActionsOptions{
 			Workflows:     actionsWorkflows,
 			MaxAge:        actionsMaxAge,

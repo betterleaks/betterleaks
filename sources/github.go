@@ -2,10 +2,10 @@ package sources
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
-	"encoding/base64"
 	"net/http"
 	"net/url"
 	"os"
@@ -63,6 +63,19 @@ type GitHub struct {
 	ScanComments bool
 	IssueOpts    IssueOptions
 
+	// Discussion scanning
+	ScanDiscussions bool
+
+	// Release scanning
+	ScanReleases      bool
+	ScanReleaseAssets bool // scan downloadable release assets (default true; disable with --no-release-artifacts)
+
+	// Gist scanning (per-user, not per-repo)
+	ScanGists bool
+
+	// Single resource URL mode; when set, all other targets are ignored.
+	URL string
+
 	// Internal GraphQL client (initialized in Fragments).
 	gqlClient *githubv4.Client
 
@@ -97,6 +110,11 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	s.gqlRemaining.Store(-1)
 	s.gqlResetAt.Store(0)
 
+	// URL mode: scan a single resource and return immediately.
+	if s.URL != "" {
+		return s.scanURL(ctx, client, yield)
+	}
+
 	repos, err := s.enumerateRepos(ctx, client)
 	if err != nil {
 		return fmt.Errorf("enumerate repos: %w", err)
@@ -115,6 +133,16 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			return s.scanRepo(gctx, client, repo, yield)
 		})
 	}
+
+	// Gist scanning is user-level, not repo-level — runs alongside repo scans.
+	if s.ScanGists {
+		for _, user := range s.Users {
+			g.Go(func() error {
+				return s.scanUserGists(gctx, client, user, yield)
+			})
+		}
+	}
+
 	err = g.Wait()
 
 	evt := logging.Info().
@@ -212,6 +240,9 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 	logger.Info().Msg("scanning repo")
 
 	// Wrap yield to stamp GitHub metadata on every fragment from this repo.
+	// ShouldSkip is checked here, after repo attrs are merged, so the full
+	// attribute set (including github.repo, github.owner, etc.) is available
+	// to the prefilter — not just the fragment-specific attrs set earlier.
 	// Protected by a mutex because git, actions, and graphql run concurrently.
 	var yieldMu sync.Mutex
 	ghYield := func(fragment Fragment, err error) error {
@@ -221,6 +252,10 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 					continue
 				}
 				fragment.SetAttr(k, v)
+			}
+			// TODO update ShouldSkip so that we return a condition matched from CEL (if possible, large effort)
+			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+				return nil
 			}
 		}
 		yieldMu.Lock()
@@ -267,6 +302,30 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 				return fmt.Errorf("issues/prs scan %s: %w", name, err)
 			}
 			logger.Debug().Dur("issues_prs_ms", time.Since(issuesStart)).Msg("issues/prs scan complete")
+			return nil
+		})
+	}
+
+	if s.ScanDiscussions {
+		g.Go(func() error {
+			discussionsStart := time.Now()
+			if err := s.scanDiscussions(gctx, repo, ghYield); err != nil {
+				logger.Error().Err(err).Msg("discussions scan failed")
+				return fmt.Errorf("discussions scan %s: %w", name, err)
+			}
+			logger.Debug().Dur("discussions_ms", time.Since(discussionsStart)).Msg("discussions scan complete")
+			return nil
+		})
+	}
+
+	if s.ScanReleases {
+		g.Go(func() error {
+			releasesStart := time.Now()
+			if err := s.scanReleases(gctx, client, repo, ghYield); err != nil {
+				logger.Error().Err(err).Msg("releases scan failed")
+				return fmt.Errorf("releases scan %s: %w", name, err)
+			}
+			logger.Debug().Dur("releases_ms", time.Since(releasesStart)).Msg("releases scan complete")
 			return nil
 		})
 	}
@@ -1337,6 +1396,959 @@ func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueN
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// ============ Releases scan path ============
+
+// scanReleases scans GitHub Releases for a repo via the REST API.
+func (s *GitHub) scanReleases(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
+	owner := repo.GetOwner().GetLogin()
+	repoName := repo.GetName()
+	logger := logging.With().Str("repo", repo.GetFullName()).Logger()
+	logger.Info().Msg("scanning releases")
+
+	opts := &github.ListOptions{PerPage: 100}
+	var count int
+	for {
+		if s.IssueOpts.MaxIssues > 0 && count >= s.IssueOpts.MaxIssues {
+			break
+		}
+
+		var releases []*github.RepositoryRelease
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			releases, resp, err = client.Repositories.ListReleases(ctx, owner, repoName, opts)
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("list releases: %w", err)
+		}
+
+		for _, rel := range releases {
+			if s.IssueOpts.MaxIssues > 0 && count >= s.IssueOpts.MaxIssues {
+				break
+			}
+			createdAt := rel.GetCreatedAt().Time
+			// Releases are returned newest-first; early-terminate if older than Since.
+			if !s.IssueOpts.Since.IsZero() && createdAt.Before(s.IssueOpts.Since) {
+				return nil
+			}
+			if !s.IssueOpts.Until.IsZero() && !createdAt.Before(s.IssueOpts.Until) {
+				continue
+			}
+			if err := s.emitRelease(ctx, client, owner, repoName, rel, yield); err != nil {
+				return err
+			}
+			count++
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	logger.Debug().Int("releases", count).Msg("releases scan complete")
+	return nil
+}
+
+// emitRelease emits a release body fragment and scans its assets.
+func (s *GitHub) emitRelease(ctx context.Context, client *github.Client, owner, repo string, rel *github.RepositoryRelease, yield FragmentsFunc) error {
+	tag := rel.GetTagName()
+
+	// Evaluate skip at the release level so a matching prefilter suppresses
+	// the body AND all asset downloads — no point fetching archives for a
+	// release we are going to discard entirely.
+	releaseAttrs := map[string]string{
+		AttrURL:              rel.GetHTMLURL(),
+		AttrResource:         ResourceGitHubRelease,
+		AttrGitHubReleaseTag: tag,
+	}
+	if s.ShouldSkip != nil && s.ShouldSkip(releaseAttrs) {
+		return nil
+	}
+
+	title := rel.GetName()
+	body := rel.GetBody()
+	if title != "" || body != "" {
+		frag := Fragment{Raw: strings.TrimSpace(title + "\n" + body)}
+		frag.SetAttr(AttrURL, rel.GetHTMLURL())
+		frag.SetAttr(AttrResource, ResourceGitHubRelease)
+		frag.SetAttr(AttrGitHubReleaseTag, tag)
+		if err := yield(frag, nil); err != nil {
+			return err
+		}
+	}
+	if s.ScanReleaseAssets {
+		if err := s.scanReleaseAssets(ctx, client, owner, repo, rel, yield); err != nil {
+			logging.Warn().Err(err).Str("tag", tag).Msg("could not scan release assets")
+		}
+		if err := s.scanReleaseSourceArchives(ctx, rel, yield); err != nil {
+			logging.Warn().Err(err).Str("tag", tag).Msg("could not scan release source archives")
+		}
+	}
+	return nil
+}
+
+// scanSingleRelease scans one release identified by its tag.
+func (s *GitHub) scanSingleRelease(ctx context.Context, client *github.Client, owner, repo, tag string, yield FragmentsFunc) error {
+	var rel *github.RepositoryRelease
+	err := s.withRetry(ctx, func() error {
+		var err error
+		rel, _, err = client.Repositories.GetReleaseByTag(ctx, owner, repo, tag)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("get release %s: %w", tag, err)
+	}
+	return s.emitRelease(ctx, client, owner, repo, rel, yield)
+}
+
+// scanReleaseAssets lists and scans all downloadable assets for a release.
+func (s *GitHub) scanReleaseAssets(ctx context.Context, client *github.Client, owner, repo string, rel *github.RepositoryRelease, yield FragmentsFunc) error {
+	tag := rel.GetTagName()
+	opts := &github.ListOptions{PerPage: 100}
+	for {
+		var assets []*github.ReleaseAsset
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			assets, resp, err = client.Repositories.ListReleaseAssets(ctx, owner, repo, rel.GetID(), opts)
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("list release assets for %s: %w", tag, err)
+		}
+
+		for _, asset := range assets {
+			logger := logging.With().
+				Str("tag", tag).
+				Str("asset", asset.GetName()).Logger()
+			logger.Debug().Msg("scanning release asset")
+			if err := s.downloadAndScanReleaseAsset(ctx, client, owner, repo, rel, asset, yield); err != nil {
+				logger.Error().Err(err).Msg("could not scan release asset")
+			}
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return nil
+}
+
+// downloadAndScanReleaseAsset downloads a single release asset and scans it.
+func (s *GitHub) downloadAndScanReleaseAsset(ctx context.Context, client *github.Client, owner, repo string, rel *github.RepositoryRelease, asset *github.ReleaseAsset, yield FragmentsFunc) error {
+	start := time.Now()
+
+	// Use an authenticated HTTP client so private-repo assets are accessible.
+	var httpClient *http.Client
+	if s.Token != "" {
+		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: s.Token})
+		httpClient = oauth2.NewClient(ctx, ts)
+	}
+
+	var rc io.ReadCloser
+	err := s.withRetry(ctx, func() error {
+		var err error
+		rc, _, err = client.Repositories.DownloadReleaseAsset(ctx, owner, repo, asset.GetID(), httpClient)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("download asset %s: %w", asset.GetName(), err)
+	}
+	defer rc.Close()
+
+	tmp, err := os.CreateTemp("", "betterleaks-release-asset-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		tmp.Close()
+		logging.Debug().Str("path", tmp.Name()).Msg("cleaning up release asset")
+		os.Remove(tmp.Name())
+	}()
+
+	bytesWritten, err := io.Copy(tmp, rc)
+	if err != nil {
+		return fmt.Errorf("download asset %s: %w", asset.GetName(), err)
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	assetPath := fmt.Sprintf("releases/%s/%s", rel.GetTagName(), asset.GetName())
+	assetAttrs := map[string]string{
+		AttrGitHubReleaseTag:       rel.GetTagName(),
+		AttrGitHubReleaseAssetName: asset.GetName(),
+		AttrResource:               ResourceGitHubReleaseAsset,
+	}
+
+	file := &File{
+		Content:         tmp,
+		Path:            assetPath,
+		MaxArchiveDepth: max(1, s.MaxArchiveDepth),
+		ShouldSkip:      s.ShouldSkip,
+	}
+
+	err = file.Fragments(ctx, func(fragment Fragment, err error) error {
+		if err == nil {
+			for k, v := range assetAttrs {
+				if k == AttrResource || fragment.Attr(k) == "" {
+					fragment.SetAttr(k, v)
+				}
+			}
+			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+				return nil
+			}
+		}
+		return yield(fragment, err)
+	})
+	logging.Debug().
+		Str("tag", rel.GetTagName()).
+		Str("asset", asset.GetName()).
+		Int64("bytes", bytesWritten).
+		Dur("asset_scan_ms", time.Since(start)).
+		Msg("release asset scan complete")
+	return err
+}
+
+// scanReleaseSourceArchives downloads and scans the auto-generated source code
+// zip and tarball that GitHub attaches to every release.
+func (s *GitHub) scanReleaseSourceArchives(ctx context.Context, rel *github.RepositoryRelease, yield FragmentsFunc) error {
+	tag := rel.GetTagName()
+	archives := []struct {
+		rawURL   string
+		filename string
+	}{
+		{rel.GetZipballURL(), "source-code.zip"},
+		{rel.GetTarballURL(), "source-code.tar.gz"},
+	}
+	for _, a := range archives {
+		if a.rawURL == "" {
+			continue
+		}
+		logger := logging.With().Str("tag", tag).Str("archive", a.filename).Logger()
+		logger.Debug().Msg("scanning release source archive")
+		if err := s.downloadAndScanReleaseArchive(ctx, tag, a.rawURL, a.filename, yield); err != nil {
+			logger.Error().Err(err).Msg("could not scan release source archive")
+		}
+	}
+	return nil
+}
+
+// downloadAndScanReleaseArchive downloads an authenticated URL to a temp file and scans it.
+// Used for the auto-generated source code zip/tarball on GitHub releases.
+func (s *GitHub) downloadAndScanReleaseArchive(ctx context.Context, tag, rawURL, filename string, yield FragmentsFunc) error {
+	start := time.Now()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	if s.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+s.Token)
+	}
+
+	// Follow redirects with auth preserved.
+	httpClient := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if s.Token != "" {
+				req.Header.Set("Authorization", "Bearer "+s.Token)
+			}
+			return nil
+		},
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned %s", resp.Status)
+	}
+
+	tmp, err := os.CreateTemp("", "betterleaks-release-src-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		tmp.Close()
+		logging.Debug().Str("path", tmp.Name()).Msg("cleaning up release source archive")
+		os.Remove(tmp.Name())
+	}()
+
+	bytesWritten, err := io.Copy(tmp, resp.Body)
+	if err != nil {
+		return fmt.Errorf("download archive: %w", err)
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	archivePath := fmt.Sprintf("releases/%s/%s", tag, filename)
+	archiveAttrs := map[string]string{
+		AttrGitHubReleaseTag:       tag,
+		AttrGitHubReleaseAssetName: filename,
+		AttrResource:               ResourceGitHubReleaseAsset,
+	}
+
+	file := &File{
+		Content:         tmp,
+		Path:            archivePath,
+		MaxArchiveDepth: max(1, s.MaxArchiveDepth),
+		ShouldSkip:      s.ShouldSkip,
+	}
+
+	err = file.Fragments(ctx, func(fragment Fragment, err error) error {
+		if err == nil {
+			for k, v := range archiveAttrs {
+				if k == AttrResource || fragment.Attr(k) == "" {
+					fragment.SetAttr(k, v)
+				}
+			}
+			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+				return nil
+			}
+		}
+		return yield(fragment, err)
+	})
+	logging.Debug().
+		Str("tag", tag).
+		Str("archive", filename).
+		Int64("bytes", bytesWritten).
+		Dur("archive_scan_ms", time.Since(start)).
+		Msg("release source archive scan complete")
+	return err
+}
+
+// ============ Gists scan path ============
+
+// scanUserGists scans all public gists for a GitHub user via the REST API.
+func (s *GitHub) scanUserGists(ctx context.Context, client *github.Client, user string, yield FragmentsFunc) error {
+	logger := logging.With().Str("user", user).Logger()
+	logger.Info().Msg("scanning gists")
+
+	opts := &github.GistListOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	if !s.IssueOpts.Since.IsZero() {
+		opts.Since = s.IssueOpts.Since
+	}
+
+	var count int
+	for {
+		var gists []*github.Gist
+		var resp *github.Response
+		err := s.withRetry(ctx, func() error {
+			var err error
+			gists, resp, err = client.Gists.List(ctx, user, opts)
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("list gists for %s: %w", user, err)
+		}
+
+		for _, gist := range gists {
+			updatedAt := gist.GetUpdatedAt().Time
+			if !s.IssueOpts.Until.IsZero() && !updatedAt.Before(s.IssueOpts.Until) {
+				continue
+			}
+			if err := s.emitGist(ctx, client, gist.GetID(), gist.GetOwner().GetLogin(), gist.GetHTMLURL(), &count, yield); err != nil {
+				logger.Error().Err(err).Str("gist_id", gist.GetID()).Msg("could not scan gist")
+			}
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	logger.Debug().Int("gists", count).Msg("gists scan complete")
+	return nil
+}
+
+// emitGist fetches a single gist by ID and emits one fragment per file.
+func (s *GitHub) emitGist(ctx context.Context, client *github.Client, gistID, owner, htmlURL string, count *int, yield FragmentsFunc) error {
+	var full *github.Gist
+	err := s.withRetry(ctx, func() error {
+		var err error
+		full, _, err = client.Gists.Get(ctx, gistID)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("get gist %s: %w", gistID, err)
+	}
+
+	for filename, file := range full.Files {
+		content := file.GetContent()
+		if content == "" {
+			continue
+		}
+		frag := Fragment{Raw: content}
+		frag.SetAttr(AttrURL, htmlURL)
+		frag.SetAttr(AttrResource, ResourceGitHubGist)
+		frag.SetAttr(AttrGitHubGistID, gistID)
+		frag.SetAttr(AttrGitHubGistOwner, owner)
+		frag.SetAttr(AttrGitHubGistFilename, string(filename))
+		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+			if err := yield(frag, nil); err != nil {
+				return err
+			}
+		}
+		(*count)++
+	}
+	return nil
+}
+
+// ============ Discussions scan path ============
+
+// GraphQL types for discussions.
+
+type ghDiscussionCommentReply struct {
+	DatabaseId int64
+	Body       string
+	Url        string
+	CreatedAt  time.Time
+	Author     ghActor
+}
+
+type ghDiscussionComment struct {
+	DatabaseId int64
+	Body       string
+	Url        string
+	CreatedAt  time.Time
+	Author     ghActor
+	Replies    struct {
+		Nodes    []ghDiscussionCommentReply
+		PageInfo ghPageInfo
+	} `graphql:"replies(first: $repliesFirst)"`
+}
+
+type ghDiscussionCommentConnection struct {
+	Nodes    []ghDiscussionComment
+	PageInfo ghPageInfo
+}
+
+type ghDiscussionNode struct {
+	Number    int
+	Title     string
+	Body      string
+	Url       string
+	Author    ghActor
+	CreatedAt time.Time
+	Comments  ghDiscussionCommentConnection `graphql:"comments(first: $commentsFirst)"`
+}
+
+type ghRepoDiscussionsQuery struct {
+	Repository struct {
+		Discussions struct {
+			Nodes    []ghDiscussionNode
+			PageInfo ghPageInfo
+		} `graphql:"discussions(first: $discussionsFirst, after: $discussionsAfter, orderBy: {field: CREATED_AT, direction: DESC})"`
+	} `graphql:"repository(owner: $owner, name: $repo)"`
+	RateLimit ghRateLimit
+}
+
+type ghDiscussionCommentsTailQuery struct {
+	Repository struct {
+		Discussion struct {
+			Comments ghDiscussionCommentConnection `graphql:"comments(first: $commentsFirst, after: $commentsAfter)"`
+		} `graphql:"discussion(number: $number)"`
+	} `graphql:"repository(owner: $owner, name: $repo)"`
+	RateLimit ghRateLimit
+}
+
+type ghDiscussionReplyTailQuery struct {
+	Node struct {
+		Comment struct {
+			Replies struct {
+				Nodes    []ghDiscussionCommentReply
+				PageInfo ghPageInfo
+			} `graphql:"replies(first: $repliesFirst, after: $repliesAfter)"`
+		} `graphql:"... on DiscussionComment"`
+	} `graphql:"node(id: $commentId)"`
+	RateLimit ghRateLimit
+}
+
+// scanDiscussions scans GitHub Discussions for a repo via the GraphQL API.
+func (s *GitHub) scanDiscussions(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
+	owner := repo.GetOwner().GetLogin()
+	name := repo.GetName()
+	logger := logging.With().Str("repo", repo.GetFullName()).Logger()
+	logger.Info().Msg("scanning discussions")
+	start := time.Now()
+
+	var after *githubv4.String
+	var count int
+	var commentCount int
+
+	for {
+		if s.IssueOpts.MaxIssues > 0 && count >= s.IssueOpts.MaxIssues {
+			break
+		}
+
+		vars := map[string]any{
+			"owner":            githubv4.String(owner),
+			"repo":             githubv4.String(name),
+			"discussionsFirst": githubv4.Int(50),
+			"discussionsAfter": after,
+			"commentsFirst":    githubv4.Int(50),
+			"repliesFirst":     githubv4.Int(50),
+		}
+
+		var q ghRepoDiscussionsQuery
+		if err := s.gqlQuery(ctx, &q, vars, &q.RateLimit); err != nil {
+			return fmt.Errorf("graphql discussions: %w", err)
+		}
+
+		for _, d := range q.Repository.Discussions.Nodes {
+			if s.IssueOpts.MaxIssues > 0 && count >= s.IssueOpts.MaxIssues {
+				break
+			}
+			// Results are ordered CREATED_AT DESC; early-terminate on Since.
+			if !s.IssueOpts.Since.IsZero() && d.CreatedAt.Before(s.IssueOpts.Since) {
+				return nil
+			}
+			if !s.IssueOpts.Until.IsZero() && !d.CreatedAt.Before(s.IssueOpts.Until) {
+				continue
+			}
+			if err := s.emitDiscussion(ctx, owner, name, d, &commentCount, yield); err != nil {
+				return err
+			}
+			count++
+		}
+
+		if !q.Repository.Discussions.PageInfo.HasNextPage {
+			break
+		}
+		after = githubv4.NewString(q.Repository.Discussions.PageInfo.EndCursor)
+	}
+
+	logger.Debug().
+		Int("discussions", count).
+		Int("comments", commentCount).
+		Dur("discussions_ms", time.Since(start)).
+		Msg("discussions scan complete")
+	return nil
+}
+
+// emitDiscussion emits a discussion and all its comments/replies.
+func (s *GitHub) emitDiscussion(ctx context.Context, owner, name string, d ghDiscussionNode, totalComments *int, yield FragmentsFunc) error {
+	numStr := strconv.Itoa(d.Number)
+
+	if d.Title != "" || d.Body != "" {
+		frag := Fragment{Raw: strings.TrimSpace(d.Title + "\n" + d.Body)}
+		frag.SetAttr(AttrURL, d.Url)
+		frag.SetAttr(AttrResource, ResourceGitHubDiscussion)
+		frag.SetAttr(AttrGitHubDiscussionNumber, numStr)
+		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+			if err := yield(frag, nil); err != nil {
+				return err
+			}
+		}
+	}
+
+	if !s.ScanComments {
+		return nil
+	}
+
+	var itemComments int
+	if err := s.emitDiscussionComments(ctx, d.Url, numStr, d.Comments.Nodes, &itemComments, yield); err != nil {
+		return err
+	}
+
+	// Tail-paginate comments if needed.
+	cursor := d.Comments.PageInfo.EndCursor
+	hasMore := d.Comments.PageInfo.HasNextPage
+	for hasMore {
+		if s.IssueOpts.MaxComments > 0 && itemComments >= s.IssueOpts.MaxComments {
+			break
+		}
+		var tail ghDiscussionCommentsTailQuery
+		vars := map[string]any{
+			"owner":         githubv4.String(owner),
+			"repo":          githubv4.String(name),
+			"number":        githubv4.Int(d.Number),
+			"commentsFirst": githubv4.Int(50),
+			"commentsAfter": githubv4.NewString(cursor),
+			"repliesFirst":  githubv4.Int(50),
+		}
+		if err := s.gqlQuery(ctx, &tail, vars, &tail.RateLimit); err != nil {
+			return fmt.Errorf("discussion %d comments tail: %w", d.Number, err)
+		}
+		if err := s.emitDiscussionComments(ctx, d.Url, numStr, tail.Repository.Discussion.Comments.Nodes, &itemComments, yield); err != nil {
+			return err
+		}
+		hasMore = tail.Repository.Discussion.Comments.PageInfo.HasNextPage
+		cursor = tail.Repository.Discussion.Comments.PageInfo.EndCursor
+	}
+
+	*totalComments += itemComments
+	return nil
+}
+
+// emitDiscussionComments emits comments and their replies for a discussion.
+func (s *GitHub) emitDiscussionComments(ctx context.Context, discussionURL, discussionNum string, comments []ghDiscussionComment, count *int, yield FragmentsFunc) error {
+	for _, c := range comments {
+		if s.IssueOpts.MaxComments > 0 && *count >= s.IssueOpts.MaxComments {
+			return nil
+		}
+		if !s.IssueOpts.Since.IsZero() && c.CreatedAt.Before(s.IssueOpts.Since) {
+			continue
+		}
+		if !s.IssueOpts.Until.IsZero() && !c.CreatedAt.Before(s.IssueOpts.Until) {
+			continue
+		}
+		if c.Body != "" {
+			frag := Fragment{Raw: c.Body}
+			u := c.Url
+			if u == "" {
+				u = discussionURL
+			}
+			frag.SetAttr(AttrURL, u)
+			frag.SetAttr(AttrResource, ResourceGitHubComment)
+			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(c.DatabaseId, 10))
+			frag.SetAttr(AttrGitHubDiscussionNumber, discussionNum)
+			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+				if err := yield(frag, nil); err != nil {
+					return err
+				}
+			}
+			(*count)++
+		}
+
+		// Emit inline replies.
+		for _, r := range c.Replies.Nodes {
+			if s.IssueOpts.MaxComments > 0 && *count >= s.IssueOpts.MaxComments {
+				return nil
+			}
+			if r.Body == "" {
+				continue
+			}
+			if !s.IssueOpts.Since.IsZero() && r.CreatedAt.Before(s.IssueOpts.Since) {
+				continue
+			}
+			if !s.IssueOpts.Until.IsZero() && !r.CreatedAt.Before(s.IssueOpts.Until) {
+				continue
+			}
+			frag := Fragment{Raw: r.Body}
+			u := r.Url
+			if u == "" {
+				u = discussionURL
+			}
+			frag.SetAttr(AttrURL, u)
+			frag.SetAttr(AttrResource, ResourceGitHubComment)
+			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(r.DatabaseId, 10))
+			frag.SetAttr(AttrGitHubDiscussionNumber, discussionNum)
+			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+				if err := yield(frag, nil); err != nil {
+					return err
+				}
+			}
+			(*count)++
+		}
+
+		// Tail-paginate this comment's replies if there are more.
+		if c.Replies.PageInfo.HasNextPage {
+			if err := s.tailDiscussionReplies(ctx, discussionURL, discussionNum, githubv4.ID(strconv.FormatInt(c.DatabaseId, 10)), c.Replies.PageInfo.EndCursor, count, yield); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// tailDiscussionReplies paginates additional replies for a discussion comment node.
+func (s *GitHub) tailDiscussionReplies(ctx context.Context, discussionURL, discussionNum string, commentId githubv4.ID, cursor githubv4.String, count *int, yield FragmentsFunc) error {
+	hasMore := true
+	for hasMore {
+		if s.IssueOpts.MaxComments > 0 && *count >= s.IssueOpts.MaxComments {
+			return nil
+		}
+		var tail ghDiscussionReplyTailQuery
+		vars := map[string]any{
+			"commentId":    commentId,
+			"repliesFirst": githubv4.Int(50),
+			"repliesAfter": githubv4.NewString(cursor),
+		}
+		if err := s.gqlQuery(ctx, &tail, vars, &tail.RateLimit); err != nil {
+			return fmt.Errorf("discussion comment replies tail: %w", err)
+		}
+		for _, r := range tail.Node.Comment.Replies.Nodes {
+			if s.IssueOpts.MaxComments > 0 && *count >= s.IssueOpts.MaxComments {
+				return nil
+			}
+			if r.Body == "" {
+				continue
+			}
+			frag := Fragment{Raw: r.Body}
+			u := r.Url
+			if u == "" {
+				u = discussionURL
+			}
+			frag.SetAttr(AttrURL, u)
+			frag.SetAttr(AttrResource, ResourceGitHubComment)
+			frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(r.DatabaseId, 10))
+			frag.SetAttr(AttrGitHubDiscussionNumber, discussionNum)
+			if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+				if err := yield(frag, nil); err != nil {
+					return err
+				}
+			}
+			(*count)++
+		}
+		hasMore = tail.Node.Comment.Replies.PageInfo.HasNextPage
+		cursor = tail.Node.Comment.Replies.PageInfo.EndCursor
+	}
+	return nil
+}
+
+// ============ Single-resource (--url) scan path ============
+
+// parsedGitHubURL holds the components extracted from a GitHub resource URL.
+type parsedGitHubURL struct {
+	Owner    string // repo owner or gist user
+	Repo     string // repo name (empty for gists)
+	Resource string // "issue", "pr", "actions_run", "release", "discussion", "gist"
+	ID       string // number, run ID, tag name, or gist ID
+	Host     string // host (for GHE detection)
+}
+
+// parseGitHubURL parses a GitHub resource URL into its components.
+// Supports github.com and GitHub Enterprise URLs.
+func parseGitHubURL(rawURL string) (*parsedGitHubURL, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return nil, fmt.Errorf("URL must use http or https scheme")
+	}
+
+	host := strings.ToLower(u.Hostname())
+
+	// Gist: gist.github.com/{user}/{id} or gist.{ghe-host}/{user}/{id}
+	if strings.HasPrefix(host, "gist.") {
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf("gist URL must be gist.github.com/{user}/{id}")
+		}
+		return &parsedGitHubURL{Owner: parts[0], Resource: "gist", ID: parts[1], Host: host}, nil
+	}
+
+	// All other resources: {host}/{owner}/{repo}/{type}/...
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 4 {
+		return nil, fmt.Errorf("URL must point to a specific GitHub resource (issue, PR, discussion, release, or action run)")
+	}
+	owner, repo := parts[0], parts[1]
+	kind, id := parts[2], parts[3]
+
+	p := &parsedGitHubURL{Owner: owner, Repo: repo, Host: host}
+
+	switch kind {
+	case "issues":
+		p.Resource = "issue"
+		p.ID = id
+	case "pull":
+		p.Resource = "pr"
+		p.ID = id
+	case "discussions":
+		p.Resource = "discussion"
+		p.ID = id
+	case "releases":
+		// releases/tag/{tag}
+		if id != "tag" || len(parts) < 5 || parts[4] == "" {
+			return nil, fmt.Errorf("release URL must be .../releases/tag/{tag}")
+		}
+		p.Resource = "release"
+		p.ID = parts[4]
+	case "actions":
+		// actions/runs/{id}
+		if id != "runs" || len(parts) < 5 || parts[4] == "" {
+			return nil, fmt.Errorf("actions URL must be .../actions/runs/{id}")
+		}
+		p.Resource = "actions_run"
+		p.ID = parts[4]
+	default:
+		return nil, fmt.Errorf("unsupported GitHub URL type %q; supported: issues, pull, discussions, releases/tag, actions/runs, gist", kind)
+	}
+
+	return p, nil
+}
+
+// scanURL dispatches to the appropriate single-resource scanner based on the URL.
+func (s *GitHub) scanURL(ctx context.Context, client *github.Client, yield FragmentsFunc) error {
+	// URL mode scans a single explicit resource in full. Force all content
+	// flags on regardless of what the caller passed — the user asked for this
+	// specific thing, so emit everything it contains.
+	// This is safe because URL mode short-circuits before any other scan runs.
+	s.ScanIssues = true
+	s.ScanPRs = true
+	s.ScanComments = true
+	s.ScanDiscussions = true
+	s.ScanReleases = true
+	s.ScanReleaseAssets = true
+
+	parsed, err := parseGitHubURL(s.URL)
+	if err != nil {
+		return fmt.Errorf("--url: %w", err)
+	}
+
+	// For repo-level resources, fetch repo metadata and stamp it on all fragments.
+	if parsed.Resource != "gist" {
+		repo, err := s.fetchRepo(ctx, client, parsed.Owner, parsed.Repo)
+		if err != nil {
+			return fmt.Errorf("fetch repo %s/%s: %w", parsed.Owner, parsed.Repo, err)
+		}
+		repoAttrs := s.repoAttributes(repo, "")
+		var yieldMu sync.Mutex
+		origYield := yield
+		yield = func(fragment Fragment, err error) error {
+			if err == nil {
+				for k, v := range repoAttrs {
+					if v == "" || fragment.Attr(k) != "" {
+						continue
+					}
+					fragment.SetAttr(k, v)
+				}
+				if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+					return nil
+				}
+			}
+			yieldMu.Lock()
+			defer yieldMu.Unlock()
+			return origYield(fragment, err)
+		}
+	}
+
+	switch parsed.Resource {
+	case "issue":
+		num, err := strconv.Atoi(parsed.ID)
+		if err != nil {
+			return fmt.Errorf("invalid issue number %q", parsed.ID)
+		}
+		return s.scanSingleIssue(ctx, parsed.Owner, parsed.Repo, num, yield)
+	case "pr":
+		num, err := strconv.Atoi(parsed.ID)
+		if err != nil {
+			return fmt.Errorf("invalid PR number %q", parsed.ID)
+		}
+		return s.scanSinglePR(ctx, parsed.Owner, parsed.Repo, num, yield)
+	case "discussion":
+		num, err := strconv.Atoi(parsed.ID)
+		if err != nil {
+			return fmt.Errorf("invalid discussion number %q", parsed.ID)
+		}
+		return s.scanSingleDiscussion(ctx, parsed.Owner, parsed.Repo, num, yield)
+	case "release":
+		return s.scanSingleRelease(ctx, client, parsed.Owner, parsed.Repo, parsed.ID, yield)
+	case "actions_run":
+		runID, err := strconv.ParseInt(parsed.ID, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid run ID %q", parsed.ID)
+		}
+		return s.scanSingleActionRun(ctx, client, parsed.Owner, parsed.Repo, runID, yield)
+	case "gist":
+		return s.emitGist(ctx, client, parsed.ID, parsed.Owner, s.URL, nil, yield)
+	}
+	return nil
+}
+
+// GraphQL query types for single-resource lookups.
+
+type ghSingleIssueQuery struct {
+	Repository struct {
+		Issue ghIssueNode `graphql:"issue(number: $number)"`
+	} `graphql:"repository(owner: $owner, name: $repo)"`
+	RateLimit ghRateLimit
+}
+
+type ghSinglePRQuery struct {
+	Repository struct {
+		PullRequest ghPRNode `graphql:"pullRequest(number: $number)"`
+	} `graphql:"repository(owner: $owner, name: $repo)"`
+	RateLimit ghRateLimit
+}
+
+type ghSingleDiscussionQuery struct {
+	Repository struct {
+		Discussion ghDiscussionNode `graphql:"discussion(number: $number)"`
+	} `graphql:"repository(owner: $owner, name: $repo)"`
+	RateLimit ghRateLimit
+}
+
+func (s *GitHub) scanSingleIssue(ctx context.Context, owner, repo string, number int, yield FragmentsFunc) error {
+	var q ghSingleIssueQuery
+	vars := map[string]any{
+		"owner":         githubv4.String(owner),
+		"repo":          githubv4.String(repo),
+		"number":        githubv4.Int(number),
+		"commentsFirst": githubv4.Int(50),
+	}
+	if err := s.gqlQuery(ctx, &q, vars, &q.RateLimit); err != nil {
+		return fmt.Errorf("fetch issue %d: %w", number, err)
+	}
+	var dummy int
+	return s.emitIssueAndComments(ctx, owner, repo, q.Repository.Issue, &dummy, yield)
+}
+
+func (s *GitHub) scanSinglePR(ctx context.Context, owner, repo string, number int, yield FragmentsFunc) error {
+	var q ghSinglePRQuery
+	vars := map[string]any{
+		"owner":         githubv4.String(owner),
+		"repo":          githubv4.String(repo),
+		"number":        githubv4.Int(number),
+		"commentsFirst": githubv4.Int(50),
+		"threadsFirst":  githubv4.Int(50),
+	}
+	if err := s.gqlQuery(ctx, &q, vars, &q.RateLimit); err != nil {
+		return fmt.Errorf("fetch pr %d: %w", number, err)
+	}
+	var dummy int
+	return s.emitPRAndComments(ctx, owner, repo, q.Repository.PullRequest, &dummy, yield)
+}
+
+func (s *GitHub) scanSingleDiscussion(ctx context.Context, owner, repo string, number int, yield FragmentsFunc) error {
+	var q ghSingleDiscussionQuery
+	vars := map[string]any{
+		"owner":         githubv4.String(owner),
+		"repo":          githubv4.String(repo),
+		"number":        githubv4.Int(number),
+		"commentsFirst": githubv4.Int(50),
+		"repliesFirst":  githubv4.Int(50),
+	}
+	if err := s.gqlQuery(ctx, &q, vars, &q.RateLimit); err != nil {
+		return fmt.Errorf("fetch discussion %d: %w", number, err)
+	}
+	var dummy int
+	return s.emitDiscussion(ctx, owner, repo, q.Repository.Discussion, &dummy, yield)
+}
+
+// scanSingleActionRun scans logs (and optionally artifacts) for one workflow run.
+func (s *GitHub) scanSingleActionRun(ctx context.Context, client *github.Client, owner, repo string, runID int64, yield FragmentsFunc) error {
+	var run *github.WorkflowRun
+	err := s.withRetry(ctx, func() error {
+		var err error
+		run, _, err = client.Actions.GetWorkflowRunByID(ctx, owner, repo, runID)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("get action run %d: %w", runID, err)
+	}
+	if err := s.scanRunLogs(ctx, client, owner, repo, run, yield); err != nil {
+		if !isGitHubGone(err) {
+			return err
+		}
+	}
+	if s.Actions.ScanArtifacts {
+		return s.scanRunArtifacts(ctx, client, owner, repo, run, yield)
 	}
 	return nil
 }
