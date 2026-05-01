@@ -666,11 +666,13 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 // scanRepoGit clones and scans a repo's git history.
 func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
 	// Limit concurrent git clones — these are CPU/disk intensive.
-	select {
-	case s.gitSema <- struct{}{}:
-		defer func() { <-s.gitSema }()
-	case <-ctx.Done():
-		return ctx.Err()
+	if s.gitSema != nil {
+		select {
+		case s.gitSema <- struct{}{}:
+			defer func() { <-s.gitSema }()
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	name := repo.GetFullName()
