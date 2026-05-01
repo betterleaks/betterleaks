@@ -22,7 +22,7 @@ func init() {
 	githubCmd.Flags().Bool("exclude-forks", false, "exclude forked repositories")
 	githubCmd.Flags().Int("git-workers", 0, "parallel git workers per repo (0 = single process)")
 	githubCmd.Flags().String("log-opts", "", "git log options passed to each repo scan")
-	githubCmd.Flags().String("github-url", "", "GitHub Enterprise base URL")
+	githubCmd.Flags().String("base-url", "", "GitHub Enterprise base URL")
 
 	// Actions scanning
 	githubCmd.Flags().Bool("actions", false, "scan GitHub Actions workflow run logs")
@@ -39,8 +39,8 @@ func init() {
 	githubCmd.Flags().Int("comments-max", 50, "maximum number of comments to fetch per issue/PR (0 = no limit)")
 
 	// Date range filtering (applies to issues, PRs, comments, and actions)
-	githubCmd.Flags().String("since", "", "only scan items created after this date (YYYY-MM-DD or RFC3339)")
-	githubCmd.Flags().String("until", "", "only scan items created before this date (YYYY-MM-DD or RFC3339)")
+	githubCmd.Flags().String("since", "", "only scan items pulled from the GitHub API (issues, PRs, actions, etc) created after this date (YYYY-MM-DD or RFC3339)")
+	githubCmd.Flags().String("until", "", "only scan items pulled from the GitHub API (issues, PRs, actions, etc) created before this date (YYYY-MM-DD or RFC3339)")
 }
 
 var githubCmd = &cobra.Command{
@@ -123,7 +123,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		MaxArchiveDepth: detector.MaxArchiveDepth,
 		Workers:         mustGetIntFlag(cmd, "git-workers"),
 		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
-		BaseURL:         mustGetStringFlag(cmd, "github-url"),
+		BaseURL:         mustGetStringFlag(cmd, "base-url"),
 		ScanActions:     scanActions,
 		ScanIssues:      scanIssues,
 		ScanPRs:         scanPRs,
