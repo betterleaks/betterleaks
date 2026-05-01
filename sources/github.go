@@ -73,6 +73,9 @@ type GitHub struct {
 	// Gist scanning (per-user, not per-repo)
 	ScanGists bool
 
+	// Skip git history scanning for enumerated repositories.
+	SkipRepoGit bool
+
 	// Single resource URL mode; when set, all other targets are ignored.
 	URL string
 
@@ -265,15 +268,17 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 
 	g, gctx := errgroup.WithContext(ctx)
 
-	g.Go(func() error {
-		gitStart := time.Now()
-		if err := s.scanRepoGit(gctx, repo, ghYield); err != nil {
-			logger.Error().Err(err).Msg("git scan failed")
-			return fmt.Errorf("git scan %s: %w", name, err)
-		}
-		logger.Debug().Dur("git_ms", time.Since(gitStart)).Msg("git scan complete")
-		return nil
-	})
+	if !s.SkipRepoGit {
+		g.Go(func() error {
+			gitStart := time.Now()
+			if err := s.scanRepoGit(gctx, repo, ghYield); err != nil {
+				logger.Error().Err(err).Msg("git scan failed")
+				return fmt.Errorf("git scan %s: %w", name, err)
+			}
+			logger.Debug().Dur("git_ms", time.Since(gitStart)).Msg("git scan complete")
+			return nil
+		})
+	}
 
 	if s.ScanActions {
 		g.Go(func() error {
@@ -538,7 +543,6 @@ func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield
 			MaxArchiveDepth: s.MaxArchiveDepth,
 		}
 	}
-
 	gitStart := time.Now()
 	logger.Debug().Msg("starting git scan")
 	scanErr := src.Fragments(ctx, yield)
@@ -576,8 +580,6 @@ func (s *GitHub) cloneRepo(ctx context.Context, repo *github.Repository, dest st
 	_ = output
 	return nil
 }
-
-// ============ Actions scan path ============
 
 // scanActions scans workflow run logs (and optionally artifacts) for a repo.
 func (s *GitHub) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
@@ -1789,7 +1791,9 @@ func (s *GitHub) emitGist(ctx context.Context, client *github.Client, gistID, ow
 				return err
 			}
 		}
-		(*count)++
+		if count != nil {
+			(*count)++
+		}
 	}
 	return nil
 }

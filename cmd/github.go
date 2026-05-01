@@ -20,6 +20,7 @@ func init() {
 	githubCmd.Flags().StringSlice("repo", nil, "specific repos to scan (owner/repo)")
 	githubCmd.Flags().StringSlice("exclude-repo", nil, "glob patterns to exclude repos")
 	githubCmd.Flags().Bool("exclude-forks", false, "exclude forked repositories")
+	githubCmd.Flags().Bool("no-git", false, "skip repository git history scanning and only scan selected GitHub API resources")
 	githubCmd.Flags().Int("git-workers", 0, "parallel git workers per repo (0 = single process)")
 	githubCmd.Flags().String("log-opts", "", "git log options passed to each repo scan")
 	githubCmd.Flags().String("base-url", "", "GitHub Enterprise base URL")
@@ -80,6 +81,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	scanDiscussions := mustGetBoolFlag(cmd, "discussions")
 	scanReleases := mustGetBoolFlag(cmd, "releases")
 	scanGists := mustGetBoolFlag(cmd, "gists")
+	skipRepoGit := mustGetBoolFlag(cmd, "no-git")
 	resourceURL := mustGetStringFlag(cmd, "resource-url")
 
 	if token == "" && scanActions {
@@ -110,6 +112,9 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	}
 	if resourceURL == "" && len(orgs) == 0 && len(users) == 0 && len(repos) == 0 {
 		logging.Fatal().Msg("at least one --org, --user, --repo, or --resource-url is required")
+	}
+	if resourceURL == "" && skipRepoGit && !(scanActions || scanIssues || scanPRs || scanComments || scanDiscussions || scanReleases || scanGists) {
+		logging.Fatal().Msg("--no-git requires at least one auxiliary GitHub scan flag such as --actions, --issues, --prs, --comments, --discussions, --releases, or --gists")
 	}
 
 	excludeRepos, _ := cmd.Flags().GetStringSlice("exclude-repo")
@@ -160,6 +165,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		ScanReleases:      scanReleases,
 		ScanReleaseAssets: scanReleases && !mustGetBoolFlag(cmd, "no-release-artifacts"),
 		ScanGists:         scanGists,
+		SkipRepoGit:       skipRepoGit,
 		URL:               resourceURL,
 		Actions: sources.ActionsOptions{
 			Workflows:     actionsWorkflows,
