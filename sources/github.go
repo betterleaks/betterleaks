@@ -58,10 +58,11 @@ type GitHub struct {
 	Actions     ActionsOptions
 
 	// Issue and PR scanning
-	ScanIssues   bool
-	ScanPRs      bool
-	ScanComments bool
-	IssueOpts    IssueOptions
+	ScanIssues        bool
+	ScanPRs           bool
+	ScanIssueComments bool
+	ScanPRComments    bool
+	IssueOpts         IssueOptions
 
 	// Discussion scanning
 	ScanDiscussions bool
@@ -104,16 +105,145 @@ type IssueOptions struct {
 	Until       time.Time // only scan items created before this time (zero = no upper bound)
 }
 
+// ResourceType identifies a scannable GitHub resource category.
+type ResourceType string
+
+const (
+	ResourceTypeRepos               ResourceType = "repos"
+	ResourceTypeForks               ResourceType = "forks"
+	ResourceTypePullRequests        ResourceType = "pull-requests"
+	ResourceTypePullRequestComments ResourceType = "pull-request-comments"
+	ResourceTypeIssues              ResourceType = "issues"
+	ResourceTypeIssueComments       ResourceType = "issue-comments"
+	ResourceTypeActions             ResourceType = "actions"
+	ResourceTypeActionArtifacts     ResourceType = "action-artifacts"
+	ResourceTypeDiscussions         ResourceType = "discussions"
+	ResourceTypeReleases            ResourceType = "releases"
+	ResourceTypeReleaseAssets       ResourceType = "release-assets"
+	ResourceTypeGists               ResourceType = "gists"
+)
+
+// AllResourceTypes is the canonical list of valid resource types.
+var AllResourceTypes = []ResourceType{
+	ResourceTypeRepos,
+	ResourceTypeForks,
+	ResourceTypePullRequests,
+	ResourceTypePullRequestComments,
+	ResourceTypeIssues,
+	ResourceTypeIssueComments,
+	ResourceTypeActions,
+	ResourceTypeActionArtifacts,
+	ResourceTypeDiscussions,
+	ResourceTypeReleases,
+	ResourceTypeReleaseAssets,
+	ResourceTypeGists,
+}
+
+// ResourceSet tracks which resource types are enabled for scanning.
+type ResourceSet map[ResourceType]bool
+
+// Has reports whether the set contains the given resource type.
+func (rs ResourceSet) Has(r ResourceType) bool { return rs[r] }
+
+// ResolveResources builds a ResourceSet from --include and --exclude slices.
+// targetKind is "owner", "repo", or "resource" (a specific URL like an issue).
+func ResolveResources(include, exclude []string, targetKind string) (ResourceSet, error) {
+	valid := make(map[ResourceType]bool, len(AllResourceTypes))
+	for _, rt := range AllResourceTypes {
+		valid[rt] = true
+	}
+
+	rs := make(ResourceSet)
+
+	// Defaults: for owner/repo targets, scan git repos by default.
+	if targetKind == "owner" || targetKind == "repo" {
+		rs[ResourceTypeRepos] = true
+	}
+
+	for _, s := range include {
+		rt := ResourceType(s)
+		if !valid[rt] {
+			return nil, fmt.Errorf("unknown resource type %q", s)
+		}
+		rs[rt] = true
+	}
+
+	excludeSet := make(map[ResourceType]bool)
+	for _, s := range exclude {
+		rt := ResourceType(s)
+		if !valid[rt] {
+			return nil, fmt.Errorf("unknown resource type %q", s)
+		}
+		excludeSet[rt] = true
+		delete(rs, rt)
+	}
+
+	// Auto-include release-assets when releases is present, unless explicitly excluded.
+	if rs[ResourceTypeReleases] && !excludeSet[ResourceTypeReleaseAssets] {
+		rs[ResourceTypeReleaseAssets] = true
+	}
+
+	return rs, nil
+}
+
+// ApplyResourceSet maps the resource set to the boolean fields on the GitHub struct.
+func (s *GitHub) ApplyResourceSet(rs ResourceSet) {
+	s.SkipRepoGit = !rs.Has(ResourceTypeRepos)
+	s.ExcludeForks = !rs.Has(ResourceTypeForks)
+	s.ScanPRs = rs.Has(ResourceTypePullRequests)
+	s.ScanPRComments = rs.Has(ResourceTypePullRequestComments)
+	s.ScanIssues = rs.Has(ResourceTypeIssues)
+	s.ScanIssueComments = rs.Has(ResourceTypeIssueComments)
+	s.ScanActions = rs.Has(ResourceTypeActions)
+	s.Actions.ScanArtifacts = rs.Has(ResourceTypeActionArtifacts)
+	s.ScanDiscussions = rs.Has(ResourceTypeDiscussions)
+	s.ScanReleases = rs.Has(ResourceTypeReleases)
+	s.ScanReleaseAssets = rs.Has(ResourceTypeReleaseAssets)
+	s.ScanGists = rs.Has(ResourceTypeGists)
+}
+
 // Fragments enumerates GitHub repos and scans each one.
 func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	start := time.Now()
-	client := s.newClient(ctx)
-	s.gqlClient = s.newGraphQLClient(ctx)
 	s.apiCalls.Store(0)
 	s.gqlRemaining.Store(-1)
 	s.gqlResetAt.Store(0)
 
-	// URL mode: scan a single resource and return immediately.
+	// When a URL is provided, parse it to determine target type and derive
+	// BaseURL for GHE before initializing clients.
+	if s.URL != "" {
+		parsed, err := ParseGitHubURL(s.URL)
+		if err != nil {
+			return fmt.Errorf("invalid target URL: %w", err)
+		}
+		s.BaseURL = baseURLFromHost(parsed.Host)
+
+		switch parsed.Resource {
+		case "owner":
+			// Resolve org vs user via API, then fall through to enumerateRepos.
+			client := s.newClient(ctx)
+			ownerType, err := s.resolveOwnerType(ctx, client, parsed.Owner)
+			if err != nil {
+				return err
+			}
+			if ownerType == "Organization" {
+				s.Orgs = []string{parsed.Owner}
+			} else {
+				s.Users = []string{parsed.Owner}
+			}
+			logging.Info().Str("owner", parsed.Owner).Str("type", ownerType).Msg("resolved target")
+			s.URL = "" // clear to fall through to normal path
+		case "repo":
+			s.Repos = []string{parsed.Owner + "/" + parsed.Repo}
+			s.URL = "" // clear to fall through to normal path
+		default:
+			// Specific resource (issue, PR, etc.) — use scanURL.
+		}
+	}
+
+	client := s.newClient(ctx)
+	s.gqlClient = s.newGraphQLClient(ctx)
+
 	if s.URL != "" {
 		return s.scanURL(ctx, client, yield)
 	}
@@ -292,12 +422,13 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 		})
 	}
 
-	if s.ScanIssues || s.ScanPRs || s.ScanComments {
+	if s.ScanIssues || s.ScanPRs || s.ScanIssueComments || s.ScanPRComments {
 		g.Go(func() error {
 			logger.Info().
 				Bool("issues", s.ScanIssues).
 				Bool("prs", s.ScanPRs).
-				Bool("comments", s.ScanComments).
+				Bool("issue_comments", s.ScanIssueComments).
+				Bool("pr_comments", s.ScanPRComments).
 				Int("issues_max", s.IssueOpts.MaxIssues).
 				Int("comments_max", s.IssueOpts.MaxComments).
 				Msg("scanning issues, prs, and comments")
@@ -1092,8 +1223,8 @@ func (s *GitHub) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repos
 	var (
 		issuesAfter  *githubv4.String
 		prsAfter     *githubv4.String
-		issuesDone   = !s.ScanIssues && !s.ScanComments
-		prsDone      = !s.ScanPRs && !s.ScanComments
+		issuesDone   = !s.ScanIssues && !s.ScanIssueComments
+		prsDone      = !s.ScanPRs && !s.ScanPRComments
 		issueCount   int
 		prCount      int
 		commentCount int
@@ -1205,7 +1336,7 @@ func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, i
 		}
 	}
 
-	if !s.ScanComments {
+	if !s.ScanIssueComments {
 		return nil
 	}
 
@@ -1256,7 +1387,7 @@ func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr g
 		}
 	}
 
-	if !s.ScanComments {
+	if !s.ScanPRComments {
 		return nil
 	}
 
@@ -1798,10 +1929,7 @@ func (s *GitHub) emitGist(ctx context.Context, client *github.Client, gistID, ow
 	return nil
 }
 
-// ============ Discussions scan path ============
-
 // GraphQL types for discussions.
-
 type ghDiscussionCommentReply struct {
 	DatabaseId int64
 	Body       string
@@ -1942,10 +2070,6 @@ func (s *GitHub) emitDiscussion(ctx context.Context, owner, name string, d ghDis
 		if err := yield(frag, nil); err != nil {
 			return err
 		}
-	}
-
-	if !s.ScanComments {
-		return nil
 	}
 
 	var itemComments int
@@ -2093,20 +2217,18 @@ func (s *GitHub) tailDiscussionReplies(ctx context.Context, discussionURL, discu
 	return nil
 }
 
-// ============ Single-resource (--url) scan path ============
-
-// parsedGitHubURL holds the components extracted from a GitHub resource URL.
-type parsedGitHubURL struct {
-	Owner    string // repo owner or gist user
-	Repo     string // repo name (empty for gists)
-	Resource string // "issue", "pr", "actions_run", "release", "discussion", "gist"
-	ID       string // number, run ID, tag name, or gist ID
+// ParsedGitHubURL holds the components extracted from a GitHub target URL.
+type ParsedGitHubURL struct {
+	Owner    string // repo owner, org name, user name, or gist user
+	Repo     string // repo name (empty for owner-level or gists)
+	Resource string // "owner", "repo", "issue", "pr", "actions_run", "release", "discussion", "gist"
+	ID       string // number, run ID, tag name, or gist ID (empty for owner/repo targets)
 	Host     string // host (for GHE detection)
 }
 
-// parseGitHubURL parses a GitHub resource URL into its components.
-// Supports github.com and GitHub Enterprise URLs.
-func parseGitHubURL(rawURL string) (*parsedGitHubURL, error) {
+// ParseGitHubURL parses a GitHub URL into its components.
+// Supports org/user URLs, repo URLs, specific resource URLs, and gists.
+func ParseGitHubURL(rawURL string) (*ParsedGitHubURL, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -2123,18 +2245,29 @@ func parseGitHubURL(rawURL string) (*parsedGitHubURL, error) {
 		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 			return nil, fmt.Errorf("gist URL must be gist.github.com/{user}/{id}")
 		}
-		return &parsedGitHubURL{Owner: parts[0], Resource: "gist", ID: parts[1], Host: host}, nil
+		return &ParsedGitHubURL{Owner: parts[0], Resource: "gist", ID: parts[1], Host: host}, nil
 	}
 
-	// All other resources: {host}/{owner}/{repo}/{type}/...
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+
+	// Owner-level URL: github.com/{owner}
+	if len(parts) == 1 && parts[0] != "" {
+		return &ParsedGitHubURL{Owner: parts[0], Resource: "owner", Host: host}, nil
+	}
+
+	// Repo-level URL: github.com/{owner}/{repo}
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return &ParsedGitHubURL{Owner: parts[0], Repo: parts[1], Resource: "repo", Host: host}, nil
+	}
+
+	// Specific resource: {host}/{owner}/{repo}/{type}/...
 	if len(parts) < 4 {
-		return nil, fmt.Errorf("URL must point to a specific GitHub resource (issue, PR, discussion, release, or action run)")
+		return nil, fmt.Errorf("URL must point to a GitHub owner, repo, or specific resource (issue, PR, discussion, release, or action run)")
 	}
 	owner, repo := parts[0], parts[1]
 	kind, id := parts[2], parts[3]
 
-	p := &parsedGitHubURL{Owner: owner, Repo: repo, Host: host}
+	p := &ParsedGitHubURL{Owner: owner, Repo: repo, Host: host}
 
 	switch kind {
 	case "issues":
@@ -2154,7 +2287,7 @@ func parseGitHubURL(rawURL string) (*parsedGitHubURL, error) {
 		p.Resource = "release"
 		p.ID = parts[4]
 	case "actions":
-		// actions/runs/{id}
+		// actions/runs/{id} or actions/runs/{id}/job/{jobId}
 		if id != "runs" || len(parts) < 5 || parts[4] == "" {
 			return nil, fmt.Errorf("actions URL must be .../actions/runs/{id}")
 		}
@@ -2167,6 +2300,28 @@ func parseGitHubURL(rawURL string) (*parsedGitHubURL, error) {
 	return p, nil
 }
 
+// baseURLFromHost returns the GitHub Enterprise base URL for a given host,
+// or empty string for github.com (use default).
+func baseURLFromHost(host string) string {
+	if host == "github.com" || host == "gist.github.com" {
+		return ""
+	}
+	// Strip gist. prefix for GHE hosts.
+	h := strings.TrimPrefix(host, "gist.")
+	return "https://" + h
+}
+
+// resolveOwnerType determines whether a GitHub login is an Organization or User
+// by calling GET /users/{login}. Returns "Organization" or "User".
+func (s *GitHub) resolveOwnerType(ctx context.Context, client *github.Client, login string) (string, error) {
+	s.apiCalls.Add(1)
+	user, _, err := client.Users.Get(ctx, login)
+	if err != nil {
+		return "", fmt.Errorf("resolve owner %q: %w", login, err)
+	}
+	return user.GetType(), nil
+}
+
 // scanURL dispatches to the appropriate single-resource scanner based on the URL.
 func (s *GitHub) scanURL(ctx context.Context, client *github.Client, yield FragmentsFunc) error {
 	// URL mode scans a single explicit resource in full. Force all content
@@ -2175,12 +2330,13 @@ func (s *GitHub) scanURL(ctx context.Context, client *github.Client, yield Fragm
 	// This is safe because URL mode short-circuits before any other scan runs.
 	s.ScanIssues = true
 	s.ScanPRs = true
-	s.ScanComments = true
+	s.ScanIssueComments = true
+	s.ScanPRComments = true
 	s.ScanDiscussions = true
 	s.ScanReleases = true
 	s.ScanReleaseAssets = true
 
-	parsed, err := parseGitHubURL(s.URL)
+	parsed, err := ParseGitHubURL(s.URL)
 	if err != nil {
 		return fmt.Errorf("--url: %w", err)
 	}

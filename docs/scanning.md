@@ -9,7 +9,7 @@ Use `--help` for full flag descriptions. This page is for patterns.
 | Files on disk | `betterleaks dir` |
 | Git history | `betterleaks git` |
 | Staged or pre-commit diffs | `betterleaks git --pre-commit [--staged]` |
-| GitHub repos plus Issues, PRs, Actions, Releases, Discussions, or Gists | `betterleaks github` |
+| GitHub repos, Issues, PRs, Actions, Releases, Discussions, Gists | `betterleaks github <url>` |
 | Piped content | `betterleaks stdin` |
 
 ---
@@ -77,52 +77,67 @@ betterleaks git . --git-workers 8 --report-path findings.json --report-format js
 
 ## `github`
 
-`github` scans selected repos' git history by default. Extra flags add more GitHub surfaces.
+`github` takes a target URL and scans git history by default. Use `--include` to add more resource types and `--exclude` to skip types.
 
 Set `GITHUB_TOKEN` in the environment before running these examples.
 
-### Repo selection
+### Resource types
+
+| Type | Description |
+| :--- | :--- |
+| `repos` | Git repository history (default) |
+| `forks` | Include forked repositories |
+| `pull-requests` | Pull request descriptions |
+| `pull-request-comments` | Comments on pull requests |
+| `issues` | Issue descriptions |
+| `issue-comments` | Comments on issues |
+| `actions` | Action run console output |
+| `action-artifacts` | Artifacts created by action runs |
+| `discussions` | Discussion threads and replies |
+| `releases` | Release descriptions |
+| `release-assets` | Downloadable release assets (auto-included with `releases`) |
+| `gists` | Gist file contents (user targets only) |
+
+### Target selection
 
 ```sh
-# one org
-betterleaks github --org betterleaks
+# scan a repo's git history
+betterleaks github https://github.com/betterleaks/betterleaks
 
-# one user
-betterleaks github --user octocat
+# scan all repos under an org
+betterleaks github https://github.com/my-company
 
-# explicit repos
-betterleaks github \
-	--repo betterleaks/betterleaks \
-	--repo octo-org/example-service
+# scan all repos under a user
+betterleaks github https://github.com/octocat
 
 # exclude forks and repo globs
 betterleaks github \
-	--org my-company \
-	--exclude-forks \
+	--include=forks \
 	--exclude-repo 'my-company/*-archive' \
-	--exclude-repo 'my-company/playground-*'
+	--exclude-repo 'my-company/playground-*' \
+	https://github.com/my-company
 
-# auxiliary GitHub surfaces only, no repo git history
+# skip repo git history, scan only API resources
 betterleaks github \
-	--org my-company \
-	--issues --prs --comments \
-	--no-git
+	--include=issues,pull-requests,issue-comments,pull-request-comments \
+	--exclude=repos \
+	https://github.com/my-company
 ```
 
 ### Issues, PRs, comments
 
 ```sh
 betterleaks github \
-	--repo my-company/backend \
-	--issues --prs --comments \
+	--include=issues,pull-requests,issue-comments,pull-request-comments \
 	--issues-max 200 \
-	--comments-max 100
+	--comments-max 100 \
+	https://github.com/my-company/backend
 
 betterleaks github \
-	--org my-company \
-	--issues --prs --comments \
+	--include=issues,pull-requests,issue-comments \
 	--since 2026-01-01 \
-	--until 2026-04-01
+	--until 2026-04-01 \
+	https://github.com/my-company
 ```
 
 ### Actions
@@ -130,82 +145,74 @@ betterleaks github \
 ```sh
 # workflow logs
 betterleaks github \
-	--repo my-company/backend \
-	--actions
+	--include=actions \
+	https://github.com/my-company/backend
 
 # only one workflow, recent runs only
 betterleaks github \
-	--repo my-company/backend \
-	--actions \
+	--include=actions \
 	--actions-workflow ci.yml \
 	--actions-max-age 168h \
-	--actions-max-runs 25
+	--actions-max-runs 25 \
+	https://github.com/my-company/backend
 
 # include workflow artifacts
 betterleaks github \
-	--repo my-company/backend \
-	--actions \
-	--actions-artifacts
+	--include=actions,action-artifacts \
+	https://github.com/my-company/backend
 ```
 
 ### Discussions, releases, gists
 
 ```sh
-# discussions
+# discussions (comments included automatically)
 betterleaks github \
-	--repo my-company/backend \
-	--discussions --comments
+	--include=discussions \
+	https://github.com/my-company/backend
 
 # releases and release assets
 betterleaks github \
-	--repo my-company/backend \
-	--releases
+	--include=releases \
+	https://github.com/my-company/backend
 
-# releases, but skip artifacts
+# releases, but skip downloadable assets
 betterleaks github \
-	--repo my-company/backend \
-	--releases --no-release-artifacts
+	--include=releases \
+	--exclude=release-assets \
+	https://github.com/my-company/backend
 
 # user gists
 betterleaks github \
-	--user octocat \
-	--gists
+	--include=gists \
+	https://github.com/octocat
 ```
 
 ### Single GitHub resource
 
 ```sh
 # pull request
-betterleaks github \
-	--resource-url https://github.com/my-company/backend/pull/1234
+betterleaks github https://github.com/my-company/backend/pull/1234
 
 # issue
-betterleaks github \
-	--resource-url https://github.com/my-company/backend/issues/99
+betterleaks github https://github.com/my-company/backend/issues/99
 
 # discussion
-betterleaks github \
-	--resource-url https://github.com/my-company/backend/discussions/45
+betterleaks github https://github.com/my-company/backend/discussions/45
 
 # release tag
-betterleaks github \
-	--resource-url https://github.com/my-company/backend/releases/tag/v1.2.3
+betterleaks github https://github.com/my-company/backend/releases/tag/v1.2.3
 
 # actions run
-betterleaks github \
-	--resource-url https://github.com/my-company/backend/actions/runs/123456789
+betterleaks github https://github.com/my-company/backend/actions/runs/123456789
 
 # gist
-betterleaks github \
-	--resource-url https://gist.github.com/octocat/aaaaaaaaaaaaaaaaaaaa
+betterleaks github https://gist.github.com/octocat/aaaaaaaaaaaaaaaaaaaa
 ```
 
 ### GitHub Enterprise
 
 ```sh
-betterleaks github \
-	--org platform-team \
-	--base-url https://github.example.com/
+betterleaks github https://github.example.com/platform-team
 ```
 
 ---
