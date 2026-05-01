@@ -83,6 +83,10 @@ type GitHub struct {
 	// Internal GraphQL client (initialized in Fragments).
 	gqlClient *githubv4.Client
 
+	// gitSema limits concurrent git clone + scan operations (CPU/disk intensive).
+	// Initialized in Fragments.
+	gitSema chan struct{}
+
 	// Telemetry counters populated during Fragments; safe for concurrent access.
 	apiCalls     atomic.Int64 // total REST + GraphQL API calls made
 	gqlRemaining atomic.Int64 // last known GraphQL points remaining (-1 = not yet observed)
@@ -243,29 +247,15 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 	client := s.newClient(ctx)
 	s.gqlClient = s.newGraphQLClient(ctx)
+	s.gitSema = make(chan struct{}, max(1, runtime.NumCPU()/2))
 
 	if s.URL != "" {
 		return s.scanURL(ctx, client, yield)
 	}
 
-	repos, err := s.enumerateRepos(ctx, client)
-	if err != nil {
-		return fmt.Errorf("enumerate repos: %w", err)
-	}
-
-	logging.Info().
-		Int("repos", len(repos)).
-		Dur("enumeration_ms", time.Since(start)).
-		Msg("GitHub repos to scan")
+	repoCh, enumErrCh := s.enumerateRepos(ctx, client)
 
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(max(1, runtime.NumCPU()/2))
-
-	for _, repo := range repos {
-		g.Go(func() error {
-			return s.scanRepo(gctx, client, repo, yield)
-		})
-	}
 
 	// Gist scanning is user-level, not repo-level — runs alongside repo scans.
 	if s.ScanGists {
@@ -276,10 +266,29 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 	}
 
-	err = g.Wait()
+	// Drain the repo channel as fast as enumeration produces — g.Go spawns
+	// immediately so enumeration is never blocked by scan throughput.
+	var repoCount atomic.Int64
+	for repo := range repoCh {
+		repoCount.Add(1)
+		g.Go(func() error {
+			return s.scanRepo(gctx, client, repo, yield)
+		})
+	}
+
+	// Check if enumeration itself failed.
+	if enumErr := <-enumErrCh; enumErr != nil {
+		return fmt.Errorf("enumerate repos: %w", enumErr)
+	}
+	logging.Info().
+		Int64("repos", repoCount.Load()).
+		Dur("enumeration_ms", time.Since(start)).
+		Msg("enumeration complete, waiting for scans")
+
+	scanErr := g.Wait()
 
 	evt := logging.Info().
-		Int("repos", len(repos)).
+		Int64("repos", repoCount.Load()).
 		Int64("api_calls_total", s.apiCalls.Load()).
 		Dur("total_ms", time.Since(start))
 	if remaining := s.gqlRemaining.Load(); remaining >= 0 {
@@ -290,71 +299,78 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	}
 	evt.Msg("GitHub scan complete")
 
-	return err
+	return scanErr
 }
 
-// enumerateRepos collects repos from explicit list, orgs, and users,
-// deduplicates, and applies filters.
-func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client) ([]*github.Repository, error) {
-	seen := make(map[string]bool)
-	var repos []*github.Repository
+// enumerateRepos streams discovered repos over a channel as they are found,
+// deduplicating and filtering along the way. The error channel receives at
+// most one value (nil on success) after the repo channel is closed.
+func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client) (<-chan *github.Repository, <-chan error) {
+	ch := make(chan *github.Repository, 100)
+	errCh := make(chan error, 1)
 
-	add := func(r *github.Repository) {
-		name := r.GetFullName()
-		if seen[name] {
-			return
-		}
-		if s.ExcludeForks && r.GetFork() {
-			return
-		}
-		if s.isExcluded(name) {
-			logging.Debug().Str("repo", name).Msg("excluding repo")
-			return
-		}
-		seen[name] = true
-		repos = append(repos, r)
-	}
+	go func() {
+		defer close(ch)
+		defer close(errCh)
 
-	// Explicit repos
-	for _, slug := range s.Repos {
-		owner, name, err := splitRepoSlug(slug)
-		if err != nil {
-			return nil, fmt.Errorf("invalid repo %q: %w", slug, err)
+		seen := make(map[string]bool)
+		send := func(r *github.Repository) {
+			name := r.GetFullName()
+			if seen[name] {
+				return
+			}
+			if s.ExcludeForks && r.GetFork() {
+				return
+			}
+			if s.isExcluded(name) {
+				logging.Debug().Str("repo", name).Msg("excluding repo")
+				return
+			}
+			seen[name] = true
+			select {
+			case ch <- r:
+			case <-ctx.Done():
+			}
 		}
-		logging.Debug().Str("repo", slug).Msg("fetching repo metadata")
-		repo, err := s.fetchRepo(ctx, client, owner, name)
-		if err != nil {
-			return nil, fmt.Errorf("fetch repo %s: %w", slug, err)
-		}
-		add(repo)
-	}
 
-	// Org repos
-	for _, org := range s.Orgs {
-		logging.Info().Str("org", org).Msg("enumerating org repos")
-		orgRepos, err := s.listOrgRepos(ctx, client, org)
-		if err != nil {
-			return nil, fmt.Errorf("list org %s repos: %w", org, err)
+		// Explicit repos
+		for _, slug := range s.Repos {
+			owner, name, err := splitRepoSlug(slug)
+			if err != nil {
+				errCh <- fmt.Errorf("invalid repo %q: %w", slug, err)
+				return
+			}
+			logging.Debug().Str("repo", slug).Msg("fetching repo metadata")
+			repo, err := s.fetchRepo(ctx, client, owner, name)
+			if err != nil {
+				errCh <- fmt.Errorf("fetch repo %s: %w", slug, err)
+				return
+			}
+			send(repo)
 		}
-		for _, r := range orgRepos {
-			add(r)
-		}
-	}
 
-	// User repos
-	for _, user := range s.Users {
-		logging.Info().Str("user", user).Msg("enumerating user repos")
-		userRepos, err := s.listUserRepos(ctx, client, user)
-		if err != nil {
-			return nil, fmt.Errorf("list user %s repos: %w", user, err)
+		// Org repos — stream page by page.
+		for _, org := range s.Orgs {
+			logging.Info().Str("org", org).Msg("enumerating org repos")
+			if err := s.streamOrgRepos(ctx, client, org, send); err != nil {
+				errCh <- fmt.Errorf("list org %s repos: %w", org, err)
+				return
+			}
 		}
-		for _, r := range userRepos {
-			add(r)
-		}
-	}
 
-	logging.Debug().Int("total", len(repos)).Msg("enumeration complete")
-	return repos, nil
+		// User repos — stream page by page.
+		for _, user := range s.Users {
+			logging.Info().Str("user", user).Msg("enumerating user repos")
+			if err := s.streamUserRepos(ctx, client, user, send); err != nil {
+				errCh <- fmt.Errorf("list user %s repos: %w", user, err)
+				return
+			}
+		}
+
+		errCh <- nil
+	}()
+
+	return ch, errCh
 }
 
 // scanRepo clones a single repo and delegates to the Git source.
@@ -499,15 +515,15 @@ func (s *GitHub) fetchRepo(ctx context.Context, client *github.Client, owner, na
 	return repo, err
 }
 
-// listOrgRepos paginates all repos for an organization.
-func (s *GitHub) listOrgRepos(ctx context.Context, client *github.Client, org string) ([]*github.Repository, error) {
-	var all []*github.Repository
+// streamOrgRepos paginates all repos for an organization, calling send for
+// each repo as it is discovered (enabling async scanning).
+func (s *GitHub) streamOrgRepos(ctx context.Context, client *github.Client, org string, send func(*github.Repository)) error {
 	opts := &github.RepositoryListByOrgOptions{
 		Type:        "all",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	page := 1
-	lastLog := time.Now()
+	total := 0
 	for {
 		var repos []*github.Repository
 		var resp *github.Response
@@ -517,35 +533,35 @@ func (s *GitHub) listOrgRepos(ctx context.Context, client *github.Client, org st
 			return err
 		})
 		if err != nil {
-			return all, err
+			return err
 		}
-		all = append(all, repos...)
-		if now := time.Now(); now.Sub(lastLog) >= 4*time.Second {
-			evt := logging.Info().Str("org", org).Int("page", page)
-			if resp.LastPage > 0 {
-				evt = evt.Int("total_pages", resp.LastPage)
-			}
-			evt.Int("repos_so_far", len(all)).Msg("enumerating repos")
-			lastLog = now
+		for _, r := range repos {
+			send(r)
 		}
+		total += len(repos)
+		evt := logging.Info().Str("org", org).Int("page", page)
+		if resp.LastPage > 0 {
+			evt = evt.Int("total_pages", resp.LastPage)
+		}
+		evt.Int("repos_so_far", total).Msg("enumerating repos")
 		if resp.NextPage == 0 {
 			break
 		}
 		opts.ListOptions.Page = resp.NextPage
 		page = resp.NextPage
 	}
-	return all, nil
+	return nil
 }
 
-// listUserRepos paginates all repos for a user.
-func (s *GitHub) listUserRepos(ctx context.Context, client *github.Client, user string) ([]*github.Repository, error) {
-	var all []*github.Repository
+// streamUserRepos paginates all repos for a user, calling send for
+// each repo as it is discovered.
+func (s *GitHub) streamUserRepos(ctx context.Context, client *github.Client, user string, send func(*github.Repository)) error {
 	opts := &github.RepositoryListByUserOptions{
 		Type:        "all",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	page := 1
-	lastLog := time.Now()
+	total := 0
 	for {
 		var repos []*github.Repository
 		var resp *github.Response
@@ -555,24 +571,24 @@ func (s *GitHub) listUserRepos(ctx context.Context, client *github.Client, user 
 			return err
 		})
 		if err != nil {
-			return all, err
+			return err
 		}
-		all = append(all, repos...)
-		if now := time.Now(); now.Sub(lastLog) >= 4*time.Second {
-			evt := logging.Info().Str("user", user).Int("page", page)
-			if resp.LastPage > 0 {
-				evt = evt.Int("total_pages", resp.LastPage)
-			}
-			evt.Int("repos_so_far", len(all)).Msg("enumerating repos")
-			lastLog = now
+		for _, r := range repos {
+			send(r)
 		}
+		total += len(repos)
+		evt := logging.Info().Str("user", user).Int("page", page)
+		if resp.LastPage > 0 {
+			evt = evt.Int("total_pages", resp.LastPage)
+		}
+		evt.Int("repos_so_far", total).Msg("enumerating repos")
 		if resp.NextPage == 0 {
 			break
 		}
 		opts.ListOptions.Page = resp.NextPage
 		page = resp.NextPage
 	}
-	return all, nil
+	return nil
 }
 
 // isExcluded checks if a repo full name matches any exclusion glob.
@@ -649,6 +665,14 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 
 // scanRepoGit clones and scans a repo's git history.
 func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
+	// Limit concurrent git clones — these are CPU/disk intensive.
+	select {
+	case s.gitSema <- struct{}{}:
+		defer func() { <-s.gitSema }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	name := repo.GetFullName()
 	logger := logging.With().Str("repo", name).Logger()
 	cloneStart := time.Now()
