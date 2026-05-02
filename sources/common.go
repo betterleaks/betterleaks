@@ -4,15 +4,22 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"net/http"
+	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/mholt/archives"
 )
 
-const maxPeekSize = 25 * 1_000 // 10kb
+const (
+	maxPeekSize     = 25 * 1_000 // 10kb
+	downloadTimeout = 5 * time.Minute
+)
 
 var isWhitespace [256]bool
 var isWindows = runtime.GOOS == "windows"
@@ -131,4 +138,89 @@ func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *byt
 		peekBuf.WriteByte(b)
 	}
 	return nil
+}
+
+type sourceDownloadOptions struct {
+	URL             string
+	Reader          io.ReadCloser
+	Path            string
+	Attrs           map[string]string
+	BearerToken     string
+	MaxArchiveDepth int
+	ShouldSkip      SkipFunc
+	TempPattern     string
+}
+
+// downloadAndScanSource downloads content from a URL or scans an existing reader via File.
+func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yield FragmentsFunc) error {
+	start := time.Now()
+	reader := opts.Reader
+
+	if reader == nil {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, opts.URL, nil)
+		if err != nil {
+			return err
+		}
+		if opts.BearerToken != "" {
+			req.Header.Set("Authorization", "Bearer "+opts.BearerToken)
+		}
+		httpClient := &http.Client{
+			Timeout: downloadTimeout,
+			CheckRedirect: func(r *http.Request, via []*http.Request) error {
+				if opts.BearerToken != "" {
+					r.Header.Set("Authorization", "Bearer "+opts.BearerToken)
+				}
+				return nil
+			},
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return fmt.Errorf("download returned %s", resp.Status)
+		}
+		reader = resp.Body
+	}
+	defer reader.Close()
+
+	tempPattern := opts.TempPattern
+	if tempPattern == "" {
+		tempPattern = "betterleaks-download-*"
+	}
+	tmp, err := os.CreateTemp("", tempPattern)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		tmp.Close()
+		os.Remove(tmp.Name())
+	}()
+
+	if _, err := io.Copy(tmp, reader); err != nil {
+		return fmt.Errorf("download %s: %w", opts.Path, err)
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	file := &File{
+		Content:         tmp,
+		Path:            opts.Path,
+		MaxArchiveDepth: max(1, opts.MaxArchiveDepth),
+		ShouldSkip:      opts.ShouldSkip,
+	}
+	err = file.Fragments(ctx, func(fragment Fragment, err error) error {
+		if err == nil {
+			for k, v := range opts.Attrs {
+				if k == AttrResource || fragment.Attr(k) == "" {
+					fragment.SetAttr(k, v)
+				}
+			}
+		}
+		return yield(fragment, err)
+	})
+	logging.Debug().Str("path", opts.Path).Str("scan_ms", time.Since(start).Round(time.Millisecond).String()).Msg("download scan complete")
+	return err
 }

@@ -62,7 +62,7 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 	p, _ := scm.PlatformFromString(platform)
 	commitSha := finding.Attr(sources.AttrGitSHA)
 	path := finding.Attr(sources.AttrPath)
-	if p == scm.UnknownPlatform || p == scm.NoPlatform || commitSha == "" {
+	if p == scm.UnknownPlatform || p == scm.NoPlatform || commitSha == "" || path == "" {
 		return ""
 	}
 

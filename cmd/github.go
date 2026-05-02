@@ -28,15 +28,8 @@ func init() {
 
 	// Actions scanning
 	githubCmd.Flags().StringSlice("actions-workflow", nil, "only scan runs from these workflow files (e.g. ci.yml)")
-	githubCmd.Flags().Duration("actions-max-age", 0, "max age of workflow runs to scan (e.g. 720h for 30 days)")
-	githubCmd.Flags().Int("actions-max-runs", 500, "max workflow runs to scan per repo")
 
-	// Issue and PR scanning
-	// TODO is this needed?
-	githubCmd.Flags().Int("issues-max", 10000, "maximum number of recent issues/PRs to fetch per repo (0 = no limit)")
-	githubCmd.Flags().Int("comments-max", 5000, "maximum number of comments to fetch per issue/PR (0 = no limit)")
-
-	// Date range filtering (applies to issues, PRs, comments, and actions)
+	// Date range filtering (applies to issues, PRs, comments, and action runs)
 	githubCmd.Flags().String("since", "", "only scan API items created after this date (YYYY-MM-DD or RFC3339)")
 	githubCmd.Flags().String("until", "", "only scan API items created before this date (YYYY-MM-DD or RFC3339)")
 }
@@ -94,7 +87,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	include, _ := cmd.Flags().GetStringSlice("include")
 	exclude, _ := cmd.Flags().GetStringSlice("exclude")
 
-	rs, err := sources.ResolveResources(include, exclude, targetKind)
+	rs, err := sources.ResolveGitHubResources(include, exclude, targetKind)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("invalid resource type")
 	}
@@ -103,7 +96,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	if token == "" && targetKind != "resource" {
 		needsToken := false
 		for rt := range rs {
-			if rt != sources.ResourceTypeRepos && rt != sources.ResourceTypeForks {
+			if rt != sources.GitHubResourceTypeRepos && rt != sources.GitHubResourceTypeForks {
 				needsToken = true
 				break
 			}
@@ -136,12 +129,6 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	}
 
 	actionsWorkflows, _ := cmd.Flags().GetStringSlice("actions-workflow")
-	actionsMaxAge, _ := cmd.Flags().GetDuration("actions-max-age")
-
-	// If --since is set and --actions-max-age is not, derive max-age from --since.
-	if !since.IsZero() && actionsMaxAge == 0 {
-		actionsMaxAge = time.Since(since)
-	}
 
 	excludeRepos, _ := cmd.Flags().GetStringSlice("exclude-repo")
 
@@ -149,6 +136,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		Token:           token,
 		URL:             targetURL,
 		ExcludeRepos:    excludeRepos,
+		Resources:       rs,
 		ShouldSkip:      detector.SkipFunc(),
 		Sema:            detector.Sema,
 		MaxArchiveDepth: detector.MaxArchiveDepth,
@@ -156,21 +144,16 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
 		Actions: sources.ActionsOptions{
 			Workflows: actionsWorkflows,
-			MaxAge:    actionsMaxAge,
-			MaxRuns:   mustGetIntFlag(cmd, "actions-max-runs"),
 		},
-		IssueOpts: sources.IssueOptions{
-			MaxIssues:   mustGetIntFlag(cmd, "issues-max"),
-			MaxComments: mustGetIntFlag(cmd, "comments-max"),
-			Since:       since,
-			Until:       until,
+		DateRangeOpts: sources.DateRangeOptions{
+			Since: since,
+			Until: until,
 		},
 	}
-	src.ApplyResourceSet(rs)
 
 	// Log what we're scanning.
 	var active []string
-	for _, rt := range sources.AllResourceTypes {
+	for _, rt := range sources.AllGitHubResourceTypes {
 		if rs.Has(rt) {
 			active = append(active, string(rt))
 		}

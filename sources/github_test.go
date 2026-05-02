@@ -13,7 +13,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/betterleaks/betterleaks/celenv"
+	"github.com/betterleaks/betterleaks/httpclient"
 )
 
 func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
@@ -30,7 +33,7 @@ func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes[?"resource"].orValue("") == "github.repository" && attributes[?"github.repo"].orValue("") == "repo"`)
 
-	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4)}
+	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4), Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []Fragment
@@ -49,7 +52,7 @@ func TestGitHub_scanRepo_prefilterUsesMergedRepoAttrsOnFragments(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes[?"github.repo"].orValue("") == "repo" && attributes[?"path"].orValue("") != ""`)
 
-	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4)}
+	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4), Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []Fragment
@@ -68,7 +71,7 @@ func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `containsAny(attributes[?"path"].orValue(""), ["does-not-match"])`)
 
-	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4)}
+	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4), Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []Fragment
@@ -89,8 +92,8 @@ func TestGitHub_scanRepo_skipRepoGitDoesNotCloneOrScanHistory(t *testing.T) {
 	t.Parallel()
 
 	src := &GitHub{
-		SkipRepoGit: true,
-		Sema:        semgroup.NewGroup(t.Context(), 4),
+		Resources: GitHubResourceSet{}, // repos not in set = skip git
+		Sema:      semgroup.NewGroup(t.Context(), 4),
 	}
 	repo := newTestGitHubRepo(filepath.Join(t.TempDir(), "does-not-exist"))
 
@@ -129,14 +132,15 @@ func TestGitHub_scanURL_gistDoesNotPanicAndStampsAttrs(t *testing.T) {
 	defer server.Close()
 
 	src := &GitHub{
-		BaseURL: strings.TrimRight(server.URL, "/") + "/api/v3/",
-		URL:     "https://gist.github.example.com/user/abc123def456",
+		BaseURL:   strings.TrimRight(server.URL, "/") + "/api/v3/",
+		URL:       "https://gist.github.example.com/user/abc123def456",
+		restRetry: httpclient.NewRetryTransport(nil),
 	}
 	client := src.newClient(t.Context())
 
 	var fragments []Fragment
 	require.NotPanics(t, func() {
-		err := src.scanURL(t.Context(), client, func(fragment Fragment, err error) error {
+		err := src.scanURL(t.Context(), client, src.URL, func(fragment Fragment, err error) error {
 			require.NoError(t, err)
 			fragments = append(fragments, fragment)
 			return nil
@@ -156,7 +160,7 @@ func TestGitHub_scanURL_gistDoesNotPanicAndStampsAttrs(t *testing.T) {
 func TestGitHub_emitIssueAndComments_stampsAttrs(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{ScanIssues: true, ScanIssueComments: true}
+	src := &GitHub{Resources: GitHubResourceSet{GitHubResourceTypeIssues: true, GitHubResourceTypeIssueComments: true}}
 	issueURL := "https://github.example.com/owner/repo/issues/42"
 	now := time.Now().UTC()
 	issue := ghIssueNode{
@@ -197,10 +201,38 @@ func TestGitHub_emitIssueAndComments_stampsAttrs(t *testing.T) {
 	require.Equal(t, "Issue comment", fragments[1].Raw)
 }
 
+func TestGithubRetryDecider_PrimaryRateLimit403(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	h := http.Header{}
+	h.Set("X-RateLimit-Remaining", "0")
+	h.Set("X-RateLimit-Reset", strconv.FormatInt(now.Add(15*time.Second).Unix(), 10))
+	resp := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Header:     h,
+	}
+	retry, wait := githubRetryDecider(nil, resp, nil, now)
+	require.True(t, retry)
+	require.GreaterOrEqual(t, wait, 14*time.Second)
+	require.LessOrEqual(t, wait, 16*time.Second)
+}
+
+func TestGithubRateLimitStateExtractor_ParsesHeaders(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-RateLimit-Remaining", "7")
+	h.Set("X-RateLimit-Reset", "1700000015")
+	resp := &http.Response{
+		Header: h,
+	}
+	remaining, resetAt, ok := githubRateLimitStateExtractor(resp)
+	require.True(t, ok)
+	require.EqualValues(t, 7, remaining)
+	require.EqualValues(t, 1700000015, resetAt.Unix())
+}
+
 func TestGitHub_emitPRAndComments_stampsPRAndReviewThreadAttrs(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{ScanPRs: true, ScanPRComments: true}
+	src := &GitHub{Resources: GitHubResourceSet{GitHubResourceTypePRs: true, GitHubResourceTypePRComments: true}}
 	prURL := "https://github.example.com/owner/repo/pull/7"
 	now := time.Now().UTC()
 	pr := ghPRNode{
@@ -254,7 +286,7 @@ func TestGitHub_emitPRAndComments_stampsPRAndReviewThreadAttrs(t *testing.T) {
 func TestGitHub_emitDiscussion_stampsDiscussionCommentAndReplyAttrs(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{ScanDiscussions: true}
+	src := &GitHub{Resources: GitHubResourceSet{GitHubResourceTypeDiscussions: true}}
 	discussionURL := "https://github.example.com/owner/repo/discussions/9"
 	now := time.Now().UTC()
 	discussion := ghDiscussionNode{
@@ -320,9 +352,9 @@ func TestGitHub_emitRelease_stampsReleaseAttrs(t *testing.T) {
 		HTMLURL: &htmlURL,
 	}
 
-	src := &GitHub{ScanReleaseAssets: false}
+	src := &GitHub{Resources: GitHubResourceSet{GitHubResourceTypeReleases: true}}
 	var fragments []Fragment
-	err := src.emitRelease(t.Context(), nil, "owner", "repo", rel, func(fragment Fragment, err error) error {
+	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -346,12 +378,12 @@ func TestGitHub_emitRelease_prefilterSkipsReleaseByTag(t *testing.T) {
 	}
 
 	src := &GitHub{
-		ScanReleaseAssets: false,
-		ShouldSkip:        compileGitHubPrefilter(t, `attributes[?"resource"].orValue("") == "github.release" && attributes[?"github.release.tag"].orValue("") == "v1.0.0"`),
+		Resources:  GitHubResourceSet{GitHubResourceTypeReleases: true},
+		ShouldSkip: compileGitHubPrefilter(t, `attributes[?"resource"].orValue("") == "github.release" && attributes[?"github.release.tag"].orValue("") == "v1.0.0"`),
 	}
 
 	called := false
-	err := src.emitRelease(t.Context(), nil, "owner", "repo", rel, func(fragment Fragment, err error) error {
+	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment Fragment, err error) error {
 		called = true
 		return nil
 	})
@@ -387,8 +419,17 @@ func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 	}
 
 	src := &GitHub{MaxArchiveDepth: 2}
+	runIDStr := strconv.FormatInt(run.GetID(), 10)
+	zipPath := "actions/logs/run_" + runIDStr + ".zip"
+	actionsAttrs := map[string]string{
+		AttrGitHubActionsRunID:   runIDStr,
+		AttrGitHubActionsRunName: run.GetName(),
+		AttrGitHubActionsRunURL:  run.GetHTMLURL(),
+		AttrGitHubActionsEvent:   run.GetEvent(),
+		AttrResource:             ResourceGitHubActions,
+	}
 	var fragments []Fragment
-	err = src.downloadAndScanZip(t.Context(), zipURL, run, "actions/logs", func(fragment Fragment, err error) error {
+	err = src.downloadAndScan(t.Context(), zipURL.String(), nil, zipPath, actionsAttrs, func(fragment Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -404,6 +445,201 @@ func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 	require.Equal(t, event, fragment.Attr(AttrGitHubActionsEvent))
 	require.Contains(t, fragment.Raw, "AKIALALEMEL33243OLIA")
 	require.Contains(t, fragment.Attr(AttrPath), "actions/logs")
+}
+
+func TestGitHub_scanActions_startsLogsBeforeWorkflowPaginationCompletes(t *testing.T) {
+	t.Parallel()
+
+	logZip := buildGitHubTestZip(t, map[string]string{
+		"job.log": "token=AKIALALEMEL33243OLIA\n",
+	})
+	pageTwoRequested := make(chan struct{})
+	logsStarted := make(chan struct{})
+	releasePageTwo := make(chan struct{})
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v3/repos/owner/repo/actions/runs" && r.URL.Query().Get("page") == "2":
+			close(pageTwoRequested)
+			<-releasePageTwo
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"total_count":1,"workflow_runs":[]}`)
+		case r.URL.Path == "/api/v3/repos/owner/repo/actions/runs":
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Link", `<`+server.URL+`/api/v3/repos/owner/repo/actions/runs?page=2>; rel="next"`)
+			fmt.Fprint(w, `{"total_count":1,"workflow_runs":[{"id":101,"name":"CI","html_url":"https://github.example.com/owner/repo/actions/runs/101","event":"push"}]}`)
+		case r.URL.Path == "/api/v3/repos/owner/repo/actions/runs/101/logs":
+			close(logsStarted)
+			w.Header().Set("Location", server.URL+"/downloads/logs/101.zip")
+			w.WriteHeader(http.StatusFound)
+		case r.URL.Path == "/downloads/logs/101.zip":
+			w.Header().Set("Content-Type", "application/zip")
+			_, err := w.Write(logZip)
+			require.NoError(t, err)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	src := &GitHub{
+		BaseURL:         strings.TrimRight(server.URL, "/") + "/api/v3/",
+		MaxArchiveDepth: 2,
+		Resources:       GitHubResourceSet{GitHubResourceTypeActions: true},
+	}
+	repo := newTestGitHubRepo(t.TempDir())
+	client := src.newClient(t.Context())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- src.scanActions(t.Context(), client, repo, func(Fragment, error) error { return nil })
+	}()
+
+	select {
+	case <-pageTwoRequested:
+	case <-time.After(2 * time.Second):
+		t.Fatal("workflow run pagination never requested page 2")
+	}
+
+	select {
+	case <-logsStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run log scan did not start before workflow pagination completed")
+	}
+
+	close(releasePageTwo)
+	require.NoError(t, <-errCh)
+	select {
+	case <-logsStarted:
+	default:
+		t.Fatal("expected logs to start scanning")
+	}
+	select {
+	case <-pageTwoRequested:
+	default:
+		t.Fatal("expected workflow pagination to request page 2")
+	}
+}
+
+func TestGitHub_scanActions_startsArtifactsBeforeWorkflowPaginationCompletes(t *testing.T) {
+	t.Parallel()
+
+	logZip := buildGitHubTestZip(t, map[string]string{
+		"job.log": "token=AKIALALEMEL33243OLIA\n",
+	})
+	artifactZip := buildGitHubTestZip(t, map[string]string{
+		"artifact.txt": "token=AKIALALEMEL33243OLIA\n",
+	})
+	pageTwoRequested := make(chan struct{})
+	artifactListStarted := make(chan struct{})
+	releasePageTwo := make(chan struct{})
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v3/repos/owner/repo/actions/runs" && r.URL.Query().Get("page") == "2":
+			close(pageTwoRequested)
+			<-releasePageTwo
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"total_count":1,"workflow_runs":[]}`)
+		case r.URL.Path == "/api/v3/repos/owner/repo/actions/runs":
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Link", `<`+server.URL+`/api/v3/repos/owner/repo/actions/runs?page=2>; rel="next"`)
+			fmt.Fprint(w, `{"total_count":1,"workflow_runs":[{"id":202,"name":"CI","html_url":"https://github.example.com/owner/repo/actions/runs/202","event":"push"}]}`)
+		case r.URL.Path == "/api/v3/repos/owner/repo/actions/runs/202/logs":
+			w.Header().Set("Location", server.URL+"/downloads/logs/202.zip")
+			w.WriteHeader(http.StatusFound)
+		case r.URL.Path == "/downloads/logs/202.zip":
+			w.Header().Set("Content-Type", "application/zip")
+			_, err := w.Write(logZip)
+			require.NoError(t, err)
+		case r.URL.Path == "/api/v3/repos/owner/repo/actions/runs/202/artifacts":
+			close(artifactListStarted)
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"total_count":1,"artifacts":[{"id":303,"name":"bundle","expired":false}]}`)
+		case r.URL.Path == "/api/v3/repos/owner/repo/actions/artifacts/303/zip":
+			w.Header().Set("Location", server.URL+"/downloads/artifacts/303.zip")
+			w.WriteHeader(http.StatusFound)
+		case r.URL.Path == "/downloads/artifacts/303.zip":
+			w.Header().Set("Content-Type", "application/zip")
+			_, err := w.Write(artifactZip)
+			require.NoError(t, err)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	src := &GitHub{
+		BaseURL:         strings.TrimRight(server.URL, "/") + "/api/v3/",
+		MaxArchiveDepth: 2,
+		Resources: GitHubResourceSet{
+			GitHubResourceTypeActions:         true,
+			GitHubResourceTypeActionArtifacts: true,
+		},
+	}
+	repo := newTestGitHubRepo(t.TempDir())
+	client := src.newClient(t.Context())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- src.scanActions(t.Context(), client, repo, func(Fragment, error) error { return nil })
+	}()
+
+	select {
+	case <-pageTwoRequested:
+	case <-time.After(2 * time.Second):
+		t.Fatal("workflow run pagination never requested page 2")
+	}
+
+	select {
+	case <-artifactListStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("artifact scan did not start before workflow pagination completed")
+	}
+
+	close(releasePageTwo)
+	require.NoError(t, <-errCh)
+}
+
+func TestGitHub_streamWorkflowRuns_usesCombinedCreatedRange(t *testing.T) {
+	t.Parallel()
+
+	since := time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 5, 4, 0, 0, 0, 0, time.UTC)
+
+	var createdQuery string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/repos/owner/repo/actions/runs":
+			createdQuery = r.URL.Query().Get("created")
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"total_count":1,"workflow_runs":[{"id":12,"name":"in-range","html_url":"https://github.example.com/owner/repo/actions/runs/12","event":"push","created_at":"2026-05-03T00:00:00Z"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	src := &GitHub{
+		BaseURL: strings.TrimRight(server.URL, "/") + "/api/v3/",
+		DateRangeOpts: DateRangeOptions{
+			Since: since,
+			Until: until,
+		},
+	}
+	client := src.newClient(t.Context())
+
+	var got []int64
+	err := src.streamWorkflowRuns(t.Context(), client, "owner", "repo", func(run *github.WorkflowRun) error {
+		got = append(got, run.GetID())
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "2026-05-02..2026-05-04", createdQuery)
+	require.Equal(t, []int64{12}, got)
 }
 
 func compileGitHubPrefilter(t *testing.T, expression string) SkipFunc {
@@ -493,4 +729,309 @@ func buildGitHubTestZip(t *testing.T, files map[string]string) []byte {
 	}
 	require.NoError(t, zw.Close())
 	return buf.Bytes()
+}
+
+// TestFragments_A2_schedulesAllReposAboveConcurrencyLimit verifies that when
+// more than 8 repos are present, every repo is eventually scanned.
+// Before A2 the fix (TryGo→Go), repos beyond the semgroup limit were silently
+// dropped.
+func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
+	t.Parallel()
+
+	const numRepos = 12
+
+	var mu sync.Mutex
+	scannedReleases := make(map[string]bool)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		// GET /api/v3/repos/owner/{repo}  — fetchRepo
+		if len(parts) == 5 && parts[0] == "api" && parts[1] == "v3" && parts[2] == "repos" {
+			repoName := parts[4]
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"id":1,"name":%q,"full_name":"owner/%[1]s","private":false,"fork":false,"html_url":"https://github.example.com/owner/%[1]s","clone_url":"https://github.example.com/owner/%[1]s.git","owner":{"login":"owner","type":"User"}}`, repoName)
+			return
+		}
+		// GET /api/v3/repos/owner/{repo}/releases
+		if len(parts) == 6 && parts[5] == "releases" {
+			mu.Lock()
+			scannedReleases[parts[4]] = true
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, "[]")
+			return
+		}
+		// GraphQL — return empty to avoid panics when gqlClient is initialised.
+		if r.URL.Path == "/api/graphql" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"data":{}}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	repos := make([]string, numRepos)
+	for i := range repos {
+		repos[i] = fmt.Sprintf("owner/repo%d", i)
+	}
+
+	src := &GitHub{
+		BaseURL:   strings.TrimRight(server.URL, "/") + "/api/v3/",
+		Repos:     repos,
+		Resources: GitHubResourceSet{GitHubResourceTypeReleases: true},
+	}
+	err := src.Fragments(t.Context(), func(_ Fragment, _ error) error { return nil })
+	require.NoError(t, err)
+
+	mu.Lock()
+	got := len(scannedReleases)
+	mu.Unlock()
+	require.Equal(t, numRepos, got, "expected all %d repos to be scanned for releases, got %d", numRepos, got)
+}
+
+// TestFragments_A3_enumErrWaitsForScans verifies that when enumeration fails,
+// Fragments cancels and waits for all in-flight scans to finish before returning,
+// so yield is never called after Fragments returns.
+func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
+	t.Parallel()
+
+	// scanStarted is closed when repo0's scan first hits the releases endpoint.
+	scanStarted := make(chan struct{})
+	var scanStartedOnce sync.Once
+	// badRepoReady allows the bad-repo fetchRepo to proceed (and fail 404).
+	badRepoReady := make(chan struct{})
+
+	var mu sync.Mutex
+	done := false
+	yieldAfterDone := false
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		// fetchRepo: /api/v3/repos/owner/{repo}
+		if len(parts) == 5 && parts[0] == "api" && parts[1] == "v3" && parts[2] == "repos" && len(parts[4]) > 0 {
+			repoName := parts[4]
+			if repoName == "bad-repo" {
+				<-badRepoReady
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"id":1,"name":%q,"full_name":"owner/%[1]s","private":false,"fork":false,"html_url":"https://github.example.com/owner/%[1]s","clone_url":"https://github.example.com/owner/%[1]s.git","owner":{"login":"owner","type":"User"}}`, repoName)
+			return
+		}
+		// releases: /api/v3/repos/owner/{repo}/releases
+		if len(parts) == 6 && parts[0] == "api" && parts[1] == "v3" && parts[2] == "repos" && parts[5] == "releases" {
+			// Signal the test that the scan is in-flight, then block until context cancelled.
+			scanStartedOnce.Do(func() { close(scanStarted) })
+			<-r.Context().Done()
+			return
+		}
+		if r.URL.Path == "/api/graphql" {
+			fmt.Fprint(w, `{"data":{}}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	src := &GitHub{
+		BaseURL:   strings.TrimRight(server.URL, "/") + "/api/v3/",
+		Repos:     []string{"owner/repo0", "owner/bad-repo"},
+		Resources: GitHubResourceSet{GitHubResourceTypeReleases: true},
+	}
+
+	yield := func(_ Fragment, _ error) error {
+		mu.Lock()
+		if done {
+			yieldAfterDone = true
+		}
+		mu.Unlock()
+		return nil
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- src.Fragments(t.Context(), yield)
+	}()
+
+	// Wait for repo0's scan to reach the releases API (scan is in-flight).
+	<-scanStarted
+
+	// Now unblock bad-repo fetch — this triggers the enum error.
+	close(badRepoReady)
+
+	// Wait for Fragments to return.
+	err := <-errCh
+	// Mark done so any post-return yield calls are detectable.
+	mu.Lock()
+	done = true
+	mu.Unlock()
+
+	require.Error(t, err, "Fragments should return the enum error")
+
+	// Give any potential leaked goroutines time to fire.
+	time.Sleep(20 * time.Millisecond)
+
+	mu.Lock()
+	leaked := yieldAfterDone
+	mu.Unlock()
+	require.False(t, leaked, "yield was called after Fragments returned — in-flight scans were not properly awaited (A3 regression)")
+}
+
+// TestGitHubResourceSet_WithAll verifies that WithAll does not mutate the receiver.
+func TestGitHubResourceSet_WithAll(t *testing.T) {
+	t.Parallel()
+
+	orig := GitHubResourceSet{GitHubResourceTypeRepos: true}
+	extended := orig.WithAll(GitHubResourceTypeIssues, GitHubResourceTypePRs)
+
+	// Receiver not mutated.
+	require.False(t, orig.Has(GitHubResourceTypeIssues))
+	require.False(t, orig.Has(GitHubResourceTypePRs))
+
+	// New set contains both old and new.
+	require.True(t, extended.Has(GitHubResourceTypeRepos))
+	require.True(t, extended.Has(GitHubResourceTypeIssues))
+	require.True(t, extended.Has(GitHubResourceTypePRs))
+}
+
+// TestGitHubResourceSet_HasAnyIssueOrPR exercises the helper added in C4.
+func TestGitHubResourceSet_HasAnyIssueOrPR(t *testing.T) {
+	t.Parallel()
+
+	require.False(t, GitHubResourceSet{}.HasAnyIssueOrPR())
+	require.True(t, GitHubResourceSet{GitHubResourceTypeIssues: true}.HasAnyIssueOrPR())
+	require.True(t, GitHubResourceSet{GitHubResourceTypePRs: true}.HasAnyIssueOrPR())
+	require.True(t, GitHubResourceSet{GitHubResourceTypeIssueComments: true}.HasAnyIssueOrPR())
+	require.True(t, GitHubResourceSet{GitHubResourceTypePRComments: true}.HasAnyIssueOrPR())
+	require.False(t, GitHubResourceSet{GitHubResourceTypeRepos: true}.HasAnyIssueOrPR())
+}
+
+func Test_ParseGitHubURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		url     string
+		want    *ParsedGitHubURL
+		wantErr bool
+	}{
+		{
+			name: "owner",
+			url:  "https://github.com/betterleaks",
+			want: &ParsedGitHubURL{Owner: "betterleaks", Resource: "owner", Host: "github.com"},
+		},
+		{
+			name: "owner trailing slash",
+			url:  "https://github.com/betterleaks/",
+			want: &ParsedGitHubURL{Owner: "betterleaks", Resource: "owner", Host: "github.com"},
+		},
+		{
+			name: "repo",
+			url:  "https://github.com/owner/repo",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "repo", Host: "github.com"},
+		},
+		{
+			name: "repo trailing slash",
+			url:  "https://github.com/owner/repo/",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "repo", Host: "github.com"},
+		},
+		{
+			name: "issue",
+			url:  "https://github.com/owner/repo/issues/123",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "issue", ID: "123", Host: "github.com"},
+		},
+		{
+			name: "pr",
+			url:  "https://github.com/owner/repo/pull/42",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "pr", ID: "42", Host: "github.com"},
+		},
+		{
+			name: "discussion",
+			url:  "https://github.com/owner/repo/discussions/7",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "discussion", ID: "7", Host: "github.com"},
+		},
+		{
+			name: "release",
+			url:  "https://github.com/owner/repo/releases/tag/v1.0.0",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "release", ID: "v1.0.0", Host: "github.com"},
+		},
+		{
+			name: "actions run",
+			url:  "https://github.com/owner/repo/actions/runs/9876543210",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "actions_run", ID: "9876543210", Host: "github.com"},
+		},
+		{
+			name: "gist",
+			url:  "https://gist.github.com/user/abc123def456",
+			want: &ParsedGitHubURL{Owner: "user", Repo: "", Resource: "gist", ID: "abc123def456", Host: "gist.github.com"},
+		},
+		{
+			name: "trailing slash on resource",
+			url:  "https://github.com/owner/repo/issues/1/",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "issue", ID: "1", Host: "github.com"},
+		},
+		{
+			name: "GHE owner",
+			url:  "https://github.example.com/myorg",
+			want: &ParsedGitHubURL{Owner: "myorg", Resource: "owner", Host: "github.example.com"},
+		},
+		{
+			name: "GHE repo",
+			url:  "https://github.example.com/owner/repo",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "repo", Host: "github.example.com"},
+		},
+		{
+			name: "GHE issue",
+			url:  "https://github.example.com/owner/repo/issues/55",
+			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "issue", ID: "55", Host: "github.example.com"},
+		},
+		{
+			name: "GHE gist",
+			url:  "https://gist.github.example.com/user/deadbeef",
+			want: &ParsedGitHubURL{Owner: "user", Repo: "", Resource: "gist", ID: "deadbeef", Host: "gist.github.example.com"},
+		},
+		// Error cases
+		{
+			name:    "no scheme",
+			url:     "github.com/owner/repo/issues/1",
+			wantErr: true,
+		},
+		{
+			name:    "empty path",
+			url:     "https://github.com/",
+			wantErr: true,
+		},
+		{
+			name:    "unsupported type",
+			url:     "https://github.com/owner/repo/commits/abc",
+			wantErr: true,
+		},
+		{
+			name:    "release without tag",
+			url:     "https://github.com/owner/repo/releases/latest",
+			wantErr: true,
+		},
+		{
+			name:    "actions without runs",
+			url:     "https://github.com/owner/repo/actions/workflows/ci.yml",
+			wantErr: true,
+		},
+		{
+			name:    "gist missing id",
+			url:     "https://gist.github.com/user",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseGitHubURL(tc.url)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
