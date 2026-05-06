@@ -145,15 +145,10 @@ func (rs GitHubResourceSet) HasAnyIssueOrPR() bool {
 		rs[GitHubResourceTypeIssueComments] || rs[GitHubResourceTypePRComments]
 }
 
-// String returns a comma-separated list of present resource types in the
-// canonical AllGitHubResourceTypes order. Implements fmt.Stringer so it can
-// be passed to logging helpers directly.
 func (rs GitHubResourceSet) String() string {
 	var out []string
-	for _, rt := range AllGitHubResourceTypes {
-		if rs[rt] {
-			out = append(out, string(rt))
-		}
+	for rt := range rs {
+		out = append(out, string(rt))
 	}
 	return strings.Join(out, ",")
 }
@@ -284,7 +279,6 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 // dispatchURL resolves a raw GitHub URL into either a direct scan URL (returned
 // non-empty) or adjusts s.Orgs/s.Users/s.Repos for the normal enum path (returns "").
-// It never mutates s.URL (A4).
 func (s *GitHub) dispatchURL(ctx context.Context, rawURL string) (string, error) {
 	if rawURL == "" {
 		return "", nil
@@ -332,7 +326,7 @@ func (s *GitHub) scanAllReposAndGists(ctx context.Context, start time.Time, clie
 	// Gist scanning is user-level, not repo-level — runs alongside repo scans.
 	if s.Resources.Has(GitHubResourceTypeGists) {
 		for _, user := range s.Users {
-			scanGroup.Go(func() error { // Go blocks until a slot is free (A2)
+			scanGroup.Go(func() error {
 				return s.scanUserGists(scanCtx, client, user, yield)
 			})
 		}
@@ -340,8 +334,8 @@ func (s *GitHub) scanAllReposAndGists(ctx context.Context, start time.Time, clie
 
 	var repoCount atomic.Int64
 	for repo := range repoCh {
-		repoCount.Add(1)            // A1: count every dispatched repo
-		scanGroup.Go(func() error { // Go blocks until a slot is free (A2)
+		repoCount.Add(1)
+		scanGroup.Go(func() error {
 			return s.scanRepo(scanCtx, client, repo, yield)
 		})
 	}
