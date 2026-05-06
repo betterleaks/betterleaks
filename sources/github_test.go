@@ -879,23 +879,6 @@ func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
 	require.False(t, leaked, "yield was called after Fragments returned — in-flight scans were not properly awaited (A3 regression)")
 }
 
-// TestGitHubResourceSet_WithAll verifies that WithAll does not mutate the receiver.
-func TestGitHubResourceSet_WithAll(t *testing.T) {
-	t.Parallel()
-
-	orig := GitHubResourceSet{GitHubResourceTypeRepos: true}
-	extended := orig.WithAll(GitHubResourceTypeIssues, GitHubResourceTypePRs)
-
-	// Receiver not mutated.
-	require.False(t, orig.Has(GitHubResourceTypeIssues))
-	require.False(t, orig.Has(GitHubResourceTypePRs))
-
-	// New set contains both old and new.
-	require.True(t, extended.Has(GitHubResourceTypeRepos))
-	require.True(t, extended.Has(GitHubResourceTypeIssues))
-	require.True(t, extended.Has(GitHubResourceTypePRs))
-}
-
 // TestGitHubResourceSet_HasAnyIssueOrPR exercises the helper added in C4.
 func TestGitHubResourceSet_HasAnyIssueOrPR(t *testing.T) {
 	t.Parallel()
@@ -1036,7 +1019,7 @@ func Test_ParseGitHubURL(t *testing.T) {
 	}
 }
 
-func TestGitHub_ResolveResources_fromIncludeExclude(t *testing.T) {
+func TestGitHub_Validate_fromIncludeExclude(t *testing.T) {
 	t.Parallel()
 
 	src := &GitHub{
@@ -1045,7 +1028,7 @@ func TestGitHub_ResolveResources_fromIncludeExclude(t *testing.T) {
 		Include: []string{"repos", "issues", "releases"},
 		Exclude: []string{"repos"},
 	}
-	require.NoError(t, src.ResolveResources())
+	require.NoError(t, src.Validate())
 
 	require.False(t, src.Resources.Has(GitHubResourceTypeRepos))
 	require.True(t, src.Resources.Has(GitHubResourceTypeIssues))
@@ -1053,7 +1036,7 @@ func TestGitHub_ResolveResources_fromIncludeExclude(t *testing.T) {
 	require.True(t, src.Resources.Has(GitHubResourceTypeReleaseAssets), "release-assets auto-included")
 }
 
-func TestGitHub_ResolveResources_skipsWhenResourcesAlreadySet(t *testing.T) {
+func TestGitHub_Validate_skipsWhenResourcesAlreadySet(t *testing.T) {
 	t.Parallel()
 
 	existing := GitHubResourceSet{GitHubResourceTypePRs: true}
@@ -1063,23 +1046,23 @@ func TestGitHub_ResolveResources_skipsWhenResourcesAlreadySet(t *testing.T) {
 		Include:   []string{"issues"},
 		Resources: existing,
 	}
-	require.NoError(t, src.ResolveResources())
+	require.NoError(t, src.Validate())
 	require.True(t, src.Resources.Has(GitHubResourceTypePRs), "programmatic set preserved")
 	require.False(t, src.Resources.Has(GitHubResourceTypeIssues), "Include ignored when Resources pre-set")
 }
 
-func TestGitHub_ResolveResources_ownerDefaultsToRepos(t *testing.T) {
+func TestGitHub_Validate_ownerDefaultsToRepos(t *testing.T) {
 	t.Parallel()
 
 	src := &GitHub{
 		URL:   "https://github.com/myorg",
 		Token: "tok",
 	}
-	require.NoError(t, src.ResolveResources())
+	require.NoError(t, src.Validate())
 	require.True(t, src.Resources.Has(GitHubResourceTypeRepos))
 }
 
-func TestGitHub_ResolveResources_unknownTypeErrors(t *testing.T) {
+func TestGitHub_Validate_unknownTypeErrors(t *testing.T) {
 	t.Parallel()
 
 	src := &GitHub{
@@ -1087,7 +1070,7 @@ func TestGitHub_ResolveResources_unknownTypeErrors(t *testing.T) {
 		Token:   "tok",
 		Include: []string{"bogus"},
 	}
-	require.Error(t, src.ResolveResources())
+	require.Error(t, src.Validate())
 }
 
 func TestGitHub_Validate_noTargetErrors(t *testing.T) {

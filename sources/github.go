@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -54,12 +53,12 @@ type GitHub struct {
 	ExcludeRepos []string // glob patterns matched against "owner/repo"
 
 	// Include and Exclude specify resource types by name (e.g. "repos", "prs").
-	// ResolveResources populates Resources from these when Resources is empty.
+	// Validate applies these when Resources is empty.
 	Include []string
 	Exclude []string
 
 	// Resources controls which resource types to scan.
-	// Populated automatically by Validate/ResolveResources from Include/Exclude,
+	// Populated automatically by Validate from Include/Exclude when empty,
 	// or set directly by callers who want programmatic control.
 	Resources GitHubResourceSet
 
@@ -146,31 +145,26 @@ func (rs GitHubResourceSet) HasAnyIssueOrPR() bool {
 		rs[GitHubResourceTypeIssueComments] || rs[GitHubResourceTypePRComments]
 }
 
-// WithAll returns a new GitHubResourceSet with all listed types enabled in
-// addition to any already present. The receiver is not modified.
-func (rs GitHubResourceSet) WithAll(types ...GitHubResourceType) GitHubResourceSet {
-	out := make(GitHubResourceSet, len(rs)+len(types))
-	maps.Copy(out, rs)
-	for _, t := range types {
-		out[t] = true
+// String returns a comma-separated list of present resource types in the
+// canonical AllGitHubResourceTypes order. Implements fmt.Stringer so it can
+// be passed to logging helpers directly.
+func (rs GitHubResourceSet) String() string {
+	var out []string
+	for _, rt := range AllGitHubResourceTypes {
+		if rs[rt] {
+			out = append(out, string(rt))
+		}
 	}
-	return out
+	return strings.Join(out, ",")
 }
 
-// targetKind derives the resource-resolution category from a parsed URL.
-// Returns "owner", "repo", or "resource".
-func targetKind(parsed *ParsedGitHubURL) string {
-	switch parsed.Resource {
-	case "owner", "repo":
-		return parsed.Resource
-	default:
-		return "resource"
-	}
-}
-
-// urlScanResources lists the resource types each URL kind actually scans.
-// Owner/repo URLs are absent because they scan whatever's enabled.
-var urlScanResources = map[string][]GitHubResourceType{
+// defaultScanResources lists the default resource types each URL kind scans.
+// Owner/repo targets default to git history; specific resource URLs default
+// to the types relevant to that resource. The empty key (no URL) yields no
+// defaults — callers must populate Resources via Include.
+var defaultScanResources = map[string][]GitHubResourceType{
+	"owner":       {GitHubResourceTypeRepos},
+	"repo":        {GitHubResourceTypeRepos},
 	"issue":       {GitHubResourceTypeIssues, GitHubResourceTypeIssueComments},
 	"pr":          {GitHubResourceTypePRs, GitHubResourceTypePRComments},
 	"discussion":  {GitHubResourceTypeDiscussions},
@@ -179,150 +173,84 @@ var urlScanResources = map[string][]GitHubResourceType{
 	"gist":        {GitHubResourceTypeGists},
 }
 
-// logScanStart logs the resources that will actually be scanned for the
-// configured target, narrowed to those relevant for URL-targeted resources.
 func (s *GitHub) logScanStart() {
-	candidates := AllGitHubResourceTypes
-	if s.URL != "" {
-		if parsed, err := ParseGitHubURL(s.URL); err == nil {
-			if filter, ok := urlScanResources[parsed.Resource]; ok {
-				candidates = filter
-			}
-		}
-	}
-	var active []string
-	for _, rt := range candidates {
-		if s.Resources.Has(rt) {
-			active = append(active, string(rt))
-		}
-	}
 	logging.Info().
 		Str("target", s.URL).
-		Str("resources", strings.Join(active, ",")).
+		Stringer("resources", s.Resources).
 		Msg("starting GitHub scan")
 }
 
-// ResolveResources populates s.Resources from s.Include, s.Exclude, and the
-// target URL. If s.Resources is already non-empty it is left as-is, so callers
-// who build the set programmatically are not affected.
-func (s *GitHub) ResolveResources() error {
-	if len(s.Resources) > 0 {
-		return nil
-	}
-
-	kind := ""
-	if s.URL != "" {
-		parsed, err := ParseGitHubURL(s.URL)
-		if err != nil {
-			return fmt.Errorf("invalid target URL: %w", err)
-		}
-		kind = targetKind(parsed)
-	}
-
-	rs, err := resolveGitHubResources(s.Include, s.Exclude, kind)
-	if err != nil {
-		return err
-	}
-	s.Resources = rs
-	return nil
-}
-
-// resolveGitHubResources is the internal implementation that builds a
-// GitHubResourceSet from include/exclude slices and a targetKind.
-func resolveGitHubResources(include, exclude []string, targetKind string) (GitHubResourceSet, error) {
-	valid := make(map[GitHubResourceType]bool, len(AllGitHubResourceTypes))
-	for _, rt := range AllGitHubResourceTypes {
-		valid[rt] = true
-	}
-
-	rs := make(GitHubResourceSet)
-
-	// Defaults: for owner/repo targets, scan git repos by default.
-	if targetKind == "owner" || targetKind == "repo" {
-		rs[GitHubResourceTypeRepos] = true
-	}
-
-	// For single-resource URLs, enable all sub-feature types so helpers
-	// like emitRelease can scan assets, scanSingleActionRun can scan
-	// artifacts, etc.
-	if targetKind == "resource" && len(include) == 0 {
-		for _, rt := range AllGitHubResourceTypes {
-			if rt != GitHubResourceTypeRepos && rt != GitHubResourceTypeForks && rt != GitHubResourceTypeGists {
-				rs[rt] = true
-			}
-		}
-	}
-
-	for _, s := range include {
-		rt := GitHubResourceType(s)
-		if !valid[rt] {
-			return nil, fmt.Errorf("unknown resource type %q", s)
-		}
-		rs[rt] = true
-	}
-
-	excludeSet := make(map[GitHubResourceType]bool)
-	for _, s := range exclude {
-		rt := GitHubResourceType(s)
-		if !valid[rt] {
-			return nil, fmt.Errorf("unknown resource type %q", s)
-		}
-		excludeSet[rt] = true
-		delete(rs, rt)
-	}
-
-	// Auto-include release-assets when releases is present, unless explicitly excluded.
-	if rs[GitHubResourceTypeReleases] && !excludeSet[GitHubResourceTypeReleaseAssets] {
-		rs[GitHubResourceTypeReleaseAssets] = true
-	}
-
-	return rs, nil
-}
-
 // Validate checks the GitHub source configuration and populates Resources if
-// needed. It returns a descriptive error for any misconfiguration (missing
-// token, invalid URL, unknown resource type, etc.) so callers get proper error
-// handling without depending on the CLI.
+// needed. Defaults come from defaultScanResources; unset Resources are seeded by
+// the URL kind, then narrowed/widened by Include and Exclude. It returns a
+// descriptive error for any misconfiguration (missing token, invalid URL,
+// unknown resource type, etc.) so callers get proper error handling without
+// depending on the CLI.
 func (s *GitHub) Validate() error {
 	if s.URL == "" && len(s.Repos) == 0 && len(s.Orgs) == 0 && len(s.Users) == 0 {
 		return errors.New("at least one target is required: set URL, Repos, Orgs, or Users")
 	}
 
-	if err := s.ResolveResources(); err != nil {
-		return err
-	}
-
-	if s.URL == "" {
-		return nil
-	}
-
-	parsed, err := ParseGitHubURL(s.URL)
-	if err != nil {
-		return fmt.Errorf("invalid target URL: %w", err)
-	}
-
-	kind := targetKind(parsed)
-
-	switch kind {
-	case "resource":
-		if s.Token == "" {
-			return errors.New("a token is required to scan a specific resource URL")
+	var parsed *ParsedGitHubURL
+	if s.URL != "" {
+		var err error
+		parsed, err = ParseGitHubURL(s.URL)
+		if err != nil {
+			return fmt.Errorf("invalid target URL: %w", err)
 		}
-	case "owner":
-		if s.Token == "" {
-			return errors.New("a token is required to scan an organization or user")
+	}
+
+	// Resolve Resources unless the caller pre-populated them.
+	if len(s.Resources) == 0 {
+		valid := make(map[GitHubResourceType]bool, len(AllGitHubResourceTypes))
+		for _, rt := range AllGitHubResourceTypes {
+			valid[rt] = true
 		}
-	default:
-		if s.Token == "" {
-			for rt := range s.Resources {
-				if rt != GitHubResourceTypeRepos && rt != GitHubResourceTypeForks {
-					return fmt.Errorf("a token is required for API-based resources; only repos and forks can be scanned without a token")
-				}
+		rs := make(GitHubResourceSet)
+		if parsed != nil {
+			for _, rt := range defaultScanResources[parsed.Resource] {
+				rs[rt] = true
 			}
 		}
+		for _, name := range s.Include {
+			rt := GitHubResourceType(name)
+			if !valid[rt] {
+				return fmt.Errorf("unknown resource type %q", name)
+			}
+			rs[rt] = true
+		}
+		excluded := make(map[GitHubResourceType]bool)
+		for _, name := range s.Exclude {
+			rt := GitHubResourceType(name)
+			if !valid[rt] {
+				return fmt.Errorf("unknown resource type %q", name)
+			}
+			excluded[rt] = true
+			delete(rs, rt)
+		}
+		if rs[GitHubResourceTypeReleases] && !excluded[GitHubResourceTypeReleaseAssets] {
+			rs[GitHubResourceTypeReleaseAssets] = true
+		}
+		s.Resources = rs
 	}
 
-	return nil
+	// Token rules (URL-targeted only).
+	if parsed == nil || s.Token != "" {
+		return nil
+	}
+	switch parsed.Resource {
+	case "owner":
+		return errors.New("a token is required to scan an organization or user")
+	case "repo":
+		for rt := range s.Resources {
+			if rt != GitHubResourceTypeRepos && rt != GitHubResourceTypeForks {
+				return fmt.Errorf("a token is required for API-based resources; only repos and forks can be scanned without a token")
+			}
+		}
+		return nil
+	default: // any specific resource URL
+		return errors.New("a token is required to scan a specific resource URL")
+	}
 }
 
 // Fragments enumerates GitHub repos and scans each one.
