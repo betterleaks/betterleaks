@@ -53,7 +53,14 @@ type GitHub struct {
 	// Filtering
 	ExcludeRepos []string // glob patterns matched against "owner/repo"
 
+	// Include and Exclude specify resource types by name (e.g. "repos", "prs").
+	// ResolveResources populates Resources from these when Resources is empty.
+	Include []string
+	Exclude []string
+
 	// Resources controls which resource types to scan.
+	// Populated automatically by Validate/ResolveResources from Include/Exclude,
+	// or set directly by callers who want programmatic control.
 	Resources GitHubResourceSet
 
 	// Scan config (passed through to Git/ParallelGit per repo)
@@ -150,9 +157,45 @@ func (rs GitHubResourceSet) WithAll(types ...GitHubResourceType) GitHubResourceS
 	return out
 }
 
-// ResolveGitHubResources builds a GitHubResourceSet from --include and --exclude slices.
-// targetKind is "owner", "repo", or "resource" (a specific URL like an issue).
-func ResolveGitHubResources(include, exclude []string, targetKind string) (GitHubResourceSet, error) {
+// targetKind derives the resource-resolution category from a parsed URL.
+// Returns "owner", "repo", or "resource".
+func targetKind(parsed *ParsedGitHubURL) string {
+	switch parsed.Resource {
+	case "owner", "repo":
+		return parsed.Resource
+	default:
+		return "resource"
+	}
+}
+
+// ResolveResources populates s.Resources from s.Include, s.Exclude, and the
+// target URL. If s.Resources is already non-empty it is left as-is, so callers
+// who build the set programmatically are not affected.
+func (s *GitHub) ResolveResources() error {
+	if len(s.Resources) > 0 {
+		return nil
+	}
+
+	kind := ""
+	if s.URL != "" {
+		parsed, err := ParseGitHubURL(s.URL)
+		if err != nil {
+			return fmt.Errorf("invalid target URL: %w", err)
+		}
+		kind = targetKind(parsed)
+	}
+
+	rs, err := resolveGitHubResources(s.Include, s.Exclude, kind)
+	if err != nil {
+		return err
+	}
+	s.Resources = rs
+	return nil
+}
+
+// resolveGitHubResources is the internal implementation that builds a
+// GitHubResourceSet from include/exclude slices and a targetKind.
+func resolveGitHubResources(include, exclude []string, targetKind string) (GitHubResourceSet, error) {
 	valid := make(map[GitHubResourceType]bool, len(AllGitHubResourceTypes))
 	for _, rt := range AllGitHubResourceTypes {
 		valid[rt] = true
@@ -191,8 +234,58 @@ func ResolveGitHubResources(include, exclude []string, targetKind string) (GitHu
 	return rs, nil
 }
 
+// Validate checks the GitHub source configuration and populates Resources if
+// needed. It returns a descriptive error for any misconfiguration (missing
+// token, invalid URL, unknown resource type, etc.) so callers get proper error
+// handling without depending on the CLI.
+func (s *GitHub) Validate() error {
+	if s.URL == "" && len(s.Repos) == 0 && len(s.Orgs) == 0 && len(s.Users) == 0 {
+		return errors.New("at least one target is required: set URL, Repos, Orgs, or Users")
+	}
+
+	if err := s.ResolveResources(); err != nil {
+		return err
+	}
+
+	if s.URL == "" {
+		return nil
+	}
+
+	parsed, err := ParseGitHubURL(s.URL)
+	if err != nil {
+		return fmt.Errorf("invalid target URL: %w", err)
+	}
+
+	kind := targetKind(parsed)
+
+	switch kind {
+	case "resource":
+		if s.Token == "" {
+			return errors.New("a token is required to scan a specific resource URL")
+		}
+	case "owner":
+		if s.Token == "" {
+			return errors.New("a token is required to scan an organization or user")
+		}
+	default:
+		if s.Token == "" {
+			for rt := range s.Resources {
+				if rt != GitHubResourceTypeRepos && rt != GitHubResourceTypeForks {
+					return fmt.Errorf("a token is required for API-based resources; only repos and forks can be scanned without a token")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // Fragments enumerates GitHub repos and scans each one.
 func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+
 	start := time.Now()
 	s.restRetry = httpclient.NewRetryTransport(nil)
 	s.restRetry.Decider = githubRetryDecider
@@ -405,7 +498,7 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 	// run wraps every resource scan: logs start/finish and propagates errors.
 	// Non-fatal callers (git) call run but discard the return value (C3).
 	run := func(label string, fn func() error) error {
-		logger.Info().Str("resource", label).Msg("scanning resource")
+		logger.Info().Str("resource", label).Msg("scanning")
 		if err := fn(); err != nil {
 			logger.Error().Err(err).Msg(label + " scan failed")
 			return err
@@ -415,7 +508,7 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 			ev = ev.Int64("gql_remaining", remaining)
 		}
 		if resetAt := s.gqlResetAt.Load(); resetAt > 0 {
-			ev = ev.Time("gql_reset", time.Unix(resetAt, 0))
+			// ev = ev.Time("gql_reset", time.Unix(resetAt, 0))
 			resetTime := time.Unix(resetAt, 0)
 			if d := time.Until(resetTime); d > 0 {
 				ev = ev.Str("gql_resets_in", d.Round(time.Second).String())
@@ -424,7 +517,7 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 			}
 
 		}
-		ev.Msg("completed scanning resource")
+		ev.Msg("completed")
 		return nil
 	}
 
@@ -654,11 +747,15 @@ func (s *GitHub) scanActions(ctx context.Context, client *github.Client, repo *g
 					if err := s.scanRunLogs(gctx, client, owner, repoName, run, yield); err != nil {
 						if !isGitHubGone(err) {
 							logging.Error().Err(err).Int64("run_id", run.GetID()).Msg("could not scan run logs")
+							return fmt.Errorf("scan run %d logs: %w", run.GetID(), err)
 						}
 					}
 					if s.Resources.Has(GitHubResourceTypeActionArtifacts) {
 						if err := s.scanRunArtifacts(gctx, client, owner, repoName, run, yield); err != nil {
-							logging.Error().Err(err).Int64("run_id", run.GetID()).Msg("could not scan run artifacts")
+							if !isGitHubGone(err) {
+								logging.Error().Err(err).Int64("run_id", run.GetID()).Msg("could not scan run artifacts")
+								return fmt.Errorf("scan run %d artifacts: %w", run.GetID(), err)
+							}
 						}
 					}
 				}

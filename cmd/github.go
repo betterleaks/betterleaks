@@ -66,55 +66,18 @@ func runGitHub(cmd *cobra.Command, args []string) {
 
 	targetURL := args[0]
 
-	// Validate the URL parses correctly.
-	parsed, err := sources.ParseGitHubURL(targetURL)
-	if err != nil {
-		logging.Fatal().Err(err).Msg("invalid target URL")
-	}
-
 	// Resolve token: flag > env
 	token := mustGetStringFlag(cmd, "token")
 	if token == "" {
 		token = os.Getenv("GITHUB_TOKEN")
 	}
 
-	// Determine target kind for resource resolution.
-	targetKind := parsed.Resource
-	if targetKind != "owner" && targetKind != "repo" {
-		targetKind = "resource"
-	}
-
 	include, _ := cmd.Flags().GetStringSlice("include")
 	exclude, _ := cmd.Flags().GetStringSlice("exclude")
 
-	rs, err := sources.ResolveGitHubResources(include, exclude, targetKind)
-	if err != nil {
-		logging.Fatal().Err(err).Msg("invalid resource type")
-	}
-
-	// Token is required for any API-based resource (everything except repos/forks).
-	if token == "" && targetKind != "resource" {
-		needsToken := false
-		for rt := range rs {
-			if rt != sources.GitHubResourceTypeRepos && rt != sources.GitHubResourceTypeForks {
-				needsToken = true
-				break
-			}
-		}
-		if needsToken {
-			logging.Fatal().Msg("a token (--token or GITHUB_TOKEN) is required for API-based resources; only repos and forks can be scanned without a token")
-		}
-	}
-	if token == "" && targetKind == "resource" {
-		logging.Fatal().Msg("--token or GITHUB_TOKEN is required to scan a specific resource URL")
-	}
-	// Owner-level targets also need a token to resolve org vs user.
-	if token == "" && targetKind == "owner" {
-		logging.Fatal().Msg("--token or GITHUB_TOKEN is required to scan an organization or user")
-	}
-
 	// Parse date range flags.
 	var since, until time.Time
+	var err error
 	if s := mustGetStringFlag(cmd, "since"); s != "" {
 		since, err = parseDateFlag(s)
 		if err != nil {
@@ -129,14 +92,14 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	}
 
 	actionsWorkflows, _ := cmd.Flags().GetStringSlice("actions-workflow")
-
 	excludeRepos, _ := cmd.Flags().GetStringSlice("exclude-repo")
 
 	src := &sources.GitHub{
 		Token:           token,
 		URL:             targetURL,
+		Include:         include,
+		Exclude:         exclude,
 		ExcludeRepos:    excludeRepos,
-		Resources:       rs,
 		ShouldSkip:      detector.SkipFunc(),
 		Sema:            detector.Sema,
 		MaxArchiveDepth: detector.MaxArchiveDepth,
@@ -151,16 +114,19 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		},
 	}
 
+	if err := src.Validate(); err != nil {
+		logging.Fatal().Err(err).Msg("invalid GitHub configuration")
+	}
+
 	// Log what we're scanning.
 	var active []string
 	for _, rt := range sources.AllGitHubResourceTypes {
-		if rs.Has(rt) {
+		if src.Resources.Has(rt) {
 			active = append(active, string(rt))
 		}
 	}
 	logging.Info().
 		Str("target", targetURL).
-		Str("kind", parsed.Resource).
 		Str("resources", strings.Join(active, ",")).
 		Msg("starting GitHub scan")
 

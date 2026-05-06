@@ -143,6 +143,17 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			drainAndClose(resp)
 		}
 
+		// Rewind the request body for the next attempt.
+		if req.GetBody != nil {
+			var bodyErr error
+			req.Body, bodyErr = req.GetBody()
+			if bodyErr != nil {
+				return nil, bodyErr
+			}
+		} else if req.Body != nil {
+			return lastResp, lastErr
+		}
+
 		// Explicit waits (e.g. Retry-After/rate-limit reset) bypass jitter/backoff.
 		if wait <= 0 {
 			wait = t.backoff(attempt)

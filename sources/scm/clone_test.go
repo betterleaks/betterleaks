@@ -19,7 +19,7 @@ func TestAuthCloneConfigs(t *testing.T) {
 			remote: "https://github.com/owner/repo.git",
 			token:  "ghp_abcdef",
 			want: []GitConfig{{
-				Key:   "http.extraheader",
+				Key:   "http.https://github.com.extraHeader",
 				Value: "Authorization: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:ghp_abcdef")),
 			}},
 		},
@@ -28,7 +28,7 @@ func TestAuthCloneConfigs(t *testing.T) {
 			remote: "http://example.com/repo.git",
 			token:  "tkn",
 			want: []GitConfig{{
-				Key:   "http.extraheader",
+				Key:   "http.http://example.com.extraHeader",
 				Value: "Authorization: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:tkn")),
 			}},
 		},
@@ -49,7 +49,7 @@ func TestAuthCloneConfigs(t *testing.T) {
 			remote: "https://github.enterprise.com/owner/repo.git",
 			token:  "tkn",
 			want: []GitConfig{{
-				Key:   "http.extraheader",
+				Key:   "http.https://github.enterprise.com.extraHeader",
 				Value: "Authorization: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:tkn")),
 			}},
 		},

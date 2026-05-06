@@ -125,7 +125,8 @@ func authCloneConfigs(remote, token string) ([]GitConfig, error) {
 		return nil, nil
 	}
 	cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	return []GitConfig{{Key: "http.extraheader", Value: "Authorization: basic " + cred}}, nil
+	key := fmt.Sprintf("http.%s://%s.extraHeader", u.Scheme, u.Host)
+	return []GitConfig{{Key: key, Value: "Authorization: basic " + cred}}, nil
 }
 
 // isSSHRemote reports whether s looks like the scp-style SSH remote that

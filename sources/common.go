@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	maxPeekSize     = 25 * 1_000 // 10kb
+	maxPeekSize     = 25 * 1_000 // 25kb
 	downloadTimeout = 5 * time.Minute
 )
 
@@ -167,7 +167,7 @@ func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yiel
 		httpClient := &http.Client{
 			Timeout: downloadTimeout,
 			CheckRedirect: func(r *http.Request, via []*http.Request) error {
-				if opts.BearerToken != "" {
+				if opts.BearerToken != "" && r.URL.Host == via[0].URL.Host {
 					r.Header.Set("Authorization", "Bearer "+opts.BearerToken)
 				}
 				return nil

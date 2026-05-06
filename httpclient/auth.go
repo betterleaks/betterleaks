@@ -12,7 +12,7 @@ import (
 func NewAuthenticatedClient(_ context.Context, token string, base http.RoundTripper) *http.Client {
 	if token == "" {
 		if base == nil {
-			return nil
+			return &http.Client{}
 		}
 		return &http.Client{Transport: base}
 	}
