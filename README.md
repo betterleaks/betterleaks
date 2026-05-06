@@ -51,7 +51,9 @@ betterleaks dir /path/to/file/or/dir -v
 # Scan GitHub org
 betterleaks github https://github.com/betterleaks
 # Scan GitHub user
-betterleaks github https://github.com/cooluser123456789 --include=issues,prs,actions,releases,gists
+betterleaks github https://github.com/cooluser123456789 --include issues,prs,actions,releases,gists
+# Scan specific resource, like a PR... but exclude the description (only scan comments)
+betterleaks github https://github.com/betterleaks/betterleaks/pul
 
 # Scan stdin
 cat some_file.txt | betterleaks stdin -v
