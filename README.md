@@ -53,7 +53,7 @@ betterleaks github https://github.com/betterleaks
 # Scan GitHub user
 betterleaks github https://github.com/cooluser123456789 --include issues,prs,actions,releases,gists
 # Scan specific resource, like a PR... but exclude the description (only scan comments)
-betterleaks github https://github.com/betterleaks/betterleaks/pul
+betterleaks github https://github.com/betterleaks/betterleaks/pull/113
 
 # Scan stdin
 cat some_file.txt | betterleaks stdin -v
