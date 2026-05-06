@@ -77,7 +77,7 @@ betterleaks git . --git-workers 8 --report-path findings.json --report-format js
 
 ## `github`
 
-`github` takes a target URL and scans git history by default. Use `--include` to add more resource types and `--exclude` to skip types.
+`github` takes a target URL. Owner and repo targets scan git history by default; specific resource URLs scan the matching resource plus associated comments or assets by default. Use `--include` to add resource types and `--exclude` to skip types.
 
 Set `GITHUB_TOKEN` in the environment before running these examples.
 
@@ -88,15 +88,15 @@ Set `GITHUB_TOKEN` in the environment before running these examples.
 | `repos` | Git repository history (default) |
 | `forks` | Include forked repositories |
 | `prs` | Pull request descriptions |
-| `pr-comments` | Comments on pull requests |
+| `pr-comments` | Comments on pull requests (auto-included with `prs`) |
 | `issues` | Issue descriptions |
-| `issue-comments` | Comments on issues |
+| `issue-comments` | Comments on issues  (auto-included with `issues`) |
 | `actions` | Action run console output |
 | `action-artifacts` | Artifacts created by action runs |
 | `discussions` | Discussion threads and replies |
 | `releases` | Release descriptions |
-| `release-assets` | Downloadable release assets (auto-included with `releases`) |
-| `gists` | Gist file contents (user targets only) |
+| `release-assets` | Downloadable release assets and source archives (auto-included with `releases`) |
+| `gists` | Gist file contents (all public gists for user targets, or one gist URL) |
 
 ### Target selection
 
@@ -129,8 +129,7 @@ betterleaks github \
 ```sh
 betterleaks github \
 	--include=issues,prs,issue-comments,pr-comments \
-	--issues-max 200 \
-	--comments-max 100 \
+	--since 2026-01-01 \
 	https://github.com/my-company/backend
 
 betterleaks github \
@@ -152,8 +151,7 @@ betterleaks github \
 betterleaks github \
 	--include=actions \
 	--actions-workflow ci.yml \
-	--actions-max-age 168h \
-	--actions-max-runs 25 \
+	--since 2026-01-01 \
 	https://github.com/my-company/backend
 
 # include workflow artifacts
