@@ -44,11 +44,6 @@ type GitHub struct {
 	// Auth
 	Token string
 
-	// Targets (at least one required)
-	Repos []string // "owner/repo" format
-	Orgs  []string
-	Users []string
-
 	// Filtering
 	ExcludeRepos []string // glob patterns matched against "owner/repo"
 
@@ -74,7 +69,7 @@ type GitHub struct {
 	Actions       ActionsOptions
 	DateRangeOpts DateRangeOptions
 
-	// Single resource URL mode; when set, all other targets are ignored.
+	// Target URL (required).
 	URL string
 
 	// Internal REST client and retry transport (initialized in Fragments).
@@ -182,17 +177,13 @@ func (s *GitHub) logScanStart() {
 // unknown resource type, etc.) so callers get proper error handling without
 // depending on the CLI.
 func (s *GitHub) Validate() error {
-	if s.URL == "" && len(s.Repos) == 0 && len(s.Orgs) == 0 && len(s.Users) == 0 {
-		return errors.New("at least one target is required: set URL, Repos, Orgs, or Users")
+	if s.URL == "" {
+		return errors.New("target URL is required")
 	}
 
-	var parsed *ParsedGitHubURL
-	if s.URL != "" {
-		var err error
-		parsed, err = ParseGitHubURL(s.URL)
-		if err != nil {
-			return fmt.Errorf("invalid target URL: %w", err)
-		}
+	parsed, err := ParseGitHubURL(s.URL)
+	if err != nil {
+		return fmt.Errorf("invalid target URL: %w", err)
 	}
 
 	// Resolve Resources unless the caller pre-populated them.
@@ -202,10 +193,8 @@ func (s *GitHub) Validate() error {
 			valid[rt] = true
 		}
 		rs := make(GitHubResourceSet)
-		if parsed != nil {
-			for _, rt := range defaultScanResources[parsed.Resource] {
-				rs[rt] = true
-			}
+		for _, rt := range defaultScanResources[parsed.Resource] {
+			rs[rt] = true
 		}
 		for _, name := range s.Include {
 			rt := GitHubResourceType(name)
@@ -230,7 +219,7 @@ func (s *GitHub) Validate() error {
 	}
 
 	// Token rules (URL-targeted only).
-	if parsed == nil || s.Token != "" {
+	if s.Token != "" {
 		return nil
 	}
 	switch parsed.Resource {
@@ -260,8 +249,7 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	s.restRetry.Decider = githubRetryDecider
 	s.restRetry.StateExtractor = githubRateLimitStateExtractor
 
-	// dispatchURL resolves the URL target and adjusts targets in-place.
-	url, err := s.dispatchURL(ctx, s.URL)
+	target, direct, err := s.dispatchURL(ctx, s.URL)
 	if err != nil {
 		return err
 	}
@@ -270,51 +258,49 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	s.gqlClient = s.newGraphQLClient(ctx)
 	s.gqlSem = make(chan struct{}, 10)
 
-	if url != "" {
-		return s.scanURL(ctx, client, url, yield)
+	if direct {
+		return s.scanURL(ctx, client, s.URL, yield)
 	}
 
-	return s.scanAllReposAndGists(ctx, start, client, yield)
+	return s.scanAllReposAndGists(ctx, start, client, target, yield)
 }
 
-// dispatchURL resolves a raw GitHub URL into either a direct scan URL (returned
-// non-empty) or adjusts s.Orgs/s.Users/s.Repos for the normal enum path (returns "").
-func (s *GitHub) dispatchURL(ctx context.Context, rawURL string) (string, error) {
-	if rawURL == "" {
-		return "", nil
-	}
+// dispatchURL resolves a raw GitHub URL into either a direct resource scan or
+// a repository-enumeration target. It does not mutate GitHub target state.
+func (s *GitHub) dispatchURL(ctx context.Context, rawURL string) (*ParsedGitHubURL, bool, error) {
 	parsed, err := ParseGitHubURL(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid target URL: %w", err)
+		return nil, false, fmt.Errorf("invalid target URL: %w", err)
 	}
-	s.BaseURL = baseURLFromHost(parsed.Host)
+	if s.BaseURL == "" {
+		s.BaseURL = baseURLFromHost(parsed.Host)
+	}
 
 	switch parsed.Resource {
 	case "owner":
 		client := s.newClient(ctx)
 		ownerType, err := s.resolveOwnerType(ctx, client, parsed.Owner)
 		if err != nil {
-			return "", err
+			return nil, false, err
 		}
 		if ownerType == "Organization" {
-			s.Orgs = []string{parsed.Owner}
+			parsed.Resource = "org"
 		} else {
-			s.Users = []string{parsed.Owner}
+			parsed.Resource = "user"
 		}
 		logging.Info().Str("owner", parsed.Owner).Str("type", ownerType).Msg("resolved target")
-		return "", nil // fall through to repo enumeration
+		return parsed, false, nil
 	case "repo":
-		s.Repos = []string{parsed.Owner + "/" + parsed.Repo}
-		return "", nil // fall through to repo enumeration
+		return parsed, false, nil
 	default:
-		return rawURL, nil // specific resource — scan directly
+		return parsed, true, nil
 	}
 }
 
 // scanAllReposAndGists enumerates repos and gists, dispatches scan workers, and
 // waits for them. It logs an enumeration-complete event and an end-of-scan summary.
-func (s *GitHub) scanAllReposAndGists(ctx context.Context, start time.Time, client *github.Client, yield FragmentsFunc) error {
-	repoCh, enumErrCh := s.enumerateRepos(ctx, client)
+func (s *GitHub) scanAllReposAndGists(ctx context.Context, start time.Time, client *github.Client, target *ParsedGitHubURL, yield FragmentsFunc) error {
+	repoCh, enumErrCh := s.enumerateRepos(ctx, client, target)
 
 	// scanCtx lets us cancel in-flight scans if enumeration itself fails (A3).
 	scanCtx, cancelScans := context.WithCancel(ctx)
@@ -324,12 +310,10 @@ func (s *GitHub) scanAllReposAndGists(ctx context.Context, start time.Time, clie
 	scanGroup.SetLimit(100)
 
 	// Gist scanning is user-level, not repo-level — runs alongside repo scans.
-	if s.Resources.Has(GitHubResourceTypeGists) {
-		for _, user := range s.Users {
-			scanGroup.Go(func() error {
-				return s.scanUserGists(scanCtx, client, user, yield)
-			})
-		}
+	if target.Resource == "user" && s.Resources.Has(GitHubResourceTypeGists) {
+		scanGroup.Go(func() error {
+			return s.scanUserGists(scanCtx, client, target.Owner, yield)
+		})
 	}
 
 	var repoCount atomic.Int64
@@ -368,10 +352,10 @@ func (s *GitHub) scanAllReposAndGists(ctx context.Context, start time.Time, clie
 	return scanErr
 }
 
-// enumerateRepos streams discovered repos over a channel as they are found,
+// enumerateRepos streams repos for a URL-derived repo, org, or user target,
 // deduplicating and filtering along the way. The error channel receives at
 // most one value (nil on success) after the repo channel is closed.
-func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client) (<-chan *github.Repository, <-chan error) {
+func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, target *ParsedGitHubURL) (<-chan *github.Repository, <-chan error) {
 	ch := make(chan *github.Repository, 100)
 	errCh := make(chan error, 1)
 
@@ -399,48 +383,41 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client) (<-c
 			}
 		}
 
-		// Explicit repos
-		for _, slug := range s.Repos {
-			owner, name, err := splitRepoSlug(slug)
-			if err != nil {
-				errCh <- fmt.Errorf("invalid repo %q: %w", slug, err)
-				return
-			}
+		switch target.Resource {
+		case "repo":
+			slug := target.Owner + "/" + target.Repo
 			logging.Debug().Str("repo", slug).Msg("fetching repo metadata")
-			repo, err := s.fetchRepo(ctx, client, owner, name)
+			repo, err := s.fetchRepo(ctx, client, target.Owner, target.Repo)
 			if err != nil {
 				errCh <- fmt.Errorf("fetch repo %s: %w", slug, err)
 				return
 			}
 			send(repo)
-		}
-
-		// Org repos — stream page by page.
-		for _, org := range s.Orgs {
-			logging.Info().Str("org", org).Msg("enumerating org repos")
-			err := s.streamRepos(org, func(page int) ([]*github.Repository, *github.Response, error) {
-				return client.Repositories.ListByOrg(ctx, org, &github.RepositoryListByOrgOptions{
+		case "org":
+			logging.Info().Str("org", target.Owner).Msg("enumerating org repos")
+			err := s.streamRepos(target.Owner, func(page int) ([]*github.Repository, *github.Response, error) {
+				return client.Repositories.ListByOrg(ctx, target.Owner, &github.RepositoryListByOrgOptions{
 					Type: "all", ListOptions: github.ListOptions{PerPage: itemsPerPage, Page: page},
 				})
 			}, send)
 			if err != nil {
-				errCh <- fmt.Errorf("list org %s repos: %w", org, err)
+				errCh <- fmt.Errorf("list org %s repos: %w", target.Owner, err)
 				return
 			}
-		}
-
-		// User repos — stream page by page.
-		for _, user := range s.Users {
-			logging.Info().Str("user", user).Msg("enumerating user repos")
-			err := s.streamRepos(user, func(page int) ([]*github.Repository, *github.Response, error) {
-				return client.Repositories.ListByUser(ctx, user, &github.RepositoryListByUserOptions{
+		case "user":
+			logging.Info().Str("user", target.Owner).Msg("enumerating user repos")
+			err := s.streamRepos(target.Owner, func(page int) ([]*github.Repository, *github.Response, error) {
+				return client.Repositories.ListByUser(ctx, target.Owner, &github.RepositoryListByUserOptions{
 					Type: "all", ListOptions: github.ListOptions{PerPage: itemsPerPage, Page: page},
 				})
 			}, send)
 			if err != nil {
-				errCh <- fmt.Errorf("list user %s repos: %w", user, err)
+				errCh <- fmt.Errorf("list user %s repos: %w", target.Owner, err)
 				return
 			}
+		default:
+			errCh <- fmt.Errorf("unsupported repository enumeration target %q", target.Resource)
+			return
 		}
 
 		errCh <- nil
@@ -607,15 +584,6 @@ func (s *GitHub) isExcluded(fullName string) bool {
 		}
 	}
 	return false
-}
-
-// splitRepoSlug splits "owner/repo" into owner and repo.
-func splitRepoSlug(slug string) (owner, repo string, err error) {
-	owner, repo, ok := strings.Cut(slug, "/")
-	if !ok || owner == "" || repo == "" {
-		return "", "", fmt.Errorf("expected owner/repo format, got %q", slug)
-	}
-	return owner, repo, nil
 }
 
 func (s *GitHub) downloadAndScan(ctx context.Context, rawURL string, reader io.ReadCloser, path string, attrs map[string]string, yield FragmentsFunc) error {

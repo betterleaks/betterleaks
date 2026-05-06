@@ -743,8 +743,32 @@ func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 	var mu sync.Mutex
 	scannedReleases := make(map[string]bool)
 
+	repos := make([]string, numRepos)
+	for i := range repos {
+		repos[i] = fmt.Sprintf("repo%d", i)
+	}
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if r.URL.Path == "/api/v3/users/owner" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"login":"owner","type":"User"}`)
+			return
+		}
+		if r.URL.Path == "/api/v3/users/owner/repos" {
+			w.Header().Set("Content-Type", "application/json")
+			var out []map[string]any
+			for _, repoName := range repos {
+				out = append(out, map[string]any{
+					"id": 1, "name": repoName, "full_name": "owner/" + repoName, "private": false,
+					"fork": false, "html_url": "https://github.example.com/owner/" + repoName,
+					"clone_url": "https://github.example.com/owner/" + repoName + ".git",
+					"owner": map[string]any{"login": "owner", "type": "User"},
+				})
+			}
+			require.NoError(t, json.NewEncoder(w).Encode(out))
+			return
+		}
 		// GET /api/v3/repos/owner/{repo}  — fetchRepo
 		if len(parts) == 5 && parts[0] == "api" && parts[1] == "v3" && parts[2] == "repos" {
 			repoName := parts[4]
@@ -771,14 +795,10 @@ func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	repos := make([]string, numRepos)
-	for i := range repos {
-		repos[i] = fmt.Sprintf("owner/repo%d", i)
-	}
-
 	src := &GitHub{
 		BaseURL:   strings.TrimRight(server.URL, "/") + "/api/v3/",
-		Repos:     repos,
+		URL:       "https://github.example.com/owner",
+		Token:     "tok",
 		Resources: GitHubResourceSet{GitHubResourceTypeReleases: true},
 	}
 	err := src.Fragments(t.Context(), func(_ Fragment, _ error) error { return nil })
@@ -799,7 +819,7 @@ func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
 	// scanStarted is closed when repo0's scan first hits the releases endpoint.
 	scanStarted := make(chan struct{})
 	var scanStartedOnce sync.Once
-	// badRepoReady allows the bad-repo fetchRepo to proceed (and fail 404).
+	// badRepoReady allows the second repo-list page to proceed (and fail 404).
 	badRepoReady := make(chan struct{})
 
 	var mu sync.Mutex
@@ -808,14 +828,25 @@ func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		// fetchRepo: /api/v3/repos/owner/{repo}
-		if len(parts) == 5 && parts[0] == "api" && parts[1] == "v3" && parts[2] == "repos" && len(parts[4]) > 0 {
-			repoName := parts[4]
-			if repoName == "bad-repo" {
+		if r.URL.Path == "/api/v3/users/owner" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"login":"owner","type":"User"}`)
+			return
+		}
+		if r.URL.Path == "/api/v3/users/owner/repos" {
+			if r.URL.Query().Get("page") == "2" {
 				<-badRepoReady
 				http.NotFound(w, r)
 				return
 			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Link", `<http://`+r.Host+`/api/v3/users/owner/repos?page=2>; rel="next"`)
+			fmt.Fprint(w, `[{"id":1,"name":"repo0","full_name":"owner/repo0","private":false,"fork":false,"html_url":"https://github.example.com/owner/repo0","clone_url":"https://github.example.com/owner/repo0.git","owner":{"login":"owner","type":"User"}}]`)
+			return
+		}
+		// fetchRepo: /api/v3/repos/owner/{repo}
+		if len(parts) == 5 && parts[0] == "api" && parts[1] == "v3" && parts[2] == "repos" && len(parts[4]) > 0 {
+			repoName := parts[4]
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, `{"id":1,"name":%q,"full_name":"owner/%[1]s","private":false,"fork":false,"html_url":"https://github.example.com/owner/%[1]s","clone_url":"https://github.example.com/owner/%[1]s.git","owner":{"login":"owner","type":"User"}}`, repoName)
 			return
@@ -837,7 +868,8 @@ func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
 
 	src := &GitHub{
 		BaseURL:   strings.TrimRight(server.URL, "/") + "/api/v3/",
-		Repos:     []string{"owner/repo0", "owner/bad-repo"},
+		URL:       "https://github.example.com/owner",
+		Token:     "tok",
 		Resources: GitHubResourceSet{GitHubResourceTypeReleases: true},
 	}
 
@@ -858,7 +890,7 @@ func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
 	// Wait for repo0's scan to reach the releases API (scan is in-flight).
 	<-scanStarted
 
-	// Now unblock bad-repo fetch — this triggers the enum error.
+	// Now unblock the second repo-list page — this triggers the enum error.
 	close(badRepoReady)
 
 	// Wait for Fragments to return.
@@ -1077,7 +1109,7 @@ func TestGitHub_Validate_noTargetErrors(t *testing.T) {
 	t.Parallel()
 
 	src := &GitHub{Token: "tok"}
-	require.ErrorContains(t, src.Validate(), "at least one target is required")
+	require.ErrorContains(t, src.Validate(), "target URL is required")
 }
 
 func TestGitHub_Validate_resourceURLNeedsToken(t *testing.T) {
@@ -1123,14 +1155,4 @@ func TestGitHub_Validate_repoWithTokenAndAPIResourceOK(t *testing.T) {
 	require.NoError(t, src.Validate())
 	require.True(t, src.Resources.Has(GitHubResourceTypeIssues))
 	require.True(t, src.Resources.Has(GitHubResourceTypeRepos), "repos included by default for repo URL")
-}
-
-func TestGitHub_Validate_directReposFieldNoURL(t *testing.T) {
-	t.Parallel()
-
-	src := &GitHub{
-		Repos:     []string{"owner/repo"},
-		Resources: GitHubResourceSet{GitHubResourceTypeRepos: true},
-	}
-	require.NoError(t, src.Validate())
 }
