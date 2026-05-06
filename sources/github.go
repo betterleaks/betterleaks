@@ -208,6 +208,17 @@ func resolveGitHubResources(include, exclude []string, targetKind string) (GitHu
 		rs[GitHubResourceTypeRepos] = true
 	}
 
+	// For single-resource URLs, enable all sub-feature types so helpers
+	// like emitRelease can scan assets, scanSingleActionRun can scan
+	// artifacts, etc.
+	if targetKind == "resource" && len(include) == 0 {
+		for _, rt := range AllGitHubResourceTypes {
+			if rt != GitHubResourceTypeRepos && rt != GitHubResourceTypeForks && rt != GitHubResourceTypeGists {
+				rs[rt] = true
+			}
+		}
+	}
+
 	for _, s := range include {
 		rt := GitHubResourceType(s)
 		if !valid[rt] {
@@ -1913,17 +1924,6 @@ func (s *GitHub) resolveOwnerType(ctx context.Context, client *github.Client, lo
 
 // scanURL dispatches to the appropriate single-resource scanner based on the URL.
 func (s *GitHub) scanURL(ctx context.Context, client *github.Client, rawURL string, yield FragmentsFunc) error {
-	// URL mode scans a single explicit resource in full.  Enable all content
-	// types except repo-level git scans/forks/gists, using a local copy so
-	// the receiver is not mutated (A4).
-	include := make([]GitHubResourceType, 0, len(AllGitHubResourceTypes))
-	for _, rt := range AllGitHubResourceTypes {
-		if rt != GitHubResourceTypeRepos && rt != GitHubResourceTypeForks && rt != GitHubResourceTypeGists {
-			include = append(include, rt)
-		}
-	}
-	resources := s.Resources.WithAll(include...)
-
 	parsed, err := ParseGitHubURL(rawURL)
 	if err != nil {
 		return fmt.Errorf("--url: %w", err)
@@ -1939,11 +1939,6 @@ func (s *GitHub) scanURL(ctx context.Context, client *github.Client, rawURL stri
 	}
 
 	owner, repo := parsed.Owner, parsed.Repo
-	// resourcesView is a shim so helper methods (emitRelease etc.) still read
-	// from s.Resources — swap temporarily for URL-mode calls that check Has().
-	origResources := s.Resources
-	s.Resources = resources
-	defer func() { s.Resources = origResources }()
 
 	switch parsed.Resource {
 	case "issue":
