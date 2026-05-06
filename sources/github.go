@@ -566,13 +566,13 @@ func (s *GitHub) isExcluded(fullName string) bool {
 	return false
 }
 
-func (s *GitHub) downloadAndScan(ctx context.Context, rawURL string, reader io.ReadCloser, path string, attrs map[string]string, yield FragmentsFunc) error {
+func (s *GitHub) downloadAndScan(ctx context.Context, rawURL string, reader io.ReadCloser, path string, attrs map[string]string, bearerToken string, yield FragmentsFunc) error {
 	return downloadAndScanSource(ctx, sourceDownloadOptions{
 		URL:             rawURL,
 		Reader:          reader,
 		Path:            path,
 		Attrs:           attrs,
-		BearerToken:     s.Token,
+		BearerToken:     bearerToken,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		ShouldSkip:      s.ShouldSkip,
 		TempPattern:     "betterleaks-download-*",
@@ -760,7 +760,7 @@ func (s *GitHub) scanRunLogs(ctx context.Context, client *github.Client, owner, 
 		return err
 	}
 	runID := strconv.FormatInt(run.GetID(), 10)
-	return s.downloadAndScan(ctx, logURL.String(), nil, "actions/logs/run_"+runID+".zip", runAttrs(run), yield)
+	return s.downloadAndScan(ctx, logURL.String(), nil, "actions/logs/run_"+runID+".zip", runAttrs(run), "", yield)
 }
 
 // scanRunArtifacts lists and scans all artifacts for a workflow run.
@@ -782,7 +782,7 @@ func (s *GitHub) scanRunArtifacts(ctx context.Context, client *github.Client, ow
 				continue
 			}
 			path := fmt.Sprintf("actions/artifacts/%s/run_%s.zip", artifact.GetName(), attrs[AttrGitHubActionsRunID])
-			if err := s.downloadAndScan(ctx, artifactURL.String(), nil, path, attrs, yield); err != nil {
+			if err := s.downloadAndScan(ctx, artifactURL.String(), nil, path, attrs, "", yield); err != nil {
 				logging.Error().Err(err).Str("artifact", artifact.GetName()).Msg("could not scan artifact")
 			}
 		}
@@ -805,9 +805,6 @@ func isGitHubGone(err error) bool {
 		code := ghErr.Response.StatusCode
 		return code == http.StatusNotFound || code == http.StatusGone
 	}
-	// GetWorkflowRunLogs returns a plain error when the redirect response is
-	// not 302. Match " 404 " / " 410 " with surrounding spaces so we don't
-	// accidentally match unrelated URL segments or port numbers (A5).
 	msg := err.Error()
 	return strings.Contains(msg, " 404 ") || strings.Contains(msg, " 410 ")
 }
@@ -1410,7 +1407,7 @@ func (s *GitHub) scanReleaseAssets(ctx context.Context, client *github.Client, h
 				AttrGitHubReleaseAssetName: asset.GetName(),
 				AttrResource:               ResourceGitHubReleaseAsset,
 			}
-			if err := s.downloadAndScan(ctx, "", rc, fmt.Sprintf("releases/%s/%s", tag, asset.GetName()), attrs, yield); err != nil {
+			if err := s.downloadAndScan(ctx, "", rc, fmt.Sprintf("releases/%s/%s", tag, asset.GetName()), attrs, "", yield); err != nil {
 				logging.Error().Err(err).Str("tag", tag).Str("asset", asset.GetName()).Msg("could not scan release asset")
 			}
 		}
@@ -1438,7 +1435,7 @@ func (s *GitHub) scanReleaseSourceArchives(ctx context.Context, rel *github.Repo
 			AttrGitHubReleaseAssetName: a.name,
 			AttrResource:               ResourceGitHubReleaseAsset,
 		}
-		if err := s.downloadAndScan(ctx, a.url, nil, fmt.Sprintf("releases/%s/%s", tag, a.name), attrs, yield); err != nil {
+		if err := s.downloadAndScan(ctx, a.url, nil, fmt.Sprintf("releases/%s/%s", tag, a.name), attrs, s.Token, yield); err != nil {
 			logging.Error().Err(err).Str("tag", tag).Str("archive", a.name).Msg("could not scan release source archive")
 		}
 	}

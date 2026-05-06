@@ -429,7 +429,7 @@ func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 		AttrResource:             ResourceGitHubActions,
 	}
 	var fragments []Fragment
-	err = src.downloadAndScan(t.Context(), zipURL.String(), nil, zipPath, actionsAttrs, func(fragment Fragment, err error) error {
+	err = src.downloadAndScan(t.Context(), zipURL.String(), nil, zipPath, actionsAttrs, "", func(fragment Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -445,6 +445,53 @@ func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 	require.Equal(t, event, fragment.Attr(AttrGitHubActionsEvent))
 	require.Contains(t, fragment.Raw, "AKIALALEMEL33243OLIA")
 	require.Contains(t, fragment.Attr(AttrPath), "actions/logs")
+}
+
+// TestGitHub_downloadAndScan_bearerToken pins the contract that downloadAndScan
+// only sends the GitHub token when the caller explicitly opts in. Callers that
+// hand it an already-resolved CDN URL (Actions logs / artifacts) pass "" so
+// the credential does not leak into third-party storage access logs; callers
+// hitting api.github.com / a configured GHE host pass s.Token so private
+// resources still authenticate.
+func TestGitHub_downloadAndScan_bearerToken(t *testing.T) {
+	t.Parallel()
+
+	zipBytes := buildGitHubTestZip(t, map[string]string{
+		"job.log": "ok\n",
+	})
+
+	tests := []struct {
+		name     string
+		token    string
+		wantAuth string
+	}{
+		{name: "empty token omits Authorization header", token: "", wantAuth: ""},
+		{name: "non-empty token sends Bearer auth", token: "ghp_super_secret", wantAuth: "Bearer ghp_super_secret"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotAuth string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotAuth = r.Header.Get("Authorization")
+				w.Header().Set("Content-Type", "application/zip")
+				_, err := w.Write(zipBytes)
+				require.NoError(t, err)
+			}))
+			defer server.Close()
+
+			// Token field on src is intentionally set to a value that would
+			// fail the empty-token assertion if it were used by mistake.
+			src := &GitHub{Token: "ghp_must_not_leak", MaxArchiveDepth: 2}
+			err := src.downloadAndScan(t.Context(), server.URL+"/blob.zip", nil, "p/blob.zip", nil, tc.token, func(_ Fragment, err error) error {
+				return err
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantAuth, gotAuth)
+		})
+	}
 }
 
 func TestGitHub_scanActions_startsLogsBeforeWorkflowPaginationCompletes(t *testing.T) {
