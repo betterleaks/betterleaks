@@ -149,9 +149,6 @@ func (rs GitHubResourceSet) String() string {
 }
 
 // defaultScanResources lists the default resource types each URL kind scans.
-// Owner/repo targets default to git history; specific resource URLs default
-// to the types relevant to that resource. The empty key (no URL) yields no
-// defaults — callers must populate Resources via Include.
 var defaultScanResources = map[string][]GitHubResourceType{
 	"owner":       {GitHubResourceTypeRepos},
 	"repo":        {GitHubResourceTypeRepos},
@@ -170,12 +167,7 @@ func (s *GitHub) logScanStart() {
 		Msg("starting GitHub scan")
 }
 
-// Validate checks the GitHub source configuration and populates Resources if
-// needed. Defaults come from defaultScanResources; unset Resources are seeded by
-// the URL kind, then narrowed/widened by Include and Exclude. It returns a
-// descriptive error for any misconfiguration (missing token, invalid URL,
-// unknown resource type, etc.) so callers get proper error handling without
-// depending on the CLI.
+// Validate checks the GitHub source configuration and populates Resources if needed.
 func (s *GitHub) Validate() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
@@ -262,7 +254,52 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		return s.scanURL(ctx, client, s.URL, yield)
 	}
 
-	return s.scanAllReposAndGists(ctx, start, client, target, yield)
+	scanCtx, cancelScans := context.WithCancel(ctx)
+	defer cancelScans()
+
+	var scanGroup errgroup.Group
+	scanGroup.SetLimit(100)
+
+	if target.Resource == "user" && s.Resources.Has(GitHubResourceTypeGists) {
+		scanGroup.Go(func() error {
+			return s.scanUserGists(scanCtx, client, target.Owner, yield)
+		})
+		if !s.Resources.Has(GitHubResourceTypeRepos) {
+			return scanGroup.Wait()
+		}
+
+	}
+
+	repoCh, enumErrCh := s.enumerateRepos(ctx, client, target)
+	var repoCount atomic.Int64
+	for repo := range repoCh {
+		repoCount.Add(1)
+		scanGroup.Go(func() error {
+			return s.scanRepo(scanCtx, client, repo, yield)
+		})
+	}
+	enumErr := <-enumErrCh
+	if enumErr != nil {
+		cancelScans()
+		scanErr := scanGroup.Wait()
+		combined := fmt.Errorf("enumerate repos: %w", enumErr)
+		if scanErr != nil && !errors.Is(scanErr, context.Canceled) {
+			combined = errors.Join(combined, scanErr)
+		}
+		return combined
+	}
+	logging.Info().
+		Int64("repos", repoCount.Load()).
+		Dur("enumeration_ms", time.Since(start)).
+		Msg("enumeration complete, waiting for scans")
+
+	scanErr := scanGroup.Wait()
+	logging.Info().
+		Int64("repos", repoCount.Load()).
+		Dur("duration", time.Since(start)).
+		Msg("scan complete")
+
+	return scanErr
 }
 
 // dispatchURL resolves a raw GitHub URL into either a direct resource scan or
@@ -297,64 +334,7 @@ func (s *GitHub) dispatchURL(ctx context.Context, rawURL string) (*ParsedGitHubU
 	}
 }
 
-// scanAllReposAndGists enumerates repos and gists, dispatches scan workers, and
-// waits for them. It logs an enumeration-complete event and an end-of-scan summary.
-func (s *GitHub) scanAllReposAndGists(ctx context.Context, start time.Time, client *github.Client, target *ParsedGitHubURL, yield FragmentsFunc) error {
-	repoCh, enumErrCh := s.enumerateRepos(ctx, client, target)
-
-	// scanCtx lets us cancel in-flight scans if enumeration itself fails (A3).
-	scanCtx, cancelScans := context.WithCancel(ctx)
-	defer cancelScans()
-
-	var scanGroup errgroup.Group
-	scanGroup.SetLimit(100)
-
-	// Gist scanning is user-level, not repo-level — runs alongside repo scans.
-	if target.Resource == "user" && s.Resources.Has(GitHubResourceTypeGists) {
-		scanGroup.Go(func() error {
-			return s.scanUserGists(scanCtx, client, target.Owner, yield)
-		})
-	}
-
-	var repoCount atomic.Int64
-	for repo := range repoCh {
-		repoCount.Add(1)
-		scanGroup.Go(func() error {
-			return s.scanRepo(scanCtx, client, repo, yield)
-		})
-	}
-
-	// Check if enumeration itself failed (A3).
-	enumErr := <-enumErrCh
-	if enumErr != nil {
-		// Cancel in-flight scans and wait so no scan goroutine writes to yield
-		// after Fragments returns.
-		cancelScans()
-		scanErr := scanGroup.Wait()
-		combined := fmt.Errorf("enumerate repos: %w", enumErr)
-		if scanErr != nil && !errors.Is(scanErr, context.Canceled) {
-			combined = errors.Join(combined, scanErr)
-		}
-		return combined
-	}
-	logging.Info().
-		Int64("repos", repoCount.Load()).
-		Dur("enumeration_ms", time.Since(start)).
-		Msg("enumeration complete, waiting for scans")
-
-	scanErr := scanGroup.Wait()
-
-	logging.Info().
-		Int64("repos", repoCount.Load()).
-		Dur("duration", time.Since(start)).
-		Msg("scan complete")
-
-	return scanErr
-}
-
-// enumerateRepos streams repos for a URL-derived repo, org, or user target,
-// deduplicating and filtering along the way. The error channel receives at
-// most one value (nil on success) after the repo channel is closed.
+// enumerateRepos streams repos for a URL-derived repo, org, or user target.
 func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, target *ParsedGitHubURL) (<-chan *github.Repository, <-chan error) {
 	ch := make(chan *github.Repository, 100)
 	errCh := make(chan error, 1)

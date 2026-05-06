@@ -763,7 +763,7 @@ func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 					"id": 1, "name": repoName, "full_name": "owner/" + repoName, "private": false,
 					"fork": false, "html_url": "https://github.example.com/owner/" + repoName,
 					"clone_url": "https://github.example.com/owner/" + repoName + ".git",
-					"owner": map[string]any{"login": "owner", "type": "User"},
+					"owner":     map[string]any{"login": "owner", "type": "User"},
 				})
 			}
 			require.NoError(t, json.NewEncoder(w).Encode(out))
