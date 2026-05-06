@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -117,18 +116,6 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	if err := src.Validate(); err != nil {
 		logging.Fatal().Err(err).Msg("invalid GitHub configuration")
 	}
-
-	// Log what we're scanning.
-	var active []string
-	for _, rt := range sources.AllGitHubResourceTypes {
-		if src.Resources.Has(rt) {
-			active = append(active, string(rt))
-		}
-	}
-	logging.Info().
-		Str("target", targetURL).
-		Str("resources", strings.Join(active, ",")).
-		Msg("starting GitHub scan")
 
 	exitCode := mustGetIntFlag(cmd, "exit-code")
 	noColor := mustGetBoolFlag(cmd, "no-color")

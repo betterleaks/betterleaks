@@ -168,6 +168,40 @@ func targetKind(parsed *ParsedGitHubURL) string {
 	}
 }
 
+// urlScanResources lists the resource types each URL kind actually scans.
+// Owner/repo URLs are absent because they scan whatever's enabled.
+var urlScanResources = map[string][]GitHubResourceType{
+	"issue":       {GitHubResourceTypeIssues, GitHubResourceTypeIssueComments},
+	"pr":          {GitHubResourceTypePRs, GitHubResourceTypePRComments},
+	"discussion":  {GitHubResourceTypeDiscussions},
+	"release":     {GitHubResourceTypeReleases, GitHubResourceTypeReleaseAssets},
+	"actions_run": {GitHubResourceTypeActions, GitHubResourceTypeActionArtifacts},
+	"gist":        {GitHubResourceTypeGists},
+}
+
+// logScanStart logs the resources that will actually be scanned for the
+// configured target, narrowed to those relevant for URL-targeted resources.
+func (s *GitHub) logScanStart() {
+	candidates := AllGitHubResourceTypes
+	if s.URL != "" {
+		if parsed, err := ParseGitHubURL(s.URL); err == nil {
+			if filter, ok := urlScanResources[parsed.Resource]; ok {
+				candidates = filter
+			}
+		}
+	}
+	var active []string
+	for _, rt := range candidates {
+		if s.Resources.Has(rt) {
+			active = append(active, string(rt))
+		}
+	}
+	logging.Info().
+		Str("target", s.URL).
+		Str("resources", strings.Join(active, ",")).
+		Msg("starting GitHub scan")
+}
+
 // ResolveResources populates s.Resources from s.Include, s.Exclude, and the
 // target URL. If s.Resources is already non-empty it is left as-is, so callers
 // who build the set programmatically are not affected.
@@ -296,6 +330,7 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
+	s.logScanStart()
 
 	start := time.Now()
 	s.restRetry = httpclient.NewRetryTransport(nil)
