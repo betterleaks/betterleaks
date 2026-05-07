@@ -579,6 +579,20 @@ func (s *GitHub) downloadAndScan(ctx context.Context, rawURL string, reader io.R
 	}, yield)
 }
 
+// apiHost returns the host the GitHub bearer token is scoped to (REST / GraphQL).
+// It falls back to api.github.com when not using GitHub Enterprise or when BaseURL
+// cannot be parsed.
+func (s *GitHub) apiHost() string {
+	if s.BaseURL == "" {
+		return "api.github.com"
+	}
+	u, err := url.Parse(s.BaseURL)
+	if err != nil || u.Host == "" {
+		return "api.github.com"
+	}
+	return u.Host
+}
+
 // newClient creates a GitHub API client with optional token auth and GHE support.
 // Fragments must have initialized s.restRetry before calling this.
 func (s *GitHub) newClient(ctx context.Context) *github.Client {
@@ -587,7 +601,7 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 		s.restRetry.Decider = githubRetryDecider
 		s.restRetry.StateExtractor = githubRateLimitStateExtractor
 	}
-	httpClient := httpclient.NewAuthenticatedClient(ctx, s.Token, s.restRetry)
+	httpClient := httpclient.NewAuthenticatedClient(s.Token, s.restRetry, s.apiHost())
 	client := github.NewClient(httpClient)
 	if s.BaseURL != "" {
 		c, err := client.WithEnterpriseURLs(s.BaseURL, s.BaseURL)
@@ -926,7 +940,7 @@ func (s *GitHub) newGraphQLClient(ctx context.Context) *githubv4.Client {
 	s.gqlRetry = httpclient.NewRetryTransport(nil)
 	s.gqlRetry.Decider = githubRetryDecider
 	s.gqlRetry.StateExtractor = githubRateLimitStateExtractor
-	httpClient := httpclient.NewAuthenticatedClient(ctx, s.Token, s.gqlRetry)
+	httpClient := httpclient.NewAuthenticatedClient(s.Token, s.gqlRetry, s.apiHost())
 	if s.BaseURL == "" {
 		return githubv4.NewClient(httpClient)
 	}
@@ -1318,7 +1332,7 @@ func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueN
 func (s *GitHub) scanReleases(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
 	owner, repoName := repo.GetOwner().GetLogin(), repo.GetName()
 	// Build httpClient once for the entire scan; passed to emitRelease → scanReleaseAssets (C7).
-	httpClient := httpclient.NewAuthenticatedClient(ctx, s.Token, s.restRetry)
+	httpClient := httpclient.NewAuthenticatedClient(s.Token, s.restRetry, s.apiHost())
 	opts := &github.ListOptions{PerPage: itemsPerPage}
 	for {
 		releases, resp, err := client.Repositories.ListReleases(ctx, owner, repoName, opts)
@@ -1382,7 +1396,7 @@ func (s *GitHub) scanSingleRelease(ctx context.Context, client *github.Client, o
 	if err != nil {
 		return fmt.Errorf("get release %s: %w", tag, err)
 	}
-	httpClient := httpclient.NewAuthenticatedClient(ctx, s.Token, s.restRetry)
+	httpClient := httpclient.NewAuthenticatedClient(s.Token, s.restRetry, s.apiHost())
 	return s.emitRelease(ctx, client, httpClient, owner, repo, rel, yield)
 }
 
