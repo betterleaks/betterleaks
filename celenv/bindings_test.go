@@ -50,7 +50,7 @@ func TestBindings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
-		got, err := env.Eval(prg, "", nil)
+		got, err := env.Eval(prg, "", nil, nil)
 		if err != nil {
 			t.Fatalf("eval: %v", err)
 		}
@@ -68,7 +68,7 @@ func TestBindings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
-		got, err := env.Eval(prg, "", nil)
+		got, err := env.Eval(prg, "", nil, nil)
 		if err != nil {
 			t.Fatalf("eval: %v", err)
 		}
@@ -88,7 +88,7 @@ func TestBindings(t *testing.T) {
 				t.Fatalf("compile: %v", err)
 			}
 
-			got, err := env.Eval(prg, tc.secret, nil)
+			got, err := env.Eval(prg, tc.secret, nil, nil)
 			if err != nil {
 				t.Fatalf("eval: %v", err)
 			}
