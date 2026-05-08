@@ -596,3 +596,13 @@ func (f *Finding) SetFingerprint() {
 		f.Fingerprint = globalFingerprint
 	}
 }
+
+func (f *Finding) ActivationStringMap() map[string]string {
+	return map[string]string{
+		"secret":      f.Secret,
+		"match":       f.Match,
+		"line":        f.Line,
+		"rule_id":     f.RuleID,
+		"description": f.Description,
+	}
+}

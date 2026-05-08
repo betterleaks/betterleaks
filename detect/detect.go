@@ -458,7 +458,7 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				}
 
 				// Check validation status and if we should filter or not
-// Check validation status and if we should filter or not
+				// Check validation status and if we should filter or not
 				if len(d.ValidationStatusFilter) > 0 {
 					if res.Finding.ValidationStatus != "" {
 						if _, ok := d.ValidationStatusFilter[res.Finding.ValidationStatus]; !ok {

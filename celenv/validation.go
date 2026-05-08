@@ -79,6 +79,7 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 
 		cel.Variable("secret", cel.StringType),
 		cel.Variable("captures", cel.MapType(cel.StringType, cel.StringType)),
+		cel.Variable("finding", cel.MapType(cel.StringType, cel.StringType)),
 
 		cel.Function("http.get",
 			cel.Overload("http_get_string_map",
@@ -209,7 +210,7 @@ func (e *ValidationEnvironment) Compile(expression string) (cel.Program, error) 
 
 // Eval evaluates a compiled CEL program with the given secret and captures,
 // returning the raw CEL output value.
-func (e *ValidationEnvironment) Eval(prg cel.Program, secret string, captures map[string]string) (ref.Val, error) {
+func (e *ValidationEnvironment) Eval(prg cel.Program, secret string, finding, captures map[string]string) (ref.Val, error) {
 	if e.DebugResponse {
 		e.debugMu.Lock()
 		defer e.debugMu.Unlock()
@@ -220,9 +221,14 @@ func (e *ValidationEnvironment) Eval(prg cel.Program, secret string, captures ma
 		captures = make(map[string]string)
 	}
 
+	if finding == nil {
+		finding = make(map[string]string)
+	}
+
 	vars := map[string]any{
 		"secret":   secret,
 		"captures": captures,
+		"finding":  finding,
 	}
 
 	val, _, err := prg.Eval(vars)
