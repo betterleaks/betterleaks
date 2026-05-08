@@ -3,6 +3,7 @@ package validate
 import (
 	"context"
 	"maps"
+	"slices"
 	"sync"
 
 	"github.com/betterleaks/betterleaks/celenv"
@@ -159,6 +160,22 @@ func (p *Pool) worker() {
 			f.ValidationStatus = overallStatus
 			f.ValidationReason = bestResult.Reason
 			f.ValidationMeta = bestResult.Metadata
+		}
+
+		// When at least one required set validates, keep only valid sets on the
+		// emitted finding so reports are not cluttered with failed combinations.
+		// We build a new slice so we do not compact a backing array that other
+		// copies of this Finding may still reference.
+		if slices.ContainsFunc(f.RequiredSets, func(s report.RequiredSet) bool {
+			return s.ValidationStatus == "valid"
+		}) {
+			validOnly := make([]report.RequiredSet, 0, len(f.RequiredSets))
+			for _, s := range f.RequiredSets {
+				if s.ValidationStatus == "valid" {
+					validOnly = append(validOnly, s)
+				}
+			}
+			f.RequiredSets = validOnly
 		}
 
 		if p.Emit != nil {
