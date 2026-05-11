@@ -19,7 +19,7 @@ type multipleErrors struct {
 	errs []error
 }
 
-func (e *multipleErrors) Error() string  { return e.msg }
+func (e *multipleErrors) Error() string   { return e.msg }
 func (e *multipleErrors) Unwrap() []error { return e.errs }
 
 func init() {

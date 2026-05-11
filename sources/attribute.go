@@ -11,17 +11,17 @@ const (
 	AttrResource = "resource"
 
 	// Resource values — what kind of thing the fragment is.
-	ResourceFileContent     = "fs.content"
-	ResourceGitPatchContent = "git.patch_content"
-	ResourceGitHubRepo      = "github.repository"
-	ResourceGitHubIssue     = "github.issue"
-	ResourceGitHubPR        = "github.pr"
-	ResourceGitHubComment   = "github.comment"
-	ResourceGitHubActions   = "github.actions"
-	ResourceGitHubDiscussion    = "github.discussion"
-	ResourceGitHubRelease       = "github.release"
-	ResourceGitHubReleaseAsset  = "github.release_asset"
-	ResourceGitHubGist          = "github.gist"
+	ResourceFileContent        = "fs.content"
+	ResourceGitPatchContent    = "git.patch_content"
+	ResourceGitHubRepo         = "github.repository"
+	ResourceGitHubIssue        = "github.issue"
+	ResourceGitHubPR           = "github.pr"
+	ResourceGitHubComment      = "github.comment"
+	ResourceGitHubActions      = "github.actions"
+	ResourceGitHubDiscussion   = "github.discussion"
+	ResourceGitHubRelease      = "github.release"
+	ResourceGitHubReleaseAsset = "github.release_asset"
+	ResourceGitHubGist         = "github.gist"
 
 	// Git
 	AttrGitSHA         = "git.sha"
@@ -50,10 +50,10 @@ const (
 	AttrGitHubActionsRunURL  = "github.actions.run_url"
 	AttrGitHubActionsEvent   = "github.actions.event"
 
-	AttrGitHubDiscussionNumber  = "github.discussion.number"
-	AttrGitHubReleaseTag        = "github.release.tag"
-	AttrGitHubReleaseAssetName  = "github.release.asset_name"
-	AttrGitHubGistID            = "github.gist.id"
+	AttrGitHubDiscussionNumber = "github.discussion.number"
+	AttrGitHubReleaseTag       = "github.release.tag"
+	AttrGitHubReleaseAssetName = "github.release.asset_name"
+	AttrGitHubGistID           = "github.gist.id"
 	AttrGitHubGistFilename     = "github.gist.filename"
 	AttrGitHubGistOwner        = "github.gist.owner"
 )

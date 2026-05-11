@@ -125,7 +125,7 @@ func TestTranslateAllowlists(t *testing.T) {
 		{
 			cfgName: "valid/allowlist_global_old_compat",
 			cfg: &Config{
-				Rules: map[string]Rule{},
+				Rules:     map[string]Rule{},
 				Prefilter: `containsAny(attributes[?"path"].orValue(""), ["0989c462-69c9-49fa-b7d2-30dc5c576a97"])`,
 			},
 		},

@@ -186,7 +186,7 @@ func celStringLit(s string) string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch c {
-	case '"':
+		case '"':
 			b.WriteString(`\"`)
 		case '\\':
 			b.WriteString(`\\`)

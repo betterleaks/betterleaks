@@ -37,8 +37,8 @@ func NewAuthenticatedClient(token string, base http.RoundTripper, allowedHosts .
 		return &http.Client{Transport: base}
 	}
 	return &http.Client{Transport: &hostScopedAuthTransport{
-		token:  token,
-		base:   base,
+		token:   token,
+		base:    base,
 		allowed: allow,
 	}}
 }

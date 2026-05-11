@@ -14,8 +14,8 @@ var isTTY = isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdo
 
 // Style holds ANSI formatting attributes for terminal output.
 type Style struct {
-	fg   string // ANSI color escape (empty = no color)
-	bold bool
+	fg     string // ANSI color escape (empty = no color)
+	bold   bool
 	italic bool
 }
 

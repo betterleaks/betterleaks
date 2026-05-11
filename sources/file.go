@@ -203,7 +203,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) error {
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
-		logging.Error().Str("path", s.FullPath()).Msg("could read compressed file")
+		logging.Error().Str("path", s.FullPath()).Msg("could not read compressed file")
 		return nil
 	}
 
