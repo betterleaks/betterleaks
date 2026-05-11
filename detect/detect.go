@@ -281,19 +281,6 @@ func (d *Detector) SkipFunc() sources.SkipFunc {
 	}
 }
 
-// buildFindingMap builds the fixed-shape map[string]string used as the `finding`
-// activation variable in FilterEnv CEL programs. Only called when at least one
-// filter program is compiled, so the allocation is paid only when needed.
-func buildFindingMap(f *report.Finding) map[string]string {
-	return map[string]string{
-		"secret":      f.Secret,
-		"match":       f.Match,
-		"line":        f.Line,
-		"rule_id":     f.RuleID,
-		"description": f.Description,
-	}
-}
-
 func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragment) bool {
 	path := fragment.Attr(sources.AttrPath)
 	return path != "" && pathRule != nil && pathRule.MatchString(path)
@@ -803,7 +790,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]string
 		if d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
-			findingMap = buildFindingMap(&finding)
+			findingMap = finding.ToCELMap()
 			// For decoded segments, currentLine carries the decoded line text
 			// (via codec.CurrentLine). The old checkFindingAllowed used this for
 			// regexTarget="line". Preserve that behaviour in the CEL path.

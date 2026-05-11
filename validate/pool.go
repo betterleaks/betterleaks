@@ -93,7 +93,7 @@ func (p *Pool) worker() {
 
 		if len(f.RequiredSets) == 0 {
 			// Simple path: no required components, validate the secret with its own captures.
-			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ActivationStringMap(), job.captures)
+			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ToCELMap(), job.captures)
 			if err != nil {
 				f.ValidationStatus = "error"
 				f.ValidationReason = err.Error()
@@ -136,7 +136,7 @@ func (p *Pool) worker() {
 				result = r
 			} else {
 				var err error
-				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ActivationStringMap(), merged)
+				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ToCELMap(), merged)
 				if err != nil {
 					result = &Result{Status: "error", Reason: err.Error(), Metadata: map[string]any{}}
 				}
