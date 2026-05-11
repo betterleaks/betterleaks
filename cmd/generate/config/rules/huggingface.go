@@ -24,7 +24,7 @@ func HuggingFaceAccessToken() *config.Rule {
 		},
 		ValidateCEL: `cel.bind(r,
   http.get("https://huggingface.co/api/whoami-v2", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -95,7 +95,7 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 		},
 		ValidateCEL: `cel.bind(r,
   http.get("https://huggingface.co/api/whoami-v2", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",

@@ -15,7 +15,7 @@ func VercelAPIToken() *config.Rule {
 		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
     "result": "valid",
@@ -54,7 +54,7 @@ func VercelPersonalAccessToken() *config.Rule {
 		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
     "result": "valid",
@@ -91,7 +91,7 @@ func VercelIntegrationToken() *config.Rule {
 		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains("\"user\"") ? {
     "result": "valid",
@@ -127,7 +127,7 @@ func VercelAppAccessToken() *config.Rule {
 		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.vercel.com/login/oauth/userinfo", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }, ""),
   r.status == 200 && r.body.contains("\"sub\"") ? {
     "result": "valid",
@@ -163,7 +163,7 @@ func VercelAppRefreshToken() *config.Rule {
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.vercel.com/login/oauth/token/introspect", {
     "Content-Type": "application/x-www-form-urlencoded"
-  }, "token=" + secret),
+  }, "token=" + finding["secret"]),
   r.status == 200 && r.body.contains("\"active\":true") ? {
     "result": "valid"
   } : r.status == 200 && r.body.contains("\"active\":false") ? {
@@ -198,7 +198,7 @@ func VercelAIGatewayKey() *config.Rule {
 		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
   }, "{\"model\":\"openai/gpt-3.5-turbo\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"max_tokens\":1}"),
   r.status in [200, 403] ? {

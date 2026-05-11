@@ -19,7 +19,7 @@ func OnePasswordServiceAccountToken() *config.Rule {
 		ValidateCEL: `cel.bind(r,
   http.get("https://events.1password.com/api/v2/auth/introspect", {
     "Accept": "application/json",
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains("\"features\"") ? {
     "result": "valid"

@@ -15,7 +15,7 @@ var celExpressions = []struct {
 		"anthropic-api-key",
 		`cel.bind(r,
   http.get("https://api.anthropic.com/v1/models", {
-    "x-api-key": secret,
+    "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
   }),
   r.status == 200 ? {
@@ -30,7 +30,7 @@ var celExpressions = []struct {
 		"anthropic-admin-api-key",
 		`cel.bind(r,
   http.get("https://api.anthropic.com/v1/organizations/me", {
-    "x-api-key": secret,
+    "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
   }),
   r.status == 200 ? {
@@ -46,7 +46,7 @@ var celExpressions = []struct {
 		"cerebras-api-key",
 		`cel.bind(r,
   http.get("https://api.cerebras.ai/v1/models", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -60,7 +60,7 @@ var celExpressions = []struct {
 		"cohere-api-token",
 		`cel.bind(r,
   http.get("https://api.cohere.com/v1/connectors", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -75,7 +75,7 @@ var celExpressions = []struct {
 		`cel.bind(r,
   http.get("https://api.cursor.com/v0/me", {
     "Accept": "application/json",
-    "Authorization": "Basic " + base64.encode(bytes(secret))
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"]))
   }),
   r.status == 200 && r.body.contains('"userEmail"') ? {
     "result": "valid"
@@ -89,7 +89,7 @@ var celExpressions = []struct {
 		"deepseek-api-key",
 		`cel.bind(r,
   http.get("https://api.deepseek.com/models", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }),
   r.status == 200 ? {
@@ -105,7 +105,7 @@ var celExpressions = []struct {
 		`cel.bind(r,
   http.get("https://api.github.com/user", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "token " + secret
+    "Authorization": "token " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -122,7 +122,7 @@ var celExpressions = []struct {
 		"gitlab-user-token",
 		`cel.bind(r,
   http.get("https://gitlab.com/api/v4/user", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -136,7 +136,7 @@ var celExpressions = []struct {
 		"gitlab-pat",
 		`cel.bind(r,
   http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -152,7 +152,7 @@ var celExpressions = []struct {
 		`cel.bind(r,
   http.post("https://gitlab.com/api/v4/runners/verify", {
     "Content-Type": "application/x-www-form-urlencoded"
-  }, "token=" + secret),
+  }, "token=" + finding["secret"]),
   r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
@@ -165,7 +165,7 @@ var celExpressions = []struct {
 		"groq-api-key",
 		`cel.bind(r,
   http.get("https://api.groq.com/openai/v1/models", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -179,7 +179,7 @@ var celExpressions = []struct {
 		"huggingface-access-token",
 		`cel.bind(r,
   http.get("https://huggingface.co/api/whoami-v2", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -192,11 +192,11 @@ var celExpressions = []struct {
 	},
 	{
 		"mailchimp-api-key",
-		`cel.bind(dc, secret.substring(secret.lastIndexOf("-") + 1),
+		`cel.bind(dc, finding["secret"].substring(finding["secret"].lastIndexOf("-") + 1),
   cel.bind(r,
     http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
       "Accept": "application/json",
-      "Authorization": "Basic " + base64.encode(bytes("x:" + secret))
+      "Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"]))
     }),
     r.status == 200 ? {
       "result": "valid"
@@ -212,7 +212,7 @@ var celExpressions = []struct {
 		`cel.bind(r,
   http.get("https://api.mailgun.net/v3/domains", {
     "Accept": "application/json",
-    "Authorization": "Basic " + base64.encode(bytes("api:" + secret))
+    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"]))
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -226,7 +226,7 @@ var celExpressions = []struct {
 		"mistral-api-key",
 		`cel.bind(r,
   http.get("https://api.mistral.ai/v1/models", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }),
   r.status == 200 ? {
@@ -241,7 +241,7 @@ var celExpressions = []struct {
 		"openai-api-key",
 		`cel.bind(r,
   http.get("https://api.openai.com/v1/models", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -255,7 +255,7 @@ var celExpressions = []struct {
 		"perplexity-api-key",
 		`cel.bind(r,
   http.post("https://api.perplexity.ai/chat/completions", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
   }, "{\"model\":\"invalid-model-for-validation\",\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}"),
   r.status in [200, 400, 404, 422] ? {
@@ -270,7 +270,7 @@ var celExpressions = []struct {
 		"replicate-api-token",
 		`cel.bind(r,
   http.get("https://api.replicate.com/v1/account", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -284,7 +284,7 @@ var celExpressions = []struct {
 		"togetherai-api-key",
 		`cel.bind(r,
   http.get("https://api.together.xyz/v1/models", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }),
   r.status == 200 ? {
@@ -305,7 +305,7 @@ var celExpressions = []struct {
     ),
     cel.bind(r,
       http.get("https://clob.polymarket.com/data/orders", {
-        "POLY_BUILDER_API_KEY": secret,
+        "POLY_BUILDER_API_KEY": finding["secret"],
         "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
         "POLY_BUILDER_TIMESTAMP": ts,
         "POLY_BUILDER_SIGNATURE": base64.encode(sig).replace("+", "-").replace("/", "_")
@@ -324,7 +324,7 @@ var celExpressions = []struct {
 		"weights-and-biases-api-key",
 		`cel.bind(r,
   http.post("https://api.wandb.ai/graphql", {
-    "Authorization": "Basic " + base64.encode(bytes("api:" + secret)),
+    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"),
   r.status == 200 && r.body.contains("\"username\"") ? {
@@ -341,7 +341,7 @@ var celExpressions = []struct {
 		"ovh-application-secret",
 		`cel.bind(ts, string(time.now_unix()),
   cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
-    cel.bind(sig_payload, secret + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
+    cel.bind(sig_payload, finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
       cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),
         cel.bind(r,
           http.get(url, {

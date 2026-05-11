@@ -15,7 +15,7 @@ func WeightsAndBiases() *config.Rule {
 		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.wandb.ai/graphql", {
-    "Authorization": "Basic " + base64.encode(bytes("api:" + secret)),
+    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"),
   r.status == 200 && r.body.contains("\"username\"") ? {
@@ -48,7 +48,7 @@ func WeightsAndBiasesV1() *config.Rule {
 		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.wandb.ai/graphql", {
-    "Authorization": "Basic " + base64.encode(bytes("api:" + secret)),
+    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"),
   r.status == 200 && r.body.contains("\"username\"") ? {

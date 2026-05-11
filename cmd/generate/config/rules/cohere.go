@@ -19,7 +19,7 @@ func CohereAPIToken() *config.Rule {
 		},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.cohere.com/v1/connectors", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains('"connectors"') && r.body.contains('"total_count"') ? {
     "result": "valid"

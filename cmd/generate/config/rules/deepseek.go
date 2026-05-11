@@ -15,7 +15,7 @@ func DeepSeek() *config.Rule {
 		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.deepseek.com/models", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }),
   r.status == 200 && r.body.contains('"data"') ? {

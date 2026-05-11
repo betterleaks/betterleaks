@@ -19,7 +19,7 @@ func MailGunPrivateAPIToken() *config.Rule {
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.mailgun.net/v3/domains", {
     "Accept": "application/json",
-    "Authorization": "Basic " + base64.encode(bytes("api:" + secret))
+    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"]))
   }),
   r.status == 200 ? {
     "result": "valid"

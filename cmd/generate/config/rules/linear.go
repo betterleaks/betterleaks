@@ -17,7 +17,7 @@ func LinearAPIToken() *config.Rule {
 		Keywords:    []string{"lin_api_"},
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.linear.app/graphql", {
-    "Authorization": secret,
+    "Authorization": finding["secret"],
     "Content-Type": "application/json"
   }, "{\"query\": \"query { viewer { id name email } }\"}"),
   r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") ? {

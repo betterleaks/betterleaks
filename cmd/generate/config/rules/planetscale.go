@@ -64,7 +64,7 @@ func PlanetScaleAPIToken() *config.Rule {
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.planetscale.com/v1/organizations", {
     "Accept": "application/json",
-    "Authorization": captures["planetscale-id"] + ":" + secret
+    "Authorization": captures["planetscale-id"] + ":" + finding["secret"]
   }),
   r.status == 200 && r.json.?type.orValue("") == "list" ? {
     "result": "valid",

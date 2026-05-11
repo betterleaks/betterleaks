@@ -18,7 +18,7 @@ func OpenAI() *config.Rule {
 		},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.openai.com/v1/models", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.json.?object.orValue("") == "list" ? {
     "result": "valid"

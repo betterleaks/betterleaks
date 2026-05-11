@@ -10,7 +10,7 @@ import (
 const githubTokenCEL = `cel.bind(r,
   http.get("https://api.github.com/user", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "token " + secret
+    "Authorization": "token " + finding["secret"]
   }),
   r.status == 200 && r.json.?login.orValue("") != "" ? {
     "result": "valid",
@@ -95,7 +95,7 @@ func GitHubOauth() *config.Rule {
 const githubAppTokenCEL = `cel.bind(r,
   http.get("https://api.github.com/app", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.json.?slug.orValue("") != "" ? {
     "result": "valid",

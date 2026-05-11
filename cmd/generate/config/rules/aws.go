@@ -29,7 +29,7 @@ func AWS() *config.Rule {
 			},
 		},
 		ValidateCEL: `cel.bind(r,
-  aws.validate(secret, captures["aws-secret-access-key"]),
+  aws.validate(finding["secret"], captures["aws-secret-access-key"]),
   r.status == 200 ? {
     "result": "valid",
     "arn": r.arn,

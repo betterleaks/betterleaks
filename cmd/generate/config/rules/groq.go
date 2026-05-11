@@ -15,7 +15,7 @@ func Groq() *config.Rule {
 		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.groq.com/openai/v1/models", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains('"id"') && r.body.contains('"data"') ? {
     "result": "valid"

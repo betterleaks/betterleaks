@@ -73,7 +73,7 @@ func PolymarketAPIKey() *config.Rule {
     ),
     cel.bind(r,
       http.get("https://clob.polymarket.com/data/orders", {
-        "POLY_BUILDER_API_KEY": secret,
+        "POLY_BUILDER_API_KEY": finding["secret"],
         "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
         "POLY_BUILDER_TIMESTAMP": ts,
         "POLY_BUILDER_SIGNATURE": base64.encode(sig).replace("+", "-").replace("/", "_")

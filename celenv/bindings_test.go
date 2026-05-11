@@ -28,7 +28,7 @@ func TestBindings(t *testing.T) {
 		},
 		{
 			name:   "md5 secret variable",
-			expr:   `hex.encode(crypto.md5(bytes(secret)))`,
+			expr:   `hex.encode(crypto.md5(bytes(finding["secret"])))`,
 			secret: "test123",
 			want:   "cc03e747a6afbbcbf8be7668acfebee5",
 		},
@@ -50,7 +50,7 @@ func TestBindings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
-		got, err := env.Eval(prg, "", nil, nil)
+		got, err := env.Eval(prg, nil, nil)
 		if err != nil {
 			t.Fatalf("eval: %v", err)
 		}
@@ -68,7 +68,7 @@ func TestBindings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
-		got, err := env.Eval(prg, "", nil, nil)
+		got, err := env.Eval(prg, nil, nil)
 		if err != nil {
 			t.Fatalf("eval: %v", err)
 		}
@@ -88,7 +88,7 @@ func TestBindings(t *testing.T) {
 				t.Fatalf("compile: %v", err)
 			}
 
-			got, err := env.Eval(prg, tc.secret, nil, nil)
+			got, err := env.Eval(prg, map[string]string{"secret": tc.secret}, nil)
 			if err != nil {
 				t.Fatalf("eval: %v", err)
 			}

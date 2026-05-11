@@ -95,7 +95,7 @@ validate = '''
 cel.bind(r,
   http.get("https://events.1password.com/api/v2/auth/introspect", {
     "Accept": "application/json",
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains("\"features\"") ? {
     "result": "valid"
@@ -213,7 +213,7 @@ keywords = ["sk-ant-admin01"]
 validate = '''
 cel.bind(r,
   http.get("https://api.anthropic.com/v1/organizations/me", {
-    "x-api-key": secret,
+    "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
   }),
   r.status == 200 && r.json.?id.orValue("") != "" && r.json.?type.orValue("") == "organization" ? {
@@ -237,7 +237,7 @@ keywords = ["sk-ant-api03"]
 validate = '''
 cel.bind(r,
   http.get("https://api.anthropic.com/v1/models", {
-    "x-api-key": secret,
+    "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
   }),
   r.status == 200 && r.body.contains('"data"') && r.body.contains('"type"') ? {
@@ -353,7 +353,7 @@ keywords = [
 ]
 validate = '''
 cel.bind(r,
-  aws.validate(secret, captures["aws-secret-access-key"]),
+  aws.validate(finding["secret"], captures["aws-secret-access-key"]),
   r.status == 200 ? {
     "result": "valid",
     "arn": r.arn,
@@ -489,7 +489,7 @@ keywords = ["csk-"]
 validate = '''
 cel.bind(r,
   http.get("https://api.cerebras.ai/v1/models", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains('"object"') && r.body.contains('"data"') ? {
     "result": "valid"
@@ -601,7 +601,7 @@ keywords = [
 validate = '''
 cel.bind(r,
   http.get("https://api.cohere.com/v1/connectors", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains('"connectors"') && r.body.contains('"total_count"') ? {
     "result": "valid"
@@ -695,7 +695,7 @@ validate = '''
 cel.bind(r,
   http.get("https://api.cursor.com/v0/me", {
     "Accept": "application/json",
-    "Authorization": "Basic " + base64.encode(bytes(secret))
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"]))
   }),
   r.status == 200 && r.body.contains('"userEmail"') ? {
     "result": "valid"
@@ -753,7 +753,7 @@ keywords = ["deepseek"]
 validate = '''
 cel.bind(r,
   http.get("https://api.deepseek.com/models", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }),
   r.status == 200 && r.body.contains('"data"') ? {
@@ -1037,7 +1037,7 @@ keywords = ["fastly"]
 validate = '''
 cel.bind(r,
   http.get("https://api.fastly.com/current_user", {
-    "Fastly-Key": secret
+    "Fastly-Key": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -1069,7 +1069,7 @@ keywords = [
 validate = '''
 cel.bind(r,
   http.get("https://api.figma.com/v1/me", {
-    "X-Figma-Token": secret
+    "X-Figma-Token": finding["secret"]
   }),
   r.status == 200 && !r.body.contains("Invalid token") ? {
     "result": "valid",
@@ -1094,7 +1094,7 @@ keywords = ["figd_"]
 validate = '''
 cel.bind(r,
   http.get("https://api.figma.com/v1/me", {
-    "X-Figma-Token": secret
+    "X-Figma-Token": finding["secret"]
   }),
   r.status == 200 && !r.body.contains("Invalid token") ? {
     "result": "valid",
@@ -1194,7 +1194,7 @@ keywords = ["flyv1"]
 validate = '''
 cel.bind(r,
   http.post("https://api.fly.io/graphql", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
   }, "{\"query\": \"query { viewer { id email name } }\"}"),
   r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") && r.body.contains("\"email\"") ? {
@@ -2783,7 +2783,7 @@ validate = '''
 cel.bind(r,
   http.get("https://api.github.com/app", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.json.?slug.orValue("") != "" ? {
     "result": "valid",
@@ -2814,7 +2814,7 @@ validate = '''
 cel.bind(r,
   http.get("https://api.github.com/user", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "token " + secret
+    "Authorization": "token " + finding["secret"]
   }),
   r.status == 200 && r.json.?login.orValue("") != "" ? {
     "result": "valid",
@@ -2843,7 +2843,7 @@ validate = '''
 cel.bind(r,
   http.get("https://api.github.com/user", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "token " + secret
+    "Authorization": "token " + finding["secret"]
   }),
   r.status == 200 && r.json.?login.orValue("") != "" ? {
     "result": "valid",
@@ -2872,7 +2872,7 @@ validate = '''
 cel.bind(r,
   http.get("https://api.github.com/user", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "token " + secret
+    "Authorization": "token " + finding["secret"]
   }),
   r.status == 200 && r.json.?login.orValue("") != "" ? {
     "result": "valid",
@@ -2902,7 +2902,7 @@ validate = '''
 cel.bind(r,
   http.get("https://api.github.com/user", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "token " + secret
+    "Authorization": "token " + finding["secret"]
   }),
   r.status == 200 && r.json.?login.orValue("") != "" ? {
     "result": "valid",
@@ -2930,7 +2930,7 @@ keywords = ["glcbt-"]
 validate = '''
 cel.bind(r,
   http.get("https://gitlab.com/api/v4/user", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -2955,7 +2955,7 @@ keywords = ["gldt-"]
 validate = '''
 cel.bind(r,
   http.get("https://gitlab.com/api/v4/user", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -3040,7 +3040,7 @@ keywords = ["glpat-"]
 validate = '''
 cel.bind(r,
   http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -3066,7 +3066,7 @@ keywords = ["glpat-"]
 validate = '''
 cel.bind(r,
   http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -3092,7 +3092,7 @@ keywords = ["glpat-"]
 validate = '''
 cel.bind(r,
   http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -3118,7 +3118,7 @@ keywords = ["glptt-"]
 validate = '''
 cel.bind(r,
   http.get("https://gitlab.com/api/v4/user", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -3144,7 +3144,7 @@ validate = '''
 cel.bind(r,
   http.post("https://gitlab.com/api/v4/runners/verify", {
     "Content-Type": "application/x-www-form-urlencoded"
-  }, "token=" + secret),
+  }, "token=" + finding["secret"]),
   r.status == 200 && !r.body.contains("token is missing") && !r.body.contains("403 Forbidden") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
@@ -3168,7 +3168,7 @@ keywords = ["glrt-"]
 validate = '''
 cel.bind(r,
   http.get("https://gitlab.com/api/v4/user", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -3193,7 +3193,7 @@ keywords = ["glrt-"]
 validate = '''
 cel.bind(r,
   http.get("https://gitlab.com/api/v4/user", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -3311,7 +3311,7 @@ keywords = ["gsk_"]
 validate = '''
 cel.bind(r,
   http.get("https://api.groq.com/openai/v1/models", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains('"id"') && r.body.contains('"data"') ? {
     "result": "valid"
@@ -3340,7 +3340,7 @@ validate = '''
 cel.bind(r,
   http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {
     "Accept": "application/json",
-    "x-api-key": secret
+    "x-api-key": finding["secret"]
   }),
   r.status in [200, 403] ? {
     "result": "valid"
@@ -3423,7 +3423,7 @@ keywords = ["hf_"]
 validate = '''
 cel.bind(r,
   http.get("https://huggingface.co/api/whoami-v2", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -3452,7 +3452,7 @@ keywords = ["api_org_"]
 validate = '''
 cel.bind(r,
   http.get("https://huggingface.co/api/whoami-v2", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -3620,7 +3620,7 @@ keywords = ["lin_api_"]
 validate = '''
 cel.bind(r,
   http.post("https://api.linear.app/graphql", {
-    "Authorization": secret,
+    "Authorization": finding["secret"],
     "Content-Type": "application/json"
   }, "{\"query\": \"query { viewer { id name email } }\"}"),
   r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") ? {
@@ -3733,11 +3733,11 @@ description = "Identified a Mailchimp API key, potentially compromising email ma
 regex = '''(?i)[\w.-]{0,50}?(?:MailchimpSDK.initialize|mailchimp)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32}-us\d\d)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["mailchimp"]
 validate = '''
-cel.bind(dc, secret.substring(secret.lastIndexOf("-") + 1),
+cel.bind(dc, finding["secret"].substring(finding["secret"].lastIndexOf("-") + 1),
   cel.bind(r,
     http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
       "Accept": "application/json",
-      "Authorization": "Basic " + base64.encode(bytes("x:" + secret))
+      "Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"]))
     }),
     r.status == 200 ? {
       "result": "valid"
@@ -3761,7 +3761,7 @@ validate = '''
 cel.bind(r,
   http.get("https://api.mailgun.net/v3/domains", {
     "Accept": "application/json",
-    "Authorization": "Basic " + base64.encode(bytes("api:" + secret))
+    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"]))
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -3870,7 +3870,7 @@ keywords = ["mistral"]
 validate = '''
 cel.bind(r,
   http.get("https://api.mistral.ai/v1/models", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }),
   r.status == 200 && r.body.contains('"data"') ? {
@@ -3892,9 +3892,11 @@ entropy(finding["secret"]) <= 3.0
 id = "mongodb-atlas-service-account-id"
 description = "Found a MongoDB Atlas service account client ID."
 regex = '''\b(mdb_sa_id_[a-f0-9]{24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-entropy = 3
 keywords = ["mdb_sa_id_"]
 skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # mongodb-atlas-service-account-secret
@@ -3903,14 +3905,13 @@ skipReport = true
 id = "mongodb-atlas-service-account-secret"
 description = "Detected a MongoDB Atlas service account client secret, which could allow unauthorized Atlas administration API access when paired with a service account client ID."
 regex = '''\b(mdb_sa_sk_[A-Za-z0-9_-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-entropy = 3
 keywords = ["mdb_sa_sk_"]
 validate = '''
 cel.bind(r,
   http.post("https://cloud.mongodb.com/api/oauth/token", {
     "Accept": "application/json",
     "Content-Type": "application/x-www-form-urlencoded",
-    "Authorization": "Basic " + base64.encode(bytes(captures["mongodb-atlas-service-account-id"] + ":" + secret))
+    "Authorization": "Basic " + base64.encode(bytes(captures["mongodb-atlas-service-account-id"] + ":" + finding["secret"]))
   }, "grant_type=client_credentials"),
   r.status == 200 && r.json.?access_token.orValue("") != "" ? {
     "result": "valid"
@@ -3920,10 +3921,10 @@ cel.bind(r,
   } : unknown(r)
 )
 '''
-[[rules.allowlists]]
-regexes = [
-    '''^mdb_sa_sk_[0-9]{40}$''',
-]
+filter = '''
+matchesAny(finding["secret"], ["^mdb_sa_sk_[0-9]{40}$"])
+|| entropy(finding["secret"]) <= 3.0
+'''
 [[rules.required]]
 id = "mongodb-atlas-service-account-id"
 
@@ -3934,16 +3935,17 @@ id = "mongodb-atlas-service-account-id"
 id = "mongodb-connection-string"
 description = "Detected a MongoDB connection string with embedded credentials, potentially exposing direct database access and sensitive application data."
 regex = '''\b(mongodb(?:\+srv)?://(?P<username>[!-9;-~]{3,50}):(?P<password>[!-?A-~]{3,88})@(?P<host>(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?(?:,(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?)*)/?(?:(?P<authdb>[\w-]+)?(?P<options>\?\w+=[\w@/.$-]+(?:&(?:amp;)?\w+=[\w@/.$-]+)*)?)?)(?:['"\s;\x60]|\\[nr]|\b|$)'''
-entropy = 4
 keywords = [
     "mongodb://",
     "mongodb+srv://",
 ]
-[[rules.allowlists]]
-regexes = [
-    '''(?i)\bmongodb(?:\+srv)?:\/\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\/]*)?@''',
-    '''(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*''',
-]
+filter = '''
+matchesAny(finding["secret"], [
+  r"""(?i)\bmongodb(?:\+srv)?:\/\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\/]*)?@""",
+  r"""(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*"""
+])
+|| entropy(finding["secret"]) <= 4.0
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # netlify-access-token
@@ -4108,7 +4110,7 @@ keywords = ["t3blbkfj"]
 validate = '''
 cel.bind(r,
   http.get("https://api.openai.com/v1/models", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.json.?object.orValue("") == "list" ? {
     "result": "valid"
@@ -4153,9 +4155,11 @@ entropy(finding["secret"]) <= 3.5
 id = "ovh-application-key"
 description = "OVHcloud Application Key - component of authenticated OVH API requests."
 regex = '''(?i)[\w.-]{0,50}?(?:app(?:lication)?[_.-]{0,1}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{16})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-entropy = 2
 keywords = ["ovh"]
 skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 2.0
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ovh-application-secret
@@ -4164,12 +4168,11 @@ skipReport = true
 id = "ovh-application-secret"
 description = "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys."
 regex = '''(?i)[\w.-]{0,50}?(?:app(?:lication)?[_.-]{0,1}secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-entropy = 3
 keywords = ["ovh"]
 validate = '''
 cel.bind(ts, time.now_unix(),
   cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
-    cel.bind(sig_payload, secret + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
+    cel.bind(sig_payload, finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
       cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),
         cel.bind(r,
           http.get(url, {
@@ -4190,6 +4193,9 @@ cel.bind(ts, time.now_unix(),
   )
 )
 '''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
 [[rules.required]]
 id = "ovh-application-key"
 withinLines = 20
@@ -4204,9 +4210,11 @@ withinLines = 20
 id = "ovh-consumer-key"
 description = "OVHcloud Consumer Key - component of authenticated OVH API requests."
 regex = '''(?i)[\w.-]{0,50}?(?:consumer[_.-]{0,1}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-entropy = 2
 keywords = ["ovh"]
 skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 2.0
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # perplexity-api-key
@@ -4215,12 +4223,11 @@ skipReport = true
 id = "perplexity-api-key"
 description = "Detected a Perplexity API key, which could lead to unauthorized access to Perplexity AI services and data exposure."
 regex = '''\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)'''
-entropy = 4
 keywords = ["pplx-"]
 validate = '''
 cel.bind(r,
   http.post("https://api.perplexity.ai/chat/completions", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
   }, "{\"model\":\"invalid-model-for-validation\",\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}"),
   r.status in [200, 400, 404, 422] ? {
@@ -4230,6 +4237,9 @@ cel.bind(r,
     "reason": "Unauthorized"
   } : unknown(r)
 )
+'''
+filter = '''
+entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4285,7 +4295,7 @@ validate = '''
 cel.bind(r,
   http.get("https://api.planetscale.com/v1/organizations", {
     "Accept": "application/json",
-    "Authorization": captures["planetscale-id"] + ":" + secret
+    "Authorization": captures["planetscale-id"] + ":" + finding["secret"]
   }),
   r.status == 200 && r.json.?type.orValue("") == "list" ? {
     "result": "valid",
@@ -4369,7 +4379,7 @@ cel.bind(ts, time.now_unix(),
     ),
     cel.bind(r,
       http.get("https://clob.polymarket.com/data/orders", {
-        "POLY_BUILDER_API_KEY": secret,
+        "POLY_BUILDER_API_KEY": finding["secret"],
         "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
         "POLY_BUILDER_TIMESTAMP": ts,
         "POLY_BUILDER_SIGNATURE": base64.encode(sig).replace("+", "-").replace("/", "_")
@@ -4561,7 +4571,7 @@ keywords = ["r8_"]
 validate = '''
 cel.bind(r,
   http.get("https://api.replicate.com/v1/account", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains('"type"') && r.body.contains('"username"') && r.body.contains('"name"') ? {
     "result": "valid",
@@ -5072,7 +5082,7 @@ keywords = ["tgp_v1_"]
 validate = '''
 cel.bind(r,
   http.get("https://api.together.xyz/v1/models", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }),
   r.status == 200 && r.body.contains('"id"') && r.body.contains('"object"') ? {
@@ -5210,7 +5220,7 @@ keywords = ["vck_"]
 validate = '''
 cel.bind(r,
   http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
   }, "{\"model\":\"openai/gpt-3.5-turbo\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"max_tokens\":1}"),
   r.status in [200, 403] ? {
@@ -5236,7 +5246,7 @@ keywords = ["vercel"]
 validate = '''
 cel.bind(r,
   http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
     "result": "valid",
@@ -5264,7 +5274,7 @@ keywords = ["vca_"]
 validate = '''
 cel.bind(r,
   http.post("https://api.vercel.com/login/oauth/userinfo", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }, ""),
   r.status == 200 && r.body.contains("\"sub\"") ? {
     "result": "valid",
@@ -5292,7 +5302,7 @@ validate = '''
 cel.bind(r,
   http.post("https://api.vercel.com/login/oauth/token/introspect", {
     "Content-Type": "application/x-www-form-urlencoded"
-  }, "token=" + secret),
+  }, "token=" + finding["secret"]),
   r.status == 200 && r.body.contains("\"active\":true") ? {
     "result": "valid"
   } : r.status == 200 && r.body.contains("\"active\":false") ? {
@@ -5319,7 +5329,7 @@ keywords = ["vci_"]
 validate = '''
 cel.bind(r,
   http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains("\"user\"") ? {
     "result": "valid",
@@ -5347,7 +5357,7 @@ keywords = ["vcp_"]
 validate = '''
 cel.bind(r,
   http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
     "result": "valid",
@@ -5378,7 +5388,7 @@ keywords = [
 validate = '''
 cel.bind(r,
   http.post("https://api.wandb.ai/graphql", {
-    "Authorization": "Basic " + base64.encode(bytes("api:" + secret)),
+    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"),
   r.status == 200 && r.body.contains("\"username\"") ? {
@@ -5406,7 +5416,7 @@ keywords = ["wandb_v1_"]
 validate = '''
 cel.bind(r,
   http.post("https://api.wandb.ai/graphql", {
-    "Authorization": "Basic " + base64.encode(bytes("api:" + secret)),
+    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"),
   r.status == 200 && r.body.contains("\"username\"") ? {

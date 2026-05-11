@@ -15,7 +15,7 @@ func Cerebras() *config.Rule {
 		Entropy:     3.0,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.cerebras.ai/v1/models", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains('"object"') && r.body.contains('"data"') ? {
     "result": "valid"

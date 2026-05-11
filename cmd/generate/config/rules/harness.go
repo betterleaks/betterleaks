@@ -18,7 +18,7 @@ func HarnessApiKey() *config.Rule {
 		ValidateCEL: `cel.bind(r,
   http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {
     "Accept": "application/json",
-    "x-api-key": secret
+    "x-api-key": finding["secret"]
   }),
   r.status in [200, 403] ? {
     "result": "valid"

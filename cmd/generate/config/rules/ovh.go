@@ -61,7 +61,7 @@ func OVHApplicationSecret() *config.Rule {
 		Keywords:    []string{"ovh"},
 		ValidateCEL: `cel.bind(ts, time.now_unix(),
   cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
-    cel.bind(sig_payload, secret + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
+    cel.bind(sig_payload, finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
       cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),
         cel.bind(r,
           http.get(url, {

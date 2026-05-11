@@ -15,7 +15,7 @@ func Replicate() *config.Rule {
 		Entropy:     3.0,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.replicate.com/v1/account", {
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.body.contains('"type"') && r.body.contains('"username"') && r.body.contains('"name"') ? {
     "result": "valid",

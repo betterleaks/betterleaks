@@ -16,7 +16,7 @@ func FigmaPersonalAccessToken() *config.Rule {
 		Keywords:    []string{"figd_"},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.figma.com/v1/me", {
-    "X-Figma-Token": secret
+    "X-Figma-Token": finding["secret"]
   }),
   r.status == 200 && !r.body.contains("Invalid token") ? {
     "result": "valid",
@@ -48,7 +48,7 @@ func FigmaPersonalAccessHeaderToken() *config.Rule {
 		Keywords:    []string{"X-Figma-Token", "xfigmatoken", "x_figma_token"},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.figma.com/v1/me", {
-    "X-Figma-Token": secret
+    "X-Figma-Token": finding["secret"]
   }),
   r.status == 200 && !r.body.contains("Invalid token") ? {
     "result": "valid",

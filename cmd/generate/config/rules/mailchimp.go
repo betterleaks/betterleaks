@@ -16,11 +16,11 @@ func MailChimp() *config.Rule {
 		Keywords: []string{
 			"mailchimp",
 		},
-		ValidateCEL: `cel.bind(dc, secret.substring(secret.lastIndexOf("-") + 1),
+		ValidateCEL: `cel.bind(dc, finding["secret"].substring(finding["secret"].lastIndexOf("-") + 1),
   cel.bind(r,
     http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
       "Accept": "application/json",
-      "Authorization": "Basic " + base64.encode(bytes("x:" + secret))
+      "Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"]))
     }),
     r.status == 200 ? {
       "result": "valid"

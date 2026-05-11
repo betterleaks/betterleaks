@@ -17,7 +17,7 @@ func AnthropicApiKey() *config.Rule {
 		},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.anthropic.com/v1/models", {
-    "x-api-key": secret,
+    "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
   }),
   r.status == 200 && r.body.contains('"data"') && r.body.contains('"type"') ? {
@@ -60,7 +60,7 @@ func AnthropicAdminApiKey() *config.Rule {
 		},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.anthropic.com/v1/organizations/me", {
-    "x-api-key": secret,
+    "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
   }),
   r.status == 200 && r.json.?id.orValue("") != "" && r.json.?type.orValue("") == "organization" ? {

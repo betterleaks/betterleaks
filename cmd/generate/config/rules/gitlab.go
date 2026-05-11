@@ -18,7 +18,7 @@ const (
 	// Works for deploy tokens, CI/CD job tokens, runner auth tokens, etc.
 	gitlabUserCEL = `cel.bind(r,
   http.get("https://gitlab.com/api/v4/user", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid"
@@ -31,7 +31,7 @@ const (
 	// gitlabPatCEL validates PATs via the self-inspection endpoint (glpat- tokens).
 	gitlabPatCEL = `cel.bind(r,
   http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
-    "PRIVATE-TOKEN": secret
+    "PRIVATE-TOKEN": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",
@@ -46,7 +46,7 @@ const (
 	gitlabRunnerRegistrationCEL = `cel.bind(r,
   http.post("https://gitlab.com/api/v4/runners/verify", {
     "Content-Type": "application/x-www-form-urlencoded"
-  }, "token=" + secret),
+  }, "token=" + finding["secret"]),
   r.status == 200 && !r.body.contains("token is missing") && !r.body.contains("403 Forbidden") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {

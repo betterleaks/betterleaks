@@ -16,7 +16,7 @@ func PerplexityAPIKey() *config.Rule {
 		Entropy:     4.0,
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.perplexity.ai/chat/completions", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
   }, "{\"model\":\"invalid-model-for-validation\",\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}"),
   r.status in [200, 400, 404, 422] ? {

@@ -142,7 +142,7 @@ func TestAWSValidateCELBinding_Valid(t *testing.T) {
 	captures := map[string]string{
 		"aws-secret-access-key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
 	}
-	got, err := env.Eval(prg, "", finding, captures)
+	got, err := env.Eval(prg, finding, captures)
 	if err != nil {
 		t.Fatalf("eval: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestAWSValidateCELBinding_Invalid(t *testing.T) {
 	captures := map[string]string{
 		"aws-secret-access-key": "badkey",
 	}
-	got, err := env.Eval(prg, "", finding, captures)
+	got, err := env.Eval(prg, finding, captures)
 	if err != nil {
 		t.Fatalf("eval: %v", err)
 	}

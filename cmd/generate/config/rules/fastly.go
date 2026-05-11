@@ -16,7 +16,7 @@ func FastlyAPIToken() *config.Rule {
 		Keywords:    []string{"fastly"},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.fastly.com/current_user", {
-    "Fastly-Key": secret
+    "Fastly-Key": finding["secret"]
   }),
   r.status == 200 ? {
     "result": "valid",

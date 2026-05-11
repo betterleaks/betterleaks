@@ -21,7 +21,7 @@ func FlyIOAccessToken() *config.Rule {
 		Keywords:    []string{"flyv1"},
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.fly.io/graphql", {
-    "Authorization": "Bearer " + secret,
+    "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
   }, "{\"query\": \"query { viewer { id email name } }\"}"),
   r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") && r.body.contains("\"email\"") ? {

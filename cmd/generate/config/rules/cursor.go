@@ -16,7 +16,7 @@ func CursorAPIKey() *config.Rule {
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.cursor.com/v0/me", {
     "Accept": "application/json",
-    "Authorization": "Basic " + base64.encode(bytes(secret))
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"]))
   }),
   r.status == 200 && r.body.contains('"userEmail"') ? {
     "result": "valid"

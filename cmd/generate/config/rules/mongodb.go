@@ -23,7 +23,7 @@ func MongoDBAtlasServiceAccountSecret() *config.Rule {
   http.post("https://cloud.mongodb.com/api/oauth/token", {
     "Accept": "application/json",
     "Content-Type": "application/x-www-form-urlencoded",
-    "Authorization": "Basic " + base64.encode(bytes(captures["mongodb-atlas-service-account-id"] + ":" + secret))
+    "Authorization": "Basic " + base64.encode(bytes(captures["mongodb-atlas-service-account-id"] + ":" + finding["secret"]))
   }, "grant_type=client_credentials"),
   r.status == 200 && r.json.?access_token.orValue("") != "" ? {
     "result": "valid"
