@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/logging"
 	"github.com/google/cel-go/common/functions"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -132,8 +133,8 @@ func (e *ValidationEnvironment) captureDebug(method, url, reqBody string, req *h
 func buildResponseMap(statusCode int, body []byte, header http.Header) ref.Val {
 	var jsonBody any
 
-	// TODO log err
 	if err := json.Unmarshal(body, &jsonBody); err != nil {
+		logging.Debug().Err(err).Int("status", statusCode).Msg("http response body is not valid JSON, falling back to empty object")
 		jsonBody = map[string]any{}
 	}
 
