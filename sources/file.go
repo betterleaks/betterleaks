@@ -125,10 +125,12 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			return nil
 		}
 		if extractor, ok := format.(archives.Extractor); ok {
-			return s.extractorFragments(ctx, extractor, stream, yield)
+			s.extractorFragments(ctx, extractor, stream, yield)
+			return nil
 		}
 		if decompressor, ok := format.(archives.Decompressor); ok {
-			return s.decompressorFragments(ctx, decompressor, stream, yield)
+			s.decompressorFragments(ctx, decompressor, stream, yield)
+			return nil
 		}
 		logging.Warn().Str("path", s.FullPath()).Msg("skipping unknown archive type")
 	}
@@ -139,14 +141,14 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 }
 
 // extractorFragments recursively crawls archives and yields fragments
-func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield FragmentsFunc) error {
+func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield FragmentsFunc) {
 	if _, isSeekReaderAt := reader.(seekReaderAt); !isSeekReaderAt {
 		switch extractor.(type) {
 		case archives.SevenZip, archives.Zip:
 			tmpfile, err := os.CreateTemp("", "gitleaks-archive-")
 			if err != nil {
 				logging.Error().Str("path", s.FullPath()).Msg("could not create tmp file")
-				return nil
+				return
 			}
 			defer func() {
 				_ = tmpfile.Close()
@@ -156,15 +158,17 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			_, err = io.Copy(tmpfile, reader)
 			if err != nil {
 				logging.Error().Str("path", s.FullPath()).Msg("could not copy archive file")
-				return nil
+				return
 			}
 
 			reader = tmpfile
 		}
 	}
 
-	return extractor.Extract(ctx, reader, func(_ context.Context, d archives.FileInfo) error {
-		if d.IsDir() {
+	err := extractor.Extract(ctx, reader, func(_ context.Context, d archives.FileInfo) error {
+		path := filepath.Clean(d.NameInArchive)
+		if !d.Mode().IsRegular() {
+			logging.Trace().Str("path", path).Msg("skipping non-regular file")
 			return nil
 		}
 
@@ -174,7 +178,6 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			return nil
 		}
 		defer innerReader.Close()
-		path := filepath.Clean(d.NameInArchive)
 
 		if s.ShouldSkip != nil && shouldSkipPath(s.ShouldSkip, path) {
 			logging.Debug().Str("path", s.FullPath()).Msg("skipping file: global allowlist")
@@ -191,31 +194,30 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			archiveDepth:    s.archiveDepth + 1,
 		}
 
-		if err := file.Fragments(ctx, yield); err != nil {
-			return err
-		}
-
-		return nil
+		return file.Fragments(ctx, yield)
 	})
+
+	if err != nil {
+		logging.Error().Err(err).Str("path", s.FullPath()).Msg("error generating file fragments")
+	}
 }
 
 // decompressorFragments recursively crawls archives and yields fragments
-func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) error {
+func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) {
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
 		logging.Error().Str("path", s.FullPath()).Msg("could not read compressed file")
-		return nil
+		return
 	}
 
 	br := getReader(innerReader)
 	defer putReader(br)
 	if err := s.fileFragments(ctx, br, yield); err != nil {
-		_ = innerReader.Close()
-		return err
+		logging.Error().Err(err).Str("path", s.FullPath()).Msg("error generating file fragments")
 	}
 
 	_ = innerReader.Close()
-	return nil
+	return
 }
 
 // fileFragments reads the file into fragments to yield
