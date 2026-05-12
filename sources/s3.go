@@ -2,9 +2,6 @@ package sources
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -13,29 +10,29 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/sigv4"
 )
 
 const (
 	s3DefaultMaxObjectSize int64 = 250 * 1024 * 1024 // 250 MiB
 	s3DefaultWorkers             = 16
-	s3GetObjectTimeout           = 30 * time.Second
-	s3ListPageSize               = 1000
-	s3Service                    = "s3"
-	s3SignAlgorithm              = "AWS4-HMAC-SHA256"
-	s3EmptyPayloadSHA256         = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	s3StorageClassGlacier        = "GLACIER"
-	s3StorageClassGlacierIR      = "GLACIER_IR"
-	s3StorageClassDeepArchive    = "DEEP_ARCHIVE"
+	// s3PerObjectTimeout covers the full per-object scan (HTTP GET + body
+	// read + content scanning). Sized for the default 250 MiB cap at modest
+	// bandwidth, with room for archive extraction.
+	s3PerObjectTimeout        = 5 * time.Minute
+	s3ListPageSize            = 1000
+	s3Service                 = "s3"
+	s3StorageClassGlacier     = "GLACIER"
+	s3StorageClassGlacierIR   = "GLACIER_IR"
+	s3StorageClassDeepArchive = "DEEP_ARCHIVE"
 )
 
 // S3 enumerates objects in an S3 (or S3-compatible) bucket and yields a
@@ -67,7 +64,6 @@ type S3 struct {
 	MaxObjectSize   int64
 	Workers         int
 	ShouldSkip      SkipFunc
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
 
 	parsed s3Target
@@ -286,8 +282,8 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 
 	start := time.Now()
 	var (
-		objectCount  int
-		scannedCount int
+		listedCount  int // every object returned by ListObjectsV2
+		scannedCount int // objects fully fetched + processed without error
 		mu           sync.Mutex
 	)
 
@@ -297,6 +293,7 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 		if err != nil {
 			return fmt.Errorf("list objects: %w", err)
 		}
+		listedCount += len(page.Contents)
 
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(workers)
@@ -310,7 +307,6 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 				logging.Trace().Str("key", obj.Key).Msg("skipping object: filtered by prefilter")
 				continue
 			}
-			objectCount++
 			g.Go(func() error {
 				if err := s.scanObject(gctx, client, target, obj, attrs, yield); err != nil {
 					logging.Error().Err(err).Str("key", obj.Key).Msg("could not scan S3 object")
@@ -333,7 +329,7 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 
 	logging.Info().
 		Str("bucket", target.Bucket).
-		Int("objects_listed", objectCount).
+		Int("objects_listed", listedCount).
 		Int("objects_scanned", scannedCount).
 		Str("duration", time.Since(start).Round(time.Millisecond).String()).
 		Msg("S3 scan complete")
@@ -382,7 +378,7 @@ func (s *S3) objectAttributes(target s3Target, obj s3Object) map[string]string {
 // scanObject GETs an object and pipes its body through File.Fragments, which
 // already handles archives, mime sniffing, and chunk boundaries.
 func (s *S3) scanObject(ctx context.Context, client *http.Client, target s3Target, obj s3Object, attrs map[string]string, yield FragmentsFunc) error {
-	objCtx, cancel := context.WithTimeout(ctx, s3GetObjectTimeout)
+	objCtx, cancel := context.WithTimeout(ctx, s3PerObjectTimeout)
 	defer cancel()
 
 	body, err := s3GetObject(objCtx, client, target, s.creds, obj.Key)
@@ -398,7 +394,7 @@ func (s *S3) scanObject(ctx context.Context, client *http.Client, target s3Targe
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		ShouldSkip:      s.ShouldSkip,
 	}
-	return file.Fragments(ctx, stampedYield)
+	return file.Fragments(objCtx, stampedYield)
 }
 
 // wrapYieldWithAttrs returns a yield that stamps the given attrs on every
@@ -527,11 +523,28 @@ func parseAWSHostURL(u *url.URL, hostOnly, path string) (s3Target, error) {
 	}
 	prefix := labels[:len(labels)-2]
 
-	// Virtual-hosted: bucket.s3[.region].amazonaws.com
+	// Reject accelerate / fips variants explicitly so users get a clear error
+	// rather than a hard-to-debug auth failure. The regional virtual-hosted
+	// form works for the same buckets.
+	for _, label := range prefix {
+		switch {
+		case label == "s3-accelerate", label == "s3-accelerate-fips":
+			return s3Target{}, fmt.Errorf("S3 Transfer Acceleration endpoint %q is not supported; use the regional form like bucket.s3.<region>.amazonaws.com", hostOnly)
+		case strings.HasPrefix(label, "s3-fips"):
+			return s3Target{}, fmt.Errorf("S3 FIPS endpoint %q is not supported; use the regional form like bucket.s3.<region>.amazonaws.com", hostOnly)
+		}
+	}
+
+	// Virtual-hosted: bucket.s3[.dualstack][.region].amazonaws.com
 	for i := 1; i < len(prefix); i++ {
 		if prefix[i] == "s3" {
 			bucket := strings.Join(prefix[:i], ".")
 			rest := prefix[i+1:]
+			// "dualstack" is an IPv6-capable qualifier that appears between
+			// "s3" and the region. Skip it; signing region is the one after.
+			if len(rest) >= 1 && rest[0] == "dualstack" {
+				rest = rest[1:]
+			}
 			region := ""
 			if len(rest) >= 1 {
 				region = rest[0]
@@ -550,11 +563,15 @@ func parseAWSHostURL(u *url.URL, hostOnly, path string) (s3Target, error) {
 		}
 	}
 
-	// Path-style: s3[.region].amazonaws.com / bucket
+	// Path-style: s3[.dualstack][.region].amazonaws.com / bucket
 	if prefix[0] == "s3" {
+		rest := prefix[1:]
+		if len(rest) >= 1 && rest[0] == "dualstack" {
+			rest = rest[1:]
+		}
 		region := ""
-		if len(prefix) >= 2 {
-			region = prefix[1]
+		if len(rest) >= 1 {
+			region = rest[0]
 		}
 		bucket, bPrefix := splitBucketAndPrefix(path)
 		if bucket == "" {
@@ -808,23 +825,15 @@ func s3NewRequest(ctx context.Context, method string, target s3Target, key strin
 		// Each key segment URI-encoded; "/" preserved between segments.
 		path = strings.TrimSuffix(path, "/") + "/" + s3EncodeKey(key)
 	}
-	u := url.URL{
-		Scheme: target.Scheme,
-		Host:   target.Host,
-		Path:   path,
+	// Build the URL string directly so the percent-encoded path we computed is
+	// what hits the wire. Going through url.URL{Path: path}.String() would
+	// re-escape '%' into '%25' (double-encoding), invalidating the signature
+	// and routing for any key containing a non-unreserved character.
+	urlStr := target.Scheme + "://" + target.Host + path
+	if len(query) > 0 {
+		urlStr += "?" + query.Encode()
 	}
-	if query != nil {
-		u.RawQuery = query.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	// Replace stdlib's RawPath/Path normalization; we want raw bytes to match
-	// what we sign.
-	req.URL.Opaque = ""
-	req.URL.RawPath = path
-	return req, nil
+	return http.NewRequestWithContext(ctx, method, urlStr, nil)
 }
 
 // s3ObjectURL builds a virtual-hosted-style public URL for the given key.
@@ -837,206 +846,21 @@ func s3ObjectURL(target s3Target, key string) string {
 	return fmt.Sprintf("%s://%s/%s", target.Scheme, target.Host, path)
 }
 
-// ---------------------------------------------------------------------------
-// SigV4
-// ---------------------------------------------------------------------------
-
-// s3Sign signs the request in place using AWS Signature Version 4.
-// Anonymous requests skip signing entirely.
-//
-// Spec: https://docs.aws.amazon.com/IAM/latest/UserGuide/create-signed-request.html
+// s3Sign signs req using SigV4 (s3 service) unless creds are anonymous, in
+// which case it leaves the request unsigned for buckets with public read.
 func s3Sign(req *http.Request, body []byte, region string, creds s3Creds) error {
 	if creds.Anonymous {
 		return nil
 	}
-	if creds.AccessKey == "" || creds.SecretKey == "" {
-		return errors.New("missing credentials for signed request")
-	}
-	now := time.Now().UTC()
-	amzDate := now.Format("20060102T150405Z")
-	dateStamp := now.Format("20060102")
-
-	var payloadHash string
-	if len(body) == 0 {
-		// All our requests (list, get-object) have empty request bodies.
-		payloadHash = s3EmptyPayloadSHA256
-	} else {
-		sum := sha256.Sum256(body)
-		payloadHash = hex.EncodeToString(sum[:])
-	}
-
-	req.Header.Set("Host", req.Host)
-	if req.Header.Get("Host") == "" {
-		req.Header.Set("Host", req.URL.Host)
-	}
-	req.Header.Set("X-Amz-Date", amzDate)
-	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
-	if creds.SessionToken != "" {
-		req.Header.Set("X-Amz-Security-Token", creds.SessionToken)
-	}
-
-	canonicalHeaders, signedHeaders := s3CanonicalHeaders(req)
-	canonicalQuery := s3CanonicalQuery(req.URL.Query())
-	canonicalURI := s3CanonicalURI(req.URL.Path)
-
-	canonicalRequest := strings.Join([]string{
-		req.Method,
-		canonicalURI,
-		canonicalQuery,
-		canonicalHeaders,
-		signedHeaders,
-		payloadHash,
-	}, "\n")
-
-	scope := fmt.Sprintf("%s/%s/%s/aws4_request", dateStamp, region, s3Service)
-	hashedCanonical := sha256.Sum256([]byte(canonicalRequest))
-	stringToSign := strings.Join([]string{
-		s3SignAlgorithm,
-		amzDate,
-		scope,
-		hex.EncodeToString(hashedCanonical[:]),
-	}, "\n")
-
-	signingKey := s3DeriveSigningKey(creds.SecretKey, dateStamp, region, s3Service)
-	signature := hex.EncodeToString(s3HMAC(signingKey, []byte(stringToSign)))
-
-	auth := fmt.Sprintf(
-		"%s Credential=%s/%s, SignedHeaders=%s, Signature=%s",
-		s3SignAlgorithm,
-		creds.AccessKey,
-		scope,
-		signedHeaders,
-		signature,
-	)
-	req.Header.Set("Authorization", auth)
-	return nil
-}
-
-func s3CanonicalHeaders(req *http.Request) (canonical, signed string) {
-	type kv struct{ k, v string }
-	var headers []kv
-	headers = append(headers, kv{"host", req.Host})
-	if req.Host == "" {
-		headers[0].v = req.URL.Host
-	}
-	for name, values := range req.Header {
-		lower := strings.ToLower(name)
-		if lower == "host" || lower == "authorization" {
-			continue
-		}
-		// Only sign x-amz-* and Content-* headers; this matches what the SDK does
-		// for typical S3 requests and avoids accidentally signing headers added by
-		// http.Client (Accept-Encoding, User-Agent).
-		if !strings.HasPrefix(lower, "x-amz-") && !strings.HasPrefix(lower, "content-") {
-			continue
-		}
-		headers = append(headers, kv{lower, strings.Join(values, ",")})
-	}
-	sort.Slice(headers, func(i, j int) bool { return headers[i].k < headers[j].k })
-
-	var cb, sb strings.Builder
-	for i, h := range headers {
-		cb.WriteString(h.k)
-		cb.WriteByte(':')
-		cb.WriteString(strings.TrimSpace(collapseWhitespace(h.v)))
-		cb.WriteByte('\n')
-		if i > 0 {
-			sb.WriteByte(';')
-		}
-		sb.WriteString(h.k)
-	}
-	return cb.String(), sb.String()
-}
-
-func collapseWhitespace(s string) string {
-	// AWS spec: convert sequential whitespace into a single space inside header values.
-	var b strings.Builder
-	var prevSpace bool
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == ' ' || c == '\t' {
-			if !prevSpace {
-				b.WriteByte(' ')
-				prevSpace = true
-			}
-			continue
-		}
-		prevSpace = false
-		b.WriteByte(c)
-	}
-	return b.String()
-}
-
-func s3CanonicalQuery(values url.Values) string {
-	if len(values) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for i, k := range keys {
-		vs := values[k]
-		sort.Strings(vs)
-		for j, v := range vs {
-			if i > 0 || j > 0 {
-				b.WriteByte('&')
-			}
-			b.WriteString(s3URIEncode(k, true))
-			b.WriteByte('=')
-			b.WriteString(s3URIEncode(v, true))
-		}
-	}
-	return b.String()
-}
-
-// s3CanonicalURI URI-encodes the path once (S3-style); "/" is preserved.
-func s3CanonicalURI(path string) string {
-	if path == "" {
-		return "/"
-	}
-	return s3URIEncode(path, false)
+	return sigv4.Sign(req, body, region, s3Service, sigv4.Credentials{
+		AccessKey:    creds.AccessKey,
+		SecretKey:    creds.SecretKey,
+		SessionToken: creds.SessionToken,
+	})
 }
 
 // s3EncodeKey URI-encodes a key, preserving "/" between segments. Used when
-// constructing request URLs (not for signing — signing uses s3CanonicalURI on
-// the full path).
+// constructing request URLs.
 func s3EncodeKey(key string) string {
-	return s3URIEncode(key, false)
-}
-
-// s3URIEncode applies the AWS-spec URI encoding: unreserved chars (A-Z, a-z,
-// 0-9, '-', '_', '.', '~') pass through; everything else is percent-encoded.
-// When encodeSlash is false, '/' is preserved (used for path segments).
-func s3URIEncode(s string, encodeSlash bool) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'),
-			c == '-', c == '_', c == '.', c == '~':
-			b.WriteByte(c)
-		case c == '/' && !encodeSlash:
-			b.WriteByte(c)
-		default:
-			fmt.Fprintf(&b, "%%%02X", c)
-		}
-	}
-	return b.String()
-}
-
-func s3DeriveSigningKey(secret, dateStamp, region, service string) []byte {
-	kDate := s3HMAC([]byte("AWS4"+secret), []byte(dateStamp))
-	kRegion := s3HMAC(kDate, []byte(region))
-	kService := s3HMAC(kRegion, []byte(service))
-	return s3HMAC(kService, []byte("aws4_request"))
-}
-
-func s3HMAC(key, data []byte) []byte {
-	h := hmac.New(sha256.New, key)
-	h.Write(data)
-	return h.Sum(nil)
+	return sigv4.URIEncode(key, false)
 }

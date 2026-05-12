@@ -1,19 +1,16 @@
 package celenv
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/xml"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/cel-go/common/functions"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+
+	"github.com/betterleaks/betterleaks/sigv4"
 )
 
 // STS = Security Token Service
@@ -66,8 +63,7 @@ func awsValidateBinding(e *ValidationEnvironment) functions.FunctionOp {
 			endpoint = defaultSTSEndpoint
 		}
 
-		now := time.Now().UTC()
-		result := callSTS(e, endpoint, string(accessKeyID), string(secretAccessKey), now)
+		result := callSTS(e, endpoint, string(accessKeyID), string(secretAccessKey))
 		return types.DefaultTypeAdapter.NativeToValue(result)
 	}
 }
@@ -75,47 +71,20 @@ func awsValidateBinding(e *ValidationEnvironment) functions.FunctionOp {
 // callSTS performs a SigV4-signed POST to the STS endpoint and returns a
 // response map with {status, arn, account, userid}. The CEL expression is
 // responsible for interpreting the status code and building the final result.
-func callSTS(e *ValidationEnvironment, endpoint, accessKeyID, secretAccessKey string, now time.Time) map[string]any {
+func callSTS(e *ValidationEnvironment, endpoint, accessKeyID, secretAccessKey string) map[string]any {
 	body := stsRequestBody
-	bodyHash := sha256Hex([]byte(body))
-
-	amzDate := now.Format("20060102T150405Z")
-	dateStamp := now.Format("20060102")
-	region := "us-east-1"
-	service := "sts"
-
-	// Determine host from endpoint.
-	host := "sts.amazonaws.com"
-	if strings.Contains(endpoint, "://") {
-		parts := strings.SplitN(endpoint, "://", 2)
-		host = strings.TrimRight(parts[1], "/")
-	}
-
-	// Canonical request.
-	canonicalHeaders := fmt.Sprintf("content-type:application/x-www-form-urlencoded\nhost:%s\nx-amz-date:%s\n", host, amzDate)
-	signedHeaders := "content-type;host;x-amz-date"
-	canonicalRequest := fmt.Sprintf("POST\n/\n\n%s\n%s\n%s", canonicalHeaders, signedHeaders, bodyHash)
-
-	// String to sign.
-	credentialScope := fmt.Sprintf("%s/%s/%s/aws4_request", dateStamp, region, service)
-	stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s\n%s", amzDate, credentialScope, sha256Hex([]byte(canonicalRequest)))
-
-	// Signing key.
-	signingKey := deriveSigningKey(secretAccessKey, dateStamp, region, service)
-	signature := hex.EncodeToString(hmacSHA256(signingKey, []byte(stringToSign)))
-
-	// Authorization header.
-	authorization := fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
-		accessKeyID, credentialScope, signedHeaders, signature)
 
 	req, err := http.NewRequest("POST", endpoint, strings.NewReader(body))
 	if err != nil {
 		return map[string]any{"status": int64(0)}
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Host", host)
-	req.Header.Set("X-Amz-Date", amzDate)
-	req.Header.Set("Authorization", authorization)
+	if err := sigv4.Sign(req, []byte(body), "us-east-1", "sts", sigv4.Credentials{
+		AccessKey: accessKeyID,
+		SecretKey: secretAccessKey,
+	}); err != nil {
+		return map[string]any{"status": int64(0)}
+	}
 
 	resp, err := e.client.Do(req)
 	if err != nil {
@@ -156,24 +125,4 @@ func callSTS(e *ValidationEnvironment, endpoint, accessKeyID, secretAccessKey st
 		}
 	}
 	return result
-}
-
-// deriveSigningKey derives the SigV4 signing key.
-func deriveSigningKey(secretKey, dateStamp, region, service string) []byte {
-	kDate := hmacSHA256([]byte("AWS4"+secretKey), []byte(dateStamp))
-	kRegion := hmacSHA256(kDate, []byte(region))
-	kService := hmacSHA256(kRegion, []byte(service))
-	kSigning := hmacSHA256(kService, []byte("aws4_request"))
-	return kSigning
-}
-
-func hmacSHA256(key, data []byte) []byte {
-	h := hmac.New(sha256.New, key)
-	h.Write(data)
-	return h.Sum(nil)
-}
-
-func sha256Hex(data []byte) string {
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:])
 }

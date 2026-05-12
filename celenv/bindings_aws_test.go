@@ -1,31 +1,11 @@
 package celenv
 
 import (
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 )
-
-func TestDeriveSigningKey(t *testing.T) {
-	// AWS SigV4 test vector from AWS documentation.
-	key := deriveSigningKey("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "20120215", "us-east-1", "iam")
-	got := hex.EncodeToString(key)
-	want := "f4780e2d9f65fa895f9c67b32ce1baf0b0d8a43505a000a1a9e090d414db404d"
-	if got != want {
-		t.Errorf("deriveSigningKey:\n got  %s\n want %s", got, want)
-	}
-}
-
-func TestSHA256Hex(t *testing.T) {
-	got := sha256Hex([]byte(""))
-	want := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	if got != want {
-		t.Errorf("sha256Hex empty: got %s, want %s", got, want)
-	}
-}
 
 func TestCallSTS_Valid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,8 +29,7 @@ func TestCallSTS_Valid(t *testing.T) {
 	defer ts.Close()
 
 	e := &ValidationEnvironment{client: ts.Client()}
-	now := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
-	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", now)
+	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
 
 	if result["status"] != int64(200) {
 		t.Fatalf("expected status 200, got %v", result["status"])
@@ -74,8 +53,7 @@ func TestCallSTS_Invalid(t *testing.T) {
 	defer ts.Close()
 
 	e := &ValidationEnvironment{client: ts.Client()}
-	now := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
-	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey", now)
+	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey")
 
 	if result["status"] != int64(403) {
 		t.Fatalf("expected status 403, got %v", result["status"])
@@ -92,8 +70,7 @@ func TestCallSTS_ServerError(t *testing.T) {
 	defer ts.Close()
 
 	e := &ValidationEnvironment{client: ts.Client()}
-	now := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
-	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey", now)
+	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey")
 
 	if result["status"] != int64(500) {
 		t.Fatalf("expected status 500, got %v", result["status"])

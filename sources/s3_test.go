@@ -2,7 +2,6 @@ package sources
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"net/http"
@@ -121,10 +120,32 @@ func TestS3ParseURL(t *testing.T) {
 				Endpoint: "bucket.with.dots.s3.amazonaws.com",
 			},
 		},
+		{
+			name: "aws dualstack virtual-hosted",
+			raw:  "https://my-bucket.s3.dualstack.us-west-2.amazonaws.com/foo",
+			want: s3Target{
+				Scheme: "https", Host: "my-bucket.s3.dualstack.us-west-2.amazonaws.com",
+				Bucket: "my-bucket", Prefix: "foo",
+				Region: "us-west-2", IsAWS: true,
+				Endpoint: "my-bucket.s3.dualstack.us-west-2.amazonaws.com",
+			},
+		},
+		{
+			name: "aws dualstack path-style",
+			raw:  "https://s3.dualstack.us-east-1.amazonaws.com/mybucket/x",
+			want: s3Target{
+				Scheme: "https", Host: "s3.dualstack.us-east-1.amazonaws.com",
+				Bucket: "mybucket", Prefix: "x",
+				Region: "us-east-1", PathStyle: true, IsAWS: true,
+				Endpoint: "s3.dualstack.us-east-1.amazonaws.com",
+			},
+		},
 		{name: "empty s3 host", raw: "s3:///foo", expectErr: true},
 		{name: "path-style no bucket", raw: "https://s3.us-west-2.amazonaws.com/", expectErr: true},
 		{name: "generic no bucket", raw: "https://example.com/", expectErr: true},
 		{name: "bad scheme", raw: "ftp://host/bucket", expectErr: true},
+		{name: "accelerate rejected", raw: "https://bucket.s3-accelerate.amazonaws.com/", expectErr: true},
+		{name: "fips rejected", raw: "https://bucket.s3-fips.us-east-1.amazonaws.com/", expectErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -139,50 +160,19 @@ func TestS3ParseURL(t *testing.T) {
 	}
 }
 
-// TestS3DeriveSigningKey checks the SigV4 key derivation against AWS's published
-// example (https://docs.aws.amazon.com/IAM/latest/UserGuide/signature-v4-examples.html).
-func TestS3DeriveSigningKey(t *testing.T) {
-	got := s3DeriveSigningKey(
-		"wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
-		"20150830", "us-east-1", "iam",
-	)
-	const want = "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9"
-	assert.Equal(t, want, hex.EncodeToString(got))
-}
-
-func TestS3URIEncode(t *testing.T) {
-	cases := []struct {
-		in          string
-		encodeSlash bool
-		want        string
-	}{
-		{"foo/bar.txt", false, "foo/bar.txt"},
-		{"foo/bar.txt", true, "foo%2Fbar.txt"},
-		{"hello world", false, "hello%20world"},
-		{"a+b=c", false, "a%2Bb%3Dc"},
-		{"unicode-café", false, "unicode-caf%C3%A9"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			assert.Equal(t, tc.want, s3URIEncode(tc.in, tc.encodeSlash))
-		})
-	}
-}
-
-func TestS3Sign_producesExpectedAuthorizationStructure(t *testing.T) {
+// TestS3Sign_passesThroughToSigv4 verifies the thin wrapper delegates to the
+// shared sigv4 package and produces a /s3/ scope.
+func TestS3Sign_passesThroughToSigv4(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet, "https://mybucket.s3.us-east-1.amazonaws.com/?list-type=2", nil)
 	require.NoError(t, err)
 	creds := s3Creds{AccessKey: "AKIAIOSFODNN7EXAMPLE", SecretKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"}
 	require.NoError(t, s3Sign(req, nil, "us-east-1", creds))
 
 	auth := req.Header.Get("Authorization")
-	require.True(t, strings.HasPrefix(auth, s3SignAlgorithm+" "), "auth prefix: %q", auth)
-	require.Contains(t, auth, "Credential=AKIAIOSFODNN7EXAMPLE/")
+	require.Contains(t, auth, "AWS4-HMAC-SHA256 ")
 	require.Contains(t, auth, "/us-east-1/s3/aws4_request")
-	require.Contains(t, auth, "SignedHeaders=")
-	require.Contains(t, auth, "Signature=")
-	require.Equal(t, s3EmptyPayloadSHA256, req.Header.Get("X-Amz-Content-Sha256"))
 	require.NotEmpty(t, req.Header.Get("X-Amz-Date"))
+	require.NotEmpty(t, req.Header.Get("X-Amz-Content-Sha256"))
 }
 
 func TestS3Sign_anonymousSkipsSigning(t *testing.T) {

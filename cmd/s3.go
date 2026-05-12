@@ -75,7 +75,6 @@ func runS3(cmd *cobra.Command, args []string) {
 		MaxObjectSize:   mustGetInt64Flag(cmd, "max-object-size"),
 		Workers:         mustGetIntFlag(cmd, "workers"),
 		ShouldSkip:      detector.SkipFunc(),
-		Sema:            detector.Sema,
 		MaxArchiveDepth: detector.MaxArchiveDepth,
 	}
 
