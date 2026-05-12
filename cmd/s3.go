@@ -26,18 +26,22 @@ var s3Cmd = &cobra.Command{
 	Use:   "s3 <url> [flags]",
 	Short: "scan an S3 (or S3-compatible) bucket for secrets",
 	Example: `  # Scan an AWS bucket
+  betterleaks s3 https://my-bucket.s3.us-east-1.amazonaws.com/logs/
+
+  # AWS shorthand (region auto-probed)
   betterleaks s3 s3://my-bucket/logs/
 
   # Enumerate and scan all buckets in the account
   # (requires s3:ListAllMyBuckets on the credentials)
-  betterleaks s3 's3://*'
+  betterleaks s3 'https://s3.us-east-1.amazonaws.com/*'
 
   # Enumerate buckets matching a glob, scan a shared prefix in each
   # (same permission requirement as above)
-  betterleaks s3 's3://prod-*/logs/'
+  betterleaks s3 'https://s3.us-east-1.amazonaws.com/prod-*/logs/'
 
   # Scan a public bucket without credentials
-  betterleaks s3 --anonymous s3://commoncrawl/crawl-data/
+  # (the bucket policy must grant anonymous s3:ListBucket, not just s3:GetObject)
+  betterleaks s3 --anonymous https://<public-bucket>.s3.<region>.amazonaws.com/
 
   # Scan a single Cloudflare R2 bucket
   betterleaks s3 https://my-bucket.acct123.r2.cloudflarestorage.com/

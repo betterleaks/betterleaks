@@ -220,24 +220,31 @@ betterleaks github https://github.example.com/platform-team
 
 `s3` takes a single URL describing either one bucket or a glob of buckets to enumerate. The same command works against AWS, Cloudflare R2, MinIO, Backblaze B2, DigitalOcean Spaces, Wasabi — anything speaking the S3 REST API.
 
+### Choosing a URL form
+
+Two URL schemes are supported and the docs below default to `https://`:
+
+- **`https://`** is explicit about the endpoint (host + region). Required for any non-AWS provider — R2, MinIO, B2, DigitalOcean Spaces, Wasabi. Use this in CI and scripts; the region is pinned so there's no extra round-trip and no failure mode if AWS's global endpoint is unreachable.
+- **`s3://`** is an AWS-only shorthand. The endpoint is implied (`s3.amazonaws.com`) and the bucket's region is auto-probed via a `HEAD` request that reads the `x-amz-bucket-region` header. Convenient for one-off scans where you'd rather not look up the region. The probe fails loud if the bucket can't be reached.
+
+If you don't know whether `s3://` or `https://` is right for you, prefer `https://`.
+
 ### URL forms
 
 | URL | What it scans |
 | :--- | :--- |
-| `s3://my-bucket/prefix/` | One AWS bucket, optionally narrowed by key prefix |
-| `https://my-bucket.s3.us-west-2.amazonaws.com/` | One AWS bucket, region pinned in the URL |
+| `https://my-bucket.s3.us-west-2.amazonaws.com/prefix/` | One AWS bucket, optionally narrowed by key prefix |
 | `https://s3.us-east-1.amazonaws.com/my-bucket/` | AWS path-style |
+| `s3://my-bucket/prefix/` | AWS shorthand (region auto-probed) |
 | `https://<bucket>.<account>.r2.cloudflarestorage.com/` | One Cloudflare R2 bucket |
 | `https://<account>.r2.cloudflarestorage.com/<bucket>/` | R2 path-style |
 | `http://localhost:9000/my-bucket/` | MinIO or other generic endpoint (needs `--region`) |
-| `'s3://*'` | Enumerate all buckets in the AWS account |
-| `'s3://prod-*/logs/'` | Enumerate buckets matching `prod-*`, scan only the `logs/` prefix in each |
+| `'https://s3.us-east-1.amazonaws.com/*'` | Enumerate all buckets in the AWS account |
+| `'https://s3.us-east-1.amazonaws.com/prod-*/logs/'` | Enumerate buckets matching `prod-*`, scan only the `logs/` prefix in each |
 | `'https://<account>.r2.cloudflarestorage.com/*'` | Enumerate all R2 buckets in the account |
 | `'http://localhost:9000/*'` | Enumerate all buckets at the MinIO endpoint |
 
 Quote any URL containing `*` so your shell doesn't expand it.
-
-For AWS URLs without an explicit region (`s3://my-bucket`, `https://my-bucket.s3.amazonaws.com`), the region is auto-probed via a `HEAD` request that reads the `x-amz-bucket-region` header. If the probe fails, the scan fails loud — pass `--region` to skip the probe.
 
 ### Authentication
 
@@ -247,16 +254,16 @@ Credentials are resolved in this order: `--anonymous` flag → `--access-key`/`-
 # AWS via environment
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
-betterleaks s3 s3://my-bucket/
+betterleaks s3 https://my-bucket.s3.us-east-1.amazonaws.com/
 
 # AWS via flags
 betterleaks s3 \
 	--access-key=AKIA... \
 	--secret-key=... \
-	s3://my-bucket/
+	https://my-bucket.s3.us-east-1.amazonaws.com/
 
-# Public bucket, no signing
-betterleaks s3 --anonymous s3://commoncrawl/crawl-data/
+# Public bucket, no signing (requires anonymous s3:ListBucket, not just s3:GetObject)
+betterleaks s3 --anonymous https://<public-bucket>.s3.<region>.amazonaws.com/
 
 # Cloudflare R2 (Access Key ID + Secret from the R2 dashboard)
 export AWS_ACCESS_KEY_ID=<r2-access-key-id>
@@ -277,13 +284,13 @@ Globs in the bucket position switch the source into enumeration mode: list every
 
 ```sh
 # every AWS bucket (requires s3:ListAllMyBuckets on the credentials)
-betterleaks s3 's3://*'
+betterleaks s3 'https://s3.us-east-1.amazonaws.com/*'
 
 # AWS buckets matching a prefix
-betterleaks s3 's3://prod-*'
+betterleaks s3 'https://s3.us-east-1.amazonaws.com/prod-*'
 
 # common key prefix across many buckets
-betterleaks s3 's3://prod-*/logs/'
+betterleaks s3 'https://s3.us-east-1.amazonaws.com/prod-*/logs/'
 
 # every R2 bucket in an account (requires an admin-scoped R2 API token)
 betterleaks s3 'https://acct123.r2.cloudflarestorage.com/*'
@@ -297,13 +304,13 @@ Per-bucket failures during enumeration (region probe errors, `AccessDenied`, etc
 
 ```sh
 # raise the per-object size cap (default: 250 MiB)
-betterleaks s3 --max-object-size=1073741824 s3://my-bucket/
+betterleaks s3 --max-object-size=1073741824 https://my-bucket.s3.us-east-1.amazonaws.com/
 
 # scan inside archives (.zip, .tar.gz, ...) in S3 objects
-betterleaks s3 --max-archive-depth=2 s3://my-bucket/
+betterleaks s3 --max-archive-depth=2 https://my-bucket.s3.us-east-1.amazonaws.com/
 
 # fewer concurrent GETs against rate-limited endpoints (default: 16)
-betterleaks s3 --workers=4 s3://my-bucket/
+betterleaks s3 --workers=4 https://my-bucket.s3.us-east-1.amazonaws.com/
 ```
 
 Objects in `GLACIER`, `GLACIER_IR`, and `DEEP_ARCHIVE` storage classes are skipped before fetching, as are empty objects and directory markers (`key/`).

@@ -55,10 +55,10 @@ betterleaks github https://github.com/cooluser123456789 --include issues,prs,act
 # Scan specific resource, like a PR... but exclude the description (only scan comments)
 betterleaks github https://github.com/betterleaks/betterleaks/pull/113
 
-# Scan an S3 bucket (works for any S3-compatible store: AWS, R2, MinIO, etc.)
-betterleaks s3 s3://my-bucket/logs/
-# Enumerate every bucket the credentials can list, then scan each
-betterleaks s3 's3://*'
+# Scan a public s3 dataset (Common Crawl).
+betterleaks s3 https://commoncrawl.s3.us-east-1.amazonaws.com/crawl-data/CC-MAIN-2018-17/segments/1524125937193.1/warc/
+# Enumerate and scan every bucket in a Cloudflare R2 account
+betterleaks s3 'https://<account-id>.r2.cloudflarestorage.com/*'
 
 # Scan stdin
 cat some_file.txt | betterleaks stdin -v
