@@ -1,0 +1,869 @@
+package sources
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/fatih/semgroup"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/betterleaks/betterleaks/logging"
+)
+
+const (
+	s3DefaultMaxObjectSize int64 = 250 * 1024 * 1024 // 250 MiB
+	s3DefaultWorkers             = 16
+	s3GetObjectTimeout           = 30 * time.Second
+	s3ListPageSize               = 1000
+	s3Service                    = "s3"
+	s3SignAlgorithm              = "AWS4-HMAC-SHA256"
+	s3EmptyPayloadSHA256         = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	s3StorageClassGlacier        = "GLACIER"
+	s3StorageClassGlacierIR      = "GLACIER_IR"
+	s3StorageClassDeepArchive    = "DEEP_ARCHIVE"
+)
+
+// S3 enumerates objects in an S3 (or S3-compatible) bucket and yields a
+// fragment for each object's content. The target is described by a single URL
+// passed via S3.URL.
+type S3 struct {
+	// URL is the target bucket (and optional prefix). Required. Supported forms:
+	//
+	//   s3://bucket/prefix
+	//   https://bucket.s3.amazonaws.com/prefix
+	//   https://bucket.s3.<region>.amazonaws.com/prefix
+	//   https://s3.<region>.amazonaws.com/bucket/prefix
+	//   https://<bucket>.<account>.r2.cloudflarestorage.com/prefix
+	//   https://<endpoint>[:port]/bucket/prefix      (MinIO, generic S3-compat)
+	URL string
+
+	// Region overrides whatever the URL implies. Required when the URL is a
+	// path-style endpoint with no inferable region (e.g. MinIO at a custom host).
+	Region string
+
+	// Credentials. Explicit fields win over environment variables. If both are
+	// empty and Anonymous is false, the source fails Validate.
+	AccessKey    string
+	SecretKey    string
+	SessionToken string
+	Anonymous    bool
+
+	// Scan config
+	MaxObjectSize   int64
+	Workers         int
+	ShouldSkip      SkipFunc
+	Sema            *semgroup.Group
+	MaxArchiveDepth int
+
+	parsed s3Target
+	creds  s3Creds
+}
+
+// s3Target captures everything the request builder needs after URL parsing.
+type s3Target struct {
+	Scheme        string // "https" or "http"
+	Host          string // request host (with bucket subdomain for virtual-hosted)
+	Bucket        string
+	Prefix        string
+	Region        string // may be "" pre-probe for AWS forms missing region
+	PathStyle     bool
+	IsAWS         bool   // true for *.amazonaws.com and s3:// scheme
+	RequiresProbe bool   // AWS hosts where region was not in the URL
+	Endpoint      string // descriptive endpoint label for logging / attrs
+}
+
+// s3Creds holds resolved request-signing credentials.
+type s3Creds struct {
+	AccessKey    string
+	SecretKey    string
+	SessionToken string
+	Anonymous    bool
+}
+
+// Validate parses the URL, resolves credentials, and (for AWS targets without
+// an explicit region) probes the bucket region.
+func (s *S3) Validate() error {
+	if s.URL == "" {
+		return errors.New("target URL is required")
+	}
+	target, err := s3ParseURL(s.URL)
+	if err != nil {
+		return fmt.Errorf("invalid S3 URL: %w", err)
+	}
+	if s.Region != "" {
+		target.Region = s.Region
+		target.RequiresProbe = false
+	}
+	if target.Region == "" && target.RequiresProbe && target.IsAWS {
+		region, err := s3ProbeAWSRegion(context.Background(), target.Bucket)
+		if err != nil {
+			return fmt.Errorf("could not determine bucket region (pass --region): %w", err)
+		}
+		target.Region = region
+		// AWS virtual-hosted host with the resolved region.
+		target.Host = fmt.Sprintf("%s.s3.%s.amazonaws.com", target.Bucket, region)
+		target.RequiresProbe = false
+	}
+	if target.Region == "" {
+		return errors.New("region could not be inferred from URL; pass --region")
+	}
+	s.parsed = target
+
+	creds, err := s.resolveCreds()
+	if err != nil {
+		return err
+	}
+	s.creds = creds
+	return nil
+}
+
+// resolveCreds applies the auth waterfall:
+//
+//	Anonymous flag         → anonymous
+//	Explicit fields        → static
+//	AWS_* env vars         → static
+//	None of the above      → error (fail loud)
+func (s *S3) resolveCreds() (s3Creds, error) {
+	if s.Anonymous {
+		return s3Creds{Anonymous: true}, nil
+	}
+	if s.AccessKey != "" && s.SecretKey != "" {
+		return s3Creds{
+			AccessKey:    s.AccessKey,
+			SecretKey:    s.SecretKey,
+			SessionToken: s.SessionToken,
+		}, nil
+	}
+	envAK := os.Getenv("AWS_ACCESS_KEY_ID")
+	envSK := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	if envAK != "" && envSK != "" {
+		return s3Creds{
+			AccessKey:    envAK,
+			SecretKey:    envSK,
+			SessionToken: os.Getenv("AWS_SESSION_TOKEN"),
+		}, nil
+	}
+	return s3Creds{}, errors.New("no credentials: set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, pass --access-key/--secret-key, or pass --anonymous")
+}
+
+// Fragments enumerates objects under the configured prefix and yields content
+// fragments for each one.
+func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if s.parsed.Bucket == "" {
+		if err := s.Validate(); err != nil {
+			return err
+		}
+	}
+	maxSize := s.MaxObjectSize
+	if maxSize <= 0 {
+		maxSize = s3DefaultMaxObjectSize
+	}
+	workers := s.Workers
+	if workers <= 0 {
+		workers = s3DefaultWorkers
+	}
+
+	bucketAttrs := map[string]string{
+		AttrS3Bucket: s.parsed.Bucket,
+		AttrS3Region: s.parsed.Region,
+		AttrResource: ResourceS3Object,
+	}
+	if s.parsed.Endpoint != "" {
+		bucketAttrs[AttrS3Endpoint] = s.parsed.Endpoint
+	}
+	if s.ShouldSkip != nil && s.ShouldSkip(bucketAttrs) {
+		logging.Info().Str("bucket", s.parsed.Bucket).Msg("skipping bucket: filtered by prefilter")
+		return nil
+	}
+
+	logging.Info().
+		Str("bucket", s.parsed.Bucket).
+		Str("region", s.parsed.Region).
+		Str("prefix", s.parsed.Prefix).
+		Str("endpoint", s.parsed.Endpoint).
+		Msg("starting S3 scan")
+
+	httpClient := &http.Client{}
+	start := time.Now()
+	var (
+		objectCount  int
+		scannedCount int
+		mu           sync.Mutex
+	)
+
+	var continuationToken string
+	for {
+		page, err := s3ListPage(ctx, httpClient, s.parsed, s.creds, s.parsed.Prefix, continuationToken)
+		if err != nil {
+			return fmt.Errorf("list objects: %w", err)
+		}
+
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(workers)
+		for _, obj := range page.Contents {
+			if skipReason := s.skipReason(obj, maxSize); skipReason != "" {
+				logging.Trace().Str("key", obj.Key).Str("reason", skipReason).Msg("skipping object")
+				continue
+			}
+			attrs := s.objectAttributes(obj)
+			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+				logging.Trace().Str("key", obj.Key).Msg("skipping object: filtered by prefilter")
+				continue
+			}
+			objectCount++
+			g.Go(func() error {
+				if err := s.scanObject(gctx, httpClient, obj, attrs, yield); err != nil {
+					logging.Error().Err(err).Str("key", obj.Key).Msg("could not scan S3 object")
+					return nil
+				}
+				mu.Lock()
+				scannedCount++
+				mu.Unlock()
+				return nil
+			})
+		}
+		if err := g.Wait(); err != nil {
+			return err
+		}
+		if !page.IsTruncated || page.NextContinuationToken == "" {
+			break
+		}
+		continuationToken = page.NextContinuationToken
+	}
+
+	logging.Info().
+		Int("objects_listed", objectCount).
+		Int("objects_scanned", scannedCount).
+		Str("duration", time.Since(start).Round(time.Millisecond).String()).
+		Msg("S3 scan complete")
+	return nil
+}
+
+// skipReason returns a non-empty reason if the object should be skipped before
+// attempting to fetch it. The empty string means "scan it".
+func (s *S3) skipReason(obj s3Object, maxSize int64) string {
+	switch obj.StorageClass {
+	case s3StorageClassGlacier, s3StorageClassGlacierIR, s3StorageClassDeepArchive:
+		return "storage_class:" + obj.StorageClass
+	}
+	if obj.Size > maxSize {
+		return "size_limit"
+	}
+	if obj.Size == 0 {
+		return "empty"
+	}
+	if strings.HasSuffix(obj.Key, "/") {
+		return "directory"
+	}
+	return ""
+}
+
+// objectAttributes builds the attr map stamped on every fragment for this object.
+func (s *S3) objectAttributes(obj s3Object) map[string]string {
+	attrs := map[string]string{
+		AttrPath:           obj.Key,
+		AttrURL:            s3ObjectURL(s.parsed, obj.Key),
+		AttrResource:       ResourceS3Object,
+		AttrS3Bucket:       s.parsed.Bucket,
+		AttrS3Key:          obj.Key,
+		AttrS3Region:       s.parsed.Region,
+		AttrS3Size:         strconv.FormatInt(obj.Size, 10),
+		AttrS3ETag:         strings.Trim(obj.ETag, `"`),
+		AttrS3LastModified: obj.LastModified,
+		AttrS3StorageClass: obj.StorageClass,
+	}
+	if s.parsed.Endpoint != "" {
+		attrs[AttrS3Endpoint] = s.parsed.Endpoint
+	}
+	return attrs
+}
+
+// scanObject GETs an object and pipes its body through File.Fragments, which
+// already handles archives, mime sniffing, and chunk boundaries.
+func (s *S3) scanObject(ctx context.Context, client *http.Client, obj s3Object, attrs map[string]string, yield FragmentsFunc) error {
+	objCtx, cancel := context.WithTimeout(ctx, s3GetObjectTimeout)
+	defer cancel()
+
+	body, err := s3GetObject(objCtx, client, s.parsed, s.creds, obj.Key)
+	if err != nil {
+		return err
+	}
+	defer body.Close()
+
+	stampedYield := s.wrapYieldWithAttrs(attrs, yield)
+	file := &File{
+		Content:         body,
+		Path:            obj.Key,
+		MaxArchiveDepth: s.MaxArchiveDepth,
+		ShouldSkip:      s.ShouldSkip,
+	}
+	return file.Fragments(ctx, stampedYield)
+}
+
+// wrapYieldWithAttrs returns a yield that stamps the given attrs on every
+// fragment, re-applies ShouldSkip with the merged attrs, and serializes calls
+// through a mutex. Mirrors the GitHub source.
+func (s *S3) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) FragmentsFunc {
+	var mu sync.Mutex
+	return func(fragment Fragment, err error) error {
+		if err == nil {
+			for k, v := range attrs {
+				if v == "" {
+					continue
+				}
+				// Always override AttrResource so the fragment reflects the S3
+				// source rather than the File source's default "fs.content".
+				if k == AttrResource || fragment.Attr(k) == "" {
+					fragment.SetAttr(k, v)
+				}
+			}
+			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+				return nil
+			}
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return yield(fragment, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// URL parsing
+// ---------------------------------------------------------------------------
+
+// s3ParseURL accepts the documented URL forms and returns a populated s3Target.
+func s3ParseURL(raw string) (s3Target, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return s3Target{}, err
+	}
+	switch u.Scheme {
+	case "s3":
+		if u.Host == "" {
+			return s3Target{}, errors.New("s3:// URL is missing bucket")
+		}
+		return s3Target{
+			Scheme:        "https",
+			Host:          fmt.Sprintf("%s.s3.amazonaws.com", u.Host),
+			Bucket:        u.Host,
+			Prefix:        strings.TrimPrefix(u.Path, "/"),
+			IsAWS:         true,
+			RequiresProbe: true,
+			Endpoint:      "s3.amazonaws.com",
+		}, nil
+	case "http", "https":
+		// fall through
+	default:
+		return s3Target{}, fmt.Errorf("unsupported scheme %q", u.Scheme)
+	}
+
+	host := u.Host
+	hostOnly := host
+	if i := strings.IndexByte(hostOnly, ':'); i >= 0 {
+		hostOnly = hostOnly[:i]
+	}
+	path := strings.TrimPrefix(u.Path, "/")
+
+	switch {
+	case strings.HasSuffix(hostOnly, ".amazonaws.com") || hostOnly == "amazonaws.com":
+		return parseAWSHostURL(u, hostOnly, path)
+	case strings.HasSuffix(hostOnly, ".r2.cloudflarestorage.com"):
+		return parseR2HostURL(u, hostOnly, path)
+	default:
+		// Generic S3-compatible: assume path-style; first path segment is bucket.
+		bucket, prefix := splitBucketAndPrefix(path)
+		if bucket == "" {
+			return s3Target{}, errors.New("path-style URL is missing bucket segment")
+		}
+		return s3Target{
+			Scheme:    u.Scheme,
+			Host:      host,
+			Bucket:    bucket,
+			Prefix:    prefix,
+			PathStyle: true,
+			Endpoint:  host,
+		}, nil
+	}
+}
+
+// parseAWSHostURL handles the AWS-hosted forms:
+//
+//	<bucket>.s3.amazonaws.com              (region probe required)
+//	<bucket>.s3.<region>.amazonaws.com
+//	s3.amazonaws.com / <bucket>            (legacy path-style, probe required)
+//	s3.<region>.amazonaws.com / <bucket>
+func parseAWSHostURL(u *url.URL, hostOnly, path string) (s3Target, error) {
+	labels := strings.Split(hostOnly, ".")
+	// suffix is always [..., "amazonaws", "com"]; strip it.
+	if len(labels) < 3 {
+		return s3Target{}, fmt.Errorf("unrecognized amazonaws.com host %q", hostOnly)
+	}
+	prefix := labels[:len(labels)-2]
+
+	// Virtual-hosted: bucket.s3[.region].amazonaws.com
+	for i := 1; i < len(prefix); i++ {
+		if prefix[i] == "s3" {
+			bucket := strings.Join(prefix[:i], ".")
+			rest := prefix[i+1:]
+			region := ""
+			if len(rest) >= 1 {
+				region = rest[0]
+			}
+			bPrefix := path
+			return s3Target{
+				Scheme:        u.Scheme,
+				Host:          u.Host,
+				Bucket:        bucket,
+				Prefix:        bPrefix,
+				Region:        region,
+				IsAWS:         true,
+				RequiresProbe: region == "",
+				Endpoint:      hostOnly,
+			}, nil
+		}
+	}
+
+	// Path-style: s3[.region].amazonaws.com / bucket
+	if prefix[0] == "s3" {
+		region := ""
+		if len(prefix) >= 2 {
+			region = prefix[1]
+		}
+		bucket, bPrefix := splitBucketAndPrefix(path)
+		if bucket == "" {
+			return s3Target{}, errors.New("path-style amazonaws.com URL is missing bucket segment")
+		}
+		return s3Target{
+			Scheme:        u.Scheme,
+			Host:          u.Host,
+			Bucket:        bucket,
+			Prefix:        bPrefix,
+			Region:        region,
+			PathStyle:     true,
+			IsAWS:         true,
+			RequiresProbe: region == "",
+			Endpoint:      hostOnly,
+		}, nil
+	}
+
+	return s3Target{}, fmt.Errorf("unrecognized amazonaws.com host %q", hostOnly)
+}
+
+// parseR2HostURL handles Cloudflare R2's `*.r2.cloudflarestorage.com` host.
+// R2 ignores region but SigV4 requires one; the canonical value is "auto".
+func parseR2HostURL(u *url.URL, hostOnly, path string) (s3Target, error) {
+	labels := strings.Split(hostOnly, ".")
+	// Expect at least <account>.r2.cloudflarestorage.com, optionally with a
+	// leading <bucket> label for virtual-hosted form.
+	if len(labels) < 4 {
+		return s3Target{}, fmt.Errorf("unrecognized r2 host %q", hostOnly)
+	}
+	// Virtual-hosted: <bucket>.<account>.r2.cloudflarestorage.com
+	if len(labels) >= 5 {
+		bucket := labels[0]
+		return s3Target{
+			Scheme:   u.Scheme,
+			Host:     u.Host,
+			Bucket:   bucket,
+			Prefix:   path,
+			Region:   "auto",
+			IsAWS:    false,
+			Endpoint: hostOnly,
+		}, nil
+	}
+	// Path-style: <account>.r2.cloudflarestorage.com/<bucket>/<prefix>
+	bucket, bPrefix := splitBucketAndPrefix(path)
+	if bucket == "" {
+		return s3Target{}, errors.New("r2 URL is missing bucket segment")
+	}
+	return s3Target{
+		Scheme:    u.Scheme,
+		Host:      u.Host,
+		Bucket:    bucket,
+		Prefix:    bPrefix,
+		Region:    "auto",
+		PathStyle: true,
+		IsAWS:     false,
+		Endpoint:  hostOnly,
+	}, nil
+}
+
+// splitBucketAndPrefix splits a path of the form "bucket/prefix..." into its parts.
+// Both pieces are returned without leading or trailing slashes (prefix keeps internal "/").
+func splitBucketAndPrefix(path string) (bucket, prefix string) {
+	path = strings.TrimPrefix(path, "/")
+	if path == "" {
+		return "", ""
+	}
+	b, p, _ := strings.Cut(path, "/")
+	return b, p
+}
+
+// ---------------------------------------------------------------------------
+// Region probe (AWS only)
+// ---------------------------------------------------------------------------
+
+// s3ProbeAWSRegion issues a HEAD against the bucket's global endpoint and reads
+// the x-amz-bucket-region header. AWS sets this header on success and on the
+// `301 PermanentRedirect` it returns when the bucket lives elsewhere.
+func s3ProbeAWSRegion(ctx context.Context, bucket string) (string, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodHead, fmt.Sprintf("https://%s.s3.amazonaws.com", bucket), nil)
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{
+		// Don't follow the 301 redirect; we just want the header.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	region := resp.Header.Get("x-amz-bucket-region")
+	if region == "" {
+		return "", fmt.Errorf("HEAD %s returned %s with no x-amz-bucket-region header", req.URL, resp.Status)
+	}
+	return region, nil
+}
+
+// ---------------------------------------------------------------------------
+// List + Get
+// ---------------------------------------------------------------------------
+
+type s3Object struct {
+	Key          string `xml:"Key"`
+	LastModified string `xml:"LastModified"`
+	ETag         string `xml:"ETag"`
+	Size         int64  `xml:"Size"`
+	StorageClass string `xml:"StorageClass"`
+}
+
+type s3ListBucketResult struct {
+	XMLName               xml.Name   `xml:"ListBucketResult"`
+	Name                  string     `xml:"Name"`
+	Prefix                string     `xml:"Prefix"`
+	KeyCount              int        `xml:"KeyCount"`
+	MaxKeys               int        `xml:"MaxKeys"`
+	IsTruncated           bool       `xml:"IsTruncated"`
+	NextContinuationToken string     `xml:"NextContinuationToken"`
+	Contents              []s3Object `xml:"Contents"`
+}
+
+// s3ListPage requests one page of ListObjectsV2.
+func s3ListPage(ctx context.Context, client *http.Client, target s3Target, creds s3Creds, prefix, continuationToken string) (*s3ListBucketResult, error) {
+	query := url.Values{}
+	query.Set("list-type", "2")
+	query.Set("max-keys", strconv.Itoa(s3ListPageSize))
+	if prefix != "" {
+		query.Set("prefix", prefix)
+	}
+	if continuationToken != "" {
+		query.Set("continuation-token", continuationToken)
+	}
+
+	req, err := s3NewRequest(ctx, http.MethodGet, target, "", query)
+	if err != nil {
+		return nil, err
+	}
+	if err := s3Sign(req, nil, target.Region, creds); err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("list returned %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
+	}
+	var result s3ListBucketResult
+	if err := xml.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode list response: %w", err)
+	}
+	return &result, nil
+}
+
+// s3GetObject signs and issues GET /<key>. The caller closes the returned body.
+func s3GetObject(ctx context.Context, client *http.Client, target s3Target, creds s3Creds, key string) (io.ReadCloser, error) {
+	req, err := s3NewRequest(ctx, http.MethodGet, target, key, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := s3Sign(req, nil, target.Region, creds); err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		resp.Body.Close()
+		return nil, fmt.Errorf("get returned %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
+	}
+	return resp.Body, nil
+}
+
+// s3NewRequest builds an http.Request targeting the given key, taking
+// virtual-hosted vs path-style into account.
+func s3NewRequest(ctx context.Context, method string, target s3Target, key string, query url.Values) (*http.Request, error) {
+	path := "/"
+	if target.PathStyle {
+		path = "/" + target.Bucket
+	}
+	if key != "" {
+		// Each key segment URI-encoded; "/" preserved between segments.
+		path = strings.TrimSuffix(path, "/") + "/" + s3EncodeKey(key)
+	}
+	u := url.URL{
+		Scheme: target.Scheme,
+		Host:   target.Host,
+		Path:   path,
+	}
+	if query != nil {
+		u.RawQuery = query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	// Replace stdlib's RawPath/Path normalization; we want raw bytes to match
+	// what we sign.
+	req.URL.Opaque = ""
+	req.URL.RawPath = path
+	return req, nil
+}
+
+// s3ObjectURL builds a virtual-hosted-style public URL for the given key.
+// Used as AttrURL on findings.
+func s3ObjectURL(target s3Target, key string) string {
+	path := s3EncodeKey(key)
+	if target.PathStyle {
+		return fmt.Sprintf("%s://%s/%s/%s", target.Scheme, target.Host, target.Bucket, path)
+	}
+	return fmt.Sprintf("%s://%s/%s", target.Scheme, target.Host, path)
+}
+
+// ---------------------------------------------------------------------------
+// SigV4
+// ---------------------------------------------------------------------------
+
+// s3Sign signs the request in place using AWS Signature Version 4.
+// Anonymous requests skip signing entirely.
+//
+// Spec: https://docs.aws.amazon.com/IAM/latest/UserGuide/create-signed-request.html
+func s3Sign(req *http.Request, body []byte, region string, creds s3Creds) error {
+	if creds.Anonymous {
+		return nil
+	}
+	if creds.AccessKey == "" || creds.SecretKey == "" {
+		return errors.New("missing credentials for signed request")
+	}
+	now := time.Now().UTC()
+	amzDate := now.Format("20060102T150405Z")
+	dateStamp := now.Format("20060102")
+
+	var payloadHash string
+	if len(body) == 0 {
+		// All our requests (list, get-object) have empty request bodies.
+		payloadHash = s3EmptyPayloadSHA256
+	} else {
+		sum := sha256.Sum256(body)
+		payloadHash = hex.EncodeToString(sum[:])
+	}
+
+	req.Header.Set("Host", req.Host)
+	if req.Header.Get("Host") == "" {
+		req.Header.Set("Host", req.URL.Host)
+	}
+	req.Header.Set("X-Amz-Date", amzDate)
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	if creds.SessionToken != "" {
+		req.Header.Set("X-Amz-Security-Token", creds.SessionToken)
+	}
+
+	canonicalHeaders, signedHeaders := s3CanonicalHeaders(req)
+	canonicalQuery := s3CanonicalQuery(req.URL.Query())
+	canonicalURI := s3CanonicalURI(req.URL.Path)
+
+	canonicalRequest := strings.Join([]string{
+		req.Method,
+		canonicalURI,
+		canonicalQuery,
+		canonicalHeaders,
+		signedHeaders,
+		payloadHash,
+	}, "\n")
+
+	scope := fmt.Sprintf("%s/%s/%s/aws4_request", dateStamp, region, s3Service)
+	hashedCanonical := sha256.Sum256([]byte(canonicalRequest))
+	stringToSign := strings.Join([]string{
+		s3SignAlgorithm,
+		amzDate,
+		scope,
+		hex.EncodeToString(hashedCanonical[:]),
+	}, "\n")
+
+	signingKey := s3DeriveSigningKey(creds.SecretKey, dateStamp, region, s3Service)
+	signature := hex.EncodeToString(s3HMAC(signingKey, []byte(stringToSign)))
+
+	auth := fmt.Sprintf(
+		"%s Credential=%s/%s, SignedHeaders=%s, Signature=%s",
+		s3SignAlgorithm,
+		creds.AccessKey,
+		scope,
+		signedHeaders,
+		signature,
+	)
+	req.Header.Set("Authorization", auth)
+	return nil
+}
+
+func s3CanonicalHeaders(req *http.Request) (canonical, signed string) {
+	type kv struct{ k, v string }
+	var headers []kv
+	headers = append(headers, kv{"host", req.Host})
+	if req.Host == "" {
+		headers[0].v = req.URL.Host
+	}
+	for name, values := range req.Header {
+		lower := strings.ToLower(name)
+		if lower == "host" || lower == "authorization" {
+			continue
+		}
+		// Only sign x-amz-* and Content-* headers; this matches what the SDK does
+		// for typical S3 requests and avoids accidentally signing headers added by
+		// http.Client (Accept-Encoding, User-Agent).
+		if !strings.HasPrefix(lower, "x-amz-") && !strings.HasPrefix(lower, "content-") {
+			continue
+		}
+		headers = append(headers, kv{lower, strings.Join(values, ",")})
+	}
+	sort.Slice(headers, func(i, j int) bool { return headers[i].k < headers[j].k })
+
+	var cb, sb strings.Builder
+	for i, h := range headers {
+		cb.WriteString(h.k)
+		cb.WriteByte(':')
+		cb.WriteString(strings.TrimSpace(collapseWhitespace(h.v)))
+		cb.WriteByte('\n')
+		if i > 0 {
+			sb.WriteByte(';')
+		}
+		sb.WriteString(h.k)
+	}
+	return cb.String(), sb.String()
+}
+
+func collapseWhitespace(s string) string {
+	// AWS spec: convert sequential whitespace into a single space inside header values.
+	var b strings.Builder
+	var prevSpace bool
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == ' ' || c == '\t' {
+			if !prevSpace {
+				b.WriteByte(' ')
+				prevSpace = true
+			}
+			continue
+		}
+		prevSpace = false
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+func s3CanonicalQuery(values url.Values) string {
+	if len(values) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		vs := values[k]
+		sort.Strings(vs)
+		for j, v := range vs {
+			if i > 0 || j > 0 {
+				b.WriteByte('&')
+			}
+			b.WriteString(s3URIEncode(k, true))
+			b.WriteByte('=')
+			b.WriteString(s3URIEncode(v, true))
+		}
+	}
+	return b.String()
+}
+
+// s3CanonicalURI URI-encodes the path once (S3-style); "/" is preserved.
+func s3CanonicalURI(path string) string {
+	if path == "" {
+		return "/"
+	}
+	return s3URIEncode(path, false)
+}
+
+// s3EncodeKey URI-encodes a key, preserving "/" between segments. Used when
+// constructing request URLs (not for signing — signing uses s3CanonicalURI on
+// the full path).
+func s3EncodeKey(key string) string {
+	return s3URIEncode(key, false)
+}
+
+// s3URIEncode applies the AWS-spec URI encoding: unreserved chars (A-Z, a-z,
+// 0-9, '-', '_', '.', '~') pass through; everything else is percent-encoded.
+// When encodeSlash is false, '/' is preserved (used for path segments).
+func s3URIEncode(s string, encodeSlash bool) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'),
+			c == '-', c == '_', c == '.', c == '~':
+			b.WriteByte(c)
+		case c == '/' && !encodeSlash:
+			b.WriteByte(c)
+		default:
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
+func s3DeriveSigningKey(secret, dateStamp, region, service string) []byte {
+	kDate := s3HMAC([]byte("AWS4"+secret), []byte(dateStamp))
+	kRegion := s3HMAC(kDate, []byte(region))
+	kService := s3HMAC(kRegion, []byte(service))
+	return s3HMAC(kService, []byte("aws4_request"))
+}
+
+func s3HMAC(key, data []byte) []byte {
+	h := hmac.New(sha256.New, key)
+	h.Write(data)
+	return h.Sum(nil)
+}

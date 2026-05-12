@@ -56,4 +56,16 @@ const (
 	AttrGitHubGistID           = "github.gist.id"
 	AttrGitHubGistFilename     = "github.gist.filename"
 	AttrGitHubGistOwner        = "github.gist.owner"
+
+	// S3 (and S3-compatible object stores)
+	AttrS3Bucket       = "s3.bucket"
+	AttrS3Key          = "s3.key"
+	AttrS3Region       = "s3.region"
+	AttrS3Endpoint     = "s3.endpoint"
+	AttrS3LastModified = "s3.last_modified"
+	AttrS3ETag         = "s3.etag"
+	AttrS3Size         = "s3.size"
+	AttrS3StorageClass = "s3.storage_class"
+
+	ResourceS3Object = "s3.object"
 )
