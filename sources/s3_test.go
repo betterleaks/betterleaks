@@ -354,6 +354,173 @@ func TestS3_prefilterSkipsBucket(t *testing.T) {
 	}))
 }
 
+func TestS3ParseURL_globs(t *testing.T) {
+	cases := []struct {
+		name      string
+		raw       string
+		want      s3Target
+		expectErr bool
+	}{
+		{
+			name: "s3 scheme star",
+			raw:  "s3://*",
+			want: s3Target{
+				Scheme: "https", Host: "s3.amazonaws.com",
+				BucketGlob: "*",
+				IsAWS:      true, RequiresProbe: true,
+				Endpoint: "s3.amazonaws.com",
+			},
+		},
+		{
+			name: "s3 scheme glob with prefix",
+			raw:  "s3://prod-*/logs/",
+			want: s3Target{
+				Scheme: "https", Host: "s3.amazonaws.com",
+				BucketGlob: "prod-*", Prefix: "logs/",
+				IsAWS: true, RequiresProbe: true,
+				Endpoint: "s3.amazonaws.com",
+			},
+		},
+		{
+			name: "aws path-style glob",
+			raw:  "https://s3.us-west-2.amazonaws.com/*/foo",
+			want: s3Target{
+				Scheme: "https", Host: "s3.us-west-2.amazonaws.com",
+				BucketGlob: "*", Prefix: "foo",
+				Region: "us-west-2", PathStyle: true, IsAWS: true,
+				Endpoint: "s3.us-west-2.amazonaws.com",
+			},
+		},
+		{
+			name: "minio path-style glob",
+			raw:  "http://localhost:9000/prod-*/logs/",
+			want: s3Target{
+				Scheme: "http", Host: "localhost:9000",
+				BucketGlob: "prod-*", Prefix: "logs/",
+				PathStyle: true, Endpoint: "localhost:9000",
+			},
+		},
+		{
+			name: "r2 path-style glob",
+			raw:  "https://acct.r2.cloudflarestorage.com/*",
+			want: s3Target{
+				Scheme: "https", Host: "acct.r2.cloudflarestorage.com",
+				BucketGlob: "*", Region: "auto",
+				PathStyle: true, Endpoint: "acct.r2.cloudflarestorage.com",
+			},
+		},
+		{name: "glob in dns hostname rejected", raw: "https://*.s3.amazonaws.com/", expectErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s3ParseURL(tc.raw)
+			if tc.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+			assert.True(t, got.IsEnumerate(), "expected enumerate mode")
+		})
+	}
+}
+
+// TestS3_enumerateMatchesGlob points the source at an httptest server that
+// serves a ListBuckets response followed by per-bucket ListObjectsV2 + GetObject.
+// Only the two buckets matching "prod-*" should be scanned.
+func TestS3_enumerateMatchesGlob(t *testing.T) {
+	const (
+		bucketProdA = "prod-a"
+		bucketProdB = "prod-b"
+		bucketDev   = "dev-one"
+	)
+	objects := map[string]map[string]string{
+		bucketProdA: {"x.txt": "x-content"},
+		bucketProdB: {"y.txt": "y-content"},
+	}
+
+	listAll := s3ListAllMyBucketsResult{
+		Buckets: []s3BucketEntry{
+			{Name: bucketProdA, CreationDate: "2024-01-01T00:00:00Z"},
+			{Name: bucketProdB, CreationDate: "2024-01-02T00:00:00Z"},
+			{Name: bucketDev, CreationDate: "2024-01-03T00:00:00Z"},
+		},
+	}
+
+	var listBucketsHits int
+	var devHits int
+	var hitMu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NotEmpty(t, r.Header.Get("Authorization"))
+
+		// Account-level ListBuckets: GET / (no path-style bucket prefix).
+		if r.URL.Path == "/" && r.URL.RawQuery == "" {
+			hitMu.Lock()
+			listBucketsHits++
+			hitMu.Unlock()
+			require.NoError(t, xml.NewEncoder(w).Encode(listAll))
+			return
+		}
+
+		// Path-style: /<bucket>/...
+		segments := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
+		bucket := segments[0]
+		hitMu.Lock()
+		if bucket == bucketDev {
+			devHits++
+		}
+		hitMu.Unlock()
+
+		if r.URL.Query().Get("list-type") == "2" {
+			objs := objects[bucket]
+			result := s3ListBucketResult{Name: bucket}
+			for k, v := range objs {
+				result.Contents = append(result.Contents, s3Object{
+					Key: k, Size: int64(len(v)), StorageClass: "STANDARD",
+					LastModified: "2024-01-01T00:00:00Z", ETag: `"e"`,
+				})
+			}
+			require.NoError(t, xml.NewEncoder(w).Encode(result))
+			return
+		}
+		// GetObject
+		var key string
+		if len(segments) == 2 {
+			key = segments[1]
+		}
+		body, ok := objects[bucket][key]
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	s := &S3{
+		URL:       fmt.Sprintf("%s/prod-*", srv.URL),
+		Region:    "us-east-1",
+		AccessKey: "ak", SecretKey: "sk",
+	}
+	require.NoError(t, s.Validate())
+	require.True(t, s.parsed.IsEnumerate())
+	require.Equal(t, "prod-*", s.parsed.BucketGlob)
+
+	var seenKeys []string
+	var mu sync.Mutex
+	require.NoError(t, s.Fragments(context.Background(), func(f Fragment, err error) error {
+		require.NoError(t, err)
+		mu.Lock()
+		defer mu.Unlock()
+		seenKeys = append(seenKeys, f.Attr(AttrS3Bucket)+":"+f.Attr(AttrS3Key))
+		return nil
+	}))
+
+	assert.Equal(t, 1, listBucketsHits)
+	assert.Zero(t, devHits, "dev-one bucket should not have been scanned")
+	assert.ElementsMatch(t, []string{"prod-a:x.txt", "prod-b:y.txt"}, seenKeys)
+}
+
 func TestS3_skipsBeforeFetch(t *testing.T) {
 	listResp := s3ListBucketResult{
 		Name: "mybucket",

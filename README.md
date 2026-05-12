@@ -55,6 +55,11 @@ betterleaks github https://github.com/cooluser123456789 --include issues,prs,act
 # Scan specific resource, like a PR... but exclude the description (only scan comments)
 betterleaks github https://github.com/betterleaks/betterleaks/pull/113
 
+# Scan an S3 bucket (works for any S3-compatible store: AWS, R2, MinIO, etc.)
+betterleaks s3 s3://my-bucket/logs/
+# Enumerate every bucket the credentials can list, then scan each
+betterleaks s3 's3://*'
+
 # Scan stdin
 cat some_file.txt | betterleaks stdin -v
 ```

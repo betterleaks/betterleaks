@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,15 +77,20 @@ type S3 struct {
 // s3Target captures everything the request builder needs after URL parsing.
 type s3Target struct {
 	Scheme        string // "https" or "http"
-	Host          string // request host (with bucket subdomain for virtual-hosted)
-	Bucket        string
+	Host          string // request host. For virtual-hosted single-bucket, includes the bucket subdomain. In enumerate mode, this is the endpoint without any bucket prefix.
+	Bucket        string // exact bucket name (single-bucket mode)
+	BucketGlob    string // glob pattern in enumerate mode (e.g. "*", "prod-*")
 	Prefix        string
 	Region        string // may be "" pre-probe for AWS forms missing region
 	PathStyle     bool
-	IsAWS         bool   // true for *.amazonaws.com and s3:// scheme
-	RequiresProbe bool   // AWS hosts where region was not in the URL
-	Endpoint      string // descriptive endpoint label for logging / attrs
+	IsAWS         bool // true for *.amazonaws.com and s3:// scheme
+	RequiresProbe bool // AWS hosts where region was not in the URL
+	Endpoint      string
 }
+
+// IsEnumerate reports whether the target is a bucket-enumeration target rather
+// than a single-bucket target.
+func (t s3Target) IsEnumerate() bool { return t.BucketGlob != "" }
 
 // s3Creds holds resolved request-signing credentials.
 type s3Creds struct {
@@ -94,8 +100,9 @@ type s3Creds struct {
 	Anonymous    bool
 }
 
-// Validate parses the URL, resolves credentials, and (for AWS targets without
-// an explicit region) probes the bucket region.
+// Validate parses the URL, resolves credentials, and (for AWS single-bucket
+// targets without an explicit region) probes the bucket region. In enumerate
+// mode, region resolution is deferred to scan time on a per-bucket basis.
 func (s *S3) Validate() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
@@ -108,14 +115,21 @@ func (s *S3) Validate() error {
 		target.Region = s.Region
 		target.RequiresProbe = false
 	}
-	if target.Region == "" && target.RequiresProbe && target.IsAWS {
+	switch {
+	case target.IsEnumerate() && target.IsAWS && target.Region == "":
+		// ListBuckets is account-scoped; us-east-1 is the conventional default
+		// for SigV4 scope. Per-bucket region is resolved later.
+		target.Region = "us-east-1"
+		target.RequiresProbe = false
+	case target.RequiresProbe && target.IsAWS && target.Region == "":
 		region, err := s3ProbeAWSRegion(context.Background(), target.Bucket)
 		if err != nil {
 			return fmt.Errorf("could not determine bucket region (pass --region): %w", err)
 		}
 		target.Region = region
-		// AWS virtual-hosted host with the resolved region.
-		target.Host = fmt.Sprintf("%s.s3.%s.amazonaws.com", target.Bucket, region)
+		if !target.PathStyle {
+			target.Host = fmt.Sprintf("%s.s3.%s.amazonaws.com", target.Bucket, region)
+		}
 		target.RequiresProbe = false
 	}
 	if target.Region == "" {
@@ -160,14 +174,87 @@ func (s *S3) resolveCreds() (s3Creds, error) {
 	return s3Creds{}, errors.New("no credentials: set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, pass --access-key/--secret-key, or pass --anonymous")
 }
 
-// Fragments enumerates objects under the configured prefix and yields content
-// fragments for each one.
+// Fragments dispatches to single-bucket or enumerate-mode scanning based on
+// the parsed URL.
 func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	if s.parsed.Bucket == "" {
+	if s.parsed.Bucket == "" && s.parsed.BucketGlob == "" {
 		if err := s.Validate(); err != nil {
 			return err
 		}
 	}
+	httpClient := &http.Client{}
+	if s.parsed.IsEnumerate() {
+		return s.scanEnumerated(ctx, httpClient, yield)
+	}
+	return s.scanBucket(ctx, httpClient, s.parsed, yield)
+}
+
+// scanEnumerated lists buckets at the endpoint, filters by glob, and scans
+// each matched bucket. Per-bucket failures (e.g. AccessDenied, region probe
+// errors) are logged and non-fatal.
+func (s *S3) scanEnumerated(ctx context.Context, client *http.Client, yield FragmentsFunc) error {
+	logging.Info().
+		Str("endpoint", s.parsed.Endpoint).
+		Str("bucket_glob", s.parsed.BucketGlob).
+		Str("region", s.parsed.Region).
+		Msg("enumerating buckets")
+
+	buckets, err := s3ListAllBuckets(ctx, client, s.parsed, s.creds)
+	if err != nil {
+		return fmt.Errorf("list buckets: %w", err)
+	}
+
+	var matched []string
+	for _, b := range buckets {
+		ok, err := path.Match(s.parsed.BucketGlob, b)
+		if err != nil {
+			return fmt.Errorf("invalid bucket glob %q: %w", s.parsed.BucketGlob, err)
+		}
+		if ok {
+			matched = append(matched, b)
+		}
+	}
+	logging.Info().Int("total", len(buckets)).Int("matched", len(matched)).Msg("bucket enumeration complete")
+
+	for _, b := range matched {
+		sub, err := s.bucketSubTarget(ctx, b)
+		if err != nil {
+			logging.Error().Err(err).Str("bucket", b).Msg("could not resolve bucket; skipping")
+			continue
+		}
+		if err := s.scanBucket(ctx, client, sub, yield); err != nil {
+			logging.Error().Err(err).Str("bucket", b).Msg("bucket scan failed; continuing")
+		}
+	}
+	return nil
+}
+
+// bucketSubTarget builds a single-bucket target derived from the enumerate
+// target. For AWS, this probes the bucket's region (which may differ from the
+// account's default).
+func (s *S3) bucketSubTarget(ctx context.Context, bucket string) (s3Target, error) {
+	sub := s.parsed
+	sub.Bucket = bucket
+	sub.BucketGlob = ""
+
+	if sub.IsAWS {
+		region, err := s3ProbeAWSRegion(ctx, bucket)
+		if err != nil {
+			return s3Target{}, fmt.Errorf("probe region: %w", err)
+		}
+		sub.Region = region
+		if sub.PathStyle {
+			sub.Host = fmt.Sprintf("s3.%s.amazonaws.com", region)
+		} else {
+			sub.Host = fmt.Sprintf("%s.s3.%s.amazonaws.com", bucket, region)
+		}
+	}
+	return sub, nil
+}
+
+// scanBucket runs the list-then-fetch loop for a single bucket described by
+// target.
+func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Target, yield FragmentsFunc) error {
 	maxSize := s.MaxObjectSize
 	if maxSize <= 0 {
 		maxSize = s3DefaultMaxObjectSize
@@ -178,26 +265,25 @@ func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	}
 
 	bucketAttrs := map[string]string{
-		AttrS3Bucket: s.parsed.Bucket,
-		AttrS3Region: s.parsed.Region,
+		AttrS3Bucket: target.Bucket,
+		AttrS3Region: target.Region,
 		AttrResource: ResourceS3Object,
 	}
-	if s.parsed.Endpoint != "" {
-		bucketAttrs[AttrS3Endpoint] = s.parsed.Endpoint
+	if target.Endpoint != "" {
+		bucketAttrs[AttrS3Endpoint] = target.Endpoint
 	}
 	if s.ShouldSkip != nil && s.ShouldSkip(bucketAttrs) {
-		logging.Info().Str("bucket", s.parsed.Bucket).Msg("skipping bucket: filtered by prefilter")
+		logging.Info().Str("bucket", target.Bucket).Msg("skipping bucket: filtered by prefilter")
 		return nil
 	}
 
 	logging.Info().
-		Str("bucket", s.parsed.Bucket).
-		Str("region", s.parsed.Region).
-		Str("prefix", s.parsed.Prefix).
-		Str("endpoint", s.parsed.Endpoint).
+		Str("bucket", target.Bucket).
+		Str("region", target.Region).
+		Str("prefix", target.Prefix).
+		Str("endpoint", target.Endpoint).
 		Msg("starting S3 scan")
 
-	httpClient := &http.Client{}
 	start := time.Now()
 	var (
 		objectCount  int
@@ -207,7 +293,7 @@ func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 	var continuationToken string
 	for {
-		page, err := s3ListPage(ctx, httpClient, s.parsed, s.creds, s.parsed.Prefix, continuationToken)
+		page, err := s3ListPage(ctx, client, target, s.creds, target.Prefix, continuationToken)
 		if err != nil {
 			return fmt.Errorf("list objects: %w", err)
 		}
@@ -219,14 +305,14 @@ func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				logging.Trace().Str("key", obj.Key).Str("reason", skipReason).Msg("skipping object")
 				continue
 			}
-			attrs := s.objectAttributes(obj)
+			attrs := s.objectAttributes(target, obj)
 			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 				logging.Trace().Str("key", obj.Key).Msg("skipping object: filtered by prefilter")
 				continue
 			}
 			objectCount++
 			g.Go(func() error {
-				if err := s.scanObject(gctx, httpClient, obj, attrs, yield); err != nil {
+				if err := s.scanObject(gctx, client, target, obj, attrs, yield); err != nil {
 					logging.Error().Err(err).Str("key", obj.Key).Msg("could not scan S3 object")
 					return nil
 				}
@@ -246,6 +332,7 @@ func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	}
 
 	logging.Info().
+		Str("bucket", target.Bucket).
 		Int("objects_listed", objectCount).
 		Int("objects_scanned", scannedCount).
 		Str("duration", time.Since(start).Round(time.Millisecond).String()).
@@ -273,32 +360,32 @@ func (s *S3) skipReason(obj s3Object, maxSize int64) string {
 }
 
 // objectAttributes builds the attr map stamped on every fragment for this object.
-func (s *S3) objectAttributes(obj s3Object) map[string]string {
+func (s *S3) objectAttributes(target s3Target, obj s3Object) map[string]string {
 	attrs := map[string]string{
 		AttrPath:           obj.Key,
-		AttrURL:            s3ObjectURL(s.parsed, obj.Key),
+		AttrURL:            s3ObjectURL(target, obj.Key),
 		AttrResource:       ResourceS3Object,
-		AttrS3Bucket:       s.parsed.Bucket,
+		AttrS3Bucket:       target.Bucket,
 		AttrS3Key:          obj.Key,
-		AttrS3Region:       s.parsed.Region,
+		AttrS3Region:       target.Region,
 		AttrS3Size:         strconv.FormatInt(obj.Size, 10),
 		AttrS3ETag:         strings.Trim(obj.ETag, `"`),
 		AttrS3LastModified: obj.LastModified,
 		AttrS3StorageClass: obj.StorageClass,
 	}
-	if s.parsed.Endpoint != "" {
-		attrs[AttrS3Endpoint] = s.parsed.Endpoint
+	if target.Endpoint != "" {
+		attrs[AttrS3Endpoint] = target.Endpoint
 	}
 	return attrs
 }
 
 // scanObject GETs an object and pipes its body through File.Fragments, which
 // already handles archives, mime sniffing, and chunk boundaries.
-func (s *S3) scanObject(ctx context.Context, client *http.Client, obj s3Object, attrs map[string]string, yield FragmentsFunc) error {
+func (s *S3) scanObject(ctx context.Context, client *http.Client, target s3Target, obj s3Object, attrs map[string]string, yield FragmentsFunc) error {
 	objCtx, cancel := context.WithTimeout(ctx, s3GetObjectTimeout)
 	defer cancel()
 
-	body, err := s3GetObject(objCtx, client, s.parsed, s.creds, obj.Key)
+	body, err := s3GetObject(objCtx, client, target, s.creds, obj.Key)
 	if err != nil {
 		return err
 	}
@@ -346,6 +433,11 @@ func (s *S3) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) Fr
 // ---------------------------------------------------------------------------
 
 // s3ParseURL accepts the documented URL forms and returns a populated s3Target.
+//
+// Globs are allowed in the bucket position only ("s3://<here>" or the first
+// path segment of path-style URLs). Globs in DNS hostnames (virtual-hosted AWS
+// or R2 forms) are rejected so users go through the explicit s3:// or
+// path-style forms for enumeration.
 func s3ParseURL(raw string) (s3Target, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -356,15 +448,21 @@ func s3ParseURL(raw string) (s3Target, error) {
 		if u.Host == "" {
 			return s3Target{}, errors.New("s3:// URL is missing bucket")
 		}
-		return s3Target{
+		t := s3Target{
 			Scheme:        "https",
-			Host:          fmt.Sprintf("%s.s3.amazonaws.com", u.Host),
-			Bucket:        u.Host,
 			Prefix:        strings.TrimPrefix(u.Path, "/"),
 			IsAWS:         true,
 			RequiresProbe: true,
 			Endpoint:      "s3.amazonaws.com",
-		}, nil
+		}
+		if s3IsGlob(u.Host) {
+			t.BucketGlob = u.Host
+			t.Host = "s3.amazonaws.com"
+		} else {
+			t.Bucket = u.Host
+			t.Host = fmt.Sprintf("%s.s3.amazonaws.com", u.Host)
+		}
+		return t, nil
 	case "http", "https":
 		// fall through
 	default:
@@ -375,6 +473,9 @@ func s3ParseURL(raw string) (s3Target, error) {
 	hostOnly := host
 	if i := strings.IndexByte(hostOnly, ':'); i >= 0 {
 		hostOnly = hostOnly[:i]
+	}
+	if s3IsGlob(hostOnly) {
+		return s3Target{}, errors.New("glob is not allowed in the hostname; use s3://<glob> or path-style https://endpoint/<glob>")
 	}
 	path := strings.TrimPrefix(u.Path, "/")
 
@@ -389,15 +490,27 @@ func s3ParseURL(raw string) (s3Target, error) {
 		if bucket == "" {
 			return s3Target{}, errors.New("path-style URL is missing bucket segment")
 		}
-		return s3Target{
+		t := s3Target{
 			Scheme:    u.Scheme,
 			Host:      host,
-			Bucket:    bucket,
 			Prefix:    prefix,
 			PathStyle: true,
 			Endpoint:  host,
-		}, nil
+		}
+		if s3IsGlob(bucket) {
+			t.BucketGlob = bucket
+		} else {
+			t.Bucket = bucket
+		}
+		return t, nil
 	}
+}
+
+// s3IsGlob reports whether s contains glob metacharacters. Real S3 bucket names
+// cannot contain '*', '?', or '[', so any of these unambiguously signals
+// enumeration mode.
+func s3IsGlob(s string) bool {
+	return strings.ContainsAny(s, "*?[")
 }
 
 // parseAWSHostURL handles the AWS-hosted forms:
@@ -447,17 +560,22 @@ func parseAWSHostURL(u *url.URL, hostOnly, path string) (s3Target, error) {
 		if bucket == "" {
 			return s3Target{}, errors.New("path-style amazonaws.com URL is missing bucket segment")
 		}
-		return s3Target{
+		t := s3Target{
 			Scheme:        u.Scheme,
 			Host:          u.Host,
-			Bucket:        bucket,
 			Prefix:        bPrefix,
 			Region:        region,
 			PathStyle:     true,
 			IsAWS:         true,
 			RequiresProbe: region == "",
 			Endpoint:      hostOnly,
-		}, nil
+		}
+		if s3IsGlob(bucket) {
+			t.BucketGlob = bucket
+		} else {
+			t.Bucket = bucket
+		}
+		return t, nil
 	}
 
 	return s3Target{}, fmt.Errorf("unrecognized amazonaws.com host %q", hostOnly)
@@ -490,16 +608,21 @@ func parseR2HostURL(u *url.URL, hostOnly, path string) (s3Target, error) {
 	if bucket == "" {
 		return s3Target{}, errors.New("r2 URL is missing bucket segment")
 	}
-	return s3Target{
+	t := s3Target{
 		Scheme:    u.Scheme,
 		Host:      u.Host,
-		Bucket:    bucket,
 		Prefix:    bPrefix,
 		Region:    "auto",
 		PathStyle: true,
 		IsAWS:     false,
 		Endpoint:  hostOnly,
-	}, nil
+	}
+	if s3IsGlob(bucket) {
+		t.BucketGlob = bucket
+	} else {
+		t.Bucket = bucket
+	}
+	return t, nil
 }
 
 // splitBucketAndPrefix splits a path of the form "bucket/prefix..." into its parts.
@@ -548,6 +671,56 @@ func s3ProbeAWSRegion(ctx context.Context, bucket string) (string, error) {
 // ---------------------------------------------------------------------------
 // List + Get
 // ---------------------------------------------------------------------------
+
+// s3BucketEntry mirrors the <Bucket> element inside a ListAllMyBucketsResult.
+type s3BucketEntry struct {
+	Name         string `xml:"Name"`
+	CreationDate string `xml:"CreationDate"`
+}
+
+type s3ListAllMyBucketsResult struct {
+	XMLName xml.Name        `xml:"ListAllMyBucketsResult"`
+	Buckets []s3BucketEntry `xml:"Buckets>Bucket"`
+}
+
+// s3ListAllBuckets issues GET / against the endpoint host (no bucket subdomain
+// or path segment) and returns the bucket names. Requires the
+// s3:ListAllMyBuckets permission on AWS; non-AWS providers have equivalent
+// account-level credentials.
+func s3ListAllBuckets(ctx context.Context, client *http.Client, target s3Target, creds s3Creds) ([]string, error) {
+	// Build a target that addresses the endpoint root: same host as the
+	// enumerate target, no bucket path segment.
+	endpointTarget := target
+	endpointTarget.Bucket = ""
+	endpointTarget.BucketGlob = ""
+	endpointTarget.PathStyle = false // request path stays "/" with no bucket prefix
+
+	req, err := s3NewRequest(ctx, http.MethodGet, endpointTarget, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := s3Sign(req, nil, target.Region, creds); err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("list-buckets returned %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
+	}
+	var result s3ListAllMyBucketsResult
+	if err := xml.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode list-buckets response: %w", err)
+	}
+	names := make([]string, 0, len(result.Buckets))
+	for _, b := range result.Buckets {
+		names = append(names, b.Name)
+	}
+	return names, nil
+}
 
 type s3Object struct {
 	Key          string `xml:"Key"`
