@@ -424,12 +424,7 @@ func (s *S3) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) Fr
 	}
 }
 
-// ---------------------------------------------------------------------------
-// URL parsing
-// ---------------------------------------------------------------------------
-
 // s3ParseURL accepts the documented URL forms and returns a populated s3Target.
-//
 // Globs are allowed in the bucket position only ("s3://<here>" or the first
 // path segment of path-style URLs). Globs in DNS hostnames (virtual-hosted AWS
 // or R2 forms) are rejected so users go through the explicit s3:// or
@@ -684,10 +679,6 @@ func s3ProbeAWSRegion(ctx context.Context, bucket string) (string, error) {
 	}
 	return region, nil
 }
-
-// ---------------------------------------------------------------------------
-// List + Get
-// ---------------------------------------------------------------------------
 
 // s3BucketEntry mirrors the <Bucket> element inside a ListAllMyBucketsResult.
 type s3BucketEntry struct {
