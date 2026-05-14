@@ -61,7 +61,7 @@ var statusPriority = map[string]int{
 }
 
 // BetterStatus returns whichever of a or b has higher priority.
-// Priority order: valid > revoked > unknown > invalid > error > "".
+// Priority order: valid > needs_validation > revoked > unknown > invalid > error > "".
 // This is used for rolling up per-component validation results into an
 // overall finding-level status for composite rules.
 func BetterStatus(a, b string) string {
