@@ -104,6 +104,16 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 			),
 		),
 
+		// obfuscate(secret) returns a same-length, class-preserving
+		// perturbation of secret with a stable identifying prefix.
+		cel.Function("obfuscate",
+			cel.Overload("obfuscate_string",
+				[]*cel.Type{cel.StringType},
+				cel.StringType,
+				cel.UnaryBinding(obfuscateBinding()),
+			),
+		),
+
 		// unknown(response) returns {"result": "unknown", "reason": "HTTP <status>"}
 		// for use as a fallback when the HTTP status is unexpected.
 		cel.Function("unknown",
