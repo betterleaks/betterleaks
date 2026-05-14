@@ -122,3 +122,82 @@ cel.bind(r,
 '''
 ```
 This reads as "set r as the response to an http GET call from api.github.com/app, then if status is 200 and `slug` is in the return json, *then* return 'result' valid otherwise if status is 401 or 403, return 'invalid', and finally if none of the conditions are met, return 'unknown'".
+
+
+### "Validating" with an LLM
+
+For generic high-entropy matches that no live API can adjudicate, you can ask an LLM whether the candidate looks like a real secret. Put the system and user prompts directly in the multi-line `validate` TOML string (CEL string literals and concatenation). Use `json.string(...)` when you need quoted, escaped fragments inside a hand-built JSON body. Use `env(...)` plus `--validation-env-vars` so provider API keys stay out of config files. Optionally use `obfuscate(secret)` to send a same-length shape-preserving stand-in instead of the raw candidate when talking to a third-party API. Interpret a positive model signal as `"needs_validation"` when you are not verifying liveness authoritatively; reserve `"valid"` for credentials confirmed live through a definitive check.
+
+Example generic rule w/ llm "validation":
+
+```
+[[rules]]
+id = "generic-secret-llm-filtered"
+description = "Generic secret filtered by an LLM"
+regex = '''(?i)[\w.-]{0,50}?(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|passw(?:or)?d|secret|token)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "access",
+    "api",
+    "auth",
+    "key",
+    "credential",
+    "creds",
+    "passwd",
+    "password",
+    "secret",
+    "token",
+]
+
+filter = '''
+entropy(finding["secret"]) <= 4.0 ||
+failsTokenEfficiency(finding["secret"])
+'''
+
+validate = '''
+cel.bind(obf_secret, obfuscate(finding["secret"]),
+  cel.bind(obf_context, finding["context"].replace(finding["secret"], obf_secret),
+    cel.bind(r,
+      http.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          "Authorization": "Bearer " + env("OPENAI_API_KEY"),
+          "Content-Type": "application/json"
+        },
+        "{" +
+          "\"model\":\"gpt-5.4-mini\"," +
+          "\"temperature\":0," +
+          "\"max_completion_tokens\":256," +
+          "\"messages\":[" +
+            "{\"role\":\"system\",\"content\":" +
+              json.string(
+                "Classify whether the candidate is a real usable credential or a benign match using only the surrounding source context. " +
+                "Respond with exactly three lines: VERDICT_SECRET or VERDICT_NOT, confidence in that verdict as a decimal from 0.0 to 1.0, and a one-sentence justification under 25 words."
+              ) +
+            "}," +
+            "{\"role\":\"user\",\"content\":" +
+              json.string(
+                "Candidate: " + obf_secret + "\n\n" +
+                "Surrounding code:\n" + obf_context
+              ) +
+            "}" +
+          "]" +
+        "}"
+      ),
+      cel.bind(content, r.json.?choices[?0].?message.?content.orValue(""),
+        r.status == 200 && r.body.contains("VERDICT_SECRET") ? {
+          "result": "needs_validation",
+          "justification": content.split("\n")[?2].orValue(content),
+          "confidence": content.split("\n")[?1].orValue("0").trim()
+        } : r.status == 200 && r.body.contains("VERDICT_NOT") ? {
+          "result": "invalid",
+          "confidence": content.split("\n")[?1].orValue("0").trim(),
+          "justification": content.split("\n")[?2].orValue(content)
+        } : unknown(r)
+      )
+    )
+  )
+)
+'''
+```
+
+It's a little messy but it gets the job done. The system prompt is trash but hey it demonstrates what you can do!

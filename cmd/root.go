@@ -101,7 +101,7 @@ func init() {
 
 	// Validation flags
 	rootCmd.PersistentFlags().Bool("validation", false, "enable validation of findings against live APIs")
-	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: valid, invalid, revoked, error, unknown, none (none = rules without validation)")
+	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none (none = rules without validation)")
 	rootCmd.PersistentFlags().Duration("validation-timeout", 10*time.Second, "per-request timeout for validation")
 	rootCmd.PersistentFlags().Bool("validation-debug", false, "include raw HTTP response in validation output")
 	rootCmd.PersistentFlags().Int("validation-workers", 10, "number of concurrent validation workers")
@@ -543,6 +543,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 	if detector.ValidationPool != nil {
 		logging.Info().
 			Int("valid", detector.ValidationCounts["valid"]).
+			Int("needs_validation", detector.ValidationCounts["needs_validation"]).
 			Int("invalid", detector.ValidationCounts["invalid"]).
 			Int("revoked", detector.ValidationCounts["revoked"]).
 			Int("unknown", detector.ValidationCounts["unknown"]).
