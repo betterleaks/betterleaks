@@ -288,6 +288,10 @@ func formatSetStatus(status string, noColor bool) string {
 	switch status {
 	case "valid":
 		style = color.New().Foreground("#00d26a")
+	case "needs_validation":
+		// Deliberately distinct from "valid" (green): the candidate looked plausible
+		// to a non-authoritative check (e.g. an LLM) but liveness wasn't confirmed.
+		style = color.New().Foreground("#60a5fa")
 	case "invalid":
 		style = color.New().Foreground("#888888")
 	case "revoked":
@@ -449,6 +453,8 @@ func validationStyle(status string, noColor bool) color.Style {
 	switch status {
 	case "valid":
 		return color.New().Bold().Foreground("#00d26a")
+	case "needs_validation":
+		return color.New().Bold().Foreground("#60a5fa")
 	case "invalid":
 		return color.New().Foreground("#888888")
 	case "revoked":
