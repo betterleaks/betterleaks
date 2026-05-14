@@ -789,8 +789,8 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		finding.CELContext = extractContext(fragment.Raw, matchIndex, MatchContextSpec{
 			Mode:        ContextModeBox,
-			LinesBefore: 100,
-			LinesAfter:  100,
+			LinesBefore: 20,
+			LinesAfter:  20,
 			ColsBefore:  350,
 			ColsAfter:   350,
 		})
