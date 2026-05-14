@@ -40,6 +40,10 @@ type ValidationOptions struct {
 	Debug        bool
 	ExtractEmpty bool
 	StatusFilter string // comma-separated list of statuses to include
+	// ValidationEnvVars lists environment variable names the validation CEL
+	// env(...) binding may read (see --validation-env-vars). Parsed into
+	// ValidationEnvironment.AllowedEnv when the validation env is created.
+	ValidationEnvVars []string
 }
 
 // allowSignatures are comment tags that can be used to ignore findings.
@@ -212,6 +216,9 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	validationEnv, validationErr := cfg.CompileValidation()
 	if validationErr != nil {
 		logging.Fatal().Err(validationErr).Msg("failed to compile CEL validation expressions")
+	}
+	if validationEnv != nil {
+		validationEnv.AllowedEnv = celenv.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
 	}
 
 	d := &Detector{

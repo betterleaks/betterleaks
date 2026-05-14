@@ -362,6 +362,10 @@ var celExpressions = []struct {
   )
 )`,
 	},
+	{
+		"env-compile-smoke",
+		`env("HOME")`,
+	},
 }
 
 func TestCELExpressionsCompile(t *testing.T) {

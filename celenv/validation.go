@@ -37,6 +37,12 @@ type ValidationEnvironment struct {
 
 	// STSEndpoint overrides the default AWS STS endpoint (for testing).
 	STSEndpoint string
+
+	// AllowedEnv is the set of environment variable names the env(...) CEL
+	// binding may read (via os.Getenv). Names not in this set produce a CEL
+	// error. Nil or empty disables env(...) entirely. Populated from
+	// --validation-env-vars by the detector.
+	AllowedEnv map[string]struct{}
 }
 
 // DefaultHTTPClient returns an HTTP client with reasonable timeouts.
@@ -101,6 +107,16 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 				},
 				cel.MapType(cel.StringType, cel.DynType),
 				cel.FunctionBinding(httpPostBinding(e)),
+			),
+		),
+
+		// env(name) returns os.Getenv(name) when name is allowlisted
+		// (ValidationEnvironment.AllowedEnv); otherwise returns a CEL error.
+		cel.Function("env",
+			cel.Overload("env_string",
+				[]*cel.Type{cel.StringType},
+				cel.StringType,
+				cel.UnaryBinding(envBinding(e)),
 			),
 		),
 
