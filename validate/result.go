@@ -56,7 +56,7 @@ var statusPriority = map[string]int{
 	"invalid":          2,
 	"unknown":          3,
 	"revoked":          4,
-	"needs_validation": 6,
+	"needs_validation": 5,
 	"valid":            6,
 }
 
