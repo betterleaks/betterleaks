@@ -32,8 +32,6 @@ type Finding struct {
 	// MatchContext contains surrounding lines around the match
 	MatchContext string `json:",omitempty"`
 
-	CELContext string `json:"-"`
-
 	Line string `json:"-"`
 
 	// CaptureGroups holds named regex capture groups from the match.
@@ -61,6 +59,9 @@ type Finding struct {
 
 	// unique identifier
 	Fingerprint string
+
+	// Hidden field to hold the context for CEL evaluation without bloating the report output.
+	celContext string
 
 	// Deprecated
 	// File is the name of the file containing the finding
@@ -203,6 +204,10 @@ func MaskSecret(secret string, percent uint) string {
 	lth := int64(math.RoundToEven(len * prc / float64(100)))
 
 	return secret[:lth] + "..."
+}
+
+func (f *Finding) SetCELContext(context string) {
+	f.celContext = context
 }
 
 func (f *Finding) PrintRequiredFindings(noColor bool, redact uint) {
@@ -608,6 +613,6 @@ func (f *Finding) ToCELMap() map[string]string {
 		"line":        f.Line,
 		"rule_id":     f.RuleID,
 		"description": f.Description,
-		"context":     f.CELContext,
+		"context":     f.celContext,
 	}
 }

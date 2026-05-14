@@ -99,6 +99,8 @@ username = "admin"
 
 func compare(t *testing.T, got, want []report.Finding) {
 	t.Helper()
+	got = stripFindingAttributes(append([]report.Finding(nil), got...))
+	want = stripFindingAttributes(append([]report.Finding(nil), want...))
 	if diff := cmp.Diff(want, got,
 		cmpopts.SortSlices(func(a, b report.Finding) bool {
 			if a.File != b.File {
@@ -125,6 +127,7 @@ func compare(t *testing.T, got, want []report.Finding) {
 			"Fingerprint", "Author", "Email", "Date", "Message", "Commit",
 			"File", "SymlinkFile", "Attributes",
 			"RequiredSets"),
+		cmpopts.IgnoreUnexported(report.Finding{}),
 		cmpopts.EquateApprox(0.0001, 0), // For floating point Entropy comparison
 	); diff != "" {
 		t.Errorf("findings mismatch (-want +got):\n%s", diff)
@@ -138,6 +141,7 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 	for i := range findings {
 		findings[i].Attributes = nil
 		findings[i].Link = ""
+		findings[i].SetCELContext("")
 	}
 	return findings
 }
@@ -1383,6 +1387,7 @@ func TestFromGit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(strings.Join([]string{tt.cfgName, tt.source, tt.logOpts}, "/"), func(t *testing.T) {
+			viper.Reset()
 			viper.AddConfigPath(configPath)
 			viper.SetConfigName("simple")
 			viper.SetConfigType("toml")
@@ -1476,6 +1481,7 @@ func TestFromGitStaged(t *testing.T) {
 	moveDotGit(t, "dotGit", ".git")
 	defer moveDotGit(t, ".git", "dotGit")
 	for _, tt := range tests {
+		viper.Reset()
 
 		viper.AddConfigPath(configPath)
 		viper.SetConfigName("simple")
@@ -1594,6 +1600,7 @@ func TestFromFiles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
+			viper.Reset()
 			viper.AddConfigPath(configPath)
 			viper.SetConfigName(tt.cfgName)
 			viper.SetConfigType("toml")
@@ -2195,6 +2202,7 @@ func TestDetectWithArchives(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
+			viper.Reset()
 			viper.AddConfigPath(configPath)
 			viper.SetConfigName(tt.cfgName)
 			viper.SetConfigType("toml")
@@ -2206,6 +2214,7 @@ func TestDetectWithArchives(t *testing.T) {
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
 			if tt.expireContext {
 				cancel()
 			}
@@ -2286,6 +2295,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		viper.Reset()
 		viper.AddConfigPath(configPath)
 		viper.SetConfigName("simple")
 		viper.SetConfigType("toml")
