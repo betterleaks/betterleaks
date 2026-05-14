@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/logging"
@@ -172,36 +173,9 @@ func composeFilters(skipParts []string, userExpr string) string {
 
 // ── CEL string encoding helpers ───────────────────────────────────────────────
 
-// celStringLit returns a CEL string literal. Strings containing backslashes
-// (typically regex patterns) use CEL raw string syntax r"""...""" to avoid
-// double-escaping, unless the string itself contains a triple-quote.
+// celStringLit returns a CEL string literal.
 func celStringLit(s string) string {
-	// If it contains a backslash AND doesn't contain a triple-quote, raw strings are safe.
-	if strings.ContainsRune(s, '\\') && !strings.Contains(s, `"""`) {
-		return `r"""` + s + `"""`
-	}
-
-	var b strings.Builder
-	b.WriteByte('"')
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
-		case '"':
-			b.WriteString(`\"`)
-		case '\\':
-			b.WriteString(`\\`)
-		case '\n':
-			b.WriteString(`\n`)
-		case '\r':
-			b.WriteString(`\r`)
-		case '\t':
-			b.WriteString(`\t`)
-		default:
-			b.WriteByte(c)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
+	return strconv.Quote(s)
 }
 
 // celStringList returns a CEL list literal from a slice of Go strings.
