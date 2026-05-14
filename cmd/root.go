@@ -543,6 +543,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 	if detector.ValidationPool != nil {
 		logging.Info().
 			Int("valid", detector.ValidationCounts["valid"]).
+			Int("needs_validation", detector.ValidationCounts["needs_validation"]).
 			Int("invalid", detector.ValidationCounts["invalid"]).
 			Int("revoked", detector.ValidationCounts["revoked"]).
 			Int("unknown", detector.ValidationCounts["unknown"]).
