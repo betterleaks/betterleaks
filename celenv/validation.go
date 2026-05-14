@@ -155,6 +155,15 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 			),
 		),
 
+		// json.string(s) returns s as a JSON string literal (quoted, escaped).
+		cel.Function("json.string",
+			cel.Overload("json_string_string",
+				[]*cel.Type{cel.StringType},
+				cel.StringType,
+				cel.UnaryBinding(jsonStringBinding()),
+			),
+		),
+
 		cel.Function("crypto.md5",
 			cel.Overload("crypto_md5_bytes",
 				[]*cel.Type{cel.BytesType},
