@@ -32,6 +32,8 @@ type Finding struct {
 	// MatchContext contains surrounding lines around the match
 	MatchContext string `json:",omitempty"`
 
+	CELContext string `json:"-"`
+
 	Line string `json:"-"`
 
 	// CaptureGroups holds named regex capture groups from the match.
@@ -606,5 +608,6 @@ func (f *Finding) ToCELMap() map[string]string {
 		"line":        f.Line,
 		"rule_id":     f.RuleID,
 		"description": f.Description,
+		"context":     f.CELContext,
 	}
 }
