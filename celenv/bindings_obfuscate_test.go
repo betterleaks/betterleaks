@@ -3,6 +3,7 @@ package celenv
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
@@ -65,6 +66,19 @@ func TestObfuscate_shortSecretHasNoPrefix(t *testing.T) {
 	require.Equal(t, "abc-def", body)
 }
 
+func TestObfuscate_splitPrefixPreservesUTF8(t *testing.T) {
+	const in = "éééééééééééé3456789012345"
+
+	prefix, body := splitPrefix(in)
+	require.Equal(t, "éééééé", prefix)
+	require.True(t, utf8.ValidString(prefix))
+	require.True(t, utf8.ValidString(body))
+
+	got := obfuscate(in)
+	require.True(t, utf8.ValidString(got))
+	require.Len(t, []rune(got), len([]rune(in)))
+}
+
 func TestObfuscate_lowerHexBodyStaysHex(t *testing.T) {
 	const in = "sha256_abcdef0123456789abcdef0123456789"
 	got := obfuscate(in)
@@ -82,6 +96,18 @@ func TestObfuscate_upperHexBodyStaysHex(t *testing.T) {
 	for _, r := range strings.TrimPrefix(got, "TOKEN.") {
 		require.Truef(t, (r >= '0' && r <= '9') || (r >= 'A' && r <= 'F'),
 			"output rune %q is not upper hex", string(r))
+	}
+}
+
+func TestObfuscate_allDigitBodyIsNotHex(t *testing.T) {
+	require.Empty(t, hexPool("1234567890"))
+
+	const in = "token_12345678901234567890"
+	got := obfuscate(in)
+	require.True(t, strings.HasPrefix(got, "token_"))
+	for _, r := range strings.TrimPrefix(got, "token_") {
+		require.Truef(t, r >= '0' && r <= '9',
+			"output rune %q is not a digit", string(r))
 	}
 }
 

@@ -66,19 +66,20 @@ func obfuscate(secret string) string {
 // splitPrefix returns the identifying prefix and the body to perturb.
 // Short secrets have no preserved prefix.
 func splitPrefix(secret string) (prefix, body string) {
-	if len(secret) <= prefixMinLen {
+	runes := []rune(secret)
+	if len(runes) <= prefixMinLen {
 		return "", secret
 	}
 	scan := prefixScanLen
-	if scan > len(secret) {
-		scan = len(secret)
+	if scan > len(runes) {
+		scan = len(runes)
 	}
 	for i := 0; i < scan; i++ {
-		if strings.ContainsRune(prefixSeparators, rune(secret[i])) {
-			return secret[:i+1], secret[i+1:]
+		if strings.ContainsRune(prefixSeparators, runes[i]) {
+			return string(runes[:i+1]), string(runes[i+1:])
 		}
 	}
-	return secret[:prefixFallbackLen], secret[prefixFallbackLen:]
+	return string(runes[:prefixFallbackLen]), string(runes[prefixFallbackLen:])
 }
 
 // hexPool returns the hex alphabet to use for secret, or "" if secret isn't
@@ -99,10 +100,12 @@ func hexPool(secret string) string {
 	switch {
 	case hasLower && hasUpper:
 		return ""
+	case hasLower:
+		return classHexLower
 	case hasUpper:
 		return classHexUpper
 	default:
-		return classHexLower
+		return ""
 	}
 }
 
