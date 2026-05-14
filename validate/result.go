@@ -12,11 +12,12 @@ var mapAnyType = reflect.TypeFor[map[string]any]()
 
 // validStatuses is the set of recognised validation statuses.
 var validStatuses = map[string]bool{
-	"valid":   true,
-	"invalid": true,
-	"revoked": true,
-	"unknown": true,
-	"error":   true,
+	"valid":            true,
+	"needs_validation": true,
+	"invalid":          true,
+	"revoked":          true,
+	"unknown":          true,
+	"error":            true,
 }
 
 // Result holds the outcome of a CEL validation evaluation.
@@ -50,12 +51,13 @@ func ParseResult(val ref.Val) *Result {
 // statusPriority defines precedence for status rollup.
 // Higher value = higher priority. "valid" wins over everything; "" loses to everything.
 var statusPriority = map[string]int{
-	"":        0,
-	"error":   1,
-	"invalid": 2,
-	"unknown": 3,
-	"revoked": 4,
-	"valid":   5,
+	"":                 0,
+	"error":            1,
+	"invalid":          2,
+	"unknown":          3,
+	"revoked":          4,
+	"needs_validation": 6,
+	"valid":            6,
 }
 
 // BetterStatus returns whichever of a or b has higher priority.
