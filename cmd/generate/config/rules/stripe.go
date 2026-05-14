@@ -22,12 +22,15 @@ func StripeAccessToken() *config.Rule {
 			"rk_prod",
 		},
 		ValidateCEL: `cel.bind(r,
-  http.get("https://api.stripe.com/v1/account", {
+  http.get("https://api.stripe.com/v1/balance", {
     "Authorization": "Bearer " + finding["secret"]
   }),
-  r.status == 200 && r.json.?object.orValue("") == "account" ? {
+  r.status == 200 && r.json.?object.orValue("") == "balance" ? {
     "result": "valid"
-  } : r.status in [401, 403] ? {
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Restricted key"
+  } : r.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : unknown(r)
