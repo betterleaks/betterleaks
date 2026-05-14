@@ -111,11 +111,3 @@ func runS3(cmd *cobra.Command, args []string) {
 	}
 	findingSummaryAndExit(detector, findings, exitCode, start, scanErr)
 }
-
-func mustGetInt64Flag(cmd *cobra.Command, name string) int64 {
-	value, err := cmd.Flags().GetInt64(name)
-	if err != nil {
-		logging.Fatal().Err(err).Msgf("could not get flag: %s", name)
-	}
-	return value
-}
