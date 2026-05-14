@@ -16,6 +16,17 @@ func DatadogtokenAccessToken() *config.Rule {
 		Keywords: []string{
 			"datadog",
 		},
+		ValidateCEL: `cel.bind(r,
+  http.get("https://api.datadoghq.com/api/v1/validate", {
+    "DD-API-KEY": finding["secret"]
+  }),
+  r.status == 200 && r.json.?valid.orValue(false) == true ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)`,
 	}
 
 	// validate

@@ -729,6 +729,19 @@ id = "datadog-access-token"
 description = "Detected a Datadog Access Token, potentially risking monitoring and analytics data exposure and manipulation."
 regex = '''(?i)[\w.-]{0,50}?(?:datadog)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["datadog"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.datadoghq.com/api/v1/validate", {
+    "DD-API-KEY": finding["secret"]
+  }),
+  r.status == 200 && r.json.?valid.orValue(false) == true ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # deepgram-api-key
@@ -5034,6 +5047,19 @@ keywords = [
     "rk_live",
     "rk_prod",
 ]
+validate = '''
+cel.bind(r,
+  http.get("https://api.stripe.com/v1/account", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.json.?object.orValue("") == "account" ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''
