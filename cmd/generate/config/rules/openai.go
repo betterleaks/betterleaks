@@ -37,11 +37,7 @@ func OpenAIProjectApiKey() *config.Rule {
 		ValidateCEL: commonValidateCEL,
 	}
 
-	tps := []string{
-		// Legacy format project keys (sk- prefix, 20+20)
-		utils.GenerateSampleSecret("openaiProjectKey", "sk-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3)+"T3BlbkFJ"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3)),
-	}
-	tps = utils.GenerateSampleSecrets("openaiProjectKey", "sk-proj-"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("74"), 3)+"T3BlbkFJ"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("74"), 3))
+	tps := utils.GenerateSampleSecrets("openaiProjectKey", "sk-proj-"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("74"), 3)+"T3BlbkFJ"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("74"), 3))
 	tps = append(tps, utils.GenerateSampleSecrets("openaiProjectKey", "sk-proj-"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("58"), 3)+"T3BlbkFJ"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("58"), 3))...)
 	tps = append(tps, utils.GenerateSampleSecrets("openaiProjectKey", "sk-proj-"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("20"), 3)+"T3BlbkFJ"+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("20"), 3))...)
 	tps = append(tps, []string{
