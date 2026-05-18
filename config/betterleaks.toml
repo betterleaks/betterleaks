@@ -2774,7 +2774,7 @@ entropy(finding["secret"]) <= 3.0
 [[rules]]
 id = "github-app-token"
 description = "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security."
-regex = '''(?:ghu|ghs)_[0-9a-zA-Z]{36}'''
+regex = '''(?:ghu|ghs)_[0-9a-zA-Z._-]{36,519}'''
 keywords = [
     "ghu_",
     "ghs_",
