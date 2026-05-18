@@ -114,7 +114,7 @@ func GitHubApp() *config.Rule {
 	r := config.Rule{
 		RuleID:      "github-app-token",
 		Description: "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security.",
-		Regex:       regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z]{36}`),
+		Regex:       regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z._-]{36,519}`),
 		Entropy:     3,
 		Keywords:    []string{"ghu_", "ghs_"},
 		Allowlists:  githubAllowlist,
