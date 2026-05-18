@@ -1,0 +1,5 @@
+# Formato antigo (36 chars) - deve ser detectado
+export GITHUB_TOKEN=ghs_16C7e42F292c6912E7710c838347Ae178B4a
+
+# Novo formato (JWT longo ~520 chars) - deve ser detectado
+export GITHUB_TOKEN=ghs_12345_eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3MTY5OTIwMDAsImV4cCI6MTcxNjk5MjM2MCwiaXNzIjoiZ2l0aHViIiwic3ViIjoiZ2l0aHViYXBwfDEyMzQ1NiIsInJlcG9zaXRvcnlfaWQiOiI5ODc2NTQiLCJyZXBvc2l0b3J5X293bmVyX2lkIjoiMTExMTExIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
