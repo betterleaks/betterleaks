@@ -516,6 +516,31 @@ entropy(finding["secret"]) <= 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# civo-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "civo-api-key"
+description = "Detected a Civo Cloud API key, which may expose Kubernetes clusters and compute resources to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:civo)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{50})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["civo"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.civo.com/v2/instances", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # clickhouse-cloud-api-secret-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -940,6 +965,31 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# elastic-cloud-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "elastic-cloud-api-key"
+description = "Identified an Elastic Cloud Serverless API key, which may expose Elasticsearch and Kibana resources to unauthorized access."
+regex = '''\b(essu_[A-Za-z0-9_\-]{60,200}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["essu_"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.elastic-cloud.com/api/v1/deployments", {
+    "Authorization": "ApiKey " + finding["secret"]
+  }),
+  r.status == 200 && r.body.contains('"deployments"') ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # elevenlabs-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -985,6 +1035,55 @@ regex = '''(?i)[\w.-]{0,50}?(?:(?-i:ETSY|[Ee]tsy))(?:[ \t\w.-]{0,20})[\s'"]{0,3}
 keywords = ["etsy"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# exoscale-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "exoscale-api-key"
+description = "Identified an Exoscale API key paired with a secret, which together grant programmatic access to Exoscale cloud resources."
+regex = '''\b(EXO[a-zA-Z0-9]{24,30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["exo"]
+validate = '''
+cel.bind(ts, time.now_unix(),
+  cel.bind(sig,
+    crypto.hmac_sha256(
+      bytes(captures["exoscale-api-secret"]),
+      bytes("GET /v2/zone\n\n\n\n" + ts)
+    ),
+    cel.bind(r,
+      http.get("https://api-ch-gva-2.exoscale.com/v2/zone", {
+        "Authorization": "EXO2-HMAC-SHA256 credential=" + finding["secret"] + ",expires=" + ts + ",signature=" + base64.encode(sig)
+      }),
+      r.status == 200 ? {
+        "result": "valid"
+      } : r.status in [401, 403] ? {
+        "result": "invalid",
+        "reason": "Unauthorized"
+      } : unknown(r)
+    )
+  )
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+[[rules.required]]
+id = "exoscale-api-secret"
+withinLines = 5
+
+# ──────────────────────────────────────────────────────────────────────────────
+# exoscale-api-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "exoscale-api-secret"
+description = "Identified an Exoscale API secret, used as a component of the exoscale-api-key composite rule."
+regex = '''(?i)[\w.-]{0,50}?(?:exoscale)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_\-]{40,60})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["exoscale"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3471,6 +3570,31 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# infomaniak-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "infomaniak-api-token"
+description = "Detected an Infomaniak API token, which may expose hosting, mail, and cloud services to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:infomaniak)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_\-]{60,100})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["infomaniak"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.infomaniak.com/1/profile", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.body.contains('"result"') ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # infracost-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -3608,6 +3732,34 @@ id = "launchdarkly-access-token"
 description = "Uncovered a Launchdarkly Access Token, potentially compromising feature flag management and application functionality."
 regex = '''(?i)[\w.-]{0,50}?(?:launchdarkly)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9=_\-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["launchdarkly"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# lighton-paradigm-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "lighton-paradigm-api-key"
+description = "Detected a LightOn Paradigm API key, which may expose enterprise LLM services to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:lighton|paradigm)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_\-]{40,80})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "lighton",
+    "paradigm",
+]
+validate = '''
+cel.bind(r,
+  http.get("https://paradigm.lighton.ai/api/v2/models", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.body.contains('"object"') ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # linear-api-key
@@ -5180,6 +5332,56 @@ id = "typeform-api-token"
 description = "Uncovered a Typeform API token, which could lead to unauthorized survey management and data collection."
 regex = '''(?i)[\w.-]{0,50}?(?:typeform)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(tfp_[a-z0-9\-_\.=]{59})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["tfp_"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# upcloud-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "upcloud-api-token"
+description = "Identified an UpCloud API token, which may expose cloud infrastructure resources to unauthorized access."
+regex = '''\b(ucat_[0-9A-Za-z]{24,32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["ucat_"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.upcloud.com/1.3/account", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.body.contains('"account"') ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# upstage-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "upstage-api-key"
+description = "Detected an Upstage AI API key, which may expose Solar language models and document AI services to unauthorized access."
+regex = '''(?i)[\w.-]{0,50}?(?:upstage)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{40,50})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["upstage"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.upstage.ai/v1/models", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.body.contains('"data"') ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # vault-batch-token
