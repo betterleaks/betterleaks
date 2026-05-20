@@ -14,7 +14,7 @@ func TestCelStringLit(t *testing.T) {
 		{
 			name:     "contains backslash (safe for raw string)",
 			input:    `\d{4}-\d{2}-\d{2}`,
-			expected: `r"""\d{4}-\d{2}-\d{2}"""`,
+			expected: `"\\d{4}-\\d{2}-\\d{2}"`,
 		},
 		{
 			name:     "contains double quote",
@@ -67,14 +67,14 @@ func TestCelStringList(t *testing.T) {
 		{
 			name:     "single regex item",
 			input:    []string{`\d+`},
-			expected: `[r"""\d+"""]`,
+			expected: `["\\d+"]`,
 		},
 		{
 			name:  "multiple items (multiline formatting)",
 			input: []string{"a", `\b`, "c"},
 			expected: `[
   "a",
-  r"""\b""",
+  "\\b",
   "c"
 ]`,
 		},
