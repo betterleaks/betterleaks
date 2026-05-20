@@ -4100,13 +4100,88 @@ entropy(finding["secret"]) <= 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
-# openai-api-key
+# openai-admin-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
-id = "openai-api-key"
-description = "Found an OpenAI API Key, posing a risk of unauthorized access to AI services and data manipulation."
-regex = '''\b(sk-(?:proj|svcacct|admin)-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})\b|sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+id = "openai-admin-api-key"
+description = "Detected an OpenAI Admin API Key, risking unauthorized access to administrative functions and sensitive AI model configurations."
+regex = '''\b(sk-admin-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["sk-admin-"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.openai.com/v1/models", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.json.?object.orValue("") == "list" ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# openai-legacy-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "openai-legacy-api-key"
+description = "Found a legacy OpenAI API Key (sk-...T3BlbkFJ... format), which may compromise AI service integrations and expose sensitive data."
+regex = '''\b(sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["t3blbkfj"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.openai.com/v1/models", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.json.?object.orValue("") == "list" ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# openai-project-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "openai-project-api-key"
+description = "Found an OpenAI Project API Key, posing a risk of unauthorized access to AI services and data manipulation."
+regex = '''\b(sk-proj-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["sk-proj-"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.openai.com/v1/models", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.json.?object.orValue("") == "list" ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# openai-service-account-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "openai-service-account-api-key"
+description = "Found an OpenAI Service Account API Key, posing a risk of unauthorized access to AI services and data manipulation."
+regex = '''\b(sk-svcacct-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["sk-svcacct-"]
 validate = '''
 cel.bind(r,
   http.get("https://api.openai.com/v1/models", {

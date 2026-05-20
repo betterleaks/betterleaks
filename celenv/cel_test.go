@@ -238,7 +238,7 @@ var celExpressions = []struct {
 )`,
 	},
 	{
-		"openai-api-key",
+		"openai-legacy-api-key",
 		`cel.bind(r,
   http.get("https://api.openai.com/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
