@@ -19,8 +19,8 @@ func Atlassian() *config.Rule {
 			),
 			utils.GenerateUniqueTokenRegex(`ATATT3[A-Za-z0-9_\-=]{186}`, false),
 		),
-		Entropy:  3.5,
 		Keywords: []string{"atlassian", "confluence", "jira", "atatt3"},
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate

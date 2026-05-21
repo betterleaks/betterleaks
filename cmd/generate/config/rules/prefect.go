@@ -12,10 +12,10 @@ func Prefect() *config.Rule {
 		RuleID:      "prefect-api-token",
 		Description: "Detected a Prefect API token, risking unauthorized access to workflow management and automation services.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pnu_[a-zA-Z0-9]{36}`, false),
-		Entropy:     2,
 		Keywords: []string{
 			"pnu_",
 		},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

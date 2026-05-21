@@ -13,8 +13,8 @@ func Twilio() *config.Rule {
 		RuleID:      "twilio-api-key",
 		Description: "Found a Twilio API Key, posing a risk to communication services and sensitive customer interaction data.",
 		Regex:       regexp.MustCompile(`SK[0-9a-fA-F]{32}`),
-		Entropy:     3,
 		Keywords:    []string{"SK"},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

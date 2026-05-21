@@ -21,10 +21,10 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 		// However, this may not be (entirely) true, and this rule might need to be further refined in the future.
 		// Furthermore, it's possible that secrets have a checksum that could be used to further constrain this pattern.
 		Regex:   regexp.MustCompile(`(?:^|[\\'"\x60\s>=:(,)])([a-zA-Z0-9_~.]{3}\dQ~[a-zA-Z0-9_~.-]{31,34})(?:$|[\\'"\x60\s<),])`), // wtf, Go? https://github.com/golang/go/issues/18221
-		Entropy: 3,
 		Keywords: []string{
 			"Q~",
 		},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

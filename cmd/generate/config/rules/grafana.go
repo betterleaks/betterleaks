@@ -12,8 +12,8 @@ func GrafanaApiKey() *config.Rule {
 		RuleID:      "grafana-api-key",
 		Description: "Identified a Grafana API key, which could compromise monitoring dashboards and sensitive data analytics.",
 		Regex:       utils.GenerateUniqueTokenRegex(`eyJrIjoi[A-Za-z0-9]{70,400}={0,3}`, true),
-		Entropy:     3,
 		Keywords:    []string{"eyJrIjoi"},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -27,8 +27,8 @@ func GrafanaCloudApiToken() *config.Rule {
 		RuleID:      "grafana-cloud-api-token",
 		Description: "Found a Grafana cloud API token, risking unauthorized access to cloud-based monitoring services and data exposure.",
 		Regex:       utils.GenerateUniqueTokenRegex(`glc_[A-Za-z0-9+/]{32,400}={0,3}`, true),
-		Entropy:     3,
 		Keywords:    []string{"glc_"},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -64,8 +64,8 @@ func GrafanaServiceAccountToken() *config.Rule {
 		RuleID:      "grafana-service-account-token",
 		Description: "Discovered a Grafana service account token, posing a risk of compromised monitoring services and data integrity.",
 		Regex:       utils.GenerateUniqueTokenRegex(`glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}`, true),
-		Entropy:     3,
 		Keywords:    []string{"glsa_"},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

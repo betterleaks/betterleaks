@@ -12,8 +12,8 @@ func AlibabaAccessKey() *config.Rule {
 		RuleID:      "alibaba-access-key-id",
 		Description: "Detected an Alibaba Cloud AccessKey ID, posing a risk of unauthorized cloud resource access and potential data compromise.",
 		Regex:       utils.GenerateUniqueTokenRegex(`LTAI(?i)[a-z0-9]{20}`, false),
-		Entropy:     2,
 		Keywords:    []string{"LTAI"},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -30,8 +30,8 @@ func AlibabaSecretKey() *config.Rule {
 		RuleID:      "alibaba-secret-key",
 		Description: "Discovered a potential Alibaba Cloud Secret Key, potentially allowing unauthorized operations and data access within Alibaba Cloud.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"alibaba"}, utils.AlphaNumeric("30"), true),
-		Entropy:     2,
 		Keywords:    []string{"alibaba"},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

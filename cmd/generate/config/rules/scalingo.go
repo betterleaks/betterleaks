@@ -12,8 +12,8 @@ func ScalingoAPIToken() *config.Rule {
 		Description: "Found a Scalingo API token, posing a risk to cloud platform services and application deployment security.",
 		RuleID:      "scalingo-api-token",
 		Regex:       utils.GenerateUniqueTokenRegex(`tk-us-[\w-]{48}`, false),
-		Entropy:     2,
 		Keywords:    []string{"tk-us-"},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

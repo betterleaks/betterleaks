@@ -12,7 +12,6 @@ func FastlyAPIToken() *config.Rule {
 		Description: "Uncovered a Fastly API key, which may compromise CDN and edge cloud services, leading to content delivery and security issues.",
 		RuleID:      "fastly-api-token",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"fastly"}, utils.AlphaNumericExtendedShort("32"), true),
-		Entropy:     3.5,
 		Keywords:    []string{"fastly"},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.fastly.com/current_user", {
@@ -28,6 +27,7 @@ func FastlyAPIToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate

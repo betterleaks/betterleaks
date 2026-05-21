@@ -12,12 +12,12 @@ func LinkedinClientID() *config.Rule {
 		RuleID:      "linkedin-client-id",
 		Description: "Found a LinkedIn Client ID, risking unauthorized access to LinkedIn integrations and professional data exposure.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"linked[_-]?in"}, utils.AlphaNumeric("14"), true),
-		Entropy:     2,
 		Keywords: []string{
 			"linkedin",
 			"linked_in",
 			"linked-in",
 		},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -33,12 +33,12 @@ func LinkedinClientSecret() *config.Rule {
 		Regex: utils.GenerateSemiGenericRegex([]string{
 			"linked[_-]?in",
 		}, utils.AlphaNumeric("16"), true),
-		Entropy: 2,
 		Keywords: []string{
 			"linkedin",
 			"linked_in",
 			"linked-in",
 		},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

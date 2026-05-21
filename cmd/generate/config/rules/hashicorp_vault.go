@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
 )
 
 func VaultServiceToken() *config.Rule {
@@ -13,16 +12,9 @@ func VaultServiceToken() *config.Rule {
 		RuleID:      "vault-service-token",
 		Description: "Identified a Vault Service Token, potentially compromising infrastructure security and access to sensitive credentials.",
 		Regex:       utils.GenerateUniqueTokenRegex(`(?:hvs\.[\w-]{90,120}|s\.(?i:[a-z0-9]{24}))`, false),
-		Entropy:     3.5,
 		Keywords:    []string{"hvs.", "s."},
-		Allowlists: []*config.Allowlist{
-			{
-				Regexes: []*regexp.Regexp{
-					// https://github.com/gitleaks/gitleaks/issues/1490#issuecomment-2334166357
-					regexp.MustCompile(`s\.[A-Za-z]{24}`),
-				},
-			},
-		},
+		Filter: `entropy(finding["secret"]) <= 3.5
+|| matchesAny(finding["secret"], [r"""s\.[A-Za-z]{24}"""])`,
 	}
 
 	// validate
@@ -56,8 +48,8 @@ func VaultBatchToken() *config.Rule {
 		RuleID:      "vault-batch-token",
 		Description: "Detected a Vault Batch Token, risking unauthorized access to secret management services and sensitive data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`hvb\.[\w-]{138,300}`, false),
-		Entropy:     4,
 		Keywords:    []string{"hvb."},
+		Filter: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

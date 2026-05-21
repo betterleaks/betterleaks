@@ -12,7 +12,7 @@ func OpenRouter() *config.Rule {
 		Description: "Detected an OpenRouter API Key, which may expose access to multiple AI models through the OpenRouter gateway.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-or-v1-[0-9a-f]{64}`, true),
 		Keywords:    []string{"sk-or-v1-"},
-		Entropy:     3.5,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("openrouter", "sk-or-v1-"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3.5))

@@ -12,7 +12,7 @@ func NvidiaAPIKey() *config.Rule {
 		Description: "Detected an NVIDIA NIM API Key, which may expose AI inference and GPU cloud services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`nvapi-[A-Z0-9_-]{60,70}`, true),
 		Keywords:    []string{"nvapi-"},
-		Entropy:     3.5,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("nvidia", "nvapi-"+secrets.NewSecretWithEntropy(`[A-Z0-9_-]{64}`, 3.5))

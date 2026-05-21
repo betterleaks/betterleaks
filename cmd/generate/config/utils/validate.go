@@ -114,16 +114,5 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 		}
 	}
 
-	for _, a := range cfg.Allowlists {
-		if err := a.Validate(); err != nil {
-			logging.Fatal().Err(err).Msg("invalid global allowlist")
-		}
-	}
-
-	// Translate legacy allowlists/entropy/tokenEfficiency into CEL expressions
-	// and compile them so filtering works during validation.
-	if err := cfg.TranslateLegacyFilters(); err != nil {
-		logging.Fatal().Err(err).Msg("failed to translate legacy allowlists to filters")
-	}
 	return detect.NewDetector(cfg)
 }

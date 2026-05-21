@@ -12,7 +12,6 @@ func StripeAccessToken() *config.Rule {
 		RuleID:      "stripe-access-token",
 		Description: "Found a Stripe Access Token, posing a risk to payment processing services and sensitive financial data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`(?:sk|rk)_(?:test|live|prod)_[a-zA-Z0-9]{10,99}`, false),
-		Entropy:     2,
 		Keywords: []string{
 			"sk_test",
 			"sk_live",
@@ -21,6 +20,7 @@ func StripeAccessToken() *config.Rule {
 			"rk_live",
 			"rk_prod",
 		},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

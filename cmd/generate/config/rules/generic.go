@@ -12,7 +12,6 @@ func GenericCredential() *config.Rule {
 	r := config.Rule{
 		RuleID:          "generic-api-key",
 		Description:     "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
-		TokenEfficiency: true,
 		Regex: utils.GenerateSemiGenericRegex([]string{
 			"access",
 			"auth",
@@ -36,90 +35,9 @@ func GenericCredential() *config.Rule {
 			"secret",
 			"token",
 		},
-		Entropy: 3.5,
-		Allowlists: []*config.Allowlist{
-			{
-				// NOTE: this is a goofy hack to get around the fact there golang's regex engine does not support positive lookaheads.
-				// Ideally we would want to ensure the secret contains both numbers and alphabetical characters, not just alphabetical characters.
-				Regexes: []*regexp.Regexp{
-					regexp.MustCompile(`^[a-zA-Z_.-]+$`),
-				},
-			},
-			{
-				Description:    "Allowlist for Generic API Keys",
-				MatchCondition: config.AllowlistMatchOr,
-				RegexTarget:    "match",
-				Regexes: []*regexp.Regexp{
-					regexp.MustCompile(`(?i)(?:` +
-						// Access
-						`access(?:ibility|or)` +
-						`|access[_.-]?id` +
-						`|random[_.-]?access` +
-						// API
-						`|api[_.-]?(?:id|name|version)` + // id/name/version -> not a secret
-						`|rapid|capital` + // common words containing "api"
-						`|[a-z0-9-]*?api[a-z0-9-]*?:jar:` + // Maven META-INF dependencies that contain "api" in the name.
-						// Auth
-						`|author` +
-						`|X-MS-Exchange-Organization-Auth` + // email header
-						`|Authentication-Results` + // email header
-						// Credentials
-						`|(?:credentials?[_.-]?id|withCredentials)` + // Jenkins plugins
-						// Key
-						`|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key` +
-						`|(?:turkey)` +
-						`|key[_.-]?(?:alias|board|code|frame|id|length|mesh|name|pair|press(?:ed)?|ring|selector|signature|size|stone|storetype|word|up|down|left|right)` +
-						// Azure KeyVault
-						`|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets` +
-						`|key(?:store|tab)[_.-]?(?:file|path)` +
-						`|issuerkeyhash` + // part of ssl cert
-						`|(?-i:[DdMm]onkey|[DM]ONKEY)|keying` + // common words containing "key"
-						// Secret
-						`|(?:secret)[_.-]?(?:length|name|size)` + // name of e.g. env variable
-						`|UserSecretsId` + // https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets?view=aspnetcore-8.0&tabs=linux
-
-						// Token
-						`|(?:csrf)[_.-]?token` +
-						`|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)` + // Maven library coordinates. (e.g., https://mvnrepository.com/artifact/io.jsonwebtoken/jjwt)
-
-						// General
-						`|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])` +
-						`|public[_.-]?token` +
-						`|(?:key|token)[_.-]?file` +
-						// Empty variables capturing the next line (e.g., .env files)
-						`|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))` +
-						`|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z))` +
-						`)`),
-				},
-				StopWords: append(DefaultStopWords,
-					"6fe4476ee5a1832882e326b506d14126", // https://github.com/yarnpkg/berry/issues/6201
-				),
-			},
-			{
-				RegexTarget: "line",
-				Regexes: []*regexp.Regexp{
-					// Docker build secrets (https://docs.docker.com/build/building/secrets/#using-build-secrets).
-					regexp.MustCompile(`--mount=type=secret,`),
-					//  https://github.com/gitleaks/gitleaks/issues/1800
-					regexp.MustCompile(`import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]`),
-				},
-			},
-			{
-				MatchCondition: config.AllowlistMatchAnd,
-				RegexTarget:    "line",
-				Regexes: []*regexp.Regexp{
-					regexp.MustCompile(`LICENSE[^=]*=\s*"[^"]+`),
-					regexp.MustCompile(`LIC_FILES_CHKSUM[^=]*=\s*"[^"]+`),
-					regexp.MustCompile(`SRC[^=]*=\s*"[a-zA-Z0-9]+`),
-				},
-				Paths: []*regexp.Regexp{
-					regexp.MustCompile(`\.bb$`),
-					regexp.MustCompile(`\.bbappend$`),
-					regexp.MustCompile(`\.bbclass$`),
-					regexp.MustCompile(`\.inc$`),
-				},
-			},
-		},
+		Filter: `entropy(finding["secret"]) <= 3.5
+|| failsTokenEfficiency(finding["secret"])
+|| ` + genericAPIKeyFilter,
 	}
 
 	// validate

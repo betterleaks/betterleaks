@@ -14,7 +14,6 @@ func OnePasswordServiceAccountToken() *config.Rule {
 		RuleID:      "1password-service-account-token",
 		Description: "Uncovered a possible 1Password service account token, potentially compromising access to secrets in vaults.",
 		Regex:       regexp.MustCompile(`ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`),
-		Entropy:     4,
 		Keywords:    []string{"ops_"},
 		ValidateCEL: `cel.bind(r,
   http.get("https://events.1password.com/api/v2/auth/introspect", {
@@ -28,6 +27,7 @@ func OnePasswordServiceAccountToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate
@@ -71,8 +71,8 @@ func OnePasswordSecretKey() *config.Rule {
 		Description: "Uncovered a possible 1Password secret key, potentially compromising access to secrets in vaults.",
 		RuleID:      "1password-secret-key",
 		Regex:       regexp.MustCompile(`\bA3-[A-Z0-9]{6}-(?:(?:[A-Z0-9]{11})|(?:[A-Z0-9]{6}-[A-Z0-9]{5}))-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}\b`),
-		Entropy:     3.8,
 		Keywords:    []string{"A3-"},
+		Filter: `entropy(finding["secret"]) <= 3.8`,
 	}
 
 	// validate

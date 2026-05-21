@@ -13,7 +13,6 @@ func AWS() *config.Rule {
 		RuleID:      "aws-access-token",
 		Description: "Identified an AWS access key ID paired with a secret access key, which together can provide full access to AWS services.",
 		Regex:       regexp.MustCompile(`\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b`),
-		Entropy:     3,
 		Keywords: []string{
 			// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-unique-ids
 			"A3T",  // todo: might not be a valid AWS token
@@ -46,13 +45,8 @@ func AWS() *config.Rule {
   } : unknown(r)
 )
 `,
-		Allowlists: []*config.Allowlist{
-			{
-				Regexes: []*regexp.Regexp{
-					regexp.MustCompile(`.+EXAMPLE$`),
-				},
-			},
-		},
+		Filter: `entropy(finding["secret"]) <= 3.0
+|| matchesAny(finding["secret"], [r""".+EXAMPLE$"""])`,
 	}
 
 	// validate
@@ -81,11 +75,11 @@ func AWSSecretAccessKey() *config.Rule {
 			`[A-Za-z0-9/+=]{40}`,
 			false,
 		),
-		Entropy:  4,
 		Keywords: []string{"secret", "access", "key", "token"},
 		// SkipReport suppresses standalone secret-key findings; the key is
 		// always surfaced as a required component of the aws-access-token finding.
 		SkipReport: true,
+		Filter: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("aws_secret_key", secrets.NewSecretWithEntropy(`[A-Za-z0-9/+=]{40}`, 4))
@@ -100,10 +94,10 @@ func AmazonBedrockAPIKeyLongLived() *config.Rule {
 		RuleID:      "aws-amazon-bedrock-api-key-long-lived",
 		Description: "Identified a pattern that may indicate long-lived Amazon Bedrock API keys, risking unauthorized Amazon Bedrock usage",
 		Regex:       utils.GenerateUniqueTokenRegex(`ABSK[A-Za-z0-9+/]{109,269}={0,2}`, false),
-		Entropy:     3,
 		Keywords: []string{
 			"ABSK", // Amazon Bedrock API Key (long-lived)
 		},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -134,10 +128,10 @@ func AmazonBedrockAPIKeyShortLived() *config.Rule {
 		RuleID:      "aws-amazon-bedrock-api-key-short-lived",
 		Description: "Identified a pattern that may indicate short-lived Amazon Bedrock API keys, risking unauthorized Amazon Bedrock usage",
 		Regex:       regexp.MustCompile(`bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t`),
-		Entropy:     3,
 		Keywords: []string{
 			"bedrock-api-key-", // Amazon Bedrock API Key (short lived)
 		},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

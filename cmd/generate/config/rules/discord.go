@@ -26,8 +26,8 @@ func DiscordClientID() *config.Rule {
 		RuleID:      "discord-client-id",
 		Description: "Identified a Discord client ID, which may lead to unauthorized integrations and data exposure in Discord applications.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.Numeric("18"), true),
-		Entropy:     2,
 		Keywords:    []string{"discord"},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -45,8 +45,8 @@ func DiscordClientSecret() *config.Rule {
 		RuleID:      "discord-client-secret",
 		Description: "Discovered a potential Discord client secret, risking compromised Discord bot integrations and data leaks.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.AlphaNumericExtended("32"), true),
-		Entropy:     2,
 		Keywords:    []string{"discord"},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

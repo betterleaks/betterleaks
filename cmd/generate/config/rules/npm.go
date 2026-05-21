@@ -12,10 +12,10 @@ func NPM() *config.Rule {
 		RuleID:      "npm-access-token",
 		Description: "Uncovered an npm access token, potentially compromising package management and code repository access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`npm_[a-z0-9]{36}`, true),
-		Entropy:     2,
 		Keywords: []string{
 			"npm_",
 		},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

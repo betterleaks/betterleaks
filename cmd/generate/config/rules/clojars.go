@@ -13,8 +13,8 @@ func Clojars() *config.Rule {
 		RuleID:      "clojars-api-token",
 		Description: "Uncovered a possible Clojars API token, risking unauthorized access to Clojure libraries and potential code manipulation.",
 		Regex:       regexp.MustCompile(`(?i)CLOJARS_[a-z0-9]{60}`),
-		Entropy:     2,
 		Keywords:    []string{"clojars_"},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

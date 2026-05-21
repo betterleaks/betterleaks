@@ -12,10 +12,10 @@ func ReadMe() *config.Rule {
 		RuleID:      "readme-api-token",
 		Description: "Detected a Readme API token, risking unauthorized documentation management and content exposure.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rdme_[a-z0-9]{70}`, false),
-		Entropy:     2,
 		Keywords: []string{
 			"rdme_",
 		},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

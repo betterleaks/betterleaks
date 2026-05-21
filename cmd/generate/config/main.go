@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -367,13 +366,6 @@ func main() {
 		// TODO: eventually change all the signatures to get ride of this
 		// nasty dereferencing.
 		ruleLookUp[rule.RuleID] = *rule
-
-		// Slices are de-duplicated with a map, every iteration has a different order.
-		// This is an awkward workaround.
-		for _, allowlist := range rule.Allowlists {
-			slices.Sort(allowlist.Commits)
-			slices.Sort(allowlist.StopWords)
-		}
 	}
 
 	funcMap := template.FuncMap{
@@ -421,16 +413,6 @@ func main() {
 
 	cfg := base.CreateGlobalConfig()
 	cfg.Rules = ruleLookUp
-	for _, allowlist := range cfg.Allowlists {
-		slices.Sort(allowlist.Commits)
-		slices.Sort(allowlist.StopWords)
-	}
-
-	// Translate legacy allowlists, entropy, and tokenEfficiency into CEL
-	// prefilter/filter expressions so the generated TOML uses native CEL.
-	if err := cfg.TranslateLegacyFilters(); err != nil {
-		logging.Fatal().Err(err).Msg("failed to translate legacy allowlists to filters")
-	}
 
 	if err = tmpl.Execute(f, cfg); err != nil {
 		logging.Fatal().Err(err).Msg("could not execute template")

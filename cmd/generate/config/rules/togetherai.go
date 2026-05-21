@@ -12,7 +12,6 @@ func TogetherAI() *config.Rule {
 		Description: "Detected a Together.ai API Key, which may expose access to open-source AI models and inference services.",
 		Regex:       utils.GenerateUniqueTokenRegex(`tgp_v1_[A-Za-z0-9_-]{43}`, true),
 		Keywords:    []string{"tgp_v1_"},
-		Entropy:     3.0,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.together.xyz/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
@@ -25,6 +24,7 @@ func TogetherAI() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("togetherai", "tgp_v1_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{43}`, 3.0))

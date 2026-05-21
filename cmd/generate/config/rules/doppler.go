@@ -13,8 +13,8 @@ func Doppler() *config.Rule {
 		RuleID:      "doppler-api-token",
 		Description: "Discovered a Doppler API token, posing a risk to environment and secrets management security.",
 		Regex:       regexp.MustCompile(`dp\.pt\.(?i)[a-z0-9]{43}`),
-		Entropy:     2,
 		Keywords:    []string{`dp.pt.`},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

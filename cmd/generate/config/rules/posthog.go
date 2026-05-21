@@ -12,7 +12,7 @@ func PostHogProjectAPIKey() *config.Rule {
 		Description: "Detected a PostHog Project API Key, which may expose product analytics data and event tracking to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`phc_[a-zA-Z0-9_\-]{43}`, true),
 		Keywords:    []string{"phc_"},
-		Entropy:     3.0,
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("posthog", "phc_"+secrets.NewSecretWithEntropy(`[a-zA-Z0-9_\-]{43}`, 3.0))
@@ -31,7 +31,7 @@ func PostHogPersonalAPIKey() *config.Rule {
 		Description: "Detected a PostHog Personal API Key, which may expose administrative access to PostHog analytics projects.",
 		Regex:       utils.GenerateUniqueTokenRegex(`phx_[a-zA-Z0-9_\-]{47}`, true),
 		Keywords:    []string{"phx_"},
-		Entropy:     3.0,
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("posthog", "phx_"+secrets.NewSecretWithEntropy(`[a-zA-Z0-9_\-]{47}`, 3.0))
