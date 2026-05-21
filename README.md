@@ -128,7 +128,7 @@ cel.bind(r,
 '''
 ```
 
-Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/master/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config.
+Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config.
 
 ### Exit Codes
 
