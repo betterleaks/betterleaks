@@ -1,5 +1,5 @@
 # Betterleaks
-```
+```go
 ▓░▒░▓░▒░░▓▒░░▒▓░ ○ rvice(token) {
 ▓░▒▒░░▒▓░▒░▓░░▒░ ○ // TODO remove             
 api_key = "sk_li ● ve_e1232kfea"                 
