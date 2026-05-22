@@ -6,7 +6,7 @@ const GlobalPrefilter = `matchesAny(attributes[?"path"].orValue(""), [
   r"""gitleaks\.toml""",
   r"""(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$""",
   r"""(?i)\.(?:eot|[ot]tf|woff2?)$""",
-  r"""(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf)$""",
+  r"""(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|dll|pdb|exe|gltf)$""",
   r"""go\.(?:mod|sum|work(?:\.sum)?)$""",
   r"""(?:^|/)vendor/modules\.txt$""",
   r"""(?:^|/)vendor/(?:github\.com|golang\.org/x|google\.golang\.org|gopkg\.in|istio\.io|k8s\.io|sigs\.k8s\.io)(?:/.*)?$""",

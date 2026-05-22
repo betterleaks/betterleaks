@@ -1454,4 +1454,5 @@ var DefaultStopWords = []string{
 	"zsh-",
 	"zsh.",
 	"zsh_",
+	"6fe4476ee5a1832882e326b506d14126",
 }
