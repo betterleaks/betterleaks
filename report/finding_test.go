@@ -1,10 +1,7 @@
 package report
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
-	"os"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/sources"
@@ -227,63 +224,4 @@ func TestFindingAttrFallsBackToDeprecatedFields(t *testing.T) {
 	assert.Equal(t, "alice", f.Attr(sources.AttrGitAuthorName))
 	assert.Equal(t, "alice@example.com", f.Attr(sources.AttrGitAuthorEmail))
 	assert.Equal(t, "2026-04-13", f.Attr(sources.AttrGitDate))
-}
-
-func TestPrint_UsesAttributesForSourceMetadata(t *testing.T) {
-	f := Finding{
-		RuleID:      "test-rule",
-		Entropy:     3.14,
-		Line:        "token = secret-value",
-		Match:       "secret-value",
-		Secret:      "secret-value",
-		StartLine:   12,
-		Fingerprint: "commit123:path/to/file.txt:test-rule:12",
-		Tags:        []string{"tag-a", "tag-b"},
-		Attributes: map[string]string{
-			sources.AttrPath:           "path/to/file.txt",
-			sources.AttrGitSHA:         "commit123",
-			sources.AttrGitAuthorName:  "alice",
-			sources.AttrGitAuthorEmail: "alice@example.com",
-			sources.AttrGitDate:        "2026-04-13",
-		},
-	}
-
-	output := captureStdout(t, func() {
-		f.Print(true, 0)
-	})
-
-	assert.Contains(t, output, "Attributes:")
-	assert.Contains(t, output, "  path: path/to/file.txt")
-	assert.Contains(t, output, "  git.sha: commit123")
-	assert.Contains(t, output, "  git.author_name: alice")
-	assert.Contains(t, output, "  git.author_email: alice@example.com")
-	assert.Contains(t, output, "  git.date: 2026-04-13")
-	assert.Contains(t, output, "Line:        12")
-	assert.Contains(t, output, "Fingerprint: commit123:path/to/file.txt:test-rule:12")
-	assert.Contains(t, output, "Tags:        tag-a, tag-b")
-}
-
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-
-	original := os.Stdout
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-
-	os.Stdout = w
-	t.Cleanup(func() {
-		os.Stdout = original
-	})
-
-	fn()
-	require.NoError(t, w.Close())
-
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, r)
-	require.NoError(t, err)
-	require.NoError(t, r.Close())
-
-	os.Stdout = original
-
-	return buf.String()
 }

@@ -174,6 +174,9 @@ type Detector struct {
 	// NoColor is a flag to disable color output
 	NoColor bool
 
+	// LegacyPrint uses the legacy key/value verbose format (typically with Verbose=true).
+	LegacyPrint bool
+
 	// commitMutex is to prevent concurrent access to the
 	// commit map when adding commits
 	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.

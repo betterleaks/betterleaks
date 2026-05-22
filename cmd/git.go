@@ -135,7 +135,11 @@ func runGit(cmd *cobra.Command, args []string) {
 
 		findings = append(findings, result.Finding)
 		if verbose {
-			result.Finding.Print(noColor, redact)
+			if detector.LegacyPrint {
+				result.Finding.PrintLegacy(noColor, redact)
+			} else {
+				result.Finding.Print(noColor, redact)
+			}
 		}
 	}
 

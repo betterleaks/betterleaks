@@ -77,7 +77,11 @@ func runDirectory(cmd *cobra.Command, args []string) {
 
 			findings = append(findings, result.Finding)
 			if verbose {
-				result.Finding.Print(noColor, uint(redact))
+				if detector.LegacyPrint {
+					result.Finding.PrintLegacy(noColor, uint(redact))
+				} else {
+					result.Finding.Print(noColor, uint(redact))
+				}
 			}
 		}
 
