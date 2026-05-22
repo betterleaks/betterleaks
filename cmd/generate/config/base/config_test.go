@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/betterleaks/betterleaks/celenv"
+	"github.com/betterleaks/betterleaks/internal/celenv"
 	"github.com/google/cel-go/cel"
 )
 

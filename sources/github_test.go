@@ -23,7 +23,7 @@ import (
 	"github.com/google/go-github/v72/github"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/celenv"
+	"github.com/betterleaks/betterleaks/internal/celenv"
 	"github.com/betterleaks/betterleaks/internal/httpclient"
 )
 
