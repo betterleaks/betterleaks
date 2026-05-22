@@ -10,7 +10,7 @@ import (
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 
-	"github.com/betterleaks/betterleaks/sigv4"
+	"github.com/betterleaks/betterleaks/internal/sigv4"
 )
 
 // STS = Security Token Service

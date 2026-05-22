@@ -19,7 +19,7 @@ import (
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/betterleaks/betterleaks/httpclient"
+	"github.com/betterleaks/betterleaks/internal/httpclient"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )

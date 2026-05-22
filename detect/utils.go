@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/betterleaks/betterleaks/color"
+	"github.com/betterleaks/betterleaks/internal/color"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"

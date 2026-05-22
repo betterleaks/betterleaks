@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/color"
+	"github.com/betterleaks/betterleaks/internal/color"
 	"github.com/betterleaks/betterleaks/sources"
 )
 

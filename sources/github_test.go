@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/betterleaks/betterleaks/celenv"
-	"github.com/betterleaks/betterleaks/httpclient"
+	"github.com/betterleaks/betterleaks/internal/httpclient"
 )
 
 func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
