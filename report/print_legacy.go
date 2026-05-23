@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/color"
+	"github.com/betterleaks/betterleaks/internal/color"
 )
 
 // PrintLegacy prints a finding using the legacy key/value verbose format.

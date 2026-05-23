@@ -15,14 +15,14 @@ import (
 
 	"github.com/pkoukk/tiktoken-go"
 
-	"github.com/betterleaks/betterleaks/celenv"
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
+	"github.com/betterleaks/betterleaks/internal/celenv"
+	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
-	"github.com/betterleaks/betterleaks/validate"
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/fatih/semgroup"

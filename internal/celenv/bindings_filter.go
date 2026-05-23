@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/betterleaks/betterleaks/internal/words"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
-	"github.com/betterleaks/betterleaks/words"
 
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/google/cel-go/cel"

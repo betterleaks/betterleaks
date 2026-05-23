@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 
-	"github.com/betterleaks/betterleaks/celenv"
+	"github.com/betterleaks/betterleaks/internal/celenv"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/version"
