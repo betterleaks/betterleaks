@@ -87,7 +87,7 @@ If you want to add a new rule to the [default configuration](config/betterleaks.
    validation part. You can use `generateSampleSecret` to create a secret for the
    true positives (`tps` in the example above) used in `validate`.
 
-1. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, you can set `filters`. For more information, check out the [config doc](/docs/config.md)
+2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, you can set `filters`. For more information, check out the [config doc](/docs/config.md)
 Example simple `filter`:
 ```
 filter = '''
@@ -96,7 +96,7 @@ filter = '''
 '''
 ```
 
-1. Betterleaks supports secrets validation, or liveliness checking, so we expect new rules to have validation logic. Since CEL powers the validation engine, you can pretty much express any validation check. All you have to do is set the `validate` field. For more information, check out the [config doc](/docs/config.md)
+3. Betterleaks supports secrets validation, or liveliness checking, so we expect new rules to have validation logic. Since CEL powers the validation engine, you can pretty much express any validation check. All you have to do is set the `validate` field. For more information, check out the [config doc](/docs/config.md)
 Example `validate`:
 ```toml
 validate = '''
@@ -119,12 +119,12 @@ cel.bind(r,
 '''
 ```
 
-1. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
+4. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
    the `rules.Beamer(),` in `main()`. Try and keep
    this alphabetically pretty please.
 
-1. Run `make config/betterleaks.toml`
+5. Run `make config/betterleaks.toml`
 
-1. Check out your new rules in `config/betterleaks.toml` and see if everything looks good.
+6. Check out your new rules in `config/betterleaks.toml` and see if everything looks good.
 
-1. Open a PR
+7. Open a PR
