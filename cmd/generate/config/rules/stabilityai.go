@@ -12,7 +12,7 @@ func StabilityAI() *config.Rule {
 		Description: "Detected a Stability AI API Key, which may expose AI image generation services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"stability"}, `sk-[A-Za-z0-9]{48}`, true),
 		Keywords:    []string{"stability"},
-		Entropy:     3.5,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("stability", "sk-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{48}`, 3.5))

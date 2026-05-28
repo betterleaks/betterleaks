@@ -11,8 +11,8 @@ func SourceGraph() *config.Rule {
 		RuleID:      "sourcegraph-access-token",
 		Description: "Sourcegraph is a code search and navigation engine.",
 		Regex:       utils.GenerateUniqueTokenRegex(`\b(sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40}|[a-fA-F0-9]{40})\b`, true),
-		Entropy:     3,
 		Keywords:    []string{"sgp_", "sourcegraph"},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

@@ -18,7 +18,6 @@ func HuggingFaceAccessToken() *config.Rule {
 		RuleID:      "huggingface-access-token",
 		Description: "Discovered a Hugging Face Access token, which could lead to unauthorized access to AI models and sensitive data.",
 		Regex:       utils.GenerateUniqueTokenRegex("hf_(?i:[a-z]{34})", false),
-		Entropy:     2,
 		Keywords: []string{
 			"hf_",
 		},
@@ -37,6 +36,7 @@ func HuggingFaceAccessToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -88,8 +88,6 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 		RuleID:      "huggingface-organization-api-token",
 		Description: "Uncovered a Hugging Face Organization API token, potentially compromising AI organization accounts and associated data.",
 		Regex:       utils.GenerateUniqueTokenRegex("api_org_(?i:[a-z]{34})", false),
-
-		Entropy: 2,
 		Keywords: []string{
 			"api_org_",
 		},
@@ -108,6 +106,7 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

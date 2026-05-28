@@ -13,8 +13,8 @@ func ArtifactoryApiKey() *config.Rule {
 		RuleID:      "artifactory-api-key",
 		Description: "Detected an Artifactory api key, posing a risk unauthorized access to the central repository.",
 		Regex:       regexp.MustCompile(`\bAKCp[A-Za-z0-9]{69}\b`),
-		Entropy:     4.5,
 		Keywords:    []string{"AKCp"},
+		Filter: `entropy(finding["secret"]) <= 4.5`,
 	}
 
 	// validate
@@ -38,8 +38,8 @@ func ArtifactoryReferenceToken() *config.Rule {
 		RuleID:      "artifactory-reference-token",
 		Description: "Detected an Artifactory reference token, posing a risk of impersonation and unauthorized access to the central repository.",
 		Regex:       regexp.MustCompile(`\bcmVmd[A-Za-z0-9]{59}\b`),
-		Entropy:     4.5,
 		Keywords:    []string{"cmVmd"},
+		Filter: `entropy(finding["secret"]) <= 4.5`,
 	}
 
 	// validate

@@ -12,7 +12,7 @@ func XAI() *config.Rule {
 		Description: "Detected an xAI (Grok) API Key, which may expose Grok AI model access to unauthorized parties.",
 		Regex:       utils.GenerateUniqueTokenRegex(`xai-[A-Za-z0-9_-]{70,120}`, true),
 		Keywords:    []string{"xai-"},
-		Entropy:     3.5,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("xai", "xai-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{84}`, 3.5))

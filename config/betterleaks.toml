@@ -17,7 +17,7 @@ title = "betterleaks config"
 # betterleaksMinVersion indicates the minimum betterleaks version required.
 # If the running version is older, a warning will be logged.
 minVersion = "v8.25.0"
-betterleaksMinVersion = "v1.2.0"
+betterleaksMinVersion = "v1.3.0"
 
 
 prefilter = '''
@@ -25,7 +25,7 @@ matchesAny(attributes[?"path"].orValue(""), [
   r"""gitleaks\.toml""",
   r"""(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$""",
   r"""(?i)\.(?:eot|[ot]tf|woff2?)$""",
-  r"""(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf)$""",
+  r"""(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|dll|pdb|exe|gltf)$""",
   r"""go\.(?:mod|sum|work(?:\.sum)?)$""",
   r"""(?:^|/)vendor/modules\.txt$""",
   r"""(?:^|/)vendor/(?:github\.com|golang\.org/x|google\.golang\.org|gopkg\.in|istio\.io|k8s\.io|sigs\.k8s\.io)(?:/.*)?$""",
@@ -33,42 +33,44 @@ matchesAny(attributes[?"path"].orValue(""), [
   r"""(?:^|/)gradle\.lockfile$""",
   r"""(?:^|/)mvnw(?:\.cmd)?$""",
   r"""(?:^|/)\.mvn/wrapper/MavenWrapperDownloader\.java$""",
-  "(?:^|/)node_modules(?:/.*)?$",
+  r"""(?:^|/)node_modules(?:/.*)?$""",
   r"""(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$""",
-  "(?:^|/)bower_components(?:/.*)?$",
+  r"""(?:^|/)bower_components(?:/.*)?$""",
   r"""(?:^|/)(?:angular|bootstrap|jquery(?:-?ui)?|plotly|swagger-?ui)[a-zA-Z0-9.-]*(?:\.min)?\.js(?:\.map)?$""",
   r"""(?:^|/)javascript\.json$""",
   r"""(?:^|/)(?:Pipfile|poetry)\.lock$""",
-  "(?i)(?:^|/)(?:v?env|virtualenv)/lib(?:64)?(?:/.*)?$",
+  r"""(?i)(?:^|/)(?:v?env|virtualenv)/lib(?:64)?(?:/.*)?$""",
   r"""(?i)(?:^|/)(?:lib(?:64)?/python[23](?:\.\d{1,2})+|python/[23](?:\.\d{1,2})+/lib(?:64)?)(?:/.*)?$""",
   r"""(?i)(?:^|/)[a-z0-9_.]+-[0-9.]+\.dist-info(?:/.+)?$""",
-  "(?:^|/)vendor/(?:bundle|ruby)(?:/.*?)?$",
+  r"""(?:^|/)vendor/(?:bundle|ruby)(?:/.*?)?$""",
   r"""\.gem$""",
   r"""verification-metadata\.xml""",
-  "Database.refactorlog",
+  r"""Database.refactorlog""",
   r"""(?:^|/)\.git$"""
 ])
+
 '''
 
 filter = '''
 (matchesAny(finding["secret"], [
-  "(?i)^true|false|null$",
+  r"""(?i)^true|false|null$""",
   r"""^(?i:a+|b+|c+|d+|e+|f+|g+|h+|i+|j+|k+|l+|m+|n+|o+|p+|q+|r+|s+|t+|u+|v+|w+|x+|y+|z+|\*+|\.+)$""",
   r"""^\$(?:\d+|{\d+})$""",
   r"""^\$(?:[A-Z_]+|[a-z_]+)$""",
   r"""^\${(?:[A-Z_]+|[a-z_]+)}$""",
   r"""^\{\{[ \t]*[\w ().|]+[ \t]*}}$""",
   r"""^\$\{\{[ \t]*(?:(?:env|github|secrets|vars)(?:\.[A-Za-z]\w+)+[\w "'&./=|]*)[ \t]*}}$""",
-  "^%(?:[A-Z_]+|[a-z_]+)%$",
+  r"""^%(?:[A-Z_]+|[a-z_]+)%$""",
   r"""^%[+\-# 0]?[bcdeEfFgGoOpqstTUvxX]$""",
   r"""^\{\d{0,2}}$""",
-  "^@(?:[A-Z_]+|[a-z_]+)@$",
+  r"""^@(?:[A-Z_]+|[a-z_]+)@$""",
   r"""^/Users/(?i)[a-z0-9]+/[\w .-/]+$""",
   r"""^/(?:bin|etc|home|opt|tmp|usr|var)/[\w ./-]+$"""
 ]) || containsAny(finding["secret"], [
-  "014df517-39d1-4453-b7b3-9930c563627c",
-  "abcdefghijklmnopqrstuvwxyz"
+  "abcdefghijklmnopqrstuvwxyz",
+  "014df517-39d1-4453-b7b3-9930c563627c"
 ]))
+
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -372,8 +374,8 @@ cel.bind(r,
 
 '''
 filter = '''
-matchesAny(finding["secret"], [".+EXAMPLE$"])
-|| entropy(finding["secret"]) <= 3.0
+entropy(finding["secret"]) <= 3.0
+|| matchesAny(finding["secret"], [r""".+EXAMPLE$"""])
 '''
 [[rules.required]]
 id = "aws-secret-access-key"
@@ -697,15 +699,15 @@ description = "Discovered a potential basic authorization token provided in a cu
 regex = '''\bcurl\b(?:.*|.*(?:[\r\n]{1,2}.*){1,5})[ \t\n\r](?:-u|--user)(?:=|[ \t]{0,5})("(:[^"]{3,}|[^:"]{3,}:|[^:"]{3,}:[^"]{3,})"|'([^:']{3,}:[^']{3,})'|((?:"[^"]{3,}"|'[^']{3,}'|[\w$@.-]+):(?:"[^"]{3,}"|'[^']{3,}'|[\w${}@.-]+)))(?:\s|\z)'''
 keywords = ["curl"]
 filter = '''
-matchesAny(finding["secret"], [
+entropy(finding["secret"]) <= 2.0
+|| matchesAny(finding["secret"], [
   r"""[^:]+:(?:change(?:it|me)|pass(?:word)?|pwd|test|token|\*+|x+)""",
-  "['\"]?<[^>]+>['\"]?:['\"]?<[^>]+>|<[^:]+:[^>]+>['\"]?",
+  r"""['"]?<[^>]+>['"]?:['"]?<[^>]+>|<[^:]+:[^>]+>['"]?""",
   r"""[^:]+:\[[^]]+]""",
   r"""['"]?[^:]+['"]?:['"]?\$(?:\d|\w+|\{(?:\d|\w+)})['"]?""",
   r"""\$\([^)]+\):\$\([^)]+\)""",
   r"""['"]?\$?{{[^}]+}}['"]?:['"]?\$?{{[^}]+}}['"]?"""
 ])
-|| entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1263,7 +1265,7 @@ entropy(finding["secret"]) <= 2.0
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
 id = "flutterwave-public-key"
-description = "Detected a Finicity Public Key, potentially exposing public cryptographic operations and integrations."
+description = "Detected a Flutterwave Public Key, potentially exposing public cryptographic operations and integrations."
 regex = '''FLWPUBK_TEST-(?i)[a-h0-9]{32}-X'''
 keywords = ["flwpubk_test"]
 filter = '''
@@ -1347,25 +1349,25 @@ description = "Uncovered a GCP API key, which could lead to unauthorized access 
 regex = '''\b(AIza[\w-]{35})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["aiza"]
 filter = '''
-matchesAny(finding["secret"], [
-  "AIzaSyabcdefghijklmnopqrstuvwxyz1234567",
-  "AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs",
-  "AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM",
-  "AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU",
-  "AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0",
-  "AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A",
-  "AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c",
-  "AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4",
-  "AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY",
-  "AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM",
-  "AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ",
-  "AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g",
-  "AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU",
-  "AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw",
-  "AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE",
-  "AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY"
+entropy(finding["secret"]) <= 4.0
+|| matchesAny(finding["secret"], [
+  r"""AIzaSyabcdefghijklmnopqrstuvwxyz1234567""",
+  r"""AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs""",
+  r"""AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM""",
+  r"""AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU""",
+  r"""AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0""",
+  r"""AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A""",
+  r"""AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c""",
+  r"""AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4""",
+  r"""AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY""",
+  r"""AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM""",
+  r"""AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ""",
+  r"""AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g""",
+  r"""AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU""",
+  r"""AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw""",
+  r"""AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE""",
+  r"""AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY"""
 ])
-|| entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1388,11 +1390,11 @@ keywords = [
     "token",
 ]
 filter = '''
-matchesAny(finding["secret"], ["^[a-zA-Z_.-]+$"])
+entropy(finding["secret"]) <= 3.5
+|| failsTokenEfficiency(finding["secret"])
+|| matchesAny(finding["secret"], [r"""^[a-zA-Z_.-]+$"""])
 || (matchesAny(finding["match"], [r"""(?i)(?:access(?:ibility|or)|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|rapid|capital|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|(?:turkey)|key[_.-]?(?:alias|board|code|frame|id|length|mesh|name|pair|press(?:ed)?|ring|selector|signature|size|stone|storetype|word|up|down|left|right)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))"""]) || containsAny(finding["secret"], [
   "000000",
-  "6fe4476ee5a1832882e326b506d14126",
-  "_ec2_",
   "aaaaaa",
   "about",
   "abstract",
@@ -1408,9 +1410,9 @@ matchesAny(finding["secret"], ["^[a-zA-Z_.-]+$"])
   "activity",
   "adapter",
   "add-",
-  "add-on",
   "add.",
   "add_",
+  "add-on",
   "addon",
   "addres",
   "admin",
@@ -1734,8 +1736,8 @@ matchesAny(finding["secret"], ["^[a-zA-Z_.-]+$"])
   "dom.",
   "dom_",
   "domain",
-  "don't",
   "done",
+  "don't",
   "dot-",
   "dot.",
   "dot_",
@@ -1755,6 +1757,7 @@ matchesAny(finding["secret"], ["^[a-zA-Z_.-]+$"])
   "dsl_",
   "dynamic",
   "easy",
+  "_ec2_",
   "ecdsa",
   "eclipse",
   "edit",
@@ -2387,8 +2390,8 @@ matchesAny(finding["secret"], ["^[a-zA-Z_.-]+$"])
   "readme",
   "ready",
   "real",
-  "real-time",
   "reality",
+  "real-time",
   "realtime",
   "recipe",
   "recorder",
@@ -2835,10 +2838,11 @@ matchesAny(finding["secret"], ["^[a-zA-Z_.-]+$"])
   "zip_",
   "zsh-",
   "zsh.",
-  "zsh_"
+  "zsh_",
+  "6fe4476ee5a1832882e326b506d14126"
 ]))
 || matchesAny(finding["line"], [
-  "--mount=type=secret,",
+  r"""--mount=type=secret,""",
   r"""import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]"""
 ])
 || (matchesAny(attributes[?"path"].orValue(""), [
@@ -2851,8 +2855,6 @@ matchesAny(finding["secret"], ["^[a-zA-Z_.-]+$"])
   r"""LIC_FILES_CHKSUM[^=]*=\s*"[^"]+""",
   r"""SRC[^=]*=\s*"[a-zA-Z0-9]+"""
 ]))
-|| entropy(finding["secret"]) <= 3.5
-|| failsTokenEfficiency(finding["secret"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2897,8 +2899,8 @@ cel.bind(r,
 )
 '''
 filter = '''
-matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""])
-|| entropy(finding["secret"]) <= 3.0
+entropy(finding["secret"]) <= 3.0
+|| matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2985,8 +2987,8 @@ cel.bind(r,
 )
 '''
 filter = '''
-matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""])
-|| entropy(finding["secret"]) <= 3.0
+entropy(finding["secret"]) <= 3.0
+|| matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4074,8 +4076,8 @@ cel.bind(r,
 )
 '''
 filter = '''
-matchesAny(finding["secret"], ["^mdb_sa_sk_[0-9]{40}$"])
-|| entropy(finding["secret"]) <= 3.0
+entropy(finding["secret"]) <= 3.0
+|| matchesAny(finding["secret"], [r"""^mdb_sa_sk_[0-9]{40}$"""])
 '''
 [[rules.required]]
 id = "mongodb-atlas-service-account-id"
@@ -4092,11 +4094,11 @@ keywords = [
     "mongodb+srv://",
 ]
 filter = '''
-matchesAny(finding["secret"], [
+entropy(finding["secret"]) <= 4.0
+|| matchesAny(finding["secret"], [
   r"""(?i)\bmongodb(?:\+srv)?:\/\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\/]*)?@""",
   r"""(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*"""
 ])
-|| entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4182,12 +4184,12 @@ regex = '''(?i)<add key=\"(?:(?:ClearText)?Password)\"\s*value=\"(.{8,})\"\s*/>'
 path = '''(?i)nuget\.config$'''
 keywords = ["<add key="]
 filter = '''
-matchesAny(finding["secret"], [
-  "33f!!lloppa",
+entropy(finding["secret"]) <= 1.0
+|| matchesAny(finding["secret"], [
+  r"""33f!!lloppa""",
   r"""hal\+9ooo_da!sY""",
   r"""^\%\S.*\%$"""
 ])
-|| entropy(finding["secret"]) <= 1.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5407,8 +5409,8 @@ keywords = [
     "s.",
 ]
 filter = '''
-matchesAny(finding["secret"], [r"""s\.[A-Za-z]{24}"""])
-|| entropy(finding["secret"]) <= 3.5
+entropy(finding["secret"]) <= 3.5
+|| matchesAny(finding["secret"], [r"""s\.[A-Za-z]{24}"""])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────

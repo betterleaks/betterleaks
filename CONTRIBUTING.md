@@ -18,7 +18,7 @@ give it a :thumbsup: on the PR description.
 
 ## Adding new Betterleaks rules
 
-If you want to add a new rule to the [default configuration](config/gitleaks.toml) then follow these steps.
+If you want to add a new rule to the [default configuration](config/betterleaks.toml) then follow these steps.
 
 1. Create a `cmd/generate/config/rules/{provider}.go` file.
    This file is used to generate a new rule.
@@ -34,10 +34,6 @@ If you want to add a new rule to the [default configuration](config/gitleaks.tom
            // Unique ID for the rule
            RuleID:      "beamer-api-token",
 
-           // Regex capture group for the actual secret
-
-
-
            // Regex used for detecting secrets. See regex section below for more details
            Regex: GenerateSemiGenericRegex([]string{"beamer"}, `b_[a-z0-9=_\-]{44}`, true)
 
@@ -45,7 +41,7 @@ If you want to add a new rule to the [default configuration](config/gitleaks.tom
            Keywords: []string{"beamer"},
        }
 
-       // validate
+       // validate the keyword, regex, and filters work
        tps := []string{
            generateSampleSecret("beamer", "b_"+secrets.NewSecret(alphaNumericExtended("44"))),
        }
@@ -91,12 +87,44 @@ If you want to add a new rule to the [default configuration](config/gitleaks.tom
    validation part. You can use `generateSampleSecret` to create a secret for the
    true positives (`tps` in the example above) used in `validate`.
 
-1. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
+2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, you can set `filters`. For more information, check out the [config doc](/docs/config.md)
+Example simple `filter`:
+```
+filter = '''
+    entropy(finding["secret"]) <= 3.5 ||
+    failsTokenEfficiency(finding["secret"])
+'''
+```
+
+3. Betterleaks supports secrets validation, or liveliness checking, so we expect new rules to have validation logic. Since CEL powers the validation engine, you can pretty much express any validation check. All you have to do is set the `validate` field. For more information, check out the [config doc](/docs/config.md)
+Example `validate`:
+```toml
+validate = '''
+cel.bind(r,
+  http.get("https://api.github.com/app", {
+    "Accept": "application/vnd.github+json",
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.json.?slug.orValue("") != "" ? {
+    "result": "valid",
+    "slug": r.json.?slug.orValue(""),
+    "name": r.json.?name.orValue(""),
+    "html_url": r.json.?html_url.orValue(""),
+	"external_url": r.json.?external_url.orValue("")
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+```
+
+4. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
    the `rules.Beamer(),` in `main()`. Try and keep
    this alphabetically pretty please.
 
-1. Run `make config/gitleaks.toml`
+5. Run `make config/betterleaks.toml`
 
-1. Check out your new rules in `config/gitleaks.toml` and see if everything looks good.
+6. Check out your new rules in `config/betterleaks.toml` and see if everything looks good.
 
-1. Open a PR
+7. Open a PR

@@ -12,7 +12,6 @@ func CursorAPIKey() *config.Rule {
 		Description: "Detected a Cursor Integrations API Key, which may expose AI-assisted development services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"cursor"}, `key_[0-9a-f]{64}`, true),
 		Keywords:    []string{"cursor"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.cursor.com/v0/me", {
     "Accept": "application/json",
@@ -25,6 +24,7 @@ func CursorAPIKey() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("cursor", "key_"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3.5))

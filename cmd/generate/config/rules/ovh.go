@@ -12,8 +12,8 @@ func OVHApplicationKey() *config.Rule {
 		Description: "OVHcloud Application Key - component of authenticated OVH API requests.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}key"}, `[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"ovh"},
-		Entropy:     2,
 		SkipReport:  true,
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	tps := []string{
@@ -35,8 +35,8 @@ func OVHConsumerKey() *config.Rule {
 		Description: "OVHcloud Consumer Key - component of authenticated OVH API requests.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"consumer[_.-]{0,1}key"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},
-		Entropy:     2,
 		SkipReport:  true,
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	tps := []string{
@@ -57,7 +57,6 @@ func OVHApplicationSecret() *config.Rule {
 		RuleID:      "ovh-application-secret",
 		Description: "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}secret"}, `[A-Za-z0-9-]{32}`, true),
-		Entropy:     3,
 		Keywords:    []string{"ovh"},
 		ValidateCEL: `cel.bind(ts, time.now_unix(),
   cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
@@ -91,6 +90,7 @@ func OVHApplicationSecret() *config.Rule {
 				WithinLines: utils.Ptr(20),
 			},
 		},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := []string{

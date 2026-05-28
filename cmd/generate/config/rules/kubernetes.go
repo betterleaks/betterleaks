@@ -31,24 +31,8 @@ func KubernetesSecret() *config.Rule {
 		},
 		// Kubernetes secrets are usually yaml files.
 		Path: regexp.MustCompile(`(?i)\.ya?ml$`),
-		Allowlists: []*config.Allowlist{
-			{
-				Regexes: []*regexp.Regexp{
-					// Ignore empty or placeholder values.
-					// variable: {{ .Values.Example }} (https://helm.sh/docs/chart_template_guide/variables/)
-					// variable: ""
-					// variable: ''
-					regexp.MustCompile(`[\w.-]+:(?:[ \t]*(?:\||>[-+]?)\s+)?[ \t]*(?:\{\{[ \t\w"|$:=,.-]+}}|""|'')`),
-				},
-			},
-			{
-				// Avoid overreach between directives.
-				RegexTarget: "match",
-				Regexes: []*regexp.Regexp{
-					regexp.MustCompile(`(kind:(?s:.)+\n---\n(?s:.)+\bdata:|data:(?s:.)+\n---\n(?s:.)+\bkind:)`),
-				},
-			},
-		},
+		Filter: `matchesAny(finding["secret"], [r"""[\w.-]+:(?:[ \t]*(?:\||>[-+]?)\s+)?[ \t]*(?:\{\{[ \t\w"|$:=,.-]+}}|""|'')"""])
+|| matchesAny(finding["match"], [r"""(kind:(?s:.)+\n---\n(?s:.)+\bdata:|data:(?s:.)+\n---\n(?s:.)+\bkind:)"""])`,
 	}
 
 	// validate

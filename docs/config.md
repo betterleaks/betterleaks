@@ -81,13 +81,14 @@ filter = '''
 ## Betterleaks `validate`
 Validation allows Betterleaks to automatically verify if a detected secret is active by making asynchronous HTTP requests directly from the rule definition.
 
-Your CEL expression must return a map containing a `"result"` key. The valid statuses are `"valid"`, `"invalid"`, `"revoked"`, `"unknown"`, and `"error"`. Any additional keys returned in the map are attached to the finding as extra metadata (e.g., `username`, `email`, `scopes`).
+Your CEL expression must return a map containing a `"result"` key. The valid statuses are `"valid"`, `"needs validation"`,`"invalid"`, `"revoked"`, `"unknown"`, and `"error"`. Any additional keys returned in the map are attached to the finding as extra metadata (e.g., `username`, `email`, `scopes`).
 
 ### Available `validate` bindings
 
 | Binding / Function | Description |
 | :--- | :--- |
-| `secret` | A string containing the extracted secret value. |
+| `finding` | A map representing the secret. Keys include: `secret` (the extracted value), `match` (the full regex match), `line` (the line of code), `rule_id`, and `description`. |
+| `secret` | A string containing the extracted secret value. (Preferable to use `finding["secret"]` for consistency |
 | `captures` | A map containing any named capture groups defined in your rule's regex. |
 | `http.get(url, headers)` | Fires a GET request. Returns a response map `r` with `r.status` (int), `r.json` (dynamic object), `r.body` (string), and `r.headers` (map). |
 | `http.post(url, headers, body)`| Fires a POST request and returns the same response map `r` as `http.get`. |
@@ -106,7 +107,7 @@ validate = '''
 cel.bind(r,
   http.get("https://api.github.com/app", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "Bearer " + secret
+    "Authorization": "Bearer " + finding["secret"]
   }),
   r.status == 200 && r.json.?slug.orValue("") != "" ? {
     "result": "valid",

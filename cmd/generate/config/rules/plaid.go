@@ -12,11 +12,10 @@ func PlaidAccessID() *config.Rule {
 		RuleID:      "plaid-client-id",
 		Description: "Uncovered a Plaid Client ID, which could lead to unauthorized financial service integrations and data breaches.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"plaid"}, utils.AlphaNumeric("24"), true),
-
-		Entropy: 3.5,
 		Keywords: []string{
 			"plaid",
 		},
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate
@@ -30,11 +29,10 @@ func PlaidSecretKey() *config.Rule {
 		RuleID:      "plaid-secret-key",
 		Description: "Detected a Plaid Secret key, risking unauthorized access to financial accounts and sensitive transaction data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"plaid"}, utils.AlphaNumeric("30"), true),
-
-		Entropy: 3.5,
 		Keywords: []string{
 			"plaid",
 		},
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate

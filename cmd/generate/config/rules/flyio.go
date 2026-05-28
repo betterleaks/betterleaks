@@ -17,7 +17,6 @@ func FlyIOAccessToken() *config.Rule {
 		RuleID:      "flyio-access-token",
 		Description: "Uncovered a Fly.io API key", // TODO
 		Regex:       utils.GenerateUniqueTokenRegex(`FlyV1\s[A-Za-z0-9=_\-,/+]{100,}`, false),
-		Entropy:     4,
 		Keywords:    []string{"flyv1"},
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.fly.io/graphql", {
@@ -33,6 +32,7 @@ func FlyIOAccessToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

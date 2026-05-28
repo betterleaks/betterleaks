@@ -13,7 +13,6 @@ func LinearAPIToken() *config.Rule {
 		RuleID:      "linear-api-key",
 		Description: "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
 		Regex:       regexp.MustCompile(`lin_api_(?i)[a-z0-9]{40}`),
-		Entropy:     2,
 		Keywords:    []string{"lin_api_"},
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.linear.app/graphql", {
@@ -29,6 +28,7 @@ func LinearAPIToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -42,8 +42,8 @@ func LinearClientSecret() *config.Rule {
 		RuleID:      "linear-client-secret",
 		Description: "Identified a Linear Client Secret, which may compromise secure integrations and sensitive project management data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"linear"}, utils.Hex("32"), true),
-		Entropy:     2,
 		Keywords:    []string{"linear"},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

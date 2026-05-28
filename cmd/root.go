@@ -81,6 +81,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "show verbose output from scan")
+	rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color for verbose output")
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
 	rootCmd.PersistentFlags().BoolP("ignore-gitleaks-allow", "", false, "ignore gitleaks:allow and betterleaks:allow comments")
@@ -387,6 +388,9 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	}
 	// set redact flag
 	if detector.Redact, err = cmd.Flags().GetUint("redact"); err != nil {
+		logging.Fatal().Err(err).Send()
+	}
+	if detector.LegacyPrint, err = cmd.Flags().GetBool("legacy-print"); err != nil {
 		logging.Fatal().Err(err).Send()
 	}
 	if detector.MaxTargetMegaBytes, err = cmd.Flags().GetInt("max-target-megabytes"); err != nil {

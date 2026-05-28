@@ -12,7 +12,6 @@ func VercelAPIToken() *config.Rule {
 		Description: "Detected a Vercel API Token, which may expose deployment and serverless infrastructure to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"vercel"}, `[A-Z0-9]{24}`, true),
 		Keywords:    []string{"vercel"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.vercel.com/v2/user", {
     "Authorization": "Bearer " + finding["secret"]
@@ -27,6 +26,7 @@ func VercelAPIToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", secrets.NewSecretWithEntropy(`[A-Z0-9]{24}`, 3.5))
@@ -51,7 +51,6 @@ func VercelPersonalAccessToken() *config.Rule {
 		Description: "Detected a Vercel Personal Access Token (vcp_), which may expose full account and deployment management capabilities.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vcp_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vcp_"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.vercel.com/v2/user", {
     "Authorization": "Bearer " + finding["secret"]
@@ -66,6 +65,7 @@ func VercelPersonalAccessToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vcp_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -88,7 +88,6 @@ func VercelIntegrationToken() *config.Rule {
 		Description: "Detected a Vercel Integration Token (vci_), which may allow third-party service integrations to act on behalf of users.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vci_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vci_"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.vercel.com/v2/user", {
     "Authorization": "Bearer " + finding["secret"]
@@ -103,6 +102,7 @@ func VercelIntegrationToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vci_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -124,7 +124,6 @@ func VercelAppAccessToken() *config.Rule {
 		Description: "Detected a Vercel App Access Token (vca_), which may allow Sign in with Vercel apps to access user resources.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vca_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vca_"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.vercel.com/login/oauth/userinfo", {
     "Authorization": "Bearer " + finding["secret"]
@@ -138,6 +137,7 @@ func VercelAppAccessToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vca_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -159,7 +159,6 @@ func VercelAppRefreshToken() *config.Rule {
 		Description: "Detected a Vercel App Refresh Token (vcr_), which may allow persistent unauthorized access through token refresh flows.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vcr_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vcr_"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.vercel.com/login/oauth/token/introspect", {
     "Content-Type": "application/x-www-form-urlencoded"
@@ -174,6 +173,7 @@ func VercelAppRefreshToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vcr_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -195,7 +195,6 @@ func VercelAIGatewayKey() *config.Rule {
 		Description: "Detected a Vercel AI Gateway API Key (vck_), which may expose AI model routing and gateway access to unauthorized parties.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vck_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vck_"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
     "Authorization": "Bearer " + finding["secret"],
@@ -208,6 +207,7 @@ func VercelAIGatewayKey() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vck_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))

@@ -12,7 +12,6 @@ func FigmaPersonalAccessToken() *config.Rule {
 		Description: "Uncovered a Figma Personal Access Token, which may compromise design assets and team collaboration.",
 		RuleID:      "figma-personal-access-token",
 		Regex:       utils.GenerateUniqueTokenRegex(`figd_[A-Z0-9_-]{38,42}`, true),
-		Entropy:     3.5,
 		Keywords:    []string{"figd_"},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.figma.com/v1/me", {
@@ -28,6 +27,7 @@ func FigmaPersonalAccessToken() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate

@@ -1,15 +1,16 @@
 # Betterleaks
 ```
-  ○
-  ○
-  ●
-  ○
+     ○ 
+     ○
+ghp_ ● qOomCIZBWchHR4v5FPp9UiQRS9CyigrCkXXuIJQPfe63f12a
+     ○ 
 ```
 
-Betterleaks is a tool for finding secrets like passwords and API keys. If you want to learn more about how the detection engine works check out this blog: [Regex is (almost) all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need).
+Betterleaks is a configurable, fast, and thorough secrets scanner. It is maintained by the folks who made Gitleaks, including the original author. 
+Check out this series of blog posts to learn how the detection engine works: 1. [Regex is all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need), 2. [Rare Not Random](https://lookingatcomputer.substack.com/p/rare-not-random), 3. [Express YourCELf](https://lookingatcomputer.substack.com/p/express-yourcelf-filtering-and-validating).
 
-Betterleaks is maintained by the folks who made Gitleaks, including the original author. Development is supported by <a href="https://www.aikido.dev">Aikido Security</a>
-<br><a href="https://www.aikido.dev"><img src="docs/aikido_log.svg" alt="Aikido Security" width="80" /></a>
+Development is supported by
+<a href="https://www.aikido.dev"><img src="docs/aikido_log.svg" alt="Aikido Security" width="80" /></a>
 
 ### Notable Features
 
@@ -19,6 +20,7 @@ Betterleaks is maintained by the folks who made Gitleaks, including the original
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using CEL. |
 | **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
+| **New Sources** | Support for sources like GitHub, S3, and more. It's easy to add new sources too!   |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
 
 
@@ -128,7 +130,7 @@ cel.bind(r,
 '''
 ```
 
-Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/master/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config.
+Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config.
 
 ### Exit Codes
 

@@ -12,10 +12,10 @@ func PulumiAPIToken() *config.Rule {
 		RuleID:      "pulumi-api-token",
 		Description: "Found a Pulumi API token, posing a risk to infrastructure as code services and cloud resource management.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pul-[a-f0-9]{40}`, false),
-		Entropy:     2,
 		Keywords: []string{
 			"pul-",
 		},
+		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

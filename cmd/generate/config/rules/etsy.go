@@ -14,10 +14,10 @@ func EtsyAccessToken() *config.Rule {
 		RuleID:      "etsy-access-token",
 		Description: "Found an Etsy Access Token, potentially compromising Etsy shop management and customer data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"(?-i:ETSY|[Ee]tsy)"}, utils.AlphaNumeric("24"), true),
-		Entropy:     3,
 		Keywords: []string{
 			"etsy",
 		},
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

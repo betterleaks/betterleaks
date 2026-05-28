@@ -12,7 +12,7 @@ func Ollama() *config.Rule {
 		Description: "Detected an Ollama API Key, which may expose local and hosted AI model serving to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"ollama"}, `[a-f0-9]{32}\.[a-zA-Z0-9_-]{24}`, true),
 		Keywords:    []string{"ollama"},
-		Entropy:     3.5,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("ollama", secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5)+"."+secrets.NewSecretWithEntropy(`[a-zA-Z0-9_-]{24}`, 3.5))

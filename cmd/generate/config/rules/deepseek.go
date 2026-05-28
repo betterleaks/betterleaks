@@ -12,7 +12,6 @@ func DeepSeek() *config.Rule {
 		Description: "Detected a DeepSeek API Key, which may expose AI model access and associated usage to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"deepseek"}, `sk-[a-f0-9]{32}`, true),
 		Keywords:    []string{"deepseek"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.deepseek.com/models", {
     "Authorization": "Bearer " + finding["secret"],
@@ -25,6 +24,7 @@ func DeepSeek() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("deepseek", "sk-"+secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5))

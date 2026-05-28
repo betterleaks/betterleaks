@@ -12,7 +12,6 @@ func Groq() *config.Rule {
 		Description: "Identified a Groq API Key, which may expose high-speed AI inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`gsk_[A-Z0-9]{52}`, true),
 		Keywords:    []string{"gsk_"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.groq.com/openai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
@@ -24,6 +23,7 @@ func Groq() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("groq", "gsk_"+secrets.NewSecretWithEntropy(`[A-Z0-9]{52}`, 3.5))

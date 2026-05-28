@@ -23,14 +23,7 @@ const githubTokenCEL = `cel.bind(r,
   } : unknown(r)
 )`
 
-var githubAllowlist = []*config.Allowlist{
-	{
-		Paths: []*regexp.Regexp{
-			// https://github.com/octokit/auth-token.js/?tab=readme-ov-file#createtokenauthtoken-options
-			regexp.MustCompile(`(?:^|/)@octokit/auth-token/README\.md$`),
-		},
-	},
-}
+var githubPathFilter = `matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""])`
 
 func GitHubPat() *config.Rule {
 	// define rule
@@ -38,10 +31,10 @@ func GitHubPat() *config.Rule {
 		RuleID:      "github-pat",
 		Description: "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.",
 		Regex:       regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
-		Entropy:     3,
 		Keywords:    []string{"ghp_"},
-		Allowlists:  githubAllowlist,
 		ValidateCEL: githubTokenCEL,
+		Filter: `entropy(finding["secret"]) <= 3.0
+|| ` + githubPathFilter,
 	}
 
 	// validate
@@ -58,9 +51,9 @@ func GitHubFineGrainedPat() *config.Rule {
 		RuleID:      "github-fine-grained-pat",
 		Description: "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation.",
 		Regex:       regexp.MustCompile(`github_pat_\w{82}`),
-		Entropy:     3,
 		Keywords:    []string{"github_pat_"},
 		ValidateCEL: githubTokenCEL,
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -77,9 +70,9 @@ func GitHubOauth() *config.Rule {
 		RuleID:      "github-oauth",
 		Description: "Discovered a GitHub OAuth Access Token, posing a risk of compromised GitHub account integrations and data leaks.",
 		Regex:       regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
-		Entropy:     3,
 		Keywords:    []string{"gho_"},
 		ValidateCEL: githubTokenCEL,
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -115,10 +108,10 @@ func GitHubApp() *config.Rule {
 		RuleID:      "github-app-token",
 		Description: "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security.",
 		Regex:       regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z]{36}`),
-		Entropy:     3,
 		Keywords:    []string{"ghu_", "ghs_"},
-		Allowlists:  githubAllowlist,
 		ValidateCEL: githubAppTokenCEL,
+		Filter: `entropy(finding["secret"]) <= 3.0
+|| ` + githubPathFilter,
 	}
 
 	// validate
@@ -137,9 +130,9 @@ func GitHubRefresh() *config.Rule {
 		RuleID:      "github-refresh-token",
 		Description: "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services.",
 		Regex:       regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
-		Entropy:     3,
 		Keywords:    []string{"ghr_"},
 		ValidateCEL: githubTokenCEL,
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

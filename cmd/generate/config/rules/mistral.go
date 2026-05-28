@@ -12,7 +12,6 @@ func Mistral() *config.Rule {
 		Description: "Detected a Mistral AI API Key, which may expose AI language model services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mistral"}, `[A-Z0-9]{32}`, true),
 		Keywords:    []string{"mistral"},
-		Entropy:     3.0,
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.mistral.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
@@ -25,6 +24,7 @@ func Mistral() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("mistral", secrets.NewSecretWithEntropy(`[A-Z0-9]{32}`, 3.0))

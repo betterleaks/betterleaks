@@ -12,7 +12,6 @@ func WeightsAndBiases() *config.Rule {
 		Description: "Detected a Weights & Biases API Key, which may expose ML experiment tracking and model registry access to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wandb", "weightsandbiases"}, utils.Hex("40"), true),
 		Keywords:    []string{"wandb", "weightsandbiases"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.wandb.ai/graphql", {
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
@@ -27,6 +26,7 @@ func WeightsAndBiases() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("wandb_api_key", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.5))
@@ -45,7 +45,6 @@ func WeightsAndBiasesV1() *config.Rule {
 		Description: "Detected a Weights & Biases v1 API Key (wandb_v1_), which may expose ML experiment tracking and artifact storage to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`wandb_v1_[A-Za-z0-9_]{77}`, true),
 		Keywords:    []string{"wandb_v1_"},
-		Entropy:     3.5,
 		ValidateCEL: `cel.bind(r,
   http.post("https://api.wandb.ai/graphql", {
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
@@ -60,6 +59,7 @@ func WeightsAndBiasesV1() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("wandb", "wandb_v1_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_]{77}`, 3.5))

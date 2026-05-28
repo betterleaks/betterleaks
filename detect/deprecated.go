@@ -48,7 +48,7 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 				d.ValidationCounts[f.ValidationStatus]++
 			}
 			if d.shouldVerbosePrint(f) {
-				printFinding(f, d.NoColor, d.Redact)
+				printFinding(f, d.NoColor, d.Redact, d.LegacyPrint)
 			}
 		}
 	}()

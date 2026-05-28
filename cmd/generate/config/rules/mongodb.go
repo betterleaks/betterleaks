@@ -14,7 +14,6 @@ func MongoDBAtlasServiceAccountSecret() *config.Rule {
 		RuleID:      "mongodb-atlas-service-account-secret",
 		Description: "Detected a MongoDB Atlas service account client secret, which could allow unauthorized Atlas administration API access when paired with a service account client ID.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mdb_sa_sk_[A-Za-z0-9_-]{40}`, false),
-		Entropy:     3,
 		Keywords:    []string{"mdb_sa_sk_"},
 		RequiredRules: []*config.Required{
 			{RuleID: "mongodb-atlas-service-account-id"},
@@ -32,13 +31,8 @@ func MongoDBAtlasServiceAccountSecret() *config.Rule {
     "reason": r.json.?error.orValue("Unauthorized")
   } : unknown(r)
 )`,
-		Allowlists: []*config.Allowlist{
-			{
-				Regexes: []*regexp.Regexp{
-					regexp.MustCompile(`^mdb_sa_sk_[0-9]{40}$`),
-				},
-			},
-		},
+		Filter: `entropy(finding["secret"]) <= 3.0
+|| matchesAny(finding["secret"], [r"""^mdb_sa_sk_[0-9]{40}$"""])`,
 	}
 
 	tps := utils.GenerateSampleSecrets("mongodbAtlasServiceAccount", "mdb_sa_sk_"+secrets.NewSecret(utils.AlphaNumeric("40")))
@@ -61,9 +55,9 @@ func MongoDBAtlasServiceAccountID() *config.Rule {
 		RuleID:      "mongodb-atlas-service-account-id",
 		Description: "Found a MongoDB Atlas service account client ID.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mdb_sa_id_[a-f0-9]{24}`, false),
-		Entropy:     3,
 		Keywords:    []string{"mdb_sa_id_"},
 		SkipReport:  true,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("mongodbAtlasServiceAccountId", "mdb_sa_id_"+secrets.NewSecret(utils.Hex("24")))
@@ -76,15 +70,11 @@ func MongoDBConnectionString() *config.Rule {
 		Description: "Detected a MongoDB connection string with embedded credentials, potentially exposing direct database access and sensitive application data.",
 		Regex:       regexp.MustCompile(`\b(mongodb(?:\+srv)?://(?P<username>[!-9;-~]{3,50}):(?P<password>[!-?A-~]{3,88})@(?P<host>(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?(?:,(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?)*)/?(?:(?P<authdb>[\w-]+)?(?P<options>\?\w+=[\w@/.$-]+(?:&(?:amp;)?\w+=[\w@/.$-]+)*)?)?)(?:['"\s;\x60]|\\[nr]|\b|$)`),
 		Keywords:    []string{"mongodb://", "mongodb+srv://"},
-		Entropy:     4,
-		Allowlists: []*config.Allowlist{
-			{
-				Regexes: []*regexp.Regexp{
-					regexp.MustCompile(`(?i)\bmongodb(?:\+srv)?:\/\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\/]*)?@`),
-					regexp.MustCompile(`(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*`),
-				},
-			},
-		},
+		Filter: `entropy(finding["secret"]) <= 4.0
+|| matchesAny(finding["secret"], [
+  r"""(?i)\bmongodb(?:\+srv)?:\/\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\/]*)?@""",
+  r"""(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*"""
+])`,
 	}
 
 	tps := []string{

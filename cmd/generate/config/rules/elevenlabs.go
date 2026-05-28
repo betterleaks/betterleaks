@@ -12,7 +12,7 @@ func ElevenLabs() *config.Rule {
 		Description: "Detected an ElevenLabs API Key, which may expose AI voice synthesis services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"elevenlabs"}, `sk_[0-9a-f]{48}`, true),
 		Keywords:    []string{"elevenlabs"},
-		Entropy:     3.5,
+		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("elevenlabs", "sk_"+secrets.NewSecretWithEntropy(utils.Hex("48"), 3.5))

@@ -13,18 +13,12 @@ func NugetConfigPassword() *config.Rule {
 		Regex:       regexp.MustCompile(`(?i)<add key=\"(?:(?:ClearText)?Password)\"\s*value=\"(.{8,})\"\s*/>`),
 		Path:        regexp.MustCompile(`(?i)nuget\.config$`),
 		Keywords:    []string{"<add key="},
-		Entropy:     1,
-		Allowlists: []*config.Allowlist{
-			{
-				Regexes: []*regexp.Regexp{
-					// samples from https://learn.microsoft.com/en-us/nuget/reference/nuget-config-file
-					regexp.MustCompile(`33f!!lloppa`),
-					regexp.MustCompile(`hal\+9ooo_da!sY`),
-					// exclude environment variables
-					regexp.MustCompile(`^\%\S.*\%$`),
-				},
-			},
-		},
+		Filter: `entropy(finding["secret"]) <= 1.0
+|| matchesAny(finding["secret"], [
+  r"""33f!!lloppa""",
+  r"""hal\+9ooo_da!sY""",
+  r"""^\%\S.*\%$"""
+])`,
 	}
 
 	tps := map[string]string{

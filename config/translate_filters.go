@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/logging"
@@ -101,7 +102,7 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 		for i, p := range a.Paths {
 			patterns[i] = p.String()
 		}
-		list := celStringList(patterns)
+		list := celRegexList(patterns)
 		pathParts = append(pathParts,
 			fmt.Sprintf(`matchesAny(attributes[?"path"].orValue(""), %s)`, list))
 	}
@@ -121,7 +122,7 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 		if a.RegexTarget != "" {
 			target = a.RegexTarget
 		}
-		regexParts = append(regexParts, fmt.Sprintf(`matchesAny(finding[%s], %s)`, celStringLit(target), celStringList(patterns)))
+		regexParts = append(regexParts, fmt.Sprintf(`matchesAny(finding[%s], %s)`, celStringLit(target), celRegexList(patterns)))
 	}
 
 	// Collect stopword expressions (filter-level).
@@ -170,46 +171,38 @@ func composeFilters(skipParts []string, userExpr string) string {
 	return strings.Join(parts, "\n|| ")
 }
 
-// ── CEL string encoding helpers ───────────────────────────────────────────────
-
-// celStringLit returns a CEL string literal. Strings containing backslashes
-// (typically regex patterns) use CEL raw string syntax r"""...""" to avoid
-// double-escaping, unless the string itself contains a triple-quote.
-func celStringLit(s string) string {
-	// If it contains a backslash AND doesn't contain a triple-quote, raw strings are safe.
-	if strings.ContainsRune(s, '\\') && !strings.Contains(s, `"""`) {
+// celRegexLit returns a CEL string literal for a regex pattern. Raw string
+// syntax r"""...""" is preferred for readability; strconv.Quote is used when
+// the pattern contains """ or ends with ", which would break raw strings
+// (issue #140).
+func celRegexLit(s string) string {
+	if !strings.Contains(s, `"""`) && !strings.HasSuffix(s, `"`) {
 		return `r"""` + s + `"""`
 	}
+	return strconv.Quote(s)
+}
 
-	var b strings.Builder
-	b.WriteByte('"')
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
-		case '"':
-			b.WriteString(`\"`)
-		case '\\':
-			b.WriteString(`\\`)
-		case '\n':
-			b.WriteString(`\n`)
-		case '\r':
-			b.WriteString(`\r`)
-		case '\t':
-			b.WriteString(`\t`)
-		default:
-			b.WriteByte(c)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
+// celStringLit returns a CEL string literal for non-regex values (field names,
+// stopwords, commit SHAs).
+func celStringLit(s string) string {
+	return strconv.Quote(s)
+}
+
+// celRegexList returns a CEL list literal of regex patterns.
+func celRegexList(ss []string) string {
+	return celListLit(ss, celRegexLit)
 }
 
 // celStringList returns a CEL list literal from a slice of Go strings.
 // Lists with multiple elements are formatted with one entry per line for readability.
 func celStringList(ss []string) string {
+	return celListLit(ss, celStringLit)
+}
+
+func celListLit(ss []string, lit func(string) string) string {
 	parts := make([]string, len(ss))
 	for i, s := range ss {
-		parts[i] = celStringLit(s)
+		parts[i] = lit(s)
 	}
 	if len(parts) <= 1 {
 		return "[" + strings.Join(parts, ", ") + "]"
@@ -226,8 +219,6 @@ func celStringList(ss []string) string {
 	b.WriteByte(']')
 	return b.String()
 }
-
-// ── join helpers ──────────────────────────────────────────────────────────────
 
 func joinOr(parts []string) string {
 	if len(parts) == 1 {

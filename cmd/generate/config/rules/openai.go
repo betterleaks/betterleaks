@@ -12,7 +12,6 @@ func OpenAI() *config.Rule {
 		RuleID:      "openai-api-key",
 		Description: "Found an OpenAI API Key, posing a risk of unauthorized access to AI services and data manipulation.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-(?:proj|svcacct|admin)-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})\b|sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}`, false),
-		Entropy:     3,
 		Keywords: []string{
 			"T3BlbkFJ",
 		},
@@ -27,6 +26,7 @@ func OpenAI() *config.Rule {
     "reason": "Unauthorized"
   } : unknown(r)
 )`,
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
