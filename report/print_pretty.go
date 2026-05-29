@@ -367,22 +367,42 @@ func (f *Finding) PrintRequiredFindings(noColor bool, redact uint) {
 		}
 	}
 
-	cGrey := color.New().Foreground("#888888")
-	fmt.Printf("│ components:\n")
-
+	var toRender []RequiredSet
+	maxKey := 0
 	invalidCount := 0
-	for i, set := range f.RequiredSets {
+	for _, set := range f.RequiredSets {
 		if hasValid && strings.ToLower(set.ValidationStatus) != "valid" {
 			invalidCount++
 			continue
 		}
-		fmt.Printf("│   set %d [%s]\n", i+1, prettySetIcon(set.ValidationStatus, noColor))
+		toRender = append(toRender, set)
 		for _, comp := range set.Components {
-			sd := redactForDisplay(comp.Secret, redact)
-			label := fmt.Sprintf("%s:%d", comp.RuleID, comp.StartLine)
-			fmt.Printf("│     %-30s %s\n", label, sd)
+			k := fmt.Sprintf("%s:%d", comp.RuleID, comp.StartLine)
+			if len(k) > maxKey {
+				maxKey = len(k)
+			}
 		}
 	}
+
+	cGrey := color.New().Foreground("#888888")
+	fmt.Printf("│ components:\n")
+
+	// Each set's first row carries the status icon; continuation rows leave the
+	// icon column blank. The icon's presence-or-absence is the set delimiter.
+	for _, set := range toRender {
+		icon := prettySetIcon(set.ValidationStatus, noColor)
+		for j, comp := range set.Components {
+			key := fmt.Sprintf("%s:%d", comp.RuleID, comp.StartLine)
+			dots := strings.Repeat(".", maxKey+6-len(key))
+			val := redactForDisplay(comp.Secret, redact)
+			if j == 0 {
+				fmt.Printf("│   %s  %s %s %s\n", icon, key, dots, val)
+			} else {
+				fmt.Printf("│      %s %s %s\n", key, dots, val)
+			}
+		}
+	}
+
 	if invalidCount > 0 {
 		summary := fmt.Sprintf("+ %d invalid set", invalidCount)
 		if invalidCount > 1 {

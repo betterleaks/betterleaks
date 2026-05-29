@@ -589,7 +589,7 @@ const token = "mockSecret";
 					Tags:        []string{},
 				},
 			},
-			expectedAuxOutput: "│ components:\n│   set 1 [-]\n│     username-rule:1                admin\n",
+			expectedAuxOutput: "│ components:\n│   -  username-rule:1 ...... admin\n",
 		},
 		// Decoding
 		"detect encoded": {
