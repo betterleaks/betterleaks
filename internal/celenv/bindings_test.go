@@ -99,3 +99,32 @@ func TestBindings(t *testing.T) {
 		})
 	}
 }
+
+func TestValidationAttributes(t *testing.T) {
+	env, err := NewEnvironment(nil)
+	if err != nil {
+		t.Fatalf("NewEnvironment: %v", err)
+	}
+
+	prg, err := env.Compile(`attributes["path"] == "service/config.yml" ? {"result": "valid"} : {"result": "invalid"}`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	got, err := env.EvalWithAttributes(prg, nil, nil, map[string]string{"path": "service/config.yml"})
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+
+	native, err := got.ConvertToNative(mapAnyType)
+	if err != nil {
+		t.Fatalf("convert result: %v", err)
+	}
+	result, ok := native.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map result, got %T", native)
+	}
+	if result["result"] != "valid" {
+		t.Fatalf("result = %v, want valid", result["result"])
+	}
+}

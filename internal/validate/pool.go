@@ -93,7 +93,7 @@ func (p *Pool) worker() {
 
 		if len(f.RequiredSets) == 0 {
 			// Simple path: no required components, validate the secret with its own captures.
-			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ToCELMap(), job.captures)
+			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ToCELMap(), job.captures, f.Attributes)
 			if err != nil {
 				f.ValidationStatus = "error"
 				f.ValidationReason = err.Error()
@@ -129,14 +129,14 @@ func (p *Pool) worker() {
 				}
 			}
 
-			cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, merged)
+			cacheKey := validationCacheKey(job.finding.RuleID, job.finding.Secret, merged, f.Attributes)
 
 			var result *Result
 			if r, seen := setResults[cacheKey]; seen {
 				result = r
 			} else {
 				var err error
-				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ToCELMap(), merged)
+				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ToCELMap(), merged, f.Attributes)
 				if err != nil {
 					result = &Result{Status: "error", Reason: err.Error(), Metadata: map[string]any{}}
 				}
@@ -187,15 +187,15 @@ func (p *Pool) worker() {
 // evalWithCaptures runs the CEL program for the given secret and captures,
 // using the cache to avoid duplicate HTTP requests. The secret is used only
 // for cache keying; the CEL program reads it from finding["secret"].
-func (p *Pool) evalWithCaptures(program cel.Program, ruleID, secret string, finding, captures map[string]string) (*Result, error) {
-	cacheKey := CacheKey(ruleID, secret, captures)
-	return p.evalWithCacheKey(cacheKey, program, finding, captures)
+func (p *Pool) evalWithCaptures(program cel.Program, ruleID, secret string, finding, captures, attributes map[string]string) (*Result, error) {
+	cacheKey := validationCacheKey(ruleID, secret, captures, attributes)
+	return p.evalWithCacheKey(cacheKey, program, finding, captures, attributes)
 }
 
 // evalWithCacheKey runs the CEL program using the given pre-computed cache key.
-func (p *Pool) evalWithCacheKey(cacheKey string, program cel.Program, finding, captures map[string]string) (*Result, error) {
+func (p *Pool) evalWithCacheKey(cacheKey string, program cel.Program, finding, captures, attributes map[string]string) (*Result, error) {
 	return p.cache.GetOrDo(cacheKey, func() (*Result, error) {
-		val, evalErr := p.env.Eval(program, finding, captures)
+		val, evalErr := p.env.EvalWithAttributes(program, finding, captures, attributes)
 		if evalErr != nil {
 			return &Result{Status: "error", Reason: evalErr.Error(), Metadata: map[string]any{}}, nil
 		}
@@ -210,4 +210,15 @@ func (p *Pool) evalWithCacheKey(cacheKey string, program cel.Program, finding, c
 		}
 		return r, nil
 	})
+}
+
+func validationCacheKey(ruleID, secret string, captures, attributes map[string]string) string {
+	auxiliary := make(map[string]string, len(captures)+len(attributes))
+	for k, v := range captures {
+		auxiliary["capture:"+k] = v
+	}
+	for k, v := range attributes {
+		auxiliary["attribute:"+k] = v
+	}
+	return CacheKey(ruleID, secret, auxiliary)
 }

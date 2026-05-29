@@ -84,6 +84,7 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 		ext.Encoders(),
 
 		cel.Variable("captures", cel.MapType(cel.StringType, cel.StringType)),
+		cel.Variable("attributes", cel.MapType(cel.StringType, cel.StringType)),
 		cel.Variable("finding", cel.MapType(cel.StringType, cel.StringType)),
 		// `secret` is retained as an alias for finding["secret"] so external
 		// rule configs that reference the bare variable continue to compile.
@@ -251,6 +252,12 @@ func (e *ValidationEnvironment) Compile(expression string) (cel.Program, error) 
 // entry; CEL expressions read the secret via finding["secret"] (or via the
 // `secret` alias variable, which is bound to the same value).
 func (e *ValidationEnvironment) Eval(prg cel.Program, finding, captures map[string]string) (ref.Val, error) {
+	return e.EvalWithAttributes(prg, finding, captures, nil)
+}
+
+// EvalWithAttributes evaluates a compiled CEL program with the given finding,
+// captures, and source attributes.
+func (e *ValidationEnvironment) EvalWithAttributes(prg cel.Program, finding, captures, attributes map[string]string) (ref.Val, error) {
 	if e.DebugResponse {
 		e.debugMu.Lock()
 		defer e.debugMu.Unlock()
@@ -258,17 +265,22 @@ func (e *ValidationEnvironment) Eval(prg cel.Program, finding, captures map[stri
 	}
 
 	if captures == nil {
-		captures = make(map[string]string)
+		captures = emptyStringMap
 	}
 
 	if finding == nil {
-		finding = make(map[string]string)
+		finding = emptyStringMap
+	}
+
+	if attributes == nil {
+		attributes = emptyStringMap
 	}
 
 	vars := map[string]any{
-		"captures": captures,
-		"finding":  finding,
-		"secret":   finding["secret"],
+		"captures":   captures,
+		"attributes": attributes,
+		"finding":    finding,
+		"secret":     finding["secret"],
 	}
 
 	val, _, err := prg.Eval(vars)
