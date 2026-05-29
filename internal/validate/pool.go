@@ -129,7 +129,7 @@ func (p *Pool) worker() {
 				}
 			}
 
-			cacheKey := validationCacheKey(job.finding.RuleID, job.finding.Secret, merged, f.Attributes)
+			cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, merged)
 
 			var result *Result
 			if r, seen := setResults[cacheKey]; seen {
@@ -188,7 +188,7 @@ func (p *Pool) worker() {
 // using the cache to avoid duplicate HTTP requests. The secret is used only
 // for cache keying; the CEL program reads it from finding["secret"].
 func (p *Pool) evalWithCaptures(program cel.Program, ruleID, secret string, finding, captures, attributes map[string]string) (*Result, error) {
-	cacheKey := validationCacheKey(ruleID, secret, captures, attributes)
+	cacheKey := CacheKey(ruleID, secret, captures)
 	return p.evalWithCacheKey(cacheKey, program, finding, captures, attributes)
 }
 
@@ -210,15 +210,4 @@ func (p *Pool) evalWithCacheKey(cacheKey string, program cel.Program, finding, c
 		}
 		return r, nil
 	})
-}
-
-func validationCacheKey(ruleID, secret string, captures, attributes map[string]string) string {
-	auxiliary := make(map[string]string, len(captures)+len(attributes))
-	for k, v := range captures {
-		auxiliary["capture:"+k] = v
-	}
-	for k, v := range attributes {
-		auxiliary["attribute:"+k] = v
-	}
-	return CacheKey(ruleID, secret, auxiliary)
 }
