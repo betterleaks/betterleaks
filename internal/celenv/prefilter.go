@@ -8,9 +8,6 @@ import (
 	"github.com/google/cel-go/ext"
 )
 
-// emptyStringMap is a sentinel used in place of nil maps during CEL activation.
-var emptyStringMap = map[string]string{}
-
 // PrefilterEnv is a CEL environment for evaluating prefilter expressions.
 // Only `attributes map<string,string>` is in scope.
 type PrefilterEnv struct {

@@ -97,13 +97,13 @@ func getOrBuildTrie(terms []string) *ahocorasick.Trie {
 	return trie
 }
 
-// matchesAnyBinding returns the CEL function matchesAny(string, list<string>) → bool.
+// matchesAnyBinding returns a CEL function for regex-list matching.
 // Each element of the list is treated as a regex pattern.
 // Compiled regexes are cached by the pattern list, so repeated calls with the same
 // literal list (the common case for translated allowlists) pay only one regex match.
-func matchesAnyBinding() cel.EnvOption {
-	return cel.Function("matchesAny",
-		cel.Overload("matchesAny_string_list",
+func matchesAnyBinding(name, overload string) cel.EnvOption {
+	return cel.Function(name,
+		cel.Overload(overload,
 			[]*cel.Type{cel.StringType, cel.ListType(cel.StringType)},
 			cel.BoolType,
 			cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
@@ -125,12 +125,12 @@ func matchesAnyBinding() cel.EnvOption {
 	)
 }
 
-// containsAnyBinding returns the CEL function containsAny(string, list<string>) → bool.
+// containsAnyBinding returns a CEL function for substring-list matching.
 // Uses an Aho-Corasick trie for efficient multi-term substring matching.
 // The string is lowercased before matching (mirrors Allowlist.ContainsStopWord).
-func containsAnyBinding() cel.EnvOption {
-	return cel.Function("containsAny",
-		cel.Overload("containsAny_string_list",
+func containsAnyBinding(name, overload string) cel.EnvOption {
+	return cel.Function(name,
+		cel.Overload(overload,
 			[]*cel.Type{cel.StringType, cel.ListType(cel.StringType)},
 			cel.BoolType,
 			cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
@@ -152,11 +152,11 @@ func containsAnyBinding() cel.EnvOption {
 	)
 }
 
-// entropyBinding returns the CEL function entropy(string) → double.
+// entropyBinding returns a CEL function that computes Shannon entropy.
 // Computes Shannon entropy in bits over the byte distribution of the string.
-func entropyBinding() cel.EnvOption {
-	return cel.Function("entropy",
-		cel.Overload("entropy_string",
+func entropyBinding(name, overload string) cel.EnvOption {
+	return cel.Function(name,
+		cel.Overload(overload,
 			[]*cel.Type{cel.StringType},
 			cel.DoubleType,
 			cel.UnaryBinding(func(val ref.Val) ref.Val {
@@ -196,9 +196,9 @@ var celNewlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 // random secret) and should therefore be suppressed.
 // If tke is nil (tokenizer unavailable), always returns false — preserves existing behavior
 // of keeping findings when tiktoken fails to initialize.
-func failsTokenEfficiencyBinding(tke *tiktoken.Tiktoken) cel.EnvOption {
-	return cel.Function("failsTokenEfficiency",
-		cel.Overload("failsTokenEfficiency_string",
+func failsTokenEfficiencyBinding(tke *tiktoken.Tiktoken, name, overload string) cel.EnvOption {
+	return cel.Function(name,
+		cel.Overload(overload,
 			[]*cel.Type{cel.StringType},
 			cel.BoolType,
 			cel.UnaryBinding(func(val ref.Val) ref.Val {
@@ -244,10 +244,18 @@ func celFailsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
 // tke may be nil; failsTokenEfficiency will return false unconditionally in that case.
 func filterBindings(tke *tiktoken.Tiktoken) []cel.EnvOption {
 	return []cel.EnvOption{
-		matchesAnyBinding(),
-		containsAnyBinding(),
-		entropyBinding(),
-		failsTokenEfficiencyBinding(tke),
+		matchesAnyBinding("filter.matchesAny", "filter_matches_any_string_list"),
+		containsAnyBinding("filter.containsAny", "filter_contains_any_string_list"),
+		entropyBinding("filter.entropy", "filter_entropy_string"),
+		failsTokenEfficiencyBinding(tke, "filter.failsTokenEfficiency", "filter_fails_token_efficiency_string"),
+		// Deprecated: use filter.matchesAny.
+		matchesAnyBinding("matchesAny", "matchesAny_string_list"),
+		// Deprecated: use filter.containsAny.
+		containsAnyBinding("containsAny", "containsAny_string_list"),
+		// Deprecated: use filter.entropy.
+		entropyBinding("entropy", "entropy_string"),
+		// Deprecated: use filter.failsTokenEfficiency.
+		failsTokenEfficiencyBinding(tke, "failsTokenEfficiency", "failsTokenEfficiency_string"),
 		// TODO add more bindings here as we come across new detection techniques.
 	}
 }

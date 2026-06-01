@@ -1,107 +1,156 @@
-### The Betterleaks Format
-The `betterleaks.toml` file is how betterleaks determines detection, filtering, and validation behaviors.
-It's written in the TOML format. For two reasons; 1. it's not YAML, and 2. rules are best expressed as flat data.
+# Betterleaks config
 
-Every Betterleaks config has the following sections and fields available, though not all are required:
-- `prefilter` - Global CEL expression to skip entire files or commits.
-- `filter` - Global CEL expression to discard specific findings across all rules.
-- `betterleaksMinVersion` - Minimum Betterleaks binary version required.
-- `minVersion` - Minimum Gitleaks config format version required (for backwards compatibility).
-- `[extend]` - Inherit rules and settings from another config or the built-in defaults.
-    - `useDefault` - Boolean flag to inherit built-in rules.
-- `[[rules]]` - An array of tables defining specific secret detection rules.
-    - `id` - Unique string identifier.
-    - `description` - Human-readable description.
-    - `keywords` - Array of strings for fast pre-regex filtering.
-    - `regex` - Regular expression used to detect the secret.
-    - `filter` - Rule-specific CEL expression to discard false positives.
-    - `validate` - CEL expression to actively verify if a secret is live.
-    - `[[rules.required]]` - Defines composite/multi-part rules.
-        - `id` - The ID of the required auxiliary rule.
-        - `withinLines` - The required finding must be within this many lines vertically.
-        - `withinColumn` - The required finding must be within this many characters horizontally.
----
+The `betterleaks.toml` file controls detection, filtering, and validation.
+It is TOML because rules are mostly flat data plus CEL expressions.
 
-## The `[[rules]]` table
-The `[[rules]]` table is the core of Betterleaks. Each entry instructs the engine on exactly what a secret looks like.
-To ensure scans are lightning-fast, you should always include `keywords`. Betterleaks uses an Aho-Corasick trie to check for these strings *before* executing the heavier `regex`.
+## Top-level shape
 
-You can also define **Composite Rules** using `[[rules.required]]`. This allows you to say, "This primary rule is only valid if we also find these auxiliary rules nearby." Note that `[[rules.required]]` will be replaced with `components` in a later release.
+Every config can use these fields:
 
-## Betterleaks `filter`s
-Filters replace legacy allowlists, entropy checks, and token efficiency checks with dynamic Common Expression Language (CEL) statements. If a filter expression evaluates to `true`, the item is **skipped/discarded**.
+- `prefilter`: global CEL expression that skips entire files, commits, or other source fragments before regex matching.
+- `filter`: global CEL expression that discards specific findings after regex matching.
+- `betterleaksMinVersion`: minimum Betterleaks binary version required.
+- `minVersion`: minimum Gitleaks config format version required for compatibility.
+- `[extend]`: inherit rules/settings from another config or from built-in defaults.
+- `[[rules]]`: secret detection rules.
 
-* **`prefilter`**: Exists only at the global level. It evaluates *before* any regex runs and only has access to file/commit metadata (`attributes`). Use this to entirely bypass binary files or bot commits.
-* **`filter`**: Exists globally and per-rule. It evaluates *after* a regex match is found and has access to both `attributes` and the `finding` itself.
+Each `[[rules]]` entry can use:
 
-Note that safe attribute access requires somewhat cumbersome syntax, `attributes.[?"key"].orValue("")`. If `key` does not exist in the attributes map, then it will default to using an empty string, `""`.
+- `id`: unique rule identifier.
+- `description`: human-readable description.
+- `keywords`: strings used for fast pre-regex filtering.
+- `regex`: regular expression used to detect the secret.
+- `filter`: rule-specific CEL expression to discard false positives.
+- `validate`: CEL expression to actively verify whether a secret is live.
+- `[[rules.required]]`: composite rule requirements.
 
-### Available `filter` bindings
+`keywords` are strongly recommended. Betterleaks checks them with an
+Aho-Corasick trie before running the heavier regex.
 
-| Binding / Function | Description |
+## CEL overview
+
+Betterleaks uses [CEL](https://cel.dev/) for `prefilter`, `filter`, and
+`validate` expressions.
+
+- `prefilter` runs before regex matching and only has `attributes`.
+- `filter` runs after regex matching and has `attributes` and `finding`.
+- `validate` runs after filtering when validation is enabled and has
+  `attributes`, `finding`, and `captures`.
+
+Safe optional access uses CEL optional syntax:
+
+```cel
+attributes[?"path"].orValue("")
+r.json.?login.orValue("")
+```
+
+It's a little verbose, but hey, you get used to it.
+
+
+## Data available to CEL
+
+| Name | Scope | Description |
+| :--- | :--- | :--- |
+| `attributes` | prefilter, filter, validate | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, and `fs.symlink`. |
+| `finding` | filter, validate | Matched secret data. Common keys include `secret`, `match`, `line`, `rule_id`, and `description`. |
+| `captures` | validate | Named capture groups from the rule regex. |
+
+The full attributes source is maintained in
+[`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
+
+## Filtering
+
+Filters replace legacy allowlists, entropy checks, and token efficiency checks
+with CEL. If a filter expression evaluates to `true`, the item is skipped.
+
+### Filter functions
+
+| Function | Description |
 | :--- | :--- |
-| `attributes` | A map of metadata. Keys include: `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, `fs.symlink`. Full list of available keys [available here](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go). |
-| `finding` | A map representing the secret. Keys include: `secret` (the extracted value), `match` (the full regex match), `line` (the line of code), `rule_id`, and `description`. |
-| `matchesAny(string, list)` | Returns `true` if the string matches any of the provided regex patterns. |
-| `containsAny(string, list)` | Returns `true` if the string contains any of the provided strings (uses an efficient Aho-Corasick substring match). |
-| `entropy(string)` | Returns the Shannon entropy (float) of the string. Useful for filtering out non-random placeholders. |
-| `failsTokenEfficiency(string)`| Returns `true` if the string tokenizes too efficiently (i.e., it looks like natural language instead of a random secret). |
----
+| `filter.matchesAny(string, list)` | Returns `true` if the string matches any regex pattern in the list. |
+| `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
+| `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
+| `filter.failsTokenEfficiency(string)` | Returns `true` if the string tokenizes too efficiently and looks like natural language rather than a random secret. |
 
-Example `filter` CEL expression:
+Example:
 
 ```toml
 filter = '''
 (
-    // Ignore if authored by a bot AND inside the fixtures folder AND the secret contains a known test string.
     attributes[?"git.author_name"].orValue("").endsWith("[bot]") &&
     attributes[?"path"].orValue("").startsWith("tests/fixtures/") &&
-    containsAny(finding["secret"], ["_MOCK_", "_TEST_"])
+    filter.containsAny(finding["secret"], ["_MOCK_", "_TEST_"])
 )
 ||
 (
-    // Ignore if it's a Markdown or text file AND the specific line of code contains instructional text.
-    matchesAny(attributes[?"path"].orValue(""), [r"""(?i)\.(?:md|txt|csv)$"""]) &&
+    filter.matchesAny(attributes[?"path"].orValue(""), [r"""(?i)\.(?:md|txt|csv)$"""]) &&
     (
-        containsAny(finding["line"], ["Example:", "Placeholder:", "Replace this with"]) ||
+        filter.containsAny(finding["line"], ["Example:", "Placeholder:", "Replace this with"]) ||
         finding["secret"] == "SUPER_SECRET_EXAMPLE_KEY_12345"
     )
 )
 ||
 (
-    // Ignore if the entropy is low AND it tokenizes like natural language instead of a random string.
-    entropy(finding["secret"]) <= 2.5 &&
-    failsTokenEfficiency(finding["secret"])
+    filter.entropy(finding["secret"]) <= 2.5 &&
+    filter.failsTokenEfficiency(finding["secret"])
 )
 '''
-
-
 ```
 
-## Betterleaks `validate`
-Validation allows Betterleaks to automatically verify if a detected secret is active by making asynchronous HTTP requests directly from the rule definition.
+## Validation
 
-Your CEL expression must return a map containing a `"result"` key. The valid statuses are `"valid"`, `"needs validation"`,`"invalid"`, `"revoked"`, `"unknown"`, and `"error"`. Any additional keys returned in the map are attached to the finding as extra metadata (e.g., `username`, `email`, `scopes`).
+Validation verifies whether a detected secret is live by evaluating the rule's
+`validate` CEL expression. By default, validation is disabled. Enable it with
+the `--validation` flag.
 
-### Available `validate` bindings
+Validation runs asynchronously, and responses are cached in memory so duplicate
+secrets only trigger one network request.
 
-| Binding / Function | Description |
+### Result format
+
+A validation expression must return a map with a `"result"` key. Supported
+statuses are:
+
+- `"valid"`
+- `"needs_validation"`
+- `"invalid"`
+- `"revoked"`
+- `"unknown"`
+- `"error"`
+
+Any additional keys are attached to the finding as validation metadata, such as
+`username`, `email`, `scopes`, or `reason`.
+
+### Validation functions
+
+| Function | Description |
 | :--- | :--- |
-| `finding` | A map representing the secret. Keys include: `secret` (the extracted value), `match` (the full regex match), `line` (the line of code), `rule_id`, and `description`. |
-| `secret` | A string containing the extracted secret value. (Preferable to use `finding["secret"]` for consistency |
-| `captures` | A map containing any named capture groups defined in your rule's regex. |
-| `http.get(url, headers)` | Fires a GET request. Returns a response map `r` with `r.status` (int), `r.json` (dynamic object), `r.body` (string), and `r.headers` (map). |
-| `http.post(url, headers, body)`| Fires a POST request and returns the same response map `r` as `http.get`. |
-| `cel.bind(name, value, expr)` | Binds a variable to avoid repeating sub-expressions (e.g., binding the HTTP response to `r`). |
-| `unknown(response)` | A helper function that takes an HTTP response map and returns `{"result": "unknown", "reason": "HTTP <status>"}`. |
-| `crypto.md5(bytes)` | Returns the MD5 hash of the input bytes. |
-| `crypto.sha1(bytes)` | Returns the SHA-1 hash of the input bytes. |
-| `hex.encode(bytes)` | Returns the lowercase hex encoding of the input bytes. |
-| `crypto.hmac_sha256(key, msg)` | Returns the HMAC-SHA256 signature (as bytes). |
-| `time.now_unix()` | Returns the current Unix timestamp as a string. |
-| `aws.validate(key, secret)` | A specialized helper that makes a SigV4-signed request to the AWS STS API to validate AWS keys. |
+| `http.get(url, headers)` | Sends a GET request. |
+| `http.post(url, headers, body)` | Sends a POST request. |
+| `validate.unknown(response)` | Returns `{"result": "unknown", "reason": "HTTP <status>"}` for unexpected HTTP responses. |
+| `env.get(name)` | Reads an allowlisted environment variable. Requires `--validation-env-vars`. |
+| `strings.obfuscate(secret)` | Returns a same-length, shape-preserving stand-in for a secret. Useful before sending context to third-party APIs. |
+| `json.string(value)` | Returns a quoted JSON string literal. Useful when hand-building JSON request bodies. |
+| `crypto.md5(bytes)` | Returns the MD5 hash as bytes. |
+| `crypto.sha1(bytes)` | Returns the SHA-1 hash as bytes. |
+| `crypto.hmacSha256(key, msg)` | Returns the HMAC-SHA256 signature as bytes. |
+| `hex.encode(bytes)` | Returns lowercase hex encoding. |
+| `time.nowUnix()` | Returns the current Unix timestamp as a string. |
+| `aws.validate(key, secret)` | Makes a SigV4-signed AWS STS request to validate AWS credentials. |
+| `base64.encode(bytes)` / `base64.decode(string)` | Provided by CEL's encoder extension. |
+| `cel.bind(name, value, expr)` | Binds a variable to avoid repeating sub-expressions. |
 
-Example validate CEL expression:
+`http.get` and `http.post` return a response map:
+
+| Field | Description |
+| :--- | :--- |
+| `r.status` | HTTP status code as an integer. |
+| `r.body` | Raw response body as a string. |
+| `r.json` | Parsed JSON body as a dynamic object. Empty object if the body is not JSON. |
+| `r.headers` | Response headers with lowercased keys. |
+
+Example:
+
 ```toml
 validate = '''
 cel.bind(r,
@@ -114,54 +163,50 @@ cel.bind(r,
     "slug": r.json.?slug.orValue(""),
     "name": r.json.?name.orValue(""),
     "html_url": r.json.?html_url.orValue(""),
-	"external_url": r.json.?external_url.orValue("")
+    "external_url": r.json.?external_url.orValue("")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )
 '''
 ```
-This reads as "set r as the response to an http GET call from api.github.com/app, then if status is 200 and `slug` is in the return json, *then* return 'result' valid otherwise if status is 401 or 403, return 'invalid', and finally if none of the conditions are met, return 'unknown'".
 
+For more complex validation setups, such as Basic Auth, dynamic request bodies,
+HMAC signatures, or composite `[[rules.required]]` rules, check the built-in
+rules in `cmd/generate/config/rules`.
 
-### "Validating" with an LLM
+## Validation with an LLM
 
-For generic high-entropy matches that no live API can adjudicate, you can ask an LLM whether the candidate looks like a real secret. Put the system and user prompts directly in the multi-line `validate` TOML string (CEL string literals and concatenation). Use `json.string(...)` when you need quoted, escaped fragments inside a hand-built JSON body. Use `env(...)` plus `--validation-env-vars` so provider API keys stay out of config files. Optionally use `obfuscate(secret)` to send a same-length shape-preserving stand-in instead of the raw candidate when talking to a third-party API. Interpret a positive model signal as `"needs_validation"` when you are not verifying liveness authoritatively; reserve `"valid"` for credentials confirmed live through a definitive check.
+For generic high-entropy matches that no live API can adjudicate, a validation
+expression can ask an LLM whether the candidate looks like a real secret. Use
+`json.string(...)` for quoted/escaped prompt fragments, `env.get(...)` plus
+`--validation-env-vars` for provider API keys, and `strings.obfuscate(...)`
+when you want to avoid sending the raw candidate to a third-party API.
 
-Example generic rule w/ llm "validation":
+Treat positive model output as `"needs_validation"` unless the credential was
+authoritatively verified through a live service.
 
-```
+```toml
 [[rules]]
 id = "generic-secret-llm-filtered"
 description = "Generic secret filtered by an LLM"
 regex = '''(?i)[\w.-]{0,50}?(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|passw(?:or)?d|secret|token)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = [
-    "access",
-    "api",
-    "auth",
-    "key",
-    "credential",
-    "creds",
-    "passwd",
-    "password",
-    "secret",
-    "token",
-]
+keywords = ["access", "api", "auth", "key", "credential", "creds", "password", "secret", "token"]
 
 filter = '''
-entropy(finding["secret"]) <= 4.0 ||
-failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) <= 4.0 ||
+filter.failsTokenEfficiency(finding["secret"])
 '''
 
 validate = '''
-cel.bind(obf_secret, obfuscate(finding["secret"]),
+cel.bind(obf_secret, strings.obfuscate(finding["secret"]),
   cel.bind(obf_context, finding["context"].replace(finding["secret"], obf_secret),
     cel.bind(r,
       http.post(
         "https://api.openai.com/v1/chat/completions",
         {
-          "Authorization": "Bearer " + env("OPENAI_API_KEY"),
+          "Authorization": "Bearer " + env.get("OPENAI_API_KEY"),
           "Content-Type": "application/json"
         },
         "{" +
@@ -171,15 +216,12 @@ cel.bind(obf_secret, obfuscate(finding["secret"]),
           "\"messages\":[" +
             "{\"role\":\"system\",\"content\":" +
               json.string(
-                "Classify whether the candidate is a real usable credential or a benign match using only the surrounding source context. " +
-                "Respond with exactly three lines: VERDICT_SECRET or VERDICT_NOT, confidence in that verdict as a decimal from 0.0 to 1.0, and a one-sentence justification under 25 words."
+                "Classify whether the candidate is a real usable credential or a benign match. " +
+                "Respond with exactly three lines: VERDICT_SECRET or VERDICT_NOT, confidence from 0.0 to 1.0, and a short justification."
               ) +
             "}," +
             "{\"role\":\"user\",\"content\":" +
-              json.string(
-                "Candidate: " + obf_secret + "\n\n" +
-                "Surrounding code:\n" + obf_context
-              ) +
+              json.string("Candidate: " + obf_secret + "\n\nSurrounding code:\n" + obf_context) +
             "}" +
           "]" +
         "}"
@@ -193,7 +235,7 @@ cel.bind(obf_secret, obfuscate(finding["secret"]),
           "result": "invalid",
           "confidence": content.split("\n")[?1].orValue("0").trim(),
           "justification": content.split("\n")[?2].orValue(content)
-        } : unknown(r)
+        } : validate.unknown(r)
       )
     )
   )
@@ -201,4 +243,35 @@ cel.bind(obf_secret, obfuscate(finding["secret"]),
 '''
 ```
 
-It's a little messy but it gets the job done. The system prompt is trash but hey it demonstrates what you can do!
+## CEL function naming
+
+Project-owned CEL functions use short lower-case namespaces with camelCase
+function names. Examples: `http.get`, `crypto.hmacSha256`,
+`filter.matchesAny`, `env.get`, and `validate.unknown`.
+
+Data keys stay snake_case. This includes capture keys, attribute keys, finding
+keys, and response map keys such as `error_code`.
+
+Reversible encodings use one namespace per format:
+
+- `hex.encode` is implemented by Betterleaks.
+- `base64.encode` and `base64.decode` are provided by CEL.
+- Future encodings should follow the same shape, for example
+  `base32.encode` and `base32.decode`.
+
+Do not put reversible encodings under `crypto.*`; that namespace is for hashes,
+HMACs, and signing primitives.
+
+## Adding a CEL binding
+
+For contributors adding a new CEL function:
+
+1. Choose the environment: validation, filter/prefilter, or both.
+2. Add the Go implementation in the namespace file, or create
+   `internal/celenv/bindings_<namespace>.go` for a new namespace.
+3. Register the function in the namespace's `*Bindings` slice.
+4. Add focused tests for compile and evaluation behavior.
+5. Run `go test ./internal/celenv/...`.
+
+When renaming an existing public function, keep existing user configs working
+while documenting only the canonical name.

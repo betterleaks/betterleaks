@@ -11,6 +11,7 @@ import (
 	"github.com/google/cel-go/common/types/ref"
 
 	"github.com/betterleaks/betterleaks/internal/sigv4"
+	"github.com/google/cel-go/cel"
 )
 
 // STS = Security Token Service
@@ -36,6 +37,18 @@ type stsErrorResponse struct {
 	XMLName xml.Name `xml:"ErrorResponse"`
 	Code    string   `xml:"Error>Code"`
 	Message string   `xml:"Error>Message"`
+}
+
+func awsBindings(e *ValidationEnvironment) []cel.EnvOption {
+	return []cel.EnvOption{
+		cel.Function("aws.validate",
+			cel.Overload("aws_validate_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.FunctionBinding(awsValidateBinding(e)),
+			),
+		),
+	}
 }
 
 // awsValidateBinding returns a CEL FunctionOp that calls STS GetCallerIdentity

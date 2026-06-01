@@ -7,10 +7,34 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/functions"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 )
+
+func httpBindings(e *ValidationEnvironment) []cel.EnvOption {
+	return []cel.EnvOption{
+		cel.Function("http.get",
+			cel.Overload("http_get_string_map",
+				[]*cel.Type{cel.StringType, cel.MapType(cel.StringType, cel.StringType)},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.BinaryBinding(httpGetBinding(e)),
+			),
+		),
+		cel.Function("http.post",
+			cel.Overload("http_post_string_map_string",
+				[]*cel.Type{
+					cel.StringType,
+					cel.MapType(cel.StringType, cel.StringType),
+					cel.StringType,
+				},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.FunctionBinding(httpPostBinding(e)),
+			),
+		),
+	}
+}
 
 func httpGetBinding(e *ValidationEnvironment) functions.BinaryOp {
 	return func(lhs, rhs ref.Val) ref.Val {

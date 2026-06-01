@@ -5,12 +5,46 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/hex"
 
+	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/functions"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 )
+
+func cryptoBindings() []cel.EnvOption {
+	return []cel.EnvOption{
+		cel.Function("crypto.md5",
+			cel.Overload("crypto_md5_bytes",
+				[]*cel.Type{cel.BytesType},
+				cel.BytesType,
+				cel.UnaryBinding(md5Binding()),
+			),
+		),
+		cel.Function("crypto.sha1",
+			cel.Overload("crypto_sha1_bytes",
+				[]*cel.Type{cel.BytesType},
+				cel.BytesType,
+				cel.UnaryBinding(sha1Binding()),
+			),
+		),
+		cel.Function("crypto.hmacSha256",
+			cel.Overload("crypto_hmac_sha256_camel_bytes_bytes",
+				[]*cel.Type{cel.BytesType, cel.BytesType},
+				cel.BytesType,
+				cel.BinaryBinding(hmacSha256Binding()),
+			),
+		),
+		// Deprecated: use crypto.hmacSha256.
+		cel.Function("crypto.hmac_sha256",
+			cel.Overload("crypto_hmac_sha256_bytes_bytes",
+				[]*cel.Type{cel.BytesType, cel.BytesType},
+				cel.BytesType,
+				cel.BinaryBinding(hmacSha256Binding()),
+			),
+		),
+	}
+}
 
 func md5Binding() functions.UnaryOp {
 	return func(value ref.Val) ref.Val {
@@ -50,18 +84,5 @@ func hmacSha256Binding() functions.BinaryOp {
 		h := hmac.New(sha256.New, []byte(key))
 		h.Write([]byte(msg))
 		return types.Bytes(h.Sum(nil))
-	}
-}
-
-// TODO maybe split out to it's own file for encodings?
-// encode/decode etc
-func hexEncodeBinding() functions.UnaryOp {
-	return func(value ref.Val) ref.Val {
-		bs, ok := value.(types.Bytes)
-		if !ok {
-			return types.MaybeNoSuchOverloadErr(value)
-		}
-
-		return types.String(hex.EncodeToString([]byte(bs)))
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/ext"
 )
@@ -17,6 +16,9 @@ var (
 	mapStringStringType = reflect.TypeFor[map[string]string]()
 	mapAnyType          = reflect.TypeFor[map[string]any]()
 )
+
+// emptyStringMap is a sentinel used in place of nil maps during CEL activation.
+var emptyStringMap = map[string]string{}
 
 // maxResponseBody is the maximum number of bytes read from an HTTP response body.
 const maxResponseBody = 1 << 20 // 1 MB
@@ -65,7 +67,6 @@ func NewValidationEnv(httpClient *http.Client) (*ValidationEnvironment, error) {
 }
 
 // NewEnvironment creates a CEL environment.
-// Define new bindings here.
 func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 	if httpClient == nil {
 		httpClient = DefaultHTTPClient()
@@ -77,7 +78,7 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 		cache:  make(map[string]cel.Program),
 	}
 
-	env, err := cel.NewEnv(
+	opts := []cel.EnvOption{
 		cel.OptionalTypes(),
 		ext.Bindings(),
 		ext.Strings(),
@@ -90,135 +91,30 @@ func NewEnvironment(httpClient *http.Client) (*ValidationEnvironment, error) {
 		// rule configs that reference the bare variable continue to compile.
 		// New expressions should prefer finding["secret"] for consistency.
 		cel.Variable("secret", cel.StringType),
+	}
+	opts = append(opts, validationBindingSets(e)...)
 
-		cel.Function("http.get",
-			cel.Overload("http_get_string_map",
-				[]*cel.Type{cel.StringType, cel.MapType(cel.StringType, cel.StringType)},
-				cel.MapType(cel.StringType, cel.DynType),
-				cel.BinaryBinding(httpGetBinding(e)),
-			),
-		),
-
-		cel.Function("http.post",
-			cel.Overload("http_post_string_map_string",
-				[]*cel.Type{
-					cel.StringType,
-					cel.MapType(cel.StringType, cel.StringType),
-					cel.StringType,
-				},
-				cel.MapType(cel.StringType, cel.DynType),
-				cel.FunctionBinding(httpPostBinding(e)),
-			),
-		),
-
-		// env(name) returns os.Getenv(name) when name is allowlisted
-		// (ValidationEnvironment.AllowedEnv); otherwise returns a CEL error.
-		cel.Function("env",
-			cel.Overload("env_string",
-				[]*cel.Type{cel.StringType},
-				cel.StringType,
-				cel.UnaryBinding(envBinding(e)),
-			),
-		),
-
-		// obfuscate(secret) returns a same-length, class-preserving
-		// perturbation of secret with a stable identifying prefix.
-		cel.Function("obfuscate",
-			cel.Overload("obfuscate_string",
-				[]*cel.Type{cel.StringType},
-				cel.StringType,
-				cel.UnaryBinding(obfuscateBinding()),
-			),
-		),
-
-		// unknown(response) returns {"result": "unknown", "reason": "HTTP <status>"}
-		// for use as a fallback when the HTTP status is unexpected.
-		cel.Function("unknown",
-			cel.Overload("unknown_map",
-				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)},
-				cel.MapType(cel.StringType, cel.DynType),
-				cel.UnaryBinding(func(val ref.Val) ref.Val {
-					m := map[string]any{"result": "unknown"}
-					if nativeVal, err := val.ConvertToNative(mapAnyType); err == nil {
-						if resp, ok := nativeVal.(map[string]any); ok {
-							if status, ok := resp["status"]; ok {
-								switch status {
-								case int64(429):
-									m["reason"] = "rate limited"
-								default:
-									m["reason"] = fmt.Sprintf("HTTP %v", status)
-								}
-							}
-						}
-					}
-					return types.DefaultTypeAdapter.NativeToValue(m)
-				}),
-			),
-		),
-
-		// json.string(s) returns s as a JSON string literal (quoted, escaped).
-		cel.Function("json.string",
-			cel.Overload("json_string_string",
-				[]*cel.Type{cel.StringType},
-				cel.StringType,
-				cel.UnaryBinding(jsonStringBinding()),
-			),
-		),
-
-		cel.Function("crypto.md5",
-			cel.Overload("crypto_md5_bytes",
-				[]*cel.Type{cel.BytesType},
-				cel.BytesType,
-				cel.UnaryBinding(md5Binding()),
-			),
-		),
-
-		cel.Function("crypto.sha1",
-			cel.Overload("crypto_sha1_bytes",
-				[]*cel.Type{cel.BytesType},
-				cel.BytesType,
-				cel.UnaryBinding(sha1Binding()),
-			),
-		),
-
-		cel.Function("hex.encode",
-			cel.Overload("hex_encode_bytes",
-				[]*cel.Type{cel.BytesType},
-				cel.StringType,
-				cel.UnaryBinding(hexEncodeBinding()),
-			),
-		),
-
-		cel.Function("crypto.hmac_sha256",
-			cel.Overload("crypto_hmac_sha256_bytes_bytes",
-				[]*cel.Type{cel.BytesType, cel.BytesType},
-				cel.BytesType,
-				cel.BinaryBinding(hmacSha256Binding()),
-			),
-		),
-
-		cel.Function("time.now_unix",
-			cel.Overload("time_now_unix",
-				[]*cel.Type{},
-				cel.StringType,
-				cel.FunctionBinding(timeNowUnixBinding()),
-			),
-		),
-
-		cel.Function("aws.validate",
-			cel.Overload("aws_validate_string_string",
-				[]*cel.Type{cel.StringType, cel.StringType},
-				cel.MapType(cel.StringType, cel.DynType),
-				cel.FunctionBinding(awsValidateBinding(e)),
-			),
-		),
-	)
+	env, err := cel.NewEnv(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating CEL environment: %w", err)
 	}
 
 	e.env = env
 	return e, nil
+}
+
+func validationBindingSets(e *ValidationEnvironment) []cel.EnvOption {
+	var opts []cel.EnvOption
+	opts = append(opts, httpBindings(e)...)
+	opts = append(opts, envBindings(e)...)
+	opts = append(opts, stringsBindings()...)
+	opts = append(opts, validateBindings()...)
+	opts = append(opts, jsonBindings()...)
+	opts = append(opts, cryptoBindings()...)
+	opts = append(opts, hexBindings()...)
+	opts = append(opts, timeBindings()...)
+	opts = append(opts, awsBindings(e)...)
+	return opts
 }
 
 // Compile compiles a CEL expression and caches the resulting program.
