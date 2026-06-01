@@ -184,14 +184,10 @@ func (d *Detector) addCommit(commit string) {
 	d.commitMutex.Unlock()
 }
 
-// Findings returns the findings added to the detector, applying redaction if configured.
+// Findings returns the findings added to the detector.
 // Deprecated: this is only used in deprecated calls. New code should access findings directly from the channel or ValidationPool.
+// Report redaction is applied in cmd.findingSummaryAndExit via RedactFindings.
 func (d *Detector) Findings() []report.Finding {
-	if d.Redact > 0 {
-		for i := range d.findings {
-			d.findings[i].Redact(d.Redact)
-		}
-	}
 	return d.findings
 }
 

@@ -556,6 +556,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 	}
 
 	findings = detector.FilterByStatus(findings)
+	detect.RedactFindings(findings, detector.Redact)
 
 	totalBytes := detector.TotalBytes.Load()
 	bytesMsg := fmt.Sprintf("scanned ~%d bytes (%s)", totalBytes, bytesConvert(totalBytes))
