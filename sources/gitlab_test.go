@@ -202,6 +202,23 @@ func TestGitLab_scanProject_L1Skip(t *testing.T) {
 	}
 }
 
+func TestGitLab_scanProject_PropagatesRepoScanError(t *testing.T) {
+	s := &GitLab{
+		Resources: GitLabResourceSet{GitLabResourceTypeRepos: true},
+	}
+	proj := &gitlabProject{
+		ID:                1,
+		PathWithNamespace: "g/p",
+		WebURL:            "https://gitlab.example.com/g/p",
+		HTTPURLToRepo:     "://bad-url",
+	}
+
+	err := s.scanProject(context.Background(), proj, func(Fragment, error) error { return nil })
+	if err == nil {
+		t.Fatal("expected repo scan error")
+	}
+}
+
 // TestGitLab_scanIssues_L2Skip: an item-level ShouldSkip drops a specific
 // issue (and crucially does NOT fetch its notes), but lets other issues through.
 func TestGitLab_scanIssues_L2Skip(t *testing.T) {
@@ -307,6 +324,44 @@ func TestGitlabNoteURL_ReplacesExistingFragment(t *testing.T) {
 	want := "https://gitlab.com/g/p/-/issues/1?discussion=abc#note_42"
 	if got != want {
 		t.Fatalf("gitlabNoteURL = %q, want %q", got, want)
+	}
+}
+
+func TestGitLab_scanSingleRelease_ScansSourceArchives(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		switch r.URL.Path {
+		case "/api/v4/projects/1/releases/v1.0":
+			rel := gitlabRelease{TagName: "v1.0", Description: "release notes"}
+			rel.Assets.Sources = []gitlabReleaseAssetSource{{Format: "zip", URL: "http://" + r.Host + "/archives/v1.0.zip"}}
+			rel.Assets.Links = []gitlabReleaseAssetLink{{Name: "binary.txt", URL: "http://" + r.Host + "/downloads/binary.txt"}}
+			_ = json.NewEncoder(w).Encode(rel)
+		case "/archives/v1.0.zip", "/downloads/binary.txt":
+			_, _ = w.Write([]byte("asset content"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	s := &GitLab{
+		URL:       server.URL + "/g/p/-/releases/v1.0",
+		BaseURL:   server.URL + "/",
+		Token:     "t",
+		Resources: GitLabResourceSet{GitLabResourceTypeReleases: true, GitLabResourceTypeReleaseAssets: true},
+	}
+	err := s.scanSingleRelease(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, "v1.0", func(Fragment, error) error { return nil })
+	if err != nil {
+		t.Fatalf("scanSingleRelease: %v", err)
+	}
+
+	got := strings.Join(requested, ",")
+	if !strings.Contains(got, "/archives/v1.0.zip") {
+		t.Fatalf("source archive was not downloaded; paths=%v", requested)
+	}
+	if !strings.Contains(got, "/downloads/binary.txt") {
+		t.Fatalf("release link was not downloaded; paths=%v", requested)
 	}
 }
 

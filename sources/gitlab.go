@@ -955,7 +955,9 @@ func (s *GitLab) scanProject(ctx context.Context, proj *gitlabProject, yield Fra
 	}
 
 	if s.Resources.Has(GitLabResourceTypeRepos) {
-		_ = run("repos", func() error { return s.scanProjectGit(ctx, proj, glYield) })
+		if err := run("repos", func() error { return s.scanProjectGit(ctx, proj, glYield) }); err != nil {
+			return err
+		}
 	}
 	if s.Resources.HasAnyIssueOrMR() {
 		if err := run("issues_mrs", func() error { return s.scanIssuesAndMRs(ctx, proj, glYield) }); err != nil {
@@ -1208,40 +1210,8 @@ func (s *GitLab) scanReleases(ctx context.Context, proj *gitlabProject, yield Fr
 					return false, err
 				}
 			}
-			if !s.Resources.Has(GitLabResourceTypeReleaseAssets) {
-				continue
-			}
-			for _, src := range rel.Assets.Sources {
-				if src.URL == "" {
-					continue
-				}
-				assetAttrs := map[string]string{
-					AttrResource:               ResourceGitLabReleaseAsset,
-					AttrGitLabReleaseTag:       rel.TagName,
-					AttrGitLabReleaseAssetName: "source." + src.Format,
-				}
-				if shouldSkipAttrs(s.ShouldSkip, assetAttrs) {
-					continue
-				}
-				if err := s.downloadAndScan(ctx, src.URL, "release/"+rel.TagName+"/source."+src.Format, assetAttrs, yield); err != nil {
-					logging.Error().Err(err).Str("tag", rel.TagName).Msg("could not scan release source archive")
-				}
-			}
-			for _, link := range rel.Assets.Links {
-				if link.URL == "" {
-					continue
-				}
-				assetAttrs := map[string]string{
-					AttrResource:               ResourceGitLabReleaseAsset,
-					AttrGitLabReleaseTag:       rel.TagName,
-					AttrGitLabReleaseAssetName: link.Name,
-				}
-				if shouldSkipAttrs(s.ShouldSkip, assetAttrs) {
-					continue
-				}
-				if err := s.downloadAndScan(ctx, link.URL, "release/"+rel.TagName+"/"+link.Name, assetAttrs, yield); err != nil {
-					logging.Error().Err(err).Str("tag", rel.TagName).Str("asset", link.Name).Msg("could not scan release asset")
-				}
+			if err := s.scanReleaseAssets(ctx, rel, yield); err != nil {
+				return false, err
 			}
 		}
 		return len(page) == gitlabPerPage, nil
@@ -1499,6 +1469,30 @@ func (s *GitLab) scanSingleRelease(ctx context.Context, proj *gitlabProject, tag
 	}
 	if !s.Resources.Has(GitLabResourceTypeReleaseAssets) {
 		return nil
+	}
+	return s.scanReleaseAssets(ctx, rel, yield)
+}
+
+func (s *GitLab) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield FragmentsFunc) error {
+	if !s.Resources.Has(GitLabResourceTypeReleaseAssets) {
+		return nil
+	}
+	for _, src := range rel.Assets.Sources {
+		if src.URL == "" {
+			continue
+		}
+		name := "source." + src.Format
+		assetAttrs := map[string]string{
+			AttrResource:               ResourceGitLabReleaseAsset,
+			AttrGitLabReleaseTag:       rel.TagName,
+			AttrGitLabReleaseAssetName: name,
+		}
+		if shouldSkipAttrs(s.ShouldSkip, assetAttrs) {
+			continue
+		}
+		if err := s.downloadAndScan(ctx, src.URL, "release/"+rel.TagName+"/"+name, assetAttrs, yield); err != nil {
+			logging.Error().Err(err).Str("tag", rel.TagName).Str("asset", name).Msg("could not scan release source archive")
+		}
 	}
 	for _, link := range rel.Assets.Links {
 		if link.URL == "" {
