@@ -21,6 +21,8 @@ type ScanTarget struct {
 // Files is a source for yielding fragments from a collection of files
 type Files struct {
 	ShouldSkip      SkipFunc
+	IncludeGlobs    []string
+	ExcludeGlobs    []string
 	FollowSymlinks  bool
 	MaxFileSize     int
 	Path            string
@@ -41,6 +43,15 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 				return filepath.SkipDir
 			}
 			logger.Warn().Err(err).Msg("skipping")
+			return nil
+		}
+
+		if !ShouldScanPath(path, s.IncludeGlobs, s.ExcludeGlobs) {
+			if d.IsDir() {
+				logger.Debug().Msg("skipping directory: include/exclude glob")
+				return filepath.SkipDir
+			}
+			logger.Debug().Msg("skipping file: include/exclude glob")
 			return nil
 		}
 

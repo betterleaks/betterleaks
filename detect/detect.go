@@ -8,6 +8,7 @@ import (
 	"iter"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -109,6 +110,10 @@ type Detector struct {
 
 	// gitleaksIgnore
 	gitleaksIgnore map[string]struct{}
+
+	// pathExcludeGlobs lists path patterns from .betterleaksignore / .gitleaksignore
+	// that skip files and directories during directory scans.
+	pathExcludeGlobs []string
 
 	TotalBytes atomic.Uint64
 
@@ -531,6 +536,11 @@ func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
 			continue
 		}
 
+		if !isIgnoreFingerprintLine(line) {
+			d.pathExcludeGlobs = append(d.pathExcludeGlobs, replacer.Replace(line))
+			continue
+		}
+
 		// Normalize the path.
 		// TODO: Make this a breaking change in v9.
 		s := strings.Split(line, ":")
@@ -545,10 +555,33 @@ func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
 			s[1] = replacer.Replace(s[1])
 		default:
 			logging.Warn().Str("fingerprint", line).Msg("Invalid .gitleaksignore entry")
+			continue
 		}
 		d.gitleaksIgnore[strings.Join(s, ":")] = struct{}{}
 	}
-	return nil
+	return scanner.Err()
+}
+
+// PathExcludeGlobs returns path patterns loaded from ignore files.
+func (d *Detector) PathExcludeGlobs() []string {
+	if d == nil || len(d.pathExcludeGlobs) == 0 {
+		return nil
+	}
+	return append([]string(nil), d.pathExcludeGlobs...)
+}
+
+func isIgnoreFingerprintLine(line string) bool {
+	parts := strings.Split(line, ":")
+	switch len(parts) {
+	case 3:
+		_, err := strconv.Atoi(strings.TrimSpace(parts[2]))
+		return err == nil
+	case 4:
+		_, err := strconv.Atoi(strings.TrimSpace(parts[3]))
+		return err == nil
+	default:
+		return false
+	}
 }
 
 // DetectString scans the given string and returns a list of findings
