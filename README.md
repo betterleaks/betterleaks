@@ -1,12 +1,12 @@
 # Betterleaks
 ```
-     ○ 
+     ○
      ○
 ghp_ ● qOomCIZBWchHR4v5FPp9UiQRS9CyigrCkXXuIJQPfe63f12a
-     ○ 
+     ○
 ```
 
-Betterleaks is a configurable, fast, and thorough secrets scanner. It is maintained by the folks who made Gitleaks, including the original author. 
+Betterleaks is a configurable, fast, and thorough secrets scanner. It is maintained by the folks who made Gitleaks, including the original author.
 Check out this series of blog posts to learn how the detection engine works: 1. [Regex is all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need), 2. [Rare Not Random](https://lookingatcomputer.substack.com/p/rare-not-random), 3. [Express YourCELf](https://lookingatcomputer.substack.com/p/express-yourcelf-filtering-and-validating).
 
 Development is supported by
@@ -20,7 +20,7 @@ Development is supported by
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using CEL. |
 | **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
-| **New Sources** | Support for sources like GitHub, S3, and more. It's easy to add new sources too!   |
+| **New Sources** | Support for sources like GitHub, GitLab, S3, and more. It's easy to add new sources too!   |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
 
 
@@ -56,6 +56,12 @@ betterleaks github https://github.com/betterleaks
 betterleaks github https://github.com/cooluser123456789 --include issues,prs,actions,releases,gists
 # Scan specific resource, like a PR... but exclude the description (only scan comments)
 betterleaks github https://github.com/betterleaks/betterleaks/pull/113
+
+# Scan GitLab group or project
+betterleaks gitlab https://gitlab.com/mygroup
+betterleaks gitlab https://gitlab.com/mygroup/myproject --include issues,mrs,releases,ci-jobs
+# Scan a specific GitLab merge request
+betterleaks gitlab https://gitlab.com/mygroup/myproject/-/merge_requests/42
 
 # Scan a public s3 dataset (Common Crawl).
 betterleaks s3 https://commoncrawl.s3.us-east-1.amazonaws.com/crawl-data/CC-MAIN-2018-17/segments/1524125937193.1/warc/
@@ -141,4 +147,3 @@ Set the exit code when leaks are encountered with the --exit-code flag. Default 
 1 - leaks or error encountered
 126 - unknown flag
 ```
-
