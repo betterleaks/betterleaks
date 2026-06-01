@@ -143,6 +143,7 @@ func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *byt
 type sourceDownloadOptions struct {
 	URL             string
 	Reader          io.ReadCloser
+	HTTPClient      *http.Client
 	Path            string
 	Attrs           map[string]string
 	BearerToken     string
@@ -164,8 +165,11 @@ func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yiel
 		if opts.BearerToken != "" {
 			req.Header.Set("Authorization", "Bearer "+opts.BearerToken)
 		}
-		httpClient := &http.Client{
-			Timeout: downloadTimeout,
+		httpClient := opts.HTTPClient
+		if httpClient == nil {
+			httpClient = &http.Client{
+				Timeout: downloadTimeout,
+			}
 		}
 		resp, err := httpClient.Do(req)
 		if err != nil {

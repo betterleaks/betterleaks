@@ -3,12 +3,15 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/betterleaks/betterleaks/internal/httpclient"
 )
 
 func TestParseGitLabURL(t *testing.T) {
@@ -140,8 +143,10 @@ func TestGitLab_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:      "exclude drops resource",
-			source:    func() *GitLab { return &GitLab{URL: "https://gitlab.com/g/p/-/releases/v1", Token: "t", Exclude: []string{"release-assets"}} },
+			name: "exclude drops resource",
+			source: func() *GitLab {
+				return &GitLab{URL: "https://gitlab.com/g/p/-/releases/v1", Token: "t", Exclude: []string{"release-assets"}}
+			},
 			wantResrc: []GitLabResourceType{GitLabResourceTypeReleases},
 		},
 	}
@@ -264,6 +269,47 @@ func TestGitLab_scanIssues_L2Skip(t *testing.T) {
 	}
 }
 
+func TestGitLab_scanItemNotes_StampsCommentURL(t *testing.T) {
+	parentURL := "https://gitlab.com/g/p/-/merge_requests/7"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/merge_requests/7/notes") {
+			http.NotFound(w, r)
+			return
+		}
+		notes := []gitlabNote{{ID: 12345, Body: "comment body", CreatedAt: time.Now()}}
+		_ = json.NewEncoder(w).Encode(notes)
+	}))
+	defer server.Close()
+
+	s := &GitLab{
+		URL:     server.URL + "/g/p/-/merge_requests/7",
+		BaseURL: server.URL + "/",
+		Token:   "t",
+	}
+	var gotURL string
+	err := s.scanItemNotes(context.Background(), 1, "merge_requests", 7, parentURL, AttrGitLabMRIID, "7", func(f Fragment, err error) error {
+		if err != nil {
+			return err
+		}
+		gotURL = f.Attr(AttrURL)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanItemNotes: %v", err)
+	}
+	if want := parentURL + "#note_12345"; gotURL != want {
+		t.Fatalf("comment URL = %q, want %q", gotURL, want)
+	}
+}
+
+func TestGitlabNoteURL_ReplacesExistingFragment(t *testing.T) {
+	got := gitlabNoteURL("https://gitlab.com/g/p/-/issues/1?discussion=abc#old", 42)
+	want := "https://gitlab.com/g/p/-/issues/1?discussion=abc#note_42"
+	if got != want {
+		t.Fatalf("gitlabNoteURL = %q, want %q", got, want)
+	}
+}
+
 // TestGitLab_wrapGitLabYield_stampsAndSkips: the L3 wrapper stamps project
 // attrs on incoming fragments and applies the per-fragment skip filter.
 func TestGitLab_wrapGitLabYield_stampsAndSkips(t *testing.T) {
@@ -377,5 +423,193 @@ func TestGitLab_buildAPIBase(t *testing.T) {
 				t.Errorf("got %q, want %q", u.String(), tc.want)
 			}
 		})
+	}
+}
+
+func TestGitLab_downloadAndScan_UsesRetryTransport(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "rate limited", http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte("plain content"))
+	}))
+	defer server.Close()
+
+	var slept time.Duration
+	s := &GitLab{
+		URL:     server.URL + "/g/p/-/snippets/1",
+		BaseURL: server.URL + "/",
+		Token:   "t",
+		restRetry: &httpclient.RetryTransport{
+			MaxRetries:     1,
+			Decider:        gitlabRetryDecider,
+			StateExtractor: gitlabRateLimitStateExtractor,
+			Sleep: func(_ context.Context, d time.Duration) error {
+				slept += d
+				return nil
+			},
+		},
+	}
+	if err := s.downloadAndScan(context.Background(), server.URL+"/raw", "raw.txt", map[string]string{AttrResource: ResourceGitLabSnippet}, func(Fragment, error) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("downloadAndScan: %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+	if slept != time.Second {
+		t.Fatalf("slept = %s, want 1s", slept)
+	}
+}
+
+func TestGitLab_downloadAndScan_DoesNotSendTokenToExternalURL(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer api.Close()
+
+	var gotAuth string
+	external := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("plain content"))
+	}))
+	defer external.Close()
+
+	s := &GitLab{URL: api.URL + "/g/p/-/releases/v1", BaseURL: api.URL + "/", Token: "secret"}
+	externalURL := strings.Replace(external.URL, "127.0.0.1", "localhost", 1)
+	if err := s.downloadAndScan(context.Background(), externalURL+"/asset.zip", "asset.txt", map[string]string{AttrResource: ResourceGitLabReleaseAsset}, func(Fragment, error) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("downloadAndScan: %v", err)
+	}
+	if gotAuth != "" {
+		t.Fatalf("Authorization leaked to external host: %q", gotAuth)
+	}
+}
+
+func TestGitLab_downloadAndScan_SendsTokenToGitLabHost(t *testing.T) {
+	var gotAuth string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("plain content"))
+	}))
+	defer api.Close()
+
+	s := &GitLab{URL: api.URL + "/g/p/-/snippets/1", BaseURL: api.URL + "/", Token: "secret"}
+	if err := s.downloadAndScan(context.Background(), api.URL+"/api/v4/projects/1/snippets/1/raw", "snippet.txt", map[string]string{AttrResource: ResourceGitLabSnippet}, func(Fragment, error) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("downloadAndScan: %v", err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q, want Bearer secret", gotAuth)
+	}
+}
+
+func TestGitLab_scanDirectJob_ScansOnlyRequestedJob(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		switch r.URL.Path {
+		case "/api/v4/projects/1/jobs/9001":
+			job := gitlabJob{ID: 9001, Name: "build", CreatedAt: time.Now(), WebURL: "https://example/jobs/9001"}
+			job.Pipeline.ID = 8001
+			_ = json.NewEncoder(w).Encode(job)
+		case "/api/v4/projects/1/jobs/9001/trace":
+			_, _ = w.Write([]byte("trace"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	s := &GitLab{
+		URL:       server.URL + "/g/p/-/jobs/9001",
+		BaseURL:   server.URL + "/",
+		Token:     "t",
+		Resources: GitLabResourceSet{GitLabResourceTypeCIJobs: true, GitLabResourceTypeCIArtifacts: true},
+	}
+	target := &gitlabTarget{Kind: "job", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedGitLabURL{ID: "9001"}}
+	if err := s.scanDirect(context.Background(), target, func(Fragment, error) error { return nil }); err != nil {
+		t.Fatalf("scanDirect: %v", err)
+	}
+	for _, p := range requested {
+		if p == "/api/v4/projects/1/jobs" {
+			t.Fatalf("listed all jobs for direct job scan: %v", requested)
+		}
+	}
+	if got := strings.Join(requested, ","); !strings.Contains(got, "/api/v4/projects/1/jobs/9001/trace") {
+		t.Fatalf("trace was not requested; paths=%v", requested)
+	}
+}
+
+func TestGitLab_scanDirectPipeline_UsesPipelineJobsEndpoint(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		switch r.URL.Path {
+		case "/api/v4/projects/1/pipelines/8001/jobs":
+			job := gitlabJob{ID: 9001, Name: "build", CreatedAt: time.Now(), WebURL: "https://example/jobs/9001"}
+			job.Pipeline.ID = 8001
+			_ = json.NewEncoder(w).Encode([]gitlabJob{job})
+		case "/api/v4/projects/1/jobs/9001/trace":
+			_, _ = w.Write([]byte("trace"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	s := &GitLab{
+		URL:       server.URL + "/g/p/-/pipelines/8001",
+		BaseURL:   server.URL + "/",
+		Token:     "t",
+		Resources: GitLabResourceSet{GitLabResourceTypeCIJobs: true},
+	}
+	target := &gitlabTarget{Kind: "pipeline", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedGitLabURL{ID: "8001"}}
+	if err := s.scanDirect(context.Background(), target, func(Fragment, error) error { return nil }); err != nil {
+		t.Fatalf("scanDirect: %v", err)
+	}
+	for _, p := range requested {
+		if p == "/api/v4/projects/1/jobs" {
+			t.Fatalf("listed all jobs for direct pipeline scan: %v", requested)
+		}
+	}
+	if requested[0] != "/api/v4/projects/1/pipelines/8001/jobs" {
+		t.Fatalf("first request = %q, want pipeline jobs endpoint; paths=%v", requested[0], requested)
+	}
+}
+
+func TestGitLab_scanCIJobs_StopsAtSinceBoundary(t *testing.T) {
+	var pages []string
+	since := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages = append(pages, r.URL.Query().Get("page"))
+		if r.URL.Query().Get("page") != "1" {
+			t.Fatalf("unexpected page request: %s", r.URL.RawQuery)
+		}
+		old := gitlabJob{ID: 1, Name: "old", CreatedAt: since.Add(-time.Hour), WebURL: "https://example/jobs/1"}
+		w.Header().Set("X-Next-Page", "2")
+		_ = json.NewEncoder(w).Encode([]gitlabJob{old})
+	}))
+	defer server.Close()
+
+	s := &GitLab{
+		URL:           server.URL + "/g/p",
+		BaseURL:       server.URL + "/",
+		Token:         "t",
+		Resources:     GitLabResourceSet{GitLabResourceTypeCIJobs: true},
+		DateRangeOpts: DateRangeOptions{Since: since},
+	}
+	if err := s.scanCIJobs(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, func(Fragment, error) error { return nil }); err != nil {
+		t.Fatalf("scanCIJobs: %v", err)
+	}
+	if got := fmt.Sprint(pages); got != "[1]" {
+		t.Fatalf("requested pages = %s, want [1]", got)
 	}
 }
