@@ -75,7 +75,7 @@ Betterleaks' strength comes from its expressive configuration. Filtering and val
 ```toml
 # Global prefilter, it runs before expensive regex calls
 prefilter = '''
-(matchesAny(attributes[?"path"].orValue(""), [
+(filter.matchesAny(attributes[?"path"].orValue(""), [
   r"""(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff|pdf|exe)$""",
   r"""(?:^|/)node_modules(?:/.*)?$""",
   r"""(?:^|/)vendor(?:/.*)?$"""
@@ -85,7 +85,7 @@ prefilter = '''
 
 # Global filter, it runs for _every_ candidate secret.
 filter = '''
-containsAny(finding["secret"], [
+filter.containsAny(finding["secret"], [
   "EXAMPLE",
   "CHANGEME",
   "YOUR_API_KEY_HERE",
@@ -107,7 +107,7 @@ filter = '''
     attributes[?"path"].orValue("").startsWith("mocks/") &&
     finding["secret"].contains("TESTING")
 )
-|| (entropy(finding["secret"]) <= 3.0)
+|| (filter.entropy(finding["secret"]) <= 3.0)
 '''
 
 # Post-match-and-filter async validation check
@@ -125,7 +125,7 @@ cel.bind(r,
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )
 '''
 ```
@@ -143,4 +143,3 @@ Set the exit code when leaks are encountered with the --exit-code flag. Default 
 1 - leaks or error encountered
 126 - unknown flag
 ```
-
