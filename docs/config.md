@@ -252,16 +252,6 @@ function names. Examples: `http.get`, `crypto.hmacSha256`,
 Data keys stay snake_case. This includes capture keys, attribute keys, finding
 keys, and response map keys such as `error_code`.
 
-Reversible encodings use one namespace per format:
-
-- `hex.encode` is implemented by Betterleaks.
-- `base64.encode` and `base64.decode` are provided by CEL.
-- Future encodings should follow the same shape, for example
-  `base32.encode` and `base32.decode`.
-
-Do not put reversible encodings under `crypto.*`; that namespace is for hashes,
-HMACs, and signing primitives.
-
 ## Adding a CEL binding
 
 For contributors adding a new CEL function:
@@ -272,6 +262,3 @@ For contributors adding a new CEL function:
 3. Register the function in the namespace's `*Bindings` slice.
 4. Add focused tests for compile and evaluation behavior.
 5. Run `go test ./internal/celenv/...`.
-
-When renaming an existing public function, keep existing user configs working
-while documenting only the canonical name.
