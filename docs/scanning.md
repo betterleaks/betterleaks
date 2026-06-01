@@ -10,6 +10,7 @@ Use `--help` for full flag descriptions. This page is for patterns.
 | Git history | `betterleaks git` |
 | Staged or pre-commit diffs | `betterleaks git --pre-commit [--staged]` |
 | GitHub repos, Issues, PRs, Actions, Releases, Discussions, Gists | `betterleaks github <url>` |
+| GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | S3 (and S3-compatible: R2, MinIO, etc.) | `betterleaks s3 <url>` |
 | Piped content | `betterleaks stdin` |
 
@@ -216,6 +217,138 @@ betterleaks github https://github.example.com/platform-team
 
 ---
 
+## `gitlab`
+
+`gitlab` takes a target URL. Project, group, and user targets scan git history by default; specific resource URLs scan the matching resource plus associated comments or assets by default. Use `--include` to add resource types and `--exclude` to skip types.
+
+Set `GITLAB_TOKEN` in the environment before running these examples. Public project git history can be scanned without a token, but group/user enumeration and API-backed resources require one.
+
+### Resource types
+
+| Type | Description |
+| :--- | :--- |
+| `repos` | Git repository history (default) |
+| `forks` | Include forked projects |
+| `mrs` | Merge request descriptions |
+| `mr-comments` | Comments on merge requests (auto-included with `mrs`) |
+| `issues` | Issue descriptions |
+| `issue-comments` | Comments on issues (auto-included with `issues`) |
+| `snippets` | Project snippet contents |
+| `releases` | Release descriptions |
+| `release-assets` | Downloadable release assets and source archives (auto-included with `releases`) |
+| `ci-jobs` | CI job logs |
+| `ci-artifacts` | CI job artifacts (auto-included with `ci-jobs`) |
+
+### Target selection
+
+```sh
+# scan a project's git history
+betterleaks gitlab https://gitlab.com/my-company/backend
+
+# scan all projects under a group, including subgroups by default
+betterleaks gitlab https://gitlab.com/my-company
+
+# scan a group without recursing into subgroups
+betterleaks gitlab \
+	--include-subgroups=false \
+	https://gitlab.com/my-company
+
+# enumerate every group visible to the token
+betterleaks gitlab \
+	--all-groups \
+	https://gitlab.com/
+
+# exclude forks and project globs
+betterleaks gitlab \
+	--include=forks \
+	--exclude-repo 'my-company/*-archive' \
+	--exclude-repo 'my-company/playground-*' \
+	https://gitlab.com/my-company
+
+# skip repo git history, scan only API resources
+betterleaks gitlab \
+	--include=issues,mrs,issue-comments,mr-comments \
+	--exclude=repos \
+	https://gitlab.com/my-company
+```
+
+### Issues, MRs, comments
+
+```sh
+betterleaks gitlab \
+	--include=issues,mrs,issue-comments,mr-comments \
+	--since 2026-01-01 \
+	https://gitlab.com/my-company/backend
+
+betterleaks gitlab \
+	--include=issues,mrs,issue-comments \
+	--since 2026-01-01 \
+	--until 2026-04-01 \
+	https://gitlab.com/my-company
+```
+
+### Releases, snippets, CI
+
+```sh
+# snippets
+betterleaks gitlab \
+	--include=snippets \
+	https://gitlab.com/my-company/backend
+
+# releases and release assets
+betterleaks gitlab \
+	--include=releases \
+	https://gitlab.com/my-company/backend
+
+# releases, but skip downloadable assets
+betterleaks gitlab \
+	--include=releases \
+	--exclude=release-assets \
+	https://gitlab.com/my-company/backend
+
+# CI job logs
+betterleaks gitlab \
+	--include=ci-jobs \
+	https://gitlab.com/my-company/backend
+
+# CI job logs and artifacts
+betterleaks gitlab \
+	--include=ci-jobs,ci-artifacts \
+	https://gitlab.com/my-company/backend
+```
+
+### Single GitLab resource
+
+```sh
+# merge request
+betterleaks gitlab https://gitlab.com/my-company/backend/-/merge_requests/1234
+
+# issue
+betterleaks gitlab https://gitlab.com/my-company/backend/-/issues/99
+
+# snippet
+betterleaks gitlab https://gitlab.com/my-company/backend/-/snippets/55
+
+# release tag
+betterleaks gitlab https://gitlab.com/my-company/backend/-/releases/v1.2.3
+
+# pipeline
+betterleaks gitlab https://gitlab.com/my-company/backend/-/pipelines/123456789
+
+# job
+betterleaks gitlab https://gitlab.com/my-company/backend/-/jobs/987654321
+```
+
+### Self-managed GitLab
+
+```sh
+betterleaks gitlab \
+	--base-url=https://gitlab.example.com/ \
+	https://gitlab.example.com/platform-team/backend
+```
+
+---
+
 ## `s3`
 
 `s3` takes a single URL describing either one bucket or a glob of buckets to enumerate. The same command works against AWS, Cloudflare R2, MinIO, Backblaze B2, DigitalOcean Spaces, Wasabi — anything speaking the S3 REST API.
@@ -373,4 +506,3 @@ betterleaks dir ./artifacts --max-archive-depth 2 --max-decode-depth 5
 ## Related docs
 
 - [docs/config.md](config.md)
-
