@@ -51,7 +51,7 @@ betterleaks dir . --include 'src/**' --include 'pkg/**'
 betterleaks dir . --exclude 'fixtures/**' --exclude 'testdata/**'
 ```
 
-Path globs use `filepath.Match` syntax. Patterns ending in `/` or `/**` skip entire directory trees.
+Path globs use `filepath.Match` syntax against the full file path. Patterns ending in `/` or `/**` skip entire directory trees. Use `**/*.go` (not `*.go`) to match by file extension in any directory.
 
 `.betterleaksignore` (and `.gitleaksignore`) accept finding fingerprints and path globs:
 

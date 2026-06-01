@@ -46,11 +46,12 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			return nil
 		}
 
-		if !ShouldScanPath(path, s.IncludeGlobs, s.ExcludeGlobs) {
-			if d.IsDir() {
+		if d.IsDir() {
+			if !ShouldWalkDir(path, s.IncludeGlobs, s.ExcludeGlobs) {
 				logger.Debug().Msg("skipping directory: include/exclude glob")
 				return filepath.SkipDir
 			}
+		} else if !ShouldScanPath(path, s.IncludeGlobs, s.ExcludeGlobs) {
 			logger.Debug().Msg("skipping file: include/exclude glob")
 			return nil
 		}
