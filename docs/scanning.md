@@ -11,6 +11,7 @@ Use `--help` for full flag descriptions. This page is for patterns.
 | Staged or pre-commit diffs | `betterleaks git --pre-commit [--staged]` |
 | GitHub repos, Issues, PRs, Actions, Releases, Discussions, Gists | `betterleaks github <url>` |
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
+| Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
 | S3 (and S3-compatible: R2, MinIO, etc.) | `betterleaks s3 <url>` |
 | Piped content | `betterleaks stdin` |
 
@@ -346,6 +347,83 @@ betterleaks gitlab \
 	--base-url=https://gitlab.example.com/ \
 	https://gitlab.example.com/platform-team/backend
 ```
+
+---
+
+## `huggingface`
+
+`huggingface` takes a Hugging Face owner, repository, or Storage Bucket URL. The alias `hf` is equivalent. Owner and repo targets scan model, dataset, and Space git history by default. Use `--include` to add community resources or buckets, and `--exclude` to skip resource types.
+
+Set `HUGGINGFACE_TOKEN` or `HF_TOKEN` in the environment before scanning private resources, owner resources that require auth, community content, or Storage Buckets. You can also pass `--token`.
+
+### Resource types
+
+| Type | Description |
+| :--- | :--- |
+| `repos` | Model, dataset, and Space git repository history (default for owner/repo targets) |
+| `discussions` | Hugging Face discussion comments |
+| `prs` | Hugging Face pull request comments |
+| `buckets` | Hugging Face Storage Bucket object contents (default for bucket targets) |
+
+### Target selection
+
+```sh
+# scan all models, datasets, and Spaces for an owner
+betterleaks hf https://huggingface.co/my-company
+
+# scan a model repository
+betterleaks hf https://huggingface.co/my-company/model-name
+
+# scan a dataset repository
+betterleaks hf https://huggingface.co/datasets/my-company/dataset-name
+
+# scan a Space repository
+betterleaks hf https://huggingface.co/spaces/my-company/space-name
+
+# include discussions and PR comments
+betterleaks hf \
+	--include=discussions,prs \
+	https://huggingface.co/my-company/model-name
+
+# skip repo git history, scan only community content
+betterleaks hf \
+	--include=discussions,prs \
+	--exclude=repos \
+	https://huggingface.co/my-company/model-name
+
+# exclude repos or buckets by owner/name glob
+betterleaks hf \
+	--exclude-repo 'my-company/test-*' \
+	https://huggingface.co/my-company
+```
+
+### Storage Buckets
+
+Hugging Face Storage Buckets are scanned through the Hugging Face source, not the `s3` source. Bucket scans accept both Hugging Face web URLs and `hf://` bucket paths.
+
+```sh
+# scan a bucket or bucket prefix
+betterleaks hf hf://buckets/my-company/logs/prod/
+
+betterleaks hf https://huggingface.co/buckets/my-company/logs/prod/
+
+# include buckets when scanning an owner
+betterleaks hf \
+	--include=buckets \
+	https://huggingface.co/my-company
+
+# skip bucket objects above a custom size
+betterleaks hf \
+	--max-bucket-object-size=1073741824 \
+	hf://buckets/my-company/logs/
+
+# scan archives inside bucket objects
+betterleaks hf \
+	--max-archive-depth=2 \
+	hf://buckets/my-company/artifacts/
+```
+
+Bucket objects larger than 1 GiB log a warning before download when they are not skipped by `--max-bucket-object-size`.
 
 ---
 

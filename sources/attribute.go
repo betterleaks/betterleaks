@@ -33,6 +33,12 @@ const (
 	ResourceGitLabCIJob        = "gitlab.ci_job"
 	ResourceGitLabCIArtifact   = "gitlab.ci_artifact"
 
+	ResourceHuggingFaceRepo       = "huggingface.repository"
+	ResourceHuggingFaceDiscussion = "huggingface.discussion"
+	ResourceHuggingFacePR         = "huggingface.pr"
+	ResourceHuggingFaceComment    = "huggingface.comment"
+	ResourceHuggingFaceBucket     = "huggingface.bucket"
+
 	// Git
 	AttrGitSHA         = "git.sha"
 	AttrGitAuthorName  = "git.author_name"
@@ -83,6 +89,23 @@ const (
 	AttrGitLabCIJobID          = "gitlab.ci_job.id"
 	AttrGitLabCIJobName        = "gitlab.ci_job.name"
 	AttrGitLabCIPipelineID     = "gitlab.ci_pipeline.id"
+
+	// Hugging Face
+	AttrHuggingFaceOwner             = "huggingface.owner"
+	AttrHuggingFaceRepo              = "huggingface.repo"
+	AttrHuggingFaceRepoType          = "huggingface.repo_type"
+	AttrHuggingFaceRepoURL           = "huggingface.repo_url"
+	AttrHuggingFaceVisibility        = "huggingface.visibility"
+	AttrHuggingFaceDiscussionNumber  = "huggingface.discussion.number"
+	AttrHuggingFaceCommentID         = "huggingface.comment.id"
+	AttrHuggingFaceAuthor            = "huggingface.author"
+	AttrHuggingFaceCommunityResource = "huggingface.community.resource"
+	AttrHuggingFaceBucket            = "huggingface.bucket"
+	AttrHuggingFaceBucketURL         = "huggingface.bucket_url"
+	AttrHuggingFaceBucketPath        = "huggingface.bucket.path"
+	AttrHuggingFaceBucketSize        = "huggingface.bucket.size"
+	AttrHuggingFaceBucketMTime       = "huggingface.bucket.mtime"
+	AttrHuggingFaceBucketXetHash     = "huggingface.bucket.xet_hash"
 
 	// S3 (and S3-compatible object stores)
 	AttrS3Bucket       = "s3.bucket"

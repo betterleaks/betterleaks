@@ -20,7 +20,7 @@ Development is supported by
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using CEL. |
 | **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
-| **New Sources** | Support for sources like GitHub, GitLab, S3, and more. It's easy to add new sources too!   |
+| **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
 
 
@@ -62,6 +62,12 @@ betterleaks gitlab https://gitlab.com/mygroup
 betterleaks gitlab https://gitlab.com/mygroup/myproject --include issues,mrs,releases,ci-jobs
 # Scan a specific GitLab merge request
 betterleaks gitlab https://gitlab.com/mygroup/myproject/-/merge_requests/42
+
+# Scan Hugging Face models, datasets, Spaces, and buckets
+betterleaks huggingface https://huggingface.co/myorg
+betterleaks hf https://huggingface.co/datasets/myorg/mydataset
+betterleaks hf --include=discussions,prs https://huggingface.co/myorg/model
+betterleaks hf hf://buckets/myorg/mybucket/path
 
 # Scan a public s3 dataset (Common Crawl).
 betterleaks s3 https://commoncrawl.s3.us-east-1.amazonaws.com/crawl-data/CC-MAIN-2018-17/segments/1524125937193.1/warc/
