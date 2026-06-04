@@ -276,3 +276,12 @@ func abs(x int) int {
 	}
 	return x
 }
+
+func RedactFindings(findings []report.Finding, percent uint) {
+	if percent == 0 {
+		return
+	}
+	for i := range findings {
+		findings[i].Redact(percent)
+	}
+}
