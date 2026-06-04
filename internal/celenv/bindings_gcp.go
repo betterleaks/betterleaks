@@ -292,8 +292,12 @@ func isAllowedGCPTokenEndpoint(rawURL string) bool {
 		return false
 	}
 	host := strings.ToLower(u.Hostname())
-	if host == "oauth2.googleapis.com" || host == "accounts.google.com" {
+	path := strings.TrimRight(u.EscapedPath(), "/")
+	if host == "oauth2.googleapis.com" && path == "/token" {
 		return true
 	}
-	return strings.HasSuffix(host, ".googleapis.com")
+	if host == "accounts.google.com" && path == "/o/oauth2/token" {
+		return true
+	}
+	return false
 }
