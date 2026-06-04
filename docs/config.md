@@ -176,6 +176,23 @@ For more complex validation setups, such as Basic Auth, dynamic request bodies,
 HMAC signatures, or composite `[[rules.required]]` rules, check the built-in
 rules in `cmd/generate/config/rules`.
 
+### Validating against GitHub Enterprise Server
+
+The `github-*` validation rules read `GITHUB_BASE_URL` via `env.get` and fall
+back to `https://api.github.com` when it's empty. To validate tokens minted by a
+GHES instance, allowlist the variable and export it before running:
+
+```sh
+export GITHUB_BASE_URL=https://github.example.com/api/v3
+betterleaks github --validation --validation-env-vars GITHUB_BASE_URL https://github.example.com/owner
+```
+
+`--validation-env-vars GITHUB_BASE_URL` is required whenever `--validation` is
+used on github tokens — without the flag, `env.get` returns a CEL error and the
+finding's validation status becomes `error`. When the env var is allowlisted but
+unset (the common github.com case), `env.get` returns `""` and the ternary falls
+back to `api.github.com`.
+
 ## Validation with an LLM
 
 For generic high-entropy matches that no live API can adjudicate, a validation

@@ -2869,21 +2869,23 @@ keywords = [
     "ghs_",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://api.github.com/app", {
-    "Accept": "application/vnd.github+json",
-    "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?slug.orValue("") != "" ? {
-    "result": "valid",
-    "slug": r.json.?slug.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "html_url": r.json.?html_url.orValue(""),
-	"external_url": r.json.?external_url.orValue("")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : unknown(r)
+cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+  cel.bind(r,
+    http.get((base_url != "" ? base_url : "https://api.github.com") + "/app", {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "Bearer " + finding["secret"]
+    }),
+    r.status == 200 && r.json.?slug.orValue("") != "" ? {
+      "result": "valid",
+      "slug": r.json.?slug.orValue(""),
+      "name": r.json.?name.orValue(""),
+      "html_url": r.json.?html_url.orValue(""),
+      "external_url": r.json.?external_url.orValue("")
+    } : r.status in [401, 403] ? {
+      "result": "invalid",
+      "reason": "Unauthorized"
+    } : unknown(r)
+  )
 )
 '''
 filter = '''
@@ -2900,20 +2902,22 @@ description = "Found a GitHub Fine-Grained Personal Access Token, risking unauth
 regex = '''github_pat_\w{82}'''
 keywords = ["github_pat_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.github.com/user", {
-    "Accept": "application/vnd.github+json",
-    "Authorization": "token " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?login.orValue("") != "" ? {
-    "result": "valid",
-    "username": r.json.?login.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "scopes": r.headers[?"x-oauth-scopes"].orValue("")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : unknown(r)
+cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+  cel.bind(r,
+    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "token " + finding["secret"]
+    }),
+    r.status == 200 && r.json.?login.orValue("") != "" ? {
+      "result": "valid",
+      "username": r.json.?login.orValue(""),
+      "name": r.json.?name.orValue(""),
+      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+    } : r.status in [401, 403] ? {
+      "result": "invalid",
+      "reason": "Unauthorized"
+    } : unknown(r)
+  )
 )
 '''
 filter = '''
@@ -2929,20 +2933,22 @@ description = "Discovered a GitHub OAuth Access Token, posing a risk of compromi
 regex = '''gho_[0-9a-zA-Z]{36}'''
 keywords = ["gho_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.github.com/user", {
-    "Accept": "application/vnd.github+json",
-    "Authorization": "token " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?login.orValue("") != "" ? {
-    "result": "valid",
-    "username": r.json.?login.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "scopes": r.headers[?"x-oauth-scopes"].orValue("")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : unknown(r)
+cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+  cel.bind(r,
+    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "token " + finding["secret"]
+    }),
+    r.status == 200 && r.json.?login.orValue("") != "" ? {
+      "result": "valid",
+      "username": r.json.?login.orValue(""),
+      "name": r.json.?name.orValue(""),
+      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+    } : r.status in [401, 403] ? {
+      "result": "invalid",
+      "reason": "Unauthorized"
+    } : unknown(r)
+  )
 )
 '''
 filter = '''
@@ -2958,20 +2964,22 @@ description = "Uncovered a GitHub Personal Access Token, potentially leading to 
 regex = '''ghp_[0-9a-zA-Z]{36}'''
 keywords = ["ghp_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.github.com/user", {
-    "Accept": "application/vnd.github+json",
-    "Authorization": "token " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?login.orValue("") != "" ? {
-    "result": "valid",
-    "username": r.json.?login.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "scopes": r.headers[?"x-oauth-scopes"].orValue("")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : unknown(r)
+cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+  cel.bind(r,
+    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "token " + finding["secret"]
+    }),
+    r.status == 200 && r.json.?login.orValue("") != "" ? {
+      "result": "valid",
+      "username": r.json.?login.orValue(""),
+      "name": r.json.?name.orValue(""),
+      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+    } : r.status in [401, 403] ? {
+      "result": "invalid",
+      "reason": "Unauthorized"
+    } : unknown(r)
+  )
 )
 '''
 filter = '''
@@ -2988,20 +2996,22 @@ description = "Detected a GitHub Refresh Token, which could allow prolonged unau
 regex = '''ghr_[0-9a-zA-Z]{36}'''
 keywords = ["ghr_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.github.com/user", {
-    "Accept": "application/vnd.github+json",
-    "Authorization": "token " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?login.orValue("") != "" ? {
-    "result": "valid",
-    "username": r.json.?login.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "scopes": r.headers[?"x-oauth-scopes"].orValue("")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : unknown(r)
+cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+  cel.bind(r,
+    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "token " + finding["secret"]
+    }),
+    r.status == 200 && r.json.?login.orValue("") != "" ? {
+      "result": "valid",
+      "username": r.json.?login.orValue(""),
+      "name": r.json.?name.orValue(""),
+      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+    } : r.status in [401, 403] ? {
+      "result": "invalid",
+      "reason": "Unauthorized"
+    } : unknown(r)
+  )
 )
 '''
 filter = '''
