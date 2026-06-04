@@ -7,21 +7,64 @@ import (
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
-// TODO this one could probably use some work
+func GCPApplicationDefaultCredentials() *config.Rule {
+	r := config.Rule{
+		Description: "Google (GCP) Application Default Credentials",
+		RuleID:      "gcp-application-default-credentials",
+		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}`),
+		Keywords:    []string{".apps.googleusercontent.com"},
+		ValidateCEL: `cel.bind(r,
+  gcp.validate(finding["secret"]),
+  r.status == 200 ? {
+    "result": "valid",
+    "credential_type": r.credential_type,
+    "client_id": r.client_id
+  } : r.status in [400, 401] ? {
+    "result": "invalid",
+    "error_code": r.error_code,
+    "error_message": r.error_message
+  } : unknown(r)
+)
+`,
+	}
+
+	tps := []string{
+		`{"client_id":"1234567890.apps.googleusercontent.com","client_secret":"GOCSPX-example","refresh_token":"1//refresh-token","type":"authorized_user"}`,
+	}
+	return utils.Validate(r, tps, nil)
+}
+
 func GCPServiceAccount() *config.Rule {
-	// define rule
 	r := config.Rule{
 		Description: "Google (GCP) Service-account",
 		RuleID:      "gcp-service-account",
-		Regex:       regexp.MustCompile(`\"type\": \"service_account\"`),
-		Keywords:    []string{`\"type\": \"service_account\"`},
+		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}`),
+		Keywords:    []string{"provider_x509"},
+		ValidateCEL: `cel.bind(r,
+  gcp.validate(finding["secret"]),
+  r.status == 200 ? {
+    "result": "valid",
+    "credential_type": r.credential_type,
+    "project_id": r.project_id,
+    "client_email": r.client_email
+  } : r.status in [400, 401] ? {
+    "result": "invalid",
+    "error_code": r.error_code,
+    "error_message": r.error_message
+  } : unknown(r)
+)
+`,
+		Filter: `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,
 	}
 
-	// validate
 	tps := []string{
-		`"type": "service_account"`,
+		`{"type":"service_account","project_id":"project-123","private_key_id":"key-id","private_key":"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n","client_email":"svc@project-123.iam.gserviceaccount.com","client_id":"1234567890","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"https://www.googleapis.com/robot/v1/metadata/x509/svc%40project-123.iam.gserviceaccount.com"}`,
+		`{"auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","token_uri":"https://oauth2.googleapis.com/token","client_email":"svc@project-123.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n","project_id":"project-123","type":"service_account"}`,
 	}
-	return utils.Validate(r, tps, nil)
+	fps := []string{
+		`{"description":"Google service account key","type":"object","required":["type","project_id","private_key_id","private_key","client_email","client_id","auth_uri","token_uri","auth_provider_x509_cert_url","client_x509_cert_url"],"properties":{"type":{"const":"service_account"},"project_id":{"type":"string"},"private_key_id":{"type":"string"},"private_key":{"type":"string"},"client_email":{"type":"string"},"client_id":{"type":"string"},"auth_uri":{"type":"string"},"token_uri":{"type":"string"},"auth_provider_x509_cert_url":{"type":"string"},"client_x509_cert_url":{"type":"string"}}}`,
+	}
+	return utils.Validate(r, tps, fps)
 }
 
 func GCPAPIKey() *config.Rule {

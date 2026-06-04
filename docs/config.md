@@ -137,6 +137,7 @@ Any additional keys are attached to the finding as validation metadata, such as
 | `hex.encode(bytes)` | Returns lowercase hex encoding. |
 | `time.nowUnix()` | Returns the current Unix timestamp as a string. |
 | `aws.validate(key, secret)` | Makes a SigV4-signed AWS STS request to validate AWS credentials. |
+| `gcp.validate(json)` | Exchanges GCP service-account or ADC JSON for an OAuth token and returns validation metadata. |
 | `base64.encode(bytes)` / `base64.decode(string)` | Provided by CEL's encoder extension. |
 | `cel.bind(name, value, expr)` | Binds a variable to avoid repeating sub-expressions. |
 

@@ -40,6 +40,9 @@ type ValidationEnvironment struct {
 	// STSEndpoint overrides the default AWS STS endpoint (for testing).
 	STSEndpoint string
 
+	// GCPTokenEndpoint overrides the GCP OAuth token endpoint (for testing).
+	GCPTokenEndpoint string
+
 	// AllowedEnv is the set of environment variable names the env(...) CEL
 	// binding may read (via os.Getenv). Names not in this set produce a CEL
 	// error. Nil or empty disables env(...) entirely. Populated from
@@ -114,6 +117,7 @@ func validationBindingSets(e *ValidationEnvironment) []cel.EnvOption {
 	opts = append(opts, hexBindings()...)
 	opts = append(opts, timeBindings()...)
 	opts = append(opts, awsBindings(e)...)
+	opts = append(opts, gcpBindings(e)...)
 	return opts
 }
 

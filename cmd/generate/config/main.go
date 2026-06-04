@@ -166,8 +166,8 @@ func main() {
 		rules.Freemius(),
 		rules.FreshbooksAccessToken(),
 		rules.GoCardless(),
-		// TODO figure out what makes sense for GCP
-		// rules.GCPServiceAccount(),
+		rules.GCPApplicationDefaultCredentials(),
+		rules.GCPServiceAccount(),
 		rules.GCPAPIKey(),
 		rules.GiteaAccessToken(),
 		rules.GitHubPat(),
