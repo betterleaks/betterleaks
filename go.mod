@@ -2,6 +2,8 @@ module github.com/betterleaks/betterleaks
 
 go 1.25.0
 
+toolchain go1.25.10
+
 require (
 	github.com/BobuSumisu/aho-corasick v1.0.3
 	github.com/fatih/semgroup v1.2.0

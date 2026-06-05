@@ -24,6 +24,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check Go version
+        run: go version
+
       # v4.0.0 (https://github.com/docker/setup-qemu-action/releases/tag/v4.0.0)
       - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a
 
