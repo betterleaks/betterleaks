@@ -105,6 +105,7 @@ func main() {
 		rules.BittrexAccessKey(),
 		rules.BittrexSecretKey(),
 		rules.Beamer(),
+		rules.CastAI(),
 		rules.Cerebras(),
 		rules.Civo(),
 		rules.CodecovAccessToken(),
