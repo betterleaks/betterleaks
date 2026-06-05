@@ -945,11 +945,13 @@ func (s *HuggingFace) listDiscussions(ctx context.Context, repo huggingFaceRepo)
 	}
 	var discussions []huggingFaceDiscussion
 	err = s.paginateJSON(ctx, u, func(body []byte) error {
-		var page []huggingFaceDiscussion
+		var page struct {
+			Discussions []huggingFaceDiscussion `json:"discussions"`
+		}
 		if err := json.Unmarshal(body, &page); err != nil {
 			return fmt.Errorf("decode discussions: %w; body snippet: %s", err, snippet(body))
 		}
-		discussions = append(discussions, page...)
+		discussions = append(discussions, page.Discussions...)
 		return nil
 	})
 	return discussions, err

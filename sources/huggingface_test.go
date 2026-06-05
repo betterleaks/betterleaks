@@ -340,6 +340,46 @@ func TestHuggingFaceScanBucketSkipsPrefilteredObjectBeforeDownload(t *testing.T)
 	}
 }
 
+func TestHuggingFaceListDiscussionsDecodesEnvelope(t *testing.T) {
+	var pages int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/models/acme/model/discussions" {
+			http.NotFound(w, r)
+			return
+		}
+		pages++
+		if r.URL.Query().Get("cursor") == "" {
+			w.Header().Set("Link", `</api/models/acme/model/discussions?cursor=next>; rel="next"`)
+			_, _ = w.Write([]byte(`{"discussions":[{"num":1,"title":"first","isPullRequest":false}],"count":2}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"discussions":[{"num":2,"title":"second","isPullRequest":true}],"count":2}`))
+	}))
+	defer server.Close()
+
+	src := &HuggingFace{
+		baseURL:    mustParseURL(t, server.URL+"/"),
+		restRetry:  httpclient.NewRetryTransport(nil),
+		httpClient: http.DefaultClient,
+	}
+	got, err := src.listDiscussions(context.Background(), huggingFaceRepo{Kind: HuggingFaceRepoKindModel, Owner: "acme", Name: "model"})
+	if err != nil {
+		t.Fatalf("listDiscussions: %v", err)
+	}
+	if pages != 2 {
+		t.Fatalf("got %d pages, want 2", pages)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d discussions: %+v", len(got), got)
+	}
+	if got[0].Num != 1 || got[0].Title != "first" || got[0].IsPullRequest {
+		t.Fatalf("unexpected first discussion: %+v", got[0])
+	}
+	if got[1].Num != 2 || got[1].Title != "second" || !got[1].IsPullRequest {
+		t.Fatalf("unexpected second discussion: %+v", got[1])
+	}
+}
+
 func TestHuggingFaceEmitDiscussionEvents(t *testing.T) {
 	src := &HuggingFace{baseURL: mustParseURL(t, "https://huggingface.co/")}
 	repo := huggingFaceRepo{Kind: HuggingFaceRepoKindModel, Owner: "acme", Name: "model"}
