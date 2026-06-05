@@ -150,6 +150,69 @@ func TestHuggingFaceEnumerateRepos_PaginatesAndDedupeTyped(t *testing.T) {
 	}
 }
 
+func TestHuggingFacePaginateRejectsCrossHostNextLink(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", `<https://evil.example/api/models?cursor=next>; rel="next"`)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	src := &HuggingFace{
+		baseURL:    mustParseURL(t, server.URL+"/"),
+		restRetry:  httpclient.NewRetryTransport(nil),
+		httpClient: http.DefaultClient,
+	}
+	err := src.paginateJSON(context.Background(), mustParseURL(t, server.URL+"/api/models"), func([]byte) error {
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected cross-host pagination link to fail")
+	}
+	if !strings.Contains(err.Error(), "unexpected host") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHuggingFacePaginateAllowsRelativeNextLink(t *testing.T) {
+	var pages int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages++
+		if r.URL.Query().Get("cursor") == "" {
+			w.Header().Set("Link", `</api/models?cursor=next>; rel="next"`)
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	src := &HuggingFace{
+		baseURL:    mustParseURL(t, server.URL+"/"),
+		restRetry:  httpclient.NewRetryTransport(nil),
+		httpClient: http.DefaultClient,
+	}
+	err := src.paginateJSON(context.Background(), mustParseURL(t, server.URL+"/api/models"), func([]byte) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("paginateJSON: %v", err)
+	}
+	if pages != 2 {
+		t.Fatalf("got %d pages, want 2", pages)
+	}
+}
+
+func TestHuggingFaceScanRepoPropagatesGitError(t *testing.T) {
+	src := &HuggingFace{
+		Resources: HuggingFaceResourceSet{HuggingFaceResourceTypeRepos: true},
+		baseURL:   mustParseURL(t, "bad://huggingface.invalid/"),
+	}
+	err := src.scanRepo(context.Background(), huggingFaceRepo{Kind: HuggingFaceRepoKindModel, Owner: "acme", Name: "model"}, func(Fragment, error) error {
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected git scan error")
+	}
+}
+
 func TestHuggingFaceEnumerateBuckets(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/buckets/acme" {
@@ -231,6 +294,49 @@ func TestHuggingFaceScanBucketObject(t *testing.T) {
 	}
 	if !strings.Contains(fragments[0].Raw, "AKIALALEMEL33243OLIA") {
 		t.Fatalf("raw fragment missing token: %q", fragments[0].Raw)
+	}
+}
+
+func TestHuggingFaceScanBucketSkipsPrefilteredObjectBeforeDownload(t *testing.T) {
+	var downloaded bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/buckets/acme/logs/tree":
+			_, _ = w.Write([]byte(`[{"type":"file","path":"prod/skip.txt","size":28}]`))
+		case "/buckets/acme/logs/resolve/prod/skip.txt":
+			downloaded = true
+			_, _ = w.Write([]byte("secret\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	src := &HuggingFace{
+		URL:        "hf://buckets/acme/logs/prod",
+		baseURL:    mustParseURL(t, server.URL+"/"),
+		restRetry:  httpclient.NewRetryTransport(nil),
+		httpClient: http.DefaultClient,
+		ShouldSkip: func(attrs map[string]string) bool {
+			return attrs[AttrHuggingFaceBucketPath] == "prod/skip.txt"
+		},
+	}
+	var fragments []Fragment
+	err := src.scanBucket(context.Background(), huggingFaceBucket{Owner: "acme", Name: "logs", Prefix: "prod"}, func(fragment Fragment, err error) error {
+		if err != nil {
+			return err
+		}
+		fragments = append(fragments, fragment)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanBucket: %v", err)
+	}
+	if downloaded {
+		t.Fatal("prefiltered object should not be downloaded")
+	}
+	if len(fragments) != 0 {
+		t.Fatalf("got %d fragments", len(fragments))
 	}
 }
 

@@ -636,9 +636,11 @@ func (s *HuggingFace) scanRepo(ctx context.Context, repo huggingFaceRepo, yield 
 	}
 
 	if s.Resources.Has(HuggingFaceResourceTypeRepos) {
-		_ = run(string(HuggingFaceResourceTypeRepos), func() error {
+		if err := run(string(HuggingFaceResourceTypeRepos), func() error {
 			return s.scanRepoGit(ctx, repo, hfYield)
-		})
+		}); err != nil {
+			return err
+		}
 	}
 	if s.Resources.Has(HuggingFaceResourceTypeDiscussions) || s.Resources.Has(HuggingFaceResourceTypePRs) {
 		if err := run("community", func() error { return s.scanCommunity(ctx, repo, hfYield) }); err != nil {
@@ -737,6 +739,7 @@ func (s *HuggingFace) scanBucket(ctx context.Context, bucket huggingFaceBucket, 
 	var scanned atomic.Int64
 	var queued int
 	var skippedOversized int
+	var skippedPrefilter int
 	for _, entry := range entries {
 		if entry.Type != "file" || entry.Path == "" {
 			continue
@@ -749,6 +752,14 @@ func (s *HuggingFace) scanBucket(ctx context.Context, bucket huggingFaceBucket, 
 				Int64("max_size", maxSize).
 				Msg("skipping oversized Hugging Face bucket object")
 			skippedOversized++
+			continue
+		}
+		if s.ShouldSkip != nil && s.ShouldSkip(s.bucketAttributes(bucket, &entry, ResourceHuggingFaceBucket)) {
+			logging.Trace().
+				Str("bucket", bucket.ID()).
+				Str("path", entry.Path).
+				Msg("skipping Hugging Face bucket object based on prefilter")
+			skippedPrefilter++
 			continue
 		}
 		if entry.Size > huggingFaceLargeObjectWarnThreshold {
@@ -779,6 +790,7 @@ func (s *HuggingFace) scanBucket(ctx context.Context, bucket huggingFaceBucket, 
 	logger.Info().
 		Int("queued_objects", queued).
 		Int("skipped_oversized", skippedOversized).
+		Int("skipped_prefilter", skippedPrefilter).
 		Int64("scanned_objects", scanned.Load()).
 		Msg("completed Hugging Face bucket scan")
 	return nil
@@ -810,6 +822,9 @@ func (s *HuggingFace) listBucketTree(ctx context.Context, bucket huggingFaceBuck
 		entries = append(entries, page...)
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 	logging.Info().
 		Str("bucket", bucket.ID()).
 		Str("prefix", bucket.Prefix).
@@ -820,13 +835,6 @@ func (s *HuggingFace) listBucketTree(ctx context.Context, bucket huggingFaceBuck
 
 func (s *HuggingFace) scanBucketObject(ctx context.Context, bucket huggingFaceBucket, entry huggingFaceBucketEntry, yield FragmentsFunc) error {
 	attrs := s.bucketAttributes(bucket, &entry, ResourceHuggingFaceBucket)
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
-		logging.Trace().
-			Str("bucket", bucket.ID()).
-			Str("path", entry.Path).
-			Msg("skipping Hugging Face bucket object based on prefilter")
-		return nil
-	}
 	logging.Trace().
 		Str("bucket", bucket.ID()).
 		Str("path", entry.Path).
@@ -1136,6 +1144,12 @@ func (s *HuggingFace) paginateJSON(ctx context.Context, first *url.URL, consume 
 		u, err := url.Parse(next)
 		if err != nil {
 			return fmt.Errorf("parse next link: %w", err)
+		}
+		if !u.IsAbs() {
+			u = current.ResolveReference(u)
+		}
+		if u.Scheme != current.Scheme || u.Host != current.Host {
+			return fmt.Errorf("refusing Hugging Face pagination link to unexpected host %q", u.String())
 		}
 		current = u
 	}
