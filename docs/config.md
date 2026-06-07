@@ -176,22 +176,33 @@ For more complex validation setups, such as Basic Auth, dynamic request bodies,
 HMAC signatures, or composite `[[rules.required]]` rules, check the built-in
 rules in `cmd/generate/config/rules`.
 
-### Validating against GitHub Enterprise Server
+### Overriding rule defaults with env vars
 
-The `github-*` validation rules read `GITHUB_BASE_URL` via `env.get` and fall
-back to `https://api.github.com` when it's empty. To validate tokens minted by a
-GHES instance, allowlist the variable and export it before running:
+`env.get` lets a rule treat any hardcoded value — an API host, a region, an
+account ID — as a default that the user can override at scan time. The rule
+reads an allowlisted variable and falls back to the literal when it's empty:
+
+```cel
+cel.bind(base_url, env.get("SOME_BASE_URL"),
+  cel.bind(r,
+    http.get((base_url != "" ? base_url : "https://default.example.com") + "/whoami", { ... }),
+    ...
+  )
+)
+```
+
+The variable must be passed via `--validation-env-vars`; without the flag,
+`env.get` returns a CEL error and the finding's validation status becomes
+`error`. When the var is allowlisted but unset, `env.get` returns `""` and the
+ternary falls back to the literal default.
+
+The built-in `github-*` rules use this pattern with `GITHUB_BASE_URL` so the
+same rules validate against GitHub Enterprise Server:
 
 ```sh
 export GITHUB_BASE_URL=https://github.example.com/api/v3
 betterleaks github --validation --validation-env-vars GITHUB_BASE_URL https://github.example.com/owner
 ```
-
-`--validation-env-vars GITHUB_BASE_URL` is required whenever `--validation` is
-used on github tokens — without the flag, `env.get` returns a CEL error and the
-finding's validation status becomes `error`. When the env var is allowlisted but
-unset (the common github.com case), `env.get` returns `""` and the ternary falls
-back to `api.github.com`.
 
 ## Validation with an LLM
 
