@@ -827,7 +827,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
 				logger.Trace().
-					Str("finding", finding.Secret).
 					Float64("entropy", entropy).
 					Msg("skipping finding: dropped by the global [extend] filter/allowlist")
 				continue
@@ -841,7 +840,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {
 				logger.Trace().
-					Str("finding", finding.Secret).
 					Float64("entropy", entropy).
 					Msg("skipping finding: dropped by the rule filter (entropy threshold, allowlist, or token efficiency)")
 				continue
