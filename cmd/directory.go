@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -47,7 +48,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	var (
 		allFindings  []report.Finding
 		lastDetector *detect.Detector
-		scanErr      error
+		scanErrs     []error
 	)
 
 	totalBytes := uint64(0)
@@ -71,6 +72,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		var findings []report.Finding
 		for result := range detector.Run(cmd.Context(), s) {
 			if result.Err != nil {
+				scanErrs = append(scanErrs, result.Err)
 				logging.Error().Err(result.Err).Msg("error scanning source")
 				continue
 			}
@@ -90,6 +92,14 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	}
 
 	lastDetector.TotalBytes.Swap(totalBytes)
+
+	var scanErr error
+	if n := len(scanErrs); n > 0 {
+		scanErr = &multipleErrors{
+			msg:  fmt.Sprintf("%d error(s) encountered during scan", n),
+			errs: scanErrs,
+		}
+	}
 
 	findingSummaryAndExit(lastDetector, allFindings, exitCode, start, scanErr)
 }
