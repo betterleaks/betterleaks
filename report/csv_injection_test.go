@@ -36,7 +36,7 @@ func TestCSVFormulaInjectionSanitized(t *testing.T) {
 
 	row := records[1]
 	for _, cell := range row {
-		if cell != "" && strings.IndexByte("=+-@\t\r", cell[0]) != -1 {
+		if cell != "" && strings.IndexByte(csvFormulaPrefixes, cell[0]) != -1 {
 			t.Fatalf("unsanitized formula-trigger cell in CSV output: %q", cell)
 		}
 	}
