@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -864,7 +863,7 @@ func (s *GitLab) listAllGroups(ctx context.Context) ([]gitlabGroup, error) {
 func (s *GitLab) isExcluded(fullPath string) bool {
 	lp := strings.ToLower(fullPath)
 	for _, pattern := range s.ExcludeRepos {
-		if matched, _ := filepath.Match(strings.ToLower(pattern), lp); matched {
+		if matched, _ := path.Match(strings.ToLower(pattern), lp); matched {
 			return true
 		}
 	}
