@@ -1,12 +1,22 @@
 package detect
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/betterleaks/betterleaks/report"
 )
+
+func TestSamePath(t *testing.T) {
+	// A native-separator config path and the forward-slash fragment path the
+	// file source produces must compare equal. The bug only bit on Windows,
+	// where filepath.FromSlash yields backslashes.
+	cfg := filepath.FromSlash("proj/sub/.betterleaks.toml")
+	assert.True(t, samePath("proj/sub/.betterleaks.toml", cfg))
+	assert.False(t, samePath("proj/sub/other.toml", cfg))
+}
 
 func Test_createScmLink(t *testing.T) {
 	tests := map[string]struct {
@@ -183,5 +193,3 @@ func Test_createScmLink(t *testing.T) {
 		})
 	}
 }
-
-

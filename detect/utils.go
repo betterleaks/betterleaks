@@ -14,6 +14,15 @@ import (
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
+// samePath reports whether two file paths refer to the same location, tolerating
+// OS separator differences. The file source normalizes fragment paths to forward
+// slashes (filepath.ToSlash), whereas config/baseline paths keep the native
+// separator, so a raw == comparison misses on Windows and the config or baseline
+// file ends up being scanned against itself.
+func samePath(a, b string) bool {
+	return filepath.ToSlash(filepath.Clean(a)) == filepath.ToSlash(filepath.Clean(b))
+}
+
 var linkCleaner = strings.NewReplacer(
 	" ", "%20",
 	"%", "%25",

@@ -8,7 +8,6 @@ import (
 	"iter"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -557,15 +556,6 @@ func (d *Detector) DetectString(content string) []report.Finding {
 	return d.Detect(sources.Fragment{
 		Raw: content,
 	})
-}
-
-// samePath reports whether two file paths refer to the same location, tolerating
-// OS separator differences. The file source normalizes fragment paths to forward
-// slashes (filepath.ToSlash), whereas config/baseline paths keep the native
-// separator, so a raw == comparison misses on Windows and the config or baseline
-// file ends up being scanned against itself.
-func samePath(a, b string) bool {
-	return filepath.ToSlash(filepath.Clean(a)) == filepath.ToSlash(filepath.Clean(b))
 }
 
 func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
