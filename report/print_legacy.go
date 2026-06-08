@@ -135,7 +135,7 @@ func (f *Finding) printRequiredFindingsLegacy(noColor bool, redact uint) {
 	for _, set := range f.RequiredSets {
 		statusSuffix := ""
 		if set.ValidationStatus != "" {
-			statusSuffix = " " + formatSetStatusLegacy(set.ValidationStatus, noColor)
+			statusSuffix = " " + formatSetStatusLegacy(string(set.ValidationStatus), noColor)
 		}
 
 		if len(set.Components) == 1 {
@@ -146,7 +146,7 @@ func (f *Finding) printRequiredFindingsLegacy(noColor bool, redact uint) {
 		}
 
 		if statusSuffix != "" {
-			fmt.Printf("  - %s\n", formatSetStatusLegacy(set.ValidationStatus, noColor))
+			fmt.Printf("  - %s\n", formatSetStatusLegacy(string(set.ValidationStatus), noColor))
 		} else {
 			fmt.Println("  -")
 		}
@@ -194,9 +194,9 @@ func printValidationLegacy(f Finding, noColor bool) {
 		return
 	}
 
-	statusStyle := validationStyle(f.ValidationStatus, noColor)
+	statusStyle := validationStyle(string(f.ValidationStatus), noColor)
 
-	fmt.Printf("%-12s %s", "Validation:", statusStyle.Render(strings.ToUpper(f.ValidationStatus)))
+	fmt.Printf("%-12s %s", "Validation:", statusStyle.Render(strings.ToUpper(string(f.ValidationStatus))))
 	if f.ValidationReason != "" {
 		fmt.Printf("  (%s)", f.ValidationReason)
 	}

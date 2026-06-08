@@ -88,7 +88,7 @@ type Detector struct {
 	// ValidationCounts tracks how many findings were returned for each
 	// ValidationStatus value. Populated by the Run/DetectSource consumer;
 	// safe to read after the scan returns.
-	ValidationCounts map[string]int
+	ValidationCounts map[report.ValidationStatus]int
 
 	// ValidationExtractEmpty controls whether empty values from extractors
 	// are included in validation output.
@@ -227,7 +227,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	d := &Detector{
 		gitleaksIgnore:         make(map[string]struct{}),
 		findings:               make([]report.Finding, 0),
-		ValidationCounts:       make(map[string]int),
+		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
 		prefilter:              *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
 		Sema:                   semgroup.NewGroup(ctx, 40),
@@ -354,7 +354,7 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		resultsCh := make(chan Result, 1000)
 
 		if d.ValidationCounts == nil {
-			d.ValidationCounts = make(map[string]int)
+			d.ValidationCounts = make(map[report.ValidationStatus]int)
 		} else {
 			clear(d.ValidationCounts)
 		}
@@ -458,7 +458,7 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				// Check validation status and if we should filter or not
 				if len(d.ValidationStatusFilter) > 0 {
 					if res.Finding.ValidationStatus != "" {
-						if _, ok := d.ValidationStatusFilter[res.Finding.ValidationStatus]; !ok {
+						if _, ok := d.ValidationStatusFilter[string(res.Finding.ValidationStatus)]; !ok {
 							continue
 						}
 					} else if _, ok := d.ValidationStatusFilter["none"]; !ok {
