@@ -3,11 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -498,20 +498,7 @@ func TestTranslateExtend(t *testing.T) {
 
 func testTranslate(t *testing.T, test translateCase) {
 	t.Helper()
-	t.Cleanup(func() {
-		viper.Reset()
-	})
-
-	viper.AddConfigPath(configPath)
-	viper.SetConfigName(test.cfgName)
-	viper.SetConfigType("toml")
-	err := viper.ReadInConfig()
-	require.NoError(t, err)
-
-	var vc ViperConfig
-	err = viper.Unmarshal(&vc)
-	require.NoError(t, err)
-	cfg, err := vc.Translate()
+	cfg, err := loadTestConfig(test.cfgName)
 	if err != nil {
 		if test.wantError != nil {
 			assert.EqualError(t, err, test.wantError.Error())
@@ -548,6 +535,28 @@ func testTranslate(t *testing.T, test translateCase) {
 	}
 }
 
+func loadTestConfig(cfgName string) (*Config, error) {
+	return LoadFile(filepath.Join(configPath, cfgName+".toml"))
+}
+
+func TestParseTOMLPermissiveUnknownKeysAndPath(t *testing.T) {
+	cfg, err := ParseTOMLString(`
+title = "custom"
+unknownTopLevel = "ignored"
+
+[[rules]]
+id = "test-rule"
+description = "test rule"
+regex = '''test-(secret)'''
+unknownRuleKey = "ignored"
+`, "/tmp/custom.toml")
+	require.NoError(t, err)
+
+	require.Equal(t, "custom", cfg.Title)
+	require.Equal(t, "/tmp/custom.toml", cfg.Path)
+	require.Contains(t, cfg.Rules, "test-rule")
+}
+
 func TestExtendedRuleKeywordsAreDowncase(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -568,20 +577,7 @@ func TestExtendedRuleKeywordsAreDowncase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Cleanup(func() {
-				viper.Reset()
-			})
-
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName(tt.cfgName)
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
-			require.NoError(t, err)
-
-			var vc ViperConfig
-			err = viper.Unmarshal(&vc)
-			require.NoError(t, err)
-			cfg, err := vc.Translate()
+			cfg, err := loadTestConfig(tt.cfgName)
 			require.NoError(t, err)
 
 			_, exists := cfg.Keywords[tt.expectedKeywords]

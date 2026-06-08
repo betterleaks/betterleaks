@@ -4,12 +4,13 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
 	gv "github.com/hashicorp/go-version"
+	"github.com/pelletier/go-toml/v2"
 	tiktoken "github.com/pkoukk/tiktoken-go"
-	"github.com/spf13/viper"
 
 	"github.com/google/cel-go/cel"
 
@@ -26,72 +27,72 @@ var (
 
 const maxExtendDepth = 2
 
-// ViperConfig is the config struct used by the Viper config package
-// to parse the config file. This struct does not include regular expressions.
-// It is used as an intermediary to convert the Viper config to the Config struct.
-type ViperConfig struct {
-	Title       string
-	Description string
-	Extend      Extend
-	Rules       []struct {
-		ID          string
-		Description string
-		Path        string
-		Regex       string
-		SecretGroup int
-		Entropy     float64
-		Keywords    []string
-		Tags        []string
+type rawConfig struct {
+	Title       string    `toml:"title"`
+	Description string    `toml:"description"`
+	Extend      Extend    `toml:"extend"`
+	Rules       []rawRule `toml:"rules"`
 
-		// Deprecated: this is a shim for backwards-compatibility.
-		// TODO: Remove this in 9.x.
-		AllowList *viperRuleAllowlist
-
-		Allowlists      []*viperRuleAllowlist
-		Required        []*viperRequired
-		Validate        string
-		SkipReport      bool
-		TokenEfficiency bool
-
-		// Filter is a CEL expression evaluated per match (attributes + finding).
-		// Returns true = skip (discard this finding); false = keep.
-		Filter string
-	}
 	// Deprecated: this is a shim for backwards-compatibility.
 	// TODO: Remove this in 9.x.
-	AllowList *viperGlobalAllowlist
+	AllowList *rawGlobalAllowlist `toml:"allowlist"`
 
-	Allowlists []*viperGlobalAllowlist
+	Allowlists []*rawGlobalAllowlist `toml:"allowlists"`
 
-	MinVersion            string
-	BetterleaksMinVersion string
+	MinVersion            string `toml:"minVersion"`
+	BetterleaksMinVersion string `toml:"betterleaksMinVersion"`
 
 	// Global CEL filter expressions.
-	Prefilter string
-	Filter    string
+	Prefilter string `toml:"prefilter"`
+	Filter    string `toml:"filter"`
 
-	configPath string
+	path string
 }
 
-type viperRequired struct {
-	ID            string
-	WithinLines   *int `mapstructure:"withinLines"`
-	WithinColumns *int `mapstructure:"withinColumns"`
+type rawRule struct {
+	ID          string   `toml:"id"`
+	Description string   `toml:"description"`
+	Path        string   `toml:"path"`
+	Regex       string   `toml:"regex"`
+	SecretGroup int      `toml:"secretGroup"`
+	Entropy     float64  `toml:"entropy"`
+	Keywords    []string `toml:"keywords"`
+	Tags        []string `toml:"tags"`
+
+	// Deprecated: this is a shim for backwards-compatibility.
+	// TODO: Remove this in 9.x.
+	AllowList *rawRuleAllowlist `toml:"allowlist"`
+
+	Allowlists      []*rawRuleAllowlist `toml:"allowlists"`
+	Required        []*rawRequired      `toml:"required"`
+	Validate        string              `toml:"validate"`
+	SkipReport      bool                `toml:"skipReport"`
+	TokenEfficiency bool                `toml:"tokenEfficiency"`
+
+	// Filter is a CEL expression evaluated per match (attributes + finding).
+	// Returns true = skip (discard this finding); false = keep.
+	Filter string `toml:"filter"`
 }
 
-type viperRuleAllowlist struct {
-	Description string
-	Condition   string
-	Commits     []string
-	Paths       []string
-	RegexTarget string
-	Regexes     []string
-	StopWords   []string
+type rawRequired struct {
+	ID            string `toml:"id"`
+	WithinLines   *int   `toml:"withinLines"`
+	WithinColumns *int   `toml:"withinColumns"`
 }
 
-type viperGlobalAllowlist struct {
-	TargetRules        []string
-	viperRuleAllowlist `mapstructure:",squash"`
+type rawRuleAllowlist struct {
+	Description string   `toml:"description"`
+	Condition   string   `toml:"condition"`
+	Commits     []string `toml:"commits"`
+	Paths       []string `toml:"paths"`
+	RegexTarget string   `toml:"regexTarget"`
+	Regexes     []string `toml:"regexes"`
+	StopWords   []string `toml:"stopwords"`
+}
+
+type rawGlobalAllowlist struct {
+	TargetRules      []string `toml:"targetRules"`
+	rawRuleAllowlist `toml:",inline"`
 }
 
 // Config is a configuration struct that contains rules and an allowlist if present.
@@ -136,17 +137,38 @@ type Config struct {
 // Extend is a struct that allows users to define how they want their
 // configuration extended by other configuration files.
 type Extend struct {
-	Path          string
-	URL           string
-	UseDefault    bool
-	DisabledRules []string
+	Path          string   `toml:"path"`
+	URL           string   `toml:"url"`
+	UseDefault    bool     `toml:"useDefault"`
+	DisabledRules []string `toml:"disabledRules"`
 }
 
-func (vc *ViperConfig) Translate() (*Config, error) {
-	return vc.translate(0)
+func ParseTOML(data []byte, path string) (*Config, error) {
+	var rc rawConfig
+	if err := toml.Unmarshal(data, &rc); err != nil {
+		return nil, err
+	}
+	rc.path = path
+	return rc.translate(0)
 }
 
-func (vc *ViperConfig) translate(depth int) (*Config, error) {
+func ParseTOMLString(content, path string) (*Config, error) {
+	return ParseTOML([]byte(content), path)
+}
+
+func LoadFile(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTOML(data, path)
+}
+
+func Default() (*Config, error) {
+	return ParseTOMLString(DefaultConfig, "")
+}
+
+func (rc *rawConfig) translate(depth int) (*Config, error) {
 	var (
 		keywords       = make(map[string]struct{})
 		orderedRules   []string
@@ -155,7 +177,7 @@ func (vc *ViperConfig) translate(depth int) (*Config, error) {
 	)
 
 	// Validate individual rules.
-	for _, vr := range vc.Rules {
+	for _, vr := range rc.Rules {
 		var (
 			pathPat  *regexp.Regexp
 			regexPat *regexp.Regexp
@@ -208,7 +230,10 @@ func (vc *ViperConfig) translate(depth int) (*Config, error) {
 			vr.Allowlists = append(vr.Allowlists, vr.AllowList)
 		}
 		for _, a := range vr.Allowlists {
-			allowlist, err := vc.parseAllowlist(a)
+			if a == nil {
+				a = &rawRuleAllowlist{}
+			}
+			allowlist, err := rc.parseAllowlist(a)
 			if err != nil {
 				return nil, fmt.Errorf("%s: [[rules.allowlists]] %w", cr.RuleID, err)
 			}
@@ -247,41 +272,37 @@ func (vc *ViperConfig) translate(depth int) (*Config, error) {
 
 	// Assemble the config.
 	c := &Config{
-		Title:                 vc.Title,
-		Description:           vc.Description,
-		Extend:                vc.Extend,
+		Title:                 rc.Title,
+		Description:           rc.Description,
+		Extend:                rc.Extend,
 		Rules:                 rulesMap,
 		Keywords:              keywords,
 		OrderedRules:          orderedRules,
-		MinVersion:            vc.MinVersion,
-		BetterleaksMinVersion: vc.BetterleaksMinVersion,
-		Prefilter:             vc.Prefilter,
-		Filter:                vc.Filter,
+		MinVersion:            rc.MinVersion,
+		BetterleaksMinVersion: rc.BetterleaksMinVersion,
+		Prefilter:             rc.Prefilter,
+		Filter:                rc.Filter,
 	}
 
-	if depth > 0 {
-		// annoying hack to set the current config with the extended path
-		// since depth > 0 we are operating an extended config.
-		c.Path = vc.configPath
-	} else {
-		// I don't love this
-		c.Path = viper.ConfigFileUsed()
-	}
+	c.Path = rc.path
 
 	if err := validateMinVersion(c.MinVersion, c.BetterleaksMinVersion, c.Path); err != nil {
 		return nil, err
 	}
 
 	// Parse the config allowlists, including the older format for backwards compatibility.
-	if vc.AllowList != nil {
+	if rc.AllowList != nil {
 		// TODO: Remove this in v9.
-		if len(vc.Allowlists) > 0 {
+		if len(rc.Allowlists) > 0 {
 			return nil, errors.New("[allowlist] is deprecated, it cannot be used alongside [[allowlists]]")
 		}
-		vc.Allowlists = append(vc.Allowlists, vc.AllowList)
+		rc.Allowlists = append(rc.Allowlists, rc.AllowList)
 	}
-	for _, a := range vc.Allowlists {
-		allowlist, err := vc.parseAllowlist(&a.viperRuleAllowlist)
+	for _, a := range rc.Allowlists {
+		if a == nil {
+			a = &rawGlobalAllowlist{}
+		}
+		allowlist, err := rc.parseAllowlist(&a.rawRuleAllowlist)
 		if err != nil {
 			return nil, fmt.Errorf("[[allowlists]] %w", err)
 		}
@@ -302,11 +323,11 @@ func (vc *ViperConfig) translate(depth int) (*Config, error) {
 			return nil, errors.New("unable to load config due to extend.path and extend.useDefault being set")
 		}
 		if c.Extend.UseDefault {
-			if err := c.extendDefault(vc, depth); err != nil {
+			if err := c.extendDefault(depth); err != nil {
 				return nil, err
 			}
 		} else if c.Extend.Path != "" {
-			if err := c.extendPath(vc, depth); err != nil {
+			if err := c.extendPath(depth); err != nil {
 				return nil, err
 			}
 		}
@@ -418,7 +439,7 @@ func validateMinVersion(gitleaksMinVer, betterleaksMinVer, configPath string) er
 	return nil
 }
 
-func (vc *ViperConfig) parseAllowlist(a *viperRuleAllowlist) (*Allowlist, error) {
+func (rc *rawConfig) parseAllowlist(a *rawRuleAllowlist) (*Allowlist, error) {
 	var matchCondition AllowlistMatchCondition
 	switch strings.ToUpper(a.Condition) {
 	case "AND", "&&":
@@ -573,16 +594,12 @@ func (c *Config) GetOrderedRules() []Rule {
 	return orderedRules
 }
 
-func (c *Config) extendDefault(parent *ViperConfig, depth int) error {
-	viper.SetConfigType("toml")
-	if err := viper.ReadConfig(strings.NewReader(DefaultConfig)); err != nil {
+func (c *Config) extendDefault(depth int) error {
+	var defaultRawConfig rawConfig
+	if err := toml.Unmarshal([]byte(DefaultConfig), &defaultRawConfig); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 	}
-	defaultViperConfig := ViperConfig{}
-	if err := viper.Unmarshal(&defaultViperConfig); err != nil {
-		return fmt.Errorf("failed to load extended default config, err: %w", err)
-	}
-	cfg, err := defaultViperConfig.translate(depth + 1)
+	cfg, err := defaultRawConfig.translate(depth + 1)
 	if err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 
@@ -592,19 +609,18 @@ func (c *Config) extendDefault(parent *ViperConfig, depth int) error {
 	return nil
 }
 
-func (c *Config) extendPath(parent *ViperConfig, depth int) error {
-	viper.SetConfigFile(c.Extend.Path)
-	if err := viper.ReadInConfig(); err != nil {
+func (c *Config) extendPath(depth int) error {
+	data, err := os.ReadFile(c.Extend.Path)
+	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}
-	extensionViperConfig := ViperConfig{}
-	if err := viper.Unmarshal(&extensionViperConfig); err != nil {
+	var extensionRawConfig rawConfig
+	if err := toml.Unmarshal(data, &extensionRawConfig); err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}
-
-	extensionViperConfig.configPath = c.Extend.Path
+	extensionRawConfig.path = c.Extend.Path
 	logging.Debug().Msgf("extending config with %s", c.Extend.Path)
-	cfg, err := extensionViperConfig.translate(depth + 1)
+	cfg, err := extensionRawConfig.translate(depth + 1)
 	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}

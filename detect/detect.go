@@ -27,7 +27,6 @@ import (
 	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/fatih/semgroup"
 	"github.com/rs/zerolog"
-	"github.com/spf13/viper"
 	"golang.org/x/exp/maps"
 )
 
@@ -311,17 +310,7 @@ func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding
 
 // NewDetectorDefaultConfig creates a new detector with the default config
 func NewDetectorDefaultConfig() (*Detector, error) {
-	viper.SetConfigType("toml")
-	err := viper.ReadConfig(strings.NewReader(config.DefaultConfig))
-	if err != nil {
-		return nil, err
-	}
-	var vc config.ViperConfig
-	err = viper.Unmarshal(&vc)
-	if err != nil {
-		return nil, err
-	}
-	cfg, err := vc.Translate()
+	cfg, err := config.Default()
 	if err != nil {
 		return nil, err
 	}
@@ -722,6 +711,11 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			loc.endLineIndex = matchIndex[1]
 		}
 
+		tags := r.Tags
+		if len(metaTags) > 0 {
+			tags = append(append([]string(nil), r.Tags...), metaTags...)
+		}
+
 		finding := report.Finding{
 			RuleID:      r.RuleID,
 			Description: r.Description,
@@ -733,7 +727,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			Match:       secret,
 			Secret:      secret,
 			Attributes:  maps.Clone(fragment.Attributes),
-			Tags:        append(r.Tags, metaTags...),
+			Tags:        tags,
 		}
 
 		// TODO eventually move this git specific bit into somewhere... better?
