@@ -1,6 +1,10 @@
 package regexp
 
-import "github.com/betterleaks/betterleaks/regexp/internal"
+import (
+	"sync/atomic"
+
+	"github.com/betterleaks/betterleaks/regexp/internal"
+)
 
 type Engine interface {
 	Compile(str string) (internal.CompiledRegexp, error)
@@ -36,20 +40,30 @@ func (r *Regexp) String() string {
 	return r.e.String()
 }
 
-var currentEngine Engine = Stdlib{}
+// currentEngine holds the active regex engine. It is an atomic pointer so that
+// SetEngine (called during CLI setup, or by library users) cannot race with the
+// Compile / MustCompile / Version reads that happen on scan goroutines.
+var currentEngine atomic.Pointer[Engine]
+
+func init() {
+	var e Engine = Stdlib{}
+	currentEngine.Store(&e)
+}
+
+func engine() Engine { return *currentEngine.Load() }
 
 // Version returns the name of the active regex engine.
-func Version() string { return currentEngine.Version() }
+func Version() string { return engine().Version() }
 
 // SetEngine selects the regex engine used by subsequent MustCompile calls.
-func SetEngine(engine Engine) {
-	currentEngine = engine
+func SetEngine(e Engine) {
+	currentEngine.Store(&e)
 }
 
 // Compile parses a regular expression using the currently selected engine.
 // If successful, returns a [Regexp] object that can be used to match against text.
 func Compile(str string) (*Regexp, error) {
-	impl, err := currentEngine.Compile(str)
+	impl, err := engine().Compile(str)
 	if err != nil {
 		return nil, err
 	}
