@@ -6,25 +6,27 @@ import (
 	"strings"
 
 	"github.com/google/cel-go/common/types/ref"
+
+	"github.com/betterleaks/betterleaks/report"
 )
 
 var mapAnyType = reflect.TypeFor[map[string]any]()
 
 // validStatuses is the set of recognised validation statuses.
-var validStatuses = map[string]bool{
-	"valid":            true,
-	"needs_validation": true,
-	"invalid":          true,
-	"revoked":          true,
-	"unknown":          true,
-	"error":            true,
+var validStatuses = map[report.ValidationStatus]bool{
+	report.ValidationStatusValid:           true,
+	report.ValidationStatusNeedsValidation: true,
+	report.ValidationStatusInvalid:         true,
+	report.ValidationStatusRevoked:         true,
+	report.ValidationStatusUnknown:         true,
+	report.ValidationStatusError:           true,
 }
 
 // Result holds the outcome of a CEL validation evaluation.
 type Result struct {
-	Status   string         // "valid", "invalid", "revoked", "unknown", "error"
-	Reason   string         // human-readable explanation
-	Metadata map[string]any // extra fields from the CEL result map
+	Status   report.ValidationStatus // valid, invalid, revoked, unknown, error
+	Reason   string                  // human-readable explanation
+	Metadata map[string]any          // extra fields from the CEL result map
 }
 
 // ParseResult interprets the CEL output value into a Result.
@@ -41,7 +43,7 @@ func ParseResult(val ref.Val) *Result {
 			}
 		}
 		return &Result{
-			Status:   "error",
+			Status:   report.ValidationStatusError,
 			Reason:   fmt.Sprintf("expression returned unexpected type: %T", val.Value()),
 			Metadata: map[string]any{},
 		}
@@ -50,21 +52,21 @@ func ParseResult(val ref.Val) *Result {
 
 // statusPriority defines precedence for status rollup.
 // Higher value = higher priority. "valid" wins over everything; "" loses to everything.
-var statusPriority = map[string]int{
-	"":                 0,
-	"error":            1,
-	"invalid":          2,
-	"unknown":          3,
-	"revoked":          4,
-	"needs_validation": 5,
-	"valid":            6,
+var statusPriority = map[report.ValidationStatus]int{
+	report.ValidationStatusNone:            0,
+	report.ValidationStatusError:           1,
+	report.ValidationStatusInvalid:         2,
+	report.ValidationStatusUnknown:         3,
+	report.ValidationStatusRevoked:         4,
+	report.ValidationStatusNeedsValidation: 5,
+	report.ValidationStatusValid:           6,
 }
 
 // BetterStatus returns whichever of a or b has higher priority.
 // Priority order: valid > needs_validation > revoked > unknown > invalid > error > "".
 // This is used for rolling up per-component validation results into an
 // overall finding-level status for composite rules.
-func BetterStatus(a, b string) string {
+func BetterStatus(a, b report.ValidationStatus) report.ValidationStatus {
 	if statusPriority[b] > statusPriority[a] {
 		return b
 	}
@@ -82,16 +84,16 @@ var reservedKeys = map[string]bool{
 // the validStatuses.
 func parseResultMap(m map[string]any) *Result {
 	result := &Result{
-		Status:   "unknown",
+		Status:   report.ValidationStatusUnknown,
 		Metadata: make(map[string]any),
 	}
 
 	// Primary: explicit "result" key with a string status.
 	if v, ok := m["result"]; ok {
 		if s, ok := v.(string); ok {
-			s = strings.ToLower(s)
-			if validStatuses[s] {
-				result.Status = s
+			status := report.ValidationStatus(strings.ToLower(s))
+			if validStatuses[status] {
+				result.Status = status
 			}
 		}
 	}

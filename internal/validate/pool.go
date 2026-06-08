@@ -95,7 +95,7 @@ func (p *Pool) worker() {
 			// Simple path: no required components, validate the secret with its own captures.
 			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ToCELMap(), job.captures, f.Attributes)
 			if err != nil {
-				f.ValidationStatus = "error"
+				f.ValidationStatus = report.ValidationStatusError
 				f.ValidationReason = err.Error()
 			} else {
 				f.ValidationStatus = result.Status
@@ -112,7 +112,7 @@ func (p *Pool) worker() {
 		// each, write per-set status, and roll up to a finding-level status.
 		setResults := make(map[string]*Result, len(f.RequiredSets))
 		var (
-			overallStatus string
+			overallStatus report.ValidationStatus
 			bestResult    *Result
 		)
 
@@ -138,7 +138,7 @@ func (p *Pool) worker() {
 				var err error
 				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ToCELMap(), merged, f.Attributes)
 				if err != nil {
-					result = &Result{Status: "error", Reason: err.Error(), Metadata: map[string]any{}}
+					result = &Result{Status: report.ValidationStatusError, Reason: err.Error(), Metadata: map[string]any{}}
 				}
 				setResults[cacheKey] = result
 			}
@@ -167,11 +167,11 @@ func (p *Pool) worker() {
 		// We build a new slice so we do not compact a backing array that other
 		// copies of this Finding may still reference.
 		if slices.ContainsFunc(f.RequiredSets, func(s report.RequiredSet) bool {
-			return s.ValidationStatus == "valid"
+			return s.ValidationStatus == report.ValidationStatusValid
 		}) {
 			validOnly := make([]report.RequiredSet, 0, len(f.RequiredSets))
 			for _, s := range f.RequiredSets {
-				if s.ValidationStatus == "valid" {
+				if s.ValidationStatus == report.ValidationStatusValid {
 					validOnly = append(validOnly, s)
 				}
 			}

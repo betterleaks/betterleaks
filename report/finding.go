@@ -51,8 +51,8 @@ type Finding struct {
 	// Each set is one complete group of components that can be validated independently.
 	RequiredSets []RequiredSet `json:",omitempty"`
 
-	ValidationStatus string `json:",omitempty"`
-	ValidationReason string `json:",omitempty"`
+	ValidationStatus ValidationStatus `json:",omitempty"`
+	ValidationReason string           `json:",omitempty"`
 	// TODO maybe just use the Attribute map
 	ValidationMeta map[string]any `json:",omitempty"`
 
@@ -92,7 +92,7 @@ type Finding struct {
 // independently and carries its own validation result.
 type RequiredSet struct {
 	Components       []*RequiredFinding `json:"components"`
-	ValidationStatus string             `json:"validationStatus,omitempty"`
+	ValidationStatus ValidationStatus   `json:"validationStatus,omitempty"`
 	ValidationReason string             `json:"validationReason,omitempty"`
 }
 

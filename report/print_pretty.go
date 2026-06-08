@@ -355,13 +355,13 @@ func (f *Finding) PrintRequiredFindings(noColor bool, redact uint) {
 	}
 
 	sort.SliceStable(f.RequiredSets, func(i, j int) bool {
-		return strings.ToLower(f.RequiredSets[i].ValidationStatus) == "valid" &&
-			strings.ToLower(f.RequiredSets[j].ValidationStatus) != "valid"
+		return f.RequiredSets[i].ValidationStatus == ValidationStatusValid &&
+			f.RequiredSets[j].ValidationStatus != ValidationStatusValid
 	})
 
 	hasValid := false
 	for _, set := range f.RequiredSets {
-		if strings.ToLower(set.ValidationStatus) == "valid" {
+		if set.ValidationStatus == ValidationStatusValid {
 			hasValid = true
 			break
 		}
@@ -371,7 +371,7 @@ func (f *Finding) PrintRequiredFindings(noColor bool, redact uint) {
 	maxKey := 0
 	invalidCount := 0
 	for _, set := range f.RequiredSets {
-		if hasValid && strings.ToLower(set.ValidationStatus) != "valid" {
+		if hasValid && set.ValidationStatus != ValidationStatusValid {
 			invalidCount++
 			continue
 		}
@@ -390,7 +390,7 @@ func (f *Finding) PrintRequiredFindings(noColor bool, redact uint) {
 	// Each set's first row carries the status icon; continuation rows leave the
 	// icon column blank. The icon's presence-or-absence is the set delimiter.
 	for _, set := range toRender {
-		icon := prettySetIcon(set.ValidationStatus, noColor)
+		icon := prettySetIcon(string(set.ValidationStatus), noColor)
 		for j, comp := range set.Components {
 			key := fmt.Sprintf("%s:%d", comp.RuleID, comp.StartLine)
 			dots := strings.Repeat(".", maxKey+6-len(key))
@@ -633,9 +633,9 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 				maxVK = len(k)
 			}
 		}
-		vs := strings.ToUpper(f.ValidationStatus)
+		vs := strings.ToUpper(string(f.ValidationStatus))
 		if !noColor {
-			vs = validationStyle(f.ValidationStatus, noColor).Render(vs)
+			vs = validationStyle(string(f.ValidationStatus), noColor).Render(vs)
 		}
 		dotLeader("status", vs, maxVK)
 		if f.ValidationReason != "" {
