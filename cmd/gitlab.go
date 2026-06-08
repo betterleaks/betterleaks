@@ -113,8 +113,6 @@ func runGitLab(cmd *cobra.Command, args []string) {
 	}
 
 	exitCode := mustGetIntFlag(cmd, "exit-code")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
 	verbose := mustGetBoolFlag(cmd, "verbose")
 
 	detector.SkipFindingAppend = true
@@ -128,11 +126,7 @@ func runGitLab(cmd *cobra.Command, args []string) {
 		}
 		findings = append(findings, result.Finding)
 		if verbose {
-			if detector.LegacyPrint {
-				result.Finding.PrintLegacy(noColor, redact)
-			} else {
-				result.Finding.Print(noColor, redact)
-			}
+			detector.PrintFinding(result.Finding)
 		}
 	}
 

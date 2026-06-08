@@ -177,6 +177,14 @@ type Detector struct {
 	// LegacyPrint uses the legacy key/value verbose format (typically with Verbose=true).
 	LegacyPrint bool
 
+	// ExcludeAttributes is the set of attribute keys to omit from verbose
+	// output. It does not affect findings written to reports.
+	ExcludeAttributes map[string]struct{}
+
+	// MaxAttributeLength truncates attribute values in verbose output to this
+	// many runes. Zero means no limit. It does not affect reports.
+	MaxAttributeLength int
+
 	// commitMutex is to prevent concurrent access to the
 	// commit map when adding commits
 	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.

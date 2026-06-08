@@ -180,12 +180,17 @@ func filter(findings []report.Finding) []report.Finding {
 	return retFindings
 }
 
-func printFinding(f report.Finding, noColor bool, redact uint, legacyPrint bool) {
-	if legacyPrint {
-		f.PrintLegacy(noColor, redact)
+// PrintFinding writes a single finding to stdout in verbose mode using the
+// detector's display settings, honoring --exclude-attributes and
+// --max-attribute-length. Attribute filtering is applied to a copy, so the
+// finding written to any report keeps its full attribute set.
+func (d *Detector) PrintFinding(f report.Finding) {
+	f = f.FilterAttributes(d.ExcludeAttributes, d.MaxAttributeLength)
+	if d.LegacyPrint {
+		f.PrintLegacy(d.NoColor, d.Redact)
 		return
 	}
-	f.Print(noColor, redact)
+	f.Print(d.NoColor, d.Redact)
 }
 
 // stripEmptyMeta removes keys whose value is an empty string or nil.

@@ -214,6 +214,32 @@ func (f Finding) Print(noColor bool, redact uint) {
 	f.printPretty(noColor, redact)
 }
 
+// FilterAttributes returns a copy of the finding whose Attributes have been
+// reduced for verbose display: keys present in exclude are dropped, and when
+// maxLen > 0 each remaining value is truncated to maxLen runes with a trailing
+// ellipsis. The receiver and its underlying Attributes map are left untouched,
+// so report output is unaffected. The finding is returned unchanged when there
+// is nothing to do.
+func (f Finding) FilterAttributes(exclude map[string]struct{}, maxLen int) Finding {
+	if len(f.Attributes) == 0 || (len(exclude) == 0 && maxLen <= 0) {
+		return f
+	}
+	filtered := make(map[string]string, len(f.Attributes))
+	for k, v := range f.Attributes {
+		if _, skip := exclude[k]; skip {
+			continue
+		}
+		if maxLen > 0 {
+			if t, truncated := truncateRunes(v, maxLen); truncated {
+				v = t + windowEllipsis
+			}
+		}
+		filtered[k] = v
+	}
+	f.Attributes = filtered
+	return f
+}
+
 // locateMatch returns the byte index of match within rawLine, using startCol
 // (1-indexed byte offset) to disambiguate duplicate occurrences. When the
 // exact position doesn't match, it searches forward then backward from the

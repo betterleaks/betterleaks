@@ -83,6 +83,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "show verbose output from scan")
 	rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color for verbose output")
+	rootCmd.PersistentFlags().StringSlice("exclude-attributes", []string{}, "attribute keys to omit from verbose output (repeat flag or comma-separate to add more)")
+	rootCmd.PersistentFlags().Int("max-attribute-length", 0, "truncate attribute values in verbose output to this many characters (default \"0\", no limit)")
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
 	rootCmd.PersistentFlags().BoolP("ignore-gitleaks-allow", "", false, "ignore gitleaks:allow and betterleaks:allow comments")
 	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
@@ -391,6 +393,18 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		logging.Fatal().Err(err).Send()
 	}
 	if detector.LegacyPrint, err = cmd.Flags().GetBool("legacy-print"); err != nil {
+		logging.Fatal().Err(err).Send()
+	}
+	// limit which attributes are shown in verbose output (does not affect reports)
+	if excludeAttrs, attrErr := cmd.Flags().GetStringSlice("exclude-attributes"); attrErr != nil {
+		logging.Fatal().Err(attrErr).Send()
+	} else if len(excludeAttrs) > 0 {
+		detector.ExcludeAttributes = make(map[string]struct{}, len(excludeAttrs))
+		for _, attr := range excludeAttrs {
+			detector.ExcludeAttributes[strings.TrimSpace(attr)] = struct{}{}
+		}
+	}
+	if detector.MaxAttributeLength, err = cmd.Flags().GetInt("max-attribute-length"); err != nil {
 		logging.Fatal().Err(err).Send()
 	}
 	if detector.MaxTargetMegaBytes, err = cmd.Flags().GetInt("max-target-megabytes"); err != nil {

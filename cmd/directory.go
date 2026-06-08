@@ -39,8 +39,6 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
 	verbose := mustGetBoolFlag(cmd, "verbose")
 	exitCode := mustGetIntFlag(cmd, "exit-code")
 
@@ -77,11 +75,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 
 			findings = append(findings, result.Finding)
 			if verbose {
-				if detector.LegacyPrint {
-					result.Finding.PrintLegacy(noColor, uint(redact))
-				} else {
-					result.Finding.Print(noColor, uint(redact))
-				}
+				detector.PrintFinding(result.Finding)
 			}
 		}
 

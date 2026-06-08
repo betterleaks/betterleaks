@@ -66,8 +66,6 @@ func runGit(cmd *cobra.Command, args []string) {
 	staged := mustGetBoolFlag(cmd, "staged")
 	preCommit := mustGetBoolFlag(cmd, "pre-commit")
 	gitWorkers := mustGetIntFlag(cmd, "git-workers")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
 	verbose := mustGetBoolFlag(cmd, "verbose")
 
 	var (
@@ -135,11 +133,7 @@ func runGit(cmd *cobra.Command, args []string) {
 
 		findings = append(findings, result.Finding)
 		if verbose {
-			if detector.LegacyPrint {
-				result.Finding.PrintLegacy(noColor, redact)
-			} else {
-				result.Finding.Print(noColor, redact)
-			}
+			detector.PrintFinding(result.Finding)
 		}
 	}
 
