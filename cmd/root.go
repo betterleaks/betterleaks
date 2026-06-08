@@ -84,7 +84,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color for verbose output")
 	rootCmd.PersistentFlags().StringSlice("exclude-attributes", []string{}, "attribute keys to omit from verbose output (repeat flag or comma-separate to add more)")
-	rootCmd.PersistentFlags().Int("max-attribute-length", 0, "truncate attribute values in verbose output to this many characters (default \"0\", no limit)")
+	rootCmd.PersistentFlags().Int("max-attribute-length", 0, "truncate attribute values in verbose output to this many characters/runes (default \"0\", no limit)")
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
 	rootCmd.PersistentFlags().BoolP("ignore-gitleaks-allow", "", false, "ignore gitleaks:allow and betterleaks:allow comments")
 	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
