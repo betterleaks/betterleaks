@@ -21,6 +21,7 @@ func CurlBasicAuth() *config.Rule {
   r"""['"]?<[^>]+>['"]?:['"]?<[^>]+>|<[^:]+:[^>]+>['"]?""",
   r"""[^:]+:\[[^]]+]""",
   r"""['"]?[^:]+['"]?:['"]?\$(?:\d|\w+|\{(?:\d|\w+)})['"]?""",
+  r"""['"]?\$\{(?:[^{}]|\{[^}]*\})*\}['"]?:['"]?\$\{(?:[^{}]|\{[^}]*\})*\}['"]?""",
   r"""\$\([^)]+\):\$\([^)]+\)""",
   r"""['"]?\$?{{[^}]+}}['"]?:['"]?\$?{{[^}]+}}['"]?"""
 ])`,
@@ -62,6 +63,7 @@ func CurlBasicAuth() *config.Rule {
 		`curl -u username:token`,
 		`curl -u "${_username}:${_password}"`,
 		`curl -u "${username}":"${password}"`,
+		`curl -u "${USER:-${DEFAULT_USER}}:${APIKEY:-${DEFAULT_APIKEY}}"`, // nested bash expansion
 		`curl -k -X POST -I -u "SRVC_JENKINS:${APPID}"`,
 		`curl -u ":" https://localhost:9200`, // empty username and password
 
