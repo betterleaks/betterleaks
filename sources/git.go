@@ -270,7 +270,7 @@ func (c *GitCmd) NewBlobReaderContext(ctx context.Context, commit, path string) 
 func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 	defer close(errCh)
 
-	var errEncountered bool
+	var errLines []string
 
 	scanner := bufio.NewScanner(stderr)
 	for scanner.Scan() {
@@ -303,14 +303,14 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 				"Auto packing the repository in background for optimum performance") {
 			logging.Warn().Msg(scanner.Text())
 		} else {
-			logging.Error().Msgf("[git] %s", scanner.Text())
-			errEncountered = true
+			line := scanner.Text()
+			logging.Error().Msgf("[git] %s", line)
+			errLines = append(errLines, line)
 		}
 	}
 
-	if errEncountered {
-		errCh <- errors.New("stderr is not empty")
-		return
+	if len(errLines) > 0 {
+		errCh <- fmt.Errorf("git stderr: %s", strings.Join(errLines, "; "))
 	}
 }
 
