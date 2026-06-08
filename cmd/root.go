@@ -157,7 +157,7 @@ func initLog() {
 	case "stdlib":
 		regexp.SetEngine(regexp.Stdlib{})
 	default:
-		panic("regexp: unknown engine: " + engineName)
+		logging.Fatal().Msgf("unknown regex engine %q (valid values: re2, stdlib)", engineName)
 	}
 }
 
