@@ -947,7 +947,6 @@ func (d *Detector) hasAllRequiredRules(auxiliaryFindings []*report.RequiredFindi
 }
 
 func (d *Detector) withinProximity(primary, required report.Finding, requiredRule *config.Required) bool {
-	// fmt.Println(requiredRule.WithinLines)
 	// If neither within_lines nor within_columns is set, findings just need to be in the same fragment
 	if requiredRule.WithinLines == nil && requiredRule.WithinColumns == nil {
 		return true

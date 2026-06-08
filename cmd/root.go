@@ -316,10 +316,10 @@ func Config(cmd *cobra.Command) *config.Config {
 	if loadedConfig == nil {
 		logging.Fatal().Msg("Failed to load config")
 	}
-	cfg := loadedConfig
+	cfg := *loadedConfig
 	cfg.Path = resolvedConfigPath
 
-	return cfg
+	return &cfg
 }
 
 func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Detector {
