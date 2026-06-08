@@ -170,6 +170,12 @@ func (f *Finding) Redact(percent uint) {
 	f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
 	f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
 	f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
+	// Capture groups can contain the secret verbatim and are emitted in JSON,
+	// JUnit, and template reports, so they must be redacted too. Done before
+	// f.Secret is overwritten so the original value is still available to match.
+	for k, v := range f.CaptureGroups {
+		f.CaptureGroups[k] = strings.ReplaceAll(v, f.Secret, secret)
+	}
 	f.Secret = secret
 
 	seen := make(map[*RequiredFinding]struct{})
@@ -195,14 +201,17 @@ func MaskSecret(secret string, percent uint) string {
 	if percent > 100 {
 		percent = 100
 	}
-	len := float64(len(secret))
-	if len <= 0 {
+	// Operate on runes, not bytes: slicing a multi-byte UTF-8 secret by byte
+	// offset can split a rune (producing invalid UTF-8) and skews the mask ratio.
+	runes := []rune(secret)
+	total := float64(len(runes))
+	if total <= 0 {
 		return secret
 	}
 	prc := float64(100 - percent)
-	lth := int64(math.RoundToEven(len * prc / float64(100)))
+	keep := int(math.RoundToEven(total * prc / float64(100)))
 
-	return secret[:lth] + "..."
+	return string(runes[:keep]) + "..."
 }
 
 func (f *Finding) SetCELContext(context string) {
