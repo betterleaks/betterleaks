@@ -946,6 +946,32 @@ cel.bind(r,
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# clerk-secret-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "clerk-secret-key"
+description = "Detected a Clerk secret key, which may allow unauthorized access to Clerk backend APIs."
+regex = '''(?i)[\w.-]{0,50}?(?:clerk)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk_(?:test|live)_[A-Za-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["clerk"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.clerk.com/v1/users?limit=1", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.3
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # clickhouse-cloud-api-secret-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -1149,8 +1175,25 @@ filter.entropy(finding["secret"]) < 3.5
 [[rules]]
 id = "codecov-access-token"
 description = "Found a pattern resembling a Codecov Access Token, posing a risk of unauthorized access to code coverage reports and sensitive data."
-regex = '''(?i)[\w.-]{0,50}?(?:codecov)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)[\w.-]{0,50}?(?:codecov)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9-]{36})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["codecov"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.codecov.io/api/v2/github/", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }),
+  r.status == 200 && r.body.contains("\"count\":") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # cohere-api-token
@@ -1188,6 +1231,56 @@ id = "coinbase-access-token"
 description = "Detected a Coinbase Access Token, posing a risk of unauthorized access to cryptocurrency accounts and financial transactions."
 regex = '''(?i)[\w.-]{0,50}?(?:coinbase)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9_-]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["coinbase"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# configcat-sdk-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "configcat-sdk-key"
+description = "Detected a ConfigCat SDK key, which may allow access to feature flag configuration data."
+regex = '''(?i)[\w.-]{0,50}?(?:configcat)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["configcat"]
+validate = '''
+cel.bind(r,
+  http.get("https://cdn-global.configcat.com/configuration-files/" + finding["secret"] + "/config_v6.json", {
+    "Accept": "application/json"
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403, 404] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# configcat-sdk-key-extended
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "configcat-sdk-key-extended"
+description = "Detected an extended ConfigCat SDK key, which may allow access to feature flag configuration data."
+regex = '''\b(configcat-sdk-1/[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["configcat-sdk-1"]
+validate = '''
+cel.bind(r,
+  http.get("https://cdn-global.configcat.com/configuration-files/" + finding["secret"] + "/config_v6.json", {
+    "Accept": "application/json"
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403, 404] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # confluent-access-token

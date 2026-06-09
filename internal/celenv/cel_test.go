@@ -366,6 +366,65 @@ var celExpressions = []struct {
 		"env-compile-smoke",
 		`env("HOME")`,
 	},
+	{
+		"codecov-access-token",
+		`cel.bind(r,
+  http.get("https://api.codecov.io/api/v2/github/", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }),
+  r.status == 200 && r.body.contains("\"count\":") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)`,
+	},
+	{
+		"clerk-secret-key",
+		`cel.bind(r,
+  http.get("https://api.clerk.com/v1/users?limit=1", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)`,
+	},
+	{
+		"configcat-sdk-key",
+		`cel.bind(r,
+  http.get("https://cdn-global.configcat.com/configuration-files/" + finding["secret"] + "/config_v6.json", {
+    "Accept": "application/json"
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403, 404] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)`,
+	},
+	{
+		"couchbase-capella-api-key",
+		`cel.bind(r,
+  http.get("https://cloudapi.cloud.couchbase.com/v4/organizations", {
+    "Accept": "application/json",
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)`,
+	},
 }
 
 func TestCELExpressionsCompile(t *testing.T) {
