@@ -7,20 +7,22 @@ import (
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
-const githubTokenCEL = `cel.bind(r,
-  http.get("https://api.github.com/user", {
-    "Accept": "application/vnd.github+json",
-    "Authorization": "token " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?login.orValue("") != "" ? {
-    "result": "valid",
-    "username": r.json.?login.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "scopes": r.headers[?"x-oauth-scopes"].orValue("")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : unknown(r)
+const githubTokenCEL = `cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+  cel.bind(r,
+    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "token " + finding["secret"]
+    }),
+    r.status == 200 && r.json.?login.orValue("") != "" ? {
+      "result": "valid",
+      "username": r.json.?login.orValue(""),
+      "name": r.json.?name.orValue(""),
+      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+    } : r.status in [401, 403] ? {
+      "result": "invalid",
+      "reason": "Unauthorized"
+    } : unknown(r)
+  )
 )`
 
 var githubPathFilter = `matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""])`
@@ -85,21 +87,23 @@ func GitHubOauth() *config.Rule {
 
 // TODO add this later once we confirm orValue({}) is working
 // "permissions": r.json.?permissions.orValue({})
-const githubAppTokenCEL = `cel.bind(r,
-  http.get("https://api.github.com/app", {
-    "Accept": "application/vnd.github+json",
-    "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?slug.orValue("") != "" ? {
-    "result": "valid",
-    "slug": r.json.?slug.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "html_url": r.json.?html_url.orValue(""),
-	"external_url": r.json.?external_url.orValue("")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : unknown(r)
+const githubAppTokenCEL = `cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+  cel.bind(r,
+    http.get((base_url != "" ? base_url : "https://api.github.com") + "/app", {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "Bearer " + finding["secret"]
+    }),
+    r.status == 200 && r.json.?slug.orValue("") != "" ? {
+      "result": "valid",
+      "slug": r.json.?slug.orValue(""),
+      "name": r.json.?name.orValue(""),
+      "html_url": r.json.?html_url.orValue(""),
+      "external_url": r.json.?external_url.orValue("")
+    } : r.status in [401, 403] ? {
+      "result": "invalid",
+      "reason": "Unauthorized"
+    } : unknown(r)
+  )
 )`
 
 func GitHubApp() *config.Rule {

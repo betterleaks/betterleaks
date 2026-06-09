@@ -177,6 +177,34 @@ For more complex validation setups, such as Basic Auth, dynamic request bodies,
 HMAC signatures, or composite `[[rules.required]]` rules, check the built-in
 rules in `cmd/generate/config/rules`.
 
+### Overriding rule defaults with env vars
+
+`env.get` lets a rule treat any hardcoded value — an API host, a region, an
+account ID — as a default that the user can override at scan time. The rule
+reads an allowlisted variable and falls back to the literal when it's empty:
+
+```cel
+cel.bind(base_url, env.get("SOME_BASE_URL"),
+  cel.bind(r,
+    http.get((base_url != "" ? base_url : "https://default.example.com") + "/whoami", { ... }),
+    ...
+  )
+)
+```
+
+The variable must be passed via `--validation-env-vars`; without the flag,
+`env.get` returns a CEL error and the finding's validation status becomes
+`error`. When the var is allowlisted but unset, `env.get` returns `""` and the
+ternary falls back to the literal default.
+
+The built-in `github-*` rules use this pattern with `GITHUB_BASE_URL` so the
+same rules validate against GitHub Enterprise Server:
+
+```sh
+export GITHUB_BASE_URL=https://github.example.com/api/v3
+betterleaks github --validation --validation-env-vars GITHUB_BASE_URL https://github.example.com/owner
+```
+
 ## Validation with an LLM
 
 For generic high-entropy matches that no live API can adjudicate, a validation
