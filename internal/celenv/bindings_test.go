@@ -2,6 +2,7 @@ package celenv
 
 import (
 	"testing"
+	"time"
 )
 
 func TestBindings(t *testing.T) {
@@ -62,6 +63,34 @@ func TestBindings(t *testing.T) {
 		}
 	})
 
+	t.Run("hmac_sha1", func(t *testing.T) {
+		prg, err := env.Compile(`hex.encode(crypto.hmacSha1(bytes("key"), bytes("hello")))`)
+		if err != nil {
+			t.Fatalf("compile: %v", err)
+		}
+		got, err := env.Eval(prg, nil, nil)
+		if err != nil {
+			t.Fatalf("eval: %v", err)
+		}
+		if got.Value() != "b34ceac4516ff23a143e61d79d0fa7a4fbe5f266" {
+			t.Errorf("got %v", got.Value())
+		}
+	})
+
+	t.Run("url_query_escape", func(t *testing.T) {
+		prg, err := env.Compile(`strings.urlQueryEscape("a b+/:")`)
+		if err != nil {
+			t.Fatalf("compile: %v", err)
+		}
+		got, err := env.Eval(prg, nil, nil)
+		if err != nil {
+			t.Fatalf("eval: %v", err)
+		}
+		if got.Value() != "a+b%2B%2F%3A" {
+			t.Errorf("got %v", got.Value())
+		}
+	})
+
 	// Verify time.now_unix returns a numeric string
 	t.Run("time_now_unix", func(t *testing.T) {
 		prg, err := env.Compile(`time.now_unix()`)
@@ -78,6 +107,24 @@ func TestBindings(t *testing.T) {
 		}
 		if len(s) < 10 {
 			t.Errorf("expected unix timestamp string, got %q", s)
+		}
+	})
+
+	t.Run("time_now_rfc3339", func(t *testing.T) {
+		prg, err := env.Compile(`time.nowRFC3339()`)
+		if err != nil {
+			t.Fatalf("compile: %v", err)
+		}
+		got, err := env.Eval(prg, nil, nil)
+		if err != nil {
+			t.Fatalf("eval: %v", err)
+		}
+		s, ok := got.Value().(string)
+		if !ok {
+			t.Fatalf("expected string, got %T", got.Value())
+		}
+		if _, err := time.Parse(time.RFC3339, s); err != nil {
+			t.Errorf("expected RFC3339 timestamp, got %q", s)
 		}
 	})
 

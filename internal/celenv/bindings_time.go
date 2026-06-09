@@ -19,6 +19,13 @@ func timeBindings() []cel.EnvOption {
 				cel.FunctionBinding(timeNowUnixBinding()),
 			),
 		),
+		cel.Function("time.nowRFC3339",
+			cel.Overload("time_now_rfc3339_camel",
+				[]*cel.Type{},
+				cel.StringType,
+				cel.FunctionBinding(timeNowRFC3339Binding()),
+			),
+		),
 		// Deprecated: use time.nowUnix.
 		cel.Function("time.now_unix",
 			cel.Overload("time_now_unix",
@@ -33,5 +40,11 @@ func timeBindings() []cel.EnvOption {
 func timeNowUnixBinding() functions.FunctionOp {
 	return func(args ...ref.Val) ref.Val {
 		return types.String(strconv.FormatInt(time.Now().Unix(), 10))
+	}
+}
+
+func timeNowRFC3339Binding() functions.FunctionOp {
+	return func(args ...ref.Val) ref.Val {
+		return types.String(time.Now().UTC().Format(time.RFC3339))
 	}
 }

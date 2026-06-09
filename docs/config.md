@@ -131,11 +131,14 @@ Any additional keys are attached to the finding as validation metadata, such as
 | `env.get(name)` | Reads an allowlisted environment variable. Requires `--validation-env-vars`. |
 | `strings.obfuscate(secret)` | Returns a same-length, shape-preserving stand-in for a secret. Useful before sending context to third-party APIs. |
 | `json.string(value)` | Returns a quoted JSON string literal. Useful when hand-building JSON request bodies. |
+| `strings.urlQueryEscape(value)` | URL-query escapes a string. Useful when building signed validation request URLs. |
 | `crypto.md5(bytes)` | Returns the MD5 hash as bytes. |
 | `crypto.sha1(bytes)` | Returns the SHA-1 hash as bytes. |
+| `crypto.hmacSha1(key, msg)` | Returns the HMAC-SHA1 signature as bytes. |
 | `crypto.hmacSha256(key, msg)` | Returns the HMAC-SHA256 signature as bytes. |
 | `hex.encode(bytes)` | Returns lowercase hex encoding. |
 | `time.nowUnix()` | Returns the current Unix timestamp as a string. |
+| `time.nowRFC3339()` | Returns the current UTC timestamp in RFC3339 format. |
 | `aws.validate(key, secret)` | Makes a SigV4-signed AWS STS request to validate AWS credentials. |
 | `gcp.validate(json)` | Exchanges GCP service-account or ADC JSON for an OAuth token and returns validation metadata. |
 | `base64.encode(bytes)` / `base64.decode(string)` | Provided by CEL's encoder extension. |

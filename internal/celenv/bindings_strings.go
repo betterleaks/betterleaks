@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"io"
 	"math/big"
+	"net/url"
 	"strings"
 
 	"github.com/google/cel-go/cel"
@@ -37,6 +38,13 @@ func stringsBindings() []cel.EnvOption {
 				cel.UnaryBinding(obfuscateBinding()),
 			),
 		),
+		cel.Function("strings.urlQueryEscape",
+			cel.Overload("strings_url_query_escape_string",
+				[]*cel.Type{cel.StringType},
+				cel.StringType,
+				cel.UnaryBinding(urlQueryEscapeBinding()),
+			),
+		),
 		// Deprecated: use strings.obfuscate.
 		cel.Function("obfuscate",
 			cel.Overload("obfuscate_string",
@@ -55,6 +63,16 @@ func obfuscateBinding() functions.UnaryOp {
 			return types.NewErr("obfuscate: secret must be a string, got %T", val)
 		}
 		return types.String(obfuscate(string(s)))
+	}
+}
+
+func urlQueryEscapeBinding() functions.UnaryOp {
+	return func(val ref.Val) ref.Val {
+		s, ok := val.(types.String)
+		if !ok {
+			return types.NewErr("strings.urlQueryEscape: value must be a string, got %T", val)
+		}
+		return types.String(url.QueryEscape(string(s)))
 	}
 }
 

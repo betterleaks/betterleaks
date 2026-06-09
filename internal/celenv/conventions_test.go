@@ -31,8 +31,10 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			fns:  functionNames(validationEnv.env),
 			current: []string{
 				"http.get", "http.post", "env.get", "strings.obfuscate",
-				"validate.unknown", "json.string", "crypto.md5", "crypto.sha1",
-				"crypto.hmacSha256", "hex.encode", "time.nowUnix", "aws.validate",
+				"strings.urlQueryEscape", "validate.unknown", "json.string",
+				"crypto.md5", "crypto.sha1", "crypto.hmacSha1",
+				"crypto.hmacSha256", "hex.encode", "time.nowUnix",
+				"time.nowRFC3339", "aws.validate",
 			},
 			deprecated: []string{"env", "obfuscate", "unknown", "crypto.hmac_sha256", "time.now_unix"},
 		},

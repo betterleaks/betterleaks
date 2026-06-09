@@ -35,6 +35,13 @@ func cryptoBindings() []cel.EnvOption {
 				cel.BinaryBinding(hmacSha256Binding()),
 			),
 		),
+		cel.Function("crypto.hmacSha1",
+			cel.Overload("crypto_hmac_sha1_camel_bytes_bytes",
+				[]*cel.Type{cel.BytesType, cel.BytesType},
+				cel.BytesType,
+				cel.BinaryBinding(hmacSha1Binding()),
+			),
+		),
 		// Deprecated: use crypto.hmacSha256.
 		cel.Function("crypto.hmac_sha256",
 			cel.Overload("crypto_hmac_sha256_bytes_bytes",
@@ -82,6 +89,23 @@ func hmacSha256Binding() functions.BinaryOp {
 		}
 
 		h := hmac.New(sha256.New, []byte(key))
+		h.Write([]byte(msg))
+		return types.Bytes(h.Sum(nil))
+	}
+}
+
+func hmacSha1Binding() functions.BinaryOp {
+	return func(lhs ref.Val, rhs ref.Val) ref.Val {
+		key, ok := lhs.(types.Bytes)
+		if !ok {
+			return types.MaybeNoSuchOverloadErr(lhs)
+		}
+		msg, ok := rhs.(types.Bytes)
+		if !ok {
+			return types.MaybeNoSuchOverloadErr(rhs)
+		}
+
+		h := hmac.New(sha1.New, []byte(key))
 		h.Write([]byte(msg))
 		return types.Bytes(h.Sum(nil))
 	}

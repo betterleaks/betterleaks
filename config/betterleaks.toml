@@ -295,10 +295,11 @@ keywords = ["algolia"]
 [[rules]]
 id = "alibaba-access-key-id"
 description = "Detected an Alibaba Cloud AccessKey ID, posing a risk of unauthorized cloud resource access and potential data compromise."
-regex = '''\b(LTAI(?i)[a-z0-9]{20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''\b(LTAI[A-Za-z0-9]{17,21})\b'''
 keywords = ["ltai"]
+skipReport = true
 filter = '''
-entropy(finding["secret"]) <= 2.0
+filter.entropy(finding["secret"]) < 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -307,10 +308,120 @@ entropy(finding["secret"]) <= 2.0
 [[rules]]
 id = "alibaba-secret-key"
 description = "Discovered a potential Alibaba Cloud Secret Key, potentially allowing unauthorized operations and data access within Alibaba Cloud."
-regex = '''(?i)[\w.-]{0,50}?(?:alibaba)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = ["alibaba"]
+regex = '''(?i)\b(?:(?:alibaba|alibaba[\s_-]*cloud|aliyun)|LTAI[A-Za-z0-9]{17,21})(?:.|[\n\r]){0,80}?(?:access[\s_-]*key[\s_-]*secret|access[\s_-]*secret|secret|token|key)(?:.|[\n\r]){0,16}?(?:=|:|["']\s*:\s*["'])\s*["']?([A-Za-z0-9]{30})\b["']?'''
+keywords = [
+    "alibaba",
+    "aliyun",
+    "ltai",
+]
+validate = '''
+cel.bind(ts, time.nowRFC3339(),
+  cel.bind(nonce, time.nowUnix(),
+    cel.bind(params,
+      "AccessKeyId=" + strings.urlQueryEscape(captures["alibaba-access-key-id"]) +
+      "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
+      "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01",
+      cel.bind(string_to_sign, "GET&%2F&" + strings.urlQueryEscape(params).replace("+", "%20").replace("*", "%2A").replace("%7E", "~"),
+        cel.bind(sig, strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign)))),
+          cel.bind(r,
+            http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
+              "Accept": "application/json"
+            }),
+            r.status == 200 && r.body.contains("\"Arn\"") ? {
+              "result": "valid"
+            } : r.status in [401, 403] || r.body.contains("InvalidAccessKeyId") || r.body.contains("SignatureDoesNotMatch") ? {
+              "result": "invalid",
+              "reason": "Unauthorized"
+            } : validate.unknown(r)
+          )
+        )
+      )
+    )
+  )
+)
+'''
 filter = '''
-entropy(finding["secret"]) <= 2.0
+filter.entropy(finding["secret"]) < 4.2
+'''
+[[rules.required]]
+id = "alibaba-access-key-id"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# alibaba-sts-access-key-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "alibaba-sts-access-key-id"
+description = "Detected an Alibaba Cloud STS AccessKey ID, used as a component of the alibaba-sts-access-key-secret composite rule."
+regex = '''\b(STS\.[A-Za-z0-9]{16,64})\b'''
+keywords = ["sts."]
+skipReport = true
+filter = '''
+filter.entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# alibaba-sts-access-key-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "alibaba-sts-access-key-secret"
+description = "Detected an Alibaba Cloud STS AccessKey secret, which may allow temporary Alibaba Cloud API access when paired with an STS AccessKey ID and security token."
+regex = '''(?i)\b(?:(?:alibaba|alibaba[\s_-]*cloud|aliyun|sts)|STS\.[A-Za-z0-9]{16,64})(?:.|[\n\r]){0,120}?(?:access[\s_-]*key[\s_-]*secret|access[\s_-]*secret)(?:.|[\n\r]){0,16}?(?:=|:|["']\s*:\s*["'])\s*["']?([A-Za-z0-9]{30,64})\b["']?'''
+keywords = [
+    "alibaba",
+    "aliyun",
+    "sts",
+    "sts.",
+]
+validate = '''
+cel.bind(ts, time.nowRFC3339(),
+  cel.bind(nonce, time.nowUnix(),
+    cel.bind(params,
+      "AccessKeyId=" + strings.urlQueryEscape(captures["alibaba-sts-access-key-id"]) +
+      "&Action=GetCallerIdentity&Format=JSON&SecurityToken=" + strings.urlQueryEscape(captures["alibaba-sts-security-token"]) +
+      "&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
+      "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01",
+      cel.bind(string_to_sign, "GET&%2F&" + strings.urlQueryEscape(params).replace("+", "%20").replace("*", "%2A").replace("%7E", "~"),
+        cel.bind(sig, strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign)))),
+          cel.bind(r,
+            http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
+              "Accept": "application/json"
+            }),
+            r.status == 200 && r.body.contains("\"Arn\"") ? {
+              "result": "valid"
+            } : r.status in [401, 403] || r.body.contains("InvalidAccessKeyId") || r.body.contains("SignatureDoesNotMatch") ? {
+              "result": "invalid",
+              "reason": "Unauthorized"
+            } : validate.unknown(r)
+          )
+        )
+      )
+    )
+  )
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 4.2
+'''
+[[rules.required]]
+id = "alibaba-sts-access-key-id"
+[[rules.required]]
+id = "alibaba-sts-security-token"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# alibaba-sts-security-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "alibaba-sts-security-token"
+description = "Detected an Alibaba Cloud STS security token, used as a component of the alibaba-sts-access-key-secret composite rule."
+regex = '''(?i)\b(?:security[\s_-]*token|sts[\s_-]*token|x[\s_-]*oss[\s_-]*security[\s_-]*token|alibaba[\s_-]*cloud[\s_-]*security[\s_-]*token|aliyun[\s_-]*security[\s_-]*token)(?:.|[\n\r]){0,16}?(?:=|:|["']\s*:\s*["'])\s*["']?(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})(?:["'\s,;}&\]]|$)'''
+keywords = [
+    "security",
+    "sts",
+    "cais",
+]
+skipReport = true
+filter = '''
+filter.entropy(finding["secret"]) < 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -842,8 +953,64 @@ id = "clickhouse-cloud-api-secret-key"
 description = "Identified a pattern that may indicate clickhouse cloud API secret key, risking unauthorized clickhouse cloud api access and data breaches on ClickHouse Cloud platforms."
 regex = '''\b(4b1d[A-Za-z0-9]{38})\b'''
 keywords = ["4b1d"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.clickhouse.cloud/v1/organizations", {
+    "Authorization": "Basic " + base64.encode(bytes(captures["clickhouse-cloud-key-id"] + ":" + finding["secret"]))
+  }),
+  r.status == 200 && r.body.contains("\"id\":") && r.body.contains("\"name\":") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
 filter = '''
-entropy(finding["secret"]) <= 3.0
+filter.entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "clickhouse-cloud-key-id"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# clickhouse-cloud-key-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "clickhouse-cloud-key-id"
+description = "Detected a ClickHouse Cloud key ID, used as a component of the clickhouse-cloud-api-secret-key composite rule."
+regex = '''(?i)\bclickhouse(?:.|[\n\r]){0,16}?(?:ID|USER)(?:.|[\n\r]){0,16}?([a-z0-9]{20})'''
+keywords = ["clickhouse"]
+skipReport = true
+filter = '''
+filter.entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# clickup-personal-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "clickup-personal-api-token"
+description = "Detected a ClickUp personal API token, which may allow unauthorized access to ClickUp workspaces and user data."
+regex = '''(?i)\bclickup(?:.|[\n\r]){0,32}?\b(pk_\d{8,9}_[0-9A-Z]{32})\b'''
+keywords = ["clickup"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.clickup.com/api/v2/user", {
+    "Accept": "application/json",
+    "Authorization": finding["secret"]
+  }),
+  r.status == 200 ? {
+    "result": "valid",
+    "username": r.json.?user.?username.orValue(""),
+    "email": r.json.?user.?email.orValue("")
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -895,6 +1062,85 @@ keywords = [
 ]
 filter = '''
 entropy(finding["secret"]) <= 2.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# cloudinary-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cloudinary-api-key"
+description = "Detected a Cloudinary API key, used as a component of the cloudinary-api-secret composite rule."
+regex = '''(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:API[_\s]?KEY|KEY)(?:.|[\n\r]){0,16}?\b([0-9]{15})\b'''
+keywords = ["cloudinary"]
+skipReport = true
+filter = '''
+filter.entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# cloudinary-api-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cloudinary-api-secret"
+description = "Detected a Cloudinary API secret, which may allow unauthorized access to Cloudinary media and account APIs when paired with a cloud name and API key."
+regex = '''(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|API[_\s]?SECRET)(?:.|[\n\r]){0,32}?\b([A-Za-z0-9]{32})\b'''
+keywords = ["cloudinary"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.cloudinary.com/v1_1/" + captures["cloudinary-cloud-name"] + "/usage", {
+    "Authorization": "Basic " + base64.encode(bytes(captures["cloudinary-api-key"] + ":" + finding["secret"])),
+    "Accept": "application/json"
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "cloudinary-api-key"
+[[rules.required]]
+id = "cloudinary-cloud-name"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# cloudinary-cloud-name
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cloudinary-cloud-name"
+description = "Detected a Cloudinary cloud name, used as a component of the cloudinary-api-secret composite rule."
+regex = '''(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:CLOUD[_\s]?NAME|CLOUD)(?:.|[\n\r]){0,16}?\b([a-z0-9_-]{3,32})\b'''
+keywords = ["cloudinary"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# cockroachlabs-cloud-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cockroachlabs-cloud-api-key"
+description = "Detected a CockroachDB Cloud service account API key, which may allow unauthorized access to CockroachDB Cloud resources."
+regex = '''\b(CCDB1_[A-Za-z0-9]{22}_[A-Za-z0-9]{40})\b'''
+keywords = ["ccdb1_"]
+validate = '''
+cel.bind(r,
+  http.get("https://cockroachlabs.cloud/api/v1/clusters", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }),
+  r.status == 200 && r.body.contains("\"clusters\"") && r.body.contains("\"pagination\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
