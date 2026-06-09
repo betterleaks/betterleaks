@@ -16,7 +16,7 @@ require (
 	github.com/hashicorp/go-version v1.7.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mholt/archives v0.1.6-0.20260429171216-ef71b7a32fae
-	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/rs/zerolog v1.33.0
 	github.com/shurcooL/githubv4 v0.0.0-20260209031235-2402fdf4a9ed
