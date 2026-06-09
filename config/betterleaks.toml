@@ -299,7 +299,7 @@ regex = '''\b(LTAI[A-Za-z0-9]{17,21})\b'''
 keywords = ["ltai"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 4.0
+filter.entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -308,13 +308,10 @@ filter.entropy(finding["secret"]) < 4.0
 [[rules]]
 id = "alibaba-secret-key"
 description = "Discovered a potential Alibaba Cloud Secret Key, potentially allowing unauthorized operations and data access within Alibaba Cloud."
-regex = '''(?i)[\w.-]{0,50}?(?:access_key_secret|accesskeysecret|access secret|access_secret|secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)[\w.-]{0,50}?(?:alibaba|aliyun|secret|key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = [
-    "access_key_secret",
-    "accesskeysecret",
-    "access secret",
-    "access_secret",
-    "secret",
+    "alibaba",
+    "aliyun",
 ]
 validate = '''
 cel.bind(ts, time.nowRFC3339(),
@@ -343,7 +340,7 @@ cel.bind(ts, time.nowRFC3339(),
 )
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.2
+filter.entropy(finding["secret"]) < 3.5
 '''
 [[rules.required]]
 id = "alibaba-access-key-id"
@@ -368,12 +365,10 @@ filter.entropy(finding["secret"]) < 3.0
 [[rules]]
 id = "alibaba-sts-access-key-secret"
 description = "Detected an Alibaba Cloud STS AccessKey secret, which may allow temporary Alibaba Cloud API access when paired with an STS AccessKey ID and security token."
-regex = '''(?i)[\w.-]{0,50}?(?:access_key_secret|accesskeysecret|access secret|access_secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{30,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)[\w.-]{0,50}?(?:alibaba|aliyun|secret|key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{30,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = [
-    "access_key_secret",
-    "accesskeysecret",
-    "access secret",
-    "access_secret",
+    "alibaba",
+    "aliyun",
 ]
 validate = '''
 cel.bind(ts, time.nowRFC3339(),
@@ -403,7 +398,7 @@ cel.bind(ts, time.nowRFC3339(),
 )
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.2
+filter.entropy(finding["secret"]) < 3.5
 '''
 [[rules.required]]
 id = "alibaba-sts-access-key-id"
@@ -418,15 +413,15 @@ withinLines = 10
 [[rules]]
 id = "alibaba-sts-security-token"
 description = "Detected an Alibaba Cloud STS security token, used as a component of the alibaba-sts-access-key-secret composite rule."
-regex = '''(?i)\b(?:security[\s_-]*token|sts[\s_-]*token|x[\s_-]*oss[\s_-]*security[\s_-]*token|alibaba[\s_-]*cloud[\s_-]*security[\s_-]*token|aliyun[\s_-]*security[\s_-]*token)(?:.|[\n\r]){0,16}?(?:=|:|["']\s*:\s*["'])\s*["']?(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})(?:["'\s,;}&\]]|$)'''
+regex = '''(?i)[\w.-]{0,50}?(?:alibaba|aliyun|secret|key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = [
-    "security",
-    "sts",
+    "alibaba",
+    "aliyun",
     "cais",
 ]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 4.0
+filter.entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
