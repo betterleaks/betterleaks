@@ -5279,6 +5279,73 @@ entropy(finding["secret"]) <= 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# supabase-management-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "supabase-management-token"
+description = "Detected a Supabase Management Token, which may allow unauthorized access to Supabase organizations and projects."
+regex = '''\b(sbp_[a-z0-9_-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["sbp_"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.supabase.com/v1/organizations", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+|| !matchesAny(finding["secret"], [r"""^sbp_[a-z0-9_-]*[0-9][a-z0-9_-]*[0-9][a-z0-9_-]*$"""])
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# supabase-project-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "supabase-project-api-key"
+description = "Detected a Supabase Project API Key, which may expose project data through Supabase APIs when paired with a project URL."
+regex = '''\b(sb_secret_[A-Za-z0-9_-]{31})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["sb_secret_"]
+validate = '''
+cel.bind(r,
+  http.get(captures["supabase-project-url"] + "/rest/v1/?select=*", {
+    "Apikey": finding["secret"],
+    "User-Agent": ""
+  }),
+  r.status == 200 && r.body.contains("\"host\":") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 4.0
+'''
+[[rules.required]]
+id = "supabase-project-url"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# supabase-project-url
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "supabase-project-url"
+description = "Detected a Supabase project URL, used as a component of the supabase-project-api-key composite rule."
+regex = '''\b(https://[a-z0-9]{16,32}\.supabase\.co)\b'''
+keywords = ["supabase.co"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # telegram-bot-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
