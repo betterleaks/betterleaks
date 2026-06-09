@@ -31,10 +31,13 @@ func AlibabaSecretKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "alibaba-secret-key",
 		Description: "Discovered a potential Alibaba Cloud Secret Key, potentially allowing unauthorized operations and data access within Alibaba Cloud.",
-		Regex:       regexp.MustCompile(`(?i)\b(?:(?:alibaba|alibaba[\s_-]*cloud|aliyun)|LTAI[A-Za-z0-9]{17,21})(?:.|[\n\r]){0,80}?(?:access[\s_-]*key[\s_-]*secret|access[\s_-]*secret|secret|token|key)(?:.|[\n\r]){0,16}?(?:=|:|["']\s*:\s*["'])\s*["']?([A-Za-z0-9]{30})\b["']?`),
-		Keywords:    []string{"alibaba", "aliyun", "LTAI"},
+		Regex:       utils.GenerateSemiGenericRegex([]string{"access_key_secret", "accesskeysecret", "access secret", "access_secret", "secret"}, `[A-Za-z0-9]{30}`, true),
+		Keywords:    []string{"access_key_secret", "accesskeysecret", "access secret", "access_secret", "secret"},
 		RequiredRules: []*config.Required{
-			{RuleID: "alibaba-access-key-id"},
+			{
+				RuleID:      "alibaba-access-key-id",
+				WithinLines: utils.Ptr(5),
+			},
 		},
 		ValidateCEL: alibabaAccessKeyValidationCEL("alibaba-access-key-id", "", ""),
 		Filter:      `filter.entropy(finding["secret"]) < 4.2`,
@@ -42,8 +45,8 @@ func AlibabaSecretKey() *config.Rule {
 
 	// validate
 	tps := []string{
-		`alibaba_secret = 7jkWdTjKLnSlGddwPR5gBn65PHcZG6`,
-		`alibaba-token = aJHKLnSlGddwPR5g7jkWdTBn65PHc5`,
+		`alibaba_access_key_secret = 7jkWdTjKLnSlGddwPR5gBn65PHcZG6`,
+		`access_secret = aJHKLnSlGddwPR5g7jkWdTBn65PHc5`,
 		`AccessKeyId=LTAI8x2NiGqfyJGx7eLDhp12 AccessKeySecret=7jkWdTjKLnSlGddwPR5gBn65PHcZG6`,
 	}
 	return utils.Validate(r, tps, nil)
@@ -93,11 +96,17 @@ func AlibabaSTSAccessKeySecret() *config.Rule {
 	r := config.Rule{
 		RuleID:      "alibaba-sts-access-key-secret",
 		Description: "Detected an Alibaba Cloud STS AccessKey secret, which may allow temporary Alibaba Cloud API access when paired with an STS AccessKey ID and security token.",
-		Regex:       regexp.MustCompile(`(?i)\b(?:(?:alibaba|alibaba[\s_-]*cloud|aliyun|sts)|STS\.[A-Za-z0-9]{16,64})(?:.|[\n\r]){0,120}?(?:access[\s_-]*key[\s_-]*secret|access[\s_-]*secret)(?:.|[\n\r]){0,16}?(?:=|:|["']\s*:\s*["'])\s*["']?([A-Za-z0-9]{30,64})\b["']?`),
-		Keywords:    []string{"alibaba", "aliyun", "sts", "STS."},
+		Regex:       utils.GenerateSemiGenericRegex([]string{"access_key_secret", "accesskeysecret", "access secret", "access_secret"}, `[A-Za-z0-9]{30,64}`, true),
+		Keywords:    []string{"access_key_secret", "accesskeysecret", "access secret", "access_secret"},
 		RequiredRules: []*config.Required{
-			{RuleID: "alibaba-sts-access-key-id"},
-			{RuleID: "alibaba-sts-security-token"},
+			{
+				RuleID:      "alibaba-sts-access-key-id",
+				WithinLines: utils.Ptr(10),
+			},
+			{
+				RuleID:      "alibaba-sts-security-token",
+				WithinLines: utils.Ptr(10),
+			},
 		},
 		ValidateCEL: alibabaAccessKeyValidationCEL("alibaba-sts-access-key-id", "alibaba-sts-security-token", "SecurityToken="),
 		Filter:      `filter.entropy(finding["secret"]) < 4.2`,
@@ -105,7 +114,7 @@ func AlibabaSTSAccessKeySecret() *config.Rule {
 
 	tps := []string{
 		`STS.NTKaenSkmLhG4HpM576UV AccessKeySecret=wyLTSmsyPGP1ohvvw8xYgB29dlGI8KMiH2pK`,
-		`aliyun sts access_key_secret: 6itECZnhbG2RU6ktTSBSd6JxeLHKPWyBtSS62`,
+		`aliyun_sts_access_key_secret: 6itECZnhbG2RU6ktTSBSd6JxeLHKPWyBtSS62`,
 	}
 	fps := []string{
 		`AccessKeySecret=short`,
