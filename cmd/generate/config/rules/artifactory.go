@@ -106,23 +106,3 @@ func ArtifactoryJFrogURL() *config.Rule {
 	}
 	return utils.Validate(r, tps, fps)
 }
-
-func ArtifactoryNPMAuth() *config.Rule {
-	r := config.Rule{
-		RuleID:      "artifactory-npm-auth",
-		Description: "Detected an Artifactory npm registry _auth value, which may expose package registry credentials.",
-		Regex:       regexp.MustCompile(`//[A-Za-z0-9._:-]+/artifactory/api/npm/[A-Za-z0-9._\-/]+/:_auth\s*=\s*([A-Za-z0-9+/]{20,}={0,2})\b`),
-		Keywords:    []string{"/artifactory/api/npm/"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
-	}
-
-	tps := []string{
-		`//artifactory.corp.company.com/artifactory/api/npm/npm-cloud/:_auth=bW9uZ29kYi1jbF81ZDpHMzhoZCE2aElSTjk=`,
-		`//artifactory.corp.company.com/artifactory/api/npm/compass-data-explorer/:_auth=bW9uZ29kYi1jbF81ZDpHMzhoZCE2aElSTjk=`,
-	}
-	fps := []string{
-		`_auth=bW9uZ29kYi1jbF81ZDpHMzhoZCE2aElSTjk=`,
-		`//artifactory.corp.company.com/api/npm/npm-cloud/:_auth=bW9uZ29kYi1jbF81ZDpHMzhoZCE2aElSTjk=`,
-	}
-	return utils.Validate(r, tps, fps)
-}

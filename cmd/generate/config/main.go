@@ -99,7 +99,6 @@ func main() {
 		rules.ArtifactoryJFrogURL(),
 		rules.ArtifactoryApiKey(),
 		rules.ArtifactoryReferenceToken(),
-		rules.ArtifactoryNPMAuth(),
 		rules.AsanaClientID(),
 		rules.AsanaClientSecret(),
 		rules.Atlassian(),

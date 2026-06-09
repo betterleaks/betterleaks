@@ -435,18 +435,6 @@ filter.entropy(finding["secret"]) < 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
-# artifactory-npm-auth
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "artifactory-npm-auth"
-description = "Detected an Artifactory npm registry _auth value, which may expose package registry credentials."
-regex = '''//[A-Za-z0-9._:-]+/artifactory/api/npm/[A-Za-z0-9._\-/]+/:_auth\s*=\s*([A-Za-z0-9+/]{20,}={0,2})\b'''
-keywords = ["/artifactory/api/npm/"]
-filter = '''
-filter.entropy(finding["secret"]) < 3.0
-'''
-
-# ──────────────────────────────────────────────────────────────────────────────
 # artifactory-reference-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
