@@ -1,11 +1,9 @@
 package rules
 
 import (
-	"fmt"
-
 	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/regexp"
 )
 
 func Authress() *config.Rule {
@@ -14,18 +12,29 @@ func Authress() *config.Rule {
 	r := config.Rule{
 		RuleID:      "authress-service-client-access-key",
 		Description: "Uncovered a possible Authress Service Client Access Key, which may compromise access control services and sensitive data.",
-		Regex:       utils.GenerateUniqueTokenRegex(`(?:sc|ext|scauth|authress)_(?i)[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.(?-i:acc)[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120}`, false),
+		Regex:       regexp.MustCompile(`(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b`),
 		Keywords:    []string{"sc_", "ext_", "scauth_", "authress_"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		ValidateCEL: `cel.bind(r,
+  http.get("https://api.authress.io/v1/users/me", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && !r.body.contains("\"Unauthorized\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] || r.body.contains("\"Unauthorized\"") ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)`,
+		Filter: `filter.entropy(finding["secret"]) < 4.0`,
 	}
 
 	// validate
 	// https://authress.io/knowledge-base/docs/authorization/service-clients/secrets-scanning/#1-detection
-	service_client_id := "sc_" + utils.AlphaNumeric("10")
-	access_key_id := utils.AlphaNumeric("4")
-	account_id := "acc_" + utils.AlphaNumeric("10")
-	signature_key := utils.AlphaNumericExtendedShort("40")
-
-	tps := utils.GenerateSampleSecrets("authress", secrets.NewSecretWithEntropy(fmt.Sprintf(`%s\.%s\.%s\.%s`, service_client_id, access_key_id, account_id, signature_key), 2))
-	return utils.Validate(r, tps, nil)
+	tps := []string{
+		`authress_access_key = "sc_a6DTktFwMEvh87xstYV1BXl.ihwj.acc-0xd1a47h1rr0f.MC4CAQAwBQYDKAVwBCIEIB1wYB62EK24FKxEPHbW0ishcstwp2qs30uLXdWgu4V0"`,
+	}
+	fps := []string{
+		`authress_access_key = "sc_bad.ihwj.acc-0xd1a47h1rr0f.MC4CAQAwBQYDKAVwBCIEIB1wYB62EK24FKxEPHbW0ishcstwp2qs30uLXdWgu4V0"`,
+	}
+	return utils.Validate(r, tps, fps)
 }

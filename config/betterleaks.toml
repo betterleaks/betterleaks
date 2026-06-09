@@ -190,11 +190,6 @@ keywords = ["aik_client_"]
 skipReport = true
 filter = '''
 filter.entropy(finding["secret"]) < 3.0
-|| !filter.matchesAny(finding["secret"], [
-  r"""[0-9].*[0-9]""",
-  r"""[A-Z].*[A-Z]""",
-  r"""[a-z].*[a-z]"""
-])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -222,11 +217,6 @@ cel.bind(r,
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
-|| !filter.matchesAny(finding["secret"], [
-  r"""[0-9].*[0-9].*[0-9].*[0-9]""",
-  r"""[A-Z].*[A-Z].*[A-Z].*[A-Z]""",
-  r"""[a-z].*[a-z].*[a-z].*[a-z]"""
-])
 '''
 [[rules.required]]
 id = "aikido-client-id"
@@ -288,11 +278,6 @@ cel.bind(r,
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.3
-|| !filter.matchesAny(finding["secret"], [
-  r"""[0-9].*[0-9]""",
-  r"""[A-Z]""",
-  r"""[a-z]"""
-])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -360,7 +345,6 @@ cel.bind(r,
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.3
-|| !filter.matchesAny(finding["secret"], [r"""[0-9].*[0-9].*[0-9].*[0-9]"""])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -416,10 +400,50 @@ cel.bind(r,
 [[rules]]
 id = "artifactory-api-key"
 description = "Detected an Artifactory api key, posing a risk unauthorized access to the central repository."
-regex = '''\bAKCp[A-Za-z0-9]{69}\b'''
+regex = '''\bAKCp[A-Za-z0-9]{68,70}\b'''
 keywords = ["akcp"]
+validate = '''
+cel.bind(r,
+  http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+    "X-JFrog-Art-Api": finding["secret"]
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
 filter = '''
-entropy(finding["secret"]) <= 4.5
+filter.entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "artifactory-jfrog-url"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# artifactory-jfrog-url
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "artifactory-jfrog-url"
+description = "Detected a JFrog Artifactory host, used as a component of Artifactory token validation."
+regex = '''(?i)(?:^|[^a-z0-9-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.jfrog\.io)(?:$|[^a-z0-9-])'''
+keywords = ["jfrog.io"]
+skipReport = true
+filter = '''
+filter.entropy(finding["secret"]) < 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# artifactory-npm-auth
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "artifactory-npm-auth"
+description = "Detected an Artifactory npm registry _auth value, which may expose package registry credentials."
+regex = '''//[A-Za-z0-9._:-]+/artifactory/api/npm/[A-Za-z0-9._\-/]+/:_auth\s*=\s*([A-Za-z0-9+/]{20,}={0,2})\b'''
+keywords = ["/artifactory/api/npm/"]
+filter = '''
+filter.entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -430,9 +454,24 @@ id = "artifactory-reference-token"
 description = "Detected an Artifactory reference token, posing a risk of impersonation and unauthorized access to the central repository."
 regex = '''\bcmVmd[A-Za-z0-9]{59}\b'''
 keywords = ["cmvmd"]
-filter = '''
-entropy(finding["secret"]) <= 4.5
+validate = '''
+cel.bind(r,
+  http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
 '''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "artifactory-jfrog-url"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # asana-client-id
@@ -487,15 +526,28 @@ entropy(finding["secret"]) <= 3.5
 [[rules]]
 id = "authress-service-client-access-key"
 description = "Uncovered a possible Authress Service Client Access Key, which may compromise access control services and sensitive data."
-regex = '''\b((?:sc|ext|scauth|authress)_(?i)[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.(?-i:acc)[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b'''
 keywords = [
     "sc_",
     "ext_",
     "scauth_",
     "authress_",
 ]
+validate = '''
+cel.bind(r,
+  http.get("https://api.authress.io/v1/users/me", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && !r.body.contains("\"Unauthorized\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] || r.body.contains("\"Unauthorized\"") ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
 filter = '''
-entropy(finding["secret"]) <= 2.0
+filter.entropy(finding["secret"]) < 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -622,6 +674,32 @@ regex = '''(?i)[\w.-]{0,50}?(?:bitbucket)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{
 keywords = ["bitbucket"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# bitly-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "bitly-access-token"
+description = "Detected a Bitly access token, which may allow unauthorized access to Bitly account and link management APIs."
+regex = '''(?i)\bbitly(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN)(?:.|[\n\r]){0,32}?([a-f0-9]{40})\b'''
+keywords = ["bitly"]
+validate = '''
+cel.bind(r,
+  http.get("https://api-ssl.bitly.com/v4/user", {
+    "Authorization": "Bearer " + finding["secret"]
+  }),
+  r.status == 200 && r.body.contains("\"login\":") ? {
+    "result": "valid",
+    "login": r.json.?login.orValue("")
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # bittrex-access-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -638,6 +716,76 @@ id = "bittrex-secret-key"
 description = "Detected a Bittrex Secret Key, potentially compromising cryptocurrency transactions and financial security."
 regex = '''(?i)[\w.-]{0,50}?(?:bittrex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["bittrex"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# brave-search-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "brave-search-api-key"
+description = "Detected a Brave Search API key, which may allow unauthorized use of Brave Search API quota."
+regex = '''\b(BSA[A-Za-z0-9_-]{24,40})\b'''
+keywords = ["bsa"]
+validate = '''
+cel.bind(r,
+  http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&count=1", {
+    "Accept": "application/json",
+    "X-Subscription-Token": finding["secret"]
+  }),
+  r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.2
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# canva-client-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "canva-client-id"
+description = "Detected a Canva Connect API client ID, used as a component of the canva-client-secret composite rule."
+regex = '''(?i)\b(?:canva|CANVA_CLIENT_ID)(?:.|[\n\r]){0,32}?(?:client[_\s-]*id|app[_\s-]*id)(?:.|[\n\r]){0,16}?\b(OC-[A-Za-z0-9_-]{8,16})\b'''
+keywords = ["canva"]
+skipReport = true
+filter = '''
+filter.entropy(finding["secret"]) < 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# canva-client-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "canva-client-secret"
+description = "Detected a Canva Connect API client secret, which may allow unauthorized OAuth client authentication when paired with a client ID."
+regex = '''\b(cnvca[a-zA-Z0-9_-]{51})\b'''
+keywords = ["cnvca"]
+validate = '''
+cel.bind(r,
+  http.post("https://api.canva.com/rest/v1/oauth/token", {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json"
+  },
+  "grant_type=authorization_code&client_id=" + captures["canva-client-id"] +
+  "&client_secret=" + finding["secret"] +
+  "&code_verifier=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abcdefgh&code=invalid"),
+  r.status == 400 && r.body.contains("\"invalid_grant\"") && !r.body.contains("\"invalid_client\"") ? {
+    "result": "valid"
+  } : r.status in [400, 401, 403] && r.body.contains("\"invalid_client\"") ? {
+    "result": "invalid",
+    "reason": "Invalid client"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "canva-client-id"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # cerebras-api-key
@@ -861,11 +1009,6 @@ cel.bind(r,
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 4.0
-|| !filter.matchesAny(finding["secret"], [
-  r"""[0-9].*[0-9].*[0-9].*[0-9]""",
-  r"""[A-Z].*[A-Z].*[A-Z].*[A-Z]""",
-  r"""[a-z].*[a-z].*[a-z].*[a-z]"""
-])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3829,11 +3972,6 @@ cel.bind(r,
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 4.0
-|| !filter.matchesAny(finding["secret"], [
-  r"""[0-9].*[0-9].*[0-9].*[0-9]""",
-  r"""[A-Z].*[A-Z]""",
-  r"""[a-z].*[a-z]"""
-])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3894,34 +4032,6 @@ keywords = [
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
-
-# ──────────────────────────────────────────────────────────────────────────────
-# jfrog-api-key
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "jfrog-api-key"
-description = "Found a JFrog API Key, posing a risk of unauthorized access to software artifact repositories and build pipelines."
-regex = '''(?i)[\w.-]{0,50}?(?:jfrog|artifactory|bintray|xray)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{73})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = [
-    "jfrog",
-    "artifactory",
-    "bintray",
-    "xray",
-]
-
-# ──────────────────────────────────────────────────────────────────────────────
-# jfrog-identity-token
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "jfrog-identity-token"
-description = "Discovered a JFrog Identity Token, potentially compromising access to JFrog services and sensitive software artifacts."
-regex = '''(?i)[\w.-]{0,50}?(?:jfrog|artifactory|bintray|xray)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = [
-    "jfrog",
-    "artifactory",
-    "bintray",
-    "xray",
-]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # jwt

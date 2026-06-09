@@ -32,8 +32,7 @@ func AmplitudeSecretKey() *config.Rule {
     "reason": r.json.?error.orValue("Unauthorized")
   } : validate.unknown(r)
 )`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3
-|| !filter.matchesAny(finding["secret"], [r"""[0-9].*[0-9].*[0-9].*[0-9]"""])`,
+		Filter: `filter.entropy(finding["secret"]) < 3.3`,
 	}
 
 	tps := []string{

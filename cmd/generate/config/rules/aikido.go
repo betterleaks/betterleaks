@@ -13,12 +13,7 @@ func AikidoClientID() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`AIK_CLIENT_[A-Za-z0-9]{24}`, false),
 		Keywords:    []string{"AIK_CLIENT_"},
 		SkipReport:  true,
-		Filter: `filter.entropy(finding["secret"]) < 3.0
-|| !filter.matchesAny(finding["secret"], [
-  r"""[0-9].*[0-9]""",
-  r"""[A-Z].*[A-Z]""",
-  r"""[a-z].*[a-z]"""
-])`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	tps := []string{
@@ -52,12 +47,7 @@ func AikidoClientSecret() *config.Rule {
     "reason": "Unauthorized"
   } : validate.unknown(r)
 )`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5
-|| !filter.matchesAny(finding["secret"], [
-  r"""[0-9].*[0-9].*[0-9].*[0-9]""",
-  r"""[A-Z].*[A-Z].*[A-Z].*[A-Z]""",
-  r"""[a-z].*[a-z].*[a-z].*[a-z]"""
-])`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{

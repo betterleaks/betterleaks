@@ -24,12 +24,7 @@ func InfluxDBAPIToken() *config.Rule {
     "reason": "Unauthorized"
   } : validate.unknown(r)
 )`,
-		Filter: `filter.entropy(finding["secret"]) < 4.0
-|| !filter.matchesAny(finding["secret"], [
-  r"""[0-9].*[0-9].*[0-9].*[0-9]""",
-  r"""[A-Z].*[A-Z]""",
-  r"""[a-z].*[a-z]"""
-])`,
+		Filter: `filter.entropy(finding["secret"]) < 4.0`,
 	}
 
 	tps := []string{
