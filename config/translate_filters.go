@@ -29,10 +29,10 @@ func (c *Config) translateLegacyFilters() error {
 	c.Filter = composeFilters(globalFil, c.Filter)
 
 	if c.Prefilter != "" {
-		logging.Debug().Str("prefilter", c.Prefilter).Msg("translated global prefilter CEL expression")
+		logging.Trace().Str("prefilter", c.Prefilter).Msg("translated global prefilter CEL expression")
 	}
 	if c.Filter != "" {
-		logging.Debug().Str("filter", c.Filter).Msg("translated global filter CEL expression")
+		logging.Trace().Str("filter", c.Filter).Msg("translated global filter CEL expression")
 	}
 
 	// ── per-rule fields ────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ func (c *Config) translateLegacyFilters() error {
 		r.Filter = composeFilters(ruleFil, r.Filter)
 
 		if r.Filter != "" {
-			logging.Debug().Str("rule", ruleID).Str("filter", r.Filter).
+			logging.Trace().Str("rule", ruleID).Str("filter", r.Filter).
 				Msg("translated rule filter CEL expression")
 		}
 
