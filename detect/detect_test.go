@@ -14,7 +14,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/rs/zerolog"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -32,6 +31,14 @@ const maxDecodeDepth = 8
 const configPath = "../testdata/config/"
 const repoBasePath = "../testdata/repos/"
 const archivesBasePath = "../testdata/archives/"
+
+func loadTestConfig(t *testing.T, cfgName string) *config.Config {
+	t.Helper()
+	cfg, err := config.LoadFile(filepath.Join(configPath, cfgName+".toml"))
+	require.NoError(t, err)
+	return cfg
+}
+
 const encodedTestValues = `
 # Decoded
 -----BEGIN PRIVATE KEY-----
@@ -121,7 +128,16 @@ func compare(t *testing.T, got, want []report.Finding) {
 			if a.RuleID != b.RuleID {
 				return a.RuleID < b.RuleID
 			}
-			return a.Secret < b.Secret
+			if a.Line != b.Line {
+				return a.Line < b.Line
+			}
+			if a.Secret != b.Secret {
+				return a.Secret < b.Secret
+			}
+			if a.Match != b.Match {
+				return a.Match < b.Match
+			}
+			return strings.Join(a.Tags, "\x00") < strings.Join(b.Tags, "\x00")
 		}),
 		cmpopts.IgnoreFields(report.Finding{},
 			"Fingerprint", "Author", "Email", "Date", "Message", "Commit",
@@ -887,19 +903,9 @@ const token = "mockSecret";
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			viper.Reset()
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName(tt.cfgName)
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
-			require.NoError(t, err)
-
-			var vc config.ViperConfig
-			err = viper.Unmarshal(&vc)
-			require.NoError(t, err)
-			cfg, err := vc.Translate()
+			cfg := loadTestConfig(t, tt.cfgName)
 			cfg.Path = filepath.Join(configPath, tt.cfgName+".toml")
-			assert.Equal(t, tt.wantError, err)
+			assert.Nil(t, tt.wantError)
 			d := NewDetector(cfg)
 			d.MaxDecodeDepth = maxDecodeDepth
 			d.baselinePath = tt.baselinePath
@@ -1387,18 +1393,7 @@ func TestFromGit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(strings.Join([]string{tt.cfgName, tt.source, tt.logOpts}, "/"), func(t *testing.T) {
-			viper.Reset()
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName("simple")
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
-			require.NoError(t, err)
-
-			var vc config.ViperConfig
-			err = viper.Unmarshal(&vc)
-			require.NoError(t, err)
-			cfg, err := vc.Translate()
-			require.NoError(t, err)
+			cfg := loadTestConfig(t, "simple")
 			detector := NewDetector(cfg)
 			detector.MaxArchiveDepth = 8
 
@@ -1481,21 +1476,9 @@ func TestFromGitStaged(t *testing.T) {
 	moveDotGit(t, "dotGit", ".git")
 	defer moveDotGit(t, ".git", "dotGit")
 	for _, tt := range tests {
-		viper.Reset()
-
-		viper.AddConfigPath(configPath)
-		viper.SetConfigName("simple")
-		viper.SetConfigType("toml")
-		err := viper.ReadInConfig()
-		require.NoError(t, err)
-
-		var vc config.ViperConfig
-		err = viper.Unmarshal(&vc)
-		require.NoError(t, err)
-		cfg, err := vc.Translate()
-		require.NoError(t, err)
+		cfg := loadTestConfig(t, "simple")
 		detector := NewDetector(cfg)
-		err = detector.AddGitleaksIgnore(filepath.Join(tt.source, ".gitleaksignore"))
+		err := detector.AddGitleaksIgnore(filepath.Join(tt.source, ".gitleaksignore"))
 		require.NoError(t, err)
 		gitCmd, err := sources.NewGitDiffCmd(tt.source, true)
 		require.NoError(t, err)
@@ -1600,18 +1583,7 @@ func TestFromFiles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
-			viper.Reset()
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName(tt.cfgName)
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
-			require.NoError(t, err)
-
-			var vc config.ViperConfig
-			err = viper.Unmarshal(&vc)
-			require.NoError(t, err)
-
-			cfg, _ := vc.Translate()
+			cfg := loadTestConfig(t, tt.cfgName)
 			detector := NewDetector(cfg)
 
 			info, err := os.Stat(tt.source)
@@ -2202,24 +2174,13 @@ func TestDetectWithArchives(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
-			viper.Reset()
-			viper.AddConfigPath(configPath)
-			viper.SetConfigName(tt.cfgName)
-			viper.SetConfigType("toml")
-			err := viper.ReadInConfig()
-			require.NoError(t, err)
-
-			var vc config.ViperConfig
-			err = viper.Unmarshal(&vc)
-			require.NoError(t, err)
-
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			if tt.expireContext {
 				cancel()
 			}
 
-			cfg, _ := vc.Translate()
+			cfg := loadTestConfig(t, tt.cfgName)
 			detector := NewDetectorContext(ctx, cfg, ValidationOptions{})
 			detector.MaxArchiveDepth = 8
 
@@ -2295,18 +2256,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		viper.Reset()
-		viper.AddConfigPath(configPath)
-		viper.SetConfigName("simple")
-		viper.SetConfigType("toml")
-		err := viper.ReadInConfig()
-		require.NoError(t, err)
-
-		var vc config.ViperConfig
-		err = viper.Unmarshal(&vc)
-		require.NoError(t, err)
-
-		cfg, _ := vc.Translate()
+		cfg := loadTestConfig(t, "simple")
 		detector := NewDetector(cfg)
 		detector.FollowSymlinks = true
 		findings, err := detector.DetectSource(
