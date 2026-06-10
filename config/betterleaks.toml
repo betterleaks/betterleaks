@@ -823,7 +823,13 @@ keywords = ["bittrex"]
 id = "box-api-access-token"
 description = "Detected a Box API access token, which may expose Box files and account data."
 regex = '''(?i)[\w.-]{0,50}?(?:box)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = ["box"]
+keywords = [
+    "box_",
+    "box-",
+    "boxt",
+    "boxk",
+    "boxa",
+]
 validate = '''
 cel.bind(r,
   http.get("https://api.box.com/2.0/users/me", {
