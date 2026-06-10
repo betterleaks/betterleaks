@@ -25,7 +25,7 @@ func FigmaPersonalAccessToken() *config.Rule {
   } : r.status in [401, 403] || r.body.contains("Invalid token") ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
@@ -58,7 +58,7 @@ func FigmaPersonalAccessHeaderToken() *config.Rule {
   } : r.status in [401, 403] || r.body.contains("Invalid token") ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 	}
 

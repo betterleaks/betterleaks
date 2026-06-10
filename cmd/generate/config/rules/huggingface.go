@@ -34,7 +34,7 @@ func HuggingFaceAccessToken() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
@@ -104,7 +104,7 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}

@@ -3,14 +3,13 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
 )
 
 func ClickUpPersonalAPIToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "clickup-personal-api-token",
 		Description: "Detected a ClickUp personal API token, which may allow unauthorized access to ClickUp workspaces and user data.",
-		Regex:       regexp.MustCompile(`(?i)\bclickup(?:.|[\n\r]){0,32}?\b(pk_\d{8,9}_[0-9A-Z]{32})\b`),
+		Regex:       utils.GenerateSemiGenericRegex([]string{"clickup"}, `pk_`+utils.Numeric("8,9")+`_`+utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"clickup"},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.clickup.com/api/v2/user", {
@@ -26,7 +25,7 @@ func ClickUpPersonalAPIToken() *config.Rule {
     "reason": "Unauthorized"
   } : validate.unknown(r)
 )`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

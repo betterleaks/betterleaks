@@ -25,7 +25,7 @@ func AnthropicApiKey() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 	}
 
@@ -69,7 +69,7 @@ func AnthropicAdminApiKey() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 	}
 

@@ -42,7 +42,7 @@ func AWS() *config.Rule {
     "result": "invalid",
     "error_code": r.error_code,
     "error_message": r.error_message
-  } : unknown(r)
+  } : validate.unknown(r)
 )
 `,
 		Filter: `entropy(finding["secret"]) <= 3.0

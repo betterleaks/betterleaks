@@ -71,7 +71,7 @@ func PlanetScaleAPIToken() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}

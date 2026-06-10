@@ -74,7 +74,7 @@ func OVHApplicationSecret() *config.Rule {
           } : r.status in [400, 401, 403] ? {
             "result": "invalid",
             "reason": "Unauthorized"
-          } : unknown(r)
+          } : validate.unknown(r)
         )
       )
     )

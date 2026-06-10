@@ -21,7 +21,7 @@ const githubTokenCEL = `cel.bind(base_url, env.get("GITHUB_BASE_URL"),
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : unknown(r)
+    } : validate.unknown(r)
   )
 )`
 
@@ -102,7 +102,7 @@ const githubAppTokenCEL = `cel.bind(base_url, env.get("GITHUB_BASE_URL"),
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : unknown(r)
+    } : validate.unknown(r)
   )
 )`
 

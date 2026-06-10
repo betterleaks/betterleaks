@@ -29,7 +29,7 @@ func MongoDBAtlasServiceAccountSecret() *config.Rule {
   } : r.status == 401 ? {
     "result": "invalid",
     "reason": r.json.?error.orValue("Unauthorized")
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 3.0
 || matchesAny(finding["secret"], [r"""^mdb_sa_sk_[0-9]{40}$"""])`,

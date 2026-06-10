@@ -24,7 +24,7 @@ func VercelAPIToken() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
@@ -63,7 +63,7 @@ func VercelPersonalAccessToken() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
@@ -100,7 +100,7 @@ func VercelIntegrationToken() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
@@ -135,7 +135,7 @@ func VercelAppAccessToken() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
@@ -171,7 +171,7 @@ func VercelAppRefreshToken() *config.Rule {
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
@@ -205,7 +205,7 @@ func VercelAIGatewayKey() *config.Rule {
   } : r.status in [401] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
+  } : validate.unknown(r)
 )`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}

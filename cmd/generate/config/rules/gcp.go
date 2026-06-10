@@ -23,7 +23,7 @@ func GCPApplicationDefaultCredentials() *config.Rule {
     "result": "invalid",
     "error_code": r.error_code,
     "error_message": r.error_message
-  } : unknown(r)
+  } : validate.unknown(r)
 )
 `,
 	}
@@ -51,7 +51,7 @@ func GCPServiceAccount() *config.Rule {
     "result": "invalid",
     "error_code": r.error_code,
     "error_message": r.error_message
-  } : unknown(r)
+  } : validate.unknown(r)
 )
 `,
 		Filter: `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,

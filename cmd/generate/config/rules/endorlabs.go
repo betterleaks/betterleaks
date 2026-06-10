@@ -12,13 +12,13 @@ func EndorLabsAPIKey() *config.Rule {
 		Description: "Detected an Endor Labs API Key, which may compromise supply chain security scanning and software composition analysis.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"endor(?:labs)?", "key"}, `endr\+[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"endr+"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      utils.MinEntropy(3.0),
 	}
 
 	tps := []string{
-		`ENDOR_API_CREDENTIALS_KEY=endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.0),
-		`endorlabs_api_key=endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.0),
-		`endor_key = "endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.0) + `"`,
+		`ENDOR_API_CREDENTIALS_KEY=endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.5),
+		`endorlabs_api_key=endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.5),
+		`endor_key = "endr+` + secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{16}`, 3.5) + `"`,
 	}
 	fps := []string{
 		// Wrong secret prefix
@@ -33,7 +33,7 @@ func EndorLabsAPISecret() *config.Rule {
 		Description: "Detected an Endor Labs API Secret, which together with an API key grants full access to Endor Labs supply chain security services.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"endor(?:labs)?", "secret"}, `endr\+[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"endr+"},
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Filter:      utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

@@ -13,11 +13,11 @@ func Databricks() *config.Rule {
 		Description: "Uncovered a Databricks API token, which may compromise big data analytics platforms and sensitive data processing.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dapi[a-f0-9]{32}(?:-\d)?`, false),
 		Keywords:    []string{"dapi"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      utils.MinEntropy(3.0),
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("databricks", "dapi"+secrets.NewSecretWithEntropy(utils.Hex("32"), 3))
+	tps := utils.GenerateSampleSecrets("databricks", "dapi"+secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5))
 	tps = append(tps, `token = dapif13ac4b49d1cb31f69f678e39602e381-2`) // gitleaks:ignore
 	fps := []string{
 		`DATABRICKS_TOKEN=dapi123456789012345678a9bc01234defg5`,

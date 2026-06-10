@@ -11,13 +11,14 @@ func GrafanaApiKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "grafana-api-key",
 		Description: "Identified a Grafana API key, which could compromise monitoring dashboards and sensitive data analytics.",
-		Regex:       utils.GenerateUniqueTokenRegex(`eyJrIjoi[A-Za-z0-9]{70,400}={0,3}`, true),
+		Regex:       utils.GenerateUniqueTokenRegex(`eyJrIjoi[A-Za-z0-9+/]{40,380}={0,2}`, false),
 		Keywords:    []string{"eyJrIjoi"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      utils.MinEntropy(3.0),
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("grafana-api-key", "eyJrIjoi"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("70"), 3))
+	tps := utils.GenerateSampleSecrets("grafana-api-key", "eyJrIjoi"+secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{70}`, 3.5))
+	tps = append(tps, `Authorization: Bearer eyJrIjoiWHZiSWd5NzdCYUZnNUtibE8obUpESmE2bzJYNDRIc1UiLCJuIjoibXlrZXkiLCJpZCI6MX0=`)
 	return utils.Validate(r, tps, nil)
 }
 
@@ -26,17 +27,18 @@ func GrafanaCloudApiToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "grafana-cloud-api-token",
 		Description: "Found a Grafana cloud API token, risking unauthorized access to cloud-based monitoring services and data exposure.",
-		Regex:       utils.GenerateUniqueTokenRegex(`glc_[A-Za-z0-9+/]{32,400}={0,3}`, true),
+		Regex:       utils.GenerateUniqueTokenRegex(`glc_[A-Za-z0-9+/]{40,150}={0,2}`, false),
 		Keywords:    []string{"glc_"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		ValidateCEL: utils.BearerGetValidationCEL("https://grafana.com/api/stack-regions", "true"),
+		Filter:      utils.MinEntropy(3.0),
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("grafana-cloud-api-token", "glc_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3))
+	tps := utils.GenerateSampleSecrets("grafana-cloud-api-token", "glc_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{40}`, 3.5))
 	tps = append(tps,
 		utils.GenerateSampleSecret("grafana-cloud-api-token",
 			"glc_"+
-				secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3)),
+				secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{40}`, 3.5)),
 		`loki_key: glc_eyJvIjoiNzQ0NTg3IiwibiI7InN0YWlrLTQ3NTgzMC1obC13cml0ZS1oYW5kc29uJG9raSIsImsiOiI4M2w3cmdYUlBoMTUyMW1lMU023nl5UDUiLCJtIjp7IOIiOiJ1cyJ9fQ==`,
 		// TODO:
 		//`  loki:
@@ -63,13 +65,13 @@ func GrafanaServiceAccountToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "grafana-service-account-token",
 		Description: "Discovered a Grafana service account token, posing a risk of compromised monitoring services and data integrity.",
-		Regex:       utils.GenerateUniqueTokenRegex(`glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}`, true),
+		Regex:       utils.GenerateUniqueTokenRegex(`glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}`, false),
 		Keywords:    []string{"glsa_"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      utils.MinEntropy(3.0),
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("grafana-service-account-token", "glsa_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3)+"_"+secrets.NewSecret(utils.Hex("8")))
+	tps := utils.GenerateSampleSecrets("grafana-service-account-token", "glsa_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5)+"_"+secrets.NewSecret(utils.Hex("8")))
 	tps = append(tps,
 		`'Authorization': 'Bearer glsa_pITqMOBIfNH2KL4PkXJqmTyQl0D9QGxF_486f63e1'`,
 	)
