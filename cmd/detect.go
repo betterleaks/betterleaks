@@ -34,6 +34,7 @@ func init() {
 	rootCmd.AddCommand(detectCmd)
 	detectCmd.Flags().Bool("no-git", false, "treat git repo as a regular directory and scan those files, --log-opts has no effect on the scan when --no-git is set")
 	detectCmd.Flags().Bool("pipe", false, "scan input from stdin, ex: `cat some_file | betterleaks detect --pipe`")
+	detectCmd.Flags().StringArray("set-attr", nil, "set source attribute for piped content, key=value (repeatable)")
 	detectCmd.Flags().Bool("follow-symlinks", false, "scan files that are symlinks to other files")
 	detectCmd.Flags().StringP("source", "s", ".", "path to source")
 	detectCmd.Flags().String("log-opts", "", "git log options")
@@ -89,11 +90,14 @@ func runDetect(cmd *cobra.Command, args []string) {
 			logging.Error().Err(err).Msg("failed to scan directory")
 		}
 	} else if fromPipe {
+		attrs, attrErr := parseSetAttrFlag(cmd)
+		if attrErr != nil {
+			logging.Fatal().Err(attrErr).Msg("invalid --set-attr value")
+		}
+
 		findings, err = detector.DetectSource(
-			cmd.Context(), &sources.File{
-				Content:         os.Stdin,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-			},
+			cmd.Context(),
+			newStdinSource(os.Stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth),
 		)
 
 		if err != nil {
