@@ -17,6 +17,7 @@ type Stdin struct {
 func (s *Stdin) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	file := &File{
 		Content:         s.Content,
+		ShouldSkip:      s.ShouldSkip,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 	}
 
