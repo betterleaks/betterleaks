@@ -13,7 +13,9 @@ func Authress() *config.Rule {
 		RuleID:      "authress-service-client-access-key",
 		Description: "Uncovered a possible Authress Service Client Access Key, which may compromise access control services and sensitive data.",
 		Regex:       regexp.MustCompile(`(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b`),
-		Keywords:    []string{"sc_", "ext_", "scauth_", "authress_"},
+		// The `.acc_`/`.acc-` segment is required by the regex and is far
+		// rarer in real code than the `sc_`/`ext_` prefixes.
+		Keywords:    []string{".acc_", ".acc-"},
 		ValidateCEL: `cel.bind(r,
   http.get("https://api.authress.io/v1/users/me", {
     "Authorization": "Bearer " + finding["secret"]

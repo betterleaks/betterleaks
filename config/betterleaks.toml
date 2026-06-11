@@ -92,7 +92,7 @@ entropy(finding["secret"]) <= 3.8
 id = "1password-service-account-token"
 description = "Uncovered a possible 1Password service account token, potentially compromising access to secrets in vaults."
 regex = '''ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}'''
-keywords = ["ops_"]
+keywords = ["ops_eyj"]
 validate = '''
 cel.bind(r,
   http.get("https://events.1password.com/api/v2/auth/introspect", {
@@ -627,10 +627,8 @@ id = "authress-service-client-access-key"
 description = "Uncovered a possible Authress Service Client Access Key, which may compromise access control services and sensitive data."
 regex = '''(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b'''
 keywords = [
-    "sc_",
-    "ext_",
-    "scauth_",
-    "authress_",
+    ".acc_",
+    ".acc-",
 ]
 validate = '''
 cel.bind(r,
@@ -723,10 +721,11 @@ id = "aws-secret-access-key"
 description = "Identified an AWS secret access key, used as a component of the aws-access-token composite rule."
 regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:secret|access|key|token)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9/+=]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = [
-    "secret",
-    "access",
-    "key",
-    "token",
+    "a3t",
+    "akia",
+    "asia",
+    "abia",
+    "acca",
 ]
 skipReport = true
 filter = '''
@@ -740,7 +739,18 @@ entropy(finding["secret"]) <= 4.0
 id = "azure-ad-client-secret"
 description = "Azure AD Client Secret"
 regex = '''(?:^|[\\'"\x60\s>=:(,)])([a-zA-Z0-9_~.]{3}\dQ~[a-zA-Z0-9_~.-]{31,34})(?:$|[\\'"\x60\s<),])'''
-keywords = ["q~"]
+keywords = [
+    "0q~",
+    "1q~",
+    "2q~",
+    "3q~",
+    "4q~",
+    "5q~",
+    "6q~",
+    "7q~",
+    "8q~",
+    "9q~",
+]
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
@@ -5036,9 +5046,8 @@ id = "lob-pub-api-key"
 description = "Detected a Lob Publishable API Key, posing a risk of exposing mail and print service integrations."
 regex = '''(?i)[\w.-]{0,50}?(?:lob)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((test|live)_pub_[a-f0-9]{31})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = [
-    "test_pub",
-    "live_pub",
-    "_pub",
+    "test_pub_",
+    "live_pub_",
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6539,7 +6548,7 @@ keywords = ["travis"]
 id = "twilio-api-key"
 description = "Found a Twilio API Key, posing a risk to communication services and sensitive customer interaction data."
 regex = '''SK[0-9a-fA-F]{32}'''
-keywords = ["sk"]
+keywords = ["twilio"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''

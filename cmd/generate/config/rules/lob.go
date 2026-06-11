@@ -14,9 +14,8 @@ func LobPubAPIToken() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"lob"}, `(test|live)_pub_[a-f0-9]{31}`, true),
 
 		Keywords: []string{
-			"test_pub",
-			"live_pub",
-			"_pub",
+			"test_pub_",
+			"live_pub_",
 		},
 	}
 
