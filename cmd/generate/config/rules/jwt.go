@@ -16,12 +16,17 @@ func JWT() *config.Rule {
 		Description: "Uncovered a JSON Web Token, which may lead to unauthorized access to web applications and sensitive user data.",
 		RuleID:      "jwt",
 		Regex:       utils.GenerateUniqueTokenRegex(`ey[a-zA-Z0-9]{17,}\.ey[a-zA-Z0-9\/\\_-]{17,}\.(?:[a-zA-Z0-9\/\\_-]{10,}={0,2})?`, false),
-		Keywords:    []string{"ey"},
+		// JWT headers/payloads are base64-encoded JSON objects, which always
+		// start with `eyJ` (base64 of `{"`), so the keyword can be narrower
+		// than the regex.
+		Keywords:    []string{"eyj"},
 		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("jwt", secrets.NewSecretWithEntropy(`ey[a-zA-Z0-9]{17,}\.ey[a-zA-Z0-9\/\\_-]{17,}\.(?:[a-zA-Z0-9\/\\_-]{10,}={0,2})?`, 3))
+	// Generated samples start with `eyJ` like real JWTs so they pass the
+	// keyword prefilter.
+	tps := utils.GenerateSampleSecrets("jwt", secrets.NewSecretWithEntropy(`eyJ[a-zA-Z0-9]{16,}\.eyJ[a-zA-Z0-9\/\\_-]{16,}\.(?:[a-zA-Z0-9\/\\_-]{10,}={0,2})?`, 3))
 	tps = append(tps,
 		`eyJhbGciOieeeiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwic3ViZSI6IjEyMzQ1Njc4OTAiLCJuYW1lZWEiOiJKb2huIERvZSIsInN1ZmV3YWZiIjoiMTIzNDU2Nzg5MCIsIm5hbWVmZWF3ZnciOiJKb2huIERvZSIsIm5hbWVhZmV3ZmEiOiJKb2huIERvZSIsInN1ZndhZndlYWIiOiIxMjM0NTY3ODkwIiwibmFtZWZ3YWYiOiJKb2huIERvZSIsInN1YmZ3YWYiOiIxMjM0NTY3ODkwIiwibmFtZndhZSI6IkpvaG4gRG9lIiwiaWZ3YWZhYXQiOjE1MTYyMzkwMjJ9.a_5icKBDo-8EjUlrfvz2k2k-FYaindQ0DEYNrlsnRG0==`,                                                                                                                                                                                                                                                                                    // gitleaks:allow
 		`JWT := eyJhbGciOieeeiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwic3ViZSI6IjEyMzQ1Njc4OTAiLCJuYW1lZWEiOiJKb2huIERvZSIsInN1ZmV3YWZiIjoiMTIzNDU2Nzg5MCIsIm5hbWVmZWF3ZnciOiJKb2huIERvZSIsIm5hbWVhZmV3ZmEiOiJKb2huIERvZSIsInN1ZndhZndlYWIiOiIxMjM0NTY3ODkwIiwibmFtZWZ3YWYiOiJKb2huIERvZSIsInN1YmZ3YWYiOiIxMjM0NTY3ODkwIiwibmFtZndhZSI6IkpvaG4gRG9lIiwiaWZ3YWZhYXQiOjE1MTYyMzkwMjJ9.a_5icKBDo-8EjUlrfvz2k2k-FYaindQ0DEYNrlsnRG0`,                                                                                                                                                                                                                                                                               // gitleaks:allow

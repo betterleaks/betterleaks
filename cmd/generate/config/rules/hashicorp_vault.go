@@ -12,7 +12,10 @@ func VaultServiceToken() *config.Rule {
 		RuleID:      "vault-service-token",
 		Description: "Identified a Vault Service Token, potentially compromising infrastructure security and access to sensitive credentials.",
 		Regex:       utils.GenerateUniqueTokenRegex(`(?:hvs\.[\w-]{90,120}|s\.(?i:[a-z0-9]{24}))`, false),
-		Keywords:    []string{"hvs.", "s."},
+		// `s.` (legacy tokens) appears in over half of all fragments, so gate
+		// the rule on `vault` context instead to avoid running the regex
+		// everywhere. `hvs.` is precise enough to keep as-is.
+		Keywords:    []string{"hvs.", "vault"},
 		Filter: `entropy(finding["secret"]) <= 3.5
 || matchesAny(finding["secret"], [r"""s\.[A-Za-z]{24}"""])`,
 	}
@@ -21,7 +24,7 @@ func VaultServiceToken() *config.Rule {
 	tps := []string{
 		// Old
 		utils.GenerateSampleSecret("vault", secrets.NewSecretWithEntropy(`s\.[0-9][a-zA-Z0-9]{23}`, 3.5)),
-		`token: s.ZC9Ecf4M5g9o34Q6RkzGsj0z`,
+		`vault_token: s.ZC9Ecf4M5g9o34Q6RkzGsj0z`,
 		// New
 		utils.GenerateSampleSecret("vault", secrets.NewSecretWithEntropy(`hvs\.[0-9][\w\-]{89}`, 3.5)),
 		`-vaultToken hvs.CAESIP2jTxc9S2K7Z6CtcFWQv7-044m_oSsxnPE1H3nF89l3GiYKHGh2cy5sQmlIZVNyTWJNcDRsYWJpQjlhYjVlb1cQh6PL8wEYAg"`, // longer than 100 chars
@@ -31,11 +34,11 @@ func VaultServiceToken() *config.Rule {
 		// Old
 		`  credentials: new AWS.SharedIniFileCredentials({ profile: '<YOUR_PROFILE>' })`,                              // word boundary start
 		`INFO 4 --- [           main] o.s.b.f.s.DefaultListableBeanFactory     : Overriding bean definition for bean`, // word boundary end
-		`s.xxxxxxxxxxxxxxxxxxxxxxxx`,        // low entropy
-		`s.THISSTRINGISALLUPPERCASE`,        // uppercase
-		`s.thisstringisalllowercase`,        // lowercase
-		`s.AcceptanceTimeoutSeconds `,       // pascal-case
-		`s.makeKubeConfigController = args`, // camel-case
+		`vault: s.xxxxxxxxxxxxxxxxxxxxxxxx`,        // low entropy
+		`vault: s.THISSTRINGISALLUPPERCASE`,        // uppercase
+		`vault: s.thisstringisalllowercase`,        // lowercase
+		`vault: s.AcceptanceTimeoutSeconds `,       // pascal-case
+		`vault: s.makeKubeConfigController = args`, // camel-case
 		// New
 		`hvs.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`, // low entropy
 	}

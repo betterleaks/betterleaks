@@ -4800,7 +4800,7 @@ entropy(finding["secret"]) < 3.5
 id = "jwt"
 description = "Uncovered a JSON Web Token, which may lead to unauthorized access to web applications and sensitive user data."
 regex = '''\b(ey[a-zA-Z0-9]{17,}\.ey[a-zA-Z0-9\/\\_-]{17,}\.(?:[a-zA-Z0-9\/\\_-]{10,}={0,2})?)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = ["ey"]
+keywords = ["eyj"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
@@ -5694,7 +5694,7 @@ entropy(finding["secret"]) <= 3.0
 id = "polymarket-address"
 description = "Found a Polymarket wallet address, used as a component of authenticated Polymarket API requests."
 regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}address)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(0x[a-fA-F0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = ["address"]
+keywords = ["poly"]
 skipReport = true
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5704,7 +5704,7 @@ skipReport = true
 id = "polymarket-api-key"
 description = "Identified a Polymarket API key, potentially compromising access to the Polymarket trading platform."
 regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = ["key"]
+keywords = ["poly"]
 validate = '''
 cel.bind(ts, time.now_unix(),
   cel.bind(sig,
@@ -5746,7 +5746,7 @@ withinLines = 20
 id = "polymarket-api-secret"
 description = "Discovered a Polymarket API secret, which could be used to sign authenticated requests to the Polymarket L2 API."
 regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-zA-Z0-9+/]{40,}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = ["secret"]
+keywords = ["poly"]
 skipReport = true
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5759,7 +5759,7 @@ entropy(finding["secret"]) <= 3.0
 id = "polymarket-passphrase"
 description = "Found a Polymarket API passphrase, used as a component of authenticated Polymarket API requests."
 regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}passphrase)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-zA-Z0-9_]{8,128})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = ["passphrase"]
+keywords = ["poly"]
 skipReport = true
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5769,10 +5769,7 @@ skipReport = true
 id = "polymarket-private-key"
 description = "Discovered a Polymarket private key, which could allow unauthorized trading and fund transfers."
 regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}private.{0,20}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(0x[a-fA-F0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = [
-    "private",
-    "key",
-]
+keywords = ["poly"]
 filter = '''
 entropy(finding["secret"]) <= 3.5
 '''
@@ -6675,7 +6672,7 @@ description = "Identified a Vault Service Token, potentially compromising infras
 regex = '''\b((?:hvs\.[\w-]{90,120}|s\.(?i:[a-z0-9]{24})))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = [
     "hvs.",
-    "s.",
+    "vault",
 ]
 filter = '''
 entropy(finding["secret"]) <= 3.5
