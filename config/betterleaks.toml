@@ -721,11 +721,10 @@ id = "aws-secret-access-key"
 description = "Identified an AWS secret access key, used as a component of the aws-access-token composite rule."
 regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:secret|access|key|token)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9/+=]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = [
-    "a3t",
-    "akia",
-    "asia",
-    "abia",
-    "acca",
+    "secret",
+    "access",
+    "key",
+    "token",
 ]
 skipReport = true
 filter = '''
