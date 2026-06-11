@@ -67,6 +67,9 @@ type File struct {
 	Content io.Reader
 	// Path is the resolved real path of the file
 	Path string
+	// Attributes are additional fragment attributes to merge into each emitted
+	// fragment. These override source-derived attributes with the same key.
+	Attributes map[string]string
 	// Symlink represents a symlink to the file if that's how it was discovered
 	Symlink string
 	// Buffer is used for reading the content in chunks
@@ -247,6 +250,20 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 				AttrPath:     fragPath,
 				AttrResource: ResourceFileContent,
 			}
+			if s.Symlink != "" {
+				symlink := s.Symlink
+				if isWindows {
+					symlink = filepath.ToSlash(s.Symlink)
+				}
+				attr[AttrFSSymlink] = symlink
+			}
+			for key, value := range s.Attributes {
+				attr[key] = value
+			}
+			if shouldSkipAttrs(s.ShouldSkip, attr) {
+				logging.Debug().Str("path", attr[AttrPath]).Msg("skipping file: global allowlist")
+				return nil
+			}
 			fragment := Fragment{
 				Attributes: attr,
 			}
@@ -293,14 +310,6 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 
 			// Count the number of newlines in this chunk
 			totalLines += strings.Count(fragment.Raw, "\n")
-
-			if s.Symlink != "" {
-				symlink := s.Symlink
-				if isWindows {
-					symlink = filepath.ToSlash(s.Symlink)
-				}
-				fragment.SetAttr(AttrFSSymlink, symlink)
-			}
 
 			// log errors but continue since there's content
 			if err != nil && err != io.EOF {

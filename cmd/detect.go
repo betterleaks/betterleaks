@@ -38,6 +38,7 @@ func init() {
 	detectCmd.Flags().StringP("source", "s", ".", "path to source")
 	detectCmd.Flags().String("log-opts", "", "git log options")
 	detectCmd.Flags().String("platform", "", "the target platform used to generate links (github, gitlab)")
+	addSetAttrFlag(detectCmd)
 }
 
 var detectCmd = &cobra.Command{
@@ -89,9 +90,14 @@ func runDetect(cmd *cobra.Command, args []string) {
 			logging.Error().Err(err).Msg("failed to scan directory")
 		}
 	} else if fromPipe {
+		attrs := mustGetSetAttrs(cmd)
+		path := attrs[sources.AttrPath]
 		findings, err = detector.DetectSource(
 			cmd.Context(), &sources.File{
 				Content:         os.Stdin,
+				Path:            path,
+				Attributes:      attrs,
+				ShouldSkip:      detector.SkipFunc(),
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 			},
 		)

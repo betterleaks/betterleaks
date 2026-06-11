@@ -39,6 +39,42 @@ func loadTestConfig(t *testing.T, cfgName string) *config.Config {
 	return cfg
 }
 
+func TestDetectSourceUsesFileAttributeOverridesInPrefilter(t *testing.T) {
+	cfg := &config.Config{
+		Rules: map[string]config.Rule{
+			"test-secret": {
+				RuleID: "test-secret",
+				Regex:  regexp.MustCompile(`SECRET_[A-Z0-9]+`),
+			},
+		},
+		NoKeywordRules: []string{"test-secret"},
+		Prefilter:      `attributes[?"path"].orValue("") == "go.mod"`,
+	}
+	detector := NewDetector(cfg)
+
+	findings, err := detector.DetectSource(
+		context.Background(),
+		&sources.File{Content: strings.NewReader("SECRET_ABC123\n")},
+	)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+
+	detector = NewDetector(cfg)
+	findings, err = detector.DetectSource(
+		context.Background(),
+		&sources.File{
+			Content: strings.NewReader("SECRET_ABC123\n"),
+			Path:    "go.mod",
+			Attributes: map[string]string{
+				sources.AttrPath: "go.mod",
+			},
+			ShouldSkip: detector.SkipFunc(),
+		},
+	)
+	require.NoError(t, err)
+	require.Empty(t, findings)
+}
+
 const encodedTestValues = `
 # Decoded
 -----BEGIN PRIVATE KEY-----
