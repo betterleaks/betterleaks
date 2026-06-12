@@ -39,6 +39,13 @@ func envBindings(e *ValidationEnvironment) []cel.EnvOption {
 				cel.UnaryBinding(envBinding(e)),
 			),
 		),
+		cel.Function("env.getOrDefault",
+			cel.Overload("env_get_or_default_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType},
+				cel.StringType,
+				cel.BinaryBinding(envOrDefaultBinding(e)),
+			),
+		),
 		// Deprecated: use env.get.
 		cel.Function("env",
 			cel.Overload("env_string",
@@ -64,5 +71,31 @@ func envBinding(e *ValidationEnvironment) functions.UnaryOp {
 			return types.NewErr("env: %q not in validation env allowlist", name)
 		}
 		return types.String(os.Getenv(name))
+	}
+}
+
+func envOrDefaultBinding(e *ValidationEnvironment) functions.BinaryOp {
+	return func(lhs ref.Val, rhs ref.Val) ref.Val {
+		nameVal, ok := lhs.(types.String)
+		if !ok {
+			return types.NewErr("env.getOrDefault: name must be a string, got %T", lhs)
+		}
+		defaultVal, ok := rhs.(types.String)
+		if !ok {
+			return types.NewErr("env.getOrDefault: default must be a string, got %T", rhs)
+		}
+
+		name := string(nameVal)
+		defaultValue := string(defaultVal)
+		if len(e.AllowedEnv) == 0 {
+			return types.String(defaultValue)
+		}
+		if _, ok := e.AllowedEnv[name]; !ok {
+			return types.String(defaultValue)
+		}
+		if value, ok := os.LookupEnv(name); ok {
+			return types.String(value)
+		}
+		return types.String(defaultValue)
 	}
 }

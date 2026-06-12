@@ -80,6 +80,70 @@ func TestEnvBinding_emptyAllowlistDisables(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEnvGetOrDefault_noAllowlistReturnsDefault(t *testing.T) {
+	env, err := NewEnvironment(nil)
+	require.NoError(t, err)
+
+	prg, err := env.Compile(`env.getOrDefault("ANYTHING", "fallback")`)
+	require.NoError(t, err)
+	got, err := env.Eval(prg, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "fallback", got.Value())
+}
+
+func TestEnvGetOrDefault_notAllowlistedReturnsDefault(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "real-value")
+	env, err := NewEnvironment(nil)
+	require.NoError(t, err)
+	env.AllowedEnv = map[string]struct{}{"ONLY": {}}
+
+	prg, err := env.Compile(`env.getOrDefault("OPENAI_API_KEY", "fallback")`)
+	require.NoError(t, err)
+	got, err := env.Eval(prg, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "fallback", got.Value())
+}
+
+func TestEnvGetOrDefault_allowlistedUnsetReturnsDefault(t *testing.T) {
+	const name = "BETTERLEAKS_TEST_ENV_UNSET_DEFAULT_XYZ"
+	_ = os.Unsetenv(name)
+	env, err := NewEnvironment(nil)
+	require.NoError(t, err)
+	env.AllowedEnv = map[string]struct{}{name: {}}
+
+	prg, err := env.Compile(`env.getOrDefault("` + name + `", "fallback")`)
+	require.NoError(t, err)
+	got, err := env.Eval(prg, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "fallback", got.Value())
+}
+
+func TestEnvGetOrDefault_allowlistedSetReturnsValue(t *testing.T) {
+	t.Setenv("FOO", "bar")
+	env, err := NewEnvironment(nil)
+	require.NoError(t, err)
+	env.AllowedEnv = map[string]struct{}{"FOO": {}}
+
+	prg, err := env.Compile(`env.getOrDefault("FOO", "fallback")`)
+	require.NoError(t, err)
+	got, err := env.Eval(prg, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "bar", got.Value())
+}
+
+func TestEnvGetOrDefault_allowlistedEmptyReturnsEmpty(t *testing.T) {
+	t.Setenv("FOO", "")
+	env, err := NewEnvironment(nil)
+	require.NoError(t, err)
+	env.AllowedEnv = map[string]struct{}{"FOO": {}}
+
+	prg, err := env.Compile(`env.getOrDefault("FOO", "fallback")`)
+	require.NoError(t, err)
+	got, err := env.Eval(prg, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "", got.Value())
+}
+
 func TestEnvBinding_httpGetAuthorizationHeader(t *testing.T) {
 	const tok = "tok-xyz-123"
 	t.Setenv("CELENV_TEST_AUTH", tok)

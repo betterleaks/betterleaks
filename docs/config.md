@@ -129,6 +129,7 @@ Any additional keys are attached to the finding as validation metadata, such as
 | `http.post(url, headers, body)` | Sends a POST request. |
 | `validate.unknown(response)` | Returns `{"result": "unknown", "reason": "HTTP <status>"}` for unexpected HTTP responses. |
 | `env.get(name)` | Reads an allowlisted environment variable. Requires `--validation-env-vars`. |
+| `env.getOrDefault(name, default)` | Reads an allowlisted environment variable, or returns `default` when env access is disabled, the name is not allowlisted, or the variable is unset. |
 | `strings.obfuscate(secret)` | Returns a same-length, shape-preserving stand-in for a secret. Useful before sending context to third-party APIs. |
 | `json.string(value)` | Returns a quoted JSON string literal. Useful when hand-building JSON request bodies. |
 | `strings.urlQueryEscape(value)` | URL-query escapes a string. Useful when building signed validation request URLs. |
@@ -182,31 +183,38 @@ rules in `cmd/generate/config/rules`.
 
 ### Overriding rule defaults with env vars
 
-`env.get` lets a rule treat any hardcoded value — an API host, a region, an
-account ID — as a default that the user can override at scan time. The rule
-reads an allowlisted variable and falls back to the literal when it's empty:
+`env.getOrDefault` lets a rule treat any hardcoded value - an API host, a
+region, an account ID - as a default that the user can override at scan time.
+The rule reads an allowlisted variable and falls back to the literal default
+when env access is disabled, the name is not allowlisted, or the variable is
+unset:
 
 ```cel
-cel.bind(base_url, env.get("SOME_BASE_URL"),
+cel.bind(base_url, env.getOrDefault("SOME_BASE_URL", "https://default.example.com"),
   cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://default.example.com") + "/whoami", { ... }),
+    http.get(base_url + "/whoami", { ... }),
     ...
   )
 )
 ```
 
-The variable must be passed via `--validation-env-vars`; without the flag,
-`env.get` returns a CEL error and the finding's validation status becomes
-`error`. When the var is allowlisted but unset, `env.get` returns `""` and the
-ternary falls back to the literal default.
+To override the default, the variable must be passed via
+`--validation-env-vars`. Unlike `env.get`, missing allowlist configuration does
+not produce a validation error for `env.getOrDefault`; it just returns the
+provided default. If the variable is allowlisted and explicitly set to an empty
+string, `env.getOrDefault` returns `""`.
 
-The built-in `github-*` rules use this pattern with `GITHUB_BASE_URL` so the
-same rules validate against GitHub Enterprise Server:
+The built-in `github-*` rules use `env.getOrDefault` with `GITHUB_BASE_URL` so
+the same rules validate against GitHub Enterprise Server:
 
 ```sh
 export GITHUB_BASE_URL=https://github.example.com/api/v3
 betterleaks github --validation --validation-env-vars GITHUB_BASE_URL https://github.example.com/owner
 ```
+
+Use `env.get` instead when the env var is required for the validator to be
+meaningful, such as provider API keys used only for validation. `env.get`
+returns a CEL error when env access is disabled or the name is not allowlisted.
 
 ## Validation with an LLM
 
@@ -279,7 +287,7 @@ cel.bind(obf_secret, strings.obfuscate(finding["secret"]),
 
 Project-owned CEL functions use short lower-case namespaces with camelCase
 function names. Examples: `http.get`, `crypto.hmacSha256`,
-`filter.matchesAny`, `env.get`, and `validate.unknown`.
+`filter.matchesAny`, `env.getOrDefault`, and `validate.unknown`.
 
 Data keys stay snake_case. This includes capture keys, attribute keys, finding
 keys, and response map keys such as `error_code`.

@@ -3882,9 +3882,9 @@ keywords = [
     "ghs_",
 ]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+cel.bind(base_url, env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"),
   cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/app", {
+    http.get(base_url + "/app", {
       "Accept": "application/vnd.github+json",
       "Authorization": "Bearer " + finding["secret"]
     }),
@@ -3915,9 +3915,9 @@ description = "Found a GitHub Fine-Grained Personal Access Token, risking unauth
 regex = '''github_pat_\w{82}'''
 keywords = ["github_pat_"]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+cel.bind(base_url, env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"),
   cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+    http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
     }),
@@ -3946,9 +3946,9 @@ description = "Discovered a GitHub OAuth Access Token, posing a risk of compromi
 regex = '''gho_[0-9a-zA-Z]{36}'''
 keywords = ["gho_"]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+cel.bind(base_url, env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"),
   cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+    http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
     }),
@@ -3977,9 +3977,9 @@ description = "Uncovered a GitHub Personal Access Token, potentially leading to 
 regex = '''ghp_[0-9a-zA-Z]{36}'''
 keywords = ["ghp_"]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+cel.bind(base_url, env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"),
   cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+    http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
     }),
@@ -4009,9 +4009,9 @@ description = "Detected a GitHub Refresh Token, which could allow prolonged unau
 regex = '''ghr_[0-9a-zA-Z]{36}'''
 keywords = ["ghr_"]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+cel.bind(base_url, env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"),
   cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+    http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
     }),

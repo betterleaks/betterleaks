@@ -7,9 +7,9 @@ import (
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
-const githubTokenCEL = `cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+const githubTokenCEL = `cel.bind(base_url, env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"),
   cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+    http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
     }),
@@ -55,7 +55,7 @@ func GitHubFineGrainedPat() *config.Rule {
 		Regex:       regexp.MustCompile(`github_pat_\w{82}`),
 		Keywords:    []string{"github_pat_"},
 		ValidateCEL: githubTokenCEL,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -74,7 +74,7 @@ func GitHubOauth() *config.Rule {
 		Regex:       regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
 		Keywords:    []string{"gho_"},
 		ValidateCEL: githubTokenCEL,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -87,9 +87,9 @@ func GitHubOauth() *config.Rule {
 
 // TODO add this later once we confirm orValue({}) is working
 // "permissions": r.json.?permissions.orValue({})
-const githubAppTokenCEL = `cel.bind(base_url, env.get("GITHUB_BASE_URL"),
+const githubAppTokenCEL = `cel.bind(base_url, env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"),
   cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/app", {
+    http.get(base_url + "/app", {
       "Accept": "application/vnd.github+json",
       "Authorization": "Bearer " + finding["secret"]
     }),
@@ -136,7 +136,7 @@ func GitHubRefresh() *config.Rule {
 		Regex:       regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
 		Keywords:    []string{"ghr_"},
 		ValidateCEL: githubTokenCEL,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
