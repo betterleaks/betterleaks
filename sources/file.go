@@ -321,13 +321,10 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 			if err != nil && err != io.EOF {
 				if isArchiveContent {
 					logging.Warn().Err(err).Str("path", fullPath).Msg("issue reading archive content")
+					return yield(fragment, nil)
 				} else {
 					logging.Warn().Err(err).Msgf("issue reading file")
 				}
-			}
-
-			if isArchiveContent && err != nil && err != io.EOF {
-				return yield(fragment, nil)
 			}
 
 			if stopAfterYield {
