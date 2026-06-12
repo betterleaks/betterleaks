@@ -153,8 +153,18 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 	}, nil
 }
 
-// splitGitLogOpts parses user-provided --log-opts using shell-like rules so
-// values wrapped in single/double quotes stay grouped as one argument.
+// splitGitLogOpts parses user-provided --log-opts with a small shell-inspired
+// tokenizer.
+//
+// Supported behavior:
+//   - whitespace splits arguments unless inside quotes
+//   - single and double quotes group text and are removed from output
+//   - backslash escapes the next rune outside single quotes
+//   - unmatched quote or trailing backslash returns an error
+//
+// This is intentionally not a full shell parser: no variable expansion,
+// command substitution, glob expansion, or other shell features. Also, a
+// standalone empty quoted token (for example '') is currently dropped.
 func splitGitLogOpts(input string) ([]string, error) {
 	var (
 		args     []string
@@ -191,7 +201,7 @@ func splitGitLogOpts(input string) ([]string, error) {
 	}
 
 	if escaped {
-		curr.WriteRune('\\')
+		return nil, errors.New("unterminated escape in --log-opts")
 	}
 	if inSingle || inDouble {
 		return nil, errors.New("unterminated quote in --log-opts")
