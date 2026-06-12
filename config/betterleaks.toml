@@ -4852,6 +4852,35 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# kimi-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "kimi-api-key"
+description = "Detected a Kimi API key, which may expose Moonshot AI model access and usage to unauthorized parties."
+regex = '''(?i)[\w.-]{0,50}?(?:kimi|moonshot)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk-[A-Za-z0-9_-]{48})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "kimi",
+    "moonshot",
+]
+validate = '''
+cel.bind(r,
+  http.get("https://api.moonshot.ai/v1/models", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }),
+  r.status == 200 && r.body.contains('"data"') ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # klaviyo-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -5201,6 +5230,35 @@ keywords = [
     "webhookb2",
     "incomingwebhook",
 ]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# minimax-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "minimax-api-key"
+description = "Detected a MiniMax API key, which may expose AI model, speech, image, video, or file services to unauthorized access."
+regex = '''(?i)\b(sk-api-[A-Za-z0-9_-]{119})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "sk-api-",
+    "minimax",
+]
+validate = '''
+cel.bind(r,
+  http.get("https://api.minimax.io/v1/models", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }),
+  r.status == 200 && r.body.contains('"data"') ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # mistral-api-key
@@ -6949,6 +7007,46 @@ id = "yandex-aws-access-token"
 description = "Uncovered a Yandex AWS Access Token, potentially compromising cloud resource access and data security on Yandex Cloud."
 regex = '''(?i)[\w.-]{0,50}?(?:yandex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(YC[a-zA-Z0-9_\-]{38})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["yandex"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# zai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zai-api-key"
+description = "Detected a Z.ai API key, which may expose GLM model access and usage to unauthorized parties."
+regex = '''(?i)[\w.-]{0,50}?(?:zai|z_ai|z\.ai|glm|zlm)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32}\.[a-z0-9]{16})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "zai",
+    "z_ai",
+    "z.ai",
+    "glm",
+    "zlm",
+]
+validate = '''
+cel.bind(r,
+  http.post("https://api.z.ai/api/paas/v4/tokenizer", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  "{" +
+    "\"model\":\"glm-4.6\"," +
+    "\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]" +
+  "}"),
+  r.status == 200 && r.body.contains('"usage"') ? {
+    "result": "valid"
+  } : r.status == 429 && r.body.contains("Insufficient balance") ? {
+    "result": "valid",
+    "reason": "Insufficient balance but still valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # zendesk-secret-key
