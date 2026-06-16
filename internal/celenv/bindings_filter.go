@@ -153,7 +153,8 @@ func containsAnyBinding(name, overload string) cel.EnvOption {
 }
 
 // entropyBinding returns a CEL function that computes Shannon entropy.
-// Computes Shannon entropy in bits over the byte distribution of the string.
+// Computes Shannon entropy in bits over the character (rune) distribution of
+// the string, matching the entropy reported on findings.
 func entropyBinding(name, overload string) cel.EnvOption {
 	return cel.Function(name,
 		cel.Overload(overload,
@@ -174,17 +175,18 @@ func celShannonEntropy(s string) float64 {
 	if len(s) == 0 {
 		return 0
 	}
-	var freq [256]float64
-	for i := 0; i < len(s); i++ {
-		freq[s[i]]++
+	// Count runes, not bytes, and use the same formula as detect.shannonEntropy
+	// so the CEL entropy() used in rule filters agrees with the entropy reported
+	// on findings. A byte-based count diverges for non-ASCII secrets.
+	counts := make(map[rune]int)
+	for _, r := range s {
+		counts[r]++
 	}
-	n := float64(len(s))
+	invLength := 1.0 / float64(len(s))
 	var h float64
-	for _, f := range freq {
-		if f > 0 {
-			p := f / n
-			h -= p * math.Log2(p)
-		}
+	for _, count := range counts {
+		p := float64(count) * invLength
+		h -= p * math.Log2(p)
 	}
 	return h
 }
