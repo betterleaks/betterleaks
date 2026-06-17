@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -556,10 +556,14 @@ func (s *GitHub) streamRepos(label string,
 	return nil
 }
 
-// isExcluded checks if a repo full name matches any exclusion glob.
+// isExcluded checks if a repo full name matches any exclusion glob. Matching is
+// done with path.Match (always "/"-separated, unlike the OS-dependent
+// filepath.Match) and case-folded, since "owner/repo" is forward-slashed and
+// GitHub names are case-insensitive.
 func (s *GitHub) isExcluded(fullName string) bool {
+	name := strings.ToLower(fullName)
 	for _, pattern := range s.ExcludeRepos {
-		if matched, _ := filepath.Match(pattern, fullName); matched {
+		if matched, _ := path.Match(strings.ToLower(pattern), name); matched {
 			return true
 		}
 	}
