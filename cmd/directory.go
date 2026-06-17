@@ -17,6 +17,8 @@ import (
 func init() {
 	rootCmd.AddCommand(directoryCmd)
 	directoryCmd.Flags().Bool("follow-symlinks", false, "scan files that are symlinks to other files")
+	directoryCmd.Flags().StringSlice("include", []string{}, "only scan files matching these path globs")
+	directoryCmd.Flags().StringSlice("exclude", []string{}, "skip files and directories matching these path globs")
 }
 
 var directoryCmd = &cobra.Command{
@@ -38,6 +40,8 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	// start timer
 	start := time.Now()
 	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
+	includeGlobs, _ := cmd.Flags().GetStringSlice("include")
+	excludeGlobs, _ := cmd.Flags().GetStringSlice("exclude")
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
 	noColor := mustGetBoolFlag(cmd, "no-color")
@@ -60,8 +64,12 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		detector.SkipFindingAppend = true
 		lastDetector = detector
 
+		exclude := append(excludeGlobs, detector.PathExcludeGlobs()...)
+
 		s := &sources.Files{
 			ShouldSkip:      detector.SkipFunc(),
+			IncludeGlobs:    includeGlobs,
+			ExcludeGlobs:    exclude,
 			FollowSymlinks:  followSymlinks,
 			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
 			Path:            source,

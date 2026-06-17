@@ -45,6 +45,24 @@ betterleaks dir . --report-path findings.json --report-format json
 
 # SARIF for code scanning platforms
 betterleaks dir . --report-path findings.sarif --report-format sarif
+
+# only scan selected paths
+betterleaks dir . --include 'src/**' --include 'pkg/**'
+
+# skip fixture directories (also supported in .betterleaksignore)
+betterleaks dir . --exclude 'fixtures/**' --exclude 'testdata/**'
+```
+
+Path globs use `filepath.Match` syntax against the full file path. Patterns ending in `/` or `/**` skip entire directory trees. Use `**/*.go` (not `*.go`) to match by file extension in any directory.
+
+`.betterleaksignore` (and `.gitleaksignore`) accept finding fingerprints and path globs:
+
+```gitignore
+# skip a directory of test keys
+fixtures/test-keys/**
+
+# ignore a specific prior finding
+api/api.go:aws-access-key:7
 ```
 
 ---
