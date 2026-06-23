@@ -2528,7 +2528,7 @@ let password = 'Summer2024!';`
 				},
 			}
 
-			// Translate legacy allowlists to CEL filter and compile.
+			// Translate legacy allowlists to filter expressions and compile.
 			cfg := &config.Config{
 				Rules: map[string]config.Rule{"test-rule": rule},
 			}
@@ -2922,7 +2922,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 	require.NoError(t, err)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			// Translate legacy allowlists to CEL filter and compile.
+			// Translate legacy allowlists to filter expressions and compile.
 			cfg := &config.Config{
 				Rules: map[string]config.Rule{test.rule.RuleID: test.rule},
 			}

@@ -1,6 +1,7 @@
-package celenv
+package exprenv
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +30,7 @@ func TestCallSTS_Valid(t *testing.T) {
 	defer ts.Close()
 
 	e := &ValidationEnvironment{client: ts.Client()}
-	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
+	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
 
 	if result["status"] != int64(200) {
 		t.Fatalf("expected status 200, got %v", result["status"])
@@ -53,7 +54,7 @@ func TestCallSTS_Invalid(t *testing.T) {
 	defer ts.Close()
 
 	e := &ValidationEnvironment{client: ts.Client()}
-	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey")
+	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey")
 
 	if result["status"] != int64(403) {
 		t.Fatalf("expected status 403, got %v", result["status"])
@@ -70,7 +71,7 @@ func TestCallSTS_ServerError(t *testing.T) {
 	defer ts.Close()
 
 	e := &ValidationEnvironment{client: ts.Client()}
-	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey")
+	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey")
 
 	if result["status"] != int64(500) {
 		t.Fatalf("expected status 500, got %v", result["status"])
@@ -124,11 +125,7 @@ func TestAWSValidateCELBinding_Valid(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 
-	m, err := got.ConvertToNative(mapAnyType)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
-	result := m.(map[string]any)
+	result := got.(map[string]any)
 	if result["result"] != "valid" {
 		t.Errorf("expected valid, got %v", result["result"])
 	}
@@ -174,11 +171,7 @@ func TestAWSValidateCELBinding_Invalid(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 
-	m, err := got.ConvertToNative(mapAnyType)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
-	result := m.(map[string]any)
+	result := got.(map[string]any)
 	if result["result"] != "invalid" {
 		t.Errorf("expected invalid, got %v", result["result"])
 	}

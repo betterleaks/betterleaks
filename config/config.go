@@ -12,9 +12,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	tiktoken "github.com/pkoukk/tiktoken-go"
 
-	"github.com/google/cel-go/cel"
-
-	"github.com/betterleaks/betterleaks/internal/celenv"
+	"github.com/betterleaks/betterleaks/internal/exprenv"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/version"
@@ -42,7 +40,7 @@ type rawConfig struct {
 	MinVersion            string `toml:"minVersion"`
 	BetterleaksMinVersion string `toml:"betterleaksMinVersion"`
 
-	// Global CEL filter expressions.
+	// Global filter expressions.
 	Prefilter string `toml:"prefilter"`
 	Filter    string `toml:"filter"`
 
@@ -118,20 +116,20 @@ type Config struct {
 	MinVersion            string
 	BetterleaksMinVersion string
 
-	// Prefilter is a global CEL expression (attributes only) evaluated before any
+	// Prefilter is a global expression (attributes only) evaluated before any
 	// per-match work. Returns true = skip this fragment entirely; false = keep.
 	// Translated from global Allowlists path/commit checks.
 	Prefilter string
-	// Filter is a global CEL expression (attributes + finding) evaluated per match.
+	// Filter is a global expression (attributes + finding) evaluated per match.
 	// Returns true = skip (discard) this finding; false = keep.
 	// Translated from global Allowlists regex/stopword checks.
 	Filter string
 
-	// prefilterProgram and filterProgram hold CEL programs compiled by
+	// prefilterProgram and filterProgram hold programs compiled by
 	// CompileCELFilters. Validation compilation is handled separately by
 	// CompileValidation.
-	prefilterProgram cel.Program
-	filterProgram    cel.Program
+	prefilterProgram exprenv.Program
+	filterProgram    exprenv.Program
 }
 
 // Extend is a struct that allows users to define how they want their
@@ -495,25 +493,25 @@ func (rc *rawConfig) parseAllowlist(a *rawRuleAllowlist) (*Allowlist, error) {
 }
 
 // PrefilterProgram returns the compiled global prefilter program, or nil if not set.
-func (c *Config) PrefilterProgram() cel.Program { return c.prefilterProgram }
+func (c *Config) PrefilterProgram() exprenv.Program { return c.prefilterProgram }
 
 // SetPrefilterProgram stores a compiled global prefilter program.
-func (c *Config) SetPrefilterProgram(p cel.Program) { c.prefilterProgram = p }
+func (c *Config) SetPrefilterProgram(p exprenv.Program) { c.prefilterProgram = p }
 
 // FilterProgram returns the compiled global filter program, or nil if not set.
-func (c *Config) FilterProgram() cel.Program { return c.filterProgram }
+func (c *Config) FilterProgram() exprenv.Program { return c.filterProgram }
 
 // SetFilterProgram stores a compiled global filter program.
-func (c *Config) SetFilterProgram(p cel.Program) { c.filterProgram = p }
+func (c *Config) SetFilterProgram(p exprenv.Program) { c.filterProgram = p }
 
 // CompileCELFilters compiles the global prefilter, global filter, and per-rule
 // filter CEL expressions into executable programs. This is idempotent.
 func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
-	prefilterEnv, err := celenv.NewPrefilterEnv()
+	prefilterEnv, err := exprenv.NewPrefilterEnv()
 	if err != nil {
 		return fmt.Errorf("creating prefilter env: %w", err)
 	}
-	filterEnv, err := celenv.NewFilterEnv(tokenizer)
+	filterEnv, err := exprenv.NewFilterEnv(tokenizer)
 	if err != nil {
 		return fmt.Errorf("creating filter env: %w", err)
 	}
@@ -547,11 +545,11 @@ func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
 	return nil
 }
 
-// CompileValidation compiles per-rule CEL validation expressions.
-// It creates its own celenv.Environment (like CompileCELFilters creates filter/prefilter envs)
+// CompileValidation compiles per-rule validation expressions.
+// It creates its own exprenv.Environment (like CompileCELFilters creates filter/prefilter envs)
 // and returns it so the caller can store it for runtime use by the validation pool.
 // Returns (nil, nil) when no rules have validation expressions.
-func (c *Config) CompileValidation() (*celenv.ValidationEnvironment, error) {
+func (c *Config) CompileValidation() (*exprenv.ValidationEnvironment, error) {
 	// Quick check: skip environment creation if nothing to compile.
 	hasValidation := false
 	for _, r := range c.Rules {
@@ -564,7 +562,7 @@ func (c *Config) CompileValidation() (*celenv.ValidationEnvironment, error) {
 		return nil, nil
 	}
 
-	env, err := celenv.NewEnvironment(nil)
+	env, err := exprenv.NewEnvironment(nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating validation env: %w", err)
 	}

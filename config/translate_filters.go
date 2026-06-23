@@ -9,7 +9,7 @@ import (
 )
 
 // TranslateLegacyFilters converts deprecated Allowlists, Entropy, and TokenEfficiency
-// fields into CEL prefilter/filter string cel-expressions on the Config and its Rules.
+// fields into prefilter/filter expressions on the Config and its Rules.
 // This is exported for use by the config generator, but is also called internally
 // at the end of config translation (after all extends and targeted allowlists are populated).
 // Translated expressions are logged at the debug level to help users migrate.
@@ -73,7 +73,7 @@ func (c *Config) translateLegacyFilters() error {
 	return nil
 }
 
-// translateAllowlistSlice translates a slice of Allowlists into two lists of CEL
+// translateAllowlistSlice translates a slice of Allowlists into two lists of
 // sub-expressions: prefilterParts (for attributes-only prefilter) and filterParts
 // (for per-match filter). Each sub-expression, when true, means "suppress this item",
 // and callers pass them directly to composeFilters as skip-when-true predicates.
@@ -86,7 +86,7 @@ func translateAllowlistSlice(allowlists []*Allowlist) (prefilterParts, filterPar
 	return prefilterParts, filterParts
 }
 
-// translateAllowlist translates one Allowlist into "suppress-when-true" CEL sub-expressions.
+// translateAllowlist translates one Allowlist into "suppress-when-true" sub-expressions.
 //
 // For OR allowlists: paths/commits land in prefilter, regexes/stopwords in filter.
 // For AND allowlists: all parts land in filter only (no prefilter split), because
@@ -104,12 +104,12 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 		}
 		list := celRegexList(patterns)
 		pathParts = append(pathParts,
-			fmt.Sprintf(`matchesAny(attributes[?"path"].orValue(""), %s)`, list))
+			fmt.Sprintf(`matchesAny(get(attributes, "path", ""), %s)`, list))
 	}
 
 	// Collect commit expressions (prefilter-level).
 	if len(a.Commits) > 0 {
-		commitParts = append(commitParts, fmt.Sprintf(`attributes[?"git.sha"].orValue("") in %s`, celStringList(a.Commits)))
+		commitParts = append(commitParts, fmt.Sprintf(`get(attributes, "git.sha", "") in %s`, celStringList(a.Commits)))
 	}
 
 	// Collect regex expressions (filter-level).
@@ -171,13 +171,12 @@ func composeFilters(skipParts []string, userExpr string) string {
 	return strings.Join(parts, "\n|| ")
 }
 
-// celRegexLit returns a CEL string literal for a regex pattern. Raw string
-// syntax r"""...""" is preferred for readability; strconv.Quote is used when
-// the pattern contains """ or ends with ", which would break raw strings
-// (issue #140).
+// celRegexLit returns an Expr string literal for a regex pattern. Backtick
+// strings are preferred for readability; strconv.Quote is used when the pattern
+// contains a backtick.
 func celRegexLit(s string) string {
-	if !strings.Contains(s, `"""`) && !strings.HasSuffix(s, `"`) {
-		return `r"""` + s + `"""`
+	if !strings.Contains(s, "`") {
+		return "`" + s + "`"
 	}
 	return strconv.Quote(s)
 }

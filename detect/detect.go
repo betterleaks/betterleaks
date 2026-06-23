@@ -17,7 +17,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
-	"github.com/betterleaks/betterleaks/internal/celenv"
+	"github.com/betterleaks/betterleaks/internal/exprenv"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
@@ -81,7 +81,7 @@ type Detector struct {
 	// printed in verbose mode. Parsed from --validation-status.
 	ValidationStatusFilter map[string]struct{}
 
-	// ValidationPool is the CEL validation worker pool.
+	// ValidationPool is the expression validation worker pool.
 	ValidationPool *validate.Pool
 
 	// ValidationCounts tracks how many findings were returned for each
@@ -117,7 +117,7 @@ type Detector struct {
 	// per-rule validation expressions. Created during construction;
 	// nil when no rules have ValidateCEL. The cmd layer may reconfigure
 	// the HTTP client/debug settings before evaluation begins.
-	validationEnv *celenv.ValidationEnvironment
+	validationEnv *exprenv.ValidationEnvironment
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -192,7 +192,7 @@ type Detector struct {
 }
 
 // NewDetectorContext creates a new Detector.
-// It compiles all CEL programs (filters + validation) and, when
+// It compiles all expression programs (filters + validation) and, when
 // valOpts.Enabled is true, creates the validation worker pool.
 func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) *Detector {
 	if cfg == nil {
@@ -208,19 +208,19 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
 	}
 
-	// Compile CEL filter programs so they are available at scan time.
+	// Compile filter programs so they are available at scan time.
 	// This is the single compilation owner — callers should NOT compile separately.
 	if compileErr := cfg.CompileCELFilters(tke); compileErr != nil {
-		logging.Fatal().Err(compileErr).Msg("failed to compile CEL filters")
+		logging.Fatal().Err(compileErr).Msg("failed to compile filters")
 	}
 
-	// Compile CEL validation programs (no-op if no rules have ValidateCEL).
+	// Compile validation programs (no-op if no rules have ValidateCEL).
 	validationEnv, validationErr := cfg.CompileValidation()
 	if validationErr != nil {
-		logging.Fatal().Err(validationErr).Msg("failed to compile CEL validation expressions")
+		logging.Fatal().Err(validationErr).Msg("failed to compile validation expressions")
 	}
 	if validationEnv != nil {
-		validationEnv.AllowedEnv = celenv.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
+		validationEnv.AllowedEnv = exprenv.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
 	}
 
 	d := &Detector{
@@ -281,7 +281,7 @@ func (d *Detector) SkipFunc() sources.SkipFunc {
 		return nil
 	}
 	return func(attrs map[string]string) bool {
-		skip, err := celenv.EvalPrefilter(prg, attrs)
+		skip, err := exprenv.EvalPrefilter(prg, attrs)
 		if err != nil {
 			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
 			return false
@@ -816,7 +816,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		// Global filter: CEL path (attributes + finding).
 		if d.Config.FilterProgram() != nil {
-			skip, err := celenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
+			skip, err := exprenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -826,7 +826,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
 		if r.FilterProgram() != nil {
-			skip, err := celenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
+			skip, err := exprenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {

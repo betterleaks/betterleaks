@@ -1,6 +1,7 @@
-package celenv
+package exprenv
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -15,11 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/functions"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
 )
 
 const (
@@ -45,31 +41,15 @@ type gcpTokenResponse struct {
 	ErrorDesc   string `json:"error_description"`
 }
 
-func gcpBindings(e *ValidationEnvironment) []cel.EnvOption {
-	return []cel.EnvOption{
-		cel.Function("gcp.validate",
-			cel.Overload("gcp_validate_string",
-				[]*cel.Type{cel.StringType},
-				cel.MapType(cel.StringType, cel.DynType),
-				cel.UnaryBinding(gcpValidateBinding(e)),
-			),
-		),
+func (rt *runtimeBindings) gcpValidate(credentialJSON string) map[string]any {
+	e := rt.validation
+	if e == nil {
+		e, _ = NewEnvironment(nil)
 	}
+	return validateGCPCredential(rt.ctx, e, credentialJSON)
 }
 
-func gcpValidateBinding(e *ValidationEnvironment) functions.UnaryOp {
-	return func(arg ref.Val) ref.Val {
-		credentialJSON, ok := arg.(types.String)
-		if !ok {
-			return types.NewErr("gcp.validate: credential_json must be a string")
-		}
-
-		result := validateGCPCredential(e, string(credentialJSON))
-		return types.DefaultTypeAdapter.NativeToValue(result)
-	}
-}
-
-func validateGCPCredential(e *ValidationEnvironment, credentialJSON string) map[string]any {
+func validateGCPCredential(ctx context.Context, e *ValidationEnvironment, credentialJSON string) map[string]any {
 	creds, err := parseGCPCredential(credentialJSON)
 	if err != nil {
 		return map[string]any{
@@ -103,7 +83,10 @@ func validateGCPCredential(e *ValidationEnvironment, credentialJSON string) map[
 		}
 	}
 
-	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return map[string]any{"status": int64(0)}
 	}

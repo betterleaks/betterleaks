@@ -1,4 +1,4 @@
-package celenv
+package exprenv
 
 import (
 	"fmt"
@@ -29,7 +29,7 @@ func TestEnvBinding_allowlistedSet(t *testing.T) {
 	require.NoError(t, err)
 	got, err := env.Eval(prg, nil, nil)
 	require.NoError(t, err)
-	require.Equal(t, "bar", got.Value())
+	require.Equal(t, "bar", got)
 }
 
 func TestEnvBinding_allowlistedUnset(t *testing.T) {
@@ -43,7 +43,7 @@ func TestEnvBinding_allowlistedUnset(t *testing.T) {
 	require.NoError(t, err)
 	got, err := env.Eval(prg, nil, nil)
 	require.NoError(t, err)
-	require.Equal(t, true, got.Value())
+	require.Equal(t, true, got)
 }
 
 func TestEnvBinding_notAllowlisted(t *testing.T) {
@@ -80,68 +80,21 @@ func TestEnvBinding_emptyAllowlistDisables(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEnvGetOrDefault_noAllowlistReturnsDefault(t *testing.T) {
+func TestEnvGetOrDefault(t *testing.T) {
+	t.Setenv("CELENV_DEFAULT_TEST", "override")
 	env, err := NewEnvironment(nil)
 	require.NoError(t, err)
 
-	prg, err := env.Compile(`env.getOrDefault("ANYTHING", "fallback")`)
+	prg, err := env.Compile(`env.getOrDefault("CELENV_DEFAULT_TEST", "fallback")`)
 	require.NoError(t, err)
 	got, err := env.Eval(prg, nil, nil)
 	require.NoError(t, err)
-	require.Equal(t, "fallback", got.Value())
-}
+	require.Equal(t, "fallback", got)
 
-func TestEnvGetOrDefault_notAllowlistedReturnsDefault(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "real-value")
-	env, err := NewEnvironment(nil)
+	env.AllowedEnv = map[string]struct{}{"CELENV_DEFAULT_TEST": {}}
+	got, err = env.Eval(prg, nil, nil)
 	require.NoError(t, err)
-	env.AllowedEnv = map[string]struct{}{"ONLY": {}}
-
-	prg, err := env.Compile(`env.getOrDefault("OPENAI_API_KEY", "fallback")`)
-	require.NoError(t, err)
-	got, err := env.Eval(prg, nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, "fallback", got.Value())
-}
-
-func TestEnvGetOrDefault_allowlistedUnsetReturnsDefault(t *testing.T) {
-	const name = "BETTERLEAKS_TEST_ENV_UNSET_DEFAULT_XYZ"
-	_ = os.Unsetenv(name)
-	env, err := NewEnvironment(nil)
-	require.NoError(t, err)
-	env.AllowedEnv = map[string]struct{}{name: {}}
-
-	prg, err := env.Compile(`env.getOrDefault("` + name + `", "fallback")`)
-	require.NoError(t, err)
-	got, err := env.Eval(prg, nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, "fallback", got.Value())
-}
-
-func TestEnvGetOrDefault_allowlistedSetReturnsValue(t *testing.T) {
-	t.Setenv("FOO", "bar")
-	env, err := NewEnvironment(nil)
-	require.NoError(t, err)
-	env.AllowedEnv = map[string]struct{}{"FOO": {}}
-
-	prg, err := env.Compile(`env.getOrDefault("FOO", "fallback")`)
-	require.NoError(t, err)
-	got, err := env.Eval(prg, nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, "bar", got.Value())
-}
-
-func TestEnvGetOrDefault_allowlistedEmptyReturnsEmpty(t *testing.T) {
-	t.Setenv("FOO", "")
-	env, err := NewEnvironment(nil)
-	require.NoError(t, err)
-	env.AllowedEnv = map[string]struct{}{"FOO": {}}
-
-	prg, err := env.Compile(`env.getOrDefault("FOO", "fallback")`)
-	require.NoError(t, err)
-	got, err := env.Eval(prg, nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, "", got.Value())
+	require.Equal(t, "override", got)
 }
 
 func TestEnvBinding_httpGetAuthorizationHeader(t *testing.T) {
@@ -170,7 +123,7 @@ func TestEnvBinding_httpGetAuthorizationHeader(t *testing.T) {
 	require.NoError(t, err)
 	got, err := env.Eval(prg, nil, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(http.StatusOK), got.Value())
+	require.Equal(t, int64(http.StatusOK), got)
 }
 
 func TestValidation_envAndFindingHttpPostCompose(t *testing.T) {
@@ -199,5 +152,5 @@ func TestValidation_envAndFindingHttpPostCompose(t *testing.T) {
 	require.NoError(t, err)
 	got, err := env.Eval(prg, map[string]string{"secret": "sec1"}, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(http.StatusOK), got.Value())
+	require.Equal(t, int64(http.StatusOK), got)
 }

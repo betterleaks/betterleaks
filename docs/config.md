@@ -1,14 +1,14 @@
 # Betterleaks config
 
 The `betterleaks.toml` file controls detection, filtering, and validation.
-It is TOML because rules are mostly flat data plus CEL expressions.
+It is TOML because rules are mostly flat data plus Expr expressions.
 
 ## Top-level shape
 
 Every config can use these fields:
 
-- `prefilter`: global CEL expression that skips entire files, commits, or other source fragments before regex matching.
-- `filter`: global CEL expression that discards specific findings after regex matching.
+- `prefilter`: global Expr expression that skips entire files, commits, or other source fragments before regex matching.
+- `filter`: global Expr expression that discards specific findings after regex matching.
 - `betterleaksMinVersion`: minimum Betterleaks binary version required.
 - `minVersion`: minimum Gitleaks config format version required for compatibility.
 - `[extend]`: inherit rules/settings from another config or from built-in defaults.
@@ -20,34 +20,32 @@ Each `[[rules]]` entry can use:
 - `description`: human-readable description.
 - `keywords`: strings used for fast pre-regex filtering.
 - `regex`: regular expression used to detect the secret.
-- `filter`: rule-specific CEL expression to discard false positives.
-- `validate`: CEL expression to actively verify whether a secret is live.
+- `filter`: rule-specific Expr expression to discard false positives.
+- `validate`: Expr expression to actively verify whether a secret is live.
 - `[[rules.required]]`: composite rule requirements.
 
 `keywords` are strongly recommended. Betterleaks checks them with an
 Aho-Corasick trie before running the heavier regex.
 
-## CEL overview
+## Expr overview
 
-Betterleaks uses [CEL](https://cel.dev/) for `prefilter`, `filter`, and
-`validate` expressions.
+Betterleaks uses [Expr](https://expr-lang.org/) for `prefilter`, `filter`, and
+`validate` expressions. Existing CEL-shaped expressions are still accepted for
+compatibility, but new configs should use Expr syntax.
 
 - `prefilter` runs before regex matching and only has `attributes`.
 - `filter` runs after regex matching and has `attributes` and `finding`.
 - `validate` runs after filtering when validation is enabled and has
   `attributes`, `finding`, and `captures`.
 
-Safe optional access uses CEL optional syntax:
+Safe map access uses `get`, and optional object access uses `?.` plus `??`:
 
-```cel
-attributes[?"path"].orValue("")
-r.json.?login.orValue("")
+```expr
+get(attributes, "path", "")
+r.json?.login ?? ""
 ```
 
-It's a little verbose, but hey, you get used to it.
-
-
-## Data available to CEL
+## Data available to Expr
 
 | Name | Scope | Description |
 | :--- | :--- | :--- |
@@ -61,7 +59,7 @@ The full attributes source is maintained in
 ## Filtering
 
 Filters replace legacy allowlists, entropy checks, and token efficiency checks
-with CEL. If a filter expression evaluates to `true`, the item is skipped.
+with Expr. If a filter expression evaluates to `true`, the item is skipped.
 
 ### Filter functions
 
@@ -77,13 +75,13 @@ Example:
 ```toml
 filter = '''
 (
-    attributes[?"git.author_name"].orValue("").endsWith("[bot]") &&
-    attributes[?"path"].orValue("").startsWith("tests/fixtures/") &&
+    filter.matchesAny(get(attributes, "git.author_name", ""), [`\[bot\]$`]) &&
+    filter.matchesAny(get(attributes, "path", ""), [`^tests/fixtures/`]) &&
     filter.containsAny(finding["secret"], ["_MOCK_", "_TEST_"])
 )
 ||
 (
-    filter.matchesAny(attributes[?"path"].orValue(""), [r"""(?i)\.(?:md|txt|csv)$"""]) &&
+    filter.matchesAny(get(attributes, "path", ""), [`(?i)\.(?:md|txt|csv)$`]) &&
     (
         filter.containsAny(finding["line"], ["Example:", "Placeholder:", "Replace this with"]) ||
         finding["secret"] == "SUPER_SECRET_EXAMPLE_KEY_12345"
@@ -100,7 +98,7 @@ filter = '''
 ## Validation
 
 Validation verifies whether a detected secret is live by evaluating the rule's
-`validate` CEL expression. By default, validation is disabled. Enable it with
+`validate` Expr expression. By default, validation is disabled. Enable it with
 the `--validation` flag.
 
 Validation runs asynchronously, and responses are cached in memory so duplicate
@@ -142,8 +140,8 @@ Any additional keys are attached to the finding as validation metadata, such as
 | `time.nowRFC3339()` | Returns the current UTC timestamp in RFC3339 format. |
 | `aws.validate(key, secret)` | Makes a SigV4-signed AWS STS request to validate AWS credentials. |
 | `gcp.validate(json)` | Exchanges GCP service-account or ADC JSON for an OAuth token and returns validation metadata. |
-| `base64.encode(bytes)` / `base64.decode(string)` | Provided by CEL's encoder extension. |
-| `cel.bind(name, value, expr)` | Binds a variable to avoid repeating sub-expressions. |
+| `base64.encode(bytes)` / `base64.decode(string)` | Encodes or decodes standard base64. |
+| `let name = value; expr` | Binds a variable to avoid repeating sub-expressions. |
 
 `http.get` and `http.post` return a response map:
 
@@ -158,22 +156,20 @@ Example:
 
 ```toml
 validate = '''
-cel.bind(r,
-  http.get("https://api.github.com/app", {
+let r = http.get("https://api.github.com/app", {
     "Accept": "application/vnd.github+json",
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?slug.orValue("") != "" ? {
+  });
+r.status == 200 && (r.json?.slug ?? "") != "" ? {
     "result": "valid",
-    "slug": r.json.?slug.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "html_url": r.json.?html_url.orValue(""),
-    "external_url": r.json.?external_url.orValue("")
+    "slug": r.json?.slug ?? "",
+    "name": r.json?.name ?? "",
+    "html_url": r.json?.html_url ?? "",
+    "external_url": r.json?.external_url ?? ""
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 ```
 
@@ -189,13 +185,10 @@ The rule reads an allowlisted variable and falls back to the literal default
 when env access is disabled, the name is not allowlisted, or the variable is
 unset:
 
-```cel
-cel.bind(base_url, env.getOrDefault("SOME_BASE_URL", "https://default.example.com"),
-  cel.bind(r,
-    http.get(base_url + "/whoami", { ... }),
-    ...
-  )
-)
+```expr
+let base_url = env.getOrDefault("SOME_BASE_URL", "https://default.example.com");
+let r = http.get(base_url + "/whoami", { ... });
+...
 ```
 
 To override the default, the variable must be passed via
@@ -214,7 +207,7 @@ betterleaks github --validation --validation-env-vars GITHUB_BASE_URL https://gi
 
 Use `env.get` instead when the env var is required for the validator to be
 meaningful, such as provider API keys used only for validation. `env.get`
-returns a CEL error when env access is disabled or the name is not allowlisted.
+returns an Expr error when env access is disabled or the name is not allowlisted.
 
 ## Validation with an LLM
 
@@ -240,65 +233,58 @@ filter.failsTokenEfficiency(finding["secret"])
 '''
 
 validate = '''
-cel.bind(obf_secret, strings.obfuscate(finding["secret"]),
-  cel.bind(obf_context, finding["context"].replace(finding["secret"], obf_secret),
-    cel.bind(r,
-      http.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          "Authorization": "Bearer " + env.get("OPENAI_API_KEY"),
-          "Content-Type": "application/json"
-        },
-        "{" +
-          "\"model\":\"gpt-5.4-mini\"," +
-          "\"temperature\":0," +
-          "\"max_completion_tokens\":256," +
-          "\"messages\":[" +
-            "{\"role\":\"system\",\"content\":" +
-              json.string(
-                "Classify whether the candidate is a real usable credential or a benign match. " +
-                "Respond with exactly three lines: VERDICT_SECRET or VERDICT_NOT, confidence from 0.0 to 1.0, and a short justification."
-              ) +
-            "}," +
-            "{\"role\":\"user\",\"content\":" +
-              json.string("Candidate: " + obf_secret + "\n\nSurrounding code:\n" + obf_context) +
-            "}" +
-          "]" +
-        "}"
-      ),
-      cel.bind(content, r.json.?choices[?0].?message.?content.orValue(""),
-        r.status == 200 && r.body.contains("VERDICT_SECRET") ? {
-          "result": "needs_validation",
-          "justification": content.split("\n")[?2].orValue(content),
-          "confidence": content.split("\n")[?1].orValue("0").trim()
-        } : r.status == 200 && r.body.contains("VERDICT_NOT") ? {
-          "result": "invalid",
-          "confidence": content.split("\n")[?1].orValue("0").trim(),
-          "justification": content.split("\n")[?2].orValue(content)
-        } : validate.unknown(r)
-      )
-    )
-  )
-)
+let obf_secret = strings.obfuscate(finding["secret"]);
+let obf_context = replace(finding["context"], finding["secret"], obf_secret);
+let r = http.post(
+  "https://api.openai.com/v1/chat/completions",
+  {
+    "Authorization": "Bearer " + env.get("OPENAI_API_KEY"),
+    "Content-Type": "application/json"
+  },
+  "{" +
+    "\"model\":\"gpt-5.4-mini\"," +
+    "\"temperature\":0," +
+    "\"max_completion_tokens\":256," +
+    "\"messages\":[" +
+      "{\"role\":\"system\",\"content\":" +
+        json.string(
+          "Classify whether the candidate is a real usable credential or a benign match. " +
+          "Respond with exactly three lines: VERDICT_SECRET or VERDICT_NOT, confidence from 0.0 to 1.0, and a short justification."
+        ) +
+      "}," +
+      "{\"role\":\"user\",\"content\":" +
+        json.string("Candidate: " + obf_secret + "\n\nSurrounding code:\n" + obf_context) +
+      "}" +
+    "]" +
+  "}"
+);
+let content = getPath(r.json, "choices.0.message.content", "");
+r.status == 200 && r.body contains "VERDICT_SECRET" ? {
+  "result": "needs_validation",
+  "justification": content
+} : r.status == 200 && r.body contains "VERDICT_NOT" ? {
+  "result": "invalid",
+  "justification": content
+} : validate.unknown(r)
 '''
 ```
 
-## CEL function naming
+## Expr function naming
 
-Project-owned CEL functions use short lower-case namespaces with camelCase
+Project-owned Expr functions use short lower-case namespaces with camelCase
 function names. Examples: `http.get`, `crypto.hmacSha256`,
 `filter.matchesAny`, `env.getOrDefault`, and `validate.unknown`.
 
 Data keys stay snake_case. This includes capture keys, attribute keys, finding
 keys, and response map keys such as `error_code`.
 
-## Adding a CEL binding
+## Adding an Expr binding
 
-For contributors adding a new CEL function:
+For contributors adding a new Expr function:
 
 1. Choose the environment: validation, filter/prefilter, or both.
 2. Add the Go implementation in the namespace file, or create
-   `internal/celenv/bindings_<namespace>.go` for a new namespace.
-3. Register the function in the namespace's `*Bindings` slice.
+   `internal/exprenv/bindings_<namespace>.go` for a new namespace.
+3. Register the function in `baseEnv`.
 4. Add focused tests for compile and evaluation behavior.
-5. Run `go test ./internal/celenv/...`.
+5. Run `go test ./internal/exprenv`.

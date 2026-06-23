@@ -1,4 +1,4 @@
-package celenv
+package exprenv
 
 import (
 	"testing"
@@ -57,7 +57,7 @@ func TestBindings(t *testing.T) {
 		}
 		// HMAC-SHA256("key", "hello") = a]aedc7b02c5c85b5262... (raw bytes)
 		// We check the length is 32 bytes (SHA-256 output).
-		bs := got.Value().([]byte)
+		bs := got.([]byte)
 		if len(bs) != 32 {
 			t.Errorf("expected 32 bytes, got %d", len(bs))
 		}
@@ -72,8 +72,8 @@ func TestBindings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("eval: %v", err)
 		}
-		if got.Value() != "b34ceac4516ff23a143e61d79d0fa7a4fbe5f266" {
-			t.Errorf("got %v", got.Value())
+		if got != "b34ceac4516ff23a143e61d79d0fa7a4fbe5f266" {
+			t.Errorf("got %v", got)
 		}
 	})
 
@@ -86,8 +86,8 @@ func TestBindings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("eval: %v", err)
 		}
-		if got.Value() != "a+b%2B%2F%3A" {
-			t.Errorf("got %v", got.Value())
+		if got != "a+b%2B%2F%3A" {
+			t.Errorf("got %v", got)
 		}
 	})
 
@@ -101,9 +101,9 @@ func TestBindings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("eval: %v", err)
 		}
-		s, ok := got.Value().(string)
+		s, ok := got.(string)
 		if !ok {
-			t.Fatalf("expected string, got %T", got.Value())
+			t.Fatalf("expected string, got %T", got)
 		}
 		if len(s) < 10 {
 			t.Errorf("expected unix timestamp string, got %q", s)
@@ -119,9 +119,9 @@ func TestBindings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("eval: %v", err)
 		}
-		s, ok := got.Value().(string)
+		s, ok := got.(string)
 		if !ok {
-			t.Fatalf("expected string, got %T", got.Value())
+			t.Fatalf("expected string, got %T", got)
 		}
 		if _, err := time.Parse(time.RFC3339, s); err != nil {
 			t.Errorf("expected RFC3339 timestamp, got %q", s)
@@ -140,8 +140,8 @@ func TestBindings(t *testing.T) {
 				t.Fatalf("eval: %v", err)
 			}
 
-			if got.Value() != tc.want {
-				t.Errorf("got %v, want %s", got.Value(), tc.want)
+			if got != tc.want {
+				t.Errorf("got %v, want %s", got, tc.want)
 			}
 		})
 	}
@@ -163,13 +163,9 @@ func TestValidationAttributes(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 
-	native, err := got.ConvertToNative(mapAnyType)
-	if err != nil {
-		t.Fatalf("convert result: %v", err)
-	}
-	result, ok := native.(map[string]any)
+	result, ok := got.(map[string]any)
 	if !ok {
-		t.Fatalf("expected map result, got %T", native)
+		t.Fatalf("expected map result, got %T", got)
 	}
 	if result["result"] != "valid" {
 		t.Fatalf("result = %v, want valid", result["result"])

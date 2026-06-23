@@ -1,16 +1,10 @@
-package celenv
+package exprenv
 
 import (
 	"crypto/rand"
 	"io"
 	"math/big"
-	"net/url"
 	"strings"
-
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/functions"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
 )
 
 const (
@@ -28,53 +22,6 @@ const (
 
 // obfuscateRand is the randomness source. Tests swap in a deterministic stream.
 var obfuscateRand io.Reader = rand.Reader
-
-func stringsBindings() []cel.EnvOption {
-	return []cel.EnvOption{
-		cel.Function("strings.obfuscate",
-			cel.Overload("strings_obfuscate_string",
-				[]*cel.Type{cel.StringType},
-				cel.StringType,
-				cel.UnaryBinding(obfuscateBinding()),
-			),
-		),
-		cel.Function("strings.urlQueryEscape",
-			cel.Overload("strings_url_query_escape_string",
-				[]*cel.Type{cel.StringType},
-				cel.StringType,
-				cel.UnaryBinding(urlQueryEscapeBinding()),
-			),
-		),
-		// Deprecated: use strings.obfuscate.
-		cel.Function("obfuscate",
-			cel.Overload("obfuscate_string",
-				[]*cel.Type{cel.StringType},
-				cel.StringType,
-				cel.UnaryBinding(obfuscateBinding()),
-			),
-		),
-	}
-}
-
-func obfuscateBinding() functions.UnaryOp {
-	return func(val ref.Val) ref.Val {
-		s, ok := val.(types.String)
-		if !ok {
-			return types.NewErr("obfuscate: secret must be a string, got %T", val)
-		}
-		return types.String(obfuscate(string(s)))
-	}
-}
-
-func urlQueryEscapeBinding() functions.UnaryOp {
-	return func(val ref.Val) ref.Val {
-		s, ok := val.(types.String)
-		if !ok {
-			return types.NewErr("strings.urlQueryEscape: value must be a string, got %T", val)
-		}
-		return types.String(url.QueryEscape(string(s)))
-	}
-}
 
 // obfuscate returns a same-length, class-preserving perturbation of secret.
 // Each rune is replaced with probability obfuscateRate by a different rune

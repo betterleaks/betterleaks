@@ -1,24 +1,15 @@
-package celenv
+package exprenv
 
 import (
 	"regexp"
 	"testing"
 
-	"github.com/google/cel-go/cel"
 	"github.com/stretchr/testify/require"
 )
 
 func TestProjectFunctionNamesFollowConvention(t *testing.T) {
-	validationEnv, err := NewEnvironment(nil)
-	require.NoError(t, err)
-
-	filterEnv, err := NewFilterEnv(nil)
-	require.NoError(t, err)
-
-	prefilterEnv, err := NewPrefilterEnv()
-	require.NoError(t, err)
-
-	validName := regexp.MustCompile(`^[a-z]+(\.[a-z][a-zA-Z0-9]*)?$`)
+	validName := regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)?$`)
+	fns := functionNames(baseEnv(&runtimeBindings{}))
 
 	for _, env := range []struct {
 		name       string
@@ -28,19 +19,20 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	}{
 		{
 			name: "validation",
-			fns:  functionNames(validationEnv.env),
+			fns:  fns,
 			current: []string{
-				"http.get", "http.post", "env.get", "env.getOrDefault",
-				"strings.obfuscate", "strings.urlQueryEscape", "validate.unknown",
-				"json.string", "crypto.md5", "crypto.sha1", "crypto.hmacSha1",
-				"crypto.hmacSha256", "hex.encode", "time.nowUnix", "time.nowRFC3339",
-				"aws.validate",
+				"http.get", "http.post", "env.get", "env.getOrDefault", "strings.obfuscate",
+				"strings.urlQueryEscape", "validate.unknown", "json.string",
+				"crypto.md5", "crypto.sha1", "crypto.hmacSha1",
+				"crypto.hmacSha256", "hex.encode", "time.nowUnix",
+				"time.nowRFC3339", "aws.validate", "gcp.validate",
+				"base64.encode", "base64.decode",
 			},
-			deprecated: []string{"env", "obfuscate", "unknown", "crypto.hmac_sha256", "time.now_unix"},
+			deprecated: []string{"obfuscate", "unknown", "crypto.hmac_sha256", "time.now_unix"},
 		},
 		{
 			name: "filter",
-			fns:  functionNames(filterEnv.env),
+			fns:  fns,
 			current: []string{
 				"filter.matchesAny", "filter.containsAny", "filter.entropy",
 				"filter.failsTokenEfficiency",
@@ -49,7 +41,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 		},
 		{
 			name: "prefilter",
-			fns:  functionNames(prefilterEnv.env),
+			fns:  fns,
 			current: []string{
 				"filter.matchesAny", "filter.containsAny", "filter.entropy",
 				"filter.failsTokenEfficiency",
@@ -67,9 +59,15 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	}
 }
 
-func functionNames(env *cel.Env) map[string]struct{} {
-	out := make(map[string]struct{}, len(env.Functions()))
-	for name := range env.Functions() {
+func functionNames(env map[string]any) map[string]struct{} {
+	out := make(map[string]struct{})
+	for name, value := range env {
+		if nested, ok := value.(map[string]any); ok {
+			for child := range nested {
+				out[name+"."+child] = struct{}{}
+			}
+			continue
+		}
 		out[name] = struct{}{}
 	}
 	return out

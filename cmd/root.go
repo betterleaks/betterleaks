@@ -105,7 +105,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("validation-debug", false, "include raw HTTP response in validation output")
 	rootCmd.PersistentFlags().Int("validation-workers", 10, "number of concurrent validation workers")
 	rootCmd.PersistentFlags().Bool("validation-extract-empty", false, "include empty values from extractors in output")
-	rootCmd.PersistentFlags().StringSlice("validation-env-vars", nil, "comma-separated env var names the validation CEL env(...) binding may read (repeat flag to add more); unset means env() is disabled")
+	rootCmd.PersistentFlags().StringSlice("validation-env-vars", nil, "comma-separated env var names the validation env(...) binding may read (repeat flag to add more); unset means env() is disabled")
 
 	// Add diagnostics flags
 	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
@@ -326,7 +326,7 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	var err error
 
 	// Apply rule overrides BEFORE constructing the detector so that
-	// NewDetectorContext compiles CEL filters for the final rule set.
+	// NewDetectorContext compiles expression filters for the final rule set.
 	rules, _ := cmd.Flags().GetStringSlice("enable-rule")
 	if len(rules) > 0 {
 		logging.Info().Msg("Overriding enabled rules: " + strings.Join(rules, ", "))
@@ -341,7 +341,7 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		cfg.Rules = ruleOverride
 	}
 
-	// Setup common detector. NewDetectorContext compiles all CEL programs
+	// Setup common detector. NewDetectorContext compiles all expression programs
 	// and sets up the validation pool, so the cfg must be fully prepared.
 	validationEnvVars, err := cmd.Flags().GetStringSlice("validation-env-vars")
 	if err != nil {

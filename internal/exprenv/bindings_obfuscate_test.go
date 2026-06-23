@@ -1,4 +1,4 @@
-package celenv
+package exprenv
 
 import (
 	"strings"
@@ -158,7 +158,7 @@ func TestObfuscate_celBindingUnary(t *testing.T) {
 	got, err := env.Eval(prg, map[string]string{"secret": secret}, nil)
 	require.NoError(t, err)
 
-	out, ok := got.Value().(string)
+	out, ok := got.(string)
 	require.True(t, ok)
 	require.Len(t, out, len(secret))
 	require.True(t, strings.HasPrefix(out, "sk_"))

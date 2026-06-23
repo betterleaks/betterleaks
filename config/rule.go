@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/internal/exprenv"
 	"github.com/betterleaks/betterleaks/regexp"
-	"github.com/google/cel-go/cel"
 )
 
 // Rules contain information that define details on how to detect secrets
@@ -60,19 +60,20 @@ type Rule struct {
 	// tokenize efficiently (i.e., common words/phrases) are filtered out.
 	TokenEfficiency bool
 
-	// ValidateCEL is the raw CEL expression used for secret validation.
+	// ValidateCEL is the raw expression used for secret validation.
+	// The name is retained for source compatibility with existing code.
 	ValidateCEL string
 
-	// celProgram is the compiled CEL program, set at config load time.
-	celProgram cel.Program
+	// celProgram is the compiled validation program, set at config load time.
+	celProgram exprenv.Program
 
-	// Filter is a CEL expression evaluated against attributes + finding per regex match.
+	// Filter is an expression evaluated against attributes + finding per regex match.
 	// Returns true = skip (discard this finding); false = keep.
 	// Deprecated legacy Allowlists, Entropy, and TokenEfficiency are translated into this field.
 	Filter string
 
 	// filterProgram is the compiled FilterEnv program, set at startup.
-	filterProgram cel.Program
+	filterProgram exprenv.Program
 }
 
 type Required struct {
@@ -127,18 +128,18 @@ func (r *Rule) Validate() error {
 	return nil
 }
 
-// CelProgram returns the compiled CEL program for this rule, or nil.
-func (r *Rule) CelProgram() cel.Program {
+// CelProgram returns the compiled validation program for this rule, or nil.
+func (r *Rule) CelProgram() exprenv.Program {
 	return r.celProgram
 }
 
-// SetCelProgram stores a compiled CEL program on the rule.
-func (r *Rule) SetCelProgram(p cel.Program) {
+// SetCelProgram stores a compiled validation program on the rule.
+func (r *Rule) SetCelProgram(p exprenv.Program) {
 	r.celProgram = p
 }
 
 // FilterProgram returns the compiled filter program for this rule, or nil.
-func (r *Rule) FilterProgram() cel.Program { return r.filterProgram }
+func (r *Rule) FilterProgram() exprenv.Program { return r.filterProgram }
 
 // SetFilterProgram stores a compiled filter program on the rule.
-func (r *Rule) SetFilterProgram(p cel.Program) { r.filterProgram = p }
+func (r *Rule) SetFilterProgram(p exprenv.Program) { r.filterProgram = p }

@@ -1,9 +1,9 @@
-package celenv
+package exprenv
 
 import (
 	"testing"
 
-	"github.com/google/cel-go/cel"
+	"github.com/expr-lang/expr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,7 +44,7 @@ func TestValidationBindingAliases(t *testing.T) {
 			require.NoError(t, err)
 			newGot, err := env.Eval(newPrg, nil, nil)
 			require.NoError(t, err)
-			require.Equal(t, oldGot.Value(), newGot.Value())
+			require.Equal(t, oldGot, newGot)
 		})
 	}
 }
@@ -60,7 +60,7 @@ func TestFilterBindingAliases(t *testing.T) {
 	}{
 		{name: "matchesAny", old: `matchesAny(finding["secret"], ["sec"])`, new: `filter.matchesAny(finding["secret"], ["sec"])`},
 		{name: "containsAny", old: `containsAny(finding["secret"], ["secret"])`, new: `filter.containsAny(finding["secret"], ["secret"])`},
-		{name: "entropy", old: `entropy(finding["secret"])`, new: `filter.entropy(finding["secret"])`},
+		{name: "entropy", old: `entropy(finding["secret"]) > 0`, new: `filter.entropy(finding["secret"]) > 0`},
 		{name: "failsTokenEfficiency", old: `failsTokenEfficiency(finding["secret"])`, new: `filter.failsTokenEfficiency(finding["secret"])`},
 	}
 
@@ -81,19 +81,10 @@ func TestFilterBindingAliases(t *testing.T) {
 	}
 }
 
-func evalFilterValue(prg cel.Program, finding, attributes map[string]string) (any, error) {
-	if finding == nil {
-		finding = emptyStringMap
-	}
-	if attributes == nil {
-		attributes = emptyStringMap
-	}
-	val, _, err := prg.Eval(map[string]any{
-		"finding":    finding,
-		"attributes": attributes,
+func evalFilterValue(prg Program, finding, attributes map[string]string) (any, error) {
+	env := baseEnv(&runtimeBindings{
+		finding: stringMapToAny(nonNilStringMap(finding)),
+		attrs:   stringMapToAny(nonNilStringMap(attributes)),
 	})
-	if err != nil {
-		return nil, err
-	}
-	return val.Value(), nil
+	return expr.Run(prg.vm, env)
 }

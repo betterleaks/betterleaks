@@ -1,17 +1,13 @@
-package celenv
+package exprenv
 
 import (
+	"context"
 	"encoding/xml"
 	"io"
 	"net/http"
 	"strings"
 
-	"github.com/google/cel-go/common/functions"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
-
 	"github.com/betterleaks/betterleaks/internal/sigv4"
-	"github.com/google/cel-go/cel"
 )
 
 // STS = Security Token Service
@@ -39,55 +35,28 @@ type stsErrorResponse struct {
 	Message string   `xml:"Error>Message"`
 }
 
-func awsBindings(e *ValidationEnvironment) []cel.EnvOption {
-	return []cel.EnvOption{
-		cel.Function("aws.validate",
-			cel.Overload("aws_validate_string_string",
-				[]*cel.Type{cel.StringType, cel.StringType},
-				cel.MapType(cel.StringType, cel.DynType),
-				cel.FunctionBinding(awsValidateBinding(e)),
-			),
-		),
+func (rt *runtimeBindings) awsValidate(accessKeyID, secretAccessKey string) map[string]any {
+	e := rt.validation
+	if e == nil {
+		e, _ = NewEnvironment(nil)
 	}
-}
-
-// awsValidateBinding returns a CEL FunctionOp that calls STS GetCallerIdentity
-// with SigV4-signed credentials and returns a result map similar to the
-// http binding (map[string]any).
-func awsValidateBinding(e *ValidationEnvironment) functions.FunctionOp {
-	return func(args ...ref.Val) ref.Val {
-		if len(args) != 2 {
-			return types.NewErr("aws.validate: expected 2 args, got %d", len(args))
-		}
-
-		accessKeyID, ok := args[0].(types.String)
-		if !ok {
-			return types.NewErr("aws.validate: access_key_id must be a string")
-		}
-		secretAccessKey, ok := args[1].(types.String)
-		if !ok {
-			return types.NewErr("aws.validate: secret_access_key must be a string")
-		}
-
-		// TODO - This is hardcoded right now but in the future we could
-		// introduce "optional" rule components like an STS endpoint.
-		endpoint := e.STSEndpoint
-		if endpoint == "" {
-			endpoint = defaultSTSEndpoint
-		}
-
-		result := callSTS(e, endpoint, string(accessKeyID), string(secretAccessKey))
-		return types.DefaultTypeAdapter.NativeToValue(result)
+	endpoint := e.STSEndpoint
+	if endpoint == "" {
+		endpoint = defaultSTSEndpoint
 	}
+	return callSTS(rt.ctx, e, endpoint, accessKeyID, secretAccessKey)
 }
 
 // callSTS performs a SigV4-signed POST to the STS endpoint and returns a
 // response map with {status, arn, account, userid}. The CEL expression is
 // responsible for interpreting the status code and building the final result.
-func callSTS(e *ValidationEnvironment, endpoint, accessKeyID, secretAccessKey string) map[string]any {
+func callSTS(ctx context.Context, e *ValidationEnvironment, endpoint, accessKeyID, secretAccessKey string) map[string]any {
 	body := stsRequestBody
 
-	req, err := http.NewRequest("POST", endpoint, strings.NewReader(body))
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(body))
 	if err != nil {
 		return map[string]any{"status": int64(0)}
 	}

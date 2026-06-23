@@ -1,6 +1,7 @@
-package celenv
+package exprenv
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -60,11 +61,7 @@ func TestGCPValidateCELBinding_ServiceAccountValid(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 
-	m, err := got.ConvertToNative(mapAnyType)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
-	result := m.(map[string]any)
+	result := got.(map[string]any)
 	if result["result"] != "valid" {
 		t.Fatalf("expected valid, got %v", result["result"])
 	}
@@ -125,11 +122,7 @@ func TestGCPValidateCELBinding_ApplicationDefaultCredentialsInvalid(t *testing.T
 		t.Fatalf("eval: %v", err)
 	}
 
-	m, err := got.ConvertToNative(mapAnyType)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
-	result := m.(map[string]any)
+	result := got.(map[string]any)
 	if result["result"] != "invalid" {
 		t.Fatalf("expected invalid, got %v", result["result"])
 	}
@@ -139,7 +132,7 @@ func TestGCPValidateCELBinding_ApplicationDefaultCredentialsInvalid(t *testing.T
 }
 
 func TestValidateGCPCredential_DisallowsNonGoogleTokenEndpoint(t *testing.T) {
-	result := validateGCPCredential(&ValidationEnvironment{client: DefaultHTTPClient()}, testGCPServiceAccountJSON(t, "http://127.0.0.1/token"))
+	result := validateGCPCredential(context.Background(), &ValidationEnvironment{client: DefaultHTTPClient()}, testGCPServiceAccountJSON(t, "http://127.0.0.1/token"))
 
 	if result["status"] != int64(0) {
 		t.Fatalf("expected status 0, got %v", result["status"])
