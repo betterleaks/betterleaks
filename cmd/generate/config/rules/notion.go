@@ -19,7 +19,7 @@ func Notion() *config.Rule {
 		RuleID:      "notion-api-token",
 		Regex:       regex,
 		Keywords:    identifiers,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		Filter:      `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

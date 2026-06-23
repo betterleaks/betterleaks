@@ -12,17 +12,14 @@ func Groq() *config.Rule {
 		Description: "Identified a Groq API Key, which may expose high-speed AI inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`gsk_[A-Z0-9]{52}`, true),
 		Keywords:    []string{"gsk_"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.groq.com/openai/v1/models", {
+		ValidateCEL: `let r = http.get("https://api.groq.com/openai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"id"') && r.body.contains('"data"') ? {
+  }); r.status == 200 && (r.body contains '"id"') && (r.body contains '"data"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 

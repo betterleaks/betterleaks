@@ -17,19 +17,16 @@ func GoCardless() *config.Rule {
 			"live_",
 			"gocardless",
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.gocardless.com/customers?limit=1", {
+		ValidateCEL: `let r = http.get("https://api.gocardless.com/customers?limit=1", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json",
     "GoCardless-Version": "2015-07-06"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.5),
 	}
 

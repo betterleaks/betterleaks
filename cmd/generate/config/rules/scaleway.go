@@ -17,19 +17,16 @@ func ScalewaySecretKey() *config.Rule {
 		),
 		Entropy:  3,
 		Keywords: []string{"scaleway", "scw"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
+		ValidateCEL: `let r = http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
     "X-Auth-Token": secret,
     "Accept": "application/json"
-  }),
-  r.status in [200, 403] ? {
+  }); r.status in [200, 403] ? {
     "result": "valid",
     "permission_status": r.status == 200 ? "Active" : "Restricted but still valid (403)",
   } : r.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 	}
 
 	secret := secrets.NewSecretWithEntropy(utils.Hex8_4_4_4_12(), 3)

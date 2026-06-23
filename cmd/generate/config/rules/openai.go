@@ -15,17 +15,14 @@ func OpenAI() *config.Rule {
 		Keywords: []string{
 			"T3BlbkFJ",
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.openai.com/v1/models", {
+		ValidateCEL: `let r = http.get("https://api.openai.com/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?object.orValue("") == "list" ? {
+  }); r.status == 200 && (r.json?.object ?? "") == "list" ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 

@@ -13,9 +13,7 @@ func GCPApplicationDefaultCredentials() *config.Rule {
 		RuleID:      "gcp-application-default-credentials",
 		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}`),
 		Keywords:    []string{".apps.googleusercontent.com"},
-		ValidateCEL: `cel.bind(r,
-  gcp.validate(finding["secret"]),
-  r.status == 200 ? {
+		ValidateCEL: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid",
     "credential_type": r.credential_type,
     "client_id": r.client_id
@@ -24,7 +22,6 @@ func GCPApplicationDefaultCredentials() *config.Rule {
     "error_code": r.error_code,
     "error_message": r.error_message
   } : validate.unknown(r)
-)
 `,
 	}
 
@@ -40,9 +37,7 @@ func GCPServiceAccount() *config.Rule {
 		RuleID:      "gcp-service-account",
 		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}`),
 		Keywords:    []string{"provider_x509"},
-		ValidateCEL: `cel.bind(r,
-  gcp.validate(finding["secret"]),
-  r.status == 200 ? {
+		ValidateCEL: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid",
     "credential_type": r.credential_type,
     "project_id": r.project_id,
@@ -52,7 +47,6 @@ func GCPServiceAccount() *config.Rule {
     "error_code": r.error_code,
     "error_message": r.error_message
   } : validate.unknown(r)
-)
 `,
 		Filter: `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,
 	}
@@ -74,25 +68,7 @@ func GCPAPIKey() *config.Rule {
 		Description: "Uncovered a GCP API key, which could lead to unauthorized access to Google Cloud services and data breaches.",
 		Regex:       utils.GenerateUniqueTokenRegex(`AIza[\w-]{35}`, false),
 		Keywords:    []string{"AIza"},
-		Filter: `entropy(finding["secret"]) <= 4.0
-|| matchesAny(finding["secret"], [
-  r"""AIzaSyabcdefghijklmnopqrstuvwxyz1234567""",
-  r"""AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs""",
-  r"""AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM""",
-  r"""AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU""",
-  r"""AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0""",
-  r"""AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A""",
-  r"""AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c""",
-  r"""AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4""",
-  r"""AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY""",
-  r"""AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM""",
-  r"""AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ""",
-  r"""AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g""",
-  r"""AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU""",
-  r"""AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw""",
-  r"""AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE""",
-  r"""AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY"""
-])`,
+		Filter:      "entropy(finding[\"secret\"]) <= 4.0\n|| matchesAny(finding[\"secret\"], [\n  `AIzaSyabcdefghijklmnopqrstuvwxyz1234567`,\n  `AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs`,\n  `AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM`,\n  `AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU`,\n  `AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0`,\n  `AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A`,\n  `AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c`,\n  `AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4`,\n  `AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY`,\n  `AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM`,\n  `AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ`,\n  `AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g`,\n  `AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU`,\n  `AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw`,\n  `AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE`,\n  `AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY`\n])",
 	}
 
 	// validate

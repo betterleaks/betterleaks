@@ -15,18 +15,15 @@ func Authress() *config.Rule {
 		Regex:       regexp.MustCompile(`(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b`),
 		// The `.acc_`/`.acc-` segment is required by the regex and is far
 		// rarer in real code than the `sc_`/`ext_` prefixes.
-		Keywords:    []string{".acc_", ".acc-"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.authress.io/v1/users/me", {
+		Keywords: []string{".acc_", ".acc-"},
+		ValidateCEL: `let r = http.get("https://api.authress.io/v1/users/me", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && !r.body.contains("\"Unauthorized\"") ? {
+  }); r.status == 200 && !(r.body contains "\"Unauthorized\"") ? {
     "result": "valid"
-  } : r.status in [401, 403] || r.body.contains("\"Unauthorized\"") ? {
+  } : r.status in [401, 403] || (r.body contains "\"Unauthorized\"") ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 4.0`,
 	}
 

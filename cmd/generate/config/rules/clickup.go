@@ -11,20 +11,17 @@ func ClickUpPersonalAPIToken() *config.Rule {
 		Description: "Detected a ClickUp personal API token, which may allow unauthorized access to ClickUp workspaces and user data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"clickup"}, `pk_`+utils.Numeric("8,9")+`_`+utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"clickup"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.clickup.com/api/v2/user", {
+		ValidateCEL: `let r = http.get("https://api.clickup.com/api/v2/user", {
     "Accept": "application/json",
     "Authorization": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "username": r.json.?user.?username.orValue(""),
-    "email": r.json.?user.?email.orValue("")
+    "username": (r.json?.user?.username ?? ""),
+    "email": (r.json?.user?.email ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.5),
 	}
 

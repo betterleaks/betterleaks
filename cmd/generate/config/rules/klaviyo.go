@@ -11,19 +11,16 @@ func KlaviyoAPIKey() *config.Rule {
 		Description: "Detected a Klaviyo API key, which may expose Klaviyo account and marketing data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"klaviyo"}, `pk_`+utils.AlphaNumeric("34"), true),
 		Keywords:    []string{"klaviyo"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://a.klaviyo.com/api/accounts", {
+		ValidateCEL: `let r = http.get("https://a.klaviyo.com/api/accounts", {
     "Revision": "2023-02-22",
     "Authorization": "Klaviyo-API-Key " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"data\"") ? {
+  }); r.status == 200 && (r.body contains "\"data\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.5),
 	}
 

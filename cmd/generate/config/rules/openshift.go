@@ -14,7 +14,7 @@ func OpenshiftUserToken() *config.Rule {
 		RuleID:      "openshift-user-token",
 		Description: "Found an OpenShift user token, potentially compromising an OpenShift/Kubernetes cluster.",
 		// TODO: Do tokens vary in length or are they always 43?
-		Regex:   regexp.MustCompile(`\b(sha256~[\w-]{43})(?:[^\w-]|\z)`),
+		Regex: regexp.MustCompile(`\b(sha256~[\w-]{43})(?:[^\w-]|\z)`),
 		Keywords: []string{
 			"sha256~",
 		},

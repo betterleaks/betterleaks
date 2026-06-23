@@ -11,18 +11,15 @@ func ClerkSecretKey() *config.Rule {
 		Description: "Detected a Clerk secret key, which may allow unauthorized access to Clerk backend APIs.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"clerk"}, `sk_(?:test|live)_[A-Za-z0-9]{32}`, true),
 		Keywords:    []string{"clerk"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.clerk.com/v1/users?limit=1", {
+		ValidateCEL: `let r = http.get("https://api.clerk.com/v1/users?limit=1", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.3`,
 	}
 

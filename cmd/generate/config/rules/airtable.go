@@ -28,17 +28,14 @@ func AirtablePersonalAccessToken() *config.Rule {
 		RuleID:      "airtable-personnal-access-token",
 		Regex:       regexp.MustCompile(`\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b`),
 		Keywords:    []string{"airtable"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.airtable.com/v0/meta/whoami", {
+		ValidateCEL: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.3`,
 	}
 
@@ -53,17 +50,14 @@ func AirtableOAuthToken() *config.Rule {
 		RuleID:      "airtable-oauth-token",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, `[A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+`, true),
 		Keywords:    []string{"airtable"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.airtable.com/v0/meta/whoami", {
+		ValidateCEL: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 

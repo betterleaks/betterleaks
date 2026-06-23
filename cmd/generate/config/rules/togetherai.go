@@ -12,18 +12,15 @@ func TogetherAI() *config.Rule {
 		Description: "Detected a Together.ai API Key, which may expose access to open-source AI models and inference services.",
 		Regex:       utils.GenerateUniqueTokenRegex(`tgp_v1_[A-Za-z0-9_-]{43}`, true),
 		Keywords:    []string{"tgp_v1_"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.together.xyz/v1/models", {
+		ValidateCEL: `let r = http.get("https://api.together.xyz/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains('"id"') && r.body.contains('"object"') ? {
+  }); r.status == 200 && (r.body contains '"id"') && (r.body contains '"object"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 

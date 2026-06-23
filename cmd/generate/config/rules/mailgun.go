@@ -16,18 +16,15 @@ func MailGunPrivateAPIToken() *config.Rule {
 		Keywords: []string{
 			"mailgun",
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.mailgun.net/v3/domains", {
+		ValidateCEL: `let r = http.get("https://api.mailgun.net/v3/domains", {
     "Accept": "application/json",
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"]))
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 	}
 
 	// validate

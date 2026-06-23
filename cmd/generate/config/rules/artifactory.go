@@ -17,17 +17,14 @@ func ArtifactoryApiKey() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "artifactory-jfrog-url"},
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+		ValidateCEL: `let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
     "X-JFrog-Art-Api": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
@@ -56,17 +53,14 @@ func ArtifactoryReferenceToken() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "artifactory-jfrog-url"},
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+		ValidateCEL: `let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 

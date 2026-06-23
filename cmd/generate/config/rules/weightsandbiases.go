@@ -12,20 +12,17 @@ func WeightsAndBiases() *config.Rule {
 		Description: "Detected a Weights & Biases API Key, which may expose ML experiment tracking and model registry access to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wandb", "weightsandbiases"}, utils.Hex("40"), true),
 		Keywords:    []string{"wandb", "weightsandbiases"},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://api.wandb.ai/graphql", {
+		ValidateCEL: `let r = http.post("https://api.wandb.ai/graphql", {
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
-  }, "{\"query\":\"query { viewer { email username } }\"}"),
-  r.status == 200 && r.body.contains("\"username\"") ? {
+  }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid",
-    "email": r.json.?data.?viewer.?email.orValue(""),
-    "username": r.json.?data.?viewer.?username.orValue("")
+    "email": (r.json?.data?.viewer?.email ?? ""),
+    "username": (r.json?.data?.viewer?.username ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
@@ -45,20 +42,17 @@ func WeightsAndBiasesV1() *config.Rule {
 		Description: "Detected a Weights & Biases v1 API Key (wandb_v1_), which may expose ML experiment tracking and artifact storage to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`wandb_v1_[A-Za-z0-9_]{77}`, true),
 		Keywords:    []string{"wandb_v1_"},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://api.wandb.ai/graphql", {
+		ValidateCEL: `let r = http.post("https://api.wandb.ai/graphql", {
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
-  }, "{\"query\":\"query { viewer { email username } }\"}"),
-  r.status == 200 && r.body.contains("\"username\"") ? {
+  }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid",
-    "email": r.json.?data.?viewer.?email.orValue(""),
-    "username": r.json.?data.?viewer.?username.orValue("")
+    "email": (r.json?.data?.viewer?.email ?? ""),
+    "username": (r.json?.data?.viewer?.username ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 

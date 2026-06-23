@@ -34,19 +34,16 @@ func AikidoClientSecret() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "aikido-client-id"},
 		},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://app.aikido.dev/api/oauth/token", {
+		ValidateCEL: `let r = http.post("https://app.aikido.dev/api/oauth/token", {
     "Accept": "application/json",
     "Content-Type": "application/x-www-form-urlencoded",
     "Authorization": "Basic " + base64.encode(bytes(captures["aikido-client-id"] + ":" + finding["secret"]))
-  }, "grant_type=client_credentials"),
-  r.status == 200 && r.body.contains("\"access_token\"") && r.body.contains("\"token_type\"") ? {
+  }, "grant_type=client_credentials"); r.status == 200 && (r.body contains "\"access_token\"") && (r.body contains "\"token_type\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
@@ -65,18 +62,15 @@ func AikidoCIToken() *config.Rule {
 		Description: "Detected an Aikido CI token, which may allow unauthorized CI scan integration activity in Aikido.",
 		Regex:       regexp.MustCompile(`\b(AIK_CI_[A-Za-z0-9]{20,44})\b`),
 		Keywords:    []string{"AIK_CI_"},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://app.aikido.dev/api/integrations/ci/scan/start", {
+		ValidateCEL: `let r = http.post("https://app.aikido.dev/api/integrations/ci/scan/start", {
     "X-AIK-API-SECRET": finding["secret"],
     "Content-Type": "application/json"
-  }, "{}"),
-  r.status in [200, 400, 403] && !r.body.contains("\"Unauthorized\"") ? {
+  }, "{}"); r.status in [200, 400, 403] && !(r.body contains "\"Unauthorized\"") ? {
     "result": "valid"
-  } : r.status in [401, 403] || r.body.contains("\"Unauthorized\"") ? {
+  } : r.status in [401, 403] || (r.body contains "\"Unauthorized\"") ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.0`,
 	}
 

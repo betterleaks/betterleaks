@@ -19,17 +19,14 @@ func ClickHouseCloud() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "clickhouse-cloud-key-id"},
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.clickhouse.cloud/v1/organizations", {
+		ValidateCEL: `let r = http.get("https://api.clickhouse.cloud/v1/organizations", {
     "Authorization": "Basic " + base64.encode(bytes(captures["clickhouse-cloud-key-id"] + ":" + finding["secret"]))
-  }),
-  r.status == 200 && r.body.contains("\"id\":") && r.body.contains("\"name\":") ? {
+  }); r.status == 200 && (r.body contains "\"id\":") && (r.body contains "\"name\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 

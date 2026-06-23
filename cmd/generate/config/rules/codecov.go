@@ -11,18 +11,15 @@ func CodecovAccessToken() *config.Rule {
 		Description: "Found a pattern resembling a Codecov Access Token, posing a risk of unauthorized access to code coverage reports and sensitive data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"codecov"}, `[A-Z0-9-]{36}`, true),
 		Keywords:    []string{"codecov"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.codecov.io/api/v2/github/", {
+		ValidateCEL: `let r = http.get("https://api.codecov.io/api/v2/github/", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"count\":") ? {
+  }); r.status == 200 && (r.body contains "\"count\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 

@@ -16,7 +16,7 @@ func FreshbooksAccessToken() *config.Rule {
 		Keywords: []string{
 			"freshbooks",
 		},
-		ValidateCEL: utils.BearerGetValidationCEL("https://api.freshbooks.com/auth/api/v1/users/me", "true"),
+		ValidateCEL: utils.BearerGetValidationExpr("https://api.freshbooks.com/auth/api/v1/users/me", "true"),
 		Filter:      utils.MinEntropy(3.5),
 	}
 

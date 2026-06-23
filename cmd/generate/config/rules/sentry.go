@@ -45,7 +45,7 @@ func SentryOrgToken() *config.Rule {
 		Description: "Found a Sentry.io Organization Token, risking unauthorized access to error tracking services and sensitive application data.",
 		Regex:       regexp.MustCompile(`\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}(?:[^a-zA-Z0-9+/]|\z)`),
 		Keywords:    []string{"sntrys_eyJpYXQiO"},
-		Filter: `entropy(finding["secret"]) <= 4.5`,
+		Filter:      `entropy(finding["secret"]) <= 4.5`,
 	}
 
 	// validate
@@ -84,7 +84,7 @@ func SentryUserToken() *config.Rule {
 		Description: "Found a Sentry.io User Token, risking unauthorized access to error tracking services and sensitive application data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sntryu_[a-f0-9]{64}`, false),
 		Keywords:    []string{"sntryu_"},
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Filter:      `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate

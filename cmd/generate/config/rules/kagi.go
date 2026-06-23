@@ -11,17 +11,14 @@ func KagiAPIKey() *config.Rule {
 		Description: "Detected a Kagi API key, which may expose Kagi API usage.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"kagi"}, utils.AlphaNumericExtendedShort("11")+`\.`+utils.AlphaNumericExtendedShort("43"), true),
 		Keywords:    []string{"kagi"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://kagi.com/api/v0/search?q=test", {
+		ValidateCEL: `let r = http.get("https://kagi.com/api/v0/search?q=test", {
     "Authorization": "Bot " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains("\"data\":") && r.body.contains("\"results\":") ? {
+  }); r.status == 200 && (r.body contains "\"data\":") && (r.body contains "\"results\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.5),
 	}
 

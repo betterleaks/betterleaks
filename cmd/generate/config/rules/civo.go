@@ -13,17 +13,14 @@ func Civo() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"civo"}, utils.AlphaNumeric("50"), true),
 		Keywords:    []string{"civo"},
 		Entropy:     3.5,
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.civo.com/v2/instances", {
+		ValidateCEL: `let r = http.get("https://api.civo.com/v2/instances", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 	}
 
 	tps := utils.GenerateSampleSecrets("civo", secrets.NewSecretWithEntropy(utils.AlphaNumeric("50"), 3.5))

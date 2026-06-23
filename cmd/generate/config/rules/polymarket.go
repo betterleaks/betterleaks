@@ -13,7 +13,7 @@ func PolymarketAPISecret() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}secret"}, `[a-zA-Z0-9+/]{40,}={0,2}`, false),
 		Keywords:    []string{"poly"},
 		SkipReport:  true,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("poly_secret", secrets.NewSecretWithEntropy(`[a-zA-Z0-9+/]{40}`, 4))
@@ -64,28 +64,20 @@ func PolymarketAPIKey() *config.Rule {
 				WithinLines: utils.Ptr(20),
 			},
 		},
-		ValidateCEL: `cel.bind(ts, time.now_unix(),
-  cel.bind(sig,
-    crypto.hmac_sha256(
+		ValidateCEL: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
       base64.decode(captures["polymarket-api-secret"]),
       bytes(ts + "GET" + "/data/orders")
-    ),
-    cel.bind(r,
-      http.get("https://clob.polymarket.com/data/orders", {
+    ); (let r = http.get("https://clob.polymarket.com/data/orders", {
         "POLY_BUILDER_API_KEY": finding["secret"],
         "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
         "POLY_BUILDER_TIMESTAMP": ts,
-        "POLY_BUILDER_SIGNATURE": base64.encode(sig).replace("+", "-").replace("/", "_")
-      }),
-      r.status == 200 ? {
+        "POLY_BUILDER_SIGNATURE": replace(replace(base64.encode(sig), "+", "-"), "/", "_")
+      }); r.status == 200 ? {
         "result": "valid"
       } : r.status in [401, 403] ? {
         "result": "invalid",
         "reason": "Unauthorized"
-      } : validate.unknown(r)
-    )
-  )
-)`,
+      } : validate.unknown(r)))`,
 		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
@@ -99,7 +91,7 @@ func PolymarketPrivateKey() *config.Rule {
 		Description: "Discovered a Polymarket private key, which could allow unauthorized trading and fund transfers.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}private.{0,20}key"}, `0x[a-fA-F0-9]{64}`, false),
 		Keywords:    []string{"poly"},
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Filter:      `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("poly_private_key", "0x"+secrets.NewSecretWithEntropy(`[a-fA-F0-9]{64}`, 3.5))

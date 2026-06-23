@@ -11,8 +11,7 @@ func ZAIAPIKey() *config.Rule {
 		Description: "Detected a Z.ai API key, which may expose GLM model access and usage to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"zai", "z_ai", `z\.ai`, "glm", "zlm"}, utils.Hex("32")+`\.`+utils.AlphaNumeric("16"), true),
 		Keywords:    []string{"zai", "z_ai", "z.ai", "glm", "zlm"},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://api.z.ai/api/paas/v4/tokenizer", {
+		ValidateCEL: `let r = http.post("https://api.z.ai/api/paas/v4/tokenizer", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json",
     "Content-Type": "application/json"
@@ -20,17 +19,15 @@ func ZAIAPIKey() *config.Rule {
   "{" +
     "\"model\":\"glm-4.6\"," +
     "\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]" +
-  "}"),
-  r.status == 200 && r.body.contains('"usage"') ? {
+  "}"); r.status == 200 && (r.body contains '"usage"') ? {
     "result": "valid"
-  } : r.status == 429 && r.body.contains("Insufficient balance") ? {
+  } : r.status == 429 && (r.body contains "Insufficient balance") ? {
     "result": "valid",
     "reason": "Insufficient balance but still valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
