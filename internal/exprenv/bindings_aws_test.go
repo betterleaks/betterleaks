@@ -29,7 +29,7 @@ func TestCallSTS_Valid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &ValidationEnvironment{client: ts.Client()}
+	e := &Env{client: ts.Client()}
 	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
 
 	if result["status"] != int64(200) {
@@ -53,7 +53,7 @@ func TestCallSTS_Invalid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &ValidationEnvironment{client: ts.Client()}
+	e := &Env{client: ts.Client()}
 	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey")
 
 	if result["status"] != int64(403) {
@@ -70,7 +70,7 @@ func TestCallSTS_ServerError(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &ValidationEnvironment{client: ts.Client()}
+	e := &Env{client: ts.Client()}
 	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey")
 
 	if result["status"] != int64(500) {
@@ -78,7 +78,7 @@ func TestCallSTS_ServerError(t *testing.T) {
 	}
 }
 
-func TestAWSValidateCELBinding_Valid(t *testing.T) {
+func TestAWSValidateExprBinding_Valid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
@@ -91,9 +91,9 @@ func TestAWSValidateCELBinding_Valid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	env, err := NewEnvironment(ts.Client())
+	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprenv.New: %v", err)
 	}
 	env.STSEndpoint = ts.URL
 
@@ -109,7 +109,7 @@ func TestAWSValidateCELBinding_Valid(t *testing.T) {
     "reason": "Unauthorized"
   } : unknown(r)
 )`
-	prg, err := env.Compile(expr)
+	prg, err := env.CompileValidation(expr)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -134,15 +134,15 @@ func TestAWSValidateCELBinding_Valid(t *testing.T) {
 	}
 }
 
-func TestAWSValidateCELBinding_Invalid(t *testing.T) {
+func TestAWSValidateExprBinding_Invalid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(403)
 	}))
 	defer ts.Close()
 
-	env, err := NewEnvironment(ts.Client())
+	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprenv.New: %v", err)
 	}
 	env.STSEndpoint = ts.URL
 
@@ -155,7 +155,7 @@ func TestAWSValidateCELBinding_Invalid(t *testing.T) {
     "reason": "Unauthorized"
   } : unknown(r)
 )`
-	prg, err := env.Compile(expr)
+	prg, err := env.CompileValidation(expr)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

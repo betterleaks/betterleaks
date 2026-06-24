@@ -48,7 +48,7 @@ tags = [
 ]{{ end }}
 {{- if $rule.SkipReport }}
 skipReport = true{{ end }}
-{{- with $rule.ValidateCEL }}
+{{- with $rule.ValidateExpr }}
 validate = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Filter }}
 filter = {{ tomlExpr . }}{{ end }}

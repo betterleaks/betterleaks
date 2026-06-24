@@ -64,7 +64,7 @@ func PolymarketAPIKey() *config.Rule {
 				WithinLines: utils.Ptr(20),
 			},
 		},
-		ValidateCEL: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
+		ValidateExpr: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
       base64.decode(captures["polymarket-api-secret"]),
       bytes(ts + "GET" + "/data/orders")
     ); (let r = http.get("https://clob.polymarket.com/data/orders", {

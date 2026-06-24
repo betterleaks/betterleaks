@@ -28,7 +28,7 @@ func AirtablePersonalAccessToken() *config.Rule {
 		RuleID:      "airtable-personnal-access-token",
 		Regex:       regexp.MustCompile(`\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b`),
 		Keywords:    []string{"airtable"},
-		ValidateCEL: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
+		ValidateExpr: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid"
@@ -50,7 +50,7 @@ func AirtableOAuthToken() *config.Rule {
 		RuleID:      "airtable-oauth-token",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, `[A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+`, true),
 		Keywords:    []string{"airtable"},
-		ValidateCEL: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
+		ValidateExpr: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid"

@@ -67,7 +67,7 @@ type rawRule struct {
 	SkipReport      bool                `toml:"skipReport"`
 	TokenEfficiency bool                `toml:"tokenEfficiency"`
 
-	// Filter is a CEL expression evaluated per match (attributes + finding).
+	// Filter is an Expr expression evaluated per match (attributes + finding).
 	// Returns true = skip (discard this finding); false = keep.
 	Filter string `toml:"filter"`
 }
@@ -110,7 +110,7 @@ type Config struct {
 	// used to keep sarif results consistent
 	OrderedRules []string
 
-	// Deprecated: use filter/prefilter CEL expressions instead. This is a shim for backwards-compatibility.
+	// Deprecated: use filter/prefilter Expr expressions instead. This is a shim for backwards-compatibility.
 	Allowlists []*Allowlist
 
 	MinVersion            string
@@ -126,7 +126,7 @@ type Config struct {
 	Filter string
 
 	// prefilterProgram and filterProgram hold programs compiled by
-	// CompileCELFilters. Validation compilation is handled separately by
+	// CompileFilters. Validation compilation is handled separately by
 	// CompileValidation.
 	prefilterProgram exprenv.Program
 	filterProgram    exprenv.Program
@@ -251,7 +251,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			cr.RequiredRules = append(cr.RequiredRules, &requiredRule)
 		}
 
-		cr.ValidateCEL = vr.Validate
+		cr.ValidateExpr = vr.Validate
 		cr.Filter = vr.Filter
 
 		orderedRules = append(orderedRules, cr.RuleID)
@@ -504,27 +504,23 @@ func (c *Config) FilterProgram() exprenv.Program { return c.filterProgram }
 // SetFilterProgram stores a compiled global filter program.
 func (c *Config) SetFilterProgram(p exprenv.Program) { c.filterProgram = p }
 
-// CompileCELFilters compiles the global prefilter, global filter, and per-rule
-// filter CEL expressions into executable programs. This is idempotent.
-func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
-	prefilterEnv, err := exprenv.NewPrefilterEnv()
+// CompileFilters compiles the global prefilter, global filter, and per-rule
+// filter expressions into executable programs. This is idempotent.
+func (c *Config) CompileFilters(tokenizer *tiktoken.Tiktoken) error {
+	env, err := exprenv.New(nil)
 	if err != nil {
-		return fmt.Errorf("creating prefilter env: %w", err)
-	}
-	filterEnv, err := exprenv.NewFilterEnv(tokenizer)
-	if err != nil {
-		return fmt.Errorf("creating filter env: %w", err)
+		return fmt.Errorf("creating expr env: %w", err)
 	}
 
 	if c.Prefilter != "" {
-		prg, compileErr := prefilterEnv.Compile(c.Prefilter)
+		prg, compileErr := env.CompilePrefilter(c.Prefilter)
 		if compileErr != nil {
 			return fmt.Errorf("compiling global prefilter: %w", compileErr)
 		}
 		c.prefilterProgram = prg
 	}
 	if c.Filter != "" {
-		prg, compileErr := filterEnv.Compile(c.Filter)
+		prg, compileErr := env.CompileFilter(c.Filter, tokenizer)
 		if compileErr != nil {
 			return fmt.Errorf("compiling global filter: %w", compileErr)
 		}
@@ -533,7 +529,7 @@ func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
 
 	for ruleID, r := range c.Rules {
 		if r.Filter != "" {
-			prg, compileErr := filterEnv.Compile(r.Filter)
+			prg, compileErr := env.CompileFilter(r.Filter, tokenizer)
 			if compileErr != nil {
 				return fmt.Errorf("compiling rule %s filter: %w", ruleID, compileErr)
 			}
@@ -546,14 +542,14 @@ func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
 }
 
 // CompileValidation compiles per-rule validation expressions.
-// It creates its own exprenv.Environment (like CompileCELFilters creates filter/prefilter envs)
+// It creates its own exprenv.Env.
 // and returns it so the caller can store it for runtime use by the validation pool.
 // Returns (nil, nil) when no rules have validation expressions.
-func (c *Config) CompileValidation() (*exprenv.ValidationEnvironment, error) {
+func (c *Config) CompileValidation() (*exprenv.Env, error) {
 	// Quick check: skip environment creation if nothing to compile.
 	hasValidation := false
 	for _, r := range c.Rules {
-		if r.ValidateCEL != "" {
+		if r.ValidateExpr != "" {
 			hasValidation = true
 			break
 		}
@@ -562,20 +558,20 @@ func (c *Config) CompileValidation() (*exprenv.ValidationEnvironment, error) {
 		return nil, nil
 	}
 
-	env, err := exprenv.NewEnvironment(nil)
+	env, err := exprenv.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating validation env: %w", err)
 	}
 
 	for ruleID, r := range c.Rules {
-		if r.ValidateCEL == "" {
+		if r.ValidateExpr == "" {
 			continue
 		}
-		prg, compileErr := env.Compile(r.ValidateCEL)
+		prg, compileErr := env.CompileValidation(r.ValidateExpr)
 		if compileErr != nil {
 			return nil, fmt.Errorf("compiling rule %s validation: %w", ruleID, compileErr)
 		}
-		r.SetCelProgram(prg)
+		r.SetValidationProgram(prg)
 		c.Rules[ruleID] = r
 	}
 
@@ -681,8 +677,8 @@ func (c *Config) extend(extensionConfig *Config) {
 			if currentRule.Path != nil {
 				baseRule.Path = currentRule.Path
 			}
-			if currentRule.ValidateCEL != "" {
-				baseRule.ValidateCEL = currentRule.ValidateCEL
+			if currentRule.ValidateExpr != "" {
+				baseRule.ValidateExpr = currentRule.ValidateExpr
 			}
 			// Current rule's Filter replaces the extending one if set.
 			if currentRule.Filter != "" {

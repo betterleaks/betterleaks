@@ -12,7 +12,7 @@ func MiniMaxAPIKey() *config.Rule {
 		Description: "Detected a MiniMax API key, which may expose AI model, speech, image, video, or file services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-api-[A-Za-z0-9_-]{119}`, true),
 		Keywords:    []string{"sk-api-", "minimax"},
-		ValidateCEL: `let r = http.get("https://api.minimax.io/v1/models", {
+		ValidateExpr: `let r = http.get("https://api.minimax.io/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }); r.status == 200 && (r.body contains '"data"') ? {

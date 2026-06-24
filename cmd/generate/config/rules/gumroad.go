@@ -11,7 +11,7 @@ func GumroadAccessToken() *config.Rule {
 		Description: "Detected a Gumroad access token, which may expose Gumroad account and product data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"gumroad"}, `(?:[a-f0-9]{64}|[A-Za-z0-9-]{43})`, true),
 		Keywords:    []string{"gumroad"},
-		ValidateCEL: `let r = http.get("https://api.gumroad.com/v2/user?access_token=" + finding["secret"], {
+		ValidateExpr: `let r = http.get("https://api.gumroad.com/v2/user?access_token=" + finding["secret"], {
     "Accept": "application/json"
   }); r.status == 200 && (r.body contains "\"success\":true") && (r.body contains "\"user\"") ? {
     "result": "valid"

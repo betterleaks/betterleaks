@@ -11,7 +11,7 @@ func ClickUpPersonalAPIToken() *config.Rule {
 		Description: "Detected a ClickUp personal API token, which may allow unauthorized access to ClickUp workspaces and user data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"clickup"}, `pk_`+utils.Numeric("8,9")+`_`+utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"clickup"},
-		ValidateCEL: `let r = http.get("https://api.clickup.com/api/v2/user", {
+		ValidateExpr: `let r = http.get("https://api.clickup.com/api/v2/user", {
     "Accept": "application/json",
     "Authorization": finding["secret"]
   }); r.status == 200 ? {

@@ -9,28 +9,25 @@ import (
 )
 
 var (
+	exprEnv                *exprenv.Env
 	globalFilterProgram    exprenv.Program
 	globalPrefilterProgram exprenv.Program
 )
 
 func TestMain(m *testing.M) {
-	filterEnv, err := exprenv.NewFilterEnv(nil)
+	var err error
+	exprEnv, err = exprenv.New(nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "NewFilterEnv: %v\n", err)
+		fmt.Fprintf(os.Stderr, "exprenv.New: %v\n", err)
 		os.Exit(1)
 	}
-	globalFilterProgram, err = filterEnv.Compile(GlobalFilter)
+	globalFilterProgram, err = exprEnv.CompileFilter(GlobalFilter, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "compile GlobalFilter: %v\n", err)
 		os.Exit(1)
 	}
 
-	prefilterEnv, err := exprenv.NewPrefilterEnv()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "NewPrefilterEnv: %v\n", err)
-		os.Exit(1)
-	}
-	globalPrefilterProgram, err = prefilterEnv.Compile(GlobalPrefilter)
+	globalPrefilterProgram, err = exprEnv.CompilePrefilter(GlobalPrefilter)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "compile GlobalPrefilter: %v\n", err)
 		os.Exit(1)
@@ -107,7 +104,7 @@ var allowlistRegexTests = map[string]struct {
 }
 
 func globalSecretAllowed(secret string) bool {
-	skip, err := exprenv.EvalFilter(globalFilterProgram, map[string]string{"secret": secret}, nil)
+	skip, err := exprEnv.EvalFilter(globalFilterProgram, map[string]string{"secret": secret}, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -115,7 +112,7 @@ func globalSecretAllowed(secret string) bool {
 }
 
 func globalPathAllowed(path string) bool {
-	skip, err := exprenv.EvalPrefilter(globalPrefilterProgram, map[string]string{"path": path})
+	skip, err := exprEnv.EvalPrefilter(globalPrefilterProgram, map[string]string{"path": path})
 	if err != nil {
 		panic(err)
 	}

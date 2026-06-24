@@ -9,7 +9,6 @@ import (
 
 func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	validName := regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)?$`)
-	fns := functionNames(baseEnv(&runtimeBindings{}))
 
 	for _, env := range []struct {
 		name       string
@@ -19,7 +18,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	}{
 		{
 			name: "validation",
-			fns:  fns,
+			fns:  functionNames((&Env{}).validationEnv(nil, nil, nil, nil)),
 			current: []string{
 				"http.get", "http.post", "env.get", "env.getOrDefault", "strings.obfuscate",
 				"strings.urlQueryEscape", "validate.unknown", "json.string",
@@ -32,7 +31,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 		},
 		{
 			name: "filter",
-			fns:  fns,
+			fns:  functionNames(filterEvalEnv(nil, emptyStringMap, emptyStringMap)),
 			current: []string{
 				"filter.matchesAny", "filter.containsAny", "filter.entropy",
 				"filter.failsTokenEfficiency",
@@ -41,7 +40,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 		},
 		{
 			name: "prefilter",
-			fns:  fns,
+			fns:  functionNames(prefilterEvalEnv(emptyStringMap)),
 			current: []string{
 				"filter.matchesAny", "filter.containsAny", "filter.entropy",
 				"filter.failsTokenEfficiency",
@@ -57,6 +56,33 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			require.Contains(t, env.fns, name, "%s missing deprecated alias %q", env.name, name)
 		}
 	}
+}
+
+func TestFilterScopes(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	_, err = env.CompileFilter(`http.get("https://example.com")`, nil)
+	require.Error(t, err)
+	_, err = env.CompileFilter(`entropy(finding["secret"]) > 0`, nil)
+	require.NoError(t, err)
+
+	_, err = env.CompilePrefilter(`finding["secret"] == ""`)
+	require.Error(t, err)
+	_, err = env.CompilePrefilter(`matchesAny(get(attributes, "path", ""), [".go"])`)
+	require.NoError(t, err)
+}
+
+func TestFilterEntropy(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	prg, err := env.CompileFilter(`entropy(finding["secret"]) <= 1.0`, nil)
+	require.NoError(t, err)
+
+	skip, err := env.EvalFilter(prg, map[string]string{
+		"secret": "aaaaaaaa",
+	}, nil)
+	require.NoError(t, err)
+	require.True(t, skip)
 }
 
 func functionNames(env map[string]any) map[string]struct{} {

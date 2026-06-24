@@ -39,8 +39,8 @@ func AlibabaSecretKey() *config.Rule {
 				WithinLines: utils.Ptr(5),
 			},
 		},
-		ValidateCEL: alibabaAccessKeyValidationExpr("alibaba-access-key-id", "", ""),
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-access-key-id", "", ""),
+		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
@@ -107,8 +107,8 @@ func AlibabaSTSAccessKeySecret() *config.Rule {
 				WithinLines: utils.Ptr(10),
 			},
 		},
-		ValidateCEL: alibabaAccessKeyValidationExpr("alibaba-sts-access-key-id", "alibaba-sts-security-token", "SecurityToken"),
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-sts-access-key-id", "alibaba-sts-security-token", "SecurityToken"),
+		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{

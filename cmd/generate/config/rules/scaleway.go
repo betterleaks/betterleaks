@@ -17,7 +17,7 @@ func ScalewaySecretKey() *config.Rule {
 		),
 		Entropy:  3,
 		Keywords: []string{"scaleway", "scw"},
-		ValidateCEL: `let r = http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
+		ValidateExpr: `let r = http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
     "X-Auth-Token": secret,
     "Accept": "application/json"
   }); r.status in [200, 403] ? {

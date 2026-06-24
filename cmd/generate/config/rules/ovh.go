@@ -58,7 +58,7 @@ func OVHApplicationSecret() *config.Rule {
 		Description: "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}secret"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},
-		ValidateCEL: `let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/details"; (let sig_payload = finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts; (let sig = "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))); (let r = http.get(url, {
+		ValidateExpr: `let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/details"; (let sig_payload = finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts; (let sig = "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))); (let r = http.get(url, {
             "X-Ovh-Application": captures["ovh-application-key"],
             "X-Ovh-Consumer": captures["ovh-consumer-key"],
             "X-Ovh-Timestamp": ts,

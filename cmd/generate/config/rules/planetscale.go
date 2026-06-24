@@ -60,7 +60,7 @@ func PlanetScaleAPIToken() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "planetscale-id"},
 		},
-		ValidateCEL: `let r = http.get("https://api.planetscale.com/v1/organizations", {
+		ValidateExpr: `let r = http.get("https://api.planetscale.com/v1/organizations", {
     "Accept": "application/json",
     "Authorization": captures["planetscale-id"] + ":" + finding["secret"]
   }); r.status == 200 && (r.json?.type ?? "") == "list" ? {

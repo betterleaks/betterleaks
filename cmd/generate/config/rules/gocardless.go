@@ -17,7 +17,7 @@ func GoCardless() *config.Rule {
 			"live_",
 			"gocardless",
 		},
-		ValidateCEL: `let r = http.get("https://api.gocardless.com/customers?limit=1", {
+		ValidateExpr: `let r = http.get("https://api.gocardless.com/customers?limit=1", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json",
     "GoCardless-Version": "2015-07-06"

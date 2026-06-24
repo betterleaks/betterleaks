@@ -13,7 +13,7 @@ func FigmaPersonalAccessToken() *config.Rule {
 		RuleID:      "figma-personal-access-token",
 		Regex:       utils.GenerateUniqueTokenRegex(`figd_[A-Z0-9_-]{38,42}`, true),
 		Keywords:    []string{"figd_"},
-		ValidateCEL: `let r = http.get("https://api.figma.com/v1/me", {
+		ValidateExpr: `let r = http.get("https://api.figma.com/v1/me", {
     "X-Figma-Token": finding["secret"]
   }); r.status == 200 && !(r.body contains "Invalid token") ? {
     "result": "valid",
@@ -43,7 +43,7 @@ func FigmaPersonalAccessHeaderToken() *config.Rule {
 		RuleID:      "figma-personal-access-header-token",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"x-figma-token", "xfigmatoken", "x_figma_token"}, `[0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}`, true),
 		Keywords:    []string{"X-Figma-Token", "xfigmatoken", "x_figma_token"},
-		ValidateCEL: `let r = http.get("https://api.figma.com/v1/me", {
+		ValidateExpr: `let r = http.get("https://api.figma.com/v1/me", {
     "X-Figma-Token": finding["secret"]
   }); r.status == 200 && !(r.body contains "Invalid token") ? {
     "result": "valid",

@@ -16,7 +16,7 @@ func CohereAPIToken() *config.Rule {
 			"cohere",
 			"CO_API_KEY",
 		},
-		ValidateCEL: `let r = http.get("https://api.cohere.com/v1/connectors", {
+		ValidateExpr: `let r = http.get("https://api.cohere.com/v1/connectors", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"connectors"') && (r.body contains '"total_count"') ? {
     "result": "valid"

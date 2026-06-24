@@ -14,7 +14,7 @@ func HarnessApiKey() *config.Rule {
 		RuleID:      "harness-api-key",
 		Regex:       regexp.MustCompile(`(?:pat|sat)\.[a-zA-Z0-9_-]{22}\.[0-9a-f]{24}\.[a-zA-Z0-9]{20}`),
 		Keywords:    []string{"pat.", "sat."},
-		ValidateCEL: `let r = http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {
+		ValidateExpr: `let r = http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {
     "Accept": "application/json",
     "x-api-key": finding["secret"]
   }); r.status in [200, 403] ? {

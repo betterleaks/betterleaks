@@ -12,7 +12,7 @@ func Cerebras() *config.Rule {
 		Description: "Identified a Cerebras AI API Key, which may expose AI inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`csk-[a-z0-9]{48}`, true),
 		Keywords:    []string{"csk-"},
-		ValidateCEL: `let r = http.get("https://api.cerebras.ai/v1/models", {
+		ValidateExpr: `let r = http.get("https://api.cerebras.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"object"') && (r.body contains '"data"') ? {
     "result": "valid"

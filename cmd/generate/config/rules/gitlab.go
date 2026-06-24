@@ -49,12 +49,12 @@ const (
 
 func GitlabCiCdJobToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gitlab-cicd-job-token",
-		Description: "Identified a GitLab CI/CD Job Token, potential access to projects and some APIs on behalf of a user while the CI job is running.",
-		Regex:       regexp.MustCompile(`glcbt-[0-9a-zA-Z]{1,5}_[0-9a-zA-Z_-]{20}`),
-		Keywords:    []string{"glcbt-"},
-		ValidateCEL: gitlabUserExpr,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "gitlab-cicd-job-token",
+		Description:  "Identified a GitLab CI/CD Job Token, potential access to projects and some APIs on behalf of a user while the CI job is running.",
+		Regex:        regexp.MustCompile(`glcbt-[0-9a-zA-Z]{1,5}_[0-9a-zA-Z_-]{20}`),
+		Keywords:     []string{"glcbt-"},
+		ValidateExpr: gitlabUserExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 	tps := utils.GenerateSampleSecrets("gitlab", "glcbt-"+secrets.NewSecret(utils.AlphaNumeric("5"))+"_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	return utils.Validate(r, tps, nil)
@@ -62,12 +62,12 @@ func GitlabCiCdJobToken() *config.Rule {
 
 func GitlabDeployToken() *config.Rule {
 	r := config.Rule{
-		Description: "Identified a GitLab Deploy Token, risking access to repositories, packages and containers with write access.",
-		RuleID:      "gitlab-deploy-token",
-		Regex:       regexp.MustCompile(`gldt-[0-9a-zA-Z_\-]{20}`),
-		Keywords:    []string{"gldt-"},
-		ValidateCEL: gitlabUserExpr,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		Description:  "Identified a GitLab Deploy Token, risking access to repositories, packages and containers with write access.",
+		RuleID:       "gitlab-deploy-token",
+		Regex:        regexp.MustCompile(`gldt-[0-9a-zA-Z_\-]{20}`),
+		Keywords:     []string{"gldt-"},
+		ValidateExpr: gitlabUserExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 	tps := []string{
 		utils.GenerateSampleSecret("gitlab", "gldt-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3)),
@@ -137,12 +137,12 @@ func GitlabOauthAppSecret() *config.Rule {
 
 func GitlabPat() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gitlab-pat",
-		Description: "Identified a GitLab Personal Access Token, risking unauthorized access to GitLab repositories and codebase exposure.",
-		Regex:       regexp.MustCompile(`glpat-[\w-]{20}`),
-		Keywords:    []string{"glpat-"},
-		ValidateCEL: gitlabPatExpr,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "gitlab-pat",
+		Description:  "Identified a GitLab Personal Access Token, risking unauthorized access to GitLab repositories and codebase exposure.",
+		Regex:        regexp.MustCompile(`glpat-[\w-]{20}`),
+		Keywords:     []string{"glpat-"},
+		ValidateExpr: gitlabPatExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -155,12 +155,12 @@ func GitlabPat() *config.Rule {
 
 func GitlabPatRoutable() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gitlab-pat-routable",
-		Description: "Identified a GitLab Personal Access Token (routable), risking unauthorized access to GitLab repositories and codebase exposure.",
-		Regex:       regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`),
-		Keywords:    []string{"glpat-"},
-		ValidateCEL: gitlabPatExpr,
-		Filter:      `entropy(finding["secret"]) <= 4.0`,
+		RuleID:       "gitlab-pat-routable",
+		Description:  "Identified a GitLab Personal Access Token (routable), risking unauthorized access to GitLab repositories and codebase exposure.",
+		Regex:        regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`),
+		Keywords:     []string{"glpat-"},
+		ValidateExpr: gitlabPatExpr,
+		Filter:       `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate
@@ -173,12 +173,12 @@ func GitlabPatRoutable() *config.Rule {
 
 func GitlabPatRoutableVersioned() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gitlab-pat-routable-versioned",
-		Description: "Identified a GitLab Personal Access Token (routable, versioned), risking unauthorized access to GitLab repositories and codebase exposure.",
-		Regex:       regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}\.[0-9a-z]{9}\b`),
-		Keywords:    []string{"glpat-"},
-		ValidateCEL: gitlabPatExpr,
-		Filter:      `entropy(finding["secret"]) <= 4.0`,
+		RuleID:       "gitlab-pat-routable-versioned",
+		Description:  "Identified a GitLab Personal Access Token (routable, versioned), risking unauthorized access to GitLab repositories and codebase exposure.",
+		Regex:        regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}\.[0-9a-z]{9}\b`),
+		Keywords:     []string{"glpat-"},
+		ValidateExpr: gitlabPatExpr,
+		Filter:       `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate
@@ -195,12 +195,12 @@ func GitlabPatRoutableVersioned() *config.Rule {
 
 func GitlabPipelineTriggerToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gitlab-ptt",
-		Description: "Found a GitLab Pipeline Trigger Token, potentially compromising continuous integration workflows and project security.",
-		Regex:       regexp.MustCompile(`glptt-[0-9a-f]{40}`),
-		Keywords:    []string{"glptt-"},
-		ValidateCEL: gitlabUserExpr,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "gitlab-ptt",
+		Description:  "Found a GitLab Pipeline Trigger Token, potentially compromising continuous integration workflows and project security.",
+		Regex:        regexp.MustCompile(`glptt-[0-9a-f]{40}`),
+		Keywords:     []string{"glptt-"},
+		ValidateExpr: gitlabUserExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -213,12 +213,12 @@ func GitlabPipelineTriggerToken() *config.Rule {
 
 func GitlabRunnerRegistrationToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gitlab-rrt",
-		Description: "Discovered a GitLab Runner Registration Token, posing a risk to CI/CD pipeline integrity and unauthorized access.",
-		Regex:       regexp.MustCompile(`GR1348941[\w-]{20}`),
-		Keywords:    []string{"GR1348941"},
-		ValidateCEL: gitlabRunnerRegistrationExpr,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "gitlab-rrt",
+		Description:  "Discovered a GitLab Runner Registration Token, posing a risk to CI/CD pipeline integrity and unauthorized access.",
+		Regex:        regexp.MustCompile(`GR1348941[\w-]{20}`),
+		Keywords:     []string{"GR1348941"},
+		ValidateExpr: gitlabRunnerRegistrationExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "GR1348941"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
@@ -231,12 +231,12 @@ func GitlabRunnerRegistrationToken() *config.Rule {
 
 func GitlabRunnerAuthenticationToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gitlab-runner-authentication-token",
-		Description: "Discovered a GitLab Runner Authentication Token, posing a risk to CI/CD pipeline integrity and unauthorized access.",
-		Regex:       regexp.MustCompile(`glrt-[0-9a-zA-Z_\-]{20}`),
-		Keywords:    []string{"glrt-"},
-		ValidateCEL: gitlabUserExpr,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "gitlab-runner-authentication-token",
+		Description:  "Discovered a GitLab Runner Authentication Token, posing a risk to CI/CD pipeline integrity and unauthorized access.",
+		Regex:        regexp.MustCompile(`glrt-[0-9a-zA-Z_\-]{20}`),
+		Keywords:     []string{"glrt-"},
+		ValidateExpr: gitlabUserExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "glrt-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
@@ -245,12 +245,12 @@ func GitlabRunnerAuthenticationToken() *config.Rule {
 
 func GitlabRunnerAuthenticationTokenRoutable() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gitlab-runner-authentication-token-routable",
-		Description: "Discovered a GitLab Runner Authentication Token (Routable), posing a risk to CI/CD pipeline integrity and unauthorized access.",
-		Regex:       regexp.MustCompile(`\bglrt-t\d_[0-9a-zA-Z_\-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`),
-		Keywords:    []string{"glrt-"},
-		ValidateCEL: gitlabUserExpr,
-		Filter:      `entropy(finding["secret"]) <= 4.0`,
+		RuleID:       "gitlab-runner-authentication-token-routable",
+		Description:  "Discovered a GitLab Runner Authentication Token (Routable), posing a risk to CI/CD pipeline integrity and unauthorized access.",
+		Regex:        regexp.MustCompile(`\bglrt-t\d_[0-9a-zA-Z_\-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`),
+		Keywords:     []string{"glrt-"},
+		ValidateExpr: gitlabUserExpr,
+		Filter:       `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "glrt-t"+secrets.NewSecret(utils.Numeric("1"))+"_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("27"), 4)+"."+secrets.NewSecret(utils.AlphaNumeric("2"))+secrets.NewSecret(utils.AlphaNumeric("7")))

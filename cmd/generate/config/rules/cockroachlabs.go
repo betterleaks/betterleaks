@@ -12,7 +12,7 @@ func CockroachLabsCloudAPIKey() *config.Rule {
 		Description: "Detected a CockroachDB Cloud service account API key, which may allow unauthorized access to CockroachDB Cloud resources.",
 		Regex:       regexp.MustCompile(`\b(CCDB1_[A-Za-z0-9]{22}_[A-Za-z0-9]{40})\b`),
 		Keywords:    []string{"CCDB1_"},
-		ValidateCEL: `let r = http.get("https://cockroachlabs.cloud/api/v1/clusters", {
+		ValidateExpr: `let r = http.get("https://cockroachlabs.cloud/api/v1/clusters", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }); r.status == 200 && (r.body contains "\"clusters\"") && (r.body contains "\"pagination\"") ? {

@@ -12,7 +12,7 @@ func WeightsAndBiases() *config.Rule {
 		Description: "Detected a Weights & Biases API Key, which may expose ML experiment tracking and model registry access to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wandb", "weightsandbiases"}, utils.Hex("40"), true),
 		Keywords:    []string{"wandb", "weightsandbiases"},
-		ValidateCEL: `let r = http.post("https://api.wandb.ai/graphql", {
+		ValidateExpr: `let r = http.post("https://api.wandb.ai/graphql", {
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
@@ -42,7 +42,7 @@ func WeightsAndBiasesV1() *config.Rule {
 		Description: "Detected a Weights & Biases v1 API Key (wandb_v1_), which may expose ML experiment tracking and artifact storage to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`wandb_v1_[A-Za-z0-9_]{77}`, true),
 		Keywords:    []string{"wandb_v1_"},
-		ValidateCEL: `let r = http.post("https://api.wandb.ai/graphql", {
+		ValidateExpr: `let r = http.post("https://api.wandb.ai/graphql", {
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {

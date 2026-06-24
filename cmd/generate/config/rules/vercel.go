@@ -12,7 +12,7 @@ func VercelAPIToken() *config.Rule {
 		Description: "Detected a Vercel API Token, which may expose deployment and serverless infrastructure to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"vercel"}, `[A-Z0-9]{24}`, true),
 		Keywords:    []string{"vercel"},
-		ValidateCEL: `let r = http.get("https://api.vercel.com/v2/user", {
+		ValidateExpr: `let r = http.get("https://api.vercel.com/v2/user", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
     "result": "valid",
@@ -48,7 +48,7 @@ func VercelPersonalAccessToken() *config.Rule {
 		Description: "Detected a Vercel Personal Access Token (vcp_), which may expose full account and deployment management capabilities.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vcp_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vcp_"},
-		ValidateCEL: `let r = http.get("https://api.vercel.com/v2/user", {
+		ValidateExpr: `let r = http.get("https://api.vercel.com/v2/user", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
     "result": "valid",
@@ -82,7 +82,7 @@ func VercelIntegrationToken() *config.Rule {
 		Description: "Detected a Vercel Integration Token (vci_), which may allow third-party service integrations to act on behalf of users.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vci_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vci_"},
-		ValidateCEL: `let r = http.get("https://api.vercel.com/v2/user", {
+		ValidateExpr: `let r = http.get("https://api.vercel.com/v2/user", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains "\"user\"") ? {
     "result": "valid",
@@ -115,7 +115,7 @@ func VercelAppAccessToken() *config.Rule {
 		Description: "Detected a Vercel App Access Token (vca_), which may allow Sign in with Vercel apps to access user resources.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vca_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vca_"},
-		ValidateCEL: `let r = http.post("https://api.vercel.com/login/oauth/userinfo", {
+		ValidateExpr: `let r = http.post("https://api.vercel.com/login/oauth/userinfo", {
     "Authorization": "Bearer " + finding["secret"]
   }, ""); r.status == 200 && (r.body contains "\"sub\"") ? {
     "result": "valid",
@@ -147,7 +147,7 @@ func VercelAppRefreshToken() *config.Rule {
 		Description: "Detected a Vercel App Refresh Token (vcr_), which may allow persistent unauthorized access through token refresh flows.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vcr_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vcr_"},
-		ValidateCEL: `let r = http.post("https://api.vercel.com/login/oauth/token/introspect", {
+		ValidateExpr: `let r = http.post("https://api.vercel.com/login/oauth/token/introspect", {
     "Content-Type": "application/x-www-form-urlencoded"
   }, "token=" + finding["secret"]); r.status == 200 && (r.body contains "\"active\":true") ? {
     "result": "valid"
@@ -180,7 +180,7 @@ func VercelAIGatewayKey() *config.Rule {
 		Description: "Detected a Vercel AI Gateway API Key (vck_), which may expose AI model routing and gateway access to unauthorized parties.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vck_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vck_"},
-		ValidateCEL: `let r = http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
+		ValidateExpr: `let r = http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
     "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
   }, "{\"model\":\"openai/gpt-3.5-turbo\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"max_tokens\":1}"); r.status in [200, 403] ? {

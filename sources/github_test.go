@@ -692,13 +692,13 @@ func TestGitHub_streamWorkflowRuns_usesCombinedCreatedRange(t *testing.T) {
 func compileGitHubPrefilter(t *testing.T, expression string) SkipFunc {
 	t.Helper()
 
-	env, err := exprenv.NewPrefilterEnv()
+	env, err := exprenv.New(nil)
 	require.NoError(t, err)
-	prg, err := env.Compile(expression)
+	prg, err := env.CompilePrefilter(expression)
 	require.NoError(t, err)
 
 	return func(attrs map[string]string) bool {
-		skip, err := exprenv.EvalPrefilter(prg, attrs)
+		skip, err := env.EvalPrefilter(prg, attrs)
 		require.NoError(t, err)
 		return skip
 	}

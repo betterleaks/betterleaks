@@ -16,7 +16,7 @@ func MailGunPrivateAPIToken() *config.Rule {
 		Keywords: []string{
 			"mailgun",
 		},
-		ValidateCEL: `let r = http.get("https://api.mailgun.net/v3/domains", {
+		ValidateExpr: `let r = http.get("https://api.mailgun.net/v3/domains", {
     "Accept": "application/json",
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"]))
   }); r.status == 200 ? {

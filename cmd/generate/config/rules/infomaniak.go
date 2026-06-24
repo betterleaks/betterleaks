@@ -13,7 +13,7 @@ func Infomaniak() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"infomaniak"}, `[A-Za-z0-9_\-]{60,100}`, true),
 		Keywords:    []string{"infomaniak"},
 		Entropy:     4.0,
-		ValidateCEL: `let r = http.get("https://api.infomaniak.com/1/profile", {
+		ValidateExpr: `let r = http.get("https://api.infomaniak.com/1/profile", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"result"') ? {
     "result": "valid"

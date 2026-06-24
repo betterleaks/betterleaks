@@ -3,9 +3,9 @@ package exprenv
 import "testing"
 
 func TestCELCompatEval(t *testing.T) {
-	env, err := NewEnvironment(nil)
+	env, err := New(nil)
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprenv.New: %v", err)
 	}
 
 	tests := []struct {
@@ -51,7 +51,7 @@ func TestCELCompatEval(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			prg, err := env.Compile(tc.expr)
+			prg, err := env.CompileValidation(tc.expr)
 			if err != nil {
 				t.Fatalf("compile: %v", err)
 			}
@@ -61,6 +61,27 @@ func TestCELCompatEval(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Fatalf("got %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNeedsCELCompat(t *testing.T) {
+	tests := []struct {
+		expr string
+		want bool
+	}{
+		{expr: `filter.matchesAny(finding["secret"], ["sec"])`, want: false},
+		{expr: `let r = http.get("https://example.com", {}); r.status == 200`, want: false},
+		{expr: `cel.bind(r, {"body": "abc"}, r.body.contains("b"))`, want: true},
+		{expr: `r.json.?name.orValue("")`, want: true},
+		{expr: `env("TOKEN")`, want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.expr, func(t *testing.T) {
+			if got := NeedsCELCompat(tc.expr); got != tc.want {
+				t.Fatalf("NeedsCELCompat() = %v, want %v", got, tc.want)
 			}
 		})
 	}

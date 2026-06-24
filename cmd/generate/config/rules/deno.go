@@ -7,12 +7,12 @@ import (
 
 func DenoAccountToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "deno-account-token",
-		Description: "Detected a Deno account token, which may expose Deno Deploy account access.",
-		Regex:       utils.GenerateUniqueTokenRegex(`ddp_[A-Za-z0-9]{36}`, false),
-		Keywords:    []string{"ddp_"},
-		ValidateCEL: utils.BearerGetValidationExpr("https://api.deno.com/v1/user", `(r.body contains "\"id\"")`),
-		Filter:      utils.MinEntropy(3.5),
+		RuleID:       "deno-account-token",
+		Description:  "Detected a Deno account token, which may expose Deno Deploy account access.",
+		Regex:        utils.GenerateUniqueTokenRegex(`ddp_[A-Za-z0-9]{36}`, false),
+		Keywords:     []string{"ddp_"},
+		ValidateExpr: utils.BearerGetValidationExpr("https://api.deno.com/v1/user", `(r.body contains "\"id\"")`),
+		Filter:       utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

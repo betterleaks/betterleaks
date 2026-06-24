@@ -6,9 +6,9 @@ import (
 )
 
 func TestBindings(t *testing.T) {
-	env, err := NewEnvironment(nil)
+	env, err := New(nil)
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprenv.New: %v", err)
 	}
 
 	tests := []struct {
@@ -47,7 +47,7 @@ func TestBindings(t *testing.T) {
 
 	// Verify crypto.hmac_sha256 returns correct HMAC
 	t.Run("hmac_sha256", func(t *testing.T) {
-		prg, err := env.Compile(`crypto.hmac_sha256(bytes("key"), bytes("hello"))`)
+		prg, err := env.CompileValidation(`crypto.hmac_sha256(bytes("key"), bytes("hello"))`)
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
@@ -64,7 +64,7 @@ func TestBindings(t *testing.T) {
 	})
 
 	t.Run("hmac_sha1", func(t *testing.T) {
-		prg, err := env.Compile(`hex.encode(crypto.hmacSha1(bytes("key"), bytes("hello")))`)
+		prg, err := env.CompileValidation(`hex.encode(crypto.hmacSha1(bytes("key"), bytes("hello")))`)
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
@@ -78,7 +78,7 @@ func TestBindings(t *testing.T) {
 	})
 
 	t.Run("url_query_escape", func(t *testing.T) {
-		prg, err := env.Compile(`strings.urlQueryEscape("a b+/:")`)
+		prg, err := env.CompileValidation(`strings.urlQueryEscape("a b+/:")`)
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
@@ -93,7 +93,7 @@ func TestBindings(t *testing.T) {
 
 	// Verify time.now_unix returns a numeric string
 	t.Run("time_now_unix", func(t *testing.T) {
-		prg, err := env.Compile(`time.now_unix()`)
+		prg, err := env.CompileValidation(`time.now_unix()`)
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
@@ -111,7 +111,7 @@ func TestBindings(t *testing.T) {
 	})
 
 	t.Run("time_now_rfc3339", func(t *testing.T) {
-		prg, err := env.Compile(`time.nowRFC3339()`)
+		prg, err := env.CompileValidation(`time.nowRFC3339()`)
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
@@ -130,7 +130,7 @@ func TestBindings(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			prg, err := env.Compile(tc.expr)
+			prg, err := env.CompileValidation(tc.expr)
 			if err != nil {
 				t.Fatalf("compile: %v", err)
 			}
@@ -148,12 +148,12 @@ func TestBindings(t *testing.T) {
 }
 
 func TestValidationAttributes(t *testing.T) {
-	env, err := NewEnvironment(nil)
+	env, err := New(nil)
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprenv.New: %v", err)
 	}
 
-	prg, err := env.Compile(`attributes["path"] == "service/config.yml" ? {"result": "valid"} : {"result": "invalid"}`)
+	prg, err := env.CompileValidation(`attributes["path"] == "service/config.yml" ? {"result": "valid"} : {"result": "invalid"}`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

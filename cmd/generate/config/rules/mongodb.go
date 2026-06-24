@@ -18,7 +18,7 @@ func MongoDBAtlasServiceAccountSecret() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "mongodb-atlas-service-account-id"},
 		},
-		ValidateCEL: `let r = http.post("https://cloud.mongodb.com/api/oauth/token", {
+		ValidateExpr: `let r = http.post("https://cloud.mongodb.com/api/oauth/token", {
     "Accept": "application/json",
     "Content-Type": "application/x-www-form-urlencoded",
     "Authorization": "Basic " + base64.encode(bytes(captures["mongodb-atlas-service-account-id"] + ":" + finding["secret"]))

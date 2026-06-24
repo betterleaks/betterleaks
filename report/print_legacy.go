@@ -61,10 +61,7 @@ func (f Finding) PrintLegacy(noColor bool, redact uint) {
 		styledSecret := secretStyle.Render(secretDisplay)
 		matchEnd := matchStyle.Render(f.Match[secretInMatchIdx+len(f.Secret):])
 
-		lineEndIdx := matchInLineIDX + len(f.Match)
-		if lineEndIdx > len(f.Line) {
-			lineEndIdx = len(f.Line)
-		}
+		lineEndIdx := min(matchInLineIDX+len(f.Match), len(f.Line))
 
 		lineEnd := f.Line[lineEndIdx:]
 

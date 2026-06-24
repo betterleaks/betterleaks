@@ -14,7 +14,7 @@ func EtsyAccessToken() *config.Rule {
 			"etsy",
 			"x-api-key",
 		},
-		ValidateCEL: `let k = finding["secret"].split(":")[0]; (let r = http.get("https://api.etsy.com/v3/application/openapi-ping", {
+		ValidateExpr: `let k = finding["secret"].split(":")[0]; (let r = http.get("https://api.etsy.com/v3/application/openapi-ping", {
       "x-api-key": k,
       "Accept": "application/json"
     }); r.status == 200 ? {

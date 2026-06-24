@@ -13,7 +13,7 @@ func Civo() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"civo"}, utils.AlphaNumeric("50"), true),
 		Keywords:    []string{"civo"},
 		Entropy:     3.5,
-		ValidateCEL: `let r = http.get("https://api.civo.com/v2/instances", {
+		ValidateExpr: `let r = http.get("https://api.civo.com/v2/instances", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid"

@@ -27,7 +27,7 @@ func AWS() *config.Rule {
 				WithinLines: utils.Ptr(5),
 			},
 		},
-		ValidateCEL: `let r = aws.validate(finding["secret"], captures["aws-secret-access-key"]); r.status == 200 ? {
+		ValidateExpr: `let r = aws.validate(finding["secret"], captures["aws-secret-access-key"]); r.status == 200 ? {
     "result": "valid",
     "arn": r.arn,
     "account": r.account,

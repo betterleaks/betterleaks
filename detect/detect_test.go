@@ -157,7 +157,7 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 	for i := range findings {
 		findings[i].Attributes = nil
 		findings[i].Link = ""
-		findings[i].SetCELContext("")
+		findings[i].SetExprContext("")
 	}
 	return findings
 }
@@ -2533,7 +2533,7 @@ let password = 'Summer2024!';`
 				Rules: map[string]config.Rule{"test-rule": rule},
 			}
 			require.NoError(t, cfg.TranslateLegacyFilters())
-			require.NoError(t, cfg.CompileCELFilters(nil))
+			require.NoError(t, cfg.CompileFilters(nil))
 			rule = cfg.Rules["test-rule"]
 
 			d, err := NewDetectorDefaultConfig()
@@ -2927,7 +2927,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 				Rules: map[string]config.Rule{test.rule.RuleID: test.rule},
 			}
 			require.NoError(t, cfg.TranslateLegacyFilters())
-			require.NoError(t, cfg.CompileCELFilters(nil))
+			require.NoError(t, cfg.CompileFilters(nil))
 			rule := cfg.Rules[test.rule.RuleID]
 
 			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, rule, []*codec.EncodedSegment{})

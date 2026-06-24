@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"io"
 	"math/big"
+	"net/url"
 	"strings"
 )
 
@@ -22,6 +23,16 @@ const (
 
 // obfuscateRand is the randomness source. Tests swap in a deterministic stream.
 var obfuscateRand io.Reader = rand.Reader
+
+func stringsNamespace() map[string]any {
+	return map[string]any{
+		"obfuscate":        func(s string) (string, error) { return obfuscate(s), nil },
+		"urlQueryEscape":   urlQueryEscape,
+		"url_query_escape": urlQueryEscape,
+	}
+}
+
+func urlQueryEscape(s string) string { return url.QueryEscape(s) }
 
 // obfuscate returns a same-length, class-preserving perturbation of secret.
 // Each rune is replaced with probability obfuscateRate by a different rune
@@ -56,11 +67,8 @@ func splitPrefix(secret string) (prefix, body string) {
 	if len(runes) <= prefixMinLen {
 		return "", secret
 	}
-	scan := prefixScanLen
-	if scan > len(runes) {
-		scan = len(runes)
-	}
-	for i := 0; i < scan; i++ {
+	scan := min(prefixScanLen, len(runes))
+	for i := range scan {
 		if strings.ContainsRune(prefixSeparators, runes[i]) {
 			return string(runes[:i+1]), string(runes[i+1:])
 		}

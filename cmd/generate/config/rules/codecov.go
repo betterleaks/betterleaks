@@ -11,7 +11,7 @@ func CodecovAccessToken() *config.Rule {
 		Description: "Found a pattern resembling a Codecov Access Token, posing a risk of unauthorized access to code coverage reports and sensitive data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"codecov"}, `[A-Z0-9-]{36}`, true),
 		Keywords:    []string{"codecov"},
-		ValidateCEL: `let r = http.get("https://api.codecov.io/api/v2/github/", {
+		ValidateExpr: `let r = http.get("https://api.codecov.io/api/v2/github/", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }); r.status == 200 && (r.body contains "\"count\":") ? {

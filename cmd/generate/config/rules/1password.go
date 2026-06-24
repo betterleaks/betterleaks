@@ -15,7 +15,7 @@ func OnePasswordServiceAccountToken() *config.Rule {
 		Description: "Uncovered a possible 1Password service account token, potentially compromising access to secrets in vaults.",
 		Regex:       regexp.MustCompile(`ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`),
 		Keywords:    []string{"ops_eyj"},
-		ValidateCEL: `let r = http.get("https://events.1password.com/api/v2/auth/introspect", {
+		ValidateExpr: `let r = http.get("https://events.1password.com/api/v2/auth/introspect", {
     "Accept": "application/json",
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains "\"features\"") ? {

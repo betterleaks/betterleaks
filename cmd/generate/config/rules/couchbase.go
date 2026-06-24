@@ -12,7 +12,7 @@ func CouchbaseCapellaAPIKey() *config.Rule {
 		Description: "Detected a Couchbase Capella API key secret, which may allow unauthorized access to Couchbase Capella management APIs.",
 		Regex:       regexp.MustCompile(`(?i)\b(?:couchbase|capella)(?:.|[\n\r]){0,32}?(?:api(?:.|[\n\r]){0,12}?(?:key|secret)|key(?:.|[\n\r]){0,12}?secret)(?:.|[\n\r]){0,32}?\b([A-Za-z0-9+/]{60,120}={0,2})\b`),
 		Keywords:    []string{"couchbase", "capella"},
-		ValidateCEL: `let r = http.get("https://cloudapi.cloud.couchbase.com/v4/organizations", {
+		ValidateExpr: `let r = http.get("https://cloudapi.cloud.couchbase.com/v4/organizations", {
     "Accept": "application/json",
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {

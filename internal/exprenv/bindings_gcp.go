@@ -24,6 +24,12 @@ const (
 	gcpJWTBearerGrant       = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 )
 
+func gcpNamespace(rt *runtimeBindings) map[string]any {
+	return map[string]any{
+		"validate": rt.gcpValidate,
+	}
+}
+
 type gcpCredential struct {
 	Type         string `json:"type"`
 	ProjectID    string `json:"project_id"`
@@ -44,12 +50,12 @@ type gcpTokenResponse struct {
 func (rt *runtimeBindings) gcpValidate(credentialJSON string) map[string]any {
 	e := rt.validation
 	if e == nil {
-		e, _ = NewEnvironment(nil)
+		e, _ = New(nil)
 	}
 	return validateGCPCredential(rt.ctx, e, credentialJSON)
 }
 
-func validateGCPCredential(ctx context.Context, e *ValidationEnvironment, credentialJSON string) map[string]any {
+func validateGCPCredential(ctx context.Context, e *Env, credentialJSON string) map[string]any {
 	creds, err := parseGCPCredential(credentialJSON)
 	if err != nil {
 		return map[string]any{

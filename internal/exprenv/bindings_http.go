@@ -2,84 +2,21 @@ package exprenv
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/md5"
-	"crypto/sha1"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/betterleaks/betterleaks/logging"
 )
 
-// ParseValidationEnvAllowlist converts CLI flag fragments into a set of names.
-func ParseValidationEnvAllowlist(parts []string) map[string]struct{} {
-	out := make(map[string]struct{})
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		for _, name := range strings.Split(part, ",") {
-			if n := strings.TrimSpace(name); n != "" {
-				out[n] = struct{}{}
-			}
-		}
+func httpNamespace(rt *runtimeBindings) map[string]any {
+	return map[string]any{
+		"get":  rt.httpGet,
+		"post": rt.httpPost,
 	}
-	return out
 }
-
-func md5Bytes(bs []byte) []byte {
-	hash := md5.Sum(bs)
-	return hash[:]
-}
-
-func sha1Bytes(bs []byte) []byte {
-	hash := sha1.Sum(bs)
-	return hash[:]
-}
-
-func hmacSha256Bytes(key, msg []byte) []byte {
-	h := hmac.New(sha256.New, key)
-	_, _ = h.Write(msg)
-	return h.Sum(nil)
-}
-
-func hmacSha1Bytes(key, msg []byte) []byte {
-	h := hmac.New(sha1.New, key)
-	_, _ = h.Write(msg)
-	return h.Sum(nil)
-}
-
-func hexEncode(bs []byte) string { return hex.EncodeToString(bs) }
-
-func base64Encode(bs []byte) string { return base64.StdEncoding.EncodeToString(bs) }
-
-func base64Decode(s string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(s)
-}
-
-func jsonString(s string) (string, error) {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return "", fmt.Errorf("json.string: %w", err)
-	}
-	return string(b), nil
-}
-
-func urlQueryEscape(s string) string { return url.QueryEscape(s) }
-
-func timeNowUnix() string { return strconv.FormatInt(time.Now().Unix(), 10) }
-
-func timeNowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
 
 func (rt *runtimeBindings) httpGet(rawURL string, headers any) (map[string]any, error) {
 	return rt.httpRequest(rt.ctx, http.MethodGet, rawURL, headers, "")
@@ -140,7 +77,7 @@ func mapToStringAny(v any) map[string]any {
 	return out
 }
 
-func (e *ValidationEnvironment) captureDebug(method, rawURL, reqBody string, req *http.Request, resp *http.Response, body []byte) {
+func (e *Env) captureDebug(method, rawURL, reqBody string, req *http.Request, resp *http.Response, body []byte) {
 	if e.debugMeta == nil {
 		e.debugMeta = make(map[string]any)
 	}
@@ -184,17 +121,4 @@ func buildResponseMap(statusCode int, body []byte, header http.Header) map[strin
 		"headers": headerMap,
 		"body":    string(body),
 	}
-}
-
-func unknownResult(resp map[string]any) map[string]any {
-	m := map[string]any{"result": "unknown"}
-	if status, ok := resp["status"]; ok {
-		switch status {
-		case int64(429), 429:
-			m["reason"] = "rate limited"
-		default:
-			m["reason"] = fmt.Sprintf("HTTP %v", status)
-		}
-	}
-	return m
 }

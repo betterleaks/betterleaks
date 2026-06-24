@@ -17,6 +17,15 @@ var (
 	acTrieCache sync.Map // string -> *ahocorasick.Trie
 )
 
+func filterNamespace(rt *runtimeBindings) map[string]any {
+	return map[string]any{
+		"matchesAny":           matchesAny,
+		"containsAny":          containsAny,
+		"entropy":              shannonEntropy,
+		"failsTokenEfficiency": rt.failsTokenEfficiency,
+	}
+}
+
 func orderedKey(ss []string) string { return strings.Join(ss, "\x00") }
 
 func sortedKey(ss []string) string {
@@ -88,7 +97,7 @@ func toStringSlice(v any) []string {
 	}
 }
 
-func celShannonEntropy(s string) float64 {
+func shannonEntropy(s string) float64 {
 	if len(s) == 0 {
 		return 0
 	}
@@ -107,19 +116,19 @@ func celShannonEntropy(s string) float64 {
 	return h
 }
 
-var celNewlineReplacer = strings.NewReplacer("\n", "", "\r", "")
+var newlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 
 func (rt *runtimeBindings) failsTokenEfficiency(secret string) bool {
 	if rt.tokenizer == nil {
 		return false
 	}
-	return celFailsTokenEfficiency(rt.tokenizer, secret)
+	return failsTokenEfficiency(rt.tokenizer, secret)
 }
 
-func celFailsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
+func failsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
 	analyzed := secret
 	if len(analyzed) < 20 && strings.ContainsAny(analyzed, "\n\r") {
-		analyzed = celNewlineReplacer.Replace(analyzed)
+		analyzed = newlineReplacer.Replace(analyzed)
 	}
 	tokens := tke.Encode(analyzed, nil, nil)
 	if len(tokens) == 0 {

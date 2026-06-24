@@ -29,10 +29,10 @@ func (c *Config) translateLegacyFilters() error {
 	c.Filter = composeFilters(globalFil, c.Filter)
 
 	if c.Prefilter != "" {
-		logging.Trace().Str("prefilter", c.Prefilter).Msg("translated global prefilter CEL expression")
+		logging.Trace().Str("prefilter", c.Prefilter).Msg("translated global prefilter expression")
 	}
 	if c.Filter != "" {
-		logging.Trace().Str("filter", c.Filter).Msg("translated global filter CEL expression")
+		logging.Trace().Str("filter", c.Filter).Msg("translated global filter expression")
 	}
 
 	// ── per-rule fields ────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ func (c *Config) translateLegacyFilters() error {
 
 		if r.Filter != "" {
 			logging.Trace().Str("rule", ruleID).Str("filter", r.Filter).
-				Msg("translated rule filter CEL expression")
+				Msg("translated rule filter expression")
 		}
 
 		r.Allowlists = nil
@@ -102,14 +102,14 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 		for i, p := range a.Paths {
 			patterns[i] = p.String()
 		}
-		list := celRegexList(patterns)
+		list := exprRegexList(patterns)
 		pathParts = append(pathParts,
 			fmt.Sprintf(`matchesAny(get(attributes, "path", ""), %s)`, list))
 	}
 
 	// Collect commit expressions (prefilter-level).
 	if len(a.Commits) > 0 {
-		commitParts = append(commitParts, fmt.Sprintf(`get(attributes, "git.sha", "") in %s`, celStringList(a.Commits)))
+		commitParts = append(commitParts, fmt.Sprintf(`get(attributes, "git.sha", "") in %s`, exprStringList(a.Commits)))
 	}
 
 	// Collect regex expressions (filter-level).
@@ -122,12 +122,12 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 		if a.RegexTarget != "" {
 			target = a.RegexTarget
 		}
-		regexParts = append(regexParts, fmt.Sprintf(`matchesAny(finding[%s], %s)`, celStringLit(target), celRegexList(patterns)))
+		regexParts = append(regexParts, fmt.Sprintf(`matchesAny(finding[%s], %s)`, exprStringLit(target), exprRegexList(patterns)))
 	}
 
 	// Collect stopword expressions (filter-level).
 	if len(a.StopWords) > 0 {
-		stopParts = append(stopParts, fmt.Sprintf(`containsAny(finding["secret"], %s)`, celStringList(a.StopWords)))
+		stopParts = append(stopParts, fmt.Sprintf(`containsAny(finding["secret"], %s)`, exprStringList(a.StopWords)))
 	}
 
 	if a.MatchCondition == AllowlistMatchAnd {
@@ -153,7 +153,7 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 	return prefilterParts, filterParts
 }
 
-// composeFilters builds a final CEL expression from skip predicates.
+// composeFilters builds a final Expr expression from skip predicates.
 // Each part is a condition that, when true, means "skip this item".
 // Parts are OR-ed: skip if any condition fires.
 // If all inputs are empty, returns "".
@@ -171,34 +171,34 @@ func composeFilters(skipParts []string, userExpr string) string {
 	return strings.Join(parts, "\n|| ")
 }
 
-// celRegexLit returns an Expr string literal for a regex pattern. Backtick
+// exprRegexLit returns an Expr string literal for a regex pattern. Backtick
 // strings are preferred for readability; strconv.Quote is used when the pattern
 // contains a backtick.
-func celRegexLit(s string) string {
+func exprRegexLit(s string) string {
 	if !strings.Contains(s, "`") {
 		return "`" + s + "`"
 	}
 	return strconv.Quote(s)
 }
 
-// celStringLit returns a CEL string literal for non-regex values (field names,
+// exprStringLit returns an Expr string literal for non-regex values (field names,
 // stopwords, commit SHAs).
-func celStringLit(s string) string {
+func exprStringLit(s string) string {
 	return strconv.Quote(s)
 }
 
-// celRegexList returns a CEL list literal of regex patterns.
-func celRegexList(ss []string) string {
-	return celListLit(ss, celRegexLit)
+// exprRegexList returns an Expr list literal of regex patterns.
+func exprRegexList(ss []string) string {
+	return exprListLit(ss, exprRegexLit)
 }
 
-// celStringList returns a CEL list literal from a slice of Go strings.
+// exprStringList returns an Expr list literal from a slice of Go strings.
 // Lists with multiple elements are formatted with one entry per line for readability.
-func celStringList(ss []string) string {
-	return celListLit(ss, celStringLit)
+func exprStringList(ss []string) string {
+	return exprListLit(ss, exprStringLit)
 }
 
-func celListLit(ss []string, lit func(string) string) string {
+func exprListLit(ss []string, lit func(string) string) string {
 	parts := make([]string, len(ss))
 	for i, s := range ss {
 		parts[i] = lit(s)

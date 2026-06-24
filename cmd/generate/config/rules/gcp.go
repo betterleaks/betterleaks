@@ -13,7 +13,7 @@ func GCPApplicationDefaultCredentials() *config.Rule {
 		RuleID:      "gcp-application-default-credentials",
 		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}`),
 		Keywords:    []string{".apps.googleusercontent.com"},
-		ValidateCEL: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
+		ValidateExpr: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid",
     "credential_type": r.credential_type,
     "client_id": r.client_id
@@ -37,7 +37,7 @@ func GCPServiceAccount() *config.Rule {
 		RuleID:      "gcp-service-account",
 		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}`),
 		Keywords:    []string{"provider_x509"},
-		ValidateCEL: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
+		ValidateExpr: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid",
     "credential_type": r.credential_type,
     "project_id": r.project_id,

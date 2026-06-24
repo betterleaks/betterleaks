@@ -12,7 +12,7 @@ func BitlyAccessToken() *config.Rule {
 		Description: "Detected a Bitly access token, which may allow unauthorized access to Bitly account and link management APIs.",
 		Regex:       regexp.MustCompile(`(?i)\bbitly(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN)(?:.|[\n\r]){0,32}?([a-f0-9]{40})\b`),
 		Keywords:    []string{"bitly"},
-		ValidateCEL: `let r = http.get("https://api-ssl.bitly.com/v4/user", {
+		ValidateExpr: `let r = http.get("https://api-ssl.bitly.com/v4/user", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains "\"login\":") ? {
     "result": "valid",

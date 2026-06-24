@@ -11,7 +11,7 @@ func ClerkSecretKey() *config.Rule {
 		Description: "Detected a Clerk secret key, which may allow unauthorized access to Clerk backend APIs.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"clerk"}, `sk_(?:test|live)_[A-Za-z0-9]{32}`, true),
 		Keywords:    []string{"clerk"},
-		ValidateCEL: `let r = http.get("https://api.clerk.com/v1/users?limit=1", {
+		ValidateExpr: `let r = http.get("https://api.clerk.com/v1/users?limit=1", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }); r.status == 200 ? {

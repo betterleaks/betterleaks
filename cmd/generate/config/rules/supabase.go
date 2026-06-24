@@ -12,7 +12,7 @@ func SupabaseManagementToken() *config.Rule {
 		Description: "Detected a Supabase Management Token, which may allow unauthorized access to Supabase organizations and projects.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sbp_[a-z0-9_-]{40}`, false),
 		Keywords:    []string{"sbp_"},
-		ValidateCEL: `let r = http.get("https://api.supabase.com/v1/organizations", {
+		ValidateExpr: `let r = http.get("https://api.supabase.com/v1/organizations", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid"
@@ -43,7 +43,7 @@ func SupabaseProjectAPIKey() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "supabase-project-url"},
 		},
-		ValidateCEL: `let r = http.get(captures["supabase-project-url"] + "/rest/v1/?select=*", {
+		ValidateExpr: `let r = http.get(captures["supabase-project-url"] + "/rest/v1/?select=*", {
     "Apikey": finding["secret"],
     "User-Agent": ""
   }); r.status == 200 && (r.body contains "\"host\":") ? {

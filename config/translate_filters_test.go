@@ -40,9 +40,9 @@ func TestCelRegexLit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := celRegexLit(tt.input)
+			actual := exprRegexLit(tt.input)
 			if actual != tt.expected {
-				t.Errorf("celRegexLit() = %v, want %v", actual, tt.expected)
+				t.Errorf("exprRegexLit() = %v, want %v", actual, tt.expected)
 			}
 		})
 	}
@@ -73,9 +73,9 @@ func TestCelStringLit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := celStringLit(tt.input)
+			actual := exprStringLit(tt.input)
 			if actual != tt.expected {
-				t.Errorf("celStringLit() = %v, want %v", actual, tt.expected)
+				t.Errorf("exprStringLit() = %v, want %v", actual, tt.expected)
 			}
 		})
 	}
@@ -106,9 +106,9 @@ func TestCelRegexList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := celRegexList(tt.input)
+			actual := exprRegexList(tt.input)
 			if actual != tt.expected {
-				t.Errorf("celRegexList() = \n%v\nwant \n%v", actual, tt.expected)
+				t.Errorf("exprRegexList() = \n%v\nwant \n%v", actual, tt.expected)
 			}
 		})
 	}
@@ -143,9 +143,9 @@ func TestCelStringList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := celStringList(tt.input)
+			actual := exprStringList(tt.input)
 			if actual != tt.expected {
-				t.Errorf("celStringList() = \n%v\nwant \n%v", actual, tt.expected)
+				t.Errorf("exprStringList() = \n%v\nwant \n%v", actual, tt.expected)
 			}
 		})
 	}

@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-func TestGCPValidateCELBinding_ServiceAccountValid(t *testing.T) {
+func TestGCPValidateExprBinding_ServiceAccountValid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
@@ -34,13 +34,13 @@ func TestGCPValidateCELBinding_ServiceAccountValid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	env, err := NewEnvironment(ts.Client())
+	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprenv.New: %v", err)
 	}
 	env.GCPTokenEndpoint = ts.URL
 
-	prg, err := env.Compile(`cel.bind(r,
+	prg, err := env.CompileValidation(`cel.bind(r,
   gcp.validate(finding["secret"]),
   r.status == 200 ? {
     "result": "valid",
@@ -76,7 +76,7 @@ func TestGCPValidateCELBinding_ServiceAccountValid(t *testing.T) {
 	}
 }
 
-func TestGCPValidateCELBinding_ApplicationDefaultCredentialsInvalid(t *testing.T) {
+func TestGCPValidateExprBinding_ApplicationDefaultCredentialsInvalid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			t.Fatalf("ParseForm: %v", err)
@@ -97,13 +97,13 @@ func TestGCPValidateCELBinding_ApplicationDefaultCredentialsInvalid(t *testing.T
 	}))
 	defer ts.Close()
 
-	env, err := NewEnvironment(ts.Client())
+	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprenv.New: %v", err)
 	}
 	env.GCPTokenEndpoint = ts.URL
 
-	prg, err := env.Compile(`cel.bind(r,
+	prg, err := env.CompileValidation(`cel.bind(r,
   gcp.validate(finding["secret"]),
   r.status == 200 ? {
     "result": "valid"
@@ -132,7 +132,7 @@ func TestGCPValidateCELBinding_ApplicationDefaultCredentialsInvalid(t *testing.T
 }
 
 func TestValidateGCPCredential_DisallowsNonGoogleTokenEndpoint(t *testing.T) {
-	result := validateGCPCredential(context.Background(), &ValidationEnvironment{client: DefaultHTTPClient()}, testGCPServiceAccountJSON(t, "http://127.0.0.1/token"))
+	result := validateGCPCredential(context.Background(), &Env{client: DefaultHTTPClient()}, testGCPServiceAccountJSON(t, "http://127.0.0.1/token"))
 
 	if result["status"] != int64(0) {
 		t.Fatalf("expected status 0, got %v", result["status"])

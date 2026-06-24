@@ -12,7 +12,7 @@ func AmplitudeSecretKey() *config.Rule {
 		Description: "Detected an Amplitude secret key, which may allow unauthorized event ingestion or access to Amplitude API functionality.",
 		Regex:       regexp.MustCompile(`(?i)\bamplitude(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN|AUTHORIZATION)(?:.|[\n\r]){0,16}?\b([a-f0-9]{32})\b`),
 		Keywords:    []string{"amplitude"},
-		ValidateCEL: `let r = http.post("https://api2.amplitude.com/2/httpapi", {
+		ValidateExpr: `let r = http.post("https://api2.amplitude.com/2/httpapi", {
     "Content-Type": "application/json",
     "Accept": "*/*"
   },

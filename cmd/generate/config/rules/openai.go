@@ -15,7 +15,7 @@ func OpenAI() *config.Rule {
 		Keywords: []string{
 			"T3BlbkFJ",
 		},
-		ValidateCEL: `let r = http.get("https://api.openai.com/v1/models", {
+		ValidateExpr: `let r = http.get("https://api.openai.com/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.json?.object ?? "") == "list" ? {
     "result": "valid"

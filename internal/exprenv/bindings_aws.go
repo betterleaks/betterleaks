@@ -17,6 +17,12 @@ const (
 	stsRequestBody     = "Action=GetCallerIdentity&Version=2011-06-15"
 )
 
+func awsNamespace(rt *runtimeBindings) map[string]any {
+	return map[string]any{
+		"validate": rt.awsValidate,
+	}
+}
+
 // getCallerIdentityResult is the XML response from STS GetCallerIdentity.
 // This is the 200 resp xml
 type getCallerIdentityResult struct {
@@ -38,7 +44,7 @@ type stsErrorResponse struct {
 func (rt *runtimeBindings) awsValidate(accessKeyID, secretAccessKey string) map[string]any {
 	e := rt.validation
 	if e == nil {
-		e, _ = NewEnvironment(nil)
+		e, _ = New(nil)
 	}
 	endpoint := e.STSEndpoint
 	if endpoint == "" {
@@ -48,9 +54,9 @@ func (rt *runtimeBindings) awsValidate(accessKeyID, secretAccessKey string) map[
 }
 
 // callSTS performs a SigV4-signed POST to the STS endpoint and returns a
-// response map with {status, arn, account, userid}. The CEL expression is
+// response map with {status, arn, account, userid}. The validation expression is
 // responsible for interpreting the status code and building the final result.
-func callSTS(ctx context.Context, e *ValidationEnvironment, endpoint, accessKeyID, secretAccessKey string) map[string]any {
+func callSTS(ctx context.Context, e *Env, endpoint, accessKeyID, secretAccessKey string) map[string]any {
 	body := stsRequestBody
 
 	if ctx == nil {

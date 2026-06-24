@@ -19,7 +19,7 @@ type validationJob struct {
 
 // Pool manages a set of workers that validate findings asynchronously.
 type Pool struct {
-	env   *exprenv.ValidationEnvironment
+	env   *exprenv.Env
 	cache *Cache
 
 	// one job per to-be-validated finding
@@ -33,7 +33,7 @@ type Pool struct {
 }
 
 // NewPool creates a validation pool with the given number of workers.
-func NewPool(workers int, env *exprenv.ValidationEnvironment) *Pool {
+func NewPool(workers int, env *exprenv.Env) *Pool {
 	if workers <= 0 {
 		workers = 10
 	}
@@ -92,7 +92,7 @@ func (p *Pool) worker() {
 
 		if len(f.RequiredSets) == 0 {
 			// Simple path: no required components, validate the secret with its own captures.
-			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ToCELMap(), job.captures, f.Attributes)
+			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ToExprMap(), job.captures, f.Attributes)
 			if err != nil {
 				f.ValidationStatus = report.ValidationStatusError
 				f.ValidationReason = err.Error()
@@ -135,7 +135,7 @@ func (p *Pool) worker() {
 				result = r
 			} else {
 				var err error
-				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ToCELMap(), merged, f.Attributes)
+				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ToExprMap(), merged, f.Attributes)
 				if err != nil {
 					result = &Result{Status: report.ValidationStatusError, Reason: err.Error(), Metadata: map[string]any{}}
 				}
@@ -183,15 +183,15 @@ func (p *Pool) worker() {
 	}
 }
 
-// evalWithCaptures runs the CEL program for the given secret and captures,
+// evalWithCaptures runs the validation program for the given secret and captures,
 // using the cache to avoid duplicate HTTP requests. The secret is used only
-// for cache keying; the CEL program reads it from finding["secret"].
+// for cache keying; the program reads it from finding["secret"].
 func (p *Pool) evalWithCaptures(program exprenv.Program, ruleID, secret string, finding, captures, attributes map[string]string) (*Result, error) {
 	cacheKey := CacheKey(ruleID, secret, captures)
 	return p.evalWithCacheKey(cacheKey, program, finding, captures, attributes)
 }
 
-// evalWithCacheKey runs the CEL program using the given pre-computed cache key.
+// evalWithCacheKey runs the validation program using the given pre-computed cache key.
 func (p *Pool) evalWithCacheKey(cacheKey string, program exprenv.Program, finding, captures, attributes map[string]string) (*Result, error) {
 	return p.cache.GetOrDo(cacheKey, func() (*Result, error) {
 		val, evalErr := p.env.EvalWithAttributes(program, finding, captures, attributes)

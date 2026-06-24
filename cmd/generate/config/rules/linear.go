@@ -14,7 +14,7 @@ func LinearAPIToken() *config.Rule {
 		Description: "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
 		Regex:       regexp.MustCompile(`lin_api_(?i)[a-z0-9]{40}`),
 		Keywords:    []string{"lin_api_"},
-		ValidateCEL: `let r = http.post("https://api.linear.app/graphql", {
+		ValidateExpr: `let r = http.post("https://api.linear.app/graphql", {
     "Authorization": finding["secret"],
     "Content-Type": "application/json"
   }, "{\"query\": \"query { viewer { id name email } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") ? {

@@ -12,7 +12,7 @@ func Replicate() *config.Rule {
 		Description: "Detected a Replicate API Token, which may expose AI model hosting and inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`r8_[A-Za-z0-9]{37}`, true),
 		Keywords:    []string{"r8_"},
-		ValidateCEL: `let r = http.get("https://api.replicate.com/v1/account", {
+		ValidateExpr: `let r = http.get("https://api.replicate.com/v1/account", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"type"') && (r.body contains '"username"') && (r.body contains '"name"') ? {
     "result": "valid",

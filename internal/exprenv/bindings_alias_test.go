@@ -3,12 +3,11 @@ package exprenv
 import (
 	"testing"
 
-	"github.com/expr-lang/expr"
 	"github.com/stretchr/testify/require"
 )
 
 func TestValidationBindingAliases(t *testing.T) {
-	env, err := NewEnvironment(nil)
+	env, err := New(nil)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -35,9 +34,9 @@ func TestValidationBindingAliases(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			oldPrg, err := env.Compile(tc.old)
+			oldPrg, err := env.CompileValidation(tc.old)
 			require.NoError(t, err)
-			newPrg, err := env.Compile(tc.new)
+			newPrg, err := env.CompileValidation(tc.new)
 			require.NoError(t, err)
 
 			oldGot, err := env.Eval(oldPrg, nil, nil)
@@ -50,7 +49,7 @@ func TestValidationBindingAliases(t *testing.T) {
 }
 
 func TestFilterBindingAliases(t *testing.T) {
-	env, err := NewFilterEnv(nil)
+	env, err := New(nil)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -66,25 +65,17 @@ func TestFilterBindingAliases(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			oldPrg, err := env.Compile(tc.old)
+			oldPrg, err := env.CompileFilter(tc.old, nil)
 			require.NoError(t, err)
-			newPrg, err := env.Compile(tc.new)
+			newPrg, err := env.CompileFilter(tc.new, nil)
 			require.NoError(t, err)
 
 			finding := map[string]string{"secret": "secret-value"}
-			oldGot, err := evalFilterValue(oldPrg, finding, nil)
+			oldGot, err := env.EvalFilter(oldPrg, finding, nil)
 			require.NoError(t, err)
-			newGot, err := evalFilterValue(newPrg, finding, nil)
+			newGot, err := env.EvalFilter(newPrg, finding, nil)
 			require.NoError(t, err)
 			require.Equal(t, oldGot, newGot)
 		})
 	}
-}
-
-func evalFilterValue(prg Program, finding, attributes map[string]string) (any, error) {
-	env := baseEnv(&runtimeBindings{
-		finding: stringMapToAny(nonNilStringMap(finding)),
-		attrs:   stringMapToAny(nonNilStringMap(attributes)),
-	})
-	return expr.Run(prg.vm, env)
 }

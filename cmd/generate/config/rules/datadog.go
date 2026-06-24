@@ -15,7 +15,7 @@ func DatadogAPIKey() *config.Rule {
 		Keywords: []string{
 			"datadog",
 		},
-		ValidateCEL: `let r = http.get("https://api.datadoghq.com/api/v1/validate", {
+		ValidateExpr: `let r = http.get("https://api.datadoghq.com/api/v1/validate", {
     "Accept": "application/json",
     "DD-API-KEY": finding["secret"]
   }); r.status == 200 && !(r.body contains "\"Forbidden\"") ? {

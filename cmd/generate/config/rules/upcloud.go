@@ -13,7 +13,7 @@ func UpCloud() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`ucat_[0-9A-Za-z]{24,32}`, false),
 		Keywords:    []string{"ucat_"},
 		Entropy:     3.0,
-		ValidateCEL: `let r = http.get("https://api.upcloud.com/1.3/account", {
+		ValidateExpr: `let r = http.get("https://api.upcloud.com/1.3/account", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"account"') ? {
     "result": "valid"

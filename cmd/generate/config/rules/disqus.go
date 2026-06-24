@@ -11,7 +11,7 @@ func DisqusAPIKey() *config.Rule {
 		Description: "Detected a Disqus API key, which may expose Disqus thread and account data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"disqus"}, utils.AlphaNumeric("64"), true),
 		Keywords:    []string{"disqus"},
-		ValidateCEL: `let r = http.get("https://disqus.com/api/3.0/threads/list.json?limit=1&api_secret=" + finding["secret"], {
+		ValidateExpr: `let r = http.get("https://disqus.com/api/3.0/threads/list.json?limit=1&api_secret=" + finding["secret"], {
     "Accept": "application/json"
   }); r.status == 200 && (r.body contains "\"code\":0") && (r.body contains "\"response\"") ? {
     "result": "valid"

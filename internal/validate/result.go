@@ -21,7 +21,7 @@ var validStatuses = map[report.ValidationStatus]bool{
 type Result struct {
 	Status   report.ValidationStatus // valid, invalid, revoked, unknown, error
 	Reason   string                  // human-readable explanation
-	Metadata map[string]any          // extra fields from the CEL result map
+	Metadata map[string]any          // extra fields from the validation result map
 }
 
 // ParseResult interprets the expression output value into a Result.
@@ -74,7 +74,7 @@ var reservedKeys = map[string]bool{
 	"result": true, "reason": true,
 }
 
-// parseResultMap interprets a map result from a CEL expression.
+// parseResultMap interprets a map result from a validation expression.
 //
 // The expected form is {"result": "<status>", ...} where <status> is one of
 // the validStatuses.

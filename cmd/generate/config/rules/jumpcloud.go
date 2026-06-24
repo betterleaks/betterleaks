@@ -11,7 +11,7 @@ func JumpCloudAPIKey() *config.Rule {
 		Description: "Detected a JumpCloud API key, which may expose JumpCloud directory data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"jumpcloud"}, utils.AlphaNumeric("40"), true),
 		Keywords:    []string{"jumpcloud"},
-		ValidateCEL: `let r = http.get("https://console.jumpcloud.com/api/systemusers?limit=1&skip=0", {
+		ValidateExpr: `let r = http.get("https://console.jumpcloud.com/api/systemusers?limit=1&skip=0", {
     "x-api-key": finding["secret"],
     "Accept": "application/json"
   }); r.status == 200 && (r.body contains "\"results\"") ? {

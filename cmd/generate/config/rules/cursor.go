@@ -12,7 +12,7 @@ func CursorAPIKey() *config.Rule {
 		Description: "Detected a Cursor Integrations API Key, which may expose AI-assisted development services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"cursor"}, `key_[0-9a-f]{64}`, true),
 		Keywords:    []string{"cursor"},
-		ValidateCEL: `let r = http.get("https://api.cursor.com/v0/me", {
+		ValidateExpr: `let r = http.get("https://api.cursor.com/v0/me", {
     "Accept": "application/json",
     "Authorization": "Basic " + base64.encode(bytes(finding["secret"]))
   }); r.status == 200 && (r.body contains '"userEmail"') ? {

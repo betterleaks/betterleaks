@@ -61,6 +61,20 @@ func RewriteCELCompat(input string) (string, error) {
 	return out, nil
 }
 
+func NeedsCELCompat(s string) bool {
+	return strings.Contains(s, "cel.bind(") ||
+		strings.Contains(s, `r"""`) ||
+		strings.Contains(s, ".?") ||
+		strings.Contains(s, "[?\"") ||
+		strings.Contains(s, ".orValue(") ||
+		strings.Contains(s, ".contains(") ||
+		strings.Contains(s, ".replace(") ||
+		strings.Contains(s, ".substring(") ||
+		strings.Contains(s, ".lastIndexOf(") ||
+		strings.Contains(s, "string(time.now_unix())") ||
+		envAliasRe.MatchString(s)
+}
+
 func rewriteMethodCalls(s, method, fn string) (string, error) {
 	needle := "." + method + "("
 	for {

@@ -36,7 +36,7 @@ func CanvaClientSecret() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "canva-client-id"},
 		},
-		ValidateCEL: `let r = http.post("https://api.canva.com/rest/v1/oauth/token", {
+		ValidateExpr: `let r = http.post("https://api.canva.com/rest/v1/oauth/token", {
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
   },

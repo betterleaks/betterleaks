@@ -11,7 +11,7 @@ func KagiAPIKey() *config.Rule {
 		Description: "Detected a Kagi API key, which may expose Kagi API usage.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"kagi"}, utils.AlphaNumericExtendedShort("11")+`\.`+utils.AlphaNumericExtendedShort("43"), true),
 		Keywords:    []string{"kagi"},
-		ValidateCEL: `let r = http.get("https://kagi.com/api/v0/search?q=test", {
+		ValidateExpr: `let r = http.get("https://kagi.com/api/v0/search?q=test", {
     "Authorization": "Bot " + finding["secret"]
   }); r.status == 200 && (r.body contains "\"data\":") && (r.body contains "\"results\":") ? {
     "result": "valid"

@@ -148,10 +148,10 @@ func TestObfuscate_nonAsciiPassesThrough(t *testing.T) {
 }
 
 func TestObfuscate_celBindingUnary(t *testing.T) {
-	env, err := NewEnvironment(nil)
+	env, err := New(nil)
 	require.NoError(t, err)
 
-	prg, err := env.Compile(`obfuscate(finding["secret"])`)
+	prg, err := env.CompileValidation(`obfuscate(finding["secret"])`)
 	require.NoError(t, err)
 
 	const secret = "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
@@ -165,10 +165,10 @@ func TestObfuscate_celBindingUnary(t *testing.T) {
 }
 
 func TestObfuscate_celBindingRejectsBinaryForm(t *testing.T) {
-	env, err := NewEnvironment(nil)
+	env, err := New(nil)
 	require.NoError(t, err)
 
-	_, err = env.Compile(`obfuscate(finding["secret"], 0.0)`)
+	_, err = env.CompileValidation(`obfuscate(finding["secret"], 0.0)`)
 	require.Error(t, err)
 }
 

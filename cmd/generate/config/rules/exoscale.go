@@ -19,7 +19,7 @@ func ExoscaleAPIKey() *config.Rule {
 				WithinLines: utils.Ptr(5),
 			},
 		},
-		ValidateCEL: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
+		ValidateExpr: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
       bytes(captures["exoscale-api-secret"]),
       bytes("GET /v2/zone\n\n\n\n" + ts)
     ); (let r = http.get("https://api-ch-gva-2.exoscale.com/v2/zone", {

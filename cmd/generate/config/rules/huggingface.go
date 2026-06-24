@@ -21,7 +21,7 @@ func HuggingFaceAccessToken() *config.Rule {
 		Keywords: []string{
 			"hf_",
 		},
-		ValidateCEL: `let r = http.get("https://huggingface.co/api/whoami-v2", {
+		ValidateExpr: `let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
@@ -88,7 +88,7 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 		Keywords: []string{
 			"api_org_",
 		},
-		ValidateCEL: `let r = http.get("https://huggingface.co/api/whoami-v2", {
+		ValidateExpr: `let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",

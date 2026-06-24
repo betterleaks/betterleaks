@@ -25,11 +25,11 @@ var githubPathFilter = "matchesAny((attributes[\"path\"] ?? \"\"), [`(?:^|/)@oct
 func GitHubPat() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-pat",
-		Description: "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.",
-		Regex:       regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
-		Keywords:    []string{"ghp_"},
-		ValidateCEL: githubTokenExpr,
+		RuleID:       "github-pat",
+		Description:  "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.",
+		Regex:        regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
+		Keywords:     []string{"ghp_"},
+		ValidateExpr: githubTokenExpr,
 		Filter: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	}
@@ -45,12 +45,12 @@ func GitHubPat() *config.Rule {
 func GitHubFineGrainedPat() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-fine-grained-pat",
-		Description: "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation.",
-		Regex:       regexp.MustCompile(`github_pat_\w{82}`),
-		Keywords:    []string{"github_pat_"},
-		ValidateCEL: githubTokenExpr,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "github-fine-grained-pat",
+		Description:  "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation.",
+		Regex:        regexp.MustCompile(`github_pat_\w{82}`),
+		Keywords:     []string{"github_pat_"},
+		ValidateExpr: githubTokenExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -64,12 +64,12 @@ func GitHubFineGrainedPat() *config.Rule {
 func GitHubOauth() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-oauth",
-		Description: "Discovered a GitHub OAuth Access Token, posing a risk of compromised GitHub account integrations and data leaks.",
-		Regex:       regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
-		Keywords:    []string{"gho_"},
-		ValidateCEL: githubTokenExpr,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "github-oauth",
+		Description:  "Discovered a GitHub OAuth Access Token, posing a risk of compromised GitHub account integrations and data leaks.",
+		Regex:        regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
+		Keywords:     []string{"gho_"},
+		ValidateExpr: githubTokenExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -98,11 +98,11 @@ const githubAppTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "
 func GitHubApp() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-app-token",
-		Description: "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security.",
-		Regex:       regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z]{36}`),
-		Keywords:    []string{"ghu_", "ghs_"},
-		ValidateCEL: githubAppTokenExpr,
+		RuleID:       "github-app-token",
+		Description:  "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security.",
+		Regex:        regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z]{36}`),
+		Keywords:     []string{"ghu_", "ghs_"},
+		ValidateExpr: githubAppTokenExpr,
 		Filter: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	}
@@ -120,12 +120,12 @@ func GitHubApp() *config.Rule {
 func GitHubRefresh() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-refresh-token",
-		Description: "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services.",
-		Regex:       regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
-		Keywords:    []string{"ghr_"},
-		ValidateCEL: githubTokenExpr,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "github-refresh-token",
+		Description:  "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services.",
+		Regex:        regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
+		Keywords:     []string{"ghr_"},
+		ValidateExpr: githubTokenExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

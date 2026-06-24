@@ -16,7 +16,7 @@ func Authress() *config.Rule {
 		// The `.acc_`/`.acc-` segment is required by the regex and is far
 		// rarer in real code than the `sc_`/`ext_` prefixes.
 		Keywords: []string{".acc_", ".acc-"},
-		ValidateCEL: `let r = http.get("https://api.authress.io/v1/users/me", {
+		ValidateExpr: `let r = http.get("https://api.authress.io/v1/users/me", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && !(r.body contains "\"Unauthorized\"") ? {
     "result": "valid"

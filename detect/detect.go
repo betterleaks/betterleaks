@@ -8,6 +8,7 @@ import (
 	"iter"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,7 +42,7 @@ type ValidationOptions struct {
 	StatusFilter string // comma-separated list of statuses to include
 	// ValidationEnvVars lists environment variable names the validation CEL
 	// env(...) binding may read (see --validation-env-vars). Parsed into
-	// ValidationEnvironment.AllowedEnv when the validation env is created.
+	// exprenv.Env.AllowedEnv when the validation env is created.
 	ValidationEnvVars []string
 }
 
@@ -113,11 +114,12 @@ type Detector struct {
 
 	tokenizer *tiktoken.Tiktoken
 
-	// validationEnv is the CEL environment used to compile and evaluate
-	// per-rule validation expressions. Created during construction;
-	// nil when no rules have ValidateCEL. The cmd layer may reconfigure
-	// the HTTP client/debug settings before evaluation begins.
-	validationEnv *exprenv.ValidationEnvironment
+	exprEnv *exprenv.Env
+
+	// validationEnv evaluates per-rule validation expressions. Created during
+	// construction; nil when no rules have ValidateExpr. The cmd layer may
+	// reconfigure the HTTP client/debug settings before evaluation begins.
+	validationEnv *exprenv.Env
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -210,17 +212,21 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 
 	// Compile filter programs so they are available at scan time.
 	// This is the single compilation owner — callers should NOT compile separately.
-	if compileErr := cfg.CompileCELFilters(tke); compileErr != nil {
+	if compileErr := cfg.CompileFilters(tke); compileErr != nil {
 		logging.Fatal().Err(compileErr).Msg("failed to compile filters")
 	}
 
-	// Compile validation programs (no-op if no rules have ValidateCEL).
+	// Compile validation programs (no-op if no rules have ValidateExpr).
 	validationEnv, validationErr := cfg.CompileValidation()
 	if validationErr != nil {
 		logging.Fatal().Err(validationErr).Msg("failed to compile validation expressions")
 	}
 	if validationEnv != nil {
 		validationEnv.AllowedEnv = exprenv.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
+	}
+	exprEnv, exprErr := exprenv.New(nil)
+	if exprErr != nil {
+		logging.Fatal().Err(exprErr).Msg("failed to create expr env")
 	}
 
 	d := &Detector{
@@ -231,6 +237,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		prefilter:              *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
 		Sema:                   semgroup.NewGroup(ctx, 40),
 		tokenizer:              tke,
+		exprEnv:                exprEnv,
 		validationEnv:          validationEnv,
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
@@ -281,7 +288,7 @@ func (d *Detector) SkipFunc() sources.SkipFunc {
 		return nil
 	}
 	return func(attrs map[string]string) bool {
-		skip, err := exprenv.EvalPrefilter(prg, attrs)
+		skip, err := d.exprEnv.EvalPrefilter(prg, attrs)
 		if err != nil {
 			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
 			return false
@@ -398,10 +405,10 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 						continue
 					}
 					if d.ValidationPool != nil {
-						if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
+						if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.ValidationProgram() != nil {
 							if err := d.ValidationPool.SubmitContext(runCtx,
 								finding,
-								rule.CelProgram()); err != nil {
+								rule.ValidationProgram()); err != nil {
 								if errors.Is(err, context.Canceled) {
 									return errStopIteration
 								}
@@ -791,9 +798,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		finding.SetFingerprint()
 
-		// before setting CELContext, check if we have a validate or filter (TODO rename CelProgram to ValidateProgram)
-		if r.CelProgram() != nil || d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
-			finding.SetCELContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
+		// Validation/filter expressions need context text in the finding map.
+		if r.ValidationProgram() != nil || d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
+			finding.SetExprContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
 				Mode:        ContextModeBox,
 				LinesBefore: 20,
 				LinesAfter:  20,
@@ -805,18 +812,19 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]string
 		if d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
-			findingMap = finding.ToCELMap()
+			findingMap = finding.ToExprMap()
+			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
 			// For decoded segments, currentLine carries the decoded line text
 			// (via codec.CurrentLine). The old checkFindingAllowed used this for
-			// regexTarget="line". Preserve that behaviour in the CEL path.
+			// regexTarget="line". Preserve that behaviour in the Expr path.
 			if currentLine != "" {
 				findingMap["line"] = currentLine
 			}
 		}
 
-		// Global filter: CEL path (attributes + finding).
+		// Global filter: Expr path (attributes + finding).
 		if d.Config.FilterProgram() != nil {
-			skip, err := exprenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
+			skip, err := d.exprEnv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -824,9 +832,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
+		// Rule filter: Expr path (includes entropy, regex/stopword allowlists, tokenEfficiency).
 		if r.FilterProgram() != nil {
-			skip, err := exprenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
+			skip, err := d.exprEnv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {

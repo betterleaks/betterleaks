@@ -56,7 +56,7 @@ func CloudinaryAPISecret() *config.Rule {
 			{RuleID: "cloudinary-api-key"},
 			{RuleID: "cloudinary-cloud-name"},
 		},
-		ValidateCEL: `let r = http.get("https://api.cloudinary.com/v1_1/" + captures["cloudinary-cloud-name"] + "/usage", {
+		ValidateExpr: `let r = http.get("https://api.cloudinary.com/v1_1/" + captures["cloudinary-cloud-name"] + "/usage", {
     "Authorization": "Basic " + base64.encode(bytes(captures["cloudinary-api-key"] + ":" + finding["secret"])),
     "Accept": "application/json"
   }); r.status == 200 ? {

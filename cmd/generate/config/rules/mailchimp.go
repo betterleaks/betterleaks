@@ -16,7 +16,7 @@ func MailChimp() *config.Rule {
 		Keywords: []string{
 			"mailchimp",
 		},
-		ValidateCEL: `let dc = substring(finding["secret"], lastIndexOf(finding["secret"], "-") + 1); (let r = http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
+		ValidateExpr: `let dc = substring(finding["secret"], lastIndexOf(finding["secret"], "-") + 1); (let r = http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
       "Accept": "application/json",
       "Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"]))
     }); r.status == 200 ? {

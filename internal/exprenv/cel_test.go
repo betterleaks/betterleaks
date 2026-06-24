@@ -4,10 +4,10 @@ import (
 	"testing"
 )
 
-// celExpressions contains every ValidateCEL expression used across the rule
-// files. The test compiles each one against the real CEL environment to catch
+// compatExpressions contains every ValidateExpr expression used across the rule
+// files. The test compiles each one against the real Expr environment to catch
 // syntax errors and unknown function references before go generate is run.
-var celExpressions = []struct {
+var compatExpressions = []struct {
 	name string
 	expr string
 }{
@@ -427,15 +427,15 @@ var celExpressions = []struct {
 	},
 }
 
-func TestCELExpressionsCompile(t *testing.T) {
-	env, err := NewEnvironment(nil)
+func TestCompatExpressionsCompile(t *testing.T) {
+	env, err := New(nil)
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprenv.New: %v", err)
 	}
 
-	for _, tc := range celExpressions {
+	for _, tc := range compatExpressions {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := env.Compile(tc.expr); err != nil {
+			if _, err := env.CompileValidation(tc.expr); err != nil {
 				t.Errorf("compile error: %v", err)
 			}
 		})

@@ -16,12 +16,12 @@ const configCatValidationExpr = `let r = http.get("https://cdn-global.configcat.
 
 func ConfigCatSDKKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "configcat-sdk-key",
-		Description: "Detected a ConfigCat SDK key, which may allow access to feature flag configuration data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"configcat"}, `[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, true),
-		Keywords:    []string{"configcat"},
-		ValidateCEL: configCatValidationExpr,
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		RuleID:       "configcat-sdk-key",
+		Description:  "Detected a ConfigCat SDK key, which may allow access to feature flag configuration data.",
+		Regex:        utils.GenerateSemiGenericRegex([]string{"configcat"}, `[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, true),
+		Keywords:     []string{"configcat"},
+		ValidateExpr: configCatValidationExpr,
+		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{
@@ -37,12 +37,12 @@ func ConfigCatSDKKey() *config.Rule {
 
 func ConfigCatSDKKeyExtended() *config.Rule {
 	r := config.Rule{
-		RuleID:      "configcat-sdk-key-extended",
-		Description: "Detected an extended ConfigCat SDK key, which may allow access to feature flag configuration data.",
-		Regex:       utils.GenerateUniqueTokenRegex(`configcat-sdk-1/[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, false),
-		Keywords:    []string{"configcat-sdk-1"},
-		ValidateCEL: configCatValidationExpr,
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		RuleID:       "configcat-sdk-key-extended",
+		Description:  "Detected an extended ConfigCat SDK key, which may allow access to feature flag configuration data.",
+		Regex:        utils.GenerateUniqueTokenRegex(`configcat-sdk-1/[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, false),
+		Keywords:     []string{"configcat-sdk-1"},
+		ValidateExpr: configCatValidationExpr,
+		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{

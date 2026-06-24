@@ -119,10 +119,10 @@ func TestTranslate(t *testing.T) {
 	}
 }
 
-func TestDefaultConfigCELExpressionsCompileWithExpr(t *testing.T) {
+func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 	cfg, err := Default()
 	require.NoError(t, err)
-	require.NoError(t, cfg.CompileCELFilters(nil))
+	require.NoError(t, cfg.CompileFilters(nil))
 	_, err = cfg.CompileValidation()
 	require.NoError(t, err)
 }

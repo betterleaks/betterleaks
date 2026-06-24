@@ -60,19 +60,18 @@ type Rule struct {
 	// tokenize efficiently (i.e., common words/phrases) are filtered out.
 	TokenEfficiency bool
 
-	// ValidateCEL is the raw expression used for secret validation.
-	// The name is retained for source compatibility with existing code.
-	ValidateCEL string
+	// ValidateExpr is the raw expression used for secret validation.
+	ValidateExpr string
 
-	// celProgram is the compiled validation program, set at config load time.
-	celProgram exprenv.Program
+	// validationProgram is the compiled validation program, set at config load time.
+	validationProgram exprenv.Program
 
 	// Filter is an expression evaluated against attributes + finding per regex match.
 	// Returns true = skip (discard this finding); false = keep.
 	// Deprecated legacy Allowlists, Entropy, and TokenEfficiency are translated into this field.
 	Filter string
 
-	// filterProgram is the compiled FilterEnv program, set at startup.
+	// filterProgram is the compiled filter program, set at startup.
 	filterProgram exprenv.Program
 }
 
@@ -128,14 +127,14 @@ func (r *Rule) Validate() error {
 	return nil
 }
 
-// CelProgram returns the compiled validation program for this rule, or nil.
-func (r *Rule) CelProgram() exprenv.Program {
-	return r.celProgram
+// ValidationProgram returns the compiled validation program for this rule, or nil.
+func (r *Rule) ValidationProgram() exprenv.Program {
+	return r.validationProgram
 }
 
-// SetCelProgram stores a compiled validation program on the rule.
-func (r *Rule) SetCelProgram(p exprenv.Program) {
-	r.celProgram = p
+// SetValidationProgram stores a compiled validation program on the rule.
+func (r *Rule) SetValidationProgram(p exprenv.Program) {
+	r.validationProgram = p
 }
 
 // FilterProgram returns the compiled filter program for this rule, or nil.

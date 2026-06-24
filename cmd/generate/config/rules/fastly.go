@@ -13,7 +13,7 @@ func FastlyAPIToken() *config.Rule {
 		RuleID:      "fastly-api-token",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"fastly"}, utils.AlphaNumericExtendedShort("32"), true),
 		Keywords:    []string{"fastly"},
-		ValidateCEL: `let r = http.get("https://api.fastly.com/current_user", {
+		ValidateExpr: `let r = http.get("https://api.fastly.com/current_user", {
     "Fastly-Key": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",

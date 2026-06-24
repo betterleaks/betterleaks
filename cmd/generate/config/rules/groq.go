@@ -12,7 +12,7 @@ func Groq() *config.Rule {
 		Description: "Identified a Groq API Key, which may expose high-speed AI inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`gsk_[A-Z0-9]{52}`, true),
 		Keywords:    []string{"gsk_"},
-		ValidateCEL: `let r = http.get("https://api.groq.com/openai/v1/models", {
+		ValidateExpr: `let r = http.get("https://api.groq.com/openai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"id"') && (r.body contains '"data"') ? {
     "result": "valid"
