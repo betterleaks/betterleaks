@@ -19,7 +19,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	}{
 		{
 			name: "validation",
-			fns:  functionNames((&Runtime{}).validationBindings(nil, nil, nil, nil)),
+			fns:  functionNames((&Runtime{}).validationBindings(nil, nil, nil, nil, nil)),
 			current: []string{
 				"http.get", "http.post", "env.get", "env.getOrDefault", "strings.obfuscate",
 				"strings.urlQueryEscape", "validate.unknown", "json.string",

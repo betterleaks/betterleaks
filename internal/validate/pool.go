@@ -21,6 +21,7 @@ type validationJob struct {
 type Pool struct {
 	runtime *exprruntime.Runtime
 	cache   *Cache
+	Debug   bool
 
 	// one job per to-be-validated finding
 	jobs chan validationJob
@@ -193,20 +194,27 @@ func (p *Pool) evalWithCaptures(program exprruntime.Program, ruleID, secret stri
 
 // evalWithCacheKey runs the validation program using the given pre-computed cache key.
 func (p *Pool) evalWithCacheKey(cacheKey string, program exprruntime.Program, finding, captures, attributes map[string]string) (*Result, error) {
+	if p.Debug {
+		return p.evalProgram(program, finding, captures, attributes)
+	}
 	return p.cache.GetOrDo(cacheKey, func() (*Result, error) {
-		val, evalErr := p.runtime.EvalWithAttributes(program, finding, captures, attributes)
-		if evalErr != nil {
-			return &Result{Status: "error", Reason: evalErr.Error(), Metadata: map[string]any{}}, nil
-		}
-		r := ParseResult(val)
-		if p.runtime.DebugResponse {
-			if debugMeta := p.runtime.DebugMeta(); len(debugMeta) > 0 {
-				if r.Metadata == nil {
-					r.Metadata = make(map[string]any)
-				}
-				maps.Copy(r.Metadata, debugMeta)
-			}
-		}
-		return r, nil
+		return p.evalProgram(program, finding, captures, attributes)
 	})
+}
+
+func (p *Pool) evalProgram(program exprruntime.Program, finding, captures, attributes map[string]string) (*Result, error) {
+	result, evalErr := p.runtime.EvalValidation(context.Background(), program, finding, captures, attributes, exprruntime.EvalOptions{Debug: p.Debug})
+	if evalErr != nil {
+		metadata := map[string]any{}
+		maps.Copy(metadata, result.Debug)
+		return &Result{Status: "error", Reason: evalErr.Error(), Metadata: metadata}, nil
+	}
+	r := ParseResult(result.Value)
+	if len(result.Debug) > 0 {
+		if r.Metadata == nil {
+			r.Metadata = map[string]any{}
+		}
+		maps.Copy(r.Metadata, result.Debug)
+	}
+	return r, nil
 }

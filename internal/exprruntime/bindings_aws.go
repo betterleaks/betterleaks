@@ -50,17 +50,22 @@ func (rt *runtimeBindings) awsValidate(accessKeyID, secretAccessKey string) map[
 	if endpoint == "" {
 		endpoint = defaultSTSEndpoint
 	}
-	return callSTS(rt.ctx, e, endpoint, accessKeyID, secretAccessKey)
+	return callSTSWithRuntime(rt, e, endpoint, accessKeyID, secretAccessKey)
 }
 
 // callSTS performs a SigV4-signed POST to the STS endpoint and returns a
 // response map with {status, arn, account, userid}. The validation expression is
 // responsible for interpreting the status code and building the final result.
 func callSTS(ctx context.Context, e *Runtime, endpoint, accessKeyID, secretAccessKey string) map[string]any {
+	return callSTSWithRuntime(&runtimeBindings{ctx: ctx}, e, endpoint, accessKeyID, secretAccessKey)
+}
+
+func callSTSWithRuntime(rt *runtimeBindings, e *Runtime, endpoint, accessKeyID, secretAccessKey string) map[string]any {
 	body := stsRequestBody
 
-	if ctx == nil {
-		ctx = context.Background()
+	ctx := context.Background()
+	if rt != nil && rt.ctx != nil {
+		ctx = rt.ctx
 	}
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(body))
 	if err != nil {
@@ -84,9 +89,8 @@ func callSTS(ctx context.Context, e *Runtime, endpoint, accessKeyID, secretAcces
 	if err != nil {
 		return map[string]any{"status": int64(resp.StatusCode)}
 	}
-
-	if e.DebugResponse {
-		e.captureDebug("POST", endpoint, body, req, resp, respBody)
+	if rt != nil {
+		rt.captureDebug(http.MethodPost, endpoint, body, req, resp, respBody)
 	}
 
 	result := map[string]any{

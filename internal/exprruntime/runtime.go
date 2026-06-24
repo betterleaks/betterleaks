@@ -37,6 +37,30 @@ type compiledProgram struct {
 
 var emptyStringMap = map[string]string{}
 
+type EvalOptions struct {
+	Debug bool
+}
+
+type EvalResult struct {
+	Value any
+	Debug map[string]any
+}
+
+type evalState struct {
+	debug bool
+	meta  map[string]any
+}
+
+func (s *evalState) addDebug(name string, value any) {
+	if s == nil || !s.debug {
+		return
+	}
+	if s.meta == nil {
+		s.meta = make(map[string]any)
+	}
+	s.meta[name] = value
+}
+
 // maxResponseBody is the maximum number of bytes read from an HTTP response body.
 const maxResponseBody = 1 << 20 // 1 MB
 
@@ -46,10 +70,6 @@ type Runtime struct {
 
 	mu    sync.RWMutex
 	cache map[string]Program
-
-	DebugResponse bool
-	debugMu       sync.Mutex
-	debugMeta     map[string]any
 
 	STSEndpoint      string
 	GCPTokenEndpoint string
@@ -152,7 +172,7 @@ func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken
 	case modePrefilter:
 		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
 	default:
-		b := e.validationBindings(context.Background(), nil, nil, nil)
+		b := e.validationBindings(context.Background(), nil, nil, nil, nil)
 		setCompileMaps(b)
 		return b, []expr.Option{expr.WithContext("ctx")}
 	}
@@ -209,18 +229,18 @@ func (e *Runtime) EvalWithAttributes(prg Program, finding, captures, attributes 
 }
 
 func (e *Runtime) EvalWithContext(ctx context.Context, prg Program, finding, captures, attributes map[string]string) (any, error) {
-	if e.DebugResponse {
-		e.debugMu.Lock()
-		defer e.debugMu.Unlock()
-		e.debugMeta = make(map[string]any)
-	}
-	b := e.validationBindings(ctx, finding, captures, attributes)
-	return expr.Run(prg.vm, b)
+	result, err := e.EvalValidation(ctx, prg, finding, captures, attributes, EvalOptions{})
+	return result.Value, err
 }
 
-func (e *Runtime) DebugMeta() map[string]any { return e.debugMeta }
+func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, captures, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
+	state := &evalState{debug: opts.Debug}
+	b := e.validationBindings(ctx, finding, captures, attributes, state)
+	val, err := expr.Run(prg.vm, b)
+	return EvalResult{Value: val, Debug: state.meta}, err
+}
 
-func (e *Runtime) validationBindings(ctx context.Context, finding, captures, attributes map[string]string) bindings {
+func (e *Runtime) validationBindings(ctx context.Context, finding, captures, attributes map[string]string, state *evalState) bindings {
 	if finding == nil {
 		finding = emptyStringMap
 	}
@@ -237,6 +257,7 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures, att
 		finding:    finding,
 		attrs:      attributes,
 		captures:   captures,
+		debug:      state,
 	}
 	b := baseBindings(rt)
 	b["ctx"] = rt.ctx
@@ -272,6 +293,7 @@ type runtimeBindings struct {
 	finding    any
 	attrs      any
 	captures   any
+	debug      *evalState
 }
 
 func baseBindings(rt *runtimeBindings) bindings {

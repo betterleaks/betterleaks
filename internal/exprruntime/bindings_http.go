@@ -56,10 +56,48 @@ func (rt *runtimeBindings) httpRequest(ctx context.Context, method, rawURL strin
 	if err != nil {
 		return nil, fmt.Errorf("http.%s: reading body: %w", strings.ToLower(method), err)
 	}
-	if rt.validation != nil && rt.validation.DebugResponse {
-		rt.validation.captureDebug(method, rawURL, body, req, resp, respBody)
-	}
+	rt.captureDebug(method, rawURL, body, req, resp, respBody)
 	return buildResponseMap(resp.StatusCode, respBody, resp.Header), nil
+}
+
+func (rt *runtimeBindings) captureDebug(method, rawURL, reqBody string, req *http.Request, resp *http.Response, body []byte) {
+	if rt == nil || rt.debug == nil || !rt.debug.debug {
+		return
+	}
+	rt.debug.addDebug("req_method", method)
+	rt.debug.addDebug("req_url", rawURL)
+	if reqBody != "" {
+		rt.debug.addDebug("req_body", truncateDebugString(reqBody))
+	}
+	if req != nil {
+		for k, vals := range req.Header {
+			rt.debug.addDebug("req_header_"+strings.ToLower(k), debugHeaderValue(k, strings.Join(vals, ",")))
+		}
+	}
+	if resp != nil {
+		rt.debug.addDebug("resp_status", int64(resp.StatusCode))
+		for k, vals := range resp.Header {
+			rt.debug.addDebug("resp_header_"+strings.ToLower(k), debugHeaderValue(k, strings.Join(vals, ",")))
+		}
+	}
+	rt.debug.addDebug("resp_body", truncateDebugString(string(body)))
+}
+
+func truncateDebugString(s string) string {
+	const maxDebugString = 2000
+	if len(s) <= maxDebugString {
+		return s
+	}
+	return s[:maxDebugString]
+}
+
+func debugHeaderValue(name, value string) string {
+	switch strings.ToLower(name) {
+	case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key", "x-auth-token", "private-token":
+		return "[redacted]"
+	default:
+		return value
+	}
 }
 
 func mapToStringAny(v any) map[string]any {
@@ -75,34 +113,6 @@ func mapToStringAny(v any) map[string]any {
 		return out
 	}
 	return out
-}
-
-func (e *Runtime) captureDebug(method, rawURL, reqBody string, req *http.Request, resp *http.Response, body []byte) {
-	if e.debugMeta == nil {
-		e.debugMeta = make(map[string]any)
-	}
-	e.debugMeta["req_method"] = method
-	e.debugMeta["req_url"] = rawURL
-	if len(reqBody) > 0 {
-		if len(reqBody) > 2000 {
-			reqBody = reqBody[:2000] + "..."
-		}
-		e.debugMeta["req_body"] = reqBody
-	}
-	for k := range req.Header {
-		e.debugMeta["req_header_"+strings.ToLower(k)] = req.Header.Get(k)
-	}
-	e.debugMeta["resp_status"] = int64(resp.StatusCode)
-	if len(body) > 0 {
-		respBody := string(body)
-		if len(respBody) > 2000 {
-			respBody = respBody[:2000] + "..."
-		}
-		e.debugMeta["resp_body"] = respBody
-	}
-	for k := range resp.Header {
-		e.debugMeta["resp_header_"+strings.ToLower(k)] = resp.Header.Get(k)
-	}
 }
 
 func buildResponseMap(statusCode int, body []byte, header http.Header) map[string]any {

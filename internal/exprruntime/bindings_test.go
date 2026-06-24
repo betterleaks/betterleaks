@@ -1,6 +1,9 @@
 package exprruntime
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -169,5 +172,67 @@ func TestValidationAttributes(t *testing.T) {
 	}
 	if result["result"] != "valid" {
 		t.Fatalf("result = %v, want valid", result["result"])
+	}
+}
+
+func TestEvalValidationDebugMetadata(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer secret" {
+			t.Fatalf("authorization header = %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("X-Debug", "present")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	env, err := New(srv.Client())
+	if err != nil {
+		t.Fatalf("exprruntime.New: %v", err)
+	}
+	prg, err := env.CompileValidation(`http.post("` + srv.URL + `", {"Authorization": "Bearer secret"}, "payload").status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	withoutDebug, err := env.EvalValidation(nil, prg, nil, nil, nil, EvalOptions{})
+	if err != nil {
+		t.Fatalf("eval without debug: %v", err)
+	}
+	if withoutDebug.Value != int64(http.StatusCreated) {
+		t.Fatalf("value without debug = %v, want %d", withoutDebug.Value, http.StatusCreated)
+	}
+	if len(withoutDebug.Debug) != 0 {
+		t.Fatalf("debug without debug option = %#v, want empty", withoutDebug.Debug)
+	}
+
+	withDebug, err := env.EvalValidation(nil, prg, nil, nil, nil, EvalOptions{Debug: true})
+	if err != nil {
+		t.Fatalf("eval with debug: %v", err)
+	}
+	if withDebug.Value != int64(http.StatusCreated) {
+		t.Fatalf("value with debug = %v, want %d", withDebug.Value, http.StatusCreated)
+	}
+	if withDebug.Debug["req_method"] != http.MethodPost {
+		t.Fatalf("req_method = %v", withDebug.Debug["req_method"])
+	}
+	if withDebug.Debug["req_url"] != srv.URL {
+		t.Fatalf("req_url = %v, want %s", withDebug.Debug["req_url"], srv.URL)
+	}
+	if withDebug.Debug["req_body"] != "payload" {
+		t.Fatalf("req_body = %v", withDebug.Debug["req_body"])
+	}
+	if withDebug.Debug["req_header_authorization"] != "[redacted]" {
+		t.Fatalf("authorization debug header = %v", withDebug.Debug["req_header_authorization"])
+	}
+	if withDebug.Debug["resp_status"] != int64(http.StatusCreated) {
+		t.Fatalf("resp_status = %v", withDebug.Debug["resp_status"])
+	}
+	if withDebug.Debug["resp_header_x-debug"] != "present" {
+		t.Fatalf("resp_header_x-debug = %v", withDebug.Debug["resp_header_x-debug"])
+	}
+	body, ok := withDebug.Debug["resp_body"].(string)
+	if !ok || !strings.Contains(body, `"ok":true`) {
+		t.Fatalf("resp_body = %#v", withDebug.Debug["resp_body"])
 	}
 }

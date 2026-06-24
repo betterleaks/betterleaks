@@ -52,10 +52,14 @@ func (rt *runtimeBindings) gcpValidate(credentialJSON string) map[string]any {
 	if e == nil {
 		e, _ = New(nil)
 	}
-	return validateGCPCredential(rt.ctx, e, credentialJSON)
+	return validateGCPCredentialWithRuntime(rt, e, credentialJSON)
 }
 
 func validateGCPCredential(ctx context.Context, e *Runtime, credentialJSON string) map[string]any {
+	return validateGCPCredentialWithRuntime(&runtimeBindings{ctx: ctx}, e, credentialJSON)
+}
+
+func validateGCPCredentialWithRuntime(rt *runtimeBindings, e *Runtime, credentialJSON string) map[string]any {
 	creds, err := parseGCPCredential(credentialJSON)
 	if err != nil {
 		return map[string]any{
@@ -89,10 +93,12 @@ func validateGCPCredential(ctx context.Context, e *Runtime, credentialJSON strin
 		}
 	}
 
-	if ctx == nil {
-		ctx = context.Background()
+	ctx := context.Background()
+	if rt != nil && rt.ctx != nil {
+		ctx = rt.ctx
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	body := form.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(body))
 	if err != nil {
 		return map[string]any{"status": int64(0)}
 	}
@@ -109,9 +115,8 @@ func validateGCPCredential(ctx context.Context, e *Runtime, credentialJSON strin
 	if err != nil {
 		return map[string]any{"status": int64(resp.StatusCode)}
 	}
-
-	if e.DebugResponse {
-		e.captureDebug("POST", tokenURL, form.Encode(), req, resp, respBody)
+	if rt != nil {
+		rt.captureDebug(http.MethodPost, tokenURL, body, req, resp, respBody)
 	}
 
 	result := map[string]any{

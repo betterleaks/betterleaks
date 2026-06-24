@@ -35,12 +35,12 @@ import (
 // Zero value means validation is disabled.
 type ValidationOptions struct {
 	Enabled      bool
+	Debug        bool
 	Workers      int
 	Timeout      time.Duration
-	Debug        bool
 	ExtractEmpty bool
 	StatusFilter string // comma-separated list of statuses to include
-	// ValidationEnvVars lists environment variable names the validation CEL
+	// ValidationEnvVars lists environment variable names the validation Expr
 	// env(...) binding may read (see --validation-env-vars). Parsed into
 	// exprruntime.Runtime.AllowedEnv when the validation env is created.
 	ValidationEnvVars []string
@@ -247,13 +247,12 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		if valOpts.Timeout > 0 {
 			validationRuntime.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
 		}
-		validationRuntime.DebugResponse = valOpts.Debug
-
 		workers := valOpts.Workers
 		if workers <= 0 {
 			workers = 10
 		}
 		d.ValidationPool = validate.NewPool(workers, validationRuntime)
+		d.ValidationPool.Debug = valOpts.Debug
 
 		if valOpts.StatusFilter != "" {
 			d.ValidationStatusFilter = make(map[string]struct{})
