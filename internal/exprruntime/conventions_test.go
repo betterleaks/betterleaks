@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"testing"
 
+	tiktoken "github.com/pkoukk/tiktoken-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,6 +84,40 @@ func TestFilterEntropy(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	require.True(t, skip)
+}
+
+func TestFilterEvalUsesPerCallBindings(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	prg, err := env.CompileFilter(`finding["secret"] == attributes["expected"]`, nil)
+	require.NoError(t, err)
+
+	skip, err := env.EvalFilter(prg, map[string]string{"secret": "one"}, map[string]string{"expected": "one"})
+	require.NoError(t, err)
+	require.True(t, skip)
+
+	skip, err = env.EvalFilter(prg, map[string]string{"secret": "two"}, map[string]string{"expected": "one"})
+	require.NoError(t, err)
+	require.False(t, skip)
+}
+
+func TestFilterCacheIncludesTokenizer(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+
+	tokA := &tiktoken.Tiktoken{}
+	tokB := &tiktoken.Tiktoken{}
+	expr := `finding["secret"] == "x"`
+
+	prgA1, err := env.CompileFilter(expr, tokA)
+	require.NoError(t, err)
+	prgA2, err := env.CompileFilter(expr, tokA)
+	require.NoError(t, err)
+	prgB, err := env.CompileFilter(expr, tokB)
+	require.NoError(t, err)
+
+	require.Same(t, prgA1, prgA2)
+	require.NotSame(t, prgA1, prgB)
 }
 
 func functionNames(env map[string]any) map[string]struct{} {

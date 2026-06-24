@@ -30,20 +30,17 @@ const (
 
 type compiledProgram struct {
 	vm        *vm.Program
+	mode      compileMode
 	tokenizer *tiktoken.Tiktoken
+	bindings  bindings
 }
-
-var (
-	mapStringStringType = reflect.TypeFor[map[string]string]()
-	mapAnyType          = reflect.TypeFor[map[string]any]()
-)
 
 var emptyStringMap = map[string]string{}
 
 // maxResponseBody is the maximum number of bytes read from an HTTP response body.
 const maxResponseBody = 1 << 20 // 1 MB
 
-// Runtime holds compiled Expr programs and validation services.
+// Runtime holds compiled Expr programs and validation services (if needed).
 type Runtime struct {
 	client *http.Client
 
@@ -102,7 +99,7 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 
 	// One Runtime compiles all expression types. The mode is part of the cache key
 	// because filter, prefilter, and validation expose different bindings.
-	cacheKey := string(mode) + "\x00" + exprText
+	cacheKey := compileCacheKey(mode, exprText, tokenizer)
 	e.mu.RLock()
 	if prg, ok := e.cache[cacheKey]; ok {
 		e.mu.RUnlock()
@@ -118,12 +115,34 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 		}
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
-	prg := &compiledProgram{vm: vmPrg, tokenizer: tokenizer}
+	prg := &compiledProgram{
+		vm:        vmPrg,
+		mode:      mode,
+		tokenizer: tokenizer,
+		bindings:  programBindings(mode, b),
+	}
 
 	e.mu.Lock()
 	e.cache[cacheKey] = prg
 	e.mu.Unlock()
 	return prg, nil
+}
+
+func compileCacheKey(mode compileMode, exprText string, tokenizer *tiktoken.Tiktoken) string {
+	key := string(mode) + "\x00" + exprText
+	if mode == modeFilter {
+		key += fmt.Sprintf("\x00%p", tokenizer)
+	}
+	return key
+}
+
+func programBindings(mode compileMode, b bindings) bindings {
+	switch mode {
+	case modeFilter, modePrefilter:
+		return cloneBindings(b)
+	default:
+		return nil
+	}
 }
 
 func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken) (bindings, []expr.Option) {
@@ -139,15 +158,34 @@ func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken
 	}
 }
 
-// Runtime bindings intentionally mirror the compile bindings. That keeps Expr's static
-// checks honest: prefilters cannot see findings, filters cannot call validators.
+// Compile and runtime bindings expose the same names. Dynamic values are layered
+// onto a shallow copy so compiled programs can share static function bindings.
 func (e *Runtime) EvalFilter(prg Program, finding, attributes map[string]string) (bool, error) {
-	b := filterBindings(prg.tokenizer, nonNilStringMap(finding), nonNilStringMap(attributes))
+	b := prg.evalBindings()
+	b["finding"] = nonNilStringMap(finding)
+	b["attributes"] = nonNilStringMap(attributes)
 	return runBool(prg, b, "filter")
 }
 
 func (e *Runtime) EvalPrefilter(prg Program, attributes map[string]string) (bool, error) {
-	return runBool(prg, prefilterBindings(nonNilStringMap(attributes)), "prefilter")
+	b := prg.evalBindings()
+	b["attributes"] = nonNilStringMap(attributes)
+	return runBool(prg, b, "prefilter")
+}
+
+func (prg Program) evalBindings() bindings {
+	if prg.bindings != nil {
+		return cloneBindings(prg.bindings)
+	}
+	return bindings{}
+}
+
+func cloneBindings(src bindings) bindings {
+	dst := make(bindings, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 func runBool(prg Program, b bindings, name string) (bool, error) {
