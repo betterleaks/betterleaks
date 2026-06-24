@@ -284,7 +284,7 @@ For contributors adding a new Expr function:
 
 1. Choose the environment: validation, filter/prefilter, or both.
 2. Add the Go implementation in the namespace file, or create
-   `internal/exprenv/bindings_<namespace>.go` for a new namespace.
+   `internal/exprruntime/bindings_<namespace>.go` for a new namespace.
 3. Register the function in `baseEnv`.
 4. Add focused tests for compile and evaluation behavior.
-5. Run `go test ./internal/exprenv`.
+5. Run `go test ./internal/exprruntime`.

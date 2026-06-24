@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/internal/exprenv"
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
@@ -64,7 +64,7 @@ type Rule struct {
 	ValidateExpr string
 
 	// validationProgram is the compiled validation program, set at config load time.
-	validationProgram exprenv.Program
+	validationProgram exprruntime.Program
 
 	// Filter is an expression evaluated against attributes + finding per regex match.
 	// Returns true = skip (discard this finding); false = keep.
@@ -72,7 +72,7 @@ type Rule struct {
 	Filter string
 
 	// filterProgram is the compiled filter program, set at startup.
-	filterProgram exprenv.Program
+	filterProgram exprruntime.Program
 }
 
 type Required struct {
@@ -128,17 +128,17 @@ func (r *Rule) Validate() error {
 }
 
 // ValidationProgram returns the compiled validation program for this rule, or nil.
-func (r *Rule) ValidationProgram() exprenv.Program {
+func (r *Rule) ValidationProgram() exprruntime.Program {
 	return r.validationProgram
 }
 
 // SetValidationProgram stores a compiled validation program on the rule.
-func (r *Rule) SetValidationProgram(p exprenv.Program) {
+func (r *Rule) SetValidationProgram(p exprruntime.Program) {
 	r.validationProgram = p
 }
 
 // FilterProgram returns the compiled filter program for this rule, or nil.
-func (r *Rule) FilterProgram() exprenv.Program { return r.filterProgram }
+func (r *Rule) FilterProgram() exprruntime.Program { return r.filterProgram }
 
 // SetFilterProgram stores a compiled filter program on the rule.
-func (r *Rule) SetFilterProgram(p exprenv.Program) { r.filterProgram = p }
+func (r *Rule) SetFilterProgram(p exprruntime.Program) { r.filterProgram = p }

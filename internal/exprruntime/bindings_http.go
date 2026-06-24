@@ -1,4 +1,4 @@
-package exprenv
+package exprruntime
 
 import (
 	"context"
@@ -77,7 +77,7 @@ func mapToStringAny(v any) map[string]any {
 	return out
 }
 
-func (e *Env) captureDebug(method, rawURL, reqBody string, req *http.Request, resp *http.Response, body []byte) {
+func (e *Runtime) captureDebug(method, rawURL, reqBody string, req *http.Request, resp *http.Response, body []byte) {
 	if e.debugMeta == nil {
 		e.debugMeta = make(map[string]any)
 	}

@@ -1,4 +1,4 @@
-package exprenv
+package exprruntime
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func TestCallSTS_Valid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &Env{client: ts.Client()}
+	e := &Runtime{client: ts.Client()}
 	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
 
 	if result["status"] != int64(200) {
@@ -53,7 +53,7 @@ func TestCallSTS_Invalid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &Env{client: ts.Client()}
+	e := &Runtime{client: ts.Client()}
 	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey")
 
 	if result["status"] != int64(403) {
@@ -70,7 +70,7 @@ func TestCallSTS_ServerError(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &Env{client: ts.Client()}
+	e := &Runtime{client: ts.Client()}
 	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey")
 
 	if result["status"] != int64(500) {
@@ -93,7 +93,7 @@ func TestAWSValidateExprBinding_Valid(t *testing.T) {
 
 	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("exprenv.New: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 	env.STSEndpoint = ts.URL
 
@@ -142,7 +142,7 @@ func TestAWSValidateExprBinding_Invalid(t *testing.T) {
 
 	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("exprenv.New: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 	env.STSEndpoint = ts.URL
 

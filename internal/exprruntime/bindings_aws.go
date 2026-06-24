@@ -1,4 +1,4 @@
-package exprenv
+package exprruntime
 
 import (
 	"context"
@@ -56,7 +56,7 @@ func (rt *runtimeBindings) awsValidate(accessKeyID, secretAccessKey string) map[
 // callSTS performs a SigV4-signed POST to the STS endpoint and returns a
 // response map with {status, arn, account, userid}. The validation expression is
 // responsible for interpreting the status code and building the final result.
-func callSTS(ctx context.Context, e *Env, endpoint, accessKeyID, secretAccessKey string) map[string]any {
+func callSTS(ctx context.Context, e *Runtime, endpoint, accessKeyID, secretAccessKey string) map[string]any {
 	body := stsRequestBody
 
 	if ctx == nil {

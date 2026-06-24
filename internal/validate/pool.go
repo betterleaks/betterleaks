@@ -6,21 +6,21 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/betterleaks/betterleaks/internal/exprenv"
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/report"
 )
 
 // validationJob is the internal unit of work for the pool.
 type validationJob struct {
 	finding  report.Finding
-	program  exprenv.Program
+	program  exprruntime.Program
 	captures map[string]string
 }
 
 // Pool manages a set of workers that validate findings asynchronously.
 type Pool struct {
-	env   *exprenv.Env
-	cache *Cache
+	runtime *exprruntime.Runtime
+	cache   *Cache
 
 	// one job per to-be-validated finding
 	jobs chan validationJob
@@ -33,14 +33,14 @@ type Pool struct {
 }
 
 // NewPool creates a validation pool with the given number of workers.
-func NewPool(workers int, env *exprenv.Env) *Pool {
+func NewPool(workers int, runtime *exprruntime.Runtime) *Pool {
 	if workers <= 0 {
 		workers = 10
 	}
 	p := &Pool{
-		env:   env,
-		cache: NewCache(),
-		jobs:  make(chan validationJob, workers*10),
+		runtime: runtime,
+		cache:   NewCache(),
+		jobs:    make(chan validationJob, workers*10),
 	}
 
 	for i := 0; i < workers; i++ {
@@ -52,13 +52,13 @@ func NewPool(workers int, env *exprenv.Env) *Pool {
 }
 
 // Submit queues a job for validation. RequiredSets (if any) are already on the finding.
-func (p *Pool) Submit(finding report.Finding, program exprenv.Program) {
+func (p *Pool) Submit(finding report.Finding, program exprruntime.Program) {
 	_ = p.SubmitContext(context.Background(), finding, program)
 }
 
 // SubmitContext queues a job for validation unless the provided context has
 // already been canceled.
-func (p *Pool) SubmitContext(ctx context.Context, finding report.Finding, program exprenv.Program) error {
+func (p *Pool) SubmitContext(ctx context.Context, finding report.Finding, program exprruntime.Program) error {
 	job := validationJob{
 		finding:  finding,
 		program:  program,
@@ -186,21 +186,21 @@ func (p *Pool) worker() {
 // evalWithCaptures runs the validation program for the given secret and captures,
 // using the cache to avoid duplicate HTTP requests. The secret is used only
 // for cache keying; the program reads it from finding["secret"].
-func (p *Pool) evalWithCaptures(program exprenv.Program, ruleID, secret string, finding, captures, attributes map[string]string) (*Result, error) {
+func (p *Pool) evalWithCaptures(program exprruntime.Program, ruleID, secret string, finding, captures, attributes map[string]string) (*Result, error) {
 	cacheKey := CacheKey(ruleID, secret, captures)
 	return p.evalWithCacheKey(cacheKey, program, finding, captures, attributes)
 }
 
 // evalWithCacheKey runs the validation program using the given pre-computed cache key.
-func (p *Pool) evalWithCacheKey(cacheKey string, program exprenv.Program, finding, captures, attributes map[string]string) (*Result, error) {
+func (p *Pool) evalWithCacheKey(cacheKey string, program exprruntime.Program, finding, captures, attributes map[string]string) (*Result, error) {
 	return p.cache.GetOrDo(cacheKey, func() (*Result, error) {
-		val, evalErr := p.env.EvalWithAttributes(program, finding, captures, attributes)
+		val, evalErr := p.runtime.EvalWithAttributes(program, finding, captures, attributes)
 		if evalErr != nil {
 			return &Result{Status: "error", Reason: evalErr.Error(), Metadata: map[string]any{}}, nil
 		}
 		r := ParseResult(val)
-		if p.env.DebugResponse {
-			if debugMeta := p.env.DebugMeta(); len(debugMeta) > 0 {
+		if p.runtime.DebugResponse {
+			if debugMeta := p.runtime.DebugMeta(); len(debugMeta) > 0 {
 				if r.Metadata == nil {
 					r.Metadata = make(map[string]any)
 				}

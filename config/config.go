@@ -12,7 +12,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	tiktoken "github.com/pkoukk/tiktoken-go"
 
-	"github.com/betterleaks/betterleaks/internal/exprenv"
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/version"
@@ -128,8 +128,8 @@ type Config struct {
 	// prefilterProgram and filterProgram hold programs compiled by
 	// CompileFilters. Validation compilation is handled separately by
 	// CompileValidation.
-	prefilterProgram exprenv.Program
-	filterProgram    exprenv.Program
+	prefilterProgram exprruntime.Program
+	filterProgram    exprruntime.Program
 }
 
 // Extend is a struct that allows users to define how they want their
@@ -493,34 +493,34 @@ func (rc *rawConfig) parseAllowlist(a *rawRuleAllowlist) (*Allowlist, error) {
 }
 
 // PrefilterProgram returns the compiled global prefilter program, or nil if not set.
-func (c *Config) PrefilterProgram() exprenv.Program { return c.prefilterProgram }
+func (c *Config) PrefilterProgram() exprruntime.Program { return c.prefilterProgram }
 
 // SetPrefilterProgram stores a compiled global prefilter program.
-func (c *Config) SetPrefilterProgram(p exprenv.Program) { c.prefilterProgram = p }
+func (c *Config) SetPrefilterProgram(p exprruntime.Program) { c.prefilterProgram = p }
 
 // FilterProgram returns the compiled global filter program, or nil if not set.
-func (c *Config) FilterProgram() exprenv.Program { return c.filterProgram }
+func (c *Config) FilterProgram() exprruntime.Program { return c.filterProgram }
 
 // SetFilterProgram stores a compiled global filter program.
-func (c *Config) SetFilterProgram(p exprenv.Program) { c.filterProgram = p }
+func (c *Config) SetFilterProgram(p exprruntime.Program) { c.filterProgram = p }
 
 // CompileFilters compiles the global prefilter, global filter, and per-rule
 // filter expressions into executable programs. This is idempotent.
 func (c *Config) CompileFilters(tokenizer *tiktoken.Tiktoken) error {
-	env, err := exprenv.New(nil)
+	runtime, err := exprruntime.New(nil)
 	if err != nil {
-		return fmt.Errorf("creating expr env: %w", err)
+		return fmt.Errorf("creating expr runtime: %w", err)
 	}
 
 	if c.Prefilter != "" {
-		prg, compileErr := env.CompilePrefilter(c.Prefilter)
+		prg, compileErr := runtime.CompilePrefilter(c.Prefilter)
 		if compileErr != nil {
 			return fmt.Errorf("compiling global prefilter: %w", compileErr)
 		}
 		c.prefilterProgram = prg
 	}
 	if c.Filter != "" {
-		prg, compileErr := env.CompileFilter(c.Filter, tokenizer)
+		prg, compileErr := runtime.CompileFilter(c.Filter, tokenizer)
 		if compileErr != nil {
 			return fmt.Errorf("compiling global filter: %w", compileErr)
 		}
@@ -529,7 +529,7 @@ func (c *Config) CompileFilters(tokenizer *tiktoken.Tiktoken) error {
 
 	for ruleID, r := range c.Rules {
 		if r.Filter != "" {
-			prg, compileErr := env.CompileFilter(r.Filter, tokenizer)
+			prg, compileErr := runtime.CompileFilter(r.Filter, tokenizer)
 			if compileErr != nil {
 				return fmt.Errorf("compiling rule %s filter: %w", ruleID, compileErr)
 			}
@@ -542,10 +542,10 @@ func (c *Config) CompileFilters(tokenizer *tiktoken.Tiktoken) error {
 }
 
 // CompileValidation compiles per-rule validation expressions.
-// It creates its own exprenv.Env.
+// It creates its own exprruntime.Runtime.
 // and returns it so the caller can store it for runtime use by the validation pool.
 // Returns (nil, nil) when no rules have validation expressions.
-func (c *Config) CompileValidation() (*exprenv.Env, error) {
+func (c *Config) CompileValidation() (*exprruntime.Runtime, error) {
 	// Quick check: skip environment creation if nothing to compile.
 	hasValidation := false
 	for _, r := range c.Rules {
@@ -558,7 +558,7 @@ func (c *Config) CompileValidation() (*exprenv.Env, error) {
 		return nil, nil
 	}
 
-	env, err := exprenv.New(nil)
+	runtime, err := exprruntime.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating validation env: %w", err)
 	}
@@ -567,7 +567,7 @@ func (c *Config) CompileValidation() (*exprenv.Env, error) {
 		if r.ValidateExpr == "" {
 			continue
 		}
-		prg, compileErr := env.CompileValidation(r.ValidateExpr)
+		prg, compileErr := runtime.CompileValidation(r.ValidateExpr)
 		if compileErr != nil {
 			return nil, fmt.Errorf("compiling rule %s validation: %w", ruleID, compileErr)
 		}
@@ -575,7 +575,7 @@ func (c *Config) CompileValidation() (*exprenv.Env, error) {
 		c.Rules[ruleID] = r
 	}
 
-	return env, nil
+	return runtime, nil
 }
 
 func (c *Config) GetOrderedRules() []Rule {

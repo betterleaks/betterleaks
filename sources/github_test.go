@@ -23,7 +23,7 @@ import (
 	"github.com/google/go-github/v72/github"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/internal/exprenv"
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/httpclient"
 )
 
@@ -692,7 +692,7 @@ func TestGitHub_streamWorkflowRuns_usesCombinedCreatedRange(t *testing.T) {
 func compileGitHubPrefilter(t *testing.T, expression string) SkipFunc {
 	t.Helper()
 
-	env, err := exprenv.New(nil)
+	env, err := exprruntime.New(nil)
 	require.NoError(t, err)
 	prg, err := env.CompilePrefilter(expression)
 	require.NoError(t, err)

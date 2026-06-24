@@ -1,4 +1,4 @@
-package exprenv
+package exprruntime
 
 import (
 	"regexp"
@@ -18,7 +18,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	}{
 		{
 			name: "validation",
-			fns:  functionNames((&Env{}).validationEnv(nil, nil, nil, nil)),
+			fns:  functionNames((&Runtime{}).validationBindings(nil, nil, nil, nil)),
 			current: []string{
 				"http.get", "http.post", "env.get", "env.getOrDefault", "strings.obfuscate",
 				"strings.urlQueryEscape", "validate.unknown", "json.string",
@@ -31,7 +31,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 		},
 		{
 			name: "filter",
-			fns:  functionNames(filterEvalEnv(nil, emptyStringMap, emptyStringMap)),
+			fns:  functionNames(filterBindings(nil, emptyStringMap, emptyStringMap)),
 			current: []string{
 				"filter.matchesAny", "filter.containsAny", "filter.entropy",
 				"filter.failsTokenEfficiency",
@@ -40,7 +40,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 		},
 		{
 			name: "prefilter",
-			fns:  functionNames(prefilterEvalEnv(emptyStringMap)),
+			fns:  functionNames(prefilterBindings(emptyStringMap)),
 			current: []string{
 				"filter.matchesAny", "filter.containsAny", "filter.entropy",
 				"filter.failsTokenEfficiency",

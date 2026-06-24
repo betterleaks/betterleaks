@@ -5,29 +5,29 @@ import (
 	"os"
 	"testing"
 
-	"github.com/betterleaks/betterleaks/internal/exprenv"
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 )
 
 var (
-	exprEnv                *exprenv.Env
-	globalFilterProgram    exprenv.Program
-	globalPrefilterProgram exprenv.Program
+	exprRuntime            *exprruntime.Runtime
+	globalFilterProgram    exprruntime.Program
+	globalPrefilterProgram exprruntime.Program
 )
 
 func TestMain(m *testing.M) {
 	var err error
-	exprEnv, err = exprenv.New(nil)
+	exprRuntime, err = exprruntime.New(nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "exprenv.New: %v\n", err)
+		fmt.Fprintf(os.Stderr, "exprruntime.New: %v\n", err)
 		os.Exit(1)
 	}
-	globalFilterProgram, err = exprEnv.CompileFilter(GlobalFilter, nil)
+	globalFilterProgram, err = exprRuntime.CompileFilter(GlobalFilter, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "compile GlobalFilter: %v\n", err)
 		os.Exit(1)
 	}
 
-	globalPrefilterProgram, err = exprEnv.CompilePrefilter(GlobalPrefilter)
+	globalPrefilterProgram, err = exprRuntime.CompilePrefilter(GlobalPrefilter)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "compile GlobalPrefilter: %v\n", err)
 		os.Exit(1)
@@ -104,7 +104,7 @@ var allowlistRegexTests = map[string]struct {
 }
 
 func globalSecretAllowed(secret string) bool {
-	skip, err := exprEnv.EvalFilter(globalFilterProgram, map[string]string{"secret": secret}, nil)
+	skip, err := exprRuntime.EvalFilter(globalFilterProgram, map[string]string{"secret": secret}, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -112,7 +112,7 @@ func globalSecretAllowed(secret string) bool {
 }
 
 func globalPathAllowed(path string) bool {
-	skip, err := exprEnv.EvalPrefilter(globalPrefilterProgram, map[string]string{"path": path})
+	skip, err := exprRuntime.EvalPrefilter(globalPrefilterProgram, map[string]string{"path": path})
 	if err != nil {
 		panic(err)
 	}

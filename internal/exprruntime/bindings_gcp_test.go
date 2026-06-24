@@ -1,4 +1,4 @@
-package exprenv
+package exprruntime
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func TestGCPValidateExprBinding_ServiceAccountValid(t *testing.T) {
 
 	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("exprenv.New: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 	env.GCPTokenEndpoint = ts.URL
 
@@ -99,7 +99,7 @@ func TestGCPValidateExprBinding_ApplicationDefaultCredentialsInvalid(t *testing.
 
 	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("exprenv.New: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 	env.GCPTokenEndpoint = ts.URL
 
@@ -132,7 +132,7 @@ func TestGCPValidateExprBinding_ApplicationDefaultCredentialsInvalid(t *testing.
 }
 
 func TestValidateGCPCredential_DisallowsNonGoogleTokenEndpoint(t *testing.T) {
-	result := validateGCPCredential(context.Background(), &Env{client: DefaultHTTPClient()}, testGCPServiceAccountJSON(t, "http://127.0.0.1/token"))
+	result := validateGCPCredential(context.Background(), &Runtime{client: DefaultHTTPClient()}, testGCPServiceAccountJSON(t, "http://127.0.0.1/token"))
 
 	if result["status"] != int64(0) {
 		t.Fatalf("expected status 0, got %v", result["status"])

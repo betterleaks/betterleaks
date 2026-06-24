@@ -1,4 +1,4 @@
-package exprenv
+package exprruntime
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 func TestBindings(t *testing.T) {
 	env, err := New(nil)
 	if err != nil {
-		t.Fatalf("exprenv.New: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 
 	tests := []struct {
@@ -150,7 +150,7 @@ func TestBindings(t *testing.T) {
 func TestValidationAttributes(t *testing.T) {
 	env, err := New(nil)
 	if err != nil {
-		t.Fatalf("exprenv.New: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 
 	prg, err := env.CompileValidation(`attributes["path"] == "service/config.yml" ? {"result": "valid"} : {"result": "invalid"}`)

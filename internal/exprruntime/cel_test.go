@@ -1,4 +1,4 @@
-package exprenv
+package exprruntime
 
 import (
 	"testing"
@@ -430,7 +430,7 @@ var compatExpressions = []struct {
 func TestCompatExpressionsCompile(t *testing.T) {
 	env, err := New(nil)
 	if err != nil {
-		t.Fatalf("exprenv.New: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 
 	for _, tc := range compatExpressions {

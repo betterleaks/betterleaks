@@ -1,11 +1,11 @@
-package exprenv
+package exprruntime
 
 import "testing"
 
 func TestCELCompatEval(t *testing.T) {
 	env, err := New(nil)
 	if err != nil {
-		t.Fatalf("exprenv.New: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 
 	tests := []struct {

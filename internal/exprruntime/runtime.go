@@ -1,4 +1,4 @@
-package exprenv
+package exprruntime
 
 import (
 	"context"
@@ -43,8 +43,8 @@ var emptyStringMap = map[string]string{}
 // maxResponseBody is the maximum number of bytes read from an HTTP response body.
 const maxResponseBody = 1 << 20 // 1 MB
 
-// Env holds compiled Expr programs and validation services.
-type Env struct {
+// Runtime holds compiled Expr programs and validation services.
+type Runtime struct {
 	client *http.Client
 
 	mu    sync.RWMutex
@@ -59,38 +59,38 @@ type Env struct {
 	AllowedEnv       map[string]struct{}
 }
 
-type evalEnv = map[string]any
+type bindings = map[string]any
 
 // DefaultHTTPClient returns an HTTP client with reasonable timeouts.
 func DefaultHTTPClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
 
-func (e *Env) SetHTTPClient(c *http.Client) { e.client = c }
+func (e *Runtime) SetHTTPClient(c *http.Client) { e.client = c }
 
-func New(httpClient *http.Client) (*Env, error) {
+func New(httpClient *http.Client) (*Runtime, error) {
 	if httpClient == nil {
 		httpClient = DefaultHTTPClient()
 	}
-	return &Env{
+	return &Runtime{
 		client: httpClient,
 		cache:  make(map[string]Program),
 	}, nil
 }
 
-func (e *Env) CompileFilter(expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
+func (e *Runtime) CompileFilter(expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
 	return e.compile(modeFilter, expression, tokenizer)
 }
 
-func (e *Env) CompilePrefilter(expression string) (Program, error) {
+func (e *Runtime) CompilePrefilter(expression string) (Program, error) {
 	return e.compile(modePrefilter, expression, nil)
 }
 
-func (e *Env) CompileValidation(expression string) (Program, error) {
+func (e *Runtime) CompileValidation(expression string) (Program, error) {
 	return e.compile(modeValidation, expression, nil)
 }
 
-func (e *Env) compile(mode compileMode, expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
+func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
 	exprText := expression
 	if NeedsCELCompat(expression) {
 		var err error
@@ -100,7 +100,7 @@ func (e *Env) compile(mode compileMode, expression string, tokenizer *tiktoken.T
 		}
 	}
 
-	// One Env compiles all expression types. The mode is part of the cache key
+	// One Runtime compiles all expression types. The mode is part of the cache key
 	// because filter, prefilter, and validation expose different bindings.
 	cacheKey := string(mode) + "\x00" + exprText
 	e.mu.RLock()
@@ -110,8 +110,8 @@ func (e *Env) compile(mode compileMode, expression string, tokenizer *tiktoken.T
 	}
 	e.mu.RUnlock()
 
-	env, options := e.compileEnv(mode, tokenizer)
-	vmPrg, err := expr.Compile(exprText, append([]expr.Option{expr.Env(env)}, options...)...)
+	b, options := e.compileBindings(mode, tokenizer)
+	vmPrg, err := expr.Compile(exprText, append([]expr.Option{expr.Env(b)}, options...)...)
 	if err != nil {
 		if exprText != expression {
 			return nil, fmt.Errorf("%s expr compile error: %w\noriginal expression:\n%s\ncompat expression:\n%s", mode, err, expression, exprText)
@@ -126,63 +126,63 @@ func (e *Env) compile(mode compileMode, expression string, tokenizer *tiktoken.T
 	return prg, nil
 }
 
-func (e *Env) compileEnv(mode compileMode, tokenizer *tiktoken.Tiktoken) (evalEnv, []expr.Option) {
+func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken) (bindings, []expr.Option) {
 	switch mode {
 	case modeFilter:
-		return filterEvalEnv(tokenizer, emptyStringMap, emptyStringMap), []expr.Option{expr.AsBool()}
+		return filterBindings(tokenizer, emptyStringMap, emptyStringMap), []expr.Option{expr.AsBool()}
 	case modePrefilter:
-		return prefilterEvalEnv(emptyStringMap), []expr.Option{expr.AsBool()}
+		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
 	default:
-		env := e.validationEnv(context.Background(), nil, nil, nil)
-		setCompileMaps(env)
-		return env, []expr.Option{expr.WithContext("ctx")}
+		b := e.validationBindings(context.Background(), nil, nil, nil)
+		setCompileMaps(b)
+		return b, []expr.Option{expr.WithContext("ctx")}
 	}
 }
 
-// Runtime envs intentionally mirror the compile envs. That keeps Expr's static
+// Runtime bindings intentionally mirror the compile bindings. That keeps Expr's static
 // checks honest: prefilters cannot see findings, filters cannot call validators.
-func (e *Env) EvalFilter(prg Program, finding, attributes map[string]string) (bool, error) {
-	env := filterEvalEnv(prg.tokenizer, nonNilStringMap(finding), nonNilStringMap(attributes))
-	return runBool(prg, env, "filter")
+func (e *Runtime) EvalFilter(prg Program, finding, attributes map[string]string) (bool, error) {
+	b := filterBindings(prg.tokenizer, nonNilStringMap(finding), nonNilStringMap(attributes))
+	return runBool(prg, b, "filter")
 }
 
-func (e *Env) EvalPrefilter(prg Program, attributes map[string]string) (bool, error) {
-	return runBool(prg, prefilterEvalEnv(nonNilStringMap(attributes)), "prefilter")
+func (e *Runtime) EvalPrefilter(prg Program, attributes map[string]string) (bool, error) {
+	return runBool(prg, prefilterBindings(nonNilStringMap(attributes)), "prefilter")
 }
 
-func runBool(prg Program, env evalEnv, name string) (bool, error) {
-	val, err := expr.Run(prg.vm, env)
+func runBool(prg Program, b bindings, name string) (bool, error) {
+	val, err := expr.Run(prg.vm, b)
 	if err != nil {
 		return false, err
 	}
-	b, ok := val.(bool)
+	result, ok := val.(bool)
 	if !ok {
 		return false, fmt.Errorf("%s returned non-bool: %T", name, val)
 	}
-	return b, nil
+	return result, nil
 }
 
-func (e *Env) Eval(prg Program, finding, captures map[string]string) (any, error) {
+func (e *Runtime) Eval(prg Program, finding, captures map[string]string) (any, error) {
 	return e.EvalWithContext(context.Background(), prg, finding, captures, nil)
 }
 
-func (e *Env) EvalWithAttributes(prg Program, finding, captures, attributes map[string]string) (any, error) {
+func (e *Runtime) EvalWithAttributes(prg Program, finding, captures, attributes map[string]string) (any, error) {
 	return e.EvalWithContext(context.Background(), prg, finding, captures, attributes)
 }
 
-func (e *Env) EvalWithContext(ctx context.Context, prg Program, finding, captures, attributes map[string]string) (any, error) {
+func (e *Runtime) EvalWithContext(ctx context.Context, prg Program, finding, captures, attributes map[string]string) (any, error) {
 	if e.DebugResponse {
 		e.debugMu.Lock()
 		defer e.debugMu.Unlock()
 		e.debugMeta = make(map[string]any)
 	}
-	env := e.validationEnv(ctx, finding, captures, attributes)
-	return expr.Run(prg.vm, env)
+	b := e.validationBindings(ctx, finding, captures, attributes)
+	return expr.Run(prg.vm, b)
 }
 
-func (e *Env) DebugMeta() map[string]any { return e.debugMeta }
+func (e *Runtime) DebugMeta() map[string]any { return e.debugMeta }
 
-func (e *Env) validationEnv(ctx context.Context, finding, captures, attributes map[string]string) evalEnv {
+func (e *Runtime) validationBindings(ctx context.Context, finding, captures, attributes map[string]string) bindings {
 	if finding == nil {
 		finding = emptyStringMap
 	}
@@ -200,35 +200,35 @@ func (e *Env) validationEnv(ctx context.Context, finding, captures, attributes m
 		attrs:      attributes,
 		captures:   captures,
 	}
-	env := baseEnv(rt)
-	env["ctx"] = rt.ctx
-	env["finding"] = rt.finding
-	env["captures"] = rt.captures
-	env["secret"] = lookupString(rt.finding, "secret")
-	env["bytes"] = func(s string) []byte { return []byte(s) }
-	env["size"] = size
-	env["substring"] = substring
-	env["lastIndexOf"] = strings.LastIndex
-	env["replace"] = strings.ReplaceAll
-	env["http"] = httpNamespace(rt)
-	env["env"] = envNamespace(rt)
-	env["env_get"] = rt.envGet
-	env["strings"] = stringsNamespace()
-	env["validate"] = validateNamespace()
-	env["json"] = jsonNamespace()
-	env["crypto"] = cryptoNamespace()
-	env["hex"] = hexNamespace()
-	env["base64"] = base64Namespace()
-	env["time"] = timeNamespace()
-	env["aws"] = awsNamespace(rt)
-	env["gcp"] = gcpNamespace(rt)
-	env["unknown"] = unknownResult
-	env["obfuscate"] = func(s string) (string, error) { return obfuscate(s), nil }
-	return env
+	b := baseBindings(rt)
+	b["ctx"] = rt.ctx
+	b["finding"] = rt.finding
+	b["captures"] = rt.captures
+	b["secret"] = lookupString(rt.finding, "secret")
+	b["bytes"] = func(s string) []byte { return []byte(s) }
+	b["size"] = size
+	b["substring"] = substring
+	b["lastIndexOf"] = strings.LastIndex
+	b["replace"] = strings.ReplaceAll
+	b["http"] = httpNamespace(rt)
+	b["env"] = envNamespace(rt)
+	b["env_get"] = rt.envGet
+	b["strings"] = stringsNamespace()
+	b["validate"] = validateNamespace()
+	b["json"] = jsonNamespace()
+	b["crypto"] = cryptoNamespace()
+	b["hex"] = hexNamespace()
+	b["base64"] = base64Namespace()
+	b["time"] = timeNamespace()
+	b["aws"] = awsNamespace(rt)
+	b["gcp"] = gcpNamespace(rt)
+	b["unknown"] = unknownResult
+	b["obfuscate"] = func(s string) (string, error) { return obfuscate(s), nil }
+	return b
 }
 
 type runtimeBindings struct {
-	validation *Env
+	validation *Runtime
 	ctx        context.Context
 	tokenizer  *tiktoken.Tiktoken
 	finding    any
@@ -236,7 +236,7 @@ type runtimeBindings struct {
 	captures   any
 }
 
-func baseEnv(rt *runtimeBindings) evalEnv {
+func baseBindings(rt *runtimeBindings) bindings {
 	if rt.ctx == nil {
 		rt.ctx = context.Background()
 	}
@@ -244,7 +244,7 @@ func baseEnv(rt *runtimeBindings) evalEnv {
 		rt.attrs = map[string]any{}
 	}
 
-	return evalEnv{
+	return bindings{
 		"attributes":           rt.attrs,
 		"get":                  getDefault,
 		"getPath":              getPathDefault,
@@ -256,11 +256,11 @@ func baseEnv(rt *runtimeBindings) evalEnv {
 	}
 }
 
-func setCompileMaps(env evalEnv) {
-	env["finding"] = map[string]any{}
-	env["attributes"] = map[string]any{}
-	env["captures"] = map[string]any{}
-	env["secret"] = ""
+func setCompileMaps(b bindings) {
+	b["finding"] = map[string]any{}
+	b["attributes"] = map[string]any{}
+	b["captures"] = map[string]any{}
+	b["secret"] = ""
 }
 
 func nonNilStringMap(m map[string]string) map[string]string {
@@ -270,14 +270,14 @@ func nonNilStringMap(m map[string]string) map[string]string {
 	return m
 }
 
-func filterEvalEnv(tokenizer *tiktoken.Tiktoken, finding, attributes map[string]string) evalEnv {
-	env := baseEnv(&runtimeBindings{tokenizer: tokenizer, attrs: attributes})
-	env["finding"] = finding
-	return env
+func filterBindings(tokenizer *tiktoken.Tiktoken, finding, attributes map[string]string) bindings {
+	b := baseBindings(&runtimeBindings{tokenizer: tokenizer, attrs: attributes})
+	b["finding"] = finding
+	return b
 }
 
-func prefilterEvalEnv(attributes map[string]string) evalEnv {
-	return baseEnv(&runtimeBindings{attrs: attributes})
+func prefilterBindings(attributes map[string]string) bindings {
+	return baseBindings(&runtimeBindings{attrs: attributes})
 }
 
 func size(v any) int {

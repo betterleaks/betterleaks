@@ -18,7 +18,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
-	"github.com/betterleaks/betterleaks/internal/exprenv"
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
@@ -42,7 +42,7 @@ type ValidationOptions struct {
 	StatusFilter string // comma-separated list of statuses to include
 	// ValidationEnvVars lists environment variable names the validation CEL
 	// env(...) binding may read (see --validation-env-vars). Parsed into
-	// exprenv.Env.AllowedEnv when the validation env is created.
+	// exprruntime.Runtime.AllowedEnv when the validation env is created.
 	ValidationEnvVars []string
 }
 
@@ -114,12 +114,12 @@ type Detector struct {
 
 	tokenizer *tiktoken.Tiktoken
 
-	exprEnv *exprenv.Env
+	exprRuntime *exprruntime.Runtime
 
-	// validationEnv evaluates per-rule validation expressions. Created during
+	// validationRuntime evaluates per-rule validation expressions. Created during
 	// construction; nil when no rules have ValidateExpr. The cmd layer may
 	// reconfigure the HTTP client/debug settings before evaluation begins.
-	validationEnv *exprenv.Env
+	validationRuntime *exprruntime.Runtime
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -217,16 +217,16 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	}
 
 	// Compile validation programs (no-op if no rules have ValidateExpr).
-	validationEnv, validationErr := cfg.CompileValidation()
+	validationRuntime, validationErr := cfg.CompileValidation()
 	if validationErr != nil {
 		logging.Fatal().Err(validationErr).Msg("failed to compile validation expressions")
 	}
-	if validationEnv != nil {
-		validationEnv.AllowedEnv = exprenv.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
+	if validationRuntime != nil {
+		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
 	}
-	exprEnv, exprErr := exprenv.New(nil)
+	exprRuntime, exprErr := exprruntime.New(nil)
 	if exprErr != nil {
-		logging.Fatal().Err(exprErr).Msg("failed to create expr env")
+		logging.Fatal().Err(exprErr).Msg("failed to create expr runtime")
 	}
 
 	d := &Detector{
@@ -237,23 +237,23 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		prefilter:              *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
 		Sema:                   semgroup.NewGroup(ctx, 40),
 		tokenizer:              tke,
-		exprEnv:                exprEnv,
-		validationEnv:          validationEnv,
+		exprRuntime:            exprRuntime,
+		validationRuntime:      validationRuntime,
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 
 	// Set up validation pool when enabled.
-	if valOpts.Enabled && validationEnv != nil {
+	if valOpts.Enabled && validationRuntime != nil {
 		if valOpts.Timeout > 0 {
-			validationEnv.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
+			validationRuntime.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
 		}
-		validationEnv.DebugResponse = valOpts.Debug
+		validationRuntime.DebugResponse = valOpts.Debug
 
 		workers := valOpts.Workers
 		if workers <= 0 {
 			workers = 10
 		}
-		d.ValidationPool = validate.NewPool(workers, validationEnv)
+		d.ValidationPool = validate.NewPool(workers, validationRuntime)
 
 		if valOpts.StatusFilter != "" {
 			d.ValidationStatusFilter = make(map[string]struct{})
@@ -265,7 +265,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 				}
 			}
 		}
-	} else if valOpts.Enabled && validationEnv == nil {
+	} else if valOpts.Enabled && validationRuntime == nil {
 		logging.Warn().Msg("validation enabled but no rules have validation expressions")
 	}
 
@@ -288,7 +288,7 @@ func (d *Detector) SkipFunc() sources.SkipFunc {
 		return nil
 	}
 	return func(attrs map[string]string) bool {
-		skip, err := d.exprEnv.EvalPrefilter(prg, attrs)
+		skip, err := d.exprRuntime.EvalPrefilter(prg, attrs)
 		if err != nil {
 			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
 			return false
@@ -824,7 +824,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		// Global filter: Expr path (attributes + finding).
 		if d.Config.FilterProgram() != nil {
-			skip, err := d.exprEnv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -834,7 +834,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		// Rule filter: Expr path (includes entropy, regex/stopword allowlists, tokenEfficiency).
 		if r.FilterProgram() != nil {
-			skip, err := d.exprEnv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {

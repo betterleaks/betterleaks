@@ -1,4 +1,4 @@
-package exprenv
+package exprruntime
 
 import (
 	"context"
@@ -55,7 +55,7 @@ func (rt *runtimeBindings) gcpValidate(credentialJSON string) map[string]any {
 	return validateGCPCredential(rt.ctx, e, credentialJSON)
 }
 
-func validateGCPCredential(ctx context.Context, e *Env, credentialJSON string) map[string]any {
+func validateGCPCredential(ctx context.Context, e *Runtime, credentialJSON string) map[string]any {
 	creds, err := parseGCPCredential(credentialJSON)
 	if err != nil {
 		return map[string]any{
