@@ -10,7 +10,6 @@ import (
 
 	gv "github.com/hashicorp/go-version"
 	"github.com/pelletier/go-toml/v2"
-	tiktoken "github.com/pkoukk/tiktoken-go"
 
 	"github.com/google/cel-go/cel"
 
@@ -508,7 +507,7 @@ func (c *Config) SetFilterProgram(p cel.Program) { c.filterProgram = p }
 
 // CompileCELFilters compiles the global prefilter, global filter, and per-rule
 // filter CEL expressions into executable programs. This is idempotent.
-func (c *Config) CompileCELFilters(tokenizer *tiktoken.Tiktoken) error {
+func (c *Config) CompileCELFilters(tokenizer celenv.TokenizerProvider) error {
 	prefilterEnv, err := celenv.NewPrefilterEnv()
 	if err != nil {
 		return fmt.Errorf("creating prefilter env: %w", err)

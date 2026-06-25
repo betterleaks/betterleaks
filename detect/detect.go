@@ -111,7 +111,8 @@ type Detector struct {
 
 	TotalBytes atomic.Uint64
 
-	tokenizer *tiktoken.Tiktoken
+	tokenizer     *tiktoken.Tiktoken
+	tokenizerOnce sync.Once
 
 	// validationEnv is the CEL environment used to compile and evaluate
 	// per-rule validation expressions. Created during construction;
@@ -201,19 +202,6 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Fatal().Msg("config is required to create detector")
 		return nil
 	}
-	// grab offline tiktoken encoder
-	tiktoken.SetBpeLoader(&TiktokenLoader{})
-	tke, err := tiktoken.GetEncoding("cl100k_base")
-	if err != nil {
-		logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
-	}
-
-	// Compile CEL filter programs so they are available at scan time.
-	// This is the single compilation owner — callers should NOT compile separately.
-	if compileErr := cfg.CompileCELFilters(tke); compileErr != nil {
-		logging.Fatal().Err(compileErr).Msg("failed to compile CEL filters")
-	}
-
 	// Compile CEL validation programs (no-op if no rules have ValidateCEL).
 	validationEnv, validationErr := cfg.CompileValidation()
 	if validationErr != nil {
@@ -230,9 +218,14 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		Config:                 cfg,
 		prefilter:              *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
 		Sema:                   semgroup.NewGroup(ctx, 40),
-		tokenizer:              tke,
 		validationEnv:          validationEnv,
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
+	}
+
+	// Compile CEL filter programs so they are available at scan time.
+	// This is the single compilation owner — callers should NOT compile separately.
+	if compileErr := cfg.CompileCELFilters(d.Tokenizer); compileErr != nil {
+		logging.Fatal().Err(compileErr).Msg("failed to compile CEL filters")
 	}
 
 	// Set up validation pool when enabled.
@@ -267,7 +260,18 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 
 // Tokenizer returns the BPE tokenizer used for token efficiency filtering.
 // May be nil if the tokenizer failed to initialize (e.g., network error).
-func (d *Detector) Tokenizer() *tiktoken.Tiktoken { return d.tokenizer }
+func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
+	d.tokenizerOnce.Do(func() {
+		tiktoken.SetBpeLoader(&TiktokenLoader{})
+		tke, err := tiktoken.GetEncoding("cl100k_base")
+		if err != nil {
+			logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
+			return
+		}
+		d.tokenizer = tke
+	})
+	return d.tokenizer
+}
 
 // SkipFunc returns a sources.SkipFunc callback that evaluates the config's
 // prefilter program against fragment attributes. Returns nil when no prefilter

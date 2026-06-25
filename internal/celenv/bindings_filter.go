@@ -194,14 +194,18 @@ var celNewlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 // failsTokenEfficiencyBinding returns the CEL function failsTokenEfficiency(string) → bool.
 // Returns true when the secret tokenizes too efficiently (looks like natural language, not a
 // random secret) and should therefore be suppressed.
-// If tke is nil (tokenizer unavailable), always returns false — preserves existing behavior
+// If tokenizer returns nil, always returns false — preserves existing behavior
 // of keeping findings when tiktoken fails to initialize.
-func failsTokenEfficiencyBinding(tke *tiktoken.Tiktoken, name, overload string) cel.EnvOption {
+func failsTokenEfficiencyBinding(tokenizer TokenizerProvider, name, overload string) cel.EnvOption {
 	return cel.Function(name,
 		cel.Overload(overload,
 			[]*cel.Type{cel.StringType},
 			cel.BoolType,
 			cel.UnaryBinding(func(val ref.Val) ref.Val {
+				var tke *tiktoken.Tiktoken
+				if tokenizer != nil {
+					tke = tokenizer()
+				}
 				if tke == nil {
 					return types.Bool(false)
 				}
@@ -241,13 +245,13 @@ func celFailsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
 }
 
 // filterBindings returns the CEL EnvOptions for bindings shared by PrefilterEnv and FilterEnv.
-// tke may be nil; failsTokenEfficiency will return false unconditionally in that case.
-func filterBindings(tke *tiktoken.Tiktoken) []cel.EnvOption {
+// tokenizer may be nil; failsTokenEfficiency will return false unconditionally in that case.
+func filterBindings(tokenizer TokenizerProvider) []cel.EnvOption {
 	return []cel.EnvOption{
 		matchesAnyBinding("filter.matchesAny", "filter_matches_any_string_list"),
 		containsAnyBinding("filter.containsAny", "filter_contains_any_string_list"),
 		entropyBinding("filter.entropy", "filter_entropy_string"),
-		failsTokenEfficiencyBinding(tke, "filter.failsTokenEfficiency", "filter_fails_token_efficiency_string"),
+		failsTokenEfficiencyBinding(tokenizer, "filter.failsTokenEfficiency", "filter_fails_token_efficiency_string"),
 		// Deprecated: use filter.matchesAny.
 		matchesAnyBinding("matchesAny", "matchesAny_string_list"),
 		// Deprecated: use filter.containsAny.
@@ -255,7 +259,7 @@ func filterBindings(tke *tiktoken.Tiktoken) []cel.EnvOption {
 		// Deprecated: use filter.entropy.
 		entropyBinding("entropy", "entropy_string"),
 		// Deprecated: use filter.failsTokenEfficiency.
-		failsTokenEfficiencyBinding(tke, "failsTokenEfficiency", "failsTokenEfficiency_string"),
+		failsTokenEfficiencyBinding(tokenizer, "failsTokenEfficiency", "failsTokenEfficiency_string"),
 		// TODO add more bindings here as we come across new detection techniques.
 	}
 }

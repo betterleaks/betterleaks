@@ -9,6 +9,8 @@ import (
 	tiktoken "github.com/pkoukk/tiktoken-go"
 )
 
+type TokenizerProvider func() *tiktoken.Tiktoken
+
 // FilterEnv is a CEL environment for evaluating per-match filter expressions.
 // Both `attributes map<string,string>` and `finding map<string,string>` are in scope.
 type FilterEnv struct {
@@ -19,7 +21,7 @@ type FilterEnv struct {
 
 // NewFilterEnv creates a CEL environment for evaluating per-match filter expressions.
 // If tokenizer is nil, failsTokenEfficiency always returns false (tokenizer unavailable).
-func NewFilterEnv(tokenizer *tiktoken.Tiktoken) (*FilterEnv, error) {
+func NewFilterEnv(tokenizer TokenizerProvider) (*FilterEnv, error) {
 	opts := []cel.EnvOption{
 		cel.OptionalTypes(),
 		ext.Bindings(),
