@@ -37,6 +37,10 @@ type Rule struct {
 	// and reporting purposes.
 	Tags []string
 
+	// Specificity controls precedence when overlapping findings compete.
+	// Higher specificity findings suppress lower specificity findings.
+	Specificity int
+
 	// Keywords are used for pre-regex check filtering. Rules that contain
 	// keywords will perform a quick string compare check to make sure the
 	// keyword(s) are in the content being scanned.

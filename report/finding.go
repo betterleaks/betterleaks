@@ -47,6 +47,8 @@ type Finding struct {
 
 	Tags []string
 
+	RuleSpecificity int `json:"-"`
+
 	// RequiredSets holds the Cartesian-product combinations of required findings.
 	// Each set is one complete group of components that can be validated independently.
 	RequiredSets []RequiredSet `json:",omitempty"`
@@ -99,15 +101,16 @@ type RequiredSet struct {
 type RequiredFinding struct {
 	// contains a subset of the Finding fields
 	// only used for reporting
-	RuleID        string
-	StartLine     int
-	EndLine       int
-	StartColumn   int
-	EndColumn     int
-	Line          string `json:"-"`
-	Match         string
-	Secret        string
-	CaptureGroups map[string]string `json:",omitempty"`
+	RuleID          string
+	StartLine       int
+	EndLine         int
+	StartColumn     int
+	EndColumn       int
+	Line            string `json:"-"`
+	Match           string
+	Secret          string
+	CaptureGroups   map[string]string `json:",omitempty"`
+	RuleSpecificity int               `json:"-"`
 }
 
 // BuildRequiredSets generates the Cartesian product of the given required findings

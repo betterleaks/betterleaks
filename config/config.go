@@ -24,6 +24,7 @@ var (
 )
 
 const maxExtendDepth = 2
+const DefaultRuleSpecificity = 100
 
 type rawConfig struct {
 	Title       string    `toml:"title"`
@@ -56,6 +57,7 @@ type rawRule struct {
 	Entropy     float64  `toml:"entropy"`
 	Keywords    []string `toml:"keywords"`
 	Tags        []string `toml:"tags"`
+	Specificity *int     `toml:"specificity"`
 
 	// Deprecated: this is a shim for backwards-compatibility.
 	// TODO: Remove this in 9.x.
@@ -205,6 +207,10 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		if vr.Tags == nil {
 			vr.Tags = []string{}
 		}
+		specificity := DefaultRuleSpecificity
+		if vr.Specificity != nil {
+			specificity = *vr.Specificity
+		}
 		cr := Rule{
 			RuleID:          vr.ID,
 			Description:     vr.Description,
@@ -214,6 +220,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			Path:            pathPat,
 			Keywords:        vr.Keywords,
 			Tags:            vr.Tags,
+			Specificity:     specificity,
 			SkipReport:      vr.SkipReport,
 			TokenEfficiency: vr.TokenEfficiency,
 		}

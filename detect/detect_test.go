@@ -142,7 +142,8 @@ func compare(t *testing.T, got, want []report.Finding) {
 		cmpopts.IgnoreFields(report.Finding{},
 			"Fingerprint", "Author", "Email", "Date", "Message", "Commit",
 			"File", "SymlinkFile", "Attributes",
-			"RequiredSets"),
+			"RequiredSets", "RuleSpecificity"),
+		cmpopts.IgnoreFields(report.RequiredFinding{}, "RuleSpecificity"),
 		cmpopts.IgnoreUnexported(report.Finding{}),
 		cmpopts.EquateApprox(0.0001, 0), // For floating point Entropy comparison
 	); diff != "" {
@@ -157,6 +158,12 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 	for i := range findings {
 		findings[i].Attributes = nil
 		findings[i].Link = ""
+		findings[i].RuleSpecificity = 0
+		for si := range findings[i].RequiredSets {
+			for ci := range findings[i].RequiredSets[si].Components {
+				findings[i].RequiredSets[si].Components[ci].RuleSpecificity = 0
+			}
+		}
 		findings[i].SetExprContext("")
 	}
 	return findings

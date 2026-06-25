@@ -530,6 +530,7 @@ func testTranslate(t *testing.T, test translateCase) {
 
 	opts := cmp.Options{
 		cmp.Comparer(regexComparer),
+		cmpopts.IgnoreFields(Rule{}, "Specificity"),
 		cmpopts.IgnoreUnexported(Rule{}, Allowlist{}),
 	}
 	if diff := cmp.Diff(test.cfg.Title, cfg.Title); diff != "" {
@@ -541,6 +542,22 @@ func testTranslate(t *testing.T, test translateCase) {
 	if diff := cmp.Diff(test.cfg.Allowlists, cfg.Allowlists, opts); diff != "" {
 		t.Errorf("%s diff: (-want +got)\n%s", test.cfgName, diff)
 	}
+}
+
+func TestRuleSpecificity(t *testing.T) {
+	cfg, err := ParseTOMLString(`
+[[rules]]
+id = "default"
+regex = "default"
+
+[[rules]]
+id = "fallback"
+regex = "fallback"
+specificity = 0
+`, "")
+	require.NoError(t, err)
+	assert.Equal(t, DefaultRuleSpecificity, cfg.Rules["default"].Specificity)
+	assert.Equal(t, 0, cfg.Rules["fallback"].Specificity)
 }
 
 func loadTestConfig(cfgName string) (*Config, error) {

@@ -8,6 +8,7 @@ import (
 	"iter"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,6 +127,7 @@ type Detector struct {
 	globalFilter       exprruntime.Program
 	filterProgramM     sync.Mutex
 	filterPrograms     map[string]exprruntime.Program
+	rulesBySpecificity []string
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -235,6 +237,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		filterPrograms:         make(map[string]exprruntime.Program),
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
+	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
 
 	// Compile only global prefilter programs so they are available before scanning.
@@ -386,11 +389,12 @@ func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragmen
 func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding {
 	path := fragment.Attr(sources.AttrPath)
 	finding := report.Finding{
-		RuleID:      r.RuleID,
-		Description: r.Description,
-		Match:       "file detected: " + path,
-		Tags:        r.Tags,
-		Attributes:  maps.Clone(fragment.Attributes),
+		RuleID:          r.RuleID,
+		Description:     r.Description,
+		Match:           "file detected: " + path,
+		Tags:            r.Tags,
+		Attributes:      maps.Clone(fragment.Attributes),
+		RuleSpecificity: r.Specificity,
 	}
 	finding.SyncDeprecatedSourceFields()
 	return finding
@@ -684,17 +688,8 @@ ScanLoop:
 				rulesToCheck[ruleID] = struct{}{}
 			}
 
-			specificRuleIDs, genericRuleIDs := d.orderedRuleIDs(rulesToCheck)
-			for _, ruleID := range specificRuleIDs {
-				select {
-				case <-ctx.Done():
-					break ScanLoop
-				default:
-					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRule(fragment, currentRaw, rule, encodedSegments, nil)...)
-				}
-			}
-			for _, ruleID := range genericRuleIDs {
+			ruleIDs := d.orderedRuleIDs(rulesToCheck)
+			for _, ruleID := range ruleIDs {
 				select {
 				case <-ctx.Done():
 					break ScanLoop
@@ -724,7 +719,8 @@ ScanLoop:
 	return filter(findings)
 }
 
-func (d *Detector) orderedRuleIDs(ruleSet map[string]struct{}) (specific []string, generic []string) {
+func (d *Detector) orderedRuleIDs(ruleSet map[string]struct{}) []string {
+	var ruleIDs []string
 	seen := make(map[string]struct{}, len(ruleSet))
 	appendRule := func(ruleID string) {
 		if _, ok := ruleSet[ruleID]; !ok {
@@ -734,20 +730,38 @@ func (d *Detector) orderedRuleIDs(ruleSet map[string]struct{}) (specific []strin
 			return
 		}
 		seen[ruleID] = struct{}{}
-		if isGenericRuleID(ruleID) {
-			generic = append(generic, ruleID)
-		} else {
-			specific = append(specific, ruleID)
-		}
+		ruleIDs = append(ruleIDs, ruleID)
 	}
 
-	for _, ruleID := range d.Config.OrderedRules {
+	for _, ruleID := range d.rulesBySpecificity {
 		appendRule(ruleID)
 	}
 	for ruleID := range ruleSet {
 		appendRule(ruleID)
 	}
-	return specific, generic
+	return ruleIDs
+}
+
+func orderedRulesBySpecificity(cfg *config.Config) []string {
+	ruleIDs := make([]string, 0, len(cfg.Rules))
+	seen := make(map[string]struct{}, len(cfg.Rules))
+	for _, ruleID := range cfg.OrderedRules {
+		if _, ok := cfg.Rules[ruleID]; !ok {
+			continue
+		}
+		seen[ruleID] = struct{}{}
+		ruleIDs = append(ruleIDs, ruleID)
+	}
+	for ruleID := range cfg.Rules {
+		if _, ok := seen[ruleID]; ok {
+			continue
+		}
+		ruleIDs = append(ruleIDs, ruleID)
+	}
+	sort.SliceStable(ruleIDs, func(i, j int) bool {
+		return cfg.Rules[ruleIDs[i]].Specificity > cfg.Rules[ruleIDs[j]].Specificity
+	})
+	return ruleIDs
 }
 
 // detectFragmentWithRule scans the given fragment for the given rule and returns a list of findings
@@ -841,17 +855,18 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		finding := report.Finding{
-			RuleID:      r.RuleID,
-			Description: r.Description,
-			StartLine:   fragment.StartLine + loc.startLine,
-			EndLine:     fragment.StartLine + loc.endLine,
-			StartColumn: loc.startColumn,
-			EndColumn:   loc.endColumn,
-			Line:        fragment.Raw[loc.startLineIndex:loc.endLineIndex],
-			Match:       secret,
-			Secret:      secret,
-			Attributes:  maps.Clone(fragment.Attributes),
-			Tags:        tags,
+			RuleID:          r.RuleID,
+			Description:     r.Description,
+			StartLine:       fragment.StartLine + loc.startLine,
+			EndLine:         fragment.StartLine + loc.endLine,
+			StartColumn:     loc.startColumn,
+			EndColumn:       loc.endColumn,
+			Line:            fragment.Raw[loc.startLineIndex:loc.endLineIndex],
+			Match:           secret,
+			Secret:          secret,
+			Attributes:      maps.Clone(fragment.Attributes),
+			Tags:            tags,
+			RuleSpecificity: r.Specificity,
 		}
 
 		// TODO eventually move this git specific bit into somewhere... better?
@@ -909,7 +924,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		if len(priorFindings) > 0 && isGenericRuleID(finding.RuleID) && isSuppressedBySpecificFinding(finding, priorFindings) {
+		if len(priorFindings) > 0 && isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
 			continue
 		}
 
@@ -1031,15 +1046,16 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 			for _, requiredFinding := range foundRequiredFindings {
 				if d.withinProximity(primaryFinding, requiredFinding, requiredRule) {
 					req := &report.RequiredFinding{
-						RuleID:        requiredFinding.RuleID,
-						StartLine:     requiredFinding.StartLine,
-						EndLine:       requiredFinding.EndLine,
-						StartColumn:   requiredFinding.StartColumn,
-						EndColumn:     requiredFinding.EndColumn,
-						Line:          requiredFinding.Line,
-						Match:         requiredFinding.Match,
-						Secret:        requiredFinding.Secret,
-						CaptureGroups: requiredFinding.CaptureGroups,
+						RuleID:          requiredFinding.RuleID,
+						StartLine:       requiredFinding.StartLine,
+						EndLine:         requiredFinding.EndLine,
+						StartColumn:     requiredFinding.StartColumn,
+						EndColumn:       requiredFinding.EndColumn,
+						Line:            requiredFinding.Line,
+						Match:           requiredFinding.Match,
+						Secret:          requiredFinding.Secret,
+						CaptureGroups:   requiredFinding.CaptureGroups,
+						RuleSpecificity: requiredFinding.RuleSpecificity,
 					}
 					requiredFindings = append(requiredFindings, req)
 				}
