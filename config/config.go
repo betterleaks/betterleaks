@@ -503,8 +503,8 @@ func (c *Config) FilterProgram() exprruntime.Program { return c.filterProgram }
 // SetFilterProgram stores a compiled global filter program.
 func (c *Config) SetFilterProgram(p exprruntime.Program) { c.filterProgram = p }
 
-// CompileFilters compiles global prefilter and filter expressions. Per-rule
-// filters are compiled lazily by the detector.
+// CompileFilters compiles only the global prefilter needed before scanning.
+// Global finding filters and per-rule filters compile lazily on first candidate.
 func (c *Config) CompileFilters(tokenizer *tiktoken.Tiktoken) error {
 	runtime, err := exprruntime.New(nil)
 	if err != nil {
@@ -517,13 +517,6 @@ func (c *Config) CompileFilters(tokenizer *tiktoken.Tiktoken) error {
 			return fmt.Errorf("compiling global prefilter: %w", compileErr)
 		}
 		c.prefilterProgram = prg
-	}
-	if c.Filter != "" {
-		prg, compileErr := runtime.CompileFilter(c.Filter, tokenizer)
-		if compileErr != nil {
-			return fmt.Errorf("compiling global filter: %w", compileErr)
-		}
-		c.filterProgram = prg
 	}
 
 	return nil

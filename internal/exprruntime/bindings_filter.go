@@ -120,7 +120,13 @@ var newlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 
 func (rt *runtimeBindings) failsTokenEfficiency(secret string) bool {
 	if rt.tokenizer == nil {
-		return false
+		if rt.tokenizerProvider == nil {
+			return false
+		}
+		rt.tokenizer = rt.tokenizerProvider()
+		if rt.tokenizer == nil {
+			return false
+		}
 	}
 	return failsTokenEfficiency(rt.tokenizer, secret)
 }

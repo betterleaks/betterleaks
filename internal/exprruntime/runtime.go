@@ -29,10 +29,11 @@ const (
 )
 
 type compiledProgram struct {
-	vm        *vm.Program
-	mode      compileMode
-	tokenizer *tiktoken.Tiktoken
-	bindings  bindings
+	vm                *vm.Program
+	mode              compileMode
+	tokenizer         *tiktoken.Tiktoken
+	tokenizerProvider func() *tiktoken.Tiktoken
+	bindings          bindings
 }
 
 var emptyStringMap = map[string]string{}
@@ -74,6 +75,8 @@ type Runtime struct {
 	STSEndpoint      string
 	GCPTokenEndpoint string
 	AllowedEnv       map[string]struct{}
+
+	tokenizerProvider func() *tiktoken.Tiktoken
 }
 
 type bindings = map[string]any
@@ -84,6 +87,10 @@ func DefaultHTTPClient() *http.Client {
 }
 
 func (e *Runtime) SetHTTPClient(c *http.Client) { e.client = c }
+
+func (e *Runtime) SetTokenizerProvider(provider func() *tiktoken.Tiktoken) {
+	e.tokenizerProvider = provider
+}
 
 func New(httpClient *http.Client) (*Runtime, error) {
 	if httpClient == nil {
@@ -136,10 +143,11 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
 	prg := &compiledProgram{
-		vm:        vmPrg,
-		mode:      mode,
-		tokenizer: tokenizer,
-		bindings:  programBindings(mode, b),
+		vm:                vmPrg,
+		mode:              mode,
+		tokenizer:         tokenizer,
+		tokenizerProvider: e.tokenizerProvider,
+		bindings:          programBindings(mode, b),
 	}
 
 	e.mu.Lock()
@@ -195,7 +203,12 @@ func (e *Runtime) EvalPrefilter(prg Program, attributes map[string]string) (bool
 
 func (prg Program) evalBindings() bindings {
 	if prg.bindings != nil {
-		return cloneBindings(prg.bindings)
+		b := cloneBindings(prg.bindings)
+		if rt, ok := b["__runtime"].(*runtimeBindings); ok {
+			rt.tokenizer = prg.tokenizer
+			rt.tokenizerProvider = prg.tokenizerProvider
+		}
+		return b
 	}
 	return bindings{}
 }
@@ -287,13 +300,14 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures, att
 }
 
 type runtimeBindings struct {
-	validation *Runtime
-	ctx        context.Context
-	tokenizer  *tiktoken.Tiktoken
-	finding    any
-	attrs      any
-	captures   any
-	debug      *evalState
+	validation        *Runtime
+	ctx               context.Context
+	tokenizer         *tiktoken.Tiktoken
+	tokenizerProvider func() *tiktoken.Tiktoken
+	finding           any
+	attrs             any
+	captures          any
+	debug             *evalState
 }
 
 func baseBindings(rt *runtimeBindings) bindings {
@@ -304,7 +318,7 @@ func baseBindings(rt *runtimeBindings) bindings {
 		rt.attrs = map[string]any{}
 	}
 
-	return bindings{
+	rtb := bindings{
 		"attributes":           rt.attrs,
 		"get":                  getDefault,
 		"getPath":              getPathDefault,
@@ -314,6 +328,8 @@ func baseBindings(rt *runtimeBindings) bindings {
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
 	}
+	rtb["__runtime"] = rt
+	return rtb
 }
 
 func setCompileMaps(b bindings) {

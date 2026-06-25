@@ -112,7 +112,8 @@ type Detector struct {
 
 	TotalBytes atomic.Uint64
 
-	tokenizer *tiktoken.Tiktoken
+	tokenizer     *tiktoken.Tiktoken
+	tokenizerOnce sync.Once
 
 	exprRuntime *exprruntime.Runtime
 
@@ -205,19 +206,6 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Fatal().Msg("config is required to create detector")
 		return nil
 	}
-	// grab offline tiktoken encoder
-	tiktoken.SetBpeLoader(&TiktokenLoader{})
-	tke, err := tiktoken.GetEncoding("cl100k_base")
-	if err != nil {
-		logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
-	}
-
-	// Compile global filter programs so they are available at scan time.
-	// This is the single compilation owner — callers should NOT compile separately.
-	if compileErr := cfg.CompileFilters(tke); compileErr != nil {
-		logging.Fatal().Err(compileErr).Msg("failed to compile filters")
-	}
-
 	// Compile validation programs (no-op if no rules have ValidateExpr).
 	validationRuntime, validationErr := cfg.CompileValidation()
 	if validationErr != nil {
@@ -238,10 +226,16 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		Config:                 cfg,
 		prefilter:              ahocorasick.CompileStrings(maps.Keys(cfg.Keywords)),
 		Sema:                   semgroup.NewGroup(ctx, 40),
-		tokenizer:              tke,
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
+	}
+	exprRuntime.SetTokenizerProvider(d.Tokenizer)
+
+	// Compile only global prefilter programs so they are available before scanning.
+	// Global finding filters and per-rule filters compile lazily on first candidate.
+	if compileErr := cfg.CompileFilters(nil); compileErr != nil {
+		logging.Fatal().Err(compileErr).Msg("failed to compile filters")
 	}
 
 	// Set up validation pool when enabled.
@@ -274,8 +268,39 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 }
 
 // Tokenizer returns the BPE tokenizer used for token efficiency filtering.
-// May be nil if the tokenizer failed to initialize (e.g., network error).
-func (d *Detector) Tokenizer() *tiktoken.Tiktoken { return d.tokenizer }
+// May be nil if the tokenizer failed to initialize.
+func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
+	d.tokenizerOnce.Do(func() {
+		tiktoken.SetBpeLoader(&TiktokenLoader{})
+		tke, err := tiktoken.GetEncoding("cl100k_base")
+		if err != nil {
+			logging.Warn().Err(err).Msg("Could not initialize cl100k_base tiktokenizer")
+			return
+		}
+		d.tokenizer = tke
+	})
+	return d.tokenizer
+}
+
+func (d *Detector) globalFilterProgram() (exprruntime.Program, bool, error) {
+	if prg := d.Config.FilterProgram(); prg != nil {
+		return prg, true, nil
+	}
+	if d.Config.Filter == "" {
+		return nil, false, nil
+	}
+	d.filterProgramM.Lock()
+	defer d.filterProgramM.Unlock()
+	if prg := d.Config.FilterProgram(); prg != nil {
+		return prg, true, nil
+	}
+	prg, err := d.exprRuntime.CompileFilter(d.Config.Filter, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("compiling global filter: %w", err)
+	}
+	d.Config.SetFilterProgram(prg)
+	return prg, true, nil
+}
 
 func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, error) {
 	if d.validationRuntime == nil {
@@ -316,7 +341,7 @@ func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, 
 	if prg := rule.FilterProgram(); prg != nil {
 		return prg, true, nil
 	}
-	prg, err := d.exprRuntime.CompileFilter(rule.Filter, d.tokenizer)
+	prg, err := d.exprRuntime.CompileFilter(rule.Filter, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling rule %s filter: %w", rule.RuleID, err)
 	}
@@ -848,9 +873,10 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		finding.SetFingerprint()
 
+		hasGlobalFilter := d.Config.Filter != "" || d.Config.FilterProgram() != nil
 		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
 		// Validation/filter expressions need context text in the finding map.
-		if r.ValidateExpr != "" || r.ValidationProgram() != nil || d.Config.FilterProgram() != nil || hasRuleFilter {
+		if r.ValidateExpr != "" || r.ValidationProgram() != nil || hasGlobalFilter || hasRuleFilter {
 			finding.SetExprContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
 				Mode:        ContextModeBox,
 				LinesBefore: 20,
@@ -862,7 +888,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]string
-		if d.Config.FilterProgram() != nil || hasRuleFilter {
+		if hasGlobalFilter || hasRuleFilter {
 			findingMap = finding.ToExprMap()
 			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
 			// For decoded segments, currentLine carries the decoded line text
@@ -874,8 +900,10 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		// Global filter: Expr path (attributes + finding).
-		if d.Config.FilterProgram() != nil {
-			skip, err := d.exprRuntime.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
+		if prg, ok, err := d.globalFilterProgram(); err != nil {
+			logger.Warn().Err(err).Msg("global filter compile error")
+		} else if ok {
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
