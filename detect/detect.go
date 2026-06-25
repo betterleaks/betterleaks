@@ -122,7 +122,10 @@ type Detector struct {
 	// reconfigure the HTTP client/debug settings before evaluation begins.
 	validationRuntime  *exprruntime.Runtime
 	validationProgramM sync.Mutex
+	validationPrograms map[string]exprruntime.Program
+	globalFilter       exprruntime.Program
 	filterProgramM     sync.Mutex
+	filterPrograms     map[string]exprruntime.Program
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -228,6 +231,8 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		Sema:                   semgroup.NewGroup(ctx, 40),
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
+		validationPrograms:     make(map[string]exprruntime.Program),
+		filterPrograms:         make(map[string]exprruntime.Program),
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
@@ -283,22 +288,19 @@ func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
 }
 
 func (d *Detector) globalFilterProgram() (exprruntime.Program, bool, error) {
-	if prg := d.Config.FilterProgram(); prg != nil {
-		return prg, true, nil
-	}
 	if d.Config.Filter == "" {
 		return nil, false, nil
 	}
 	d.filterProgramM.Lock()
 	defer d.filterProgramM.Unlock()
-	if prg := d.Config.FilterProgram(); prg != nil {
-		return prg, true, nil
+	if d.globalFilter != nil {
+		return d.globalFilter, true, nil
 	}
 	prg, err := d.exprRuntime.CompileFilter(d.Config.Filter, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling global filter: %w", err)
 	}
-	d.Config.SetFilterProgram(prg)
+	d.globalFilter = prg
 	return prg, true, nil
 }
 
@@ -313,15 +315,14 @@ func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, 
 	if !ok || rule.ValidateExpr == "" {
 		return nil, false, nil
 	}
-	if prg := rule.ValidationProgram(); prg != nil {
+	if prg := d.validationPrograms[ruleID]; prg != nil {
 		return prg, true, nil
 	}
 	prg, err := d.validationRuntime.CompileValidation(rule.ValidateExpr)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling rule %s validation: %w", ruleID, err)
 	}
-	rule.SetValidationProgram(prg)
-	d.Config.Rules[ruleID] = rule
+	d.validationPrograms[ruleID] = prg
 	return prg, true, nil
 }
 
@@ -338,6 +339,11 @@ func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, 
 	if rule.Filter == "" {
 		return nil, false, nil
 	}
+	if cacheable {
+		if prg := d.filterPrograms[rule.RuleID]; prg != nil {
+			return prg, true, nil
+		}
+	}
 	if prg := rule.FilterProgram(); prg != nil {
 		return prg, true, nil
 	}
@@ -346,8 +352,7 @@ func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, 
 		return nil, false, fmt.Errorf("compiling rule %s filter: %w", rule.RuleID, err)
 	}
 	if cacheable {
-		rule.SetFilterProgram(prg)
-		d.Config.Rules[rule.RuleID] = rule
+		d.filterPrograms[rule.RuleID] = prg
 	}
 	return prg, true, nil
 }
