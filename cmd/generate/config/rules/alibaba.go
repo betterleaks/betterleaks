@@ -39,8 +39,8 @@ func AlibabaSecretKey() *config.Rule {
 				WithinLines: utils.Ptr(5),
 			},
 		},
-		ValidateCEL: alibabaAccessKeyValidationCEL("alibaba-access-key-id", "", ""),
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-access-key-id", "", ""),
+		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
@@ -107,8 +107,8 @@ func AlibabaSTSAccessKeySecret() *config.Rule {
 				WithinLines: utils.Ptr(10),
 			},
 		},
-		ValidateCEL: alibabaAccessKeyValidationCEL("alibaba-sts-access-key-id", "alibaba-sts-security-token", "SecurityToken="),
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-sts-access-key-id", "alibaba-sts-security-token", "SecurityToken"),
+		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{
@@ -120,57 +120,28 @@ func AlibabaSTSAccessKeySecret() *config.Rule {
 	return utils.Validate(r, tps, fps)
 }
 
-func alibabaAccessKeyValidationCEL(accessKeyIDCapture, securityTokenCapture, securityTokenParam string) string {
-	if securityTokenCapture == "" {
-		return `cel.bind(ts, time.nowRFC3339(),
-  cel.bind(nonce, time.nowUnix(),
-    cel.bind(params,
-      "AccessKeyId=" + strings.urlQueryEscape(captures["` + accessKeyIDCapture + `"]) +
-      "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
-      "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01",
-      cel.bind(string_to_sign, "GET&%2F&" + strings.urlQueryEscape(params).replace("+", "%20").replace("*", "%2A").replace("%7E", "~"),
-        cel.bind(sig, strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign)))),
-          cel.bind(r,
-            http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
-              "Accept": "application/json"
-            }),
-            r.status == 200 && r.body.contains("\"Arn\"") ? {
-              "result": "valid"
-            } : r.status in [401, 403] || r.body.contains("InvalidAccessKeyId") || r.body.contains("SignatureDoesNotMatch") ? {
-              "result": "invalid",
-              "reason": "Unauthorized"
-            } : validate.unknown(r)
-          )
-        )
-      )
-    )
-  )
-)`
+func alibabaAccessKeyValidationExpr(accessKeyIDCapture, securityTokenCapture, securityTokenParam string) string {
+	securityTokenExpr := ""
+	if securityTokenCapture != "" {
+		securityTokenExpr = `
+  "&` + securityTokenParam + `=" + strings.urlQueryEscape(captures["` + securityTokenCapture + `"]) +`
 	}
 
-	return `cel.bind(ts, time.nowRFC3339(),
-  cel.bind(nonce, time.nowUnix(),
-    cel.bind(params,
-      "AccessKeyId=" + strings.urlQueryEscape(captures["` + accessKeyIDCapture + `"]) +
-      "&Action=GetCallerIdentity&Format=JSON&` + securityTokenParam + `" + strings.urlQueryEscape(captures["` + securityTokenCapture + `"]) +
-      "&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
-      "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01",
-      cel.bind(string_to_sign, "GET&%2F&" + strings.urlQueryEscape(params).replace("+", "%20").replace("*", "%2A").replace("%7E", "~"),
-        cel.bind(sig, strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign)))),
-          cel.bind(r,
-            http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
-              "Accept": "application/json"
-            }),
-            r.status == 200 && r.body.contains("\"Arn\"") ? {
-              "result": "valid"
-            } : r.status in [401, 403] || r.body.contains("InvalidAccessKeyId") || r.body.contains("SignatureDoesNotMatch") ? {
-              "result": "invalid",
-              "reason": "Unauthorized"
-            } : validate.unknown(r)
-          )
-        )
-      )
-    )
-  )
-)`
+	return `let ts = time.nowRFC3339();
+let nonce = time.nowUnix();
+let params =
+  "AccessKeyId=" + strings.urlQueryEscape(captures["` + accessKeyIDCapture + `"]) +` + securityTokenExpr + `
+  "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
+  "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01";
+let string_to_sign = "GET&%2F&" + replace(replace(replace(strings.urlQueryEscape(params), "+", "%20"), "*", "%2A"), "%7E", "~");
+let sig = strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign))));
+let r = http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
+  "Accept": "application/json"
+});
+r.status == 200 && (r.body contains "\"Arn\"") ? {
+  "result": "valid"
+} : r.status in [401, 403] || (r.body contains "InvalidAccessKeyId") || (r.body contains "SignatureDoesNotMatch") ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)`
 }

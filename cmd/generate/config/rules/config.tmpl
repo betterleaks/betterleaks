@@ -20,9 +20,9 @@ minVersion = "v8.25.0"
 betterleaksMinVersion = "v1.3.0"
 
 {{ with .Prefilter }}
-prefilter = {{ tomlCEL . }}
+prefilter = {{ tomlExpr . }}
 {{ end }}{{ with .Filter }}
-filter = {{ tomlCEL . }}
+filter = {{ tomlExpr . }}
 {{ end }}
 {{- range $i, $rule := .Rules }}{{println}}# ──────────────────────────────────────────────────────────────────────────────
 # {{ $rule.RuleID }}
@@ -48,10 +48,10 @@ tags = [
 ]{{ end }}
 {{- if $rule.SkipReport }}
 skipReport = true{{ end }}
-{{- with $rule.ValidateCEL }}
-validate = {{ tomlCEL . }}{{ end }}
+{{- with $rule.ValidateExpr }}
+validate = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Filter }}
-filter = {{ tomlCEL . }}{{ end }}
+filter = {{ tomlExpr . }}{{ end }}
 {{- range $rule.RequiredRules }}{{println}}[[rules.required]]
 id = "{{ .RuleID }}"
 {{- with .WithinLines }}

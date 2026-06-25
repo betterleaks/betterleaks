@@ -14,21 +14,15 @@ func EtsyAccessToken() *config.Rule {
 			"etsy",
 			"x-api-key",
 		},
-		ValidateCEL: `cel.bind(k,
-  finding["secret"].split(":")[0],
-  cel.bind(r,
-    http.get("https://api.etsy.com/v3/application/openapi-ping", {
+		ValidateExpr: `let k = finding["secret"].split(":")[0]; (let r = http.get("https://api.etsy.com/v3/application/openapi-ping", {
       "x-api-key": k,
       "Accept": "application/json"
-    }),
-    r.status == 200 ? {
+    }); r.status == 200 ? {
       "result": "valid"
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)`,
+    } : validate.unknown(r))`,
 		Filter: utils.MinEntropy(3.0),
 	}
 

@@ -1,6 +1,7 @@
-package celenv
+package exprruntime
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -15,11 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/functions"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
 )
 
 const (
@@ -27,6 +23,12 @@ const (
 	gcpOAuthScope           = "https://www.googleapis.com/auth/cloud-platform"
 	gcpJWTBearerGrant       = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 )
+
+func gcpNamespace(rt *runtimeBindings) map[string]any {
+	return map[string]any{
+		"validate": rt.gcpValidate,
+	}
+}
 
 type gcpCredential struct {
 	Type         string `json:"type"`
@@ -45,31 +47,19 @@ type gcpTokenResponse struct {
 	ErrorDesc   string `json:"error_description"`
 }
 
-func gcpBindings(e *ValidationEnvironment) []cel.EnvOption {
-	return []cel.EnvOption{
-		cel.Function("gcp.validate",
-			cel.Overload("gcp_validate_string",
-				[]*cel.Type{cel.StringType},
-				cel.MapType(cel.StringType, cel.DynType),
-				cel.UnaryBinding(gcpValidateBinding(e)),
-			),
-		),
+func (rt *runtimeBindings) gcpValidate(credentialJSON string) map[string]any {
+	e := rt.validation
+	if e == nil {
+		e, _ = New(nil)
 	}
+	return validateGCPCredentialWithRuntime(rt, e, credentialJSON)
 }
 
-func gcpValidateBinding(e *ValidationEnvironment) functions.UnaryOp {
-	return func(arg ref.Val) ref.Val {
-		credentialJSON, ok := arg.(types.String)
-		if !ok {
-			return types.NewErr("gcp.validate: credential_json must be a string")
-		}
-
-		result := validateGCPCredential(e, string(credentialJSON))
-		return types.DefaultTypeAdapter.NativeToValue(result)
-	}
+func validateGCPCredential(ctx context.Context, e *Runtime, credentialJSON string) map[string]any {
+	return validateGCPCredentialWithRuntime(&runtimeBindings{ctx: ctx}, e, credentialJSON)
 }
 
-func validateGCPCredential(e *ValidationEnvironment, credentialJSON string) map[string]any {
+func validateGCPCredentialWithRuntime(rt *runtimeBindings, e *Runtime, credentialJSON string) map[string]any {
 	creds, err := parseGCPCredential(credentialJSON)
 	if err != nil {
 		return map[string]any{
@@ -103,7 +93,12 @@ func validateGCPCredential(e *ValidationEnvironment, credentialJSON string) map[
 		}
 	}
 
-	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	ctx := context.Background()
+	if rt != nil && rt.ctx != nil {
+		ctx = rt.ctx
+	}
+	body := form.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(body))
 	if err != nil {
 		return map[string]any{"status": int64(0)}
 	}
@@ -120,9 +115,8 @@ func validateGCPCredential(e *ValidationEnvironment, credentialJSON string) map[
 	if err != nil {
 		return map[string]any{"status": int64(resp.StatusCode)}
 	}
-
-	if e.DebugResponse {
-		e.captureDebug("POST", tokenURL, form.Encode(), req, resp, respBody)
+	if rt != nil {
+		rt.captureDebug(http.MethodPost, tokenURL, body, req, resp, respBody)
 	}
 
 	result := map[string]any{

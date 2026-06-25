@@ -11,18 +11,15 @@ func JumpCloudAPIKey() *config.Rule {
 		Description: "Detected a JumpCloud API key, which may expose JumpCloud directory data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"jumpcloud"}, utils.AlphaNumeric("40"), true),
 		Keywords:    []string{"jumpcloud"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://console.jumpcloud.com/api/systemusers?limit=1&skip=0", {
+		ValidateExpr: `let r = http.get("https://console.jumpcloud.com/api/systemusers?limit=1&skip=0", {
     "x-api-key": finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"results\"") ? {
+  }); r.status == 200 && (r.body contains "\"results\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.5),
 	}
 

@@ -644,10 +644,7 @@ func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield
 func (s *GitHub) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
 	owner := repo.GetOwner().GetLogin()
 	repoName := repo.GetName()
-	workers := defaultActionsWorkers
-	if workers < 1 {
-		workers = 1
-	}
+	workers := max(defaultActionsWorkers, 1)
 
 	runs := make(chan *github.WorkflowRun, workers)
 	g, gctx := errgroup.WithContext(ctx)

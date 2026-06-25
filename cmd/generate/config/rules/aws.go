@@ -27,9 +27,7 @@ func AWS() *config.Rule {
 				WithinLines: utils.Ptr(5),
 			},
 		},
-		ValidateCEL: `cel.bind(r,
-  aws.validate(finding["secret"], captures["aws-secret-access-key"]),
-  r.status == 200 ? {
+		ValidateExpr: `let r = aws.validate(finding["secret"], captures["aws-secret-access-key"]); r.status == 200 ? {
     "result": "valid",
     "arn": r.arn,
     "account": r.account,
@@ -43,10 +41,8 @@ func AWS() *config.Rule {
     "error_code": r.error_code,
     "error_message": r.error_message
   } : validate.unknown(r)
-)
 `,
-		Filter: `entropy(finding["secret"]) <= 3.0
-|| matchesAny(finding["secret"], [r""".+EXAMPLE$"""])`,
+		Filter: "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])",
 	}
 
 	// validate
@@ -79,7 +75,7 @@ func AWSSecretAccessKey() *config.Rule {
 		// SkipReport suppresses standalone secret-key findings; the key is
 		// always surfaced as a required component of the aws-access-token finding.
 		SkipReport: true,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		Filter:     `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("aws_secret_key", secrets.NewSecretWithEntropy(`[A-Za-z0-9/+=]{40}`, 4))

@@ -12,18 +12,15 @@ func KimiAPIKey() *config.Rule {
 		Description: "Detected a Kimi API key, which may expose Moonshot AI model access and usage to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"kimi", "moonshot"}, `sk-[A-Za-z0-9_-]{48}`, true),
 		Keywords:    []string{"kimi", "moonshot"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.moonshot.ai/v1/models", {
+		ValidateExpr: `let r = http.get("https://api.moonshot.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains('"data"') ? {
+  }); r.status == 200 && (r.body contains '"data"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 

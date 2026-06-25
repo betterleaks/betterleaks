@@ -13,17 +13,14 @@ func Infomaniak() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"infomaniak"}, `[A-Za-z0-9_\-]{60,100}`, true),
 		Keywords:    []string{"infomaniak"},
 		Entropy:     4.0,
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.infomaniak.com/1/profile", {
+		ValidateExpr: `let r = http.get("https://api.infomaniak.com/1/profile", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"result"') ? {
+  }); r.status == 200 && (r.body contains '"result"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 	}
 
 	tps := utils.GenerateSampleSecrets("infomaniak", secrets.NewSecretWithEntropy(`[A-Za-z0-9_\-]{72}`, 4.0))

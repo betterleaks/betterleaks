@@ -7,12 +7,12 @@ import (
 
 func DevinPersonalAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "devin-personal-api-key",
-		Description: "Detected a Cognition Devin personal API key, which may expose Devin sessions and user data.",
-		Regex:       utils.GenerateUniqueTokenRegex(`apk_user_[A-Za-z0-9+/]{120,180}={0,2}`, false),
-		Keywords:    []string{"apk_user_"},
-		ValidateCEL: utils.BearerGetValidationCEL("https://api.devin.ai/v1/sessions?limit=1", "r.body.contains(\"\\\"sessions\\\"\")"),
-		Filter:      utils.MinEntropy(3.5),
+		RuleID:       "devin-personal-api-key",
+		Description:  "Detected a Cognition Devin personal API key, which may expose Devin sessions and user data.",
+		Regex:        utils.GenerateUniqueTokenRegex(`apk_user_[A-Za-z0-9+/]{120,180}={0,2}`, false),
+		Keywords:     []string{"apk_user_"},
+		ValidateExpr: utils.BearerGetValidationExpr("https://api.devin.ai/v1/sessions?limit=1", `(r.body contains "\"sessions\"")`),
+		Filter:       utils.MinEntropy(3.5),
 	}
 
 	tps := []string{
@@ -24,12 +24,12 @@ func DevinPersonalAPIKey() *config.Rule {
 
 func DevinServiceAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "devin-service-api-key",
-		Description: "Detected a Cognition Devin service API key, which may expose Devin sessions and organization access.",
-		Regex:       utils.GenerateUniqueTokenRegex(`apk_[A-Za-z0-9+/]{80,100}={0,2}`, false),
-		Keywords:    []string{"apk_"},
-		ValidateCEL: utils.BearerGetValidationCEL("https://api.devin.ai/v1/sessions?limit=1", "r.body.contains(\"\\\"sessions\\\"\")"),
-		Filter:      utils.MinEntropy(3.5),
+		RuleID:       "devin-service-api-key",
+		Description:  "Detected a Cognition Devin service API key, which may expose Devin sessions and organization access.",
+		Regex:        utils.GenerateUniqueTokenRegex(`apk_[A-Za-z0-9+/]{80,100}={0,2}`, false),
+		Keywords:     []string{"apk_"},
+		ValidateExpr: utils.BearerGetValidationExpr("https://api.devin.ai/v1/sessions?limit=1", `(r.body contains "\"sessions\"")`),
+		Filter:       utils.MinEntropy(3.5),
 	}
 
 	tps := []string{
@@ -44,12 +44,12 @@ func DevinServiceAPIKey() *config.Rule {
 
 func DevinServiceUserToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "devin-service-user-token",
-		Description: "Detected a Cognition Devin service user token, which may expose Devin service user access.",
-		Regex:       utils.GenerateUniqueTokenRegex(`cog_[a-z2-7]{52}`, false),
-		Keywords:    []string{"cog_"},
-		ValidateCEL: utils.BearerGetValidationCEL("https://api.devin.ai/v3/self", "r.body.contains(\"\\\"principal_type\\\"\") || r.body.contains(\"\\\"service_user_id\\\"\")"),
-		Filter:      utils.MinEntropy(3.5),
+		RuleID:       "devin-service-user-token",
+		Description:  "Detected a Cognition Devin service user token, which may expose Devin service user access.",
+		Regex:        utils.GenerateUniqueTokenRegex(`cog_[a-z2-7]{52}`, false),
+		Keywords:     []string{"cog_"},
+		ValidateExpr: utils.BearerGetValidationExpr("https://api.devin.ai/v3/self", `(r.body contains "\"principal_type\"") || (r.body contains "\"service_user_id\"")`),
+		Filter:       utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

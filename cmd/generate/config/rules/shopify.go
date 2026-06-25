@@ -14,7 +14,7 @@ func ShopifySharedSecret() *config.Rule {
 		Description: "Found a Shopify shared secret, posing a risk to application authentication and e-commerce platform security.",
 		Regex:       regexp.MustCompile(`shpss_[a-fA-F0-9]{32}`),
 		Keywords:    []string{"shpss_"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -29,7 +29,7 @@ func ShopifyAccessToken() *config.Rule {
 		Description: "Uncovered a Shopify access token, which could lead to unauthorized e-commerce platform access and data breaches.",
 		Regex:       regexp.MustCompile(`shpat_[a-fA-F0-9]{32}`),
 		Keywords:    []string{"shpat_"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -44,7 +44,7 @@ func ShopifyCustomAccessToken() *config.Rule {
 		Description: "Detected a Shopify custom access token, potentially compromising custom app integrations and e-commerce data security.",
 		Regex:       regexp.MustCompile(`shpca_[a-fA-F0-9]{32}`),
 		Keywords:    []string{"shpca_"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -59,7 +59,7 @@ func ShopifyPrivateAppAccessToken() *config.Rule {
 		Description: "Identified a Shopify private app access token, risking unauthorized access to private app data and store operations.",
 		Regex:       regexp.MustCompile(`shppa_[a-fA-F0-9]{32}`),
 		Keywords:    []string{"shppa_"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

@@ -13,7 +13,7 @@ func OVHApplicationKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}key"}, `[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"ovh"},
 		SkipReport:  true,
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	tps := []string{
@@ -36,7 +36,7 @@ func OVHConsumerKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"consumer[_.-]{0,1}key"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},
 		SkipReport:  true,
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	tps := []string{
@@ -58,28 +58,17 @@ func OVHApplicationSecret() *config.Rule {
 		Description: "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}secret"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},
-		ValidateCEL: `cel.bind(ts, time.now_unix(),
-  cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
-    cel.bind(sig_payload, finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
-      cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),
-        cel.bind(r,
-          http.get(url, {
+		ValidateExpr: `let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/details"; (let sig_payload = finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts; (let sig = "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))); (let r = http.get(url, {
             "X-Ovh-Application": captures["ovh-application-key"],
             "X-Ovh-Consumer": captures["ovh-consumer-key"],
             "X-Ovh-Timestamp": ts,
             "X-Ovh-Signature": sig
-          }),
-          r.status == 200 ? {
+          }); r.status == 200 ? {
             "result": "valid"
           } : r.status in [400, 401, 403] ? {
             "result": "invalid",
             "reason": "Unauthorized"
-          } : validate.unknown(r)
-        )
-      )
-    )
-  )
-)`,
+          } : validate.unknown(r)))))`,
 		RequiredRules: []*config.Required{
 			{
 				RuleID:      "ovh-application-key",

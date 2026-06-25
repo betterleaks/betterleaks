@@ -12,7 +12,7 @@ func DigitalOceanPAT() *config.Rule {
 		Description: "Discovered a DigitalOcean Personal Access Token, posing a threat to cloud infrastructure security and data privacy.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dop_v1_[a-f0-9]{64}`, false),
 		Keywords:    []string{"dop_v1_"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("do", "dop_v1_"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3))
@@ -25,7 +25,7 @@ func DigitalOceanOAuthToken() *config.Rule {
 		Description: "Found a DigitalOcean OAuth Access Token, risking unauthorized cloud resource access and data compromise.",
 		Regex:       utils.GenerateUniqueTokenRegex(`doo_v1_[a-f0-9]{64}`, false),
 		Keywords:    []string{"doo_v1_"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("do", "doo_v1_"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3))

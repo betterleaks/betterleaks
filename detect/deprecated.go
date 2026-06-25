@@ -130,7 +130,7 @@ func (d *Detector) DetectContext(ctx context.Context, fragment sources.Fragment)
 	return d.detectFragment(ctx, fragment)
 }
 
-// AddFinding adds a finding to the pipeline. Findings needing CEL validation
+// AddFinding adds a finding to the pipeline. Findings needing validation
 // are submitted to the pool; all others go directly to findingsCh.
 // Deprecated: only used in deprecated calls. New code calls routeFinding directly.
 func (d *Detector) AddFinding(finding report.Finding) {

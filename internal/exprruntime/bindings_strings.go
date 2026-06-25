@@ -1,4 +1,4 @@
-package celenv
+package exprruntime
 
 import (
 	"crypto/rand"
@@ -6,11 +6,6 @@ import (
 	"math/big"
 	"net/url"
 	"strings"
-
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/functions"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
 )
 
 const (
@@ -29,52 +24,15 @@ const (
 // obfuscateRand is the randomness source. Tests swap in a deterministic stream.
 var obfuscateRand io.Reader = rand.Reader
 
-func stringsBindings() []cel.EnvOption {
-	return []cel.EnvOption{
-		cel.Function("strings.obfuscate",
-			cel.Overload("strings_obfuscate_string",
-				[]*cel.Type{cel.StringType},
-				cel.StringType,
-				cel.UnaryBinding(obfuscateBinding()),
-			),
-		),
-		cel.Function("strings.urlQueryEscape",
-			cel.Overload("strings_url_query_escape_string",
-				[]*cel.Type{cel.StringType},
-				cel.StringType,
-				cel.UnaryBinding(urlQueryEscapeBinding()),
-			),
-		),
-		// Deprecated: use strings.obfuscate.
-		cel.Function("obfuscate",
-			cel.Overload("obfuscate_string",
-				[]*cel.Type{cel.StringType},
-				cel.StringType,
-				cel.UnaryBinding(obfuscateBinding()),
-			),
-		),
+func stringsNamespace() map[string]any {
+	return map[string]any{
+		"obfuscate":        func(s string) (string, error) { return obfuscate(s), nil },
+		"urlQueryEscape":   urlQueryEscape,
+		"url_query_escape": urlQueryEscape,
 	}
 }
 
-func obfuscateBinding() functions.UnaryOp {
-	return func(val ref.Val) ref.Val {
-		s, ok := val.(types.String)
-		if !ok {
-			return types.NewErr("obfuscate: secret must be a string, got %T", val)
-		}
-		return types.String(obfuscate(string(s)))
-	}
-}
-
-func urlQueryEscapeBinding() functions.UnaryOp {
-	return func(val ref.Val) ref.Val {
-		s, ok := val.(types.String)
-		if !ok {
-			return types.NewErr("strings.urlQueryEscape: value must be a string, got %T", val)
-		}
-		return types.String(url.QueryEscape(string(s)))
-	}
-}
+func urlQueryEscape(s string) string { return url.QueryEscape(s) }
 
 // obfuscate returns a same-length, class-preserving perturbation of secret.
 // Each rune is replaced with probability obfuscateRate by a different rune
@@ -109,11 +67,8 @@ func splitPrefix(secret string) (prefix, body string) {
 	if len(runes) <= prefixMinLen {
 		return "", secret
 	}
-	scan := prefixScanLen
-	if scan > len(runes) {
-		scan = len(runes)
-	}
-	for i := 0; i < scan; i++ {
+	scan := min(prefixScanLen, len(runes))
+	for i := range scan {
 		if strings.ContainsRune(prefixSeparators, runes[i]) {
 			return string(runes[:i+1]), string(runes[i+1:])
 		}

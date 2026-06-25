@@ -14,7 +14,7 @@ func Duffel() *config.Rule {
 		Description: "Uncovered a Duffel API token, which may compromise travel platform integrations and sensitive customer data.",
 		Regex:       regexp.MustCompile(`duffel_(?:test|live)_(?i)[a-z0-9_\-=]{43}`),
 		Keywords:    []string{"duffel_"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

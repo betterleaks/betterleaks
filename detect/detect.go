@@ -8,6 +8,7 @@ import (
 	"iter"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,7 +18,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
-	"github.com/betterleaks/betterleaks/internal/celenv"
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
@@ -25,7 +26,6 @@ import (
 	"github.com/betterleaks/betterleaks/sources"
 
 	"github.com/fatih/semgroup"
-	"github.com/google/cel-go/cel"
 	ahocorasick "github.com/rrethy/ahocorasick"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
@@ -35,14 +35,14 @@ import (
 // Zero value means validation is disabled.
 type ValidationOptions struct {
 	Enabled      bool
+	Debug        bool
 	Workers      int
 	Timeout      time.Duration
-	Debug        bool
 	ExtractEmpty bool
 	StatusFilter string // comma-separated list of statuses to include
-	// ValidationEnvVars lists environment variable names the validation CEL
+	// ValidationEnvVars lists environment variable names the validation Expr
 	// env(...) binding may read (see --validation-env-vars). Parsed into
-	// ValidationEnvironment.AllowedEnv when the validation env is created.
+	// exprruntime.Runtime.AllowedEnv when the validation env is created.
 	ValidationEnvVars []string
 }
 
@@ -82,7 +82,7 @@ type Detector struct {
 	// printed in verbose mode. Parsed from --validation-status.
 	ValidationStatusFilter map[string]struct{}
 
-	// ValidationPool is the CEL validation worker pool.
+	// ValidationPool is the expression validation worker pool.
 	ValidationPool *validate.Pool
 
 	// ValidationCounts tracks how many findings were returned for each
@@ -112,17 +112,16 @@ type Detector struct {
 
 	TotalBytes atomic.Uint64
 
-	tokenizer     *tiktoken.Tiktoken
-	tokenizerOnce sync.Once
+	tokenizer *tiktoken.Tiktoken
 
-	// validationEnv is the CEL environment used to compile and evaluate
-	// per-rule validation expressions. Created only when validation is enabled.
-	validationEnv      *celenv.ValidationEnvironment
+	exprRuntime *exprruntime.Runtime
+
+	// validationRuntime evaluates per-rule validation expressions. Created during
+	// construction; nil when no rules have ValidateExpr. The cmd layer may
+	// reconfigure the HTTP client/debug settings before evaluation begins.
+	validationRuntime  *exprruntime.Runtime
 	validationProgramM sync.Mutex
-
-	filterEnv     *celenv.FilterEnv
-	filterEnvOnce sync.Once
-	filterEnvErr  error
+	filterProgramM     sync.Mutex
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -197,8 +196,8 @@ type Detector struct {
 }
 
 // NewDetectorContext creates a new Detector.
-// It compiles CEL filters and, when valOpts.Enabled is true, creates the
-// validation worker pool. Validation CEL programs are compiled lazily per rule.
+// It compiles global expressions and, when valOpts.Enabled is true, creates the
+// validation worker pool. Per-rule expressions compile lazily on first use.
 func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) *Detector {
 	if cfg == nil {
 		// TODO in v2 use NewDetector(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) (*Detector, error)
@@ -206,14 +205,30 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Fatal().Msg("config is required to create detector")
 		return nil
 	}
-	var validationEnv *celenv.ValidationEnvironment
-	if valOpts.Enabled && hasValidationRules(cfg) {
-		var err error
-		validationEnv, err = celenv.NewEnvironment(nil)
-		if err != nil {
-			logging.Fatal().Err(err).Msg("failed to create CEL validation environment")
-		}
-		validationEnv.AllowedEnv = celenv.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
+	// grab offline tiktoken encoder
+	tiktoken.SetBpeLoader(&TiktokenLoader{})
+	tke, err := tiktoken.GetEncoding("cl100k_base")
+	if err != nil {
+		logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
+	}
+
+	// Compile global filter programs so they are available at scan time.
+	// This is the single compilation owner — callers should NOT compile separately.
+	if compileErr := cfg.CompileFilters(tke); compileErr != nil {
+		logging.Fatal().Err(compileErr).Msg("failed to compile filters")
+	}
+
+	// Compile validation programs (no-op if no rules have ValidateExpr).
+	validationRuntime, validationErr := cfg.CompileValidation()
+	if validationErr != nil {
+		logging.Fatal().Err(validationErr).Msg("failed to compile validation expressions")
+	}
+	if validationRuntime != nil {
+		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
+	}
+	exprRuntime, exprErr := exprruntime.New(nil)
+	if exprErr != nil {
+		logging.Fatal().Err(exprErr).Msg("failed to create expr runtime")
 	}
 
 	d := &Detector{
@@ -223,28 +238,23 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		Config:                 cfg,
 		prefilter:              ahocorasick.CompileStrings(maps.Keys(cfg.Keywords)),
 		Sema:                   semgroup.NewGroup(ctx, 40),
-		validationEnv:          validationEnv,
+		tokenizer:              tke,
+		exprRuntime:            exprRuntime,
+		validationRuntime:      validationRuntime,
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 
-	// Compile CEL filter programs so they are available at scan time.
-	// This is the single compilation owner — callers should NOT compile separately.
-	if compileErr := cfg.CompileCELFilters(d.Tokenizer); compileErr != nil {
-		logging.Fatal().Err(compileErr).Msg("failed to compile CEL filters")
-	}
-
 	// Set up validation pool when enabled.
-	if valOpts.Enabled && validationEnv != nil {
+	if valOpts.Enabled && validationRuntime != nil {
 		if valOpts.Timeout > 0 {
-			validationEnv.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
+			validationRuntime.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
 		}
-		validationEnv.DebugResponse = valOpts.Debug
-
 		workers := valOpts.Workers
 		if workers <= 0 {
 			workers = 10
 		}
-		d.ValidationPool = validate.NewPool(workers, validationEnv)
+		d.ValidationPool = validate.NewPool(workers, validationRuntime)
+		d.ValidationPool.Debug = valOpts.Debug
 
 		if valOpts.StatusFilter != "" {
 			d.ValidationStatusFilter = make(map[string]struct{})
@@ -256,78 +266,65 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 				}
 			}
 		}
-	} else if valOpts.Enabled && validationEnv == nil {
+	} else if valOpts.Enabled && validationRuntime == nil {
 		logging.Warn().Msg("validation enabled but no rules have validation expressions")
 	}
 
 	return d
 }
 
-func hasValidationRules(cfg *config.Config) bool {
-	for _, r := range cfg.Rules {
-		if r.ValidateCEL != "" {
-			return true
-		}
-	}
-	return false
-}
+// Tokenizer returns the BPE tokenizer used for token efficiency filtering.
+// May be nil if the tokenizer failed to initialize (e.g., network error).
+func (d *Detector) Tokenizer() *tiktoken.Tiktoken { return d.tokenizer }
 
-func (d *Detector) validationProgram(ruleID string) (cel.Program, bool, error) {
-	if d.validationEnv == nil {
+func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, error) {
+	if d.validationRuntime == nil {
 		return nil, false, nil
 	}
 	d.validationProgramM.Lock()
 	defer d.validationProgramM.Unlock()
 
 	rule, ok := d.Config.Rules[ruleID]
-	if !ok || rule.ValidateCEL == "" {
+	if !ok || rule.ValidateExpr == "" {
 		return nil, false, nil
 	}
-	if prg := rule.CelProgram(); prg != nil {
+	if prg := rule.ValidationProgram(); prg != nil {
 		return prg, true, nil
 	}
-	prg, err := d.validationEnv.Compile(rule.ValidateCEL)
+	prg, err := d.validationRuntime.CompileValidation(rule.ValidateExpr)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling rule %s validation: %w", ruleID, err)
 	}
-	rule.SetCelProgram(prg)
+	rule.SetValidationProgram(prg)
 	d.Config.Rules[ruleID] = rule
 	return prg, true, nil
 }
 
-func (d *Detector) ruleFilterProgram(r config.Rule) (cel.Program, bool, error) {
-	if prg := r.FilterProgram(); prg != nil {
-		return prg, true, nil
+func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, error) {
+	d.filterProgramM.Lock()
+	defer d.filterProgramM.Unlock()
+
+	rule := r
+	cacheable := false
+	if cfgRule, ok := d.Config.Rules[r.RuleID]; ok {
+		rule = cfgRule
+		cacheable = true
 	}
-	if r.Filter == "" {
+	if rule.Filter == "" {
 		return nil, false, nil
 	}
-	d.filterEnvOnce.Do(func() {
-		d.filterEnv, d.filterEnvErr = celenv.NewFilterEnv(d.Tokenizer)
-	})
-	if d.filterEnvErr != nil {
-		return nil, false, fmt.Errorf("creating filter env: %w", d.filterEnvErr)
+	if prg := rule.FilterProgram(); prg != nil {
+		return prg, true, nil
 	}
-	prg, err := d.filterEnv.Compile(r.Filter)
+	prg, err := d.exprRuntime.CompileFilter(rule.Filter, d.tokenizer)
 	if err != nil {
-		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.RuleID, err)
+		return nil, false, fmt.Errorf("compiling rule %s filter: %w", rule.RuleID, err)
+	}
+	if cacheable {
+		rule.SetFilterProgram(prg)
+		d.Config.Rules[rule.RuleID] = rule
 	}
 	return prg, true, nil
-}
-
-// Tokenizer returns the BPE tokenizer used for token efficiency filtering.
-// May be nil if the tokenizer failed to initialize (e.g., network error).
-func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
-	d.tokenizerOnce.Do(func() {
-		tiktoken.SetBpeLoader(&TiktokenLoader{})
-		tke, err := tiktoken.GetEncoding("cl100k_base")
-		if err != nil {
-			logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
-			return
-		}
-		d.tokenizer = tke
-	})
-	return d.tokenizer
 }
 
 // SkipFunc returns a sources.SkipFunc callback that evaluates the config's
@@ -342,7 +339,7 @@ func (d *Detector) SkipFunc() sources.SkipFunc {
 		return nil
 	}
 	return func(attrs map[string]string) bool {
-		skip, err := celenv.EvalPrefilter(prg, attrs)
+		skip, err := d.exprRuntime.EvalPrefilter(prg, attrs)
 		if err != nil {
 			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
 			return false
@@ -459,11 +456,9 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 						continue
 					}
 					if d.ValidationPool != nil {
-						prg, ok, err := d.validationProgram(finding.RuleID)
-						if err != nil {
+						if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
 							return err
-						}
-						if ok {
+						} else if ok {
 							if err := d.ValidationPool.SubmitContext(runCtx,
 								finding,
 								prg); err != nil {
@@ -648,9 +643,6 @@ ScanLoop:
 			// Build a set of rule IDs to check based on keyword matches.
 			rulesToCheck := make(map[string]struct{}, len(acMatches))
 			for _, m := range acMatches {
-				// m.Word is the keyword as []byte; convert to string
-				// for the map lookup. This is a small allocation per keyword
-				// match (typically few), not per fragment byte.
 				keyword := string(m.Word)
 				for _, ruleID := range d.Config.KeywordToRules[keyword] {
 					rulesToCheck[ruleID] = struct{}{}
@@ -850,17 +842,16 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		// Entropy is always computed because report output and snapshots expect it
-		// regardless of whether filters need it.
+		// Entropy is always computed — needed for report output regardless of filter path.
 		entropy := shannonEntropy(finding.Secret)
 		finding.Entropy = float32(entropy)
 
 		finding.SetFingerprint()
 
-		// before setting CELContext, check if we have a validate or filter (TODO rename CelProgram to ValidateProgram)
 		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
-		if (d.ValidationPool != nil && r.ValidateCEL != "") || d.Config.FilterProgram() != nil || hasRuleFilter {
-			finding.SetCELContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
+		// Validation/filter expressions need context text in the finding map.
+		if r.ValidateExpr != "" || r.ValidationProgram() != nil || d.Config.FilterProgram() != nil || hasRuleFilter {
+			finding.SetExprContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
 				Mode:        ContextModeBox,
 				LinesBefore: 20,
 				LinesAfter:  20,
@@ -872,18 +863,19 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]string
 		if d.Config.FilterProgram() != nil || hasRuleFilter {
-			findingMap = finding.ToCELMap()
+			findingMap = finding.ToExprMap()
+			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
 			// For decoded segments, currentLine carries the decoded line text
 			// (via codec.CurrentLine). The old checkFindingAllowed used this for
-			// regexTarget="line". Preserve that behaviour in the CEL path.
+			// regexTarget="line". Preserve that behaviour in the Expr path.
 			if currentLine != "" {
 				findingMap["line"] = currentLine
 			}
 		}
 
-		// Global filter: CEL path (attributes + finding).
+		// Global filter: Expr path (attributes + finding).
 		if d.Config.FilterProgram() != nil {
-			skip, err := celenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -891,11 +883,11 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
+		// Rule filter: Expr path (includes entropy, regex/stopword allowlists, tokenEfficiency).
 		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
 			logger.Warn().Err(err).Msg("rule filter compile error")
 		} else if ok {
-			skip, err := celenv.EvalFilter(prg, findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {

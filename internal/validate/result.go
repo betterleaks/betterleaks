@@ -2,15 +2,10 @@ package validate
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
-
-	"github.com/google/cel-go/common/types/ref"
 
 	"github.com/betterleaks/betterleaks/report"
 )
-
-var mapAnyType = reflect.TypeFor[map[string]any]()
 
 // validStatuses is the set of recognised validation statuses.
 var validStatuses = map[report.ValidationStatus]bool{
@@ -22,29 +17,30 @@ var validStatuses = map[report.ValidationStatus]bool{
 	report.ValidationStatusError:           true,
 }
 
-// Result holds the outcome of a CEL validation evaluation.
+// Result holds the outcome of a validation expression evaluation.
 type Result struct {
 	Status   report.ValidationStatus // valid, invalid, revoked, unknown, error
 	Reason   string                  // human-readable explanation
-	Metadata map[string]any          // extra fields from the CEL result map
+	Metadata map[string]any          // extra fields from the validation result map
 }
 
-// ParseResult interprets the CEL output value into a Result.
-func ParseResult(val ref.Val) *Result {
-	switch v := val.Value().(type) {
+// ParseResult interprets the expression output value into a Result.
+func ParseResult(val any) *Result {
+	switch v := val.(type) {
 	case map[string]any:
 		return parseResultMap(v)
-
-	default:
-		nativeVal, err := val.ConvertToNative(mapAnyType)
-		if err == nil {
-			if m, ok := nativeVal.(map[string]any); ok {
-				return parseResultMap(m)
+	case map[any]any:
+		m := make(map[string]any, len(v))
+		for k, value := range v {
+			if s, ok := k.(string); ok {
+				m[s] = value
 			}
 		}
+		return parseResultMap(m)
+	default:
 		return &Result{
 			Status:   report.ValidationStatusError,
-			Reason:   fmt.Sprintf("expression returned unexpected type: %T", val.Value()),
+			Reason:   fmt.Sprintf("expression returned unexpected type: %T", val),
 			Metadata: map[string]any{},
 		}
 	}
@@ -78,7 +74,7 @@ var reservedKeys = map[string]bool{
 	"result": true, "reason": true,
 }
 
-// parseResultMap interprets a map result from a CEL expression.
+// parseResultMap interprets a map result from a validation expression.
 //
 // The expected form is {"result": "<status>", ...} where <status> is one of
 // the validStatuses.

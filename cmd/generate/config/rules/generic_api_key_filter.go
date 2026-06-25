@@ -10,25 +10,25 @@ const genericAPIKeyMatchFilter = `(?i)(?:access(?:ibility|or)|access[_.-]?id|ran
 var genericAPIKeyFilter = buildGenericAPIKeyFilter()
 
 func buildGenericAPIKeyFilter() string {
-	return `matchesAny(finding["secret"], [r"""^[a-zA-Z_.-]+$"""])
-|| (matchesAny(finding["match"], [r"""` + genericAPIKeyMatchFilter + `"""]) || containsAny(finding["secret"], ` + celStringList(DefaultStopWords) + `))
+	return `matchesAny(finding["secret"], [` + "`^[a-zA-Z_.-]+$`" + `])
+|| (matchesAny(finding["match"], [` + "`" + genericAPIKeyMatchFilter + "`" + `]) || containsAny(finding["secret"], ` + exprStringList(DefaultStopWords) + `))
 || matchesAny(finding["line"], [
-  r"""--mount=type=secret,""",
-  r"""import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]"""
+  ` + "`--mount=type=secret,`" + `,
+  ` + "`import[ \\t]+{[ \\t\\w,]+}[ \\t]+from[ \\t]+['\"][^'\"]+['\"]`" + `
 ])
-|| (matchesAny(attributes[?"path"].orValue(""), [
-  r"""\.bb$""",
-  r"""\.bbappend$""",
-  r"""\.bbclass$""",
-  r"""\.inc$"""
+|| (matchesAny(get(attributes, "path", ""), [
+  ` + "`\\.bb$`" + `,
+  ` + "`\\.bbappend$`" + `,
+  ` + "`\\.bbclass$`" + `,
+  ` + "`\\.inc$`" + `
 ]) && matchesAny(finding["line"], [
-  r"""LICENSE[^=]*=\s*"[^"]+""",
-  r"""LIC_FILES_CHKSUM[^=]*=\s*"[^"]+""",
-  r"""SRC[^=]*=\s*"[a-zA-Z0-9]+"""
+  ` + "`LICENSE[^=]*=\\s*\"[^\"]+`" + `,
+  ` + "`LIC_FILES_CHKSUM[^=]*=\\s*\"[^\"]+`" + `,
+  ` + "`SRC[^=]*=\\s*\"[a-zA-Z0-9]+`" + `
 ]))`
 }
 
-func celStringList(ss []string) string {
+func exprStringList(ss []string) string {
 	parts := make([]string, len(ss))
 	for i, s := range ss {
 		parts[i] = strconv.Quote(s)

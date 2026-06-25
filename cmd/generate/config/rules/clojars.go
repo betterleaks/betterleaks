@@ -14,7 +14,7 @@ func Clojars() *config.Rule {
 		Description: "Uncovered a possible Clojars API token, risking unauthorized access to Clojure libraries and potential code manipulation.",
 		Regex:       regexp.MustCompile(`(?i)CLOJARS_[a-z0-9]{60}`),
 		Keywords:    []string{"clojars_"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

@@ -12,18 +12,15 @@ func Mistral() *config.Rule {
 		Description: "Detected a Mistral AI API Key, which may expose AI language model services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mistral"}, `[A-Z0-9]{32}`, true),
 		Keywords:    []string{"mistral"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.mistral.ai/v1/models", {
+		ValidateExpr: `let r = http.get("https://api.mistral.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains('"data"') ? {
+  }); r.status == 200 && (r.body contains '"data"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
