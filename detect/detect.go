@@ -850,9 +850,10 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		// // Entropy is always computed — needed for report output regardless of filter path.
-		// entropy := shannonEntropy(finding.Secret)
-		// finding.Entropy = float32(entropy)
+		// Entropy is always computed because report output and snapshots expect it
+		// regardless of whether filters need it.
+		entropy := shannonEntropy(finding.Secret)
+		finding.Entropy = float32(entropy)
 
 		finding.SetFingerprint()
 
