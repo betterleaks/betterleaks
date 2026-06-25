@@ -684,13 +684,23 @@ ScanLoop:
 				rulesToCheck[ruleID] = struct{}{}
 			}
 
-			for ruleID := range rulesToCheck {
+			specificRuleIDs, genericRuleIDs := d.orderedRuleIDs(rulesToCheck)
+			for _, ruleID := range specificRuleIDs {
 				select {
 				case <-ctx.Done():
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRule(fragment, currentRaw, rule, encodedSegments)...)
+					findings = append(findings, d.detectFragmentWithRule(fragment, currentRaw, rule, encodedSegments, nil)...)
+				}
+			}
+			for _, ruleID := range genericRuleIDs {
+				select {
+				case <-ctx.Done():
+					break ScanLoop
+				default:
+					rule := d.Config.Rules[ruleID]
+					findings = append(findings, d.detectFragmentWithRule(fragment, currentRaw, rule, encodedSegments, findings)...)
 				}
 			}
 
@@ -714,11 +724,38 @@ ScanLoop:
 	return filter(findings)
 }
 
+func (d *Detector) orderedRuleIDs(ruleSet map[string]struct{}) (specific []string, generic []string) {
+	seen := make(map[string]struct{}, len(ruleSet))
+	appendRule := func(ruleID string) {
+		if _, ok := ruleSet[ruleID]; !ok {
+			return
+		}
+		if _, ok := seen[ruleID]; ok {
+			return
+		}
+		seen[ruleID] = struct{}{}
+		if isGenericRuleID(ruleID) {
+			generic = append(generic, ruleID)
+		} else {
+			specific = append(specific, ruleID)
+		}
+	}
+
+	for _, ruleID := range d.Config.OrderedRules {
+		appendRule(ruleID)
+	}
+	for ruleID := range ruleSet {
+		appendRule(ruleID)
+	}
+	return specific, generic
+}
+
 // detectFragmentWithRule scans the given fragment for the given rule and returns a list of findings
 func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	currentRaw string,
 	r config.Rule,
-	encodedSegments []*codec.EncodedSegment) []report.Finding {
+	encodedSegments []*codec.EncodedSegment,
+	priorFindings []report.Finding) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
@@ -872,6 +909,10 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
+		if len(priorFindings) > 0 && isGenericRuleID(finding.RuleID) && isSuppressedBySpecificFinding(finding, priorFindings) {
+			continue
+		}
+
 		// Entropy is always computed — needed for report output regardless of filter path.
 		entropy := shannonEntropy(finding.Secret)
 		finding.Entropy = float32(entropy)
@@ -965,7 +1006,7 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		inheritedFragment.InheritedFromFinding = true
 
 		// Call detectRule once for each required rule
-		requiredFindings := d.detectFragmentWithRule(inheritedFragment, currentRaw, rule, encodedSegments)
+		requiredFindings := d.detectFragmentWithRule(inheritedFragment, currentRaw, rule, encodedSegments, nil)
 		allRequiredFindings[requiredRule.RuleID] = requiredFindings
 
 		logger.Debug().

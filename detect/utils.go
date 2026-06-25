@@ -189,6 +189,39 @@ func filter(findings []report.Finding) []report.Finding {
 	return retFindings
 }
 
+func isGenericRuleID(ruleID string) bool {
+	return strings.Contains(strings.ToLower(ruleID), "generic")
+}
+
+func isSuppressedBySpecificFinding(f report.Finding, findings []report.Finding) bool {
+	for _, fPrime := range findings {
+		if f.StartLine == fPrime.StartLine &&
+			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
+			f.RuleID != fPrime.RuleID &&
+			strings.Contains(fPrime.Secret, f.Secret) &&
+			!isGenericRuleID(fPrime.RuleID) {
+			genericMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
+			betterMatch := strings.ReplaceAll(fPrime.Match, fPrime.Secret, "REDACTED")
+			logging.Trace().Msgf("skipping %s finding (%s), %s rule takes precedence (%s)", f.RuleID, genericMatch, fPrime.RuleID, betterMatch)
+			return true
+		}
+		for _, set := range fPrime.RequiredSets {
+			for _, comp := range set.Components {
+				if f.StartLine == comp.StartLine &&
+					f.RuleID != comp.RuleID &&
+					strings.Contains(comp.Secret, f.Secret) &&
+					!isGenericRuleID(comp.RuleID) {
+					genericMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
+					betterMatch := strings.ReplaceAll(comp.Match, comp.Secret, "REDACTED")
+					logging.Trace().Msgf("skipping %s finding (%s), %s required component takes precedence (%s)", f.RuleID, genericMatch, comp.RuleID, betterMatch)
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func printFinding(f report.Finding, noColor bool, redact uint, legacyPrint bool) {
 	if legacyPrint {
 		f.PrintLegacy(noColor, redact)
