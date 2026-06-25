@@ -120,6 +120,10 @@ type Detector struct {
 	validationEnv      *celenv.ValidationEnvironment
 	validationProgramM sync.Mutex
 
+	filterEnv     *celenv.FilterEnv
+	filterEnvOnce sync.Once
+	filterEnvErr  error
+
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
 	// slice while consuming results from Run.
@@ -288,6 +292,26 @@ func (d *Detector) validationProgram(ruleID string) (cel.Program, bool, error) {
 	}
 	rule.SetCelProgram(prg)
 	d.Config.Rules[ruleID] = rule
+	return prg, true, nil
+}
+
+func (d *Detector) ruleFilterProgram(r config.Rule) (cel.Program, bool, error) {
+	if prg := r.FilterProgram(); prg != nil {
+		return prg, true, nil
+	}
+	if r.Filter == "" {
+		return nil, false, nil
+	}
+	d.filterEnvOnce.Do(func() {
+		d.filterEnv, d.filterEnvErr = celenv.NewFilterEnv(d.Tokenizer)
+	})
+	if d.filterEnvErr != nil {
+		return nil, false, fmt.Errorf("creating filter env: %w", d.filterEnvErr)
+	}
+	prg, err := d.filterEnv.Compile(r.Filter)
+	if err != nil {
+		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.RuleID, err)
+	}
 	return prg, true, nil
 }
 
@@ -826,14 +850,15 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		// Entropy is always computed — needed for report output regardless of filter path.
-		entropy := shannonEntropy(finding.Secret)
-		finding.Entropy = float32(entropy)
+		// // Entropy is always computed — needed for report output regardless of filter path.
+		// entropy := shannonEntropy(finding.Secret)
+		// finding.Entropy = float32(entropy)
 
 		finding.SetFingerprint()
 
 		// before setting CELContext, check if we have a validate or filter (TODO rename CelProgram to ValidateProgram)
-		if (d.ValidationPool != nil && r.ValidateCEL != "") || d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
+		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
+		if (d.ValidationPool != nil && r.ValidateCEL != "") || d.Config.FilterProgram() != nil || hasRuleFilter {
 			finding.SetCELContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
 				Mode:        ContextModeBox,
 				LinesBefore: 20,
@@ -845,7 +870,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]string
-		if d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
+		if d.Config.FilterProgram() != nil || hasRuleFilter {
 			findingMap = finding.ToCELMap()
 			// For decoded segments, currentLine carries the decoded line text
 			// (via codec.CurrentLine). The old checkFindingAllowed used this for
@@ -866,8 +891,10 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
-		if r.FilterProgram() != nil {
-			skip, err := celenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
+		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
+			logger.Warn().Err(err).Msg("rule filter compile error")
+		} else if ok {
+			skip, err := celenv.EvalFilter(prg, findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {

@@ -505,8 +505,8 @@ func (c *Config) FilterProgram() cel.Program { return c.filterProgram }
 // SetFilterProgram stores a compiled global filter program.
 func (c *Config) SetFilterProgram(p cel.Program) { c.filterProgram = p }
 
-// CompileCELFilters compiles the global prefilter, global filter, and per-rule
-// filter CEL expressions into executable programs. This is idempotent.
+// CompileCELFilters compiles global prefilter and filter CEL expressions into
+// executable programs. Per-rule filters are compiled lazily by the detector.
 func (c *Config) CompileCELFilters(tokenizer celenv.TokenizerProvider) error {
 	prefilterEnv, err := celenv.NewPrefilterEnv()
 	if err != nil {
@@ -530,17 +530,6 @@ func (c *Config) CompileCELFilters(tokenizer celenv.TokenizerProvider) error {
 			return fmt.Errorf("compiling global filter: %w", compileErr)
 		}
 		c.filterProgram = prg
-	}
-
-	for ruleID, r := range c.Rules {
-		if r.Filter != "" {
-			prg, compileErr := filterEnv.Compile(r.Filter)
-			if compileErr != nil {
-				return fmt.Errorf("compiling rule %s filter: %w", ruleID, compileErr)
-			}
-			r.SetFilterProgram(prg)
-			c.Rules[ruleID] = r
-		}
 	}
 
 	return nil
