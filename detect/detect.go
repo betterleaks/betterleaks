@@ -24,8 +24,9 @@ import (
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 
-	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/fatih/semgroup"
+	"github.com/google/cel-go/cel"
+	ahocorasick "github.com/rrethy/ahocorasick"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
 )
@@ -98,7 +99,7 @@ type Detector struct {
 
 	// prefilter is a ahocorasick struct used for doing efficient string
 	// matching given a set of words (keywords from the rules in the config)
-	prefilter ahocorasick.Trie
+	prefilter *ahocorasick.Matcher
 
 	// a list of known findings that should be ignored
 	baseline []report.Finding
@@ -115,10 +116,9 @@ type Detector struct {
 	tokenizerOnce sync.Once
 
 	// validationEnv is the CEL environment used to compile and evaluate
-	// per-rule validation expressions. Created during construction;
-	// nil when no rules have ValidateCEL. The cmd layer may reconfigure
-	// the HTTP client/debug settings before evaluation begins.
-	validationEnv *celenv.ValidationEnvironment
+	// per-rule validation expressions. Created only when validation is enabled.
+	validationEnv      *celenv.ValidationEnvironment
+	validationProgramM sync.Mutex
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -193,8 +193,8 @@ type Detector struct {
 }
 
 // NewDetectorContext creates a new Detector.
-// It compiles all CEL programs (filters + validation) and, when
-// valOpts.Enabled is true, creates the validation worker pool.
+// It compiles CEL filters and, when valOpts.Enabled is true, creates the
+// validation worker pool. Validation CEL programs are compiled lazily per rule.
 func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) *Detector {
 	if cfg == nil {
 		// TODO in v2 use NewDetector(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) (*Detector, error)
@@ -202,12 +202,13 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Fatal().Msg("config is required to create detector")
 		return nil
 	}
-	// Compile CEL validation programs (no-op if no rules have ValidateCEL).
-	validationEnv, validationErr := cfg.CompileValidation()
-	if validationErr != nil {
-		logging.Fatal().Err(validationErr).Msg("failed to compile CEL validation expressions")
-	}
-	if validationEnv != nil {
+	var validationEnv *celenv.ValidationEnvironment
+	if valOpts.Enabled && hasValidationRules(cfg) {
+		var err error
+		validationEnv, err = celenv.NewEnvironment(nil)
+		if err != nil {
+			logging.Fatal().Err(err).Msg("failed to create CEL validation environment")
+		}
 		validationEnv.AllowedEnv = celenv.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
 	}
 
@@ -216,7 +217,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		findings:               make([]report.Finding, 0),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
-		prefilter:              *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
+		prefilter:              ahocorasick.CompileStrings(maps.Keys(cfg.Keywords)),
 		Sema:                   semgroup.NewGroup(ctx, 40),
 		validationEnv:          validationEnv,
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
@@ -256,6 +257,38 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	}
 
 	return d
+}
+
+func hasValidationRules(cfg *config.Config) bool {
+	for _, r := range cfg.Rules {
+		if r.ValidateCEL != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *Detector) validationProgram(ruleID string) (cel.Program, bool, error) {
+	if d.validationEnv == nil {
+		return nil, false, nil
+	}
+	d.validationProgramM.Lock()
+	defer d.validationProgramM.Unlock()
+
+	rule, ok := d.Config.Rules[ruleID]
+	if !ok || rule.ValidateCEL == "" {
+		return nil, false, nil
+	}
+	if prg := rule.CelProgram(); prg != nil {
+		return prg, true, nil
+	}
+	prg, err := d.validationEnv.Compile(rule.ValidateCEL)
+	if err != nil {
+		return nil, false, fmt.Errorf("compiling rule %s validation: %w", ruleID, err)
+	}
+	rule.SetCelProgram(prg)
+	d.Config.Rules[ruleID] = rule
+	return prg, true, nil
 }
 
 // Tokenizer returns the BPE tokenizer used for token efficiency filtering.
@@ -402,10 +435,14 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 						continue
 					}
 					if d.ValidationPool != nil {
-						if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
+						prg, ok, err := d.validationProgram(finding.RuleID)
+						if err != nil {
+							return err
+						}
+						if ok {
 							if err := d.ValidationPool.SubmitContext(runCtx,
 								finding,
-								rule.CelProgram()); err != nil {
+								prg); err != nil {
 								if errors.Is(err, context.Canceled) {
 									return errStopIteration
 								}
@@ -582,15 +619,15 @@ ScanLoop:
 			// to the rules that need checking via KeywordToRules.
 			// Use a pooled byte buffer for lowercasing to avoid allocating
 			lowerBufPtr, lowerBuf := getLowerBuf(currentRaw)
-			acMatches := d.prefilter.Match(lowerBuf)
+			acMatches := d.prefilter.FindAllByteSlice(lowerBuf)
 
 			// Build a set of rule IDs to check based on keyword matches.
 			rulesToCheck := make(map[string]struct{}, len(acMatches))
 			for _, m := range acMatches {
-				// m.Match() returns the keyword as []byte; convert to string
+				// m.Word is the keyword as []byte; convert to string
 				// for the map lookup. This is a small allocation per keyword
 				// match (typically few), not per fragment byte.
-				keyword := string(m.Match())
+				keyword := string(m.Word)
 				for _, ruleID := range d.Config.KeywordToRules[keyword] {
 					rulesToCheck[ruleID] = struct{}{}
 				}
@@ -796,7 +833,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		finding.SetFingerprint()
 
 		// before setting CELContext, check if we have a validate or filter (TODO rename CelProgram to ValidateProgram)
-		if r.CelProgram() != nil || d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
+		if (d.ValidationPool != nil && r.ValidateCEL != "") || d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
 			finding.SetCELContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
 				Mode:        ContextModeBox,
 				LinesBefore: 20,

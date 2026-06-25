@@ -168,8 +168,11 @@ func (d *Detector) AddFinding(finding report.Finding) {
 	}
 
 	if d.ValidationPool != nil {
-		if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
-			d.ValidationPool.Submit(finding, rule.CelProgram())
+		if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
+			finding.ValidationStatus = report.ValidationStatusError
+			finding.ValidationReason = err.Error()
+		} else if ok {
+			d.ValidationPool.Submit(finding, prg)
 			return
 		}
 	}

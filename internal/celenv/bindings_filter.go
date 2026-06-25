@@ -9,19 +9,19 @@ import (
 	"github.com/betterleaks/betterleaks/internal/words"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
 
-	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/common/types/traits"
 	tiktoken "github.com/pkoukk/tiktoken-go"
+	ahocorasick "github.com/rrethy/ahocorasick"
 )
 
 var (
 	// regexCache caches compiled joined-pattern regexes keyed by the joined pattern string.
 	regexCache sync.Map // string → *blregexp.Regexp
 	// acTrieCache caches Aho-Corasick tries keyed by a sorted join of the term list.
-	acTrieCache sync.Map // string → *ahocorasick.Trie
+	acTrieCache sync.Map // string → *ahocorasick.Matcher
 )
 
 // celListToStrings converts a CEL list value to a Go []string.
@@ -84,15 +84,15 @@ func getOrCompileJoinedRegex(patterns []string) *blregexp.Regexp {
 
 // getOrBuildTrie returns an Aho-Corasick trie for the given terms.
 // Results are cached by a sorted join of the terms.
-func getOrBuildTrie(terms []string) *ahocorasick.Trie {
+func getOrBuildTrie(terms []string) *ahocorasick.Matcher {
 	if len(terms) == 0 {
 		return nil
 	}
 	key := sortedKey(terms)
 	if v, ok := acTrieCache.Load(key); ok {
-		return v.(*ahocorasick.Trie)
+		return v.(*ahocorasick.Matcher)
 	}
-	trie := ahocorasick.NewTrieBuilder().AddStrings(terms).Build()
+	trie := ahocorasick.CompileStrings(terms)
 	acTrieCache.Store(key, trie)
 	return trie
 }
@@ -146,7 +146,7 @@ func containsAnyBinding(name, overload string) cel.EnvOption {
 				if trie == nil {
 					return types.Bool(false)
 				}
-				return types.Bool(trie.MatchFirstString(strings.ToLower(string(str))) != nil)
+				return types.Bool(len(trie.FindAllString(strings.ToLower(string(str)))) > 0)
 			}),
 		),
 	)

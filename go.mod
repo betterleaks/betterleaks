@@ -5,7 +5,6 @@ go 1.25.0
 toolchain go1.25.10
 
 require (
-	github.com/BobuSumisu/aho-corasick v1.0.3
 	github.com/fatih/semgroup v1.2.0
 	github.com/gitleaks/go-gitdiff v0.9.1
 	github.com/go-sprout/sprout v1.0.3
@@ -18,6 +17,7 @@ require (
 	github.com/mholt/archives v0.1.6-0.20260429171216-ef71b7a32fae
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/pkoukk/tiktoken-go v0.1.8
+	github.com/rrethy/ahocorasick v1.0.0
 	github.com/rs/zerolog v1.33.0
 	github.com/shurcooL/githubv4 v0.0.0-20260209031235-2402fdf4a9ed
 	github.com/spf13/cobra v1.10.1
