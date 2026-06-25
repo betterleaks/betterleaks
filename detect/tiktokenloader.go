@@ -3,29 +3,22 @@ package detect
 import (
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	_ "embed"
 	"encoding/base64"
 	"strconv"
 	"strings"
 )
 
-//go:embed assets/cl100k_base.tiktoken.gz
-var compressedBPEData []byte
+//go:embed assets/cl100k_base.tiktoken
+var bpeData []byte
 
 // TikTokenLoader implements the tiktoken.BpeLoader interface
 type TiktokenLoader struct{}
 
-// LoadTiktokenBpe decompresses the embedded file and parses it into the expected map
+// LoadTiktokenBpe parses the embedded BPE file into the expected map.
 func (l *TiktokenLoader) LoadTiktokenBpe(file string) (map[string]int, error) {
-	gz, err := gzip.NewReader(bytes.NewReader(compressedBPEData))
-	if err != nil {
-		return nil, err
-	}
-	defer gz.Close()
-
 	bpeRanks := make(map[string]int)
-	scanner := bufio.NewScanner(gz)
+	scanner := bufio.NewScanner(bytes.NewReader(bpeData))
 
 	for scanner.Scan() {
 		line := scanner.Text()
