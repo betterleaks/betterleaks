@@ -3706,6 +3706,75 @@ entropy(finding["secret"]) <= 3.5
   `LIC_FILES_CHKSUM[^=]*=\s*"[^"]+`,
   `SRC[^=]*=\s*"[a-zA-Z0-9]+`
 ]))
+|| matchesAny(finding["secret"], [
+  r"""^sb_publishable_[A-Za-z0-9_-]{31}$""",
+  r"""^0x4AAAAAA[A-Za-z0-9_-]{15}$""",
+  r"""^FCM[a-zA-Z0-9]{13}$""",
+  r"""^ysc1_[A-Za-z0-9_-]{48}$""",
+  r"""^phc_[A-Za-z0-9_-]{43,44}$""",
+  r"""^APP_USR-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^access-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^asset-report-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^public-(sandbox|development|production)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^link-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^hbp_[0-9a-zA-Z]{36}$""",
+  r"""^woos-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^(https://)?[0-9a-zA-Z]{32}\@sentry\.io$""",
+  r"""^sub-c-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^pub-c-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^hc[a-z]ik_([a-z0-9]{26,58})$""",
+  r"""^mob-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^public-token-test-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^public-token-live-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}$"""
+])
+|| (matchesAny(finding["secret"], [r"""^pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$"""]) && containsAny(finding["line"], ["stripe", "woo", "wcm"]))
+|| (matchesAny(finding["secret"], [r"""^rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$"""]) && containsAny(finding["line"], ["stripe"]))
+|| (matchesAny(finding["secret"], [r"""^sk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$"""]) && containsAny(finding["line"], ["stripe", "woo", "wcm"]))
+|| (matchesAny(finding["secret"], [r"""^pk_live_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$"""]) && containsAny(finding["line"], ["stripe", "woo", "wcm"]))
+|| (matchesAny(finding["secret"], [r"""^pk_test_[A-Za-z0-9_-]{40}$"""]) && containsAny(finding["line"], ["paystack"]))
+|| (matchesAny(finding["secret"], [r"""^sk_test_[A-Za-z0-9_-]{40}$"""]) && containsAny(finding["line"], ["paystack"]))
+|| (matchesAny(finding["secret"], [r"""^pk_live_[A-Za-z0-9_-]{40}$"""]) && containsAny(finding["line"], ["paystack"]))
+|| (matchesAny(finding["secret"], [r"""^sandbox_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}$"""]) && containsAny(finding["line"], ["braintree"]))
+|| (matchesAny(finding["secret"], [r"""^production_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}$"""]) && containsAny(finding["line"], ["braintree"]))
+|| (matchesAny(finding["secret"], [r"""^test_[0-9a-zA-Z]{32}$"""]) && containsAny(finding["line"], ["adyen"]))
+|| (matchesAny(finding["secret"], [r"""^live_[0-9a-zA-Z]{32}$"""]) && containsAny(finding["line"], ["adyen"]))
+|| (matchesAny(finding["secret"], [r"""^[A-Za-z0-9]{32}$"""]) && containsAny(finding["line"], ["bugsnag"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""]) && containsAny(finding["line"], ["hcaptcha", "site_key", "sitekey"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""]) && containsAny(finding["line"], ["pendo"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""]) && containsAny(finding["line"], ["instrumentation"]))
+|| (matchesAny(finding["secret"], [r"""^TEST-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""]) && containsAny(finding["line"], ["mercado"]))
+|| (matchesAny(finding["secret"], [r"""^TEST-[0-9]{8,16}-[0-9]{6}-[0-9a-f]{32}-[0-9]{7,10}$"""]) && containsAny(finding["line"], ["mercado"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-fA-F]{32}$"""]) && containsAny(finding["line"], ["mixpanel"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-z]{6}\/[a-z_-]{2,100}$"""]) && containsAny(finding["line"], ["logrocket"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-f]{8}$"""]) && containsAny(finding["line"], ["honeybadger"]))
+|| (matchesAny(finding["secret"], [r"""^[a-zA-Z0-9=+]{21,24}$"""]) && containsAny(finding["line"], ["raygun"]))
+|| (matchesAny(finding["secret"], [r"""^key_live_[0-9a-zA-Z]{32}$"""]) && containsAny(finding["line"], ["branch"]))
+|| (matchesAny(finding["secret"], [r"""^key_test_[0-9a-zA-Z]{32}$"""]) && containsAny(finding["line"], ["branch"]))
+|| (matchesAny(finding["secret"], [r"""^pub[0-9a-zA-Z]{32}$"""]) && containsAny(finding["line"], ["datadog", "dd"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-zA-Z]{6}$"""]) && containsAny(finding["line"], ["klaviyo"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-zA-Z]{32}$"""]) && containsAny(finding["line"], ["storefront"]))
+|| (matchesAny(finding["secret"], [r"""^search-[0-9a-zA-Z_-]{24}$"""]) && containsAny(finding["line"], ["swiftype"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-zA-Z_-]{20}$"""]) && containsAny(finding["line"], ["swiftype"]))
+|| (matchesAny(finding["secret"], [r"""^pk.eyJ1Ijoi[0-9a-zA-Z_-]{1,}\.[0-9a-zA-Z-_]{1,}$"""]) && containsAny(finding["line"], ["map"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""]) && containsAny(finding["line"], ["crisp"]))
+|| (matchesAny(finding["secret"], [r"""^client-[a-zA-Z0-9]{43}$"""]) && containsAny(finding["line"], ["statsdig"]))
+|| (matchesAny(finding["secret"], [r"""^sdk-[a-zA-Z0-9]{15,16}$"""]) && containsAny(finding["line"], ["growthbook"]))
+|| (matchesAny(finding["secret"], [r"""^[a-zA-Z0-9\/=]{24}$"""]) && containsAny(finding["line"], ["growthbook"]))
+|| (matchesAny(finding["secret"], [r"""^[a-zA-Z0-9]{21,22}$"""]) && containsAny(finding["line"], ["optimizely"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-fA-F]{24}$"""]) && containsAny(finding["line"], ["launchdarkly"]))
+|| (matchesAny(finding["secret"], [r"""^pk_test_[0-9a-zA-Z]{20,70}$"""]) && containsAny(finding["line"], ["clerk"]))
+|| (matchesAny(finding["secret"], [r"""^pk_live_[0-9a-zA-Z]{20,70}$"""]) && containsAny(finding["line"], ["clerk"]))
+|| (matchesAny(finding["secret"], [r"""^sk_test_[0-9a-zA-Z]{20,70}$"""]) && containsAny(finding["line"], ["clerk"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-zA-Z]{40}$"""]) && containsAny(finding["line"], ["smartlook"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9A-Z]{5,6}$"""]) && containsAny(finding["line"], ["fullstory"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""]) && containsAny(finding["line"], ["zendesk", "zdassets.com"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-zA-Z]{27}$"""]) && containsAny(finding["line"], ["rudderstack"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""]) && containsAny(finding["line"], ["web3forms"]))
+|| (matchesAny(finding["secret"], [r"""^[0-9]{12}$"""]) && containsAny(finding["line"], ["2checkout", "twocheckout"]))
+|| (matchesAny(finding["secret"], [r"""^test_[a-zA-Z0-9]{27}$"""]) && containsAny(finding["line"], ["paddle"]))
+|| (matchesAny(finding["secret"], [r"""^live_[a-zA-Z0-9]{27}$"""]) && containsAny(finding["line"], ["paddle"]))
+|| (matchesAny(finding["secret"], [r"""^pk_live_[0-9A-F]{16}$"""]) && containsAny(finding["line"], ["magic"]))
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6712,3 +6781,4 @@ id = "zendesk-secret-key"
 description = "Detected a Zendesk Secret Key, risking unauthorized access to customer support services and sensitive ticketing data."
 regex = '''(?i)[\w.-]{0,50}?(?:zendesk)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["zendesk"]
+
