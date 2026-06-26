@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -694,12 +696,7 @@ func isGitLabStatusErr(err error, codes ...int) bool {
 	if !errors.As(err, &ge) {
 		return false
 	}
-	for _, c := range codes {
-		if ge.Status == c {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(codes, ge.Status)
 }
 
 func (s *GitLab) fetchProjectByPath(ctx context.Context, projectPath string) (*gitlabProject, error) {
@@ -1572,9 +1569,7 @@ func safePath(name string) string {
 
 func cloneAttrs(m map[string]string) map[string]string {
 	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 	return out
 }
 

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	ahocorasick "github.com/BobuSumisu/aho-corasick"
+	ahocorasick "github.com/rrethy/ahocorasick"
 	"golang.org/x/exp/maps"
 
 	"github.com/betterleaks/betterleaks/regexp"
@@ -65,7 +65,7 @@ type Allowlist struct {
 	commitMap    map[string]struct{}
 	regexPat     *regexp.Regexp
 	pathPat      *regexp.Regexp
-	stopwordTrie *ahocorasick.Trie
+	stopwordTrie *ahocorasick.Matcher
 }
 
 func (a *Allowlist) Validate() error {
@@ -99,7 +99,7 @@ func (a *Allowlist) Validate() error {
 
 		values := maps.Keys(uniqueStopwords)
 		a.StopWords = values
-		a.stopwordTrie = ahocorasick.NewTrieBuilder().AddStrings(values).Build()
+		a.stopwordTrie = ahocorasick.CompileStrings(values)
 	}
 
 	// Combine patterns into a single expression.
@@ -164,8 +164,8 @@ func (a *Allowlist) ContainsStopWord(s string) (bool, string) {
 
 	s = strings.ToLower(s)
 	if a.stopwordTrie != nil {
-		if m := a.stopwordTrie.MatchFirstString(s); m != nil {
-			return true, m.MatchString()
+		if matches := a.stopwordTrie.FindAllString(s); len(matches) > 0 {
+			return true, string(matches[0].Word)
 		}
 	} else if len(a.StopWords) > 0 {
 		for _, stopWord := range a.StopWords {

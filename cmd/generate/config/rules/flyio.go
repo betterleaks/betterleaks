@@ -18,20 +18,17 @@ func FlyIOAccessToken() *config.Rule {
 		Description: "Uncovered a Fly.io API key", // TODO
 		Regex:       utils.GenerateUniqueTokenRegex(`FlyV1\s[A-Za-z0-9=_\-,/+]{100,}`, false),
 		Keywords:    []string{"flyv1"},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://api.fly.io/graphql", {
+		ValidateExpr: `let r = http.post("https://api.fly.io/graphql", {
     "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
-  }, "{\"query\": \"query { viewer { id email name } }\"}"),
-  r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") && r.body.contains("\"email\"") ? {
+  }, "{\"query\": \"query { viewer { id email name } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") && (r.body contains "\"email\"") ? {
     "result": "valid",
-    "email": r.json.?data.?viewer.?email.orValue(""),
-    "name": r.json.?data.?viewer.?name.orValue("")
+    "email": (r.json?.data?.viewer?.email ?? ""),
+    "name": (r.json?.data?.viewer?.name ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 4.0`,
 	}
 

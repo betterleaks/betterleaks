@@ -13,17 +13,14 @@ func ElasticCloudAPIKey() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`essu_[A-Za-z0-9_\-]{60,200}={0,2}`, false),
 		Keywords:    []string{"essu_"},
 		Entropy:     3.5,
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.elastic-cloud.com/api/v1/deployments", {
+		ValidateExpr: `let r = http.get("https://api.elastic-cloud.com/api/v1/deployments", {
     "Authorization": "ApiKey " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"deployments"') ? {
+  }); r.status == 200 && (r.body contains '"deployments"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 	}
 
 	tps := utils.GenerateSampleSecrets("elastic", "essu_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_\-]{80}`, 3.5))

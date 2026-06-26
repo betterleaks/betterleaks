@@ -1,6 +1,7 @@
-package celenv
+package exprruntime
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,8 +29,8 @@ func TestCallSTS_Valid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &ValidationEnvironment{client: ts.Client()}
-	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
+	e := &Runtime{client: ts.Client()}
+	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
 
 	if result["status"] != int64(200) {
 		t.Fatalf("expected status 200, got %v", result["status"])
@@ -52,8 +53,8 @@ func TestCallSTS_Invalid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &ValidationEnvironment{client: ts.Client()}
-	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey")
+	e := &Runtime{client: ts.Client()}
+	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey")
 
 	if result["status"] != int64(403) {
 		t.Fatalf("expected status 403, got %v", result["status"])
@@ -69,15 +70,15 @@ func TestCallSTS_ServerError(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	e := &ValidationEnvironment{client: ts.Client()}
-	result := callSTS(e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey")
+	e := &Runtime{client: ts.Client()}
+	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey")
 
 	if result["status"] != int64(500) {
 		t.Fatalf("expected status 500, got %v", result["status"])
 	}
 }
 
-func TestAWSValidateCELBinding_Valid(t *testing.T) {
+func TestAWSValidateExprBinding_Valid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		fmt.Fprint(w, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
@@ -90,9 +91,9 @@ func TestAWSValidateCELBinding_Valid(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	env, err := NewEnvironment(ts.Client())
+	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 	env.STSEndpoint = ts.URL
 
@@ -108,7 +109,7 @@ func TestAWSValidateCELBinding_Valid(t *testing.T) {
     "reason": "Unauthorized"
   } : unknown(r)
 )`
-	prg, err := env.Compile(expr)
+	prg, err := env.CompileValidation(expr)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -124,11 +125,7 @@ func TestAWSValidateCELBinding_Valid(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 
-	m, err := got.ConvertToNative(mapAnyType)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
-	result := m.(map[string]any)
+	result := got.(map[string]any)
 	if result["result"] != "valid" {
 		t.Errorf("expected valid, got %v", result["result"])
 	}
@@ -137,15 +134,15 @@ func TestAWSValidateCELBinding_Valid(t *testing.T) {
 	}
 }
 
-func TestAWSValidateCELBinding_Invalid(t *testing.T) {
+func TestAWSValidateExprBinding_Invalid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(403)
 	}))
 	defer ts.Close()
 
-	env, err := NewEnvironment(ts.Client())
+	env, err := New(ts.Client())
 	if err != nil {
-		t.Fatalf("NewEnvironment: %v", err)
+		t.Fatalf("exprruntime.New: %v", err)
 	}
 	env.STSEndpoint = ts.URL
 
@@ -158,7 +155,7 @@ func TestAWSValidateCELBinding_Invalid(t *testing.T) {
     "reason": "Unauthorized"
   } : unknown(r)
 )`
-	prg, err := env.Compile(expr)
+	prg, err := env.CompileValidation(expr)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -174,11 +171,7 @@ func TestAWSValidateCELBinding_Invalid(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 
-	m, err := got.ConvertToNative(mapAnyType)
-	if err != nil {
-		t.Fatalf("convert: %v", err)
-	}
-	result := m.(map[string]any)
+	result := got.(map[string]any)
 	if result["result"] != "invalid" {
 		t.Errorf("expected invalid, got %v", result["result"])
 	}

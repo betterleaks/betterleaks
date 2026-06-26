@@ -10,8 +10,8 @@ import (
 func GenericCredential() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:          "generic-api-key",
-		Description:     "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+		RuleID:      "generic-api-key",
+		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
 			"access",
 			"auth",
@@ -35,6 +35,7 @@ func GenericCredential() *config.Rule {
 			"secret",
 			"token",
 		},
+		Specificity: 0,
 		Filter: `entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
 || ` + genericAPIKeyFilter,

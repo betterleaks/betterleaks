@@ -32,7 +32,7 @@ func HerokuV2() *config.Rule {
 		RuleID:      "heroku-api-key-v2",
 		Regex:       utils.GenerateUniqueTokenRegex(`(HRKU-AA[0-9a-zA-Z_-]{58})`, false),
 		Keywords:    []string{"HRKU-AA"},
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		Filter:      `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

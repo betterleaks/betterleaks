@@ -15,18 +15,15 @@ func AnthropicApiKey() *config.Rule {
 		Keywords: []string{
 			"sk-ant-api03",
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.anthropic.com/v1/models", {
+		ValidateExpr: `let r = http.get("https://api.anthropic.com/v1/models", {
     "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
-  }),
-  r.status == 200 && r.body.contains('"data"') && r.body.contains('"type"') ? {
+  }); r.status == 200 && (r.body contains '"data"') && (r.body contains '"type"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 	}
 
 	// validate
@@ -58,19 +55,16 @@ func AnthropicAdminApiKey() *config.Rule {
 		Keywords: []string{
 			"sk-ant-admin01",
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.anthropic.com/v1/organizations/me", {
+		ValidateExpr: `let r = http.get("https://api.anthropic.com/v1/organizations/me", {
     "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
-  }),
-  r.status == 200 && r.json.?id.orValue("") != "" && r.json.?type.orValue("") == "organization" ? {
+  }); r.status == 200 && (r.json?.id ?? "") != "" && (r.json?.type ?? "") == "organization" ? {
     "result": "valid",
-    "organization": r.json.?name.orValue("")
+    "organization": (r.json?.name ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 	}
 
 	// validate

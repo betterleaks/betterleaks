@@ -7,34 +7,29 @@ import (
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
-const githubTokenCEL = `cel.bind(base_url, env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"),
-  cel.bind(r,
-    http.get(base_url + "/user", {
+const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
-    }),
-    r.status == 200 && r.json.?login.orValue("") != "" ? {
+    }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "username": r.json.?login.orValue(""),
-      "name": r.json.?name.orValue(""),
-      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+      "username": (r.json?.login ?? ""),
+      "name": (r.json?.name ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)`
+    } : validate.unknown(r))`
 
-var githubPathFilter = `matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""])`
+var githubPathFilter = "matchesAny((attributes[\"path\"] ?? \"\"), [`(?:^|/)@octokit/auth-token/README\\.md$`])"
 
 func GitHubPat() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-pat",
-		Description: "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.",
-		Regex:       regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
-		Keywords:    []string{"ghp_"},
-		ValidateCEL: githubTokenCEL,
+		RuleID:       "github-pat",
+		Description:  "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.",
+		Regex:        regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
+		Keywords:     []string{"ghp_"},
+		ValidateExpr: githubTokenExpr,
 		Filter: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	}
@@ -50,12 +45,12 @@ func GitHubPat() *config.Rule {
 func GitHubFineGrainedPat() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-fine-grained-pat",
-		Description: "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation.",
-		Regex:       regexp.MustCompile(`github_pat_\w{82}`),
-		Keywords:    []string{"github_pat_"},
-		ValidateCEL: githubTokenCEL,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "github-fine-grained-pat",
+		Description:  "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation.",
+		Regex:        regexp.MustCompile(`github_pat_\w{82}`),
+		Keywords:     []string{"github_pat_"},
+		ValidateExpr: githubTokenExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -69,12 +64,12 @@ func GitHubFineGrainedPat() *config.Rule {
 func GitHubOauth() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-oauth",
-		Description: "Discovered a GitHub OAuth Access Token, posing a risk of compromised GitHub account integrations and data leaks.",
-		Regex:       regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
-		Keywords:    []string{"gho_"},
-		ValidateCEL: githubTokenCEL,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "github-oauth",
+		Description:  "Discovered a GitHub OAuth Access Token, posing a risk of compromised GitHub account integrations and data leaks.",
+		Regex:        regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
+		Keywords:     []string{"gho_"},
+		ValidateExpr: githubTokenExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -85,35 +80,29 @@ func GitHubOauth() *config.Rule {
 	return utils.Validate(r, tps, fps)
 }
 
-// TODO add this later once we confirm orValue({}) is working
-// "permissions": r.json.?permissions.orValue({})
-const githubAppTokenCEL = `cel.bind(base_url, env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"),
-  cel.bind(r,
-    http.get(base_url + "/app", {
+// TODO add permissions once the config schema has a stable place for them.
+const githubAppTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/app", {
       "Accept": "application/vnd.github+json",
       "Authorization": "Bearer " + finding["secret"]
-    }),
-    r.status == 200 && r.json.?slug.orValue("") != "" ? {
+    }); r.status == 200 && (r.json?.slug ?? "") != "" ? {
       "result": "valid",
-      "slug": r.json.?slug.orValue(""),
-      "name": r.json.?name.orValue(""),
-      "html_url": r.json.?html_url.orValue(""),
-      "external_url": r.json.?external_url.orValue("")
+      "slug": (r.json?.slug ?? ""),
+      "name": (r.json?.name ?? ""),
+      "html_url": (r.json?.html_url ?? ""),
+      "external_url": (r.json?.external_url ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)`
+    } : validate.unknown(r))`
 
 func GitHubApp() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-app-token",
-		Description: "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security.",
-		Regex:       regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z]{36}`),
-		Keywords:    []string{"ghu_", "ghs_"},
-		ValidateCEL: githubAppTokenCEL,
+		RuleID:       "github-app-token",
+		Description:  "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security.",
+		Regex:        regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z]{36}`),
+		Keywords:     []string{"ghu_", "ghs_"},
+		ValidateExpr: githubAppTokenExpr,
 		Filter: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	}
@@ -131,12 +120,12 @@ func GitHubApp() *config.Rule {
 func GitHubRefresh() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "github-refresh-token",
-		Description: "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services.",
-		Regex:       regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
-		Keywords:    []string{"ghr_"},
-		ValidateCEL: githubTokenCEL,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		RuleID:       "github-refresh-token",
+		Description:  "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services.",
+		Regex:        regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
+		Keywords:     []string{"ghr_"},
+		ValidateExpr: githubTokenExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

@@ -20,7 +20,7 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 		// After inspecting dozens of secrets, I'm fairly confident that they start with `xxx\dQ~`.
 		// However, this may not be (entirely) true, and this rule might need to be further refined in the future.
 		// Furthermore, it's possible that secrets have a checksum that could be used to further constrain this pattern.
-		Regex:   regexp.MustCompile(`(?:^|[\\'"\x60\s>=:(,)])([a-zA-Z0-9_~.]{3}\dQ~[a-zA-Z0-9_~.-]{31,34})(?:$|[\\'"\x60\s<),])`), // wtf, Go? https://github.com/golang/go/issues/18221
+		Regex: regexp.MustCompile(`(?:^|[\\'"\x60\s>=:(,)])([a-zA-Z0-9_~.]{3}\dQ~[a-zA-Z0-9_~.-]{31,34})(?:$|[\\'"\x60\s<),])`), // wtf, Go? https://github.com/golang/go/issues/18221
 		// The regex requires a digit immediately before `Q~`, so enumerate
 		// the ten digit-prefixed forms instead of the much looser `q~`.
 		Keywords: []string{

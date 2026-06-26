@@ -8,6 +8,8 @@ import (
 	"iter"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,15 +19,15 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
-	"github.com/betterleaks/betterleaks/internal/celenv"
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 
-	ahocorasick "github.com/BobuSumisu/aho-corasick"
 	"github.com/fatih/semgroup"
+	ahocorasick "github.com/rrethy/ahocorasick"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
 )
@@ -34,14 +36,14 @@ import (
 // Zero value means validation is disabled.
 type ValidationOptions struct {
 	Enabled      bool
+	Debug        bool
 	Workers      int
 	Timeout      time.Duration
-	Debug        bool
 	ExtractEmpty bool
 	StatusFilter string // comma-separated list of statuses to include
-	// ValidationEnvVars lists environment variable names the validation CEL
+	// ValidationEnvVars lists environment variable names the validation Expr
 	// env(...) binding may read (see --validation-env-vars). Parsed into
-	// ValidationEnvironment.AllowedEnv when the validation env is created.
+	// exprruntime.Runtime.AllowedEnv when the validation env is created.
 	ValidationEnvVars []string
 }
 
@@ -81,7 +83,7 @@ type Detector struct {
 	// printed in verbose mode. Parsed from --validation-status.
 	ValidationStatusFilter map[string]struct{}
 
-	// ValidationPool is the CEL validation worker pool.
+	// ValidationPool is the expression validation worker pool.
 	ValidationPool *validate.Pool
 
 	// ValidationCounts tracks how many findings were returned for each
@@ -98,7 +100,7 @@ type Detector struct {
 
 	// prefilter is a ahocorasick struct used for doing efficient string
 	// matching given a set of words (keywords from the rules in the config)
-	prefilter ahocorasick.Trie
+	prefilter *ahocorasick.Matcher
 
 	// a list of known findings that should be ignored
 	baseline []report.Finding
@@ -111,13 +113,21 @@ type Detector struct {
 
 	TotalBytes atomic.Uint64
 
-	tokenizer *tiktoken.Tiktoken
+	tokenizer     *tiktoken.Tiktoken
+	tokenizerOnce sync.Once
 
-	// validationEnv is the CEL environment used to compile and evaluate
-	// per-rule validation expressions. Created during construction;
-	// nil when no rules have ValidateCEL. The cmd layer may reconfigure
-	// the HTTP client/debug settings before evaluation begins.
-	validationEnv *celenv.ValidationEnvironment
+	exprRuntime *exprruntime.Runtime
+
+	// validationRuntime evaluates per-rule validation expressions. Created during
+	// construction; nil when no rules have ValidateExpr. The cmd layer may
+	// reconfigure the HTTP client/debug settings before evaluation begins.
+	validationRuntime  *exprruntime.Runtime
+	validationProgramM sync.Mutex
+	validationPrograms map[string]exprruntime.Program
+	globalFilter       exprruntime.Program
+	filterProgramM     sync.Mutex
+	filterPrograms     map[string]exprruntime.Program
+	rulesBySpecificity []string
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -192,8 +202,8 @@ type Detector struct {
 }
 
 // NewDetectorContext creates a new Detector.
-// It compiles all CEL programs (filters + validation) and, when
-// valOpts.Enabled is true, creates the validation worker pool.
+// It compiles global expressions and, when valOpts.Enabled is true, creates the
+// validation worker pool. Per-rule expressions compile lazily on first use.
 func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) *Detector {
 	if cfg == nil {
 		// TODO in v2 use NewDetector(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) (*Detector, error)
@@ -201,26 +211,17 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Fatal().Msg("config is required to create detector")
 		return nil
 	}
-	// grab offline tiktoken encoder
-	tiktoken.SetBpeLoader(&TiktokenLoader{})
-	tke, err := tiktoken.GetEncoding("cl100k_base")
-	if err != nil {
-		logging.Warn().Err(err).Msgf("Could not pull down cl100k_base tiktokenizer")
-	}
-
-	// Compile CEL filter programs so they are available at scan time.
-	// This is the single compilation owner — callers should NOT compile separately.
-	if compileErr := cfg.CompileCELFilters(tke); compileErr != nil {
-		logging.Fatal().Err(compileErr).Msg("failed to compile CEL filters")
-	}
-
-	// Compile CEL validation programs (no-op if no rules have ValidateCEL).
-	validationEnv, validationErr := cfg.CompileValidation()
+	// Compile validation programs (no-op if no rules have ValidateExpr).
+	validationRuntime, validationErr := cfg.CompileValidation()
 	if validationErr != nil {
-		logging.Fatal().Err(validationErr).Msg("failed to compile CEL validation expressions")
+		logging.Fatal().Err(validationErr).Msg("failed to compile validation expressions")
 	}
-	if validationEnv != nil {
-		validationEnv.AllowedEnv = celenv.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
+	if validationRuntime != nil {
+		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
+	}
+	exprRuntime, exprErr := exprruntime.New(nil)
+	if exprErr != nil {
+		logging.Fatal().Err(exprErr).Msg("failed to create expr runtime")
 	}
 
 	d := &Detector{
@@ -228,25 +229,34 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		findings:               make([]report.Finding, 0),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
-		prefilter:              *ahocorasick.NewTrieBuilder().AddStrings(maps.Keys(cfg.Keywords)).Build(),
+		prefilter:              ahocorasick.CompileStrings(maps.Keys(cfg.Keywords)),
 		Sema:                   semgroup.NewGroup(ctx, 40),
-		tokenizer:              tke,
-		validationEnv:          validationEnv,
+		exprRuntime:            exprRuntime,
+		validationRuntime:      validationRuntime,
+		validationPrograms:     make(map[string]exprruntime.Program),
+		filterPrograms:         make(map[string]exprruntime.Program),
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
+	}
+	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
+	exprRuntime.SetTokenizerProvider(d.Tokenizer)
+
+	// Compile only global prefilter programs so they are available before scanning.
+	// Global finding filters and per-rule filters compile lazily on first candidate.
+	if compileErr := cfg.CompileFilters(nil); compileErr != nil {
+		logging.Fatal().Err(compileErr).Msg("failed to compile filters")
 	}
 
 	// Set up validation pool when enabled.
-	if valOpts.Enabled && validationEnv != nil {
+	if valOpts.Enabled && validationRuntime != nil {
 		if valOpts.Timeout > 0 {
-			validationEnv.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
+			validationRuntime.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
 		}
-		validationEnv.DebugResponse = valOpts.Debug
-
 		workers := valOpts.Workers
 		if workers <= 0 {
 			workers = 10
 		}
-		d.ValidationPool = validate.NewPool(workers, validationEnv)
+		d.ValidationPool = validate.NewPool(workers, validationRuntime)
+		d.ValidationPool.Debug = valOpts.Debug
 
 		if valOpts.StatusFilter != "" {
 			d.ValidationStatusFilter = make(map[string]struct{})
@@ -258,7 +268,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 				}
 			}
 		}
-	} else if valOpts.Enabled && validationEnv == nil {
+	} else if valOpts.Enabled && validationRuntime == nil {
 		logging.Warn().Msg("validation enabled but no rules have validation expressions")
 	}
 
@@ -266,8 +276,89 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 }
 
 // Tokenizer returns the BPE tokenizer used for token efficiency filtering.
-// May be nil if the tokenizer failed to initialize (e.g., network error).
-func (d *Detector) Tokenizer() *tiktoken.Tiktoken { return d.tokenizer }
+// May be nil if the tokenizer failed to initialize.
+func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
+	d.tokenizerOnce.Do(func() {
+		tiktoken.SetBpeLoader(&TiktokenLoader{})
+		tke, err := tiktoken.GetEncoding("cl100k_base")
+		if err != nil {
+			logging.Warn().Err(err).Msg("Could not initialize cl100k_base tiktokenizer")
+			return
+		}
+		d.tokenizer = tke
+	})
+	return d.tokenizer
+}
+
+func (d *Detector) globalFilterProgram() (exprruntime.Program, bool, error) {
+	if d.Config.Filter == "" {
+		return nil, false, nil
+	}
+	d.filterProgramM.Lock()
+	defer d.filterProgramM.Unlock()
+	if d.globalFilter != nil {
+		return d.globalFilter, true, nil
+	}
+	prg, err := d.exprRuntime.CompileFilter(d.Config.Filter, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("compiling global filter: %w", err)
+	}
+	d.globalFilter = prg
+	return prg, true, nil
+}
+
+func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, error) {
+	if d.validationRuntime == nil {
+		return nil, false, nil
+	}
+	d.validationProgramM.Lock()
+	defer d.validationProgramM.Unlock()
+
+	rule, ok := d.Config.Rules[ruleID]
+	if !ok || rule.ValidateExpr == "" {
+		return nil, false, nil
+	}
+	if prg := d.validationPrograms[ruleID]; prg != nil {
+		return prg, true, nil
+	}
+	prg, err := d.validationRuntime.CompileValidation(rule.ValidateExpr)
+	if err != nil {
+		return nil, false, fmt.Errorf("compiling rule %s validation: %w", ruleID, err)
+	}
+	d.validationPrograms[ruleID] = prg
+	return prg, true, nil
+}
+
+func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, error) {
+	d.filterProgramM.Lock()
+	defer d.filterProgramM.Unlock()
+
+	rule := r
+	cacheable := false
+	if cfgRule, ok := d.Config.Rules[r.RuleID]; ok {
+		rule = cfgRule
+		cacheable = true
+	}
+	if rule.Filter == "" {
+		return nil, false, nil
+	}
+	if cacheable {
+		if prg := d.filterPrograms[rule.RuleID]; prg != nil {
+			return prg, true, nil
+		}
+	}
+	if prg := rule.FilterProgram(); prg != nil {
+		return prg, true, nil
+	}
+	prg, err := d.exprRuntime.CompileFilter(rule.Filter, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("compiling rule %s filter: %w", rule.RuleID, err)
+	}
+	if cacheable {
+		d.filterPrograms[rule.RuleID] = prg
+	}
+	return prg, true, nil
+}
 
 // SkipFunc returns a sources.SkipFunc callback that evaluates the config's
 // prefilter program against fragment attributes. Returns nil when no prefilter
@@ -281,7 +372,7 @@ func (d *Detector) SkipFunc() sources.SkipFunc {
 		return nil
 	}
 	return func(attrs map[string]string) bool {
-		skip, err := celenv.EvalPrefilter(prg, attrs)
+		skip, err := d.exprRuntime.EvalPrefilter(prg, attrs)
 		if err != nil {
 			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
 			return false
@@ -298,11 +389,12 @@ func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragmen
 func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding {
 	path := fragment.Attr(sources.AttrPath)
 	finding := report.Finding{
-		RuleID:      r.RuleID,
-		Description: r.Description,
-		Match:       "file detected: " + path,
-		Tags:        r.Tags,
-		Attributes:  maps.Clone(fragment.Attributes),
+		RuleID:          r.RuleID,
+		Description:     r.Description,
+		Match:           "file detected: " + path,
+		Tags:            r.Tags,
+		Attributes:      maps.Clone(fragment.Attributes),
+		RuleSpecificity: r.Specificity,
 	}
 	finding.SyncDeprecatedSourceFields()
 	return finding
@@ -398,10 +490,12 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 						continue
 					}
 					if d.ValidationPool != nil {
-						if rule, ok := d.Config.Rules[finding.RuleID]; ok && rule.CelProgram() != nil {
+						if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
+							return err
+						} else if ok {
 							if err := d.ValidationPool.SubmitContext(runCtx,
 								finding,
-								rule.CelProgram()); err != nil {
+								prg); err != nil {
 								if errors.Is(err, context.Canceled) {
 									return errStopIteration
 								}
@@ -578,15 +672,12 @@ ScanLoop:
 			// to the rules that need checking via KeywordToRules.
 			// Use a pooled byte buffer for lowercasing to avoid allocating
 			lowerBufPtr, lowerBuf := getLowerBuf(currentRaw)
-			acMatches := d.prefilter.Match(lowerBuf)
+			acMatches := d.prefilter.FindAllByteSlice(lowerBuf)
 
 			// Build a set of rule IDs to check based on keyword matches.
 			rulesToCheck := make(map[string]struct{}, len(acMatches))
 			for _, m := range acMatches {
-				// m.Match() returns the keyword as []byte; convert to string
-				// for the map lookup. This is a small allocation per keyword
-				// match (typically few), not per fragment byte.
-				keyword := string(m.Match())
+				keyword := string(m.Word)
 				for _, ruleID := range d.Config.KeywordToRules[keyword] {
 					rulesToCheck[ruleID] = struct{}{}
 				}
@@ -597,13 +688,14 @@ ScanLoop:
 				rulesToCheck[ruleID] = struct{}{}
 			}
 
-			for ruleID := range rulesToCheck {
+			ruleIDs := d.orderedRuleIDs(rulesToCheck)
+			for _, ruleID := range ruleIDs {
 				select {
 				case <-ctx.Done():
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRule(fragment, currentRaw, rule, encodedSegments)...)
+					findings = append(findings, d.detectFragmentWithRule(fragment, currentRaw, rule, encodedSegments, findings)...)
 				}
 			}
 
@@ -627,11 +719,57 @@ ScanLoop:
 	return filter(findings)
 }
 
+func (d *Detector) orderedRuleIDs(ruleSet map[string]struct{}) []string {
+	var ruleIDs []string
+	seen := make(map[string]struct{}, len(ruleSet))
+	appendRule := func(ruleID string) {
+		if _, ok := ruleSet[ruleID]; !ok {
+			return
+		}
+		if _, ok := seen[ruleID]; ok {
+			return
+		}
+		seen[ruleID] = struct{}{}
+		ruleIDs = append(ruleIDs, ruleID)
+	}
+
+	for _, ruleID := range d.rulesBySpecificity {
+		appendRule(ruleID)
+	}
+	for ruleID := range ruleSet {
+		appendRule(ruleID)
+	}
+	return ruleIDs
+}
+
+func orderedRulesBySpecificity(cfg *config.Config) []string {
+	ruleIDs := make([]string, 0, len(cfg.Rules))
+	seen := make(map[string]struct{}, len(cfg.Rules))
+	for _, ruleID := range cfg.OrderedRules {
+		if _, ok := cfg.Rules[ruleID]; !ok {
+			continue
+		}
+		seen[ruleID] = struct{}{}
+		ruleIDs = append(ruleIDs, ruleID)
+	}
+	for ruleID := range cfg.Rules {
+		if _, ok := seen[ruleID]; ok {
+			continue
+		}
+		ruleIDs = append(ruleIDs, ruleID)
+	}
+	sort.SliceStable(ruleIDs, func(i, j int) bool {
+		return cfg.Rules[ruleIDs[i]].Specificity > cfg.Rules[ruleIDs[j]].Specificity
+	})
+	return ruleIDs
+}
+
 // detectFragmentWithRule scans the given fragment for the given rule and returns a list of findings
 func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	currentRaw string,
 	r config.Rule,
-	encodedSegments []*codec.EncodedSegment) []report.Finding {
+	encodedSegments []*codec.EncodedSegment,
+	priorFindings []report.Finding) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
@@ -717,17 +855,18 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		finding := report.Finding{
-			RuleID:      r.RuleID,
-			Description: r.Description,
-			StartLine:   fragment.StartLine + loc.startLine,
-			EndLine:     fragment.StartLine + loc.endLine,
-			StartColumn: loc.startColumn,
-			EndColumn:   loc.endColumn,
-			Line:        fragment.Raw[loc.startLineIndex:loc.endLineIndex],
-			Match:       secret,
-			Secret:      secret,
-			Attributes:  maps.Clone(fragment.Attributes),
-			Tags:        tags,
+			RuleID:          r.RuleID,
+			Description:     r.Description,
+			StartLine:       fragment.StartLine + loc.startLine,
+			EndLine:         fragment.StartLine + loc.endLine,
+			StartColumn:     loc.startColumn,
+			EndColumn:       loc.endColumn,
+			Line:            fragment.Raw[loc.startLineIndex:loc.endLineIndex],
+			Match:           secret,
+			Secret:          secret,
+			Attributes:      maps.Clone(fragment.Attributes),
+			Tags:            tags,
+			RuleSpecificity: r.Specificity,
 		}
 
 		// TODO eventually move this git specific bit into somewhere... better?
@@ -785,15 +924,21 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
+		if len(priorFindings) > 0 && isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
+			continue
+		}
+
 		// Entropy is always computed — needed for report output regardless of filter path.
 		entropy := shannonEntropy(finding.Secret)
 		finding.Entropy = float32(entropy)
 
 		finding.SetFingerprint()
 
-		// before setting CELContext, check if we have a validate or filter (TODO rename CelProgram to ValidateProgram)
-		if r.CelProgram() != nil || d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
-			finding.SetCELContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
+		hasGlobalFilter := d.Config.Filter != "" || d.Config.FilterProgram() != nil
+		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
+		// Validation/filter expressions need context text in the finding map.
+		if r.ValidateExpr != "" || r.ValidationProgram() != nil || hasGlobalFilter || hasRuleFilter {
+			finding.SetExprContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
 				Mode:        ContextModeBox,
 				LinesBefore: 20,
 				LinesAfter:  20,
@@ -804,19 +949,22 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]string
-		if d.Config.FilterProgram() != nil || r.FilterProgram() != nil {
-			findingMap = finding.ToCELMap()
+		if hasGlobalFilter || hasRuleFilter {
+			findingMap = finding.ToExprMap()
+			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
 			// For decoded segments, currentLine carries the decoded line text
 			// (via codec.CurrentLine). The old checkFindingAllowed used this for
-			// regexTarget="line". Preserve that behaviour in the CEL path.
+			// regexTarget="line". Preserve that behaviour in the Expr path.
 			if currentLine != "" {
 				findingMap["line"] = currentLine
 			}
 		}
 
-		// Global filter: CEL path (attributes + finding).
-		if d.Config.FilterProgram() != nil {
-			skip, err := celenv.EvalFilter(d.Config.FilterProgram(), findingMap, fragment.Attributes)
+		// Global filter: Expr path (attributes + finding).
+		if prg, ok, err := d.globalFilterProgram(); err != nil {
+			logger.Warn().Err(err).Msg("global filter compile error")
+		} else if ok {
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -824,9 +972,11 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		// Rule filter: CEL path (includes entropy, regex/stopword allowlists, tokenEfficiency).
-		if r.FilterProgram() != nil {
-			skip, err := celenv.EvalFilter(r.FilterProgram(), findingMap, fragment.Attributes)
+		// Rule filter: Expr path (includes entropy, regex/stopword allowlists, tokenEfficiency).
+		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
+			logger.Warn().Err(err).Msg("rule filter compile error")
+		} else if ok {
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {
@@ -871,7 +1021,7 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		inheritedFragment.InheritedFromFinding = true
 
 		// Call detectRule once for each required rule
-		requiredFindings := d.detectFragmentWithRule(inheritedFragment, currentRaw, rule, encodedSegments)
+		requiredFindings := d.detectFragmentWithRule(inheritedFragment, currentRaw, rule, encodedSegments, nil)
 		allRequiredFindings[requiredRule.RuleID] = requiredFindings
 
 		logger.Debug().
@@ -896,15 +1046,16 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 			for _, requiredFinding := range foundRequiredFindings {
 				if d.withinProximity(primaryFinding, requiredFinding, requiredRule) {
 					req := &report.RequiredFinding{
-						RuleID:        requiredFinding.RuleID,
-						StartLine:     requiredFinding.StartLine,
-						EndLine:       requiredFinding.EndLine,
-						StartColumn:   requiredFinding.StartColumn,
-						EndColumn:     requiredFinding.EndColumn,
-						Line:          requiredFinding.Line,
-						Match:         requiredFinding.Match,
-						Secret:        requiredFinding.Secret,
-						CaptureGroups: requiredFinding.CaptureGroups,
+						RuleID:          requiredFinding.RuleID,
+						StartLine:       requiredFinding.StartLine,
+						EndLine:         requiredFinding.EndLine,
+						StartColumn:     requiredFinding.StartColumn,
+						EndColumn:       requiredFinding.EndColumn,
+						Line:            requiredFinding.Line,
+						Match:           requiredFinding.Match,
+						Secret:          requiredFinding.Secret,
+						CaptureGroups:   requiredFinding.CaptureGroups,
+						RuleSpecificity: requiredFinding.RuleSpecificity,
 					}
 					requiredFindings = append(requiredFindings, req)
 				}

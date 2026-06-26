@@ -13,17 +13,14 @@ func LightOn() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"lighton", "paradigm"}, `[A-Za-z0-9_\-]{40,80}`, true),
 		Keywords:    []string{"lighton", "paradigm"},
 		Entropy:     3.5,
-		ValidateCEL: `cel.bind(r,
-  http.get("https://paradigm.lighton.ai/api/v2/models", {
+		ValidateExpr: `let r = http.get("https://paradigm.lighton.ai/api/v2/models", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"object"') ? {
+  }); r.status == 200 && (r.body contains '"object"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 	}
 
 	tps := utils.GenerateSampleSecrets("paradigm", secrets.NewSecretWithEntropy(`[A-Za-z0-9_\-]{48}`, 3.5))

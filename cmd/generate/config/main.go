@@ -424,7 +424,7 @@ func main() {
 
 	funcMap := template.FuncMap{
 		"tomlQuote": tomlQuote,
-		"tomlCEL": func(s string) string {
+		"tomlExpr": func(s string) string {
 			// Always use TOML multi-line literal strings for filter/prefilter
 			// expressions. This avoids quoting issues and improves readability.
 			return "'''\n" + s + "\n'''"

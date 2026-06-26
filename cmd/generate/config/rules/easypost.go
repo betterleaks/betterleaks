@@ -14,7 +14,7 @@ func EasyPost() *config.Rule {
 		Description: "Identified an EasyPost API token, which could lead to unauthorized postal and shipment service access and data exposure.",
 		Regex:       regexp.MustCompile(`\bEZAK(?i)[a-z0-9]{54}\b`),
 		Keywords:    []string{"EZAK"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -37,7 +37,7 @@ func EasyPostTestAPI() *config.Rule {
 		Description: "Detected an EasyPost test API token, risking exposure of test environments and potentially sensitive shipment data.",
 		Regex:       regexp.MustCompile(`\bEZTK(?i)[a-z0-9]{54}\b`),
 		Keywords:    []string{"EZTK"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

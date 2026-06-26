@@ -11,21 +11,21 @@ import (
 )
 
 //go:embed assets/cl100k_base.tiktoken.gz
-var compressedBPEData []byte
+var bpeData []byte
 
 // TikTokenLoader implements the tiktoken.BpeLoader interface
 type TiktokenLoader struct{}
 
-// LoadTiktokenBpe decompresses the embedded file and parses it into the expected map
+// LoadTiktokenBpe parses the embedded BPE file into the expected map.
 func (l *TiktokenLoader) LoadTiktokenBpe(file string) (map[string]int, error) {
-	gz, err := gzip.NewReader(bytes.NewReader(compressedBPEData))
+	reader, err := gzip.NewReader(bytes.NewReader(bpeData))
 	if err != nil {
 		return nil, err
 	}
-	defer gz.Close()
+	defer reader.Close()
 
 	bpeRanks := make(map[string]int)
-	scanner := bufio.NewScanner(gz)
+	scanner := bufio.NewScanner(reader)
 
 	for scanner.Scan() {
 		line := scanner.Text()

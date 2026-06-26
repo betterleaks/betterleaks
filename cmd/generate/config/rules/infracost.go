@@ -13,7 +13,7 @@ func InfracostAPIToken() *config.Rule {
 		Description: "Detected an Infracost API Token, risking unauthorized access to cloud cost estimation tools and financial data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ico-[a-zA-Z0-9]{32}`, false),
 		Keywords:    []string{"ico-"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

@@ -13,17 +13,14 @@ func Upstage() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"upstage"}, `[A-Za-z0-9]{40,50}`, true),
 		Keywords:    []string{"upstage"},
 		Entropy:     3.5,
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.upstage.ai/v1/models", {
+		ValidateExpr: `let r = http.get("https://api.upstage.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"data"') ? {
+  }); r.status == 200 && (r.body contains '"data"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 	}
 
 	tps := utils.GenerateSampleSecrets("upstage", secrets.NewSecretWithEntropy(`[A-Za-z0-9]{40}`, 3.5))
