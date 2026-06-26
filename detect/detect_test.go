@@ -942,6 +942,58 @@ const token = "mockSecret";
 	}
 }
 
+func TestDetectFilterSkipLogging(t *testing.T) {
+	tests := []struct {
+		name         string
+		globalFilter string
+		ruleFilter   string
+		wantMessage  string
+	}{
+		{
+			name:         "global filter",
+			globalFilter: "true",
+			wantMessage:  "skipping finding: global filter",
+		},
+		{
+			name:        "rule filter",
+			ruleFilter:  "true",
+			wantMessage: "skipping finding: rule filter",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rule := config.Rule{
+				RuleID: "test-rule",
+				Regex:  regexp.MustCompile(`secret`),
+				Filter: tt.ruleFilter,
+			}
+			cfg := &config.Config{
+				Rules:          map[string]config.Rule{rule.RuleID: rule},
+				Keywords:       map[string]struct{}{},
+				KeywordToRules: map[string][]string{},
+				NoKeywordRules: []string{rule.RuleID},
+				Filter:         tt.globalFilter,
+			}
+			detector := NewDetector(cfg)
+
+			var logOutput bytes.Buffer
+			originalLogger := logging.Logger
+			logging.Logger = zerolog.New(&logOutput).Level(zerolog.TraceLevel)
+			t.Cleanup(func() {
+				logging.Logger = originalLogger
+			})
+
+			findings := detector.DetectString("secret")
+
+			require.Empty(t, findings)
+			require.Contains(t, logOutput.String(), tt.wantMessage)
+			require.Contains(t, logOutput.String(), `"rule_id":"test-rule"`)
+			require.Contains(t, logOutput.String(), `"finding":"secret"`)
+		})
+	}
+}
+
 func stripANSI(s string) string {
 	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	return ansiRegex.ReplaceAllString(s, "")

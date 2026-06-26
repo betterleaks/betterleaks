@@ -968,6 +968,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
+				logger.Trace().
+					Str("finding", finding.Secret).
+					Msg("skipping finding: global filter")
 				continue
 			}
 		}
@@ -980,6 +983,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {
+				logger.Trace().
+					Str("finding", finding.Secret).
+					Msg("skipping finding: rule filter")
 				continue
 			}
 		}
