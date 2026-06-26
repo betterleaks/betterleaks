@@ -165,21 +165,8 @@ func filter(findings []report.Finding) []report.Finding {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 			logging.Trace().Msgf("skipping %s finding (%s), already a required component of another finding", f.RuleID, redactedMatch)
 			include = false
-		} else {
-			for _, fPrime := range findings {
-				if f.StartLine == fPrime.StartLine &&
-					f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
-					f.RuleID != fPrime.RuleID &&
-					strings.Contains(fPrime.Secret, f.Secret) &&
-					fPrime.RuleSpecificity > f.RuleSpecificity {
-
-					genericMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
-					betterMatch := strings.ReplaceAll(fPrime.Match, fPrime.Secret, "REDACTED")
-					logging.Trace().Msgf("skipping %s finding (%s), %s rule takes precedence (%s)", f.RuleID, genericMatch, fPrime.RuleID, betterMatch)
-					include = false
-					break
-				}
-			}
+		} else if isSuppressedByHigherSpecificityFinding(f, findings) {
+			include = false
 		}
 
 		if include {

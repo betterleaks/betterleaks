@@ -92,12 +92,23 @@ func truncateDebugString(s string) string {
 }
 
 func debugHeaderValue(name, value string) string {
-	switch strings.ToLower(name) {
-	case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key", "x-auth-token", "private-token":
+	if sensitiveHeaderName(name) {
 		return "[redacted]"
-	default:
-		return value
 	}
+	return value
+}
+
+func sensitiveHeaderName(name string) bool {
+	name = strings.ToLower(name)
+	if name == "cookie" || name == "set-cookie" {
+		return true
+	}
+	for _, token := range []string{"auth", "token", "key", "secret", "cookie"} {
+		if strings.Contains(name, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func mapToStringAny(v any) map[string]any {

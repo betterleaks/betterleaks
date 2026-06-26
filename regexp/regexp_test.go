@@ -1,6 +1,7 @@
 package regexp
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/regexp/internal"
@@ -16,6 +17,14 @@ func (e *countingEngine) Compile(str string) (internal.CompiledRegexp, error) {
 }
 
 func (e *countingEngine) Version() string { return "counting" }
+
+type failingEngine struct{}
+
+func (e failingEngine) Compile(string) (internal.CompiledRegexp, error) {
+	return nil, errors.New("compile failed")
+}
+
+func (e failingEngine) Version() string { return "failing" }
 
 func TestCompileIsLazy(t *testing.T) {
 	previous := currentEngine
@@ -50,5 +59,35 @@ func TestCompileIsLazy(t *testing.T) {
 	_ = re.FindString("foobar")
 	if engine.compiles != 1 {
 		t.Fatalf("regex compiled more than once")
+	}
+}
+
+func TestLazyCompileFailureDoesNotPanic(t *testing.T) {
+	previous := currentEngine
+	defer SetEngine(previous)
+
+	SetEngine(failingEngine{})
+
+	re, err := Compile(`foo`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if re.MatchString("foo") {
+		t.Fatal("MatchString returned true after compile failure")
+	}
+	if got := re.FindString("foo"); got != "" {
+		t.Fatalf("FindString = %q, want empty", got)
+	}
+	if got := re.FindStringSubmatch("foo"); got != nil {
+		t.Fatalf("FindStringSubmatch = %#v, want nil", got)
+	}
+	if got := re.FindAllStringIndex("foo", -1); got != nil {
+		t.Fatalf("FindAllStringIndex = %#v, want nil", got)
+	}
+	if got := re.ReplaceAllString("foo", "bar"); got != "foo" {
+		t.Fatalf("ReplaceAllString = %q, want original", got)
+	}
+	if got := re.SubexpNames(); got != nil {
+		t.Fatalf("SubexpNames = %#v, want nil", got)
 	}
 }

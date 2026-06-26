@@ -24,38 +24,51 @@ type Regexp struct {
 }
 
 func (r *Regexp) MatchString(s string) bool {
-	return r.compiled().MatchString(s)
+	e, ok := r.compiled()
+	return ok && e.MatchString(s)
 }
 func (r *Regexp) FindString(s string) string {
-	return r.compiled().FindString(s)
+	if e, ok := r.compiled(); ok {
+		return e.FindString(s)
+	}
+	return ""
 }
 func (r *Regexp) FindStringSubmatch(s string) []string {
-	return r.compiled().FindStringSubmatch(s)
+	if e, ok := r.compiled(); ok {
+		return e.FindStringSubmatch(s)
+	}
+	return nil
 }
 func (r *Regexp) FindAllStringIndex(s string, n int) [][]int {
-	return r.compiled().FindAllStringIndex(s, n)
+	if e, ok := r.compiled(); ok {
+		return e.FindAllStringIndex(s, n)
+	}
+	return nil
 }
 func (r *Regexp) ReplaceAllString(src, repl string) string {
-	return r.compiled().ReplaceAllString(src, repl)
+	if e, ok := r.compiled(); ok {
+		return e.ReplaceAllString(src, repl)
+	}
+	return src
 }
 func (r *Regexp) NumSubexp() int {
 	return r.numSubexp
 }
 func (r *Regexp) SubexpNames() []string {
-	return r.compiled().SubexpNames()
+	if e, ok := r.compiled(); ok {
+		return e.SubexpNames()
+	}
+	return nil
 }
 func (r *Regexp) String() string {
 	return r.pattern
 }
 
-func (r *Regexp) compiled() internal.CompiledRegexp {
+func (r *Regexp) compiled() (internal.CompiledRegexp, bool) {
 	r.once.Do(func() {
 		r.e, r.err = r.engine.Compile(r.pattern)
 	})
-	if r.err != nil {
-		panic(r.err)
-	}
-	return r.e
+	return r.e, r.err == nil && r.e != nil
 }
 
 var currentEngine Engine = Stdlib{}

@@ -180,7 +180,11 @@ func TestEvalValidationDebugMetadata(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer secret" {
 			t.Fatalf("authorization header = %q", r.Header.Get("Authorization"))
 		}
+		if r.Header.Get("X-Figma-Token") != "figma-secret" {
+			t.Fatalf("x-figma-token header = %q", r.Header.Get("X-Figma-Token"))
+		}
 		w.Header().Set("X-Debug", "present")
+		w.Header().Set("DD-API-KEY", "datadog-secret")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
@@ -190,7 +194,7 @@ func TestEvalValidationDebugMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exprruntime.New: %v", err)
 	}
-	prg, err := env.CompileValidation(`http.post("` + srv.URL + `", {"Authorization": "Bearer secret"}, "payload").status`)
+	prg, err := env.CompileValidation(`http.post("` + srv.URL + `", {"Authorization": "Bearer secret", "X-Figma-Token": "figma-secret"}, "payload").status`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -225,11 +229,17 @@ func TestEvalValidationDebugMetadata(t *testing.T) {
 	if withDebug.Debug["req_header_authorization"] != "[redacted]" {
 		t.Fatalf("authorization debug header = %v", withDebug.Debug["req_header_authorization"])
 	}
+	if withDebug.Debug["req_header_x-figma-token"] != "[redacted]" {
+		t.Fatalf("x-figma-token debug header = %v", withDebug.Debug["req_header_x-figma-token"])
+	}
 	if withDebug.Debug["resp_status"] != int64(http.StatusCreated) {
 		t.Fatalf("resp_status = %v", withDebug.Debug["resp_status"])
 	}
 	if withDebug.Debug["resp_header_x-debug"] != "present" {
 		t.Fatalf("resp_header_x-debug = %v", withDebug.Debug["resp_header_x-debug"])
+	}
+	if withDebug.Debug["resp_header_dd-api-key"] != "[redacted]" {
+		t.Fatalf("resp_header_dd-api-key = %v", withDebug.Debug["resp_header_dd-api-key"])
 	}
 	body, ok := withDebug.Debug["resp_body"].(string)
 	if !ok || !strings.Contains(body, `"ok":true`) {

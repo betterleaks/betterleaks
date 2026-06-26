@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	_ "embed"
 	"encoding/base64"
-	"io"
 	"strconv"
 	"strings"
 )
@@ -25,13 +24,8 @@ func (l *TiktokenLoader) LoadTiktokenBpe(file string) (map[string]int, error) {
 	}
 	defer reader.Close()
 
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-
 	bpeRanks := make(map[string]int)
-	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner := bufio.NewScanner(reader)
 
 	for scanner.Scan() {
 		line := scanner.Text()
