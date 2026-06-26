@@ -225,7 +225,7 @@ L19|tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
 	// Line lengths vary. Compute match offset by summing preceding line lengths + newlines.
 	// Leading \n = 1, then lines 0-9 each contribute len+1 (\n).
 	matchStart := 1
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		matchStart += len(lines[i]) + 1
 	}
 	matchStart += matchCol

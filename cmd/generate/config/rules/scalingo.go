@@ -13,7 +13,7 @@ func ScalingoAPIToken() *config.Rule {
 		RuleID:      "scalingo-api-token",
 		Regex:       utils.GenerateUniqueTokenRegex(`tk-us-[\w-]{48}`, false),
 		Keywords:    []string{"tk-us-"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

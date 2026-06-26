@@ -21,21 +21,18 @@ func HuggingFaceAccessToken() *config.Rule {
 		Keywords: []string{
 			"hf_",
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://huggingface.co/api/whoami-v2", {
+		ValidateExpr: `let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "username": r.json.?name.orValue("")
-  } : r.status == 401 && r.body.contains("expired") ? {
+    "username": (r.json?.name ?? "")
+  } : r.status == 401 && (r.body contains "expired") ? {
     "result": "revoked",
     "reason": "Token expired"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
@@ -91,21 +88,18 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 		Keywords: []string{
 			"api_org_",
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://huggingface.co/api/whoami-v2", {
+		ValidateExpr: `let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "username": r.json.?name.orValue("")
-  } : r.status == 401 && r.body.contains("expired") ? {
+    "username": (r.json?.name ?? "")
+  } : r.status == 401 && (r.body contains "expired") ? {
     "result": "revoked",
     "reason": "Token expired"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 

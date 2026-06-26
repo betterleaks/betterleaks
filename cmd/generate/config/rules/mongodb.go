@@ -18,21 +18,17 @@ func MongoDBAtlasServiceAccountSecret() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "mongodb-atlas-service-account-id"},
 		},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://cloud.mongodb.com/api/oauth/token", {
+		ValidateExpr: `let r = http.post("https://cloud.mongodb.com/api/oauth/token", {
     "Accept": "application/json",
     "Content-Type": "application/x-www-form-urlencoded",
     "Authorization": "Basic " + base64.encode(bytes(captures["mongodb-atlas-service-account-id"] + ":" + finding["secret"]))
-  }, "grant_type=client_credentials"),
-  r.status == 200 && r.json.?access_token.orValue("") != "" ? {
+  }, "grant_type=client_credentials"); r.status == 200 && (r.json?.access_token ?? "") != "" ? {
     "result": "valid"
   } : r.status == 401 ? {
     "result": "invalid",
-    "reason": r.json.?error.orValue("Unauthorized")
-  } : validate.unknown(r)
-)`,
-		Filter: `entropy(finding["secret"]) <= 3.0
-|| matchesAny(finding["secret"], [r"""^mdb_sa_sk_[0-9]{40}$"""])`,
+    "reason": (r.json?.error ?? "Unauthorized")
+  } : validate.unknown(r)`,
+		Filter: "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`^mdb_sa_sk_[0-9]{40}$`])",
 	}
 
 	tps := utils.GenerateSampleSecrets("mongodbAtlasServiceAccount", "mdb_sa_sk_"+secrets.NewSecret(utils.AlphaNumeric("40")))
@@ -70,11 +66,7 @@ func MongoDBConnectionString() *config.Rule {
 		Description: "Detected a MongoDB connection string with embedded credentials, potentially exposing direct database access and sensitive application data.",
 		Regex:       regexp.MustCompile(`\b(mongodb(?:\+srv)?://(?P<username>[!-9;-~]{3,50}):(?P<password>[!-?A-~]{3,88})@(?P<host>(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?(?:,(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?)*)/?(?:(?P<authdb>[\w-]+)?(?P<options>\?\w+=[\w@/.$-]+(?:&(?:amp;)?\w+=[\w@/.$-]+)*)?)?)(?:['"\s;\x60]|\\[nr]|\b|$)`),
 		Keywords:    []string{"mongodb://", "mongodb+srv://"},
-		Filter: `entropy(finding["secret"]) <= 4.0
-|| matchesAny(finding["secret"], [
-  r"""(?i)\bmongodb(?:\+srv)?:\/\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\/]*)?@""",
-  r"""(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*"""
-])`,
+		Filter:      "entropy(finding[\"secret\"]) <= 4.0\n|| matchesAny(finding[\"secret\"], [\n  `(?i)\\bmongodb(?:\\+srv)?:\\/\\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\\/]*)?@`,\n  `(?i)\\bmongodb(?:\\+srv)?:\\/\\/[^\\s'\"\\x60]*(?:\\$\\{\\{[^}]+}}|\\$\\{[^}]+}|\\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\\[[^]]+])[^\\s'\"\\x60]*`\n])",
 	}
 
 	tps := []string{

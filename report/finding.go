@@ -47,6 +47,8 @@ type Finding struct {
 
 	Tags []string
 
+	RuleSpecificity int `json:"-"`
+
 	// RequiredSets holds the Cartesian-product combinations of required findings.
 	// Each set is one complete group of components that can be validated independently.
 	RequiredSets []RequiredSet `json:",omitempty"`
@@ -59,8 +61,8 @@ type Finding struct {
 	// unique identifier
 	Fingerprint string
 
-	// Hidden field to hold the context for CEL evaluation without bloating the report output.
-	celContext string
+	// Hidden field to hold expression context without bloating the report output.
+	exprContext string
 
 	// Deprecated
 	// File is the name of the file containing the finding
@@ -99,15 +101,16 @@ type RequiredSet struct {
 type RequiredFinding struct {
 	// contains a subset of the Finding fields
 	// only used for reporting
-	RuleID        string
-	StartLine     int
-	EndLine       int
-	StartColumn   int
-	EndColumn     int
-	Line          string `json:"-"`
-	Match         string
-	Secret        string
-	CaptureGroups map[string]string `json:",omitempty"`
+	RuleID          string
+	StartLine       int
+	EndLine         int
+	StartColumn     int
+	EndColumn       int
+	Line            string `json:"-"`
+	Match           string
+	Secret          string
+	CaptureGroups   map[string]string `json:",omitempty"`
+	RuleSpecificity int               `json:"-"`
 }
 
 // BuildRequiredSets generates the Cartesian product of the given required findings
@@ -214,8 +217,8 @@ func MaskSecret(secret string, percent uint) string {
 	return string(runes[:keep]) + "..."
 }
 
-func (f *Finding) SetCELContext(context string) {
-	f.celContext = context
+func (f *Finding) SetExprContext(context string) {
+	f.exprContext = context
 }
 
 // Print writes a verbose finding using the pretty box format.
@@ -338,15 +341,15 @@ func (f *Finding) SetFingerprint() {
 	}
 }
 
-// ToCELMap returns the fixed-shape map[string]string used as the `finding`
-// variable in CEL filter and validation expressions.
-func (f *Finding) ToCELMap() map[string]string {
+// ToExprMap returns the fixed-shape map[string]string used as the `finding`
+// variable in filter and validation expressions.
+func (f *Finding) ToExprMap() map[string]string {
 	return map[string]string{
 		"secret":      f.Secret,
 		"match":       f.Match,
 		"line":        f.Line,
 		"rule_id":     f.RuleID,
 		"description": f.Description,
-		"context":     f.celContext,
+		"context":     f.exprContext,
 	}
 }

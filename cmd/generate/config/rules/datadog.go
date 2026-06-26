@@ -15,18 +15,15 @@ func DatadogAPIKey() *config.Rule {
 		Keywords: []string{
 			"datadog",
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.datadoghq.com/api/v1/validate", {
+		ValidateExpr: `let r = http.get("https://api.datadoghq.com/api/v1/validate", {
     "Accept": "application/json",
     "DD-API-KEY": finding["secret"]
-  }),
-  r.status == 200 && !r.body.contains("\"Forbidden\"") ? {
+  }); r.status == 200 && !(r.body contains "\"Forbidden\"") ? {
     "result": "valid"
-  } : r.status in [401, 403] || r.body.contains("\"Forbidden\"") ? {
+  } : r.status in [401, 403] || (r.body contains "\"Forbidden\"") ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.5),
 	}
 

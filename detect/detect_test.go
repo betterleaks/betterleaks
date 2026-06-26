@@ -142,7 +142,8 @@ func compare(t *testing.T, got, want []report.Finding) {
 		cmpopts.IgnoreFields(report.Finding{},
 			"Fingerprint", "Author", "Email", "Date", "Message", "Commit",
 			"File", "SymlinkFile", "Attributes",
-			"RequiredSets"),
+			"RequiredSets", "RuleSpecificity"),
+		cmpopts.IgnoreFields(report.RequiredFinding{}, "RuleSpecificity"),
 		cmpopts.IgnoreUnexported(report.Finding{}),
 		cmpopts.EquateApprox(0.0001, 0), // For floating point Entropy comparison
 	); diff != "" {
@@ -157,7 +158,13 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 	for i := range findings {
 		findings[i].Attributes = nil
 		findings[i].Link = ""
-		findings[i].SetCELContext("")
+		findings[i].RuleSpecificity = 0
+		for si := range findings[i].RequiredSets {
+			for ci := range findings[i].RequiredSets[si].Components {
+				findings[i].RequiredSets[si].Components[ci].RuleSpecificity = 0
+			}
+		}
+		findings[i].SetExprContext("")
 	}
 	return findings
 }
@@ -2528,12 +2535,12 @@ let password = 'Summer2024!';`
 				},
 			}
 
-			// Translate legacy allowlists to CEL filter and compile.
+			// Translate legacy allowlists to filter expressions and compile.
 			cfg := &config.Config{
 				Rules: map[string]config.Rule{"test-rule": rule},
 			}
 			require.NoError(t, cfg.TranslateLegacyFilters())
-			require.NoError(t, cfg.CompileCELFilters(nil))
+			require.NoError(t, cfg.CompileFilters(nil))
 			rule = cfg.Rules["test-rule"]
 
 			d, err := NewDetectorDefaultConfig()
@@ -2542,7 +2549,7 @@ let password = 'Summer2024!';`
 			f := tc.fragment
 			f.Raw = raw
 
-			actual := d.detectFragmentWithRule(f, raw, rule, []*codec.EncodedSegment{})
+			actual := d.detectFragmentWithRule(f, raw, rule, []*codec.EncodedSegment{}, nil)
 			compare(t, tc.expected, actual)
 		})
 	}
@@ -2702,7 +2709,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	require.NoError(t, err)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{})
+			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{}, nil)
 			compare(t, test.expected, actual)
 		})
 	}
@@ -2922,15 +2929,15 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 	require.NoError(t, err)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			// Translate legacy allowlists to CEL filter and compile.
+			// Translate legacy allowlists to filter expressions and compile.
 			cfg := &config.Config{
 				Rules: map[string]config.Rule{test.rule.RuleID: test.rule},
 			}
 			require.NoError(t, cfg.TranslateLegacyFilters())
-			require.NoError(t, cfg.CompileCELFilters(nil))
+			require.NoError(t, cfg.CompileFilters(nil))
 			rule := cfg.Rules[test.rule.RuleID]
 
-			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, rule, []*codec.EncodedSegment{})
+			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, rule, []*codec.EncodedSegment{}, nil)
 			compare(t, test.expected, actual)
 		})
 	}

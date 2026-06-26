@@ -250,6 +250,7 @@ func main() {
 		rules.JWTBase64(),
 		rules.JumpCloudAPIKey(),
 		rules.KagiAPIKey(),
+		rules.KimiAPIKey(),
 		rules.KlaviyoAPIKey(),
 		rules.KrakenAccessToken(),
 		rules.KubernetesSecret(),
@@ -276,6 +277,7 @@ func main() {
 		rules.Meraki(),
 		rules.MessageBirdAPIToken(),
 		rules.MessageBirdClientID(),
+		rules.MiniMaxAPIKey(),
 		rules.MongoDBAtlasServiceAccountID(),
 		rules.MongoDBAtlasServiceAccountSecret(),
 		rules.MongoDBConnectionString(),
@@ -394,6 +396,7 @@ func main() {
 		rules.YandexAPIKey(),
 		rules.YandexAWSAccessToken(),
 		rules.YandexAccessToken(),
+		rules.ZAIAPIKey(),
 		rules.ZendeskSecretKey(),
 		rules.GenericCredential(),
 		rules.InfracostAPIToken(),
@@ -421,7 +424,7 @@ func main() {
 
 	funcMap := template.FuncMap{
 		"tomlQuote": tomlQuote,
-		"tomlCEL": func(s string) string {
+		"tomlExpr": func(s string) string {
 			// Always use TOML multi-line literal strings for filter/prefilter
 			// expressions. This avoids quoting issues and improves readability.
 			return "'''\n" + s + "\n'''"

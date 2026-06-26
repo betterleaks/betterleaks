@@ -1158,7 +1158,7 @@ func (s *HuggingFace) paginateJSON(ctx context.Context, first *url.URL, consume 
 }
 
 func parseLinkNext(value string) string {
-	for _, part := range strings.Split(value, ",") {
+	for part := range strings.SplitSeq(value, ",") {
 		part = strings.TrimSpace(part)
 		if !strings.Contains(part, `rel="next"`) {
 			continue

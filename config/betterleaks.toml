@@ -21,51 +21,51 @@ betterleaksMinVersion = "v1.3.0"
 
 
 prefilter = '''
-matchesAny(attributes[?"path"].orValue(""), [
-  r"""gitleaks\.toml""",
-  r"""(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$""",
-  r"""(?i)\.(?:eot|[ot]tf|woff2?)$""",
-  r"""(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|dll|pdb|exe|gltf)$""",
-  r"""go\.(?:mod|sum|work(?:\.sum)?)$""",
-  r"""(?:^|/)vendor/modules\.txt$""",
-  r"""(?:^|/)vendor/(?:github\.com|golang\.org/x|google\.golang\.org|gopkg\.in|istio\.io|k8s\.io|sigs\.k8s\.io)(?:/.*)?$""",
-  r"""(?:^|/)gradlew(?:\.bat)?$""",
-  r"""(?:^|/)gradle\.lockfile$""",
-  r"""(?:^|/)mvnw(?:\.cmd)?$""",
-  r"""(?:^|/)\.mvn/wrapper/MavenWrapperDownloader\.java$""",
-  r"""(?:^|/)node_modules(?:/.*)?$""",
-  r"""(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$""",
-  r"""(?:^|/)bower_components(?:/.*)?$""",
-  r"""(?:^|/)(?:angular|bootstrap|jquery(?:-?ui)?|plotly|swagger-?ui)[a-zA-Z0-9.-]*(?:\.min)?\.js(?:\.map)?$""",
-  r"""(?:^|/)javascript\.json$""",
-  r"""(?:^|/)(?:Pipfile|poetry)\.lock$""",
-  r"""(?i)(?:^|/)(?:v?env|virtualenv)/lib(?:64)?(?:/.*)?$""",
-  r"""(?i)(?:^|/)(?:lib(?:64)?/python[23](?:\.\d{1,2})+|python/[23](?:\.\d{1,2})+/lib(?:64)?)(?:/.*)?$""",
-  r"""(?i)(?:^|/)[a-z0-9_.]+-[0-9.]+\.dist-info(?:/.+)?$""",
-  r"""(?:^|/)vendor/(?:bundle|ruby)(?:/.*?)?$""",
-  r"""\.gem$""",
-  r"""verification-metadata\.xml""",
-  r"""Database.refactorlog""",
-  r"""(?:^|/)\.git$"""
+matchesAny(get(attributes, "path", ""), [
+  `gitleaks\.toml`,
+  `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$`,
+  `(?i)\.(?:eot|[ot]tf|woff2?)$`,
+  `(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|dll|pdb|exe|gltf)$`,
+  `go\.(?:mod|sum|work(?:\.sum)?)$`,
+  `(?:^|/)vendor/modules\.txt$`,
+  `(?:^|/)vendor/(?:github\.com|golang\.org/x|google\.golang\.org|gopkg\.in|istio\.io|k8s\.io|sigs\.k8s\.io)(?:/.*)?$`,
+  `(?:^|/)gradlew(?:\.bat)?$`,
+  `(?:^|/)gradle\.lockfile$`,
+  `(?:^|/)mvnw(?:\.cmd)?$`,
+  `(?:^|/)\.mvn/wrapper/MavenWrapperDownloader\.java$`,
+  `(?:^|/)node_modules(?:/.*)?$`,
+  `(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$`,
+  `(?:^|/)bower_components(?:/.*)?$`,
+  `(?:^|/)(?:angular|bootstrap|jquery(?:-?ui)?|plotly|swagger-?ui)[a-zA-Z0-9.-]*(?:\.min)?\.js(?:\.map)?$`,
+  `(?:^|/)javascript\.json$`,
+  `(?:^|/)(?:Pipfile|poetry)\.lock$`,
+  `(?i)(?:^|/)(?:v?env|virtualenv)/lib(?:64)?(?:/.*)?$`,
+  `(?i)(?:^|/)(?:lib(?:64)?/python[23](?:\.\d{1,2})+|python/[23](?:\.\d{1,2})+/lib(?:64)?)(?:/.*)?$`,
+  `(?i)(?:^|/)[a-z0-9_.]+-[0-9.]+\.dist-info(?:/.+)?$`,
+  `(?:^|/)vendor/(?:bundle|ruby)(?:/.*?)?$`,
+  `\.gem$`,
+  `verification-metadata\.xml`,
+  `Database.refactorlog`,
+  `(?:^|/)\.git$`
 ])
 
 '''
 
 filter = '''
 (matchesAny(finding["secret"], [
-  r"""(?i)^true|false|null$""",
-  r"""^(?i:a+|b+|c+|d+|e+|f+|g+|h+|i+|j+|k+|l+|m+|n+|o+|p+|q+|r+|s+|t+|u+|v+|w+|x+|y+|z+|\*+|\.+)$""",
-  r"""^\$(?:\d+|{\d+})$""",
-  r"""^\$(?:[A-Z_]+|[a-z_]+)$""",
-  r"""^\${(?:[A-Z_]+|[a-z_]+)}$""",
-  r"""^\{\{[ \t]*[\w ().|]+[ \t]*}}$""",
-  r"""^\$\{\{[ \t]*(?:(?:env|github|secrets|vars)(?:\.[A-Za-z]\w+)+[\w "'&./=|]*)[ \t]*}}$""",
-  r"""^%(?:[A-Z_]+|[a-z_]+)%$""",
-  r"""^%[+\-# 0]?[bcdeEfFgGoOpqstTUvxX]$""",
-  r"""^\{\d{0,2}}$""",
-  r"""^@(?:[A-Z_]+|[a-z_]+)@$""",
-  r"""^/Users/(?i)[a-z0-9]+/[\w .-/]+$""",
-  r"""^/(?:bin|etc|home|opt|tmp|usr|var)/[\w ./-]+$"""
+  `(?i)^true|false|null$`,
+  `^(?i:a+|b+|c+|d+|e+|f+|g+|h+|i+|j+|k+|l+|m+|n+|o+|p+|q+|r+|s+|t+|u+|v+|w+|x+|y+|z+|\*+|\.+)$`,
+  `^\$(?:\d+|{\d+})$`,
+  `^\$(?:[A-Z_]+|[a-z_]+)$`,
+  `^\${(?:[A-Z_]+|[a-z_]+)}$`,
+  `^\{\{[ \t]*[\w ().|]+[ \t]*}}$`,
+  `^\$\{\{[ \t]*(?:(?:env|github|secrets|vars)(?:\.[A-Za-z]\w+)+[\w "'&./=|]*)[ \t]*}}$`,
+  `^%(?:[A-Z_]+|[a-z_]+)%$`,
+  `^%[+\-# 0]?[bcdeEfFgGoOpqstTUvxX]$`,
+  `^\{\d{0,2}}$`,
+  `^@(?:[A-Z_]+|[a-z_]+)@$`,
+  `^/Users/(?i)[a-z0-9]+/[\w .-/]+$`,
+  `^/(?:bin|etc|home|opt|tmp|usr|var)/[\w ./-]+$`
 ]) || containsAny(finding["secret"], [
   "abcdefghijklmnopqrstuvwxyz",
   "014df517-39d1-4453-b7b3-9930c563627c"
@@ -94,18 +94,15 @@ description = "Uncovered a possible 1Password service account token, potentially
 regex = '''ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}'''
 keywords = ["ops_eyj"]
 validate = '''
-cel.bind(r,
-  http.get("https://events.1password.com/api/v2/auth/introspect", {
+let r = http.get("https://events.1password.com/api/v2/auth/introspect", {
     "Accept": "application/json",
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains("\"features\"") ? {
+  }); r.status == 200 && (r.body contains "\"features\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -162,18 +159,15 @@ description = "Detected an Aikido CI token, which may allow unauthorized CI scan
 regex = '''\b(AIK_CI_[A-Za-z0-9]{20,44})\b'''
 keywords = ["aik_ci_"]
 validate = '''
-cel.bind(r,
-  http.post("https://app.aikido.dev/api/integrations/ci/scan/start", {
+let r = http.post("https://app.aikido.dev/api/integrations/ci/scan/start", {
     "X-AIK-API-SECRET": finding["secret"],
     "Content-Type": "application/json"
-  }, "{}"),
-  r.status in [200, 400, 403] && !r.body.contains("\"Unauthorized\"") ? {
+  }, "{}"); r.status in [200, 400, 403] && !(r.body contains "\"Unauthorized\"") ? {
     "result": "valid"
-  } : r.status in [401, 403] || r.body.contains("\"Unauthorized\"") ? {
+  } : r.status in [401, 403] || (r.body contains "\"Unauthorized\"") ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.0
@@ -201,19 +195,16 @@ description = "Detected an Aikido client secret, which may allow unauthorized ac
 regex = '''\b(AIK_SECRET_[A-Za-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["aik_secret_"]
 validate = '''
-cel.bind(r,
-  http.post("https://app.aikido.dev/api/oauth/token", {
+let r = http.post("https://app.aikido.dev/api/oauth/token", {
     "Accept": "application/json",
     "Content-Type": "application/x-www-form-urlencoded",
     "Authorization": "Basic " + base64.encode(bytes(captures["aikido-client-id"] + ":" + finding["secret"]))
-  }, "grant_type=client_credentials"),
-  r.status == 200 && r.body.contains("\"access_token\"") && r.body.contains("\"token_type\"") ? {
+  }, "grant_type=client_credentials"); r.status == 200 && (r.body contains "\"access_token\"") && (r.body contains "\"token_type\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -239,17 +230,14 @@ description = "Detected an Airtable OAuth token, which may allow unauthorized ac
 regex = '''(?i)[\w.-]{0,50}?(?:airtable)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["airtable"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.airtable.com/v0/meta/whoami", {
+let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -264,17 +252,14 @@ description = "Uncovered a possible Airtable Personal AccessToken, potentially c
 regex = '''\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b'''
 keywords = ["airtable"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.airtable.com/v0/meta/whoami", {
+let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.3
@@ -314,30 +299,23 @@ keywords = [
     "aliyun",
 ]
 validate = '''
-cel.bind(ts, time.nowRFC3339(),
-  cel.bind(nonce, time.nowUnix(),
-    cel.bind(params,
-      "AccessKeyId=" + strings.urlQueryEscape(captures["alibaba-access-key-id"]) +
-      "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
-      "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01",
-      cel.bind(string_to_sign, "GET&%2F&" + strings.urlQueryEscape(params).replace("+", "%20").replace("*", "%2A").replace("%7E", "~"),
-        cel.bind(sig, strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign)))),
-          cel.bind(r,
-            http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
-              "Accept": "application/json"
-            }),
-            r.status == 200 && r.body.contains("\"Arn\"") ? {
-              "result": "valid"
-            } : r.status in [401, 403] || r.body.contains("InvalidAccessKeyId") || r.body.contains("SignatureDoesNotMatch") ? {
-              "result": "invalid",
-              "reason": "Unauthorized"
-            } : validate.unknown(r)
-          )
-        )
-      )
-    )
-  )
-)
+let ts = time.nowRFC3339();
+let nonce = time.nowUnix();
+let params =
+  "AccessKeyId=" + strings.urlQueryEscape(captures["alibaba-access-key-id"]) +
+  "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
+  "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01";
+let string_to_sign = "GET&%2F&" + replace(replace(replace(strings.urlQueryEscape(params), "+", "%20"), "*", "%2A"), "%7E", "~");
+let sig = strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign))));
+let r = http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
+  "Accept": "application/json"
+});
+r.status == 200 && (r.body contains "\"Arn\"") ? {
+  "result": "valid"
+} : r.status in [401, 403] || (r.body contains "InvalidAccessKeyId") || (r.body contains "SignatureDoesNotMatch") ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -371,31 +349,24 @@ keywords = [
     "aliyun",
 ]
 validate = '''
-cel.bind(ts, time.nowRFC3339(),
-  cel.bind(nonce, time.nowUnix(),
-    cel.bind(params,
-      "AccessKeyId=" + strings.urlQueryEscape(captures["alibaba-sts-access-key-id"]) +
-      "&Action=GetCallerIdentity&Format=JSON&SecurityToken=" + strings.urlQueryEscape(captures["alibaba-sts-security-token"]) +
-      "&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
-      "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01",
-      cel.bind(string_to_sign, "GET&%2F&" + strings.urlQueryEscape(params).replace("+", "%20").replace("*", "%2A").replace("%7E", "~"),
-        cel.bind(sig, strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign)))),
-          cel.bind(r,
-            http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
-              "Accept": "application/json"
-            }),
-            r.status == 200 && r.body.contains("\"Arn\"") ? {
-              "result": "valid"
-            } : r.status in [401, 403] || r.body.contains("InvalidAccessKeyId") || r.body.contains("SignatureDoesNotMatch") ? {
-              "result": "invalid",
-              "reason": "Unauthorized"
-            } : validate.unknown(r)
-          )
-        )
-      )
-    )
-  )
-)
+let ts = time.nowRFC3339();
+let nonce = time.nowUnix();
+let params =
+  "AccessKeyId=" + strings.urlQueryEscape(captures["alibaba-sts-access-key-id"]) +
+  "&SecurityToken=" + strings.urlQueryEscape(captures["alibaba-sts-security-token"]) +
+  "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
+  "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01";
+let string_to_sign = "GET&%2F&" + replace(replace(replace(strings.urlQueryEscape(params), "+", "%20"), "*", "%2A"), "%7E", "~");
+let sig = strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign))));
+let r = http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
+  "Accept": "application/json"
+});
+r.status == 200 && (r.body contains "\"Arn\"") ? {
+  "result": "valid"
+} : r.status in [401, 403] || (r.body contains "InvalidAccessKeyId") || (r.body contains "SignatureDoesNotMatch") ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -433,8 +404,7 @@ description = "Detected an Amplitude secret key, which may allow unauthorized ev
 regex = '''(?i)\bamplitude(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN|AUTHORIZATION)(?:.|[\n\r]){0,16}?\b([a-f0-9]{32})\b'''
 keywords = ["amplitude"]
 validate = '''
-cel.bind(r,
-  http.post("https://api2.amplitude.com/2/httpapi", {
+let r = http.post("https://api2.amplitude.com/2/httpapi", {
     "Content-Type": "application/json",
     "Accept": "*/*"
   },
@@ -445,14 +415,12 @@ cel.bind(r,
       "\"device_id\":\"C8F9E604-F01A-4BD9-95C6-8E5357DF265D\"," +
       "\"event_type\":\"watch_tutorial\"" +
     "}]" +
-  "}"),
-  r.status == 200 && r.body.contains("\"code\":200") ? {
+  "}"); r.status == 200 && (r.body contains "\"code\":200") ? {
     "result": "valid"
   } : r.status in [400, 401, 403] ? {
     "result": "invalid",
-    "reason": r.json.?error.orValue("Unauthorized")
+    "reason": (r.json?.error ?? "Unauthorized")
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.3
@@ -467,19 +435,16 @@ description = "Detected an Anthropic Admin API Key, risking unauthorized access 
 regex = '''\b(sk-ant-admin01-[a-zA-Z0-9_\-]{93}AA)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["sk-ant-admin01"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.anthropic.com/v1/organizations/me", {
+let r = http.get("https://api.anthropic.com/v1/organizations/me", {
     "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
-  }),
-  r.status == 200 && r.json.?id.orValue("") != "" && r.json.?type.orValue("") == "organization" ? {
+  }); r.status == 200 && (r.json?.id ?? "") != "" && (r.json?.type ?? "") == "organization" ? {
     "result": "valid",
-    "organization": r.json.?name.orValue("")
+    "organization": (r.json?.name ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -491,18 +456,15 @@ description = "Identified an Anthropic API Key, which may compromise AI assistan
 regex = '''\b(sk-ant-api03-[a-zA-Z0-9_\-]{93}AA)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["sk-ant-api03"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.anthropic.com/v1/models", {
+let r = http.get("https://api.anthropic.com/v1/models", {
     "x-api-key": finding["secret"],
     "anthropic-version": "2023-06-01"
-  }),
-  r.status == 200 && r.body.contains('"data"') && r.body.contains('"type"') ? {
+  }); r.status == 200 && (r.body contains '"data"') && (r.body contains '"type"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -514,17 +476,14 @@ description = "Detected an Artifactory api key, posing a risk unauthorized acces
 regex = '''\bAKCp[A-Za-z0-9]{68,70}\b'''
 keywords = ["akcp"]
 validate = '''
-cel.bind(r,
-  http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
     "X-JFrog-Art-Api": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -554,17 +513,14 @@ description = "Detected an Artifactory reference token, posing a risk of imperso
 regex = '''\bcmVmd[A-Za-z0-9]{59}\b'''
 keywords = ["cmvmd"]
 validate = '''
-cel.bind(r,
-  http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -631,17 +587,14 @@ keywords = [
     ".acc-",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://api.authress.io/v1/users/me", {
+let r = http.get("https://api.authress.io/v1/users/me", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && !r.body.contains("\"Unauthorized\"") ? {
+  }); r.status == 200 && !(r.body contains "\"Unauthorized\"") ? {
     "result": "valid"
-  } : r.status in [401, 403] || r.body.contains("\"Unauthorized\"") ? {
+  } : r.status in [401, 403] || (r.body contains "\"Unauthorized\"") ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 4.0
@@ -662,9 +615,7 @@ keywords = [
     "acca",
 ]
 validate = '''
-cel.bind(r,
-  aws.validate(finding["secret"], captures["aws-secret-access-key"]),
-  r.status == 200 ? {
+let r = aws.validate(finding["secret"], captures["aws-secret-access-key"]); r.status == 200 ? {
     "result": "valid",
     "arn": r.arn,
     "account": r.account,
@@ -678,12 +629,11 @@ cel.bind(r,
     "error_code": r.error_code,
     "error_message": r.error_message
   } : validate.unknown(r)
-)
 
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
-|| matchesAny(finding["secret"], [r""".+EXAMPLE$"""])
+|| matchesAny(finding["secret"], [`.+EXAMPLE$`])
 '''
 [[rules.required]]
 id = "aws-secret-access-key"
@@ -790,18 +740,15 @@ description = "Detected a Bitly access token, which may allow unauthorized acces
 regex = '''(?i)\bbitly(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN)(?:.|[\n\r]){0,32}?([a-f0-9]{40})\b'''
 keywords = ["bitly"]
 validate = '''
-cel.bind(r,
-  http.get("https://api-ssl.bitly.com/v4/user", {
+let r = http.get("https://api-ssl.bitly.com/v4/user", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains("\"login\":") ? {
+  }); r.status == 200 && (r.body contains "\"login\":") ? {
     "result": "valid",
-    "login": r.json.?login.orValue("")
+    "login": (r.json?.login ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.0
@@ -840,18 +787,17 @@ keywords = [
     "boxa",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://api.box.com/2.0/users/me", {
+let r = http.get("https://api.box.com/2.0/users/me", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && (r.body.contains("\"id\"")) ? {
+  });
+r.status == 200 && ((r.body contains "\"id\"")) ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
+
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -866,18 +812,15 @@ description = "Detected a Brave Search API key, which may allow unauthorized use
 regex = '''\b(BSA[A-Za-z0-9_-]{24,40})\b'''
 keywords = ["bsa"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&count=1", {
+let r = http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&count=1", {
     "Accept": "application/json",
     "X-Subscription-Token": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.2
@@ -905,21 +848,18 @@ description = "Detected a Canva Connect API client secret, which may allow unaut
 regex = '''\b(cnvca[a-zA-Z0-9_-]{51})\b'''
 keywords = ["cnvca"]
 validate = '''
-cel.bind(r,
-  http.post("https://api.canva.com/rest/v1/oauth/token", {
+let r = http.post("https://api.canva.com/rest/v1/oauth/token", {
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
   },
   "grant_type=authorization_code&client_id=" + captures["canva-client-id"] +
   "&client_secret=" + finding["secret"] +
-  "&code_verifier=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abcdefgh&code=invalid"),
-  r.status == 400 && r.body.contains("\"invalid_grant\"") && !r.body.contains("\"invalid_client\"") ? {
+  "&code_verifier=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abcdefgh&code=invalid"); r.status == 400 && (r.body contains "\"invalid_grant\"") && !(r.body contains "\"invalid_client\"") ? {
     "result": "valid"
-  } : r.status in [400, 401, 403] && r.body.contains("\"invalid_client\"") ? {
+  } : r.status in [400, 401, 403] && (r.body contains "\"invalid_client\"") ? {
     "result": "invalid",
     "reason": "Invalid client"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -936,17 +876,14 @@ description = "Identified a Cerebras AI API Key, which may expose AI inference s
 regex = '''(?i)\b(csk-[a-z0-9]{48})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["csk-"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.cerebras.ai/v1/models", {
+let r = http.get("https://api.cerebras.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"object"') && r.body.contains('"data"') ? {
+  }); r.status == 200 && (r.body contains '"object"') && (r.body contains '"data"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -973,17 +910,14 @@ description = "Detected a Civo Cloud API key, which may expose Kubernetes cluste
 regex = '''(?i)[\w.-]{0,50}?(?:civo)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{50})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["civo"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.civo.com/v2/instances", {
+let r = http.get("https://api.civo.com/v2/instances", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -995,18 +929,15 @@ description = "Detected a Clerk secret key, which may allow unauthorized access 
 regex = '''(?i)[\w.-]{0,50}?(?:clerk)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk_(?:test|live)_[A-Za-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["clerk"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.clerk.com/v1/users?limit=1", {
+let r = http.get("https://api.clerk.com/v1/users?limit=1", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.3
@@ -1021,17 +952,14 @@ description = "Identified a pattern that may indicate clickhouse cloud API secre
 regex = '''\b(4b1d[A-Za-z0-9]{38})\b'''
 keywords = ["4b1d"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.clickhouse.cloud/v1/organizations", {
+let r = http.get("https://api.clickhouse.cloud/v1/organizations", {
     "Authorization": "Basic " + base64.encode(bytes(captures["clickhouse-cloud-key-id"] + ":" + finding["secret"]))
-  }),
-  r.status == 200 && r.body.contains("\"id\":") && r.body.contains("\"name\":") ? {
+  }); r.status == 200 && (r.body contains "\"id\":") && (r.body contains "\"name\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -1061,20 +989,17 @@ description = "Detected a ClickUp personal API token, which may allow unauthoriz
 regex = '''(?i)[\w.-]{0,50}?(?:clickup)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(pk_[0-9]{8,9}_[a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["clickup"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.clickup.com/api/v2/user", {
+let r = http.get("https://api.clickup.com/api/v2/user", {
     "Accept": "application/json",
     "Authorization": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "username": r.json.?user.?username.orValue(""),
-    "email": r.json.?user.?email.orValue("")
+    "username": (r.json?.user?.username ?? ""),
+    "email": (r.json?.user?.email ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1153,18 +1078,15 @@ description = "Detected a Cloudinary API secret, which may allow unauthorized ac
 regex = '''(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|API[_\s]?SECRET)(?:.|[\n\r]){0,32}?\b([A-Za-z0-9]{32})\b'''
 keywords = ["cloudinary"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.cloudinary.com/v1_1/" + captures["cloudinary-cloud-name"] + "/usage", {
+let r = http.get("https://api.cloudinary.com/v1_1/" + captures["cloudinary-cloud-name"] + "/usage", {
     "Authorization": "Basic " + base64.encode(bytes(captures["cloudinary-api-key"] + ":" + finding["secret"])),
     "Accept": "application/json"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -1193,18 +1115,15 @@ description = "Detected a CockroachDB Cloud service account API key, which may a
 regex = '''\b(CCDB1_[A-Za-z0-9]{22}_[A-Za-z0-9]{40})\b'''
 keywords = ["ccdb1_"]
 validate = '''
-cel.bind(r,
-  http.get("https://cockroachlabs.cloud/api/v1/clusters", {
+let r = http.get("https://cockroachlabs.cloud/api/v1/clusters", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"clusters\"") && r.body.contains("\"pagination\"") ? {
+  }); r.status == 200 && (r.body contains "\"clusters\"") && (r.body contains "\"pagination\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -1219,18 +1138,15 @@ description = "Found a pattern resembling a Codecov Access Token, posing a risk 
 regex = '''(?i)[\w.-]{0,50}?(?:codecov)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9-]{36})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["codecov"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.codecov.io/api/v2/github/", {
+let r = http.get("https://api.codecov.io/api/v2/github/", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"count\":") ? {
+  }); r.status == 200 && (r.body contains "\"count\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -1248,17 +1164,14 @@ keywords = [
     "co_api_key",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://api.cohere.com/v1/connectors", {
+let r = http.get("https://api.cohere.com/v1/connectors", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"connectors"') && r.body.contains('"total_count"') ? {
+  }); r.status == 200 && (r.body contains '"connectors"') && (r.body contains '"total_count"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -1282,17 +1195,14 @@ description = "Detected a ConfigCat SDK key, which may allow access to feature f
 regex = '''(?i)[\w.-]{0,50}?(?:configcat)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["configcat"]
 validate = '''
-cel.bind(r,
-  http.get("https://cdn-global.configcat.com/configuration-files/" + finding["secret"] + "/config_v6.json", {
+let r = http.get("https://cdn-global.configcat.com/configuration-files/" + finding["secret"] + "/config_v6.json", {
     "Accept": "application/json"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403, 404] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -1307,17 +1217,14 @@ description = "Detected an extended ConfigCat SDK key, which may allow access to
 regex = '''\b(configcat-sdk-1/[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["configcat-sdk-1"]
 validate = '''
-cel.bind(r,
-  http.get("https://cdn-global.configcat.com/configuration-files/" + finding["secret"] + "/config_v6.json", {
+let r = http.get("https://cdn-global.configcat.com/configuration-files/" + finding["secret"] + "/config_v6.json", {
     "Accept": "application/json"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403, 404] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
@@ -1362,18 +1269,15 @@ keywords = [
     "capella",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://cloudapi.cloud.couchbase.com/v4/organizations", {
+let r = http.get("https://cloudapi.cloud.couchbase.com/v4/organizations", {
     "Accept": "application/json",
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 4.0
@@ -1414,13 +1318,13 @@ keywords = ["curl"]
 filter = '''
 entropy(finding["secret"]) <= 2.0
 || matchesAny(finding["secret"], [
-  r"""[^:]+:(?:change(?:it|me)|pass(?:word)?|pwd|test|token|\*+|x+)""",
-  r"""['"]?<[^>]+>['"]?:['"]?<[^>]+>|<[^:]+:[^>]+>['"]?""",
-  r"""[^:]+:\[[^]]+]""",
-  r"""['"]?[^:]+['"]?:['"]?\$(?:\d|\w+|\{(?:\d|\w+)})['"]?""",
-  r"""['"]?\$\{(?:[^{}]|\{[^}]*\})*\}['"]?:['"]?\$\{(?:[^{}]|\{[^}]*\})*\}['"]?""",
-  r"""\$\([^)]+\):\$\([^)]+\)""",
-  r"""['"]?\$?{{[^}]+}}['"]?:['"]?\$?{{[^}]+}}['"]?"""
+  `[^:]+:(?:change(?:it|me)|pass(?:word)?|pwd|test|token|\*+|x+)`,
+  `['"]?<[^>]+>['"]?:['"]?<[^>]+>|<[^:]+:[^>]+>['"]?`,
+  `[^:]+:\[[^]]+]`,
+  `['"]?[^:]+['"]?:['"]?\$(?:\d|\w+|\{(?:\d|\w+)})['"]?`,
+  `['"]?\$\{(?:[^{}]|\{[^}]*\})*\}['"]?:['"]?\$\{(?:[^{}]|\{[^}]*\})*\}['"]?`,
+  `\$\([^)]+\):\$\([^)]+\)`,
+  `['"]?\$?{{[^}]+}}['"]?:['"]?\$?{{[^}]+}}['"]?`
 ])
 '''
 
@@ -1433,18 +1337,15 @@ description = "Detected a Cursor Integrations API Key, which may expose AI-assis
 regex = '''(?i)[\w.-]{0,50}?(?:cursor)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(key_[0-9a-f]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["cursor"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.cursor.com/v0/me", {
+let r = http.get("https://api.cursor.com/v0/me", {
     "Accept": "application/json",
     "Authorization": "Basic " + base64.encode(bytes(finding["secret"]))
-  }),
-  r.status == 200 && r.body.contains('"userEmail"') ? {
+  }); r.status == 200 && (r.body contains '"userEmail"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -1471,18 +1372,15 @@ description = "Detected a Datadog API key, potentially risking monitoring and an
 regex = '''(?i)[\w.-]{0,50}?(?:datadog)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["datadog"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.datadoghq.com/api/v1/validate", {
+let r = http.get("https://api.datadoghq.com/api/v1/validate", {
     "Accept": "application/json",
     "DD-API-KEY": finding["secret"]
-  }),
-  r.status == 200 && !r.body.contains("\"Forbidden\"") ? {
+  }); r.status == 200 && !(r.body contains "\"Forbidden\"") ? {
     "result": "valid"
-  } : r.status in [401, 403] || r.body.contains("\"Forbidden\"") ? {
+  } : r.status in [401, 403] || (r.body contains "\"Forbidden\"") ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1509,17 +1407,14 @@ description = "Detected a Data.gov API key, which may expose usage of Data.gov-b
 regex = '''(?i)[\w.-]{0,50}?(?:data\.gov)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["data.gov"]
 validate = '''
-cel.bind(r,
-  http.get("https://developer.nrel.gov/api/alt-fuel-stations/v1.json?limit=1&api_key=" + finding["secret"], {
+let r = http.get("https://developer.nrel.gov/api/alt-fuel-stations/v1.json?limit=1&api_key=" + finding["secret"], {
     "Accept": "application/json"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1546,18 +1441,15 @@ description = "Detected a DeepSeek API Key, which may expose AI model access and
 regex = '''(?i)[\w.-]{0,50}?(?:deepseek)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk-[a-f0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["deepseek"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.deepseek.com/models", {
+let r = http.get("https://api.deepseek.com/models", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains('"data"') ? {
+  }); r.status == 200 && (r.body contains '"data"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -1581,18 +1473,17 @@ description = "Detected a Deno account token, which may expose Deno Deploy accou
 regex = '''\b(ddp_[A-Za-z0-9]{36})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["ddp_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.deno.com/v1/user", {
+let r = http.get("https://api.deno.com/v1/user", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && (r.body.contains("\"id\"")) ? {
+  });
+r.status == 200 && ((r.body contains "\"id\"")) ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
+
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1607,18 +1498,17 @@ description = "Detected a Cognition Devin personal API key, which may expose Dev
 regex = '''\b(apk_user_[A-Za-z0-9+/]{120,180}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["apk_user_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.devin.ai/v1/sessions?limit=1", {
+let r = http.get("https://api.devin.ai/v1/sessions?limit=1", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && (r.body.contains("\"sessions\"")) ? {
+  });
+r.status == 200 && ((r.body contains "\"sessions\"")) ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
+
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1633,18 +1523,17 @@ description = "Detected a Cognition Devin service API key, which may expose Devi
 regex = '''\b(apk_[A-Za-z0-9+/]{80,100}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["apk_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.devin.ai/v1/sessions?limit=1", {
+let r = http.get("https://api.devin.ai/v1/sessions?limit=1", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && (r.body.contains("\"sessions\"")) ? {
+  });
+r.status == 200 && ((r.body contains "\"sessions\"")) ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
+
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1659,18 +1548,17 @@ description = "Detected a Cognition Devin service user token, which may expose D
 regex = '''\b(cog_[a-z2-7]{52})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["cog_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.devin.ai/v3/self", {
+let r = http.get("https://api.devin.ai/v3/self", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && (r.body.contains("\"principal_type\"") || r.body.contains("\"service_user_id\"")) ? {
+  });
+r.status == 200 && ((r.body contains "\"principal_type\"") || (r.body contains "\"service_user_id\"")) ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
+
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1751,17 +1639,14 @@ description = "Detected a Disqus API key, which may expose Disqus thread and acc
 regex = '''(?i)[\w.-]{0,50}?(?:disqus)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["disqus"]
 validate = '''
-cel.bind(r,
-  http.get("https://disqus.com/api/3.0/threads/list.json?limit=1&api_secret=" + finding["secret"], {
+let r = http.get("https://disqus.com/api/3.0/threads/list.json?limit=1&api_secret=" + finding["secret"], {
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"code\":0") && r.body.contains("\"response\"") ? {
+  }); r.status == 200 && (r.body contains "\"code\":0") && (r.body contains "\"response\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1896,17 +1781,14 @@ description = "Identified an Elastic Cloud Serverless API key, which may expose 
 regex = '''\b(essu_[A-Za-z0-9_\-]{60,200}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["essu_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.elastic-cloud.com/api/v1/deployments", {
+let r = http.get("https://api.elastic-cloud.com/api/v1/deployments", {
     "Authorization": "ApiKey " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"deployments"') ? {
+  }); r.status == 200 && (r.body contains '"deployments"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1957,21 +1839,15 @@ keywords = [
     "x-api-key",
 ]
 validate = '''
-cel.bind(k,
-  finding["secret"].split(":")[0],
-  cel.bind(r,
-    http.get("https://api.etsy.com/v3/application/openapi-ping", {
+let k = finding["secret"].split(":")[0]; (let r = http.get("https://api.etsy.com/v3/application/openapi-ping", {
       "x-api-key": k,
       "Accept": "application/json"
-    }),
-    r.status == 200 ? {
+    }); r.status == 200 ? {
       "result": "valid"
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)
+    } : validate.unknown(r))
 '''
 filter = '''
 entropy(finding["secret"]) < 3.0
@@ -1986,25 +1862,17 @@ description = "Identified an Exoscale API key paired with a secret, which togeth
 regex = '''\b(EXO[a-zA-Z0-9]{24,30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["exo"]
 validate = '''
-cel.bind(ts, time.now_unix(),
-  cel.bind(sig,
-    crypto.hmac_sha256(
+let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
       bytes(captures["exoscale-api-secret"]),
       bytes("GET /v2/zone\n\n\n\n" + ts)
-    ),
-    cel.bind(r,
-      http.get("https://api-ch-gva-2.exoscale.com/v2/zone", {
+    ); (let r = http.get("https://api-ch-gva-2.exoscale.com/v2/zone", {
         "Authorization": "EXO2-HMAC-SHA256 credential=" + finding["secret"] + ",expires=" + ts + ",signature=" + base64.encode(sig)
-      }),
-      r.status == 200 ? {
+      }); r.status == 200 ? {
         "result": "valid"
       } : r.status in [401, 403] ? {
         "result": "invalid",
         "reason": "Unauthorized"
-      } : validate.unknown(r)
-    )
-  )
-)
+      } : validate.unknown(r)))
 '''
 [[rules.required]]
 id = "exoscale-api-secret"
@@ -2068,20 +1936,17 @@ description = "Uncovered a Fastly API key, which may compromise CDN and edge clo
 regex = '''(?i)[\w.-]{0,50}?(?:fastly)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9_-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["fastly"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.fastly.com/current_user", {
+let r = http.get("https://api.fastly.com/current_user", {
     "Fastly-Key": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "login": r.json.?login.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "customer_id": r.json.?customer_id.orValue("")
+    "login": (r.json?.login ?? ""),
+    "name": (r.json?.name ?? ""),
+    "customer_id": (r.json?.customer_id ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -2100,20 +1965,17 @@ keywords = [
     "x_figma_token",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://api.figma.com/v1/me", {
+let r = http.get("https://api.figma.com/v1/me", {
     "X-Figma-Token": finding["secret"]
-  }),
-  r.status == 200 && !r.body.contains("Invalid token") ? {
+  }); r.status == 200 && !(r.body contains "Invalid token") ? {
     "result": "valid",
-    "email": r.json.?email.orValue(""),
-    "handle": r.json.?handle.orValue(""),
-    "id": r.json.?id.orValue("")
-  } : r.status in [401, 403] || r.body.contains("Invalid token") ? {
+    "email": (r.json?.email ?? ""),
+    "handle": (r.json?.handle ?? ""),
+    "id": (r.json?.id ?? "")
+  } : r.status in [401, 403] || (r.body contains "Invalid token") ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2125,20 +1987,17 @@ description = "Uncovered a Figma Personal Access Token, which may compromise des
 regex = '''(?i)\b(figd_[A-Z0-9_-]{38,42})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["figd_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.figma.com/v1/me", {
+let r = http.get("https://api.figma.com/v1/me", {
     "X-Figma-Token": finding["secret"]
-  }),
-  r.status == 200 && !r.body.contains("Invalid token") ? {
+  }); r.status == 200 && !(r.body contains "Invalid token") ? {
     "result": "valid",
-    "email": r.json.?email.orValue(""),
-    "handle": r.json.?handle.orValue(""),
-    "id": r.json.?id.orValue("")
-  } : r.status in [401, 403] || r.body.contains("Invalid token") ? {
+    "email": (r.json?.email ?? ""),
+    "handle": (r.json?.handle ?? ""),
+    "id": (r.json?.id ?? "")
+  } : r.status in [401, 403] || (r.body contains "Invalid token") ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -2225,20 +2084,17 @@ description = "Uncovered a Fly.io API key"
 regex = '''\b(FlyV1\s[A-Za-z0-9=_\-,/+]{100,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["flyv1"]
 validate = '''
-cel.bind(r,
-  http.post("https://api.fly.io/graphql", {
+let r = http.post("https://api.fly.io/graphql", {
     "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
-  }, "{\"query\": \"query { viewer { id email name } }\"}"),
-  r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") && r.body.contains("\"email\"") ? {
+  }, "{\"query\": \"query { viewer { id email name } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") && (r.body contains "\"email\"") ? {
     "result": "valid",
-    "email": r.json.?data.?viewer.?email.orValue(""),
-    "name": r.json.?data.?viewer.?name.orValue("")
+    "email": (r.json?.data?.viewer?.email ?? ""),
+    "name": (r.json?.data?.viewer?.name ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -2272,18 +2128,17 @@ description = "Discovered a Freshbooks Access Token, posing a risk to accounting
 regex = '''(?i)[\w.-]{0,50}?(?:freshbooks)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["freshbooks"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.freshbooks.com/auth/api/v1/users/me", {
+let r = http.get("https://api.freshbooks.com/auth/api/v1/users/me", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && (true) ? {
+  });
+r.status == 200 && (true) ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
+
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -2300,22 +2155,22 @@ keywords = ["aiza"]
 filter = '''
 entropy(finding["secret"]) <= 4.0
 || matchesAny(finding["secret"], [
-  r"""AIzaSyabcdefghijklmnopqrstuvwxyz1234567""",
-  r"""AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs""",
-  r"""AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM""",
-  r"""AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU""",
-  r"""AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0""",
-  r"""AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A""",
-  r"""AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c""",
-  r"""AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4""",
-  r"""AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY""",
-  r"""AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM""",
-  r"""AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ""",
-  r"""AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g""",
-  r"""AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU""",
-  r"""AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw""",
-  r"""AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE""",
-  r"""AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY"""
+  `AIzaSyabcdefghijklmnopqrstuvwxyz1234567`,
+  `AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs`,
+  `AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM`,
+  `AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU`,
+  `AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0`,
+  `AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A`,
+  `AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c`,
+  `AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4`,
+  `AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY`,
+  `AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM`,
+  `AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ`,
+  `AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g`,
+  `AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU`,
+  `AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw`,
+  `AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE`,
+  `AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY`
 ])
 '''
 
@@ -2328,9 +2183,7 @@ description = "Google (GCP) Application Default Credentials"
 regex = '''\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}'''
 keywords = [".apps.googleusercontent.com"]
 validate = '''
-cel.bind(r,
-  gcp.validate(finding["secret"]),
-  r.status == 200 ? {
+let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid",
     "credential_type": r.credential_type,
     "client_id": r.client_id
@@ -2339,7 +2192,6 @@ cel.bind(r,
     "error_code": r.error_code,
     "error_message": r.error_message
   } : validate.unknown(r)
-)
 
 '''
 
@@ -2352,9 +2204,7 @@ description = "Google (GCP) Service-account"
 regex = '''\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}'''
 keywords = ["provider_x509"]
 validate = '''
-cel.bind(r,
-  gcp.validate(finding["secret"]),
-  r.status == 200 ? {
+let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid",
     "credential_type": r.credential_type,
     "project_id": r.project_id,
@@ -2364,7 +2214,6 @@ cel.bind(r,
     "error_code": r.error_code,
     "error_message": r.error_message
   } : validate.unknown(r)
-)
 
 '''
 filter = '''
@@ -2378,6 +2227,7 @@ containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.g
 id = "generic-api-key"
 description = "Detected a Generic API Key, potentially exposing access to various services and sensitive operations."
 regex = '''(?i)[\w.-]{0,50}?(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|passw(?:or)?d|secret|token)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+specificity = 0
 keywords = [
     "access",
     "api",
@@ -2393,8 +2243,8 @@ keywords = [
 filter = '''
 entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
-|| matchesAny(finding["secret"], [r"""^[a-zA-Z_.-]+$"""])
-|| (matchesAny(finding["match"], [r"""(?i)(?:access(?:ibility|or)|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|rapid|capital|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|(?:turkey)|key[_.-]?(?:alias|board|code|frame|id|length|mesh|name|pair|press(?:ed)?|ring|selector|signature|size|stone|storetype|word|up|down|left|right)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))"""]) || containsAny(finding["secret"], [
+|| matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
+|| (matchesAny(finding["match"], [`(?i)(?:access(?:ibility|or)|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|rapid|capital|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|(?:turkey)|key[_.-]?(?:alias|board|code|frame|id|length|mesh|name|pair|press(?:ed)?|ring|selector|signature|size|stone|storetype|word|up|down|left|right)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`]) || containsAny(finding["secret"], [
   "000000",
   "aaaaaa",
   "about",
@@ -3843,18 +3693,18 @@ entropy(finding["secret"]) <= 3.5
   "6fe4476ee5a1832882e326b506d14126"
 ]))
 || matchesAny(finding["line"], [
-  r"""--mount=type=secret,""",
-  r"""import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]"""
+  `--mount=type=secret,`,
+  `import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]`
 ])
-|| (matchesAny(attributes[?"path"].orValue(""), [
-  r"""\.bb$""",
-  r"""\.bbappend$""",
-  r"""\.bbclass$""",
-  r"""\.inc$"""
+|| (matchesAny(get(attributes, "path", ""), [
+  `\.bb$`,
+  `\.bbappend$`,
+  `\.bbclass$`,
+  `\.inc$`
 ]) && matchesAny(finding["line"], [
-  r"""LICENSE[^=]*=\s*"[^"]+""",
-  r"""LIC_FILES_CHKSUM[^=]*=\s*"[^"]+""",
-  r"""SRC[^=]*=\s*"[a-zA-Z0-9]+"""
+  `LICENSE[^=]*=\s*"[^"]+`,
+  `LIC_FILES_CHKSUM[^=]*=\s*"[^"]+`,
+  `SRC[^=]*=\s*"[a-zA-Z0-9]+`
 ]))
 || matchesAny(finding["secret"], [r"""^sb_publishable_[A-Za-z0-9_-]{31}$"""])
 || matchesAny(finding["secret"], [r"""^0x4AAAAAA[A-Za-z0-9_-]{15}$"""])
@@ -3949,28 +3799,23 @@ keywords = [
     "ghs_",
 ]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
-  cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/app", {
+let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/app", {
       "Accept": "application/vnd.github+json",
       "Authorization": "Bearer " + finding["secret"]
-    }),
-    r.status == 200 && r.json.?slug.orValue("") != "" ? {
+    }); r.status == 200 && (r.json?.slug ?? "") != "" ? {
       "result": "valid",
-      "slug": r.json.?slug.orValue(""),
-      "name": r.json.?name.orValue(""),
-      "html_url": r.json.?html_url.orValue(""),
-      "external_url": r.json.?external_url.orValue("")
+      "slug": (r.json?.slug ?? ""),
+      "name": (r.json?.name ?? ""),
+      "html_url": (r.json?.html_url ?? ""),
+      "external_url": (r.json?.external_url ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)
+    } : validate.unknown(r))
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
-|| matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""])
+|| matchesAny((attributes["path"] ?? ""), [`(?:^|/)@octokit/auth-token/README\.md$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3982,23 +3827,18 @@ description = "Found a GitHub Fine-Grained Personal Access Token, risking unauth
 regex = '''github_pat_\w{82}'''
 keywords = ["github_pat_"]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
-  cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
-    }),
-    r.status == 200 && r.json.?login.orValue("") != "" ? {
+    }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "username": r.json.?login.orValue(""),
-      "name": r.json.?name.orValue(""),
-      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+      "username": (r.json?.login ?? ""),
+      "name": (r.json?.name ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)
+    } : validate.unknown(r))
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -4013,23 +3853,18 @@ description = "Discovered a GitHub OAuth Access Token, posing a risk of compromi
 regex = '''gho_[0-9a-zA-Z]{36}'''
 keywords = ["gho_"]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
-  cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
-    }),
-    r.status == 200 && r.json.?login.orValue("") != "" ? {
+    }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "username": r.json.?login.orValue(""),
-      "name": r.json.?name.orValue(""),
-      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+      "username": (r.json?.login ?? ""),
+      "name": (r.json?.name ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)
+    } : validate.unknown(r))
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -4044,27 +3879,22 @@ description = "Uncovered a GitHub Personal Access Token, potentially leading to 
 regex = '''ghp_[0-9a-zA-Z]{36}'''
 keywords = ["ghp_"]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
-  cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
-    }),
-    r.status == 200 && r.json.?login.orValue("") != "" ? {
+    }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "username": r.json.?login.orValue(""),
-      "name": r.json.?name.orValue(""),
-      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+      "username": (r.json?.login ?? ""),
+      "name": (r.json?.name ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)
+    } : validate.unknown(r))
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
-|| matchesAny(attributes[?"path"].orValue(""), [r"""(?:^|/)@octokit/auth-token/README\.md$"""])
+|| matchesAny((attributes["path"] ?? ""), [`(?:^|/)@octokit/auth-token/README\.md$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4076,23 +3906,18 @@ description = "Detected a GitHub Refresh Token, which could allow prolonged unau
 regex = '''ghr_[0-9a-zA-Z]{36}'''
 keywords = ["ghr_"]
 validate = '''
-cel.bind(base_url, env.get("GITHUB_BASE_URL"),
-  cel.bind(r,
-    http.get((base_url != "" ? base_url : "https://api.github.com") + "/user", {
+let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
       "Authorization": "token " + finding["secret"]
-    }),
-    r.status == 200 && r.json.?login.orValue("") != "" ? {
+    }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "username": r.json.?login.orValue(""),
-      "name": r.json.?name.orValue(""),
-      "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+      "username": (r.json?.login ?? ""),
+      "name": (r.json?.name ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)
+    } : validate.unknown(r))
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -4107,17 +3932,14 @@ description = "Identified a GitLab CI/CD Job Token, potential access to projects
 regex = '''glcbt-[0-9a-zA-Z]{1,5}_[0-9a-zA-Z_-]{20}'''
 keywords = ["glcbt-"]
 validate = '''
-cel.bind(r,
-  http.get("https://gitlab.com/api/v4/user", {
+let r = http.get("https://gitlab.com/api/v4/user", {
     "PRIVATE-TOKEN": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -4132,17 +3954,14 @@ description = "Identified a GitLab Deploy Token, risking access to repositories,
 regex = '''gldt-[0-9a-zA-Z_\-]{20}'''
 keywords = ["gldt-"]
 validate = '''
-cel.bind(r,
-  http.get("https://gitlab.com/api/v4/user", {
+let r = http.get("https://gitlab.com/api/v4/user", {
     "PRIVATE-TOKEN": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -4217,18 +4036,15 @@ description = "Identified a GitLab Personal Access Token, risking unauthorized a
 regex = '''glpat-[\w-]{20}'''
 keywords = ["glpat-"]
 validate = '''
-cel.bind(r,
-  http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "name": r.json.?name.orValue("")
+    "name": (r.json?.name ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -4243,18 +4059,15 @@ description = "Identified a GitLab Personal Access Token (routable), risking una
 regex = '''\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b'''
 keywords = ["glpat-"]
 validate = '''
-cel.bind(r,
-  http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "name": r.json.?name.orValue("")
+    "name": (r.json?.name ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -4269,18 +4082,15 @@ description = "Identified a GitLab Personal Access Token (routable, versioned), 
 regex = '''\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}\.[0-9a-z]{9}\b'''
 keywords = ["glpat-"]
 validate = '''
-cel.bind(r,
-  http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "name": r.json.?name.orValue("")
+    "name": (r.json?.name ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -4295,17 +4105,14 @@ description = "Found a GitLab Pipeline Trigger Token, potentially compromising c
 regex = '''glptt-[0-9a-f]{40}'''
 keywords = ["glptt-"]
 validate = '''
-cel.bind(r,
-  http.get("https://gitlab.com/api/v4/user", {
+let r = http.get("https://gitlab.com/api/v4/user", {
     "PRIVATE-TOKEN": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -4320,17 +4127,14 @@ description = "Discovered a GitLab Runner Registration Token, posing a risk to C
 regex = '''GR1348941[\w-]{20}'''
 keywords = ["gr1348941"]
 validate = '''
-cel.bind(r,
-  http.post("https://gitlab.com/api/v4/runners/verify", {
+let r = http.post("https://gitlab.com/api/v4/runners/verify", {
     "Content-Type": "application/x-www-form-urlencoded"
-  }, "token=" + finding["secret"]),
-  r.status == 200 && !r.body.contains("token is missing") && !r.body.contains("403 Forbidden") ? {
+  }, "token=" + finding["secret"]); r.status == 200 && !(r.body contains "token is missing") && !(r.body contains "403 Forbidden") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -4345,17 +4149,14 @@ description = "Discovered a GitLab Runner Authentication Token, posing a risk to
 regex = '''glrt-[0-9a-zA-Z_\-]{20}'''
 keywords = ["glrt-"]
 validate = '''
-cel.bind(r,
-  http.get("https://gitlab.com/api/v4/user", {
+let r = http.get("https://gitlab.com/api/v4/user", {
     "PRIVATE-TOKEN": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -4370,17 +4171,14 @@ description = "Discovered a GitLab Runner Authentication Token (Routable), posin
 regex = '''\bglrt-t\d_[0-9a-zA-Z_\-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b'''
 keywords = ["glrt-"]
 validate = '''
-cel.bind(r,
-  http.get("https://gitlab.com/api/v4/user", {
+let r = http.get("https://gitlab.com/api/v4/user", {
     "PRIVATE-TOKEN": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -4431,19 +4229,16 @@ keywords = [
     "gocardless",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://api.gocardless.com/customers?limit=1", {
+let r = http.get("https://api.gocardless.com/customers?limit=1", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json",
     "GoCardless-Version": "2015-07-06"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -4470,18 +4265,17 @@ description = "Found a Grafana cloud API token, risking unauthorized access to c
 regex = '''\b(glc_[A-Za-z0-9+/]{40,150}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["glc_"]
 validate = '''
-cel.bind(r,
-  http.get("https://grafana.com/api/stack-regions", {
+let r = http.get("https://grafana.com/api/stack-regions", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && (true) ? {
+  });
+r.status == 200 && (true) ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
+
 '''
 filter = '''
 entropy(finding["secret"]) < 3.0
@@ -4520,17 +4314,14 @@ description = "Identified a Groq API Key, which may expose high-speed AI inferen
 regex = '''(?i)\b(gsk_[A-Z0-9]{52})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["gsk_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.groq.com/openai/v1/models", {
+let r = http.get("https://api.groq.com/openai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"id"') && r.body.contains('"data"') ? {
+  }); r.status == 200 && (r.body contains '"id"') && (r.body contains '"data"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -4545,17 +4336,14 @@ description = "Detected a Gumroad access token, which may expose Gumroad account
 regex = '''(?i)[\w.-]{0,50}?(?:gumroad)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:[a-f0-9]{64}|[A-Za-z0-9-]{43}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["gumroad"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.gumroad.com/v2/user?access_token=" + finding["secret"], {
+let r = http.get("https://api.gumroad.com/v2/user?access_token=" + finding["secret"], {
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"success\":true") && r.body.contains("\"user\"") ? {
+  }); r.status == 200 && (r.body contains "\"success\":true") && (r.body contains "\"user\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -4573,18 +4361,15 @@ keywords = [
     "sat.",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {
+let r = http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {
     "Accept": "application/json",
     "x-api-key": finding["secret"]
-  }),
-  r.status in [200, 403] ? {
+  }); r.status in [200, 403] ? {
     "result": "valid"
   } : r.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.4
@@ -4648,18 +4433,15 @@ description = "Detected a Honeycomb API key, which may expose Honeycomb telemetr
 regex = '''(?i)[\w.-]{0,50}?(?:honeycomb)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:[a-f0-9]{32}|[a-z0-9]{22}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["honeycomb"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.honeycomb.io/1/auth", {
+let r = http.get("https://api.honeycomb.io/1/auth", {
     "X-Honeycomb-Team": finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"team\"") ? {
+  }); r.status == 200 && (r.body contains "\"team\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -4683,21 +4465,18 @@ description = "Discovered a Hugging Face Access token, which could lead to unaut
 regex = '''\b(hf_(?i:[a-z]{34}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["hf_"]
 validate = '''
-cel.bind(r,
-  http.get("https://huggingface.co/api/whoami-v2", {
+let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "username": r.json.?name.orValue("")
-  } : r.status == 401 && r.body.contains("expired") ? {
+    "username": (r.json?.name ?? "")
+  } : r.status == 401 && (r.body contains "expired") ? {
     "result": "revoked",
     "reason": "Token expired"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 2.0
@@ -4712,21 +4491,18 @@ description = "Uncovered a Hugging Face Organization API token, potentially comp
 regex = '''\b(api_org_(?i:[a-z]{34}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["api_org_"]
 validate = '''
-cel.bind(r,
-  http.get("https://huggingface.co/api/whoami-v2", {
+let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid",
-    "username": r.json.?name.orValue("")
-  } : r.status == 401 && r.body.contains("expired") ? {
+    "username": (r.json?.name ?? "")
+  } : r.status == 401 && (r.body contains "expired") ? {
     "result": "revoked",
     "reason": "Token expired"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 2.0
@@ -4741,18 +4517,15 @@ description = "Detected an IBM Cloud user API key, which may expose IBM Cloud ac
 regex = '''(?i)[\w.-]{0,50}?(?:ibm(?:cloud)?|bx)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9_-]{42,44})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["ibm"]
 validate = '''
-cel.bind(r,
-  http.get("https://iam.cloud.ibm.com/v1/apikeys/details?apikey=" + finding["secret"], {
+let r = http.get("https://iam.cloud.ibm.com/v1/apikeys/details?apikey=" + finding["secret"], {
     "Authorization": "Basic Yng6Yng=",
     "Accept": "application/json"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -4767,18 +4540,15 @@ description = "Detected an InfluxDB API token, which may allow unauthorized acce
 regex = '''(?i)(?:\binflux(?:db)?\b(?:.|[\n\r]){0,64}?\b(?:token|api[_-]?key)\b(?:.|[\n\r]){0,32}?)[=:"'\s]{1,8}([A-Za-z0-9+/=_-]{88,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["influx"]
 validate = '''
-cel.bind(r,
-  http.get("https://us-east-1-1.aws.cloud2.influxdata.com/api/v2/orgs", {
+let r = http.get("https://us-east-1-1.aws.cloud2.influxdata.com/api/v2/orgs", {
     "Authorization": "Token " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 4.0
@@ -4793,17 +4563,14 @@ description = "Detected an Infomaniak API token, which may expose hosting, mail,
 regex = '''(?i)[\w.-]{0,50}?(?:infomaniak)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_\-]{60,100})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["infomaniak"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.infomaniak.com/1/profile", {
+let r = http.get("https://api.infomaniak.com/1/profile", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"result"') ? {
+  }); r.status == 200 && (r.body contains '"result"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4852,18 +4619,15 @@ description = "Detected a JumpCloud API key, which may expose JumpCloud director
 regex = '''(?i)[\w.-]{0,50}?(?:jumpcloud)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["jumpcloud"]
 validate = '''
-cel.bind(r,
-  http.get("https://console.jumpcloud.com/api/systemusers?limit=1&skip=0", {
+let r = http.get("https://console.jumpcloud.com/api/systemusers?limit=1&skip=0", {
     "x-api-key": finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"results\"") ? {
+  }); r.status == 200 && (r.body contains "\"results\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -4902,20 +4666,43 @@ description = "Detected a Kagi API key, which may expose Kagi API usage."
 regex = '''(?i)[\w.-]{0,50}?(?:kagi)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9_-]{11}\.[a-z0-9_-]{43})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["kagi"]
 validate = '''
-cel.bind(r,
-  http.get("https://kagi.com/api/v0/search?q=test", {
+let r = http.get("https://kagi.com/api/v0/search?q=test", {
     "Authorization": "Bot " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains("\"data\":") && r.body.contains("\"results\":") ? {
+  }); r.status == 200 && (r.body contains "\"data\":") && (r.body contains "\"results\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# kimi-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "kimi-api-key"
+description = "Detected a Kimi API key, which may expose Moonshot AI model access and usage to unauthorized parties."
+regex = '''(?i)[\w.-]{0,50}?(?:kimi|moonshot)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk-[A-Za-z0-9_-]{48})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "kimi",
+    "moonshot",
+]
+validate = '''
+let r = http.get("https://api.moonshot.ai/v1/models", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains '"data"') ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4927,19 +4714,16 @@ description = "Detected a Klaviyo API key, which may expose Klaviyo account and 
 regex = '''(?i)[\w.-]{0,50}?(?:klaviyo)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(pk_[a-z0-9]{34})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["klaviyo"]
 validate = '''
-cel.bind(r,
-  http.get("https://a.klaviyo.com/api/accounts", {
+let r = http.get("https://a.klaviyo.com/api/accounts", {
     "Revision": "2023-02-22",
     "Authorization": "Klaviyo-API-Key " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains("\"data\"") ? {
+  }); r.status == 200 && (r.body contains "\"data\"") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -4964,8 +4748,8 @@ regex = '''(?i)(?:\bkind:[ \t]*["']?\bsecret\b["']?(?s:.){0,200}?\bdata:(?s:.){0
 path = '''(?i)\.ya?ml$'''
 keywords = ["secret"]
 filter = '''
-matchesAny(finding["secret"], [r"""[\w.-]+:(?:[ \t]*(?:\||>[-+]?)\s+)?[ \t]*(?:\{\{[ \t\w"|$:=,.-]+}}|""|'')"""])
-|| matchesAny(finding["match"], [r"""(kind:(?s:.)+\n---\n(?s:.)+\bdata:|data:(?s:.)+\n---\n(?s:.)+\bkind:)"""])
+matchesAny(finding["secret"], [`[\w.-]+:(?:[ \t]*(?:\||>[-+]?)\s+)?[ \t]*(?:\{\{[ \t\w"|$:=,.-]+}}|""|'')`])
+|| matchesAny(finding["match"], [`(kind:(?s:.)+\n---\n(?s:.)+\bdata:|data:(?s:.)+\n---\n(?s:.)+\bkind:)`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5007,17 +4791,14 @@ keywords = [
     "paradigm",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://paradigm.lighton.ai/api/v2/models", {
+let r = http.get("https://paradigm.lighton.ai/api/v2/models", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"object"') ? {
+  }); r.status == 200 && (r.body contains '"object"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5029,20 +4810,17 @@ description = "Detected a Linear API Token, posing a risk to project management 
 regex = '''lin_api_(?i)[a-z0-9]{40}'''
 keywords = ["lin_api_"]
 validate = '''
-cel.bind(r,
-  http.post("https://api.linear.app/graphql", {
+let r = http.post("https://api.linear.app/graphql", {
     "Authorization": finding["secret"],
     "Content-Type": "application/json"
-  }, "{\"query\": \"query { viewer { id name email } }\"}"),
-  r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") ? {
+  }, "{\"query\": \"query { viewer { id name email } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") ? {
     "result": "valid",
-    "email": r.json.?data.?viewer.?email.orValue(""),
-    "name": r.json.?data.?viewer.?name.orValue("")
+    "email": (r.json?.data?.viewer?.email ?? ""),
+    "name": (r.json?.data?.viewer?.name ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 2.0
@@ -5143,20 +4921,15 @@ description = "Identified a Mailchimp API key, potentially compromising email ma
 regex = '''(?i)[\w.-]{0,50}?(?:MailchimpSDK.initialize|mailchimp)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32}-us\d\d)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["mailchimp"]
 validate = '''
-cel.bind(dc, finding["secret"].substring(finding["secret"].lastIndexOf("-") + 1),
-  cel.bind(r,
-    http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
+let dc = substring(finding["secret"], lastIndexOf(finding["secret"], "-") + 1); (let r = http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
       "Accept": "application/json",
       "Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"]))
-    }),
-    r.status == 200 ? {
+    }); r.status == 200 ? {
       "result": "valid"
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
-    } : validate.unknown(r)
-  )
-)
+    } : validate.unknown(r))
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5168,18 +4941,15 @@ description = "Found a Mailgun private API token, risking unauthorized email ser
 regex = '''(?i)[\w.-]{0,50}?(?:mailgun)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(key-[a-f0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["mailgun"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.mailgun.net/v3/domains", {
+let r = http.get("https://api.mailgun.net/v3/domains", {
     "Accept": "application/json",
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"]))
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5270,6 +5040,32 @@ keywords = [
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# minimax-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "minimax-api-key"
+description = "Detected a MiniMax API key, which may expose AI model, speech, image, video, or file services to unauthorized access."
+regex = '''(?i)\b(sk-api-[A-Za-z0-9_-]{119})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "sk-api-",
+    "minimax",
+]
+validate = '''
+let r = http.get("https://api.minimax.io/v1/models", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains '"data"') ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # mistral-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -5278,18 +5074,15 @@ description = "Detected a Mistral AI API Key, which may expose AI language model
 regex = '''(?i)[\w.-]{0,50}?(?:mistral)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["mistral"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.mistral.ai/v1/models", {
+let r = http.get("https://api.mistral.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains('"data"') ? {
+  }); r.status == 200 && (r.body contains '"data"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5317,23 +5110,20 @@ description = "Detected a MongoDB Atlas service account client secret, which cou
 regex = '''\b(mdb_sa_sk_[A-Za-z0-9_-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["mdb_sa_sk_"]
 validate = '''
-cel.bind(r,
-  http.post("https://cloud.mongodb.com/api/oauth/token", {
+let r = http.post("https://cloud.mongodb.com/api/oauth/token", {
     "Accept": "application/json",
     "Content-Type": "application/x-www-form-urlencoded",
     "Authorization": "Basic " + base64.encode(bytes(captures["mongodb-atlas-service-account-id"] + ":" + finding["secret"]))
-  }, "grant_type=client_credentials"),
-  r.status == 200 && r.json.?access_token.orValue("") != "" ? {
+  }, "grant_type=client_credentials"); r.status == 200 && (r.json?.access_token ?? "") != "" ? {
     "result": "valid"
   } : r.status == 401 ? {
     "result": "invalid",
-    "reason": r.json.?error.orValue("Unauthorized")
+    "reason": (r.json?.error ?? "Unauthorized")
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
-|| matchesAny(finding["secret"], [r"""^mdb_sa_sk_[0-9]{40}$"""])
+|| matchesAny(finding["secret"], [`^mdb_sa_sk_[0-9]{40}$`])
 '''
 [[rules.required]]
 id = "mongodb-atlas-service-account-id"
@@ -5352,8 +5142,8 @@ keywords = [
 filter = '''
 entropy(finding["secret"]) <= 4.0
 || matchesAny(finding["secret"], [
-  r"""(?i)\bmongodb(?:\+srv)?:\/\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\/]*)?@""",
-  r"""(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*"""
+  `(?i)\bmongodb(?:\+srv)?:\/\/(?:user(?:name)?|foo):(?:pass(?:word)?|bar)(?:[^@\/]*)?@`,
+  `(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*`
 ])
 '''
 
@@ -5442,9 +5232,9 @@ keywords = ["<add key="]
 filter = '''
 entropy(finding["secret"]) <= 1.0
 || matchesAny(finding["secret"], [
-  r"""33f!!lloppa""",
-  r"""hal\+9ooo_da!sY""",
-  r"""^\%\S.*\%$"""
+  `33f!!lloppa`,
+  `hal\+9ooo_da!sY`,
+  `^\%\S.*\%$`
 ])
 '''
 
@@ -5518,17 +5308,14 @@ description = "Found an OpenAI API Key, posing a risk of unauthorized access to 
 regex = '''\b(sk-(?:proj|svcacct|admin)-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})\b|sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["t3blbkfj"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.openai.com/v1/models", {
+let r = http.get("https://api.openai.com/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?object.orValue("") == "list" ? {
+  }); r.status == 200 && (r.json?.object ?? "") == "list" ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5580,28 +5367,17 @@ description = "OVHcloud Application Secret - component of authenticated OVH API 
 regex = '''(?i)[\w.-]{0,50}?(?:app(?:lication)?[_.-]{0,1}secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["ovh"]
 validate = '''
-cel.bind(ts, time.now_unix(),
-  cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
-    cel.bind(sig_payload, finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
-      cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),
-        cel.bind(r,
-          http.get(url, {
+let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/details"; (let sig_payload = finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts; (let sig = "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))); (let r = http.get(url, {
             "X-Ovh-Application": captures["ovh-application-key"],
             "X-Ovh-Consumer": captures["ovh-consumer-key"],
             "X-Ovh-Timestamp": ts,
             "X-Ovh-Signature": sig
-          }),
-          r.status == 200 ? {
+          }); r.status == 200 ? {
             "result": "valid"
           } : r.status in [400, 401, 403] ? {
             "result": "invalid",
             "reason": "Unauthorized"
-          } : validate.unknown(r)
-        )
-      )
-    )
-  )
-)
+          } : validate.unknown(r)))))
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5635,18 +5411,15 @@ description = "Detected a Perplexity API key, which could lead to unauthorized a
 regex = '''\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)'''
 keywords = ["pplx-"]
 validate = '''
-cel.bind(r,
-  http.post("https://api.perplexity.ai/chat/completions", {
+let r = http.post("https://api.perplexity.ai/chat/completions", {
     "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
-  }, "{\"model\":\"invalid-model-for-validation\",\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}"),
-  r.status in [200, 400, 404, 422] ? {
+  }, "{\"model\":\"invalid-model-for-validation\",\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}"); r.status in [200, 400, 404, 422] ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -5702,19 +5475,16 @@ description = "Identified a PlanetScale API token, potentially compromising data
 regex = '''\b(pscale_tkn_(?i)[\w=\.-]{32,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["pscale_tkn_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.planetscale.com/v1/organizations", {
+let r = http.get("https://api.planetscale.com/v1/organizations", {
     "Accept": "application/json",
     "Authorization": captures["planetscale-id"] + ":" + finding["secret"]
-  }),
-  r.status == 200 && r.json.?type.orValue("") == "list" ? {
+  }); r.status == 200 && (r.json?.type ?? "") == "list" ? {
     "result": "valid",
-    "organization": r.json.?data[0].?name.orValue("")
+    "organization": getPath(r.json, "data.0.name", "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5781,28 +5551,20 @@ description = "Identified a Polymarket API key, potentially compromising access 
 regex = '''[\w.-]{0,50}?(?i:[\w.-]{0,50}?(?:poly.{0,20}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["poly"]
 validate = '''
-cel.bind(ts, time.now_unix(),
-  cel.bind(sig,
-    crypto.hmac_sha256(
+let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
       base64.decode(captures["polymarket-api-secret"]),
       bytes(ts + "GET" + "/data/orders")
-    ),
-    cel.bind(r,
-      http.get("https://clob.polymarket.com/data/orders", {
+    ); (let r = http.get("https://clob.polymarket.com/data/orders", {
         "POLY_BUILDER_API_KEY": finding["secret"],
         "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
         "POLY_BUILDER_TIMESTAMP": ts,
-        "POLY_BUILDER_SIGNATURE": base64.encode(sig).replace("+", "-").replace("/", "_")
-      }),
-      r.status == 200 ? {
+        "POLY_BUILDER_SIGNATURE": replace(replace(base64.encode(sig), "+", "-"), "/", "_")
+      }); r.status == 200 ? {
         "result": "valid"
       } : r.status in [401, 403] ? {
         "result": "invalid",
         "reason": "Unauthorized"
-      } : validate.unknown(r)
-    )
-  )
-)
+      } : validate.unknown(r)))
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5976,18 +5738,15 @@ description = "Detected a Replicate API Token, which may expose AI model hosting
 regex = '''(?i)\b(r8_[A-Za-z0-9]{37})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["r8_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.replicate.com/v1/account", {
+let r = http.get("https://api.replicate.com/v1/account", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"type"') && r.body.contains('"username"') && r.body.contains('"name"') ? {
+  }); r.status == 200 && (r.body contains '"type"') && (r.body contains '"username"') && (r.body contains '"name"') ? {
     "result": "valid",
-    "username": r.json.?username.orValue("")
+    "username": (r.json?.username ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -6017,19 +5776,16 @@ keywords = [
     "scw",
 ]
 validate = '''
-cel.bind(r,
-  http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
+let r = http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
     "X-Auth-Token": secret,
     "Accept": "application/json"
-  }),
-  r.status in [200, 403] ? {
+  }); r.status in [200, 403] ? {
     "result": "valid",
     "permission_status": r.status == 200 ? "Active" : "Restricted but still valid (403)",
   } : r.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6505,21 +6261,18 @@ description = "Detected a Supabase Management Token, which may allow unauthorize
 regex = '''\b(sbp_[a-z0-9_-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["sbp_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.supabase.com/v1/organizations", {
+let r = http.get("https://api.supabase.com/v1/organizations", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
-|| !matchesAny(finding["secret"], [r"""^sbp_[a-z0-9_-]*[0-9][a-z0-9_-]*[0-9][a-z0-9_-]*$"""])
+|| !matchesAny(finding["secret"], [`^sbp_[a-z0-9_-]*[0-9][a-z0-9_-]*[0-9][a-z0-9_-]*$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6531,18 +6284,15 @@ description = "Detected a Supabase Project API Key, which may expose project dat
 regex = '''\b(sb_secret_[A-Za-z0-9_-]{31})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["sb_secret_"]
 validate = '''
-cel.bind(r,
-  http.get(captures["supabase-project-url"] + "/rest/v1/?select=*", {
+let r = http.get(captures["supabase-project-url"] + "/rest/v1/?select=*", {
     "Apikey": finding["secret"],
     "User-Agent": ""
-  }),
-  r.status == 200 && r.body.contains("\"host\":") ? {
+  }); r.status == 200 && (r.body contains "\"host\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -6581,18 +6331,15 @@ description = "Detected a Together.ai API Key, which may expose access to open-s
 regex = '''(?i)\b(tgp_v1_[A-Za-z0-9_-]{43})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["tgp_v1_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.together.xyz/v1/models", {
+let r = http.get("https://api.together.xyz/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }),
-  r.status == 200 && r.body.contains('"id"') && r.body.contains('"object"') ? {
+  }); r.status == 200 && (r.body contains '"id"') && (r.body contains '"object"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -6691,17 +6438,14 @@ description = "Identified an UpCloud API token, which may expose cloud infrastru
 regex = '''\b(ucat_[0-9A-Za-z]{24,32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["ucat_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.upcloud.com/1.3/account", {
+let r = http.get("https://api.upcloud.com/1.3/account", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"account"') ? {
+  }); r.status == 200 && (r.body contains '"account"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6713,17 +6457,14 @@ description = "Detected an Upstage AI API key, which may expose Solar language m
 regex = '''(?i)[\w.-]{0,50}?(?:upstage)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{40,50})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["upstage"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.upstage.ai/v1/models", {
+let r = http.get("https://api.upstage.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains('"data"') ? {
+  }); r.status == 200 && (r.body contains '"data"') ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6751,7 +6492,7 @@ keywords = [
 ]
 filter = '''
 entropy(finding["secret"]) <= 3.5
-|| matchesAny(finding["secret"], [r"""s\.[A-Za-z]{24}"""])
+|| matchesAny(finding["secret"], [`s\.[A-Za-z]{24}`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6763,18 +6504,15 @@ description = "Detected a Vercel AI Gateway API Key (vck_), which may expose AI 
 regex = '''(?i)\b(vck_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["vck_"]
 validate = '''
-cel.bind(r,
-  http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
+let r = http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
     "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
-  }, "{\"model\":\"openai/gpt-3.5-turbo\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"max_tokens\":1}"),
-  r.status in [200, 403] ? {
+  }, "{\"model\":\"openai/gpt-3.5-turbo\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"max_tokens\":1}"); r.status in [200, 403] ? {
     "result": "valid"
   } : r.status in [401] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -6789,20 +6527,17 @@ description = "Detected a Vercel API Token, which may expose deployment and serv
 regex = '''(?i)[\w.-]{0,50}?(?:vercel)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9]{24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["vercel"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.vercel.com/v2/user", {
+let r = http.get("https://api.vercel.com/v2/user", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
+  }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
     "result": "valid",
-    "email": r.json.?user.?email.orValue(""),
-    "username": r.json.?user.?username.orValue(""),
-    "user_id": r.json.?user.?id.orValue("")
+    "email": (r.json?.user?.email ?? ""),
+    "username": (r.json?.user?.username ?? ""),
+    "user_id": (r.json?.user?.id ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -6817,19 +6552,16 @@ description = "Detected a Vercel App Access Token (vca_), which may allow Sign i
 regex = '''(?i)\b(vca_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["vca_"]
 validate = '''
-cel.bind(r,
-  http.post("https://api.vercel.com/login/oauth/userinfo", {
+let r = http.post("https://api.vercel.com/login/oauth/userinfo", {
     "Authorization": "Bearer " + finding["secret"]
-  }, ""),
-  r.status == 200 && r.body.contains("\"sub\"") ? {
+  }, ""); r.status == 200 && (r.body contains "\"sub\"") ? {
     "result": "valid",
-    "email": r.json.?email.orValue(""),
-    "user_id": r.json.?sub.orValue("")
+    "email": (r.json?.email ?? ""),
+    "user_id": (r.json?.sub ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -6844,20 +6576,17 @@ description = "Detected a Vercel App Refresh Token (vcr_), which may allow persi
 regex = '''(?i)\b(vcr_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["vcr_"]
 validate = '''
-cel.bind(r,
-  http.post("https://api.vercel.com/login/oauth/token/introspect", {
+let r = http.post("https://api.vercel.com/login/oauth/token/introspect", {
     "Content-Type": "application/x-www-form-urlencoded"
-  }, "token=" + finding["secret"]),
-  r.status == 200 && r.body.contains("\"active\":true") ? {
+  }, "token=" + finding["secret"]); r.status == 200 && (r.body contains "\"active\":true") ? {
     "result": "valid"
-  } : r.status == 200 && r.body.contains("\"active\":false") ? {
+  } : r.status == 200 && (r.body contains "\"active\":false") ? {
     "result": "invalid",
     "reason": "Token inactive"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -6872,20 +6601,17 @@ description = "Detected a Vercel Integration Token (vci_), which may allow third
 regex = '''(?i)\b(vci_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["vci_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.vercel.com/v2/user", {
+let r = http.get("https://api.vercel.com/v2/user", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains("\"user\"") ? {
+  }); r.status == 200 && (r.body contains "\"user\"") ? {
     "result": "valid",
-    "email": r.json.?user.?email.orValue(""),
-    "username": r.json.?user.?username.orValue(""),
-    "user_id": r.json.?user.?id.orValue("")
+    "email": (r.json?.user?.email ?? ""),
+    "username": (r.json?.user?.username ?? ""),
+    "user_id": (r.json?.user?.id ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -6900,20 +6626,17 @@ description = "Detected a Vercel Personal Access Token (vcp_), which may expose 
 regex = '''(?i)\b(vcp_[A-Za-z0-9_-]{56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["vcp_"]
 validate = '''
-cel.bind(r,
-  http.get("https://api.vercel.com/v2/user", {
+let r = http.get("https://api.vercel.com/v2/user", {
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.body.contains("\"user\"") && r.body.contains("\"email\"") ? {
+  }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
     "result": "valid",
-    "email": r.json.?user.?email.orValue(""),
-    "username": r.json.?user.?username.orValue(""),
-    "user_id": r.json.?user.?id.orValue("")
+    "email": (r.json?.user?.email ?? ""),
+    "username": (r.json?.user?.username ?? ""),
+    "user_id": (r.json?.user?.id ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -6931,20 +6654,17 @@ keywords = [
     "weightsandbiases",
 ]
 validate = '''
-cel.bind(r,
-  http.post("https://api.wandb.ai/graphql", {
+let r = http.post("https://api.wandb.ai/graphql", {
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
-  }, "{\"query\":\"query { viewer { email username } }\"}"),
-  r.status == 200 && r.body.contains("\"username\"") ? {
+  }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid",
-    "email": r.json.?data.?viewer.?email.orValue(""),
-    "username": r.json.?data.?viewer.?username.orValue("")
+    "email": (r.json?.data?.viewer?.email ?? ""),
+    "username": (r.json?.data?.viewer?.username ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -6959,20 +6679,17 @@ description = "Detected a Weights & Biases v1 API Key (wandb_v1_), which may exp
 regex = '''(?i)\b(wandb_v1_[A-Za-z0-9_]{77})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["wandb_v1_"]
 validate = '''
-cel.bind(r,
-  http.post("https://api.wandb.ai/graphql", {
+let r = http.post("https://api.wandb.ai/graphql", {
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
     "Content-Type": "application/json"
-  }, "{\"query\":\"query { viewer { email username } }\"}"),
-  r.status == 200 && r.body.contains("\"username\"") ? {
+  }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid",
-    "email": r.json.?data.?viewer.?email.orValue(""),
-    "username": r.json.?data.?viewer.?username.orValue("")
+    "email": (r.json?.data?.viewer?.email ?? ""),
+    "username": (r.json?.data?.viewer?.username ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -7016,6 +6733,43 @@ id = "yandex-aws-access-token"
 description = "Uncovered a Yandex AWS Access Token, potentially compromising cloud resource access and data security on Yandex Cloud."
 regex = '''(?i)[\w.-]{0,50}?(?:yandex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(YC[a-zA-Z0-9_\-]{38})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["yandex"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# zai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zai-api-key"
+description = "Detected a Z.ai API key, which may expose GLM model access and usage to unauthorized parties."
+regex = '''(?i)[\w.-]{0,50}?(?:zai|z_ai|z\.ai|glm|zlm)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32}\.[a-z0-9]{16})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "zai",
+    "z_ai",
+    "z.ai",
+    "glm",
+    "zlm",
+]
+validate = '''
+let r = http.post("https://api.z.ai/api/paas/v4/tokenizer", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  "{" +
+    "\"model\":\"glm-4.6\"," +
+    "\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]" +
+  "}"); r.status == 200 && (r.body contains '"usage"') ? {
+    "result": "valid"
+  } : r.status == 429 && (r.body contains "Insufficient balance") ? {
+    "result": "valid",
+    "reason": "Insufficient balance but still valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # zendesk-secret-key

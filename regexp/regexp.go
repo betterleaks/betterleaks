@@ -1,39 +1,74 @@
 package regexp
 
-import "github.com/betterleaks/betterleaks/regexp/internal"
+import (
+	"regexp/syntax"
+	"sync"
+
+	"github.com/betterleaks/betterleaks/regexp/internal"
+)
 
 type Engine interface {
 	Compile(str string) (internal.CompiledRegexp, error)
 	Version() string
 }
 
-// Regexp wraps a compiled regular expression. It is a concrete struct
-// so that *Regexp works as a normal pointer (not pointer-to-interface).
-type Regexp struct{ e internal.CompiledRegexp }
+// Regexp wraps a regular expression. Compilation is deferred until first match.
+type Regexp struct {
+	pattern   string
+	engine    Engine
+	numSubexp int
+
+	once sync.Once
+	e    internal.CompiledRegexp
+	err  error
+}
 
 func (r *Regexp) MatchString(s string) bool {
-	return r.e.MatchString(s)
+	e, ok := r.compiled()
+	return ok && e.MatchString(s)
 }
 func (r *Regexp) FindString(s string) string {
-	return r.e.FindString(s)
+	if e, ok := r.compiled(); ok {
+		return e.FindString(s)
+	}
+	return ""
 }
 func (r *Regexp) FindStringSubmatch(s string) []string {
-	return r.e.FindStringSubmatch(s)
+	if e, ok := r.compiled(); ok {
+		return e.FindStringSubmatch(s)
+	}
+	return nil
 }
 func (r *Regexp) FindAllStringIndex(s string, n int) [][]int {
-	return r.e.FindAllStringIndex(s, n)
+	if e, ok := r.compiled(); ok {
+		return e.FindAllStringIndex(s, n)
+	}
+	return nil
 }
 func (r *Regexp) ReplaceAllString(src, repl string) string {
-	return r.e.ReplaceAllString(src, repl)
+	if e, ok := r.compiled(); ok {
+		return e.ReplaceAllString(src, repl)
+	}
+	return src
 }
 func (r *Regexp) NumSubexp() int {
-	return r.e.NumSubexp()
+	return r.numSubexp
 }
 func (r *Regexp) SubexpNames() []string {
-	return r.e.SubexpNames()
+	if e, ok := r.compiled(); ok {
+		return e.SubexpNames()
+	}
+	return nil
 }
 func (r *Regexp) String() string {
-	return r.e.String()
+	return r.pattern
+}
+
+func (r *Regexp) compiled() (internal.CompiledRegexp, bool) {
+	r.once.Do(func() {
+		r.e, r.err = r.engine.Compile(r.pattern)
+	})
+	return r.e, r.err == nil && r.e != nil
 }
 
 var currentEngine Engine = Stdlib{}
@@ -49,11 +84,15 @@ func SetEngine(engine Engine) {
 // Compile parses a regular expression using the currently selected engine.
 // If successful, returns a [Regexp] object that can be used to match against text.
 func Compile(str string) (*Regexp, error) {
-	impl, err := currentEngine.Compile(str)
+	parsed, err := syntax.Parse(str, syntax.Perl)
 	if err != nil {
 		return nil, err
 	}
-	return &Regexp{e: impl}, nil
+	return &Regexp{
+		pattern:   str,
+		engine:    currentEngine,
+		numSubexp: parsed.MaxCap(),
+	}, nil
 }
 
 // MustCompile compiles a regular expression using the currently selected engine.

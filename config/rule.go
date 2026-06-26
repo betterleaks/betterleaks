@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/regexp"
-	"github.com/google/cel-go/cel"
 )
 
 // Rules contain information that define details on how to detect secrets
@@ -37,6 +37,10 @@ type Rule struct {
 	// and reporting purposes.
 	Tags []string
 
+	// Specificity controls precedence when overlapping findings compete.
+	// Higher specificity findings suppress lower specificity findings.
+	Specificity int
+
 	// Keywords are used for pre-regex check filtering. Rules that contain
 	// keywords will perform a quick string compare check to make sure the
 	// keyword(s) are in the content being scanned.
@@ -60,19 +64,19 @@ type Rule struct {
 	// tokenize efficiently (i.e., common words/phrases) are filtered out.
 	TokenEfficiency bool
 
-	// ValidateCEL is the raw CEL expression used for secret validation.
-	ValidateCEL string
+	// ValidateExpr is the raw expression used for secret validation.
+	ValidateExpr string
 
-	// celProgram is the compiled CEL program, set at config load time.
-	celProgram cel.Program
+	// validationProgram is the compiled validation program, set at config load time.
+	validationProgram exprruntime.Program
 
-	// Filter is a CEL expression evaluated against attributes + finding per regex match.
+	// Filter is an expression evaluated against attributes + finding per regex match.
 	// Returns true = skip (discard this finding); false = keep.
 	// Deprecated legacy Allowlists, Entropy, and TokenEfficiency are translated into this field.
 	Filter string
 
-	// filterProgram is the compiled FilterEnv program, set at startup.
-	filterProgram cel.Program
+	// filterProgram is the compiled filter program, set at startup.
+	filterProgram exprruntime.Program
 }
 
 type Required struct {
@@ -127,18 +131,18 @@ func (r *Rule) Validate() error {
 	return nil
 }
 
-// CelProgram returns the compiled CEL program for this rule, or nil.
-func (r *Rule) CelProgram() cel.Program {
-	return r.celProgram
+// ValidationProgram returns the compiled validation program for this rule, or nil.
+func (r *Rule) ValidationProgram() exprruntime.Program {
+	return r.validationProgram
 }
 
-// SetCelProgram stores a compiled CEL program on the rule.
-func (r *Rule) SetCelProgram(p cel.Program) {
-	r.celProgram = p
+// SetValidationProgram stores a compiled validation program on the rule.
+func (r *Rule) SetValidationProgram(p exprruntime.Program) {
+	r.validationProgram = p
 }
 
 // FilterProgram returns the compiled filter program for this rule, or nil.
-func (r *Rule) FilterProgram() cel.Program { return r.filterProgram }
+func (r *Rule) FilterProgram() exprruntime.Program { return r.filterProgram }
 
 // SetFilterProgram stores a compiled filter program on the rule.
-func (r *Rule) SetFilterProgram(p cel.Program) { r.filterProgram = p }
+func (r *Rule) SetFilterProgram(p exprruntime.Program) { r.filterProgram = p }

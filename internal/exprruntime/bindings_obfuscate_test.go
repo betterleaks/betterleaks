@@ -1,4 +1,4 @@
-package celenv
+package exprruntime
 
 import (
 	"strings"
@@ -148,27 +148,27 @@ func TestObfuscate_nonAsciiPassesThrough(t *testing.T) {
 }
 
 func TestObfuscate_celBindingUnary(t *testing.T) {
-	env, err := NewEnvironment(nil)
+	env, err := New(nil)
 	require.NoError(t, err)
 
-	prg, err := env.Compile(`obfuscate(finding["secret"])`)
+	prg, err := env.CompileValidation(`obfuscate(finding["secret"])`)
 	require.NoError(t, err)
 
 	const secret = "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
 	got, err := env.Eval(prg, map[string]string{"secret": secret}, nil)
 	require.NoError(t, err)
 
-	out, ok := got.Value().(string)
+	out, ok := got.(string)
 	require.True(t, ok)
 	require.Len(t, out, len(secret))
 	require.True(t, strings.HasPrefix(out, "sk_"))
 }
 
 func TestObfuscate_celBindingRejectsBinaryForm(t *testing.T) {
-	env, err := NewEnvironment(nil)
+	env, err := New(nil)
 	require.NoError(t, err)
 
-	_, err = env.Compile(`obfuscate(finding["secret"], 0.0)`)
+	_, err = env.CompileValidation(`obfuscate(finding["secret"], 0.0)`)
 	require.Error(t, err)
 }
 

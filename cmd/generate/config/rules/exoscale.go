@@ -19,25 +19,17 @@ func ExoscaleAPIKey() *config.Rule {
 				WithinLines: utils.Ptr(5),
 			},
 		},
-		ValidateCEL: `cel.bind(ts, time.now_unix(),
-  cel.bind(sig,
-    crypto.hmac_sha256(
+		ValidateExpr: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
       bytes(captures["exoscale-api-secret"]),
       bytes("GET /v2/zone\n\n\n\n" + ts)
-    ),
-    cel.bind(r,
-      http.get("https://api-ch-gva-2.exoscale.com/v2/zone", {
+    ); (let r = http.get("https://api-ch-gva-2.exoscale.com/v2/zone", {
         "Authorization": "EXO2-HMAC-SHA256 credential=" + finding["secret"] + ",expires=" + ts + ",signature=" + base64.encode(sig)
-      }),
-      r.status == 200 ? {
+      }); r.status == 200 ? {
         "result": "valid"
       } : r.status in [401, 403] ? {
         "result": "invalid",
         "reason": "Unauthorized"
-      } : validate.unknown(r)
-    )
-  )
-)`,
+      } : validate.unknown(r)))`,
 	}
 
 	tps := []string{

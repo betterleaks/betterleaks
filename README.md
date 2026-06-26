@@ -16,8 +16,8 @@ Development is supported by
 
 | Feature | Description |
 | :--- | :--- |
-| **CEL-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. If you're coming from Gitleaks, think of this feature as a more expressive `[[allowlist]]` system. |
-| **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using CEL. |
+| **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. If you're coming from Gitleaks, think of this feature as a more expressive `[[allowlist]]` system. |
+| **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using Expr. |
 | **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
@@ -82,17 +82,17 @@ For more advanced scanning examples check out the [scanning doc](docs/scanning.m
 
 ### Configuration
 
-Betterleaks' strength comes from its expressive configuration. Filtering and validation logic are defined as CEL. It is recommended you spend 30 minutes familiarizing yourself with [CEL](https://cel.dev) before writing filters and validators. `prefilter`s run before any regex matching occurs and only have access to the `attributes` map. `attributes` describe a resource like a git patch. Use `prefilter`s to quickly bail out before more expensive scanning happens. `filter`s, on the other hand, get evaluated post-regex match and have access to the `attributes` map and candidate `finding` data like `finding["secret"]` or `finding["match"]`.
+Betterleaks' strength comes from its expressive configuration. Filtering and validation logic are defined as [Expr](https://expr-lang.org). Previously this logic was implemented in CEL; existing CEL-shaped configs are still accepted for compatibility, but new configs should use Expr. `prefilter`s run before any regex matching occurs and only have access to the `attributes` map. `attributes` describe a resource like a git patch. Use `prefilter`s to quickly bail out before more expensive scanning happens. `filter`s, on the other hand, get evaluated post-regex match and have access to the `attributes` map and candidate `finding` data like `finding["secret"]` or `finding["match"]`.
 
 ```toml
 # Global prefilter, it runs before expensive regex calls
 prefilter = '''
-(filter.matchesAny(attributes[?"path"].orValue(""), [
-  r"""(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff|pdf|exe)$""",
-  r"""(?:^|/)node_modules(?:/.*)?$""",
-  r"""(?:^|/)vendor(?:/.*)?$"""
-]))
-|| attributes[?"git.author_name"].orValue("") == "renovate[bot]"
+filter.matchesAny(get(attributes, "path", ""), [
+  `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff|pdf|exe)$`,
+  `(?:^|/)node_modules(?:/.*)?$`,
+  `(?:^|/)vendor(?:/.*)?$`
+])
+|| get(attributes, "git.author_name", "") == "renovate[bot]"
 '''
 
 # Global filter, it runs for _every_ candidate secret.
@@ -115,30 +115,28 @@ keywords = ["github_pat_"]
 # Rule-level filter
 filter = '''
 (
-    attributes[?"git.author_name"].orValue("") == "ci-runner" &&
-    attributes[?"path"].orValue("").startsWith("mocks/") &&
-    finding["secret"].contains("TESTING")
+    get(attributes, "git.author_name", "") == "ci-runner" &&
+    filter.matchesAny(get(attributes, "path", ""), [`^mocks/`]) &&
+    finding["secret"] contains "TESTING"
 )
 || (filter.entropy(finding["secret"]) <= 3.0)
 '''
 
 # Post-match-and-filter async validation check
 validate = '''
-cel.bind(r,
-  http.get("https://api.github.com/user", {
+let r = http.get("https://api.github.com/user", {
     "Accept": "application/vnd.github+json",
     "Authorization": "token " + secret
-  }),
-  r.status == 200 && r.json.?login.orValue("") != "" ? {
+  });
+r.status == 200 && (r.json?.login ?? "") != "" ? {
     "result": "valid",
-    "username": r.json.?login.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "scopes": r.headers[?"x-oauth-scopes"].orValue("")
+    "username": r.json?.login ?? "",
+    "name": r.json?.name ?? "",
+    "scopes": get(r.headers, "x-oauth-scopes", "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
-)
 '''
 ```
 

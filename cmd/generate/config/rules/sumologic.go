@@ -12,7 +12,7 @@ func SumoLogicAccessID() *config.Rule {
 		RuleID:      "sumologic-access-id",
 		Description: "Discovered a SumoLogic Access ID, potentially compromising log management services and data analytics integrity.",
 		// TODO: Make 'su' case-sensitive.
-		Regex:   utils.GenerateSemiGenericRegex([]string{"(?-i:[Ss]umo|SUMO)"}, "su[a-zA-Z0-9]{12}", false),
+		Regex: utils.GenerateSemiGenericRegex([]string{"(?-i:[Ss]umo|SUMO)"}, "su[a-zA-Z0-9]{12}", false),
 		Keywords: []string{
 			"sumo",
 		},

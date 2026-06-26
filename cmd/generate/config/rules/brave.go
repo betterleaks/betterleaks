@@ -12,18 +12,15 @@ func BraveSearchAPIKey() *config.Rule {
 		Description: "Detected a Brave Search API key, which may allow unauthorized use of Brave Search API quota.",
 		Regex:       regexp.MustCompile(`\b(BSA[A-Za-z0-9_-]{24,40})\b`),
 		Keywords:    []string{"BSA"},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&count=1", {
+		ValidateExpr: `let r = http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&count=1", {
     "Accept": "application/json",
     "X-Subscription-Token": finding["secret"]
-  }),
-  r.status == 200 ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.2`,
 	}
 

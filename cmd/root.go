@@ -90,7 +90,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("gitleaks-ignore-path", "i", ".", "path to .betterleaksignore or .gitleaksignore file or folder containing one")
 	rootCmd.PersistentFlags().String("match-context", "", "context around match: L (lines), C (columns/characters). e.g. 10L, 100C, -2C,+4C")
 	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
-	rootCmd.PersistentFlags().Int("max-archive-depth", 0, "allow scanning into nested archives up to this depth (default \"0\", no archive traversal is done)")
+	rootCmd.PersistentFlags().Int("max-archive-depth", 8, "allow scanning into nested archives up to this depth")
 	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for gitleaks commands in seconds (default \"0\", no timeout is set)")
 	rootCmd.PersistentFlags().String("regex-engine", "re2", "regex engine (stdlib, re2)")
 	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
@@ -102,10 +102,10 @@ func init() {
 	rootCmd.PersistentFlags().Bool("validation", false, "enable validation of findings against live APIs")
 	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none (none = rules without validation)")
 	rootCmd.PersistentFlags().Duration("validation-timeout", 10*time.Second, "per-request timeout for validation")
-	rootCmd.PersistentFlags().Bool("validation-debug", false, "include raw HTTP response in validation output")
 	rootCmd.PersistentFlags().Int("validation-workers", 10, "number of concurrent validation workers")
 	rootCmd.PersistentFlags().Bool("validation-extract-empty", false, "include empty values from extractors in output")
-	rootCmd.PersistentFlags().StringSlice("validation-env-vars", nil, "comma-separated env var names the validation CEL env(...) binding may read (repeat flag to add more); unset means env() is disabled")
+	rootCmd.PersistentFlags().Bool("validation-debug", false, "include validation HTTP debug metadata in output")
+	rootCmd.PersistentFlags().StringSlice("validation-env-vars", nil, "comma-separated env var names the validation env(...) binding may read (repeat flag to add more); unset means env() is disabled")
 
 	// Add diagnostics flags
 	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
@@ -326,7 +326,7 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	var err error
 
 	// Apply rule overrides BEFORE constructing the detector so that
-	// NewDetectorContext compiles CEL filters for the final rule set.
+	// NewDetectorContext compiles expression filters for the final rule set.
 	rules, _ := cmd.Flags().GetStringSlice("enable-rule")
 	if len(rules) > 0 {
 		logging.Info().Msg("Overriding enabled rules: " + strings.Join(rules, ", "))
@@ -341,7 +341,7 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		cfg.Rules = ruleOverride
 	}
 
-	// Setup common detector. NewDetectorContext compiles all CEL programs
+	// Setup common detector. NewDetectorContext compiles all expression programs
 	// and sets up the validation pool, so the cfg must be fully prepared.
 	validationEnvVars, err := cmd.Flags().GetStringSlice("validation-env-vars")
 	if err != nil {
@@ -349,8 +349,8 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	}
 	valOpts := detect.ValidationOptions{
 		Enabled:           mustGetBoolFlag(cmd, "validation"),
-		Workers:           mustGetIntFlag(cmd, "validation-workers"),
 		Debug:             mustGetBoolFlag(cmd, "validation-debug"),
+		Workers:           mustGetIntFlag(cmd, "validation-workers"),
 		ExtractEmpty:      mustGetBoolFlag(cmd, "validation-extract-empty"),
 		StatusFilter:      mustGetStringFlag(cmd, "validation-status"),
 		ValidationEnvVars: validationEnvVars,

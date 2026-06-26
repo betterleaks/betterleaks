@@ -15,7 +15,7 @@ func FacebookSecret() *config.Rule {
 		Description: "Discovered a Facebook Application secret, posing a risk of unauthorized access to Facebook accounts and personal data exposure.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"facebook"}, utils.Hex("32"), true),
 		Keywords:    []string{"facebook"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -35,7 +35,7 @@ func FacebookAccessToken() *config.Rule {
 		Description: "Discovered a Facebook Access Token, posing a risk of unauthorized access to Facebook accounts and personal data exposure.",
 		Regex:       utils.GenerateUniqueTokenRegex(`\d{15,16}(\||%)[0-9a-z\-_]{27,40}`, true),
 		Keywords:    []string{"facebook"},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -55,7 +55,7 @@ func FacebookPageAccessToken() *config.Rule {
 		Description: "Discovered a Facebook Page Access Token, posing a risk of unauthorized access to Facebook accounts and personal data exposure.",
 		Regex:       utils.GenerateUniqueTokenRegex("EAA[MC](?i)[a-z0-9]{100,}", false),
 		Keywords:    []string{"EAAM", "EAAC"},
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		Filter:      `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

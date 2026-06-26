@@ -14,20 +14,17 @@ func LinearAPIToken() *config.Rule {
 		Description: "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
 		Regex:       regexp.MustCompile(`lin_api_(?i)[a-z0-9]{40}`),
 		Keywords:    []string{"lin_api_"},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://api.linear.app/graphql", {
+		ValidateExpr: `let r = http.post("https://api.linear.app/graphql", {
     "Authorization": finding["secret"],
     "Content-Type": "application/json"
-  }, "{\"query\": \"query { viewer { id name email } }\"}"),
-  r.status == 200 && r.body.contains("\"data\"") && r.body.contains("\"viewer\"") ? {
+  }, "{\"query\": \"query { viewer { id name email } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") ? {
     "result": "valid",
-    "email": r.json.?data.?viewer.?email.orValue(""),
-    "name": r.json.?data.?viewer.?name.orValue("")
+    "email": (r.json?.data?.viewer?.email ?? ""),
+    "name": (r.json?.data?.viewer?.name ?? "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
@@ -43,7 +40,7 @@ func LinearClientSecret() *config.Rule {
 		Description: "Identified a Linear Client Secret, which may compromise secure integrations and sensitive project management data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"linear"}, utils.Hex("32"), true),
 		Keywords:    []string{"linear"},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

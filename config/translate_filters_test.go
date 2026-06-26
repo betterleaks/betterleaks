@@ -14,35 +14,35 @@ func TestCelRegexLit(t *testing.T) {
 		{
 			name:     "simple regex without backslashes",
 			input:    `^[a-zA-Z_.-]+$`,
-			expected: `r"""^[a-zA-Z_.-]+$"""`,
+			expected: "`^[a-zA-Z_.-]+$`",
 		},
 		{
 			name:     "contains backslash",
 			input:    `\d{4}-\d{2}-\d{2}`,
-			expected: `r"""\d{4}-\d{2}-\d{2}"""`,
+			expected: "`\\d{4}-\\d{2}-\\d{2}`",
 		},
 		{
-			name:     "contains triple quote (fallback to strconv.Quote)",
+			name:     "contains triple quote",
 			input:    `(?i)secret"""\s*=\s*\w+`,
-			expected: `"(?i)secret\"\"\"\\s*=\\s*\\w+"`,
+			expected: "`(?i)secret\"\"\"\\s*=\\s*\\w+`",
 		},
 		{
-			name:     "backslash pattern ending in quote (#140 repro)",
+			name:     "backslash pattern ending in quote",
 			input:    `(?im)"@[\w\/]+":[ ]{0,20}"[\w\.\-\d]+"`,
-			expected: `"(?im)\"@[\\w\\/]+\":[ ]{0,20}\"[\\w\\.\\-\\d]+\""`,
+			expected: "`(?im)\"@[\\w\\/]+\":[ ]{0,20}\"[\\w\\.\\-\\d]+\"`",
 		},
 		{
 			name:     "quotes in middle are fine with raw strings",
 			input:    `['"]?<[^>]+>['"]?:['"]?<[^>]+>|<[^:]+:[^>]+>['"]?`,
-			expected: `r"""['"]?<[^>]+>['"]?:['"]?<[^>]+>|<[^:]+:[^>]+>['"]?"""`,
+			expected: "`['\"]?<[^>]+>['\"]?:['\"]?<[^>]+>|<[^:]+:[^>]+>['\"]?`",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := celRegexLit(tt.input)
+			actual := exprRegexLit(tt.input)
 			if actual != tt.expected {
-				t.Errorf("celRegexLit() = %v, want %v", actual, tt.expected)
+				t.Errorf("exprRegexLit() = %v, want %v", actual, tt.expected)
 			}
 		})
 	}
@@ -73,9 +73,9 @@ func TestCelStringLit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := celStringLit(tt.input)
+			actual := exprStringLit(tt.input)
 			if actual != tt.expected {
-				t.Errorf("celStringLit() = %v, want %v", actual, tt.expected)
+				t.Errorf("exprStringLit() = %v, want %v", actual, tt.expected)
 			}
 		})
 	}
@@ -95,24 +95,20 @@ func TestCelRegexList(t *testing.T) {
 		{
 			name:     "single item",
 			input:    []string{`\d+`},
-			expected: `[r"""\d+"""]`,
+			expected: "[`\\d+`]",
 		},
 		{
-			name:  "multiple items (multiline formatting)",
-			input: []string{"^foo$", `\b`, "^bar$"},
-			expected: `[
-  r"""^foo$""",
-  r"""\b""",
-  r"""^bar$"""
-]`,
+			name:     "multiple items (multiline formatting)",
+			input:    []string{"^foo$", `\b`, "^bar$"},
+			expected: "[\n  `^foo$`,\n  `\\b`,\n  `^bar$`\n]",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := celRegexList(tt.input)
+			actual := exprRegexList(tt.input)
 			if actual != tt.expected {
-				t.Errorf("celRegexList() = \n%v\nwant \n%v", actual, tt.expected)
+				t.Errorf("exprRegexList() = \n%v\nwant \n%v", actual, tt.expected)
 			}
 		})
 	}
@@ -147,9 +143,9 @@ func TestCelStringList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := celStringList(tt.input)
+			actual := exprStringList(tt.input)
 			if actual != tt.expected {
-				t.Errorf("celStringList() = \n%v\nwant \n%v", actual, tt.expected)
+				t.Errorf("exprStringList() = \n%v\nwant \n%v", actual, tt.expected)
 			}
 		})
 	}

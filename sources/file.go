@@ -137,7 +137,8 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 	br := getReader(stream)
 	defer putReader(br)
-	return s.fileFragments(ctx, br, yield)
+	isArchiveContent := s.archiveDepth > 0
+	return s.fileFragments(ctx, br, isArchiveContent, yield)
 }
 
 // extractorFragments recursively crawls archives and yields fragments
@@ -147,7 +148,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		case archives.SevenZip, archives.Zip:
 			tmpfile, err := os.CreateTemp("", "gitleaks-archive-")
 			if err != nil {
-				logging.Error().Str("path", s.FullPath()).Msg("could not create tmp file")
+				logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not create archive tmp file")
 				return
 			}
 			defer func() {
@@ -157,7 +158,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 			_, err = io.Copy(tmpfile, reader)
 			if err != nil {
-				logging.Error().Str("path", s.FullPath()).Msg("could not copy archive file")
+				logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not copy archive file")
 				return
 			}
 
@@ -174,7 +175,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 		innerReader, err := d.Open()
 		if err != nil {
-			logging.Error().Err(err).Str("path", s.FullPath()).Msg("could not open archive inner file")
+			logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not open archive inner file")
 			return nil
 		}
 		defer innerReader.Close()
@@ -198,7 +199,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 	})
 
 	if err != nil {
-		logging.Error().Err(err).Str("path", s.FullPath()).Msg("error generating file fragments")
+		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("error reading archive")
 	}
 }
 
@@ -206,22 +207,22 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) {
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
-		logging.Error().Str("path", s.FullPath()).Msg("could not read compressed file")
+		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not read compressed file")
 		return
 	}
 
 	br := getReader(innerReader)
 	defer putReader(br)
-	if err := s.fileFragments(ctx, br, yield); err != nil {
-		logging.Error().Err(err).Str("path", s.FullPath()).Msg("error generating file fragments")
+	if err := s.fileFragments(ctx, br, true, yield); err != nil {
+		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("error reading compressed file")
 	}
 
 	_ = innerReader.Close()
 	return
 }
 
-// fileFragments reads the file into fragments to yield
-func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield FragmentsFunc) error {
+// fileFragments reads the file into fragments to yield.
+func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiveContent bool, yield FragmentsFunc) error {
 	// Use a pooled buffer if the caller hasn't provided one.
 	if s.Buffer == nil {
 		s.Buffer = getBuffer()
@@ -254,6 +255,10 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 			n, err := reader.Read(s.Buffer)
 			if n == 0 {
 				if err != nil && err != io.EOF {
+					if isArchiveContent {
+						logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content")
+						return nil
+					}
 					return yield(fragment, fmt.Errorf("could not read file: %w", err))
 				}
 
@@ -264,6 +269,10 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 			if totalLines == 0 {
 				// TODO: could other optimizations be introduced here?
 				if mimetype, err := filetype.Match(s.Buffer[:n]); err != nil {
+					if isArchiveContent {
+						logging.Warn().Err(err).Str("path", fullPath).Msg("could not determine archive content type")
+						return nil
+					}
 					return yield(
 						fragment,
 						fmt.Errorf("could not read file: could not determine type: %w", err),
@@ -280,11 +289,17 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 
 			// Try to split chunks across large areas of whitespace, if possible.
 			peekBuf := bytes.NewBuffer(s.Buffer[:n])
+			stopAfterYield := false
 			if err := readUntilSafeBoundary(reader, n, maxPeekSize, peekBuf); err != nil {
-				return yield(
-					fragment,
-					fmt.Errorf("could not read file: could not read until safe boundary: %w", err),
-				)
+				if isArchiveContent {
+					logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content until safe boundary")
+					stopAfterYield = true
+				} else {
+					return yield(
+						fragment,
+						fmt.Errorf("could not read file: could not read until safe boundary: %w", err),
+					)
+				}
 			}
 
 			fragment.Raw = peekBuf.String()
@@ -304,7 +319,16 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, yield Fr
 
 			// log errors but continue since there's content
 			if err != nil && err != io.EOF {
-				logging.Warn().Err(err).Msgf("issue reading file")
+				if isArchiveContent {
+					logging.Warn().Err(err).Str("path", fullPath).Msg("issue reading archive content")
+					return yield(fragment, nil)
+				} else {
+					logging.Warn().Err(err).Msgf("issue reading file")
+				}
+			}
+
+			if stopAfterYield {
+				return yield(fragment, nil)
 			}
 
 			// Done with the file!

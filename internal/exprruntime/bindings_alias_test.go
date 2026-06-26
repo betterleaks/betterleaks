@@ -1,14 +1,13 @@
-package celenv
+package exprruntime
 
 import (
 	"testing"
 
-	"github.com/google/cel-go/cel"
 	"github.com/stretchr/testify/require"
 )
 
 func TestValidationBindingAliases(t *testing.T) {
-	env, err := NewEnvironment(nil)
+	env, err := New(nil)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -35,22 +34,22 @@ func TestValidationBindingAliases(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			oldPrg, err := env.Compile(tc.old)
+			oldPrg, err := env.CompileValidation(tc.old)
 			require.NoError(t, err)
-			newPrg, err := env.Compile(tc.new)
+			newPrg, err := env.CompileValidation(tc.new)
 			require.NoError(t, err)
 
 			oldGot, err := env.Eval(oldPrg, nil, nil)
 			require.NoError(t, err)
 			newGot, err := env.Eval(newPrg, nil, nil)
 			require.NoError(t, err)
-			require.Equal(t, oldGot.Value(), newGot.Value())
+			require.Equal(t, oldGot, newGot)
 		})
 	}
 }
 
 func TestFilterBindingAliases(t *testing.T) {
-	env, err := NewFilterEnv(nil)
+	env, err := New(nil)
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -60,40 +59,23 @@ func TestFilterBindingAliases(t *testing.T) {
 	}{
 		{name: "matchesAny", old: `matchesAny(finding["secret"], ["sec"])`, new: `filter.matchesAny(finding["secret"], ["sec"])`},
 		{name: "containsAny", old: `containsAny(finding["secret"], ["secret"])`, new: `filter.containsAny(finding["secret"], ["secret"])`},
-		{name: "entropy", old: `entropy(finding["secret"])`, new: `filter.entropy(finding["secret"])`},
+		{name: "entropy", old: `entropy(finding["secret"]) > 0`, new: `filter.entropy(finding["secret"]) > 0`},
 		{name: "failsTokenEfficiency", old: `failsTokenEfficiency(finding["secret"])`, new: `filter.failsTokenEfficiency(finding["secret"])`},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			oldPrg, err := env.Compile(tc.old)
+			oldPrg, err := env.CompileFilter(tc.old, nil)
 			require.NoError(t, err)
-			newPrg, err := env.Compile(tc.new)
+			newPrg, err := env.CompileFilter(tc.new, nil)
 			require.NoError(t, err)
 
 			finding := map[string]string{"secret": "secret-value"}
-			oldGot, err := evalFilterValue(oldPrg, finding, nil)
+			oldGot, err := env.EvalFilter(oldPrg, finding, nil)
 			require.NoError(t, err)
-			newGot, err := evalFilterValue(newPrg, finding, nil)
+			newGot, err := env.EvalFilter(newPrg, finding, nil)
 			require.NoError(t, err)
 			require.Equal(t, oldGot, newGot)
 		})
 	}
-}
-
-func evalFilterValue(prg cel.Program, finding, attributes map[string]string) (any, error) {
-	if finding == nil {
-		finding = emptyStringMap
-	}
-	if attributes == nil {
-		attributes = emptyStringMap
-	}
-	val, _, err := prg.Eval(map[string]any{
-		"finding":    finding,
-		"attributes": attributes,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return val.Value(), nil
 }

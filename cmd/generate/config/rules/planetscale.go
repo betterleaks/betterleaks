@@ -37,7 +37,7 @@ func PlanetScaleID() *config.Rule {
 		),
 		Keywords:   []string{"pscale", "planetscale"},
 		SkipReport: true,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:     `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := []string{
@@ -60,19 +60,16 @@ func PlanetScaleAPIToken() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "planetscale-id"},
 		},
-		ValidateCEL: `cel.bind(r,
-  http.get("https://api.planetscale.com/v1/organizations", {
+		ValidateExpr: `let r = http.get("https://api.planetscale.com/v1/organizations", {
     "Accept": "application/json",
     "Authorization": captures["planetscale-id"] + ":" + finding["secret"]
-  }),
-  r.status == 200 && r.json.?type.orValue("") == "list" ? {
+  }); r.status == 200 && (r.json?.type ?? "") == "list" ? {
     "result": "valid",
-    "organization": r.json.?data[0].?name.orValue("")
+    "organization": getPath(r.json, "data.0.name", "")
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 

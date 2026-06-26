@@ -13,18 +13,15 @@ func PerplexityAPIKey() *config.Rule {
 		Description: "Detected a Perplexity API key, which could lead to unauthorized access to Perplexity AI services and data exposure.",
 		Regex:       regexp.MustCompile(`\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)`),
 		Keywords:    []string{"pplx-"},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://api.perplexity.ai/chat/completions", {
+		ValidateExpr: `let r = http.post("https://api.perplexity.ai/chat/completions", {
     "Authorization": "Bearer " + finding["secret"],
     "Content-Type": "application/json"
-  }, "{\"model\":\"invalid-model-for-validation\",\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}"),
-  r.status in [200, 400, 404, 422] ? {
+  }, "{\"model\":\"invalid-model-for-validation\",\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}"); r.status in [200, 400, 404, 422] ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 4.0`,
 	}
 

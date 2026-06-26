@@ -36,21 +36,18 @@ func CanvaClientSecret() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "canva-client-id"},
 		},
-		ValidateCEL: `cel.bind(r,
-  http.post("https://api.canva.com/rest/v1/oauth/token", {
+		ValidateExpr: `let r = http.post("https://api.canva.com/rest/v1/oauth/token", {
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
   },
   "grant_type=authorization_code&client_id=" + captures["canva-client-id"] +
   "&client_secret=" + finding["secret"] +
-  "&code_verifier=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abcdefgh&code=invalid"),
-  r.status == 400 && r.body.contains("\"invalid_grant\"") && !r.body.contains("\"invalid_client\"") ? {
+  "&code_verifier=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abcdefgh&code=invalid"); r.status == 400 && (r.body contains "\"invalid_grant\"") && !(r.body contains "\"invalid_client\"") ? {
     "result": "valid"
-  } : r.status in [400, 401, 403] && r.body.contains("\"invalid_client\"") ? {
+  } : r.status in [400, 401, 403] && (r.body contains "\"invalid_client\"") ? {
     "result": "invalid",
     "reason": "Invalid client"
-  } : validate.unknown(r)
-)`,
+  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
