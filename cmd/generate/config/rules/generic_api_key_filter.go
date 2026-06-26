@@ -117,15 +117,36 @@ var testAndPublicAPIFilters = []testAndPublicAPIFilter{
 // lowercases its input, so the lowercase keywords match case-insensitively.
 func buildTestAndPublicAPIFilters() string {
 	var b strings.Builder
+	var secretOnly []string
 	for _, f := range testAndPublicAPIFilters {
 		secretMatch := `matchesAny(finding["secret"], [r"""^` + f.regex + `$"""])`
-		b.WriteString("\n|| ")
 		if len(f.keywords) == 0 {
-			b.WriteString(secretMatch)
+			secretOnly = append(secretOnly, `r"""^`+f.regex+`$"""`)
 			continue
 		}
+		b.WriteString("\n|| ")
 		b.WriteString("(" + secretMatch + ` && containsAny(finding["line"], ` + exprStringListInline(f.keywords) + "))")
 	}
+	if len(secretOnly) > 0 {
+		return "\n|| matchesAny(finding[\"secret\"], " + exprList(secretOnly) + ")" + b.String()
+	}
+	return b.String()
+}
+
+func exprList(parts []string) string {
+	if len(parts) <= 1 {
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	var b strings.Builder
+	b.WriteString("[\n")
+	for i, p := range parts {
+		b.WriteString("  " + p)
+		if i < len(parts)-1 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte(']')
 	return b.String()
 }
 
@@ -142,18 +163,5 @@ func exprStringList(ss []string) string {
 	for i, s := range ss {
 		parts[i] = strconv.Quote(s)
 	}
-	if len(parts) <= 1 {
-		return "[" + strings.Join(parts, ", ") + "]"
-	}
-	var b strings.Builder
-	b.WriteString("[\n")
-	for i, p := range parts {
-		b.WriteString("  " + p)
-		if i < len(parts)-1 {
-			b.WriteByte(',')
-		}
-		b.WriteByte('\n')
-	}
-	b.WriteByte(']')
-	return b.String()
+	return exprList(parts)
 }

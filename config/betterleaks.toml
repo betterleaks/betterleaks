@@ -3706,26 +3706,28 @@ entropy(finding["secret"]) <= 3.5
   `LIC_FILES_CHKSUM[^=]*=\s*"[^"]+`,
   `SRC[^=]*=\s*"[a-zA-Z0-9]+`
 ]))
-|| matchesAny(finding["secret"], [r"""^sb_publishable_[A-Za-z0-9_-]{31}$"""])
-|| matchesAny(finding["secret"], [r"""^0x4AAAAAA[A-Za-z0-9_-]{15}$"""])
-|| matchesAny(finding["secret"], [r"""^FCM[a-zA-Z0-9]{13}$"""])
-|| matchesAny(finding["secret"], [r"""^ysc1_[A-Za-z0-9_-]{48}$"""])
-|| matchesAny(finding["secret"], [r"""^phc_[A-Za-z0-9_-]{43,44}$"""])
-|| matchesAny(finding["secret"], [r"""^APP_USR-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^access-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^asset-report-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^public-(sandbox|development|production)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^link-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^hbp_[0-9a-zA-Z]{36}$"""])
-|| matchesAny(finding["secret"], [r"""^woos-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^(https://)?[0-9a-zA-Z]{32}\@sentry\.io$"""])
-|| matchesAny(finding["secret"], [r"""^sub-c-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^pub-c-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^hc[a-z]ik_([a-z0-9]{26,58})$"""])
-|| matchesAny(finding["secret"], [r"""^mob-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^public-token-test-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^public-token-live-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""])
-|| matchesAny(finding["secret"], [r"""^pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}$"""])
+|| matchesAny(finding["secret"], [
+  r"""^sb_publishable_[A-Za-z0-9_-]{31}$""",
+  r"""^0x4AAAAAA[A-Za-z0-9_-]{15}$""",
+  r"""^FCM[a-zA-Z0-9]{13}$""",
+  r"""^ysc1_[A-Za-z0-9_-]{48}$""",
+  r"""^phc_[A-Za-z0-9_-]{43,44}$""",
+  r"""^APP_USR-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^access-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^asset-report-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^public-(sandbox|development|production)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^link-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^hbp_[0-9a-zA-Z]{36}$""",
+  r"""^woos-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^(https://)?[0-9a-zA-Z]{32}\@sentry\.io$""",
+  r"""^sub-c-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^pub-c-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^hc[a-z]ik_([a-z0-9]{26,58})$""",
+  r"""^mob-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^public-token-test-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^public-token-live-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$""",
+  r"""^pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}$"""
+])
 || (matchesAny(finding["secret"], [r"""^pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$"""]) && containsAny(finding["line"], ["stripe", "woo", "wcm"]))
 || (matchesAny(finding["secret"], [r"""^rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$"""]) && containsAny(finding["line"], ["stripe"]))
 || (matchesAny(finding["secret"], [r"""^sk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$"""]) && containsAny(finding["line"], ["stripe", "woo", "wcm"]))
