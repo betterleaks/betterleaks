@@ -53,7 +53,11 @@ var (
 				cmd.SetContext(ctx)
 				cobra.OnFinalize(cancel)
 			}
-			return nil
+			exp, err := cmd.Flags().GetString("experiments")
+			if err != nil {
+				return err
+			}
+			return validateExperiments(exp)
 		},
 	}
 
