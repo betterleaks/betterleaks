@@ -127,15 +127,9 @@ func newGitLogCmd(ctx context.Context, source string, logOpts string) (*GitCmd, 
 	args := []string{"-C", sourceClean, "log", "-p", "-U0"}
 
 	if logOpts != "" {
-		userArgs := strings.Split(logOpts, " ")
-		var quotedOpts []string
-		for _, element := range userArgs {
-			if quotedOptPattern.MatchString(element) {
-				quotedOpts = append(quotedOpts, element)
-			}
-		}
-		if len(quotedOpts) > 0 {
-			logging.Warn().Msgf("the following `--log-opts` values may not work as expected: %v", quotedOpts)
+		userArgs, err := splitGitLogOpts(logOpts)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --log-opts: %w", err)
 		}
 		args = append(args, userArgs...)
 	} else {
@@ -241,7 +235,11 @@ func listCommits(ctx context.Context, source string, logOpts string) ([]string, 
 	args := []string{"-C", sourceClean, "rev-list"}
 
 	if logOpts != "" {
-		args = append(args, strings.Split(logOpts, " ")...)
+		userArgs, err := splitGitLogOpts(logOpts)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --log-opts: %w", err)
+		}
+		args = append(args, userArgs...)
 	} else {
 		args = append(args, "--all")
 	}
@@ -266,7 +264,11 @@ func commitCount(ctx context.Context, source string, logOpts string) (int, error
 	args := []string{"-C", sourceClean, "rev-list", "--count"}
 
 	if logOpts != "" {
-		args = append(args, strings.Split(logOpts, " ")...)
+		userArgs, err := splitGitLogOpts(logOpts)
+		if err != nil {
+			return 0, fmt.Errorf("invalid --log-opts: %w", err)
+		}
+		args = append(args, userArgs...)
 	} else {
 		args = append(args, "--all")
 	}

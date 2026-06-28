@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/fatih/semgroup"
 	"github.com/gitleaks/go-gitdiff/gitdiff"
@@ -24,8 +25,6 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
-
-var quotedOptPattern = regexp.MustCompile(`^(?:"[^"]+"|'[^']+')$`)
 
 // GitCmd helps to work with Git's output.
 type GitCmd struct {
@@ -111,17 +110,9 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 	if logOpts != "" {
 		args := []string{"-C", sourceClean, "log", "-p", "-U0"}
 
-		// Ensure that the user-provided |logOpts| aren't wrapped in quotes.
-		// https://github.com/gitleaks/gitleaks/issues/1153
-		userArgs := strings.Split(logOpts, " ")
-		var quotedOpts []string
-		for _, element := range userArgs {
-			if quotedOptPattern.MatchString(element) {
-				quotedOpts = append(quotedOpts, element)
-			}
-		}
-		if len(quotedOpts) > 0 {
-			logging.Warn().Msgf("the following `--log-opts` values may not work as expected: %v\n\tsee https://github.com/gitleaks/gitleaks/issues/1153 for more information", quotedOpts)
+		userArgs, err := splitGitLogOpts(logOpts)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --log-opts: %w", err)
 		}
 
 		args = append(args, userArgs...)
@@ -160,6 +151,64 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 		errCh:       errCh,
 		repoPath:    sourceClean,
 	}, nil
+}
+
+// splitGitLogOpts parses user-provided --log-opts with a small shell-inspired
+// tokenizer.
+//
+// Supported behavior:
+//   - whitespace splits arguments unless inside quotes
+//   - single and double quotes group text and are removed from output
+//   - backslash escapes the next rune outside single quotes
+//   - unmatched quote or trailing backslash returns an error
+//
+// This is intentionally not a full shell parser: no variable expansion,
+// command substitution, glob expansion, or other shell features. Also, a
+// standalone empty quoted token (for example '') is currently dropped.
+func splitGitLogOpts(input string) ([]string, error) {
+	var (
+		args     []string
+		curr     strings.Builder
+		inSingle bool
+		inDouble bool
+		escaped  bool
+	)
+
+	flush := func() {
+		if curr.Len() == 0 {
+			return
+		}
+		args = append(args, curr.String())
+		curr.Reset()
+	}
+
+	for _, r := range input {
+		switch {
+		case escaped:
+			curr.WriteRune(r)
+			escaped = false
+		case r == '\\' && !inSingle:
+			escaped = true
+		case r == '\'' && !inDouble:
+			inSingle = !inSingle
+		case r == '"' && !inSingle:
+			inDouble = !inDouble
+		case unicode.IsSpace(r) && !inSingle && !inDouble:
+			flush()
+		default:
+			curr.WriteRune(r)
+		}
+	}
+
+	if escaped {
+		return nil, errors.New("unterminated escape in --log-opts")
+	}
+	if inSingle || inDouble {
+		return nil, errors.New("unterminated quote in --log-opts")
+	}
+
+	flush()
+	return args, nil
 }
 
 // NewGitDiffCmd returns `*DiffFilesCmd` with two channels: `<-chan *gitdiff.File` and `<-chan error`.
