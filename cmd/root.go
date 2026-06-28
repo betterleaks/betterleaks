@@ -53,6 +53,16 @@ var (
 				cmd.SetContext(ctx)
 				cobra.OnFinalize(cancel)
 			}
+
+			// Validate experimental feature flags so typos fail fast instead of
+			// being silently ignored.
+			raw, err := cmd.Flags().GetString("experiments")
+			if err != nil {
+				return err
+			}
+			if _, err := parseExperiments(raw); err != nil {
+				logging.Fatal().Msg(err.Error())
+			}
 			return nil
 		},
 	}
