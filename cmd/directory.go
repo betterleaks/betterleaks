@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -105,34 +106,49 @@ func runDirectory(cmd *cobra.Command, args []string) {
 }
 
 // removeNestedPaths filters out paths that are children of other paths in the
-// list so that overlapping sources (e.g. "root" and "root/sub") don't produce
-// duplicate findings.
+// list (so overlapping sources like "root" and "root/sub" don't produce
+// duplicate findings) and drops exact duplicates. Comparison is case-insensitive
+// on case-insensitive filesystems (Windows).
 func removeNestedPaths(paths []string) []string {
-	abs := make([]string, len(paths))
+	keys := make([]string, len(paths))
 	for i, p := range paths {
 		a, err := filepath.Abs(p)
 		if err != nil {
-			abs[i] = p
-			continue
+			a = p
 		}
-		abs[i] = a
+		keys[i] = pathKey(a)
 	}
 
 	var kept []string
-	for i, candidate := range abs {
+	seen := make(map[string]struct{})
+	for i := range paths {
+		if _, dup := seen[keys[i]]; dup {
+			continue // exact duplicate of a path already kept
+		}
 		nested := false
-		for j, parent := range abs {
-			if i == j {
+		for j := range paths {
+			if i == j || keys[i] == keys[j] {
 				continue
 			}
-			if strings.HasPrefix(candidate, parent+string(filepath.Separator)) {
+			if strings.HasPrefix(keys[i], keys[j]+string(filepath.Separator)) {
 				nested = true
 				break
 			}
 		}
 		if !nested {
+			seen[keys[i]] = struct{}{}
 			kept = append(kept, paths[i])
 		}
 	}
 	return kept
+}
+
+// pathKey normalizes an absolute path for nesting/duplicate comparison. On
+// case-insensitive filesystems (Windows) it lowercases so the checks aren't
+// defeated by case differences.
+func pathKey(p string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(p)
+	}
+	return p
 }
