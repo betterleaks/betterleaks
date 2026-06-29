@@ -91,3 +91,18 @@ func TestLazyCompileFailureDoesNotPanic(t *testing.T) {
 		t.Fatalf("SubexpNames = %#v, want nil", got)
 	}
 }
+
+func TestCompileReturnsLazyCompileError(t *testing.T) {
+	previous := currentEngine
+	defer SetEngine(previous)
+
+	SetEngine(failingEngine{})
+
+	re, err := Compile(`foo`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := re.Compile(); err == nil {
+		t.Fatal("Compile returned nil after engine compile failure")
+	}
+}
