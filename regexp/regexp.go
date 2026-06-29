@@ -63,6 +63,10 @@ func (r *Regexp) SubexpNames() []string {
 func (r *Regexp) String() string {
 	return r.pattern
 }
+func (r *Regexp) Compile() error {
+	r.compiled()
+	return r.err
+}
 
 func (r *Regexp) compiled() (internal.CompiledRegexp, bool) {
 	r.once.Do(func() {
