@@ -30,9 +30,10 @@ var configCmd = &cobra.Command{
 }
 
 var configCheckCmd = &cobra.Command{
-	Use:   "check [config-path]",
-	Short: "validate a betterleaks config",
-	Args:  cobra.MaximumNArgs(1),
+	Use:          "check [config-path]",
+	Short:        "validate a betterleaks config",
+	Args:         cobra.MaximumNArgs(1),
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		resolved, err := resolveConfig(cmd, args)
 		if err != nil {
@@ -49,9 +50,10 @@ var configCheckCmd = &cobra.Command{
 }
 
 var configShowCmd = &cobra.Command{
-	Use:   "show [config-path]",
-	Short: "print the resolved betterleaks config",
-	Args:  cobra.MaximumNArgs(1),
+	Use:          "show [config-path]",
+	Short:        "print the resolved betterleaks config",
+	Args:         cobra.MaximumNArgs(1),
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		resolved, err := resolveConfig(cmd, args)
 		if err != nil {
@@ -66,9 +68,10 @@ var configShowCmd = &cobra.Command{
 }
 
 var configPathCmd = &cobra.Command{
-	Use:   "path",
-	Short: "print the selected config source",
-	Args:  cobra.NoArgs,
+	Use:          "path",
+	Short:        "print the selected config source",
+	Args:         cobra.NoArgs,
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		resolved, err := resolveConfig(cmd, args)
 		if err != nil {
@@ -158,7 +161,7 @@ func validateConfig(cfg *configpkg.Config) error {
 		return err
 	}
 	if prg := cfg.PrefilterProgram(); prg != nil {
-		if _, err := rt.EvalPrefilter(prg, emptyAttributes()); err != nil {
+		if _, err := rt.EvalPrefilter(prg, fakeAttributes()); err != nil {
 			return fmt.Errorf("evaluating global prefilter: %w", err)
 		}
 	}
@@ -167,7 +170,7 @@ func validateConfig(cfg *configpkg.Config) error {
 		if err != nil {
 			return fmt.Errorf("compiling global filter: %w", err)
 		}
-		if _, err := rt.EvalFilter(prg, emptyFinding(), emptyAttributes()); err != nil {
+		if _, err := rt.EvalFilter(prg, fakeFinding(), fakeAttributes()); err != nil {
 			return fmt.Errorf("evaluating global filter: %w", err)
 		}
 	}
@@ -182,7 +185,7 @@ func validateConfig(cfg *configpkg.Config) error {
 			if err != nil {
 				return fmt.Errorf("compiling rule %s filter: %w", id, err)
 			}
-			if _, err := rt.EvalFilter(prg, emptyFinding(), emptyAttributes()); err != nil {
+			if _, err := rt.EvalFilter(prg, fakeFinding(), fakeAttributes()); err != nil {
 				return fmt.Errorf("evaluating rule %s filter: %w", id, err)
 			}
 		}
@@ -193,6 +196,28 @@ func validateConfig(cfg *configpkg.Config) error {
 		}
 	}
 	return nil
+}
+
+func fakeFinding() map[string]string {
+	return map[string]string{
+		"secret":      "betterleaks-check-secret",
+		"match":       "betterleaks-check-match",
+		"line":        "betterleaks-check-line",
+		"ruleID":      "betterleaks-check-rule",
+		"description": "betterleaks check rule",
+	}
+}
+
+func fakeAttributes() map[string]string {
+	return map[string]string{
+		"path":       "betterleaks/check.txt",
+		"file":       "betterleaks/check.txt",
+		"commit":     "0000000000000000000000000000000000000000",
+		"git.sha":    "0000000000000000000000000000000000000000",
+		"author":     "betterleaks",
+		"email":      "betterleaks@example.com",
+		"repository": "betterleaks",
+	}
 }
 
 func countValidationRules(cfg *configpkg.Config) (int, int) {
@@ -228,21 +253,6 @@ func compileRuleRegexps(cfg *configpkg.Config) error {
 		}
 	}
 	return nil
-}
-
-func emptyFinding() map[string]string {
-	return map[string]string{
-		"secret": "",
-		"match":  "",
-		"line":   "",
-	}
-}
-
-func emptyAttributes() map[string]string {
-	return map[string]string{
-		"path":    "",
-		"git.sha": "",
-	}
 }
 
 func sortedRuleIDs(cfg *configpkg.Config) []string {
