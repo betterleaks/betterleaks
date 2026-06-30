@@ -635,7 +635,7 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 		}
 		vs := strings.ToUpper(string(f.ValidationStatus))
 		if !noColor {
-			vs = validationStyle(string(f.ValidationStatus), noColor).Render(vs)
+			vs = ValidationStyle(string(f.ValidationStatus), noColor).Render(vs)
 		}
 		dotLeader("status", vs, maxVK)
 		if f.ValidationReason != "" {

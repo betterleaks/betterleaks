@@ -22,6 +22,7 @@ type resolvedConfig struct {
 func init() {
 	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(configCheckCmd, configShowCmd, configPathCmd)
+	configShowCmd.Flags().Bool("only-ids", false, "print only rule ids")
 }
 
 var configCmd = &cobra.Command{
@@ -61,6 +62,10 @@ var configShowCmd = &cobra.Command{
 		}
 		if err := validateConfig(resolved.cfg); err != nil {
 			return err
+		}
+		if onlyIDs, _ := cmd.Flags().GetBool("only-ids"); onlyIDs {
+			_, _ = cmd.OutOrStdout().Write([]byte(renderRuleIDs(resolved.cfg)))
+			return nil
 		}
 		_, _ = cmd.OutOrStdout().Write([]byte(renderConfigTOML(renderConfig(resolved.cfg))))
 		return nil
@@ -272,6 +277,25 @@ func sortedRuleIDs(cfg *configpkg.Config) []string {
 	}
 	sort.Strings(rest)
 	return append(ids, rest...)
+}
+
+func renderRuleIDs(cfg *configpkg.Config) string {
+	components := make(map[string]struct{})
+	for _, rule := range cfg.Rules {
+		for _, required := range rule.RequiredRules {
+			components[required.RuleID] = struct{}{}
+		}
+	}
+
+	var b strings.Builder
+	for _, id := range sortedRuleIDs(cfg) {
+		b.WriteString(id)
+		if _, ok := components[id]; ok {
+			b.WriteString(" [component]")
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 type configView struct {
