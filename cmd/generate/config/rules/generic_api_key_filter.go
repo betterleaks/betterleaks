@@ -119,9 +119,10 @@ func buildTestAndPublicAPIFilters() string {
 	var b strings.Builder
 	var secretOnly []string
 	for _, f := range testAndPublicAPIFilters {
-		secretMatch := `matchesAny(finding["secret"], [r"""^` + f.regex + `$"""])`
+		secretRegex := "`^" + f.regex + "$`"
+		secretMatch := `matchesAny(finding["secret"], [` + secretRegex + `])`
 		if len(f.keywords) == 0 {
-			secretOnly = append(secretOnly, `r"""^`+f.regex+`$"""`)
+			secretOnly = append(secretOnly, secretRegex)
 			continue
 		}
 		b.WriteString("\n|| ")
