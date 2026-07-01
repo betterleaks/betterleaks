@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -92,9 +93,13 @@ func TestAzureValidateServicePrincipalInvalid(t *testing.T) {
 }
 
 func TestAzureValidateAppConfigValid(t *testing.T) {
+	var serverHost string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.String(); got != "/kv?api-version=1.0" {
+		if got := r.URL.String(); got != "/custom-kv?api-version=test" {
 			t.Errorf("unexpected URL %q", got)
+		}
+		if got := r.Host; got != serverHost {
+			t.Errorf("unexpected host %q", got)
 		}
 		if got := r.Header.Get("Authorization"); !strings.HasPrefix(got, "HMAC-SHA256 Credential=id123") {
 			t.Errorf("unexpected auth %q", got)
@@ -102,12 +107,13 @@ func TestAzureValidateAppConfigValid(t *testing.T) {
 		fmt.Fprint(w, `{"items":[]}`)
 	}))
 	defer ts.Close()
+	serverHost = strings.TrimPrefix(ts.URL, "http://")
 
 	env, err := New(ts.Client())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	env.AzureAppConfigEndpoint = ts.URL + "/kv?api-version=1.0"
+	env.AzureAppConfigEndpoint = ts.URL + "/custom-kv?api-version=test"
 
 	prg, err := env.CompileValidation(`let r = azure.validateAppConfig(captures["endpoint"], captures["id"], finding["secret"]); r.status == 200 ? {
   "result": "valid",
@@ -127,11 +133,14 @@ func TestAzureValidateAppConfigValid(t *testing.T) {
 }
 
 func TestAzureValidateServiceBusSASValid(t *testing.T) {
+	var expectedResource string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); !strings.HasPrefix(got, "SharedAccessSignature ") {
 			t.Errorf("unexpected auth %q", got)
 		} else if strings.Contains(got, "api-version") {
 			t.Errorf("SAS resource URI should not include query string: %q", got)
+		} else if sr := serviceBusSASResource(t, got); sr != expectedResource {
+			t.Errorf("unexpected SAS resource URI %q", sr)
 		}
 		if got := r.URL.Path; got != "/orders" {
 			t.Errorf("unexpected path %q", got)
@@ -139,6 +148,7 @@ func TestAzureValidateServiceBusSASValid(t *testing.T) {
 		fmt.Fprint(w, `<entry></entry>`)
 	}))
 	defer ts.Close()
+	expectedResource = ts.URL + "/orders"
 
 	env, err := New(ts.Client())
 	if err != nil {
@@ -162,6 +172,15 @@ func TestAzureValidateServiceBusSASValid(t *testing.T) {
 	if result["result"] != "valid" || result["entity_path"] != "orders" {
 		t.Fatalf("unexpected result %v", result)
 	}
+}
+
+func serviceBusSASResource(t *testing.T, auth string) string {
+	t.Helper()
+	values, err := url.ParseQuery(strings.TrimPrefix(auth, "SharedAccessSignature "))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	return values.Get("sr")
 }
 
 func TestParseAzureConnectionString(t *testing.T) {

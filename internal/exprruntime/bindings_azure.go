@@ -160,12 +160,26 @@ func (rt *runtimeBindings) azureValidateAppConfig(endpoint, id, secret string) m
 		return azureInputError("invalid_app_config_endpoint")
 	}
 	reqURL := endpoint + "/kv?api-version=" + azureAppConfigVersion
+	signHost := u.Host
+	signPath := "/kv?api-version=" + azureAppConfigVersion
 	if e.AzureAppConfigEndpoint != "" {
 		reqURL = e.AzureAppConfigEndpoint
+		overrideURL, err := url.Parse(reqURL)
+		if err != nil || overrideURL.Host == "" {
+			return azureInputError("invalid_app_config_endpoint")
+		}
+		signHost = overrideURL.Host
+		signPath = overrideURL.EscapedPath()
+		if signPath == "" {
+			signPath = "/"
+		}
+		if overrideURL.RawQuery != "" {
+			signPath += "?" + overrideURL.RawQuery
+		}
 	}
 	date := time.Now().UTC().Format(http.TimeFormat)
 	contentHash := base64.StdEncoding.EncodeToString(sha256.New().Sum(nil))
-	stringToSign := fmt.Sprintf("GET\n/kv?api-version=%s\n%s;%s;%s", azureAppConfigVersion, date, u.Host, contentHash)
+	stringToSign := fmt.Sprintf("GET\n%s\n%s;%s;%s", signPath, date, signHost, contentHash)
 	signature, err := azureHMACBase64(secret, stringToSign)
 	if err != nil {
 		return azureInputError(err.Error())
@@ -175,7 +189,7 @@ func (rt *runtimeBindings) azureValidateAppConfig(endpoint, id, secret string) m
 	if err != nil {
 		return map[string]any{"status": int64(0), "error_message": err.Error()}
 	}
-	req.Host = u.Host
+	req.Host = signHost
 	req.Header.Set("Date", date)
 	req.Header.Set("x-ms-content-sha256", contentHash)
 	req.Header.Set("Authorization", fmt.Sprintf("HMAC-SHA256 Credential=%s&SignedHeaders=date;host;x-ms-content-sha256&Signature=%s", id, signature))
@@ -215,6 +229,13 @@ func (rt *runtimeBindings) azureValidateServiceBusSAS(connectionString string) m
 	}
 	if e.AzureServiceBusEndpoint != "" {
 		reqURL = e.AzureServiceBusEndpoint
+		overrideURL, err := url.Parse(reqURL)
+		if err != nil || overrideURL.Host == "" {
+			return azureInputError("invalid_servicebus_endpoint")
+		}
+		overrideURL.RawQuery = ""
+		overrideURL.Fragment = ""
+		resourceURI = overrideURL.String()
 	}
 	auth, err := azureSASToken(resourceURI, keyName, key, time.Now().Add(5*time.Minute).Unix())
 	if err != nil {
@@ -265,6 +286,7 @@ func azureHMACBase64(base64Key, message string) (string, error) {
 func azureSASToken(resourceURI, keyName, base64Key string, expiry int64) (string, error) {
 	encodedURI := strings.ToLower(url.QueryEscape(resourceURI))
 	toSign := encodedURI + "\n" + fmt.Sprintf("%d", expiry)
+	// Service Bus/Event Hub SAS signs the SharedAccessKey text as supplied.
 	mac := hmac.New(sha256.New, []byte(base64Key))
 	_, _ = mac.Write([]byte(toSign))
 	signature := base64.StdEncoding.EncodeToString(mac.Sum(nil))
