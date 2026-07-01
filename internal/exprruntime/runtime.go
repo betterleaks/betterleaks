@@ -72,9 +72,14 @@ type Runtime struct {
 	mu    sync.RWMutex
 	cache map[string]Program
 
-	STSEndpoint      string
-	GCPTokenEndpoint string
-	AllowedEnv       map[string]struct{}
+	// These endpoints are used for tests, not for real scans.
+	STSEndpoint             string
+	GCPTokenEndpoint        string
+	AzureTokenEndpoint      string
+	AzureStorageEndpoint    string
+	AzureAppConfigEndpoint  string
+	AzureServiceBusEndpoint string
+	AllowedEnv              map[string]struct{}
 
 	tokenizerProvider func() *tiktoken.Tiktoken
 }
@@ -294,6 +299,7 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures, att
 	b["time"] = timeNamespace()
 	b["aws"] = awsNamespace(rt)
 	b["gcp"] = gcpNamespace(rt)
+	b["azure"] = azureNamespace(rt)
 	b["unknown"] = unknownResult
 	b["obfuscate"] = func(s string) (string, error) { return obfuscate(s), nil }
 	return b
