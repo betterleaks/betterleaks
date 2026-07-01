@@ -700,8 +700,157 @@ keywords = [
     "8q~",
     "9q~",
 ]
+validate = '''
+let r = azure.validateServicePrincipal(captures["azure-tenant-id"], captures["azure-client-id"], finding["secret"]); r.status == 200 ? {
+  "result": "valid",
+  "tenant_id": r.tenant_id,
+  "client_id": r.client_id
+} : r.status in [400, 401, 403, 404] ? {
+  "result": "invalid",
+  "error_code": r.error_code,
+  "error_message": r.error_message
+} : validate.unknown(r)
+
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.0
+'''
+[[rules.required]]
+id = "azure-tenant-id"
+withinLines = 8
+[[rules.required]]
+id = "azure-client-id"
+withinLines = 8
+
+# ──────────────────────────────────────────────────────────────────────────────
+# azure-app-configuration-connection-string
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "azure-app-configuration-connection-string"
+description = "Detected an Azure App Configuration connection string."
+regex = '''(?i)Endpoint=(?P<azure_appconfig_endpoint>https://[a-z0-9-]+\.azconfig\.io);Id=(?P<azure_appconfig_id>[^;\s'"]{4,80});Secret=([A-Za-z0-9+/]{36,100}={0,2})'''
+secretGroup = 3
+keywords = [
+    "azconfig.io",
+    "endpoint=",
+    "secret=",
+]
+validate = '''
+let r = azure.validateAppConfig(captures["azure_appconfig_endpoint"], captures["azure_appconfig_id"], finding["secret"]); r.status == 200 ? {
+  "result": "valid",
+  "endpoint": r.endpoint,
+  "id": r.id
+} : r.status in [400, 401, 403, 404] ? {
+  "result": "invalid",
+  "error_code": r.error_code,
+  "error_message": r.error_message
+} : validate.unknown(r)
+
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# azure-client-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "azure-client-id"
+description = "Detected an Azure client ID, used as a component of Azure service principal validation."
+regex = '''(?i)\b(?:client[_\s.-]*id|AZURE_CLIENT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
+keywords = ["client"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# azure-servicebus-connection-string
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "azure-servicebus-connection-string"
+description = "Detected an Azure Service Bus or Event Hub shared access connection string."
+regex = '''(?i)(Endpoint=sb://[a-z0-9-]+\.servicebus\.windows\.net/;SharedAccessKeyName=[^;=\s'"]{1,128};SharedAccessKey=[A-Za-z0-9+/]{32,100}={0,2}(?:;EntityPath=[^;\s'"]{1,128})?)'''
+keywords = [
+    "endpoint=sb://",
+    "sharedaccesskeyname",
+    "sharedaccesskey",
+]
+validate = '''
+let r = azure.validateServiceBusSAS(finding["secret"]); r.status in [200, 201, 202, 204] ? {
+  "result": "valid",
+  "host": r.host,
+  "entity_path": r.entity_path
+} : r.status in [400, 401, 403, 404] ? {
+  "result": "invalid",
+  "error_code": r.error_code,
+  "error_message": r.error_message
+} : validate.unknown(r)
+
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# azure-storage-account-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "azure-storage-account-key"
+description = "Detected an Azure Storage account key."
+regex = '''(?i)\b(?:AccountKey|(?:azure[_\s.-]*)?(?:storage[_\s.-]*)?(?:account[_\s.-]*)?(?:access[_\s.-]*)?key)\b(?s:.{0,24}?)([A-Za-z0-9+/]{86}==)'''
+keywords = [
+    "accountkey",
+    "storage",
+    "key",
+]
+validate = '''
+let r = azure.validateStorage(captures["azure-storage-account-name"], finding["secret"]); r.status == 200 ? {
+  "result": "valid",
+  "account": r.account,
+  "containers": r.containers
+} : r.status in [400, 401, 403, 404] ? {
+  "result": "invalid",
+  "error_code": r.error_code,
+  "error_message": r.error_message
+} : validate.unknown(r)
+
+'''
+filter = '''
+entropy(finding["secret"]) <= 4.0
+'''
+[[rules.required]]
+id = "azure-storage-account-name"
+withinLines = 8
+
+# ──────────────────────────────────────────────────────────────────────────────
+# azure-storage-account-name
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "azure-storage-account-name"
+description = "Detected an Azure Storage account name, used as a component of Azure Storage key validation."
+regex = '''(?i)(?:\bAccountName\s*=\s*([a-z0-9]{3,24})\b|https://([a-z0-9]{3,24})\.blob\.core\.windows\.net\b|\b(?:azure[_\s.-]*storage[_\s.-]*(?:account[_\s.-]*)?name|storage[_\s.-]*account[_\s.-]*name)\b(?s:.{0,24}?)([a-z0-9]{3,24})\b)'''
+keywords = [
+    "accountname",
+    "blob.core.windows.net",
+    "storage",
+]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 1.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# azure-tenant-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "azure-tenant-id"
+description = "Detected an Azure tenant ID, used as a component of Azure service principal validation."
+regex = '''(?i)\b(?:tenant[_\s.-]*(?:id)?|AZURE_TENANT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
+keywords = ["tenant"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6712,3 +6861,4 @@ id = "zendesk-secret-key"
 description = "Detected a Zendesk Secret Key, risking unauthorized access to customer support services and sensitive ticketing data."
 regex = '''(?i)[\w.-]{0,50}?(?:zendesk)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["zendesk"]
+

@@ -140,6 +140,10 @@ Any additional keys are attached to the finding as validation metadata, such as
 | `time.nowRFC3339()` | Returns the current UTC timestamp in RFC3339 format. |
 | `aws.validate(key, secret)` | Makes a SigV4-signed AWS STS request to validate AWS credentials. |
 | `gcp.validate(json)` | Exchanges GCP service-account or ADC JSON for an OAuth token and returns validation metadata. |
+| `azure.validateStorage(account, key)` | Makes a SharedKey-signed Azure Storage request to validate an account key. |
+| `azure.validateServicePrincipal(tenant, client, secret)` | Requests a Microsoft identity token to validate an Azure service principal secret. |
+| `azure.validateAppConfig(endpoint, id, secret)` | Makes an HMAC-signed Azure App Configuration request to validate a connection string. |
+| `azure.validateServiceBusSAS(connectionString)` | Makes a SAS-authenticated Azure Service Bus/Event Hub request to validate a connection string. |
 | `base64.encode(bytes)` / `base64.decode(string)` | Encodes or decodes standard base64. |
 | `let name = value; expr` | Binds a variable to avoid repeating sub-expressions. |
 
