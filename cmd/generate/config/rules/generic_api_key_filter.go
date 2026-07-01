@@ -41,74 +41,74 @@ const uuidHex = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-
 // testAndPublicAPIFilters is a denylist of test and public API key patterns.
 var testAndPublicAPIFilters = []testAndPublicAPIFilter{
 	// Regex Only
-	{regex: `sb_publishable_[A-Za-z0-9_-]{31}`},
-	{regex: `0x4AAAAAA[A-Za-z0-9_-]{15}`},
-	{regex: `FCM[a-zA-Z0-9]{13}`},
-	{regex: `ysc1_[A-Za-z0-9_-]{48}`},
-	{regex: `phc_[A-Za-z0-9_-]{43,44}`},
-	{regex: `APP_USR-` + uuidHex},
-	{regex: `access-(sandbox|development)-` + uuidHex},
-	{regex: `asset-report-(sandbox|development)-` + uuidHex},
-	{regex: `public-(sandbox|development|production)-` + uuidHex},
-	{regex: `link-(sandbox|development)-` + uuidHex},
-	{regex: `hbp_[0-9a-zA-Z]{36}`},
-	{regex: `woos-` + uuidHex},
-	{regex: `(https://)?[0-9a-zA-Z]{32}\@sentry\.io`},
-	{regex: `sub-c-` + uuidHex},
-	{regex: `pub-c-` + uuidHex},
-	{regex: `hc[a-z]ik_([a-z0-9]{26,58})`},
-	{regex: `mob-` + uuidHex},
-	{regex: `public-token-test-` + uuidHex},
-	{regex: `public-token-live-` + uuidHex},
-	{regex: `pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}`},
+	{regex: `sb_publishable_[A-Za-z0-9_-]{31}`}, // Supabase Publishable Key
+	{regex: `0x4AAAAAA[A-Za-z0-9_-]{15}`}, // Cloudflare Turnstile Site Key
+	{regex: `FCM[a-zA-Z0-9]{13}`}, // Friendly Captcha Site Key
+	{regex: `ysc1_[A-Za-z0-9_-]{48}`}, // Yandex SmartCaptcha Site Key
+	{regex: `phc_[A-Za-z0-9_-]{43,44}`}, // Posthog Project API Key
+	{regex: `APP_USR-` + uuidHex}, // Mercado Pago Production Public Key
+	{regex: `access-(sandbox|development)-` + uuidHex}, // Plaid Sandbox/Development Access Token
+	{regex: `asset-report-(sandbox|development)-` + uuidHex}, // Plaid Sandbox/Development Asset Report Token
+	{regex: `public-(sandbox|development|production)-` + uuidHex}, // Plaid Sandbox/Development/Production Public Token
+	{regex: `link-(sandbox|development)-` + uuidHex}, // Plaid Sandbox/Development Link Token
+	{regex: `hbp_[0-9a-zA-Z]{36}`}, // Honeybadger API Key
+	{regex: `woos-` + uuidHex}, // Woosmap Public Key
+	{regex: `(https://)?[0-9a-zA-Z]{32}\@sentry\.io`}, // Sentry Public DSN
+	{regex: `sub-c-` + uuidHex}, // PubNub Subscribe Key
+	{regex: `pub-c-` + uuidHex}, // PubNub Publish Key
+	{regex: `hc[a-z]ik_([a-z0-9]{26,58})`}, // Honeycomb Ingest Key
+	{regex: `mob-` + uuidHex}, // LaunchDarkly Mobile Key
+	{regex: `public-token-test-` + uuidHex}, // Stytch Public Test Token
+	{regex: `public-token-live-` + uuidHex}, // Stytch Public Live Token
+	{regex: `pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}`}, // Paddle Sandbox API Key
 	// Regex + Keyword
-	{`pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe", "woo", "wcm"}},
-	{`rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe"}},
-	{`sk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe", "woo", "wcm"}},
-	{`pk_live_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe", "woo", "wcm"}},
-	{`pk_test_[A-Za-z0-9_-]{40}`, []string{"paystack"}},
-	{`sk_test_[A-Za-z0-9_-]{40}`, []string{"paystack"}},
-	{`pk_live_[A-Za-z0-9_-]{40}`, []string{"paystack"}},
-	{`sandbox_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}`, []string{"braintree"}},
-	{`production_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}`, []string{"braintree"}},
-	{`test_[0-9a-zA-Z]{32}`, []string{"adyen"}},
-	{`live_[0-9a-zA-Z]{32}`, []string{"adyen"}},
-	{`[A-Za-z0-9]{32}`, []string{"bugsnag"}},
-	{uuidHex, []string{"hcaptcha", "site_key", "sitekey"}},
-	{uuidHex, []string{"pendo"}},
-	{uuidHex, []string{"instrumentation"}},
-	{`TEST-` + uuidHex, []string{"mercado"}},
-	{`TEST-[0-9]{8,16}-[0-9]{6}-[0-9a-f]{32}-[0-9]{7,10}`, []string{"mercado"}},
-	{`[0-9a-fA-F]{32}`, []string{"mixpanel"}},
-	{`[0-9a-z]{6}\/[a-z_-]{2,100}`, []string{"logrocket"}},
-	{`[0-9a-f]{8}`, []string{"honeybadger"}},
-	{`[a-zA-Z0-9=+]{21,24}`, []string{"raygun"}},
-	{`key_live_[0-9a-zA-Z]{32}`, []string{"branch"}},
-	{`key_test_[0-9a-zA-Z]{32}`, []string{"branch"}},
-	{`pub[0-9a-zA-Z]{32}`, []string{"datadog", "dd"}},
-	{`[0-9a-zA-Z]{6}`, []string{"klaviyo"}},
-	{`[0-9a-zA-Z]{32}`, []string{"storefront"}},
-	{`search-[0-9a-zA-Z_-]{24}`, []string{"swiftype"}},
-	{`[0-9a-zA-Z_-]{20}`, []string{"swiftype"}},
-	{`pk.eyJ1Ijoi[0-9a-zA-Z_-]{1,}\.[0-9a-zA-Z-_]{1,}`, []string{"map"}},
-	{uuidHex, []string{"crisp"}},
-	{`client-[a-zA-Z0-9]{43}`, []string{"statsdig"}},
-	{`sdk-[a-zA-Z0-9]{15,16}`, []string{"growthbook"}},
-	{`[a-zA-Z0-9\/=]{24}`, []string{"growthbook"}},
-	{`[a-zA-Z0-9]{21,22}`, []string{"optimizely"}},
-	{`[0-9a-fA-F]{24}`, []string{"launchdarkly"}},
-	{`pk_test_[0-9a-zA-Z]{20,70}`, []string{"clerk"}},
-	{`pk_live_[0-9a-zA-Z]{20,70}`, []string{"clerk"}},
-	{`sk_test_[0-9a-zA-Z]{20,70}`, []string{"clerk"}},
-	{`[0-9a-zA-Z]{40}`, []string{"smartlook"}},
-	{`[0-9A-Z]{5,6}`, []string{"fullstory"}},
-	{uuidHex, []string{"zendesk", "zdassets.com"}},
-	{`[0-9a-zA-Z]{27}`, []string{"rudderstack"}},
-	{uuidHex, []string{"web3forms"}},
-	{`[0-9]{12}`, []string{"2checkout", "twocheckout"}},
-	{`test_[a-zA-Z0-9]{27}`, []string{"paddle"}},
-	{`live_[a-zA-Z0-9]{27}`, []string{"paddle"}},
-	{`pk_live_[0-9A-F]{16}`, []string{"magic"}},
+	{`pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe", "woo", "wcm"}}, // Stripe and WooCommerce Sandbox Publishable Key
+	{`rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe"}}, // Stripe Sandbox Restricted Key
+	// {`sk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe", "woo", "wcm"}}, // Stripe and WooCommerce Sandbox Secret Key (not including b/c PII could be in test)
+	{`pk_live_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe", "woo", "wcm"}}, // Stripe and WooCommerce Publishable Live Key
+	{`pk_test_[A-Za-z0-9_-]{40}`, []string{"paystack"}}, // Paystack Test Public Key
+	// {`sk_test_[A-Za-z0-9_-]{40}`, []string{"paystack"}}, // Paystack Test Secret Key (not including b/c PII could be in test)
+	{`pk_live_[A-Za-z0-9_-]{40}`, []string{"paystack"}}, // Paystack Live Public Key
+	{`sandbox_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}`, []string{"braintree"}}, // Braintree Sandbox Tokenization Key
+	{`production_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}`, []string{"braintree"}}, // Braintree Production Tokenization Key
+	{`test_[0-9a-zA-Z]{32}`, []string{"adyen"}}, // Adyen Test Client Key
+	{`live_[0-9a-zA-Z]{32}`, []string{"adyen"}}, // Adyen Live Client Key
+	{`[A-Za-z0-9]{32}`, []string{"bugsnag"}}, // Bugsnag SDK API Key
+	{uuidHex, []string{"hcaptcha", "site_key", "sitekey"}}, // hCaptcha Site Key
+	{uuidHex, []string{"pendo"}}, // Pendo API Key
+	{uuidHex, []string{"instrumentation"}}, // Azure Application Insights Instrumentation Key
+	{`TEST-` + uuidHex, []string{"mercado"}}, // Mercado Pago Test Public Key
+	// {`TEST-[0-9]{8,16}-[0-9]{6}-[0-9a-f]{32}-[0-9]{7,10}`, []string{"mercado"}}, // Mercado Pago Test Access Token (not including b/c PII could be in test)
+	{`[0-9a-fA-F]{32}`, []string{"mixpanel"}}, // Mixpanel Project Token
+	{`[0-9a-z]{6}\/[a-z_-]{2,100}`, []string{"logrocket"}}, // LogRocket Project ID
+	{`[0-9a-f]{8}`, []string{"honeybadger"}}, // Honeybadger Check In Token
+	{`[a-zA-Z0-9=+]{21,24}`, []string{"raygun"}}, // Raygun App API Key
+	{`key_live_[0-9a-zA-Z]{32}`, []string{"branch"}}, // Branch.io Production Branch Key
+	{`key_test_[0-9a-zA-Z]{32}`, []string{"branch"}}, // Branch.io Test Branch Key
+	{`pub[0-9a-zA-Z]{32}`, []string{"datadog", "dd"}}, // Datadog Client Token
+	{`[0-9a-zA-Z]{6}`, []string{"klaviyo"}}, // Klaviyo Company ID
+	{`[0-9a-zA-Z]{32}`, []string{"storefront"}}, // Shopify Storefront Public Access Token
+	{`search-[0-9a-zA-Z_-]{24}`, []string{"swiftype"}}, // Elastic Swiftype Public Search Key
+	{`[0-9a-zA-Z_-]{20}`, []string{"swiftype"}}, // Elastic Swiftype Public Engine Key
+	{`pk.eyJ1Ijoi[0-9a-zA-Z_-]{1,}\.[0-9a-zA-Z-_]{1,}`, []string{"map"}}, // Mapbox Public Key
+	{uuidHex, []string{"crisp"}}, // Crisp Website ID
+	{`client-[a-zA-Z0-9]{43}`, []string{"statsdig"}}, // Statsdig Client Key
+	{`sdk-[a-zA-Z0-9]{15,16}`, []string{"growthbook"}}, // Growthbook Client Key
+	{`[a-zA-Z0-9\/=]{24}`, []string{"growthbook"}}, // Growthbook Decryption Key
+	{`[a-zA-Z0-9]{21,22}`, []string{"optimizely"}}, // Optimizely SDK Key
+	{`[0-9a-fA-F]{24}`, []string{"launchdarkly"}}, //  LaunchDarkly Client Side ID
+	{`pk_test_[0-9a-zA-Z]{20,70}`, []string{"clerk"}}, // Clerk Test Publishable Key
+	{`pk_live_[0-9a-zA-Z]{20,70}`, []string{"clerk"}}, // Clerk Live Publishable Key
+	// {`sk_test_[0-9a-zA-Z]{20,70}`, []string{"clerk"}}, // Clerk Test Secret Key (not including b/c PII could be in test)
+	{`[0-9a-zA-Z]{40}`, []string{"smartlook"}}, // Smartlook Project Key
+	{`[0-9A-Z]{5,6}`, []string{"fullstory"}}, // FullStory Org ID
+	{uuidHex, []string{"zendesk", "zdassets.com"}}, // Zendesk Web Widget API Key
+	{`[0-9a-zA-Z]{27}`, []string{"rudderstack"}}, // Rudderstack Write Key
+	{uuidHex, []string{"web3forms"}}, // Web3Forms Access Key
+	{`[0-9]{12}`, []string{"2checkout", "twocheckout"}}, // 2Checkout Merchant Code
+	{`test_[a-zA-Z0-9]{27}`, []string{"paddle"}}, // Paddle Client-Side Test Token
+	{`live_[a-zA-Z0-9]{27}`, []string{"paddle"}}, // Paddle Client-Side Live Token
+	{`pk_live_[0-9A-F]{16}`, []string{"magic"}}, // Magic Publishable Key
 }
 
 // buildTestAndPublicAPIFilters renders one OR clause per testAndPublicAPIFilter.
