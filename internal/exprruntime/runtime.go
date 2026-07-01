@@ -72,6 +72,7 @@ type Runtime struct {
 	mu    sync.RWMutex
 	cache map[string]Program
 
+	// These endpoints are used for tests, not for real scans.
 	STSEndpoint             string
 	GCPTokenEndpoint        string
 	AzureTokenEndpoint      string
