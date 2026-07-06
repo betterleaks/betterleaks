@@ -17,7 +17,7 @@ title = "betterleaks config"
 # betterleaksMinVersion indicates the minimum betterleaks version required.
 # If the running version is older, a warning will be logged.
 minVersion = "v8.25.0"
-betterleaksMinVersion = "v1.3.0"
+betterleaksMinVersion = "v1.6.0"
 
 
 prefilter = '''
@@ -3878,10 +3878,8 @@ entropy(finding["secret"]) <= 3.5
 ])
 || (matchesAny(finding["secret"], [`^pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && containsAny(finding["line"], ["stripe", "woo", "wcm"]))
 || (matchesAny(finding["secret"], [`^rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && containsAny(finding["line"], ["stripe"]))
-|| (matchesAny(finding["secret"], [`^sk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && containsAny(finding["line"], ["stripe", "woo", "wcm"]))
 || (matchesAny(finding["secret"], [`^pk_live_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && containsAny(finding["line"], ["stripe", "woo", "wcm"]))
 || (matchesAny(finding["secret"], [`^pk_test_[A-Za-z0-9_-]{40}$`]) && containsAny(finding["line"], ["paystack"]))
-|| (matchesAny(finding["secret"], [`^sk_test_[A-Za-z0-9_-]{40}$`]) && containsAny(finding["line"], ["paystack"]))
 || (matchesAny(finding["secret"], [`^pk_live_[A-Za-z0-9_-]{40}$`]) && containsAny(finding["line"], ["paystack"]))
 || (matchesAny(finding["secret"], [`^sandbox_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}$`]) && containsAny(finding["line"], ["braintree"]))
 || (matchesAny(finding["secret"], [`^production_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}$`]) && containsAny(finding["line"], ["braintree"]))
@@ -3892,7 +3890,6 @@ entropy(finding["secret"]) <= 3.5
 || (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(finding["line"], ["pendo"]))
 || (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(finding["line"], ["instrumentation"]))
 || (matchesAny(finding["secret"], [`^TEST-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(finding["line"], ["mercado"]))
-|| (matchesAny(finding["secret"], [`^TEST-[0-9]{8,16}-[0-9]{6}-[0-9a-f]{32}-[0-9]{7,10}$`]) && containsAny(finding["line"], ["mercado"]))
 || (matchesAny(finding["secret"], [`^[0-9a-fA-F]{32}$`]) && containsAny(finding["line"], ["mixpanel"]))
 || (matchesAny(finding["secret"], [`^[0-9a-z]{6}\/[a-z_-]{2,100}$`]) && containsAny(finding["line"], ["logrocket"]))
 || (matchesAny(finding["secret"], [`^[0-9a-f]{8}$`]) && containsAny(finding["line"], ["honeybadger"]))
@@ -3913,7 +3910,6 @@ entropy(finding["secret"]) <= 3.5
 || (matchesAny(finding["secret"], [`^[0-9a-fA-F]{24}$`]) && containsAny(finding["line"], ["launchdarkly"]))
 || (matchesAny(finding["secret"], [`^pk_test_[0-9a-zA-Z]{20,70}$`]) && containsAny(finding["line"], ["clerk"]))
 || (matchesAny(finding["secret"], [`^pk_live_[0-9a-zA-Z]{20,70}$`]) && containsAny(finding["line"], ["clerk"]))
-|| (matchesAny(finding["secret"], [`^sk_test_[0-9a-zA-Z]{20,70}$`]) && containsAny(finding["line"], ["clerk"]))
 || (matchesAny(finding["secret"], [`^[0-9a-zA-Z]{40}$`]) && containsAny(finding["line"], ["smartlook"]))
 || (matchesAny(finding["secret"], [`^[0-9A-Z]{5,6}$`]) && containsAny(finding["line"], ["fullstory"]))
 || (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(finding["line"], ["zendesk", "zdassets.com"]))
