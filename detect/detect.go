@@ -113,6 +113,9 @@ type Detector struct {
 
 	TotalBytes atomic.Uint64
 
+	// RuleTimings records per-rule diagnostic timings when diagnostics are enabled.
+	RuleTimings *RuleTimingCollector
+
 	tokenizer     *tiktoken.Tiktoken
 	tokenizerOnce sync.Once
 
@@ -695,7 +698,7 @@ ScanLoop:
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRule(fragment, currentRaw, rule, encodedSegments, findings)...)
+					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)...)
 				}
 			}
 
@@ -740,6 +743,21 @@ func (d *Detector) orderedRuleIDs(ruleSet map[string]struct{}) []string {
 		appendRule(ruleID)
 	}
 	return ruleIDs
+}
+
+func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,
+	currentRaw string,
+	r config.Rule,
+	encodedSegments []*codec.EncodedSegment,
+	priorFindings []report.Finding) []report.Finding {
+	if d.RuleTimings == nil {
+		return d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
+	}
+
+	start := time.Now()
+	findings := d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
+	d.RuleTimings.Record(r.RuleID, time.Since(start))
+	return findings
 }
 
 func orderedRulesBySpecificity(cfg *config.Config) []string {
@@ -1027,7 +1045,7 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		inheritedFragment.InheritedFromFinding = true
 
 		// Call detectRule once for each required rule
-		requiredFindings := d.detectFragmentWithRule(inheritedFragment, currentRaw, rule, encodedSegments, nil)
+		requiredFindings := d.detectFragmentWithRuleTimed(inheritedFragment, currentRaw, rule, encodedSegments, nil)
 		allRequiredFindings[requiredRule.RuleID] = requiredFindings
 
 		logger.Debug().
