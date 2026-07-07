@@ -49,6 +49,54 @@ func TestParseMatchContext(t *testing.T) {
 	}
 }
 
+func TestMatchExtendedContext(t *testing.T) {
+	tests := []struct {
+		name        string
+		raw         string
+		match       []int
+		charsBefore int
+		want        string
+	}{
+		{
+			name:        "match at start",
+			raw:         "SECRET rest",
+			match:       []int{0, len("SECRET")},
+			charsBefore: 50,
+			want:        "SECRET",
+		},
+		{
+			name:        "short prefix",
+			raw:         "abc SECRET rest",
+			match:       []int{4, len("abc SECRET")},
+			charsBefore: 50,
+			want:        "abc SECRET",
+		},
+		{
+			name:        "truncates long prefix",
+			raw:         strings.Repeat("x", 60) + "SECRET rest",
+			match:       []int{60, 66},
+			charsBefore: 50,
+			want:        strings.Repeat("x", 50) + "SECRET",
+		},
+		{
+			name:        "invalid indexes",
+			raw:         "abc",
+			match:       []int{2, 1},
+			charsBefore: 50,
+			want:        "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := matchExtendedContext(tt.raw, tt.match, tt.charsBefore)
+			if got != tt.want {
+				t.Errorf("matchExtendedContext() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractContext(t *testing.T) {
 	rawContent := `
 L00|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

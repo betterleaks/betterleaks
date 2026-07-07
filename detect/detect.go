@@ -956,6 +956,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
 		// Validation/filter expressions need context text in the finding map.
 		if r.ValidateExpr != "" || r.ValidationProgram() != nil || hasGlobalFilter || hasRuleFilter {
+			finding.SetExprMatchExtended(matchExtendedContext(fragment.Raw, matchIndex, 50))
 			finding.SetExprContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
 				Mode:        ContextModeBox,
 				LinesBefore: 20,

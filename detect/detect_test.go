@@ -165,8 +165,32 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 			}
 		}
 		findings[i].SetExprContext("")
+		findings[i].SetExprMatchExtended("")
 	}
 	return findings
+}
+
+func TestDetectFilterMatchExtended(t *testing.T) {
+	raw := `woo.settings = {};
+stripe_api_key = "sk_live_1234567890";`
+	rule := config.Rule{
+		RuleID: "stripe-test",
+		Regex:  regexp.MustCompile(`stripe_api_key\s*=\s*"([a-z0-9_]+)"`),
+		Filter: `!containsAny(finding["match_extended"], ["woo.settings"]) || containsAny(finding["match"], ["woo.settings"])`,
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+	require.NoError(t, cfg.CompileFilters(nil))
+
+	d := NewDetector(cfg)
+	findings := d.Detect(sources.Fragment{Raw: raw})
+
+	require.Len(t, findings, 1)
+	assert.Equal(t, `stripe_api_key = "sk_live_1234567890"`, findings[0].Match)
+	assert.Equal(t, "sk_live_1234567890", findings[0].Secret)
 }
 
 func TestDetect(t *testing.T) {

@@ -64,6 +64,9 @@ type Finding struct {
 	// Hidden field to hold expression context without bloating the report output.
 	exprContext string
 
+	// Hidden field to hold the match plus its pre-match context for expressions.
+	exprMatchExtended string
+
 	// Deprecated
 	// File is the name of the file containing the finding
 	// Deprecated
@@ -221,6 +224,10 @@ func (f *Finding) SetExprContext(context string) {
 	f.exprContext = context
 }
 
+func (f *Finding) SetExprMatchExtended(matchExtended string) {
+	f.exprMatchExtended = matchExtended
+}
+
 // Print writes a verbose finding using the pretty box format.
 func (f Finding) Print(noColor bool, redact uint) {
 	f.printPretty(noColor, redact)
@@ -345,11 +352,12 @@ func (f *Finding) SetFingerprint() {
 // variable in filter and validation expressions.
 func (f *Finding) ToExprMap() map[string]string {
 	return map[string]string{
-		"secret":      f.Secret,
-		"match":       f.Match,
-		"line":        f.Line,
-		"rule_id":     f.RuleID,
-		"description": f.Description,
-		"context":     f.exprContext,
+		"secret":         f.Secret,
+		"match":          f.Match,
+		"match_extended": f.exprMatchExtended,
+		"line":           f.Line,
+		"rule_id":        f.RuleID,
+		"description":    f.Description,
+		"context":        f.exprContext,
 	}
 }

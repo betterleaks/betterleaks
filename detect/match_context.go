@@ -129,6 +129,16 @@ func extractColsContext(raw string, matchIndex []int, spec MatchContextSpec) str
 	return raw[start:end]
 }
 
+func matchExtendedContext(raw string, matchIndex []int, charsBefore int) string {
+	if len(raw) == 0 || len(matchIndex) < 2 || matchIndex[0] < 0 || matchIndex[1] < matchIndex[0] || matchIndex[1] > len(raw) {
+		return ""
+	}
+
+	charsBefore = max(charsBefore, 0)
+	start := max(matchIndex[0]-charsBefore, 0)
+	return raw[start:matchIndex[1]]
+}
+
 func extractBoxContext(raw string, matchIndex []int, spec MatchContextSpec) string {
 	matchStart, matchEnd := matchIndex[0], matchIndex[1]
 

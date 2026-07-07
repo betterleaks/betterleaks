@@ -56,6 +56,18 @@ r.json?.login ?? ""
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
 
+Common `finding` keys:
+
+| Key | Description |
+| :--- | :--- |
+| `secret` | Captured secret value after applying capture groups or `secretGroup`. |
+| `match` | Exact regex match text. This does not include synthetic pre-match context. |
+| `match_extended` | `match` plus up to 50 bytes immediately before the match. Useful for filters that need nearby identifier/context text without making the regex more expensive. |
+| `line` | Source line containing the match, or decoded line text for decoded matches. |
+| `context` | Larger hidden context window around the match for filters and validation. |
+| `rule_id` | Rule identifier. |
+| `description` | Rule description. |
+
 ## Filtering
 
 Filters replace legacy allowlists, entropy checks, and token efficiency checks
