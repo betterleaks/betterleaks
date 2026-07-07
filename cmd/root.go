@@ -108,8 +108,8 @@ func init() {
 	rootCmd.PersistentFlags().StringSlice("validation-env-vars", nil, "comma-separated env var names the validation env(...) binding may read (repeat flag to add more); unset means env() is disabled")
 
 	// Add diagnostics flags
-	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
-	rootCmd.PersistentFlags().String("diagnostics-dir", "", "directory to store diagnostics output files when not using http mode (defaults to current directory)")
+	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace,rules,rules-csv). cpu=CPU prof, mem=memory prof, trace=exec tracing, rules=rule timings text, rules-csv=rule timings CSV, http=serve via net/http/pprof")
+	rootCmd.PersistentFlags().String("diagnostics-dir", "", "directory to store diagnostics output files when not using http mode (defaults to ./diagnostics)")
 
 }
 
@@ -358,6 +358,9 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
 
 	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
+	if diagnosticsManager != nil && diagnosticsManager.RuleTimings != nil {
+		detector.RuleTimings = diagnosticsManager.RuleTimings
+	}
 
 	if detector.MaxDecodeDepth, err = cmd.Flags().GetInt("max-decode-depth"); err != nil {
 		logging.Fatal().Err(err).Send()

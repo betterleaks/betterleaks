@@ -12,8 +12,11 @@ import (
 	"runtime/trace"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 )
+
+const defaultDiagnosticsDir = "diagnostics"
 
 // DiagnosticsManager manages various types of diagnostics
 type DiagnosticsManager struct {
@@ -23,6 +26,7 @@ type DiagnosticsManager struct {
 	cpuProfile   *os.File
 	memProfile   string
 	traceProfile *os.File
+	RuleTimings  *detect.RuleTimingCollector
 }
 
 // NewDiagnosticsManager creates a new DiagnosticsManager instance
@@ -45,14 +49,10 @@ func NewDiagnosticsManager(diagnosticsFlag string, diagnosticsDir string) (*Diag
 		return dm, nil
 	}
 
-	// If no output directory is specified, use the current directory
+	// If no output directory is specified, use the default diagnostics directory.
 	if dm.OutputDir == "" {
-		var err error
-		dm.OutputDir, err = os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get current directory: %w", err)
-		}
-		logging.Debug().Msgf("No diagnostics directory specified, using current directory: %s", dm.OutputDir)
+		dm.OutputDir = defaultDiagnosticsDir
+		logging.Debug().Msgf("No diagnostics directory specified, using default directory: %s", dm.OutputDir)
 	}
 
 	// Create the output directory if it doesn't exist
@@ -67,6 +67,10 @@ func NewDiagnosticsManager(diagnosticsFlag string, diagnosticsDir string) (*Diag
 			return nil, fmt.Errorf("failed to get absolute path for diagnostics directory: %w", err)
 		}
 		dm.OutputDir = absPath
+	}
+
+	if dm.HasDiagType("rules") || dm.HasDiagType("rules-csv") {
+		dm.RuleTimings = detect.NewRuleTimingCollector()
 	}
 
 	logging.Debug().Msgf("Diagnostics enabled: %s", strings.Join(dm.DiagTypes, ","))
@@ -98,6 +102,7 @@ func (dm *DiagnosticsManager) StartDiagnostics() error {
 			if err = dm.StartTraceProfile(); err != nil {
 				return err
 			}
+		case "rules", "rules-csv":
 		case "http":
 			if err = dm.StartHttpHandler(); err != nil {
 				return err
@@ -127,10 +132,27 @@ func (dm *DiagnosticsManager) StopDiagnostics() {
 			dm.WriteMemoryProfile()
 		case "trace":
 			dm.StopTraceProfile()
+		case "rules":
+			if err := dm.WriteRuleTimingsHuman(); err != nil {
+				logging.Error().Err(err).Msg("Could not write rule timing diagnostics")
+			}
+		case "rules-csv":
+			if err := dm.WriteRuleTimingsCSV(); err != nil {
+				logging.Error().Err(err).Msg("Could not write rule timing diagnostics CSV")
+			}
 		case "http":
 			// No need to stop the http one
 		}
 	}
+}
+
+func (dm *DiagnosticsManager) HasDiagType(want string) bool {
+	for _, diagType := range dm.DiagTypes {
+		if strings.TrimSpace(diagType) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (dm *DiagnosticsManager) StartHttpHandler() error {
@@ -236,4 +258,50 @@ func (dm *DiagnosticsManager) StopTraceProfile() {
 		logging.Info().Msgf("Trace profile written to: %s", dm.traceProfile.Name())
 		dm.traceProfile = nil
 	}
+}
+
+func (dm *DiagnosticsManager) WriteRuleTimingsHuman() error {
+	if dm.RuleTimings == nil {
+		return nil
+	}
+
+	path := filepath.Join(dm.OutputDir, "rule-timings.txt")
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("could not create rule timing diagnostics at %s: %w", path, err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			logging.Error().Err(err).Msg("Error closing rule timing diagnostics file")
+		}
+	}()
+
+	if err := detect.WriteRuleTimingsHuman(f, dm.RuleTimings.Snapshot()); err != nil {
+		return fmt.Errorf("could not write rule timing diagnostics: %w", err)
+	}
+	logging.Info().Msgf("Rule timing diagnostics written to: %s", path)
+	return nil
+}
+
+func (dm *DiagnosticsManager) WriteRuleTimingsCSV() error {
+	if dm.RuleTimings == nil {
+		return nil
+	}
+
+	path := filepath.Join(dm.OutputDir, "rule-timings.csv")
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("could not create rule timing diagnostics CSV at %s: %w", path, err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			logging.Error().Err(err).Msg("Error closing rule timing diagnostics CSV file")
+		}
+	}()
+
+	if err := detect.WriteRuleTimingsCSV(f, dm.RuleTimings.Snapshot()); err != nil {
+		return fmt.Errorf("could not write rule timing diagnostics CSV: %w", err)
+	}
+	logging.Info().Msgf("Rule timing diagnostics CSV written to: %s", path)
+	return nil
 }
