@@ -2300,6 +2300,19 @@ id = "gcp-api-key"
 description = "Uncovered a GCP API key, which could lead to unauthorized access to Google Cloud services and data breaches."
 regex = '''\b(AIza[\w-]{35})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["aiza"]
+validate = '''
+let r = http.get("https://generativelanguage.googleapis.com/v1beta/models?key=" + finding["secret"], {}); r.status == 200 && (r.body contains '"models"') ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "needs_validation",
+    "reason": "Active Google API key without Gemini access",
+    "active_google_key": true,
+    "gemini_access": false
+  } : r.status == 400 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) <= 4.0
 || matchesAny(finding["secret"], [
@@ -2341,6 +2354,31 @@ let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "error_message": r.error_message
   } : validate.unknown(r)
 
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# gcp-gemini-api
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "gcp-gemini-api"
+description = "Detected a Google Gemini API key, which may expose Gemini model access and usage to unauthorized parties."
+regex = '''\b(AQ\.Ab8RN6[A-Za-z0-9_-]{44})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["aq.ab8rn6"]
+validate = '''
+let r = http.get("https://generativelanguage.googleapis.com/v1beta/models?key=" + finding["secret"], {}); r.status == 200 && (r.body contains '"models"') ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "needs_validation",
+    "reason": "Active Google API key without Gemini access",
+    "active_google_key": true,
+    "gemini_access": false
+  } : r.status == 400 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
