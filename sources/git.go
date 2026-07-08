@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +65,35 @@ func gitConfigIsolationEnv() []string {
 	for k, v := range overrides {
 		env = append(env, k+"="+v)
 	}
+
+	// Raise git's delta-base cache above the 96 MiB default. On repos with long
+	// delta chains the default thrashes, re-inflating the same base objects
+	// repeatedly and slowing `git log -p` diff generation; 128 MiB recovers
+	// most of that at a modest memory cost (git sizes this cache per thread,
+	// and these history traversals are single-threaded, so it is one ceiling
+	// per git process). Setting it via GIT_CONFIG_* (rather than a `-c` flag)
+	// means every git subprocess this package spawns (log/diff/rev-list/
+	// cat-file/ls-remote) inherits it with no per-call wiring.
+	//
+	// Append at the next free index so any indexed git-config the caller
+	// already supplied (e.g. CI-provided http.<url>.extraheader or
+	// safe.directory) is preserved, not clobbered: git reads GIT_CONFIG_KEY_n
+	// for n in [0, GIT_CONFIG_COUNT), and exec resolves duplicate env keys
+	// last-wins, so reusing index 0 would drop the caller's entry and truncate
+	// their count to 1.
+	next := 0
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, "GIT_CONFIG_COUNT="); ok {
+			if n, err := strconv.Atoi(v); err == nil && n > next {
+				next = n
+			}
+		}
+	}
+	env = append(env,
+		fmt.Sprintf("GIT_CONFIG_COUNT=%d", next+1),
+		fmt.Sprintf("GIT_CONFIG_KEY_%d=core.deltaBaseCacheLimit", next),
+		fmt.Sprintf("GIT_CONFIG_VALUE_%d=128m", next),
+	)
 	return env
 }
 
