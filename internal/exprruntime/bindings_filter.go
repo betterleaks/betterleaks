@@ -119,16 +119,21 @@ func shannonEntropy(s string) float64 {
 var newlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 
 func (rt *runtimeBindings) failsTokenEfficiency(secret string) bool {
-	if rt.tokenizer == nil {
+	// rt is shared across concurrent evals; never write it here. Caching the
+	// resolved tokenizer into rt.tokenizer would be a data race. The provider
+	// memoizes via sync.Once, so re-resolving every eval recomputes nothing
+	// and costs one indirect call.
+	tke := rt.tokenizer
+	if tke == nil {
 		if rt.tokenizerProvider == nil {
 			return false
 		}
-		rt.tokenizer = rt.tokenizerProvider()
-		if rt.tokenizer == nil {
+		tke = rt.tokenizerProvider()
+		if tke == nil {
 			return false
 		}
 	}
-	return failsTokenEfficiency(rt.tokenizer, secret)
+	return failsTokenEfficiency(tke, secret)
 }
 
 func failsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
