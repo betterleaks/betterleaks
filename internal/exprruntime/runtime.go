@@ -29,11 +29,9 @@ const (
 )
 
 type compiledProgram struct {
-	vm                *vm.Program
-	mode              compileMode
-	tokenizer         *tiktoken.Tiktoken
-	tokenizerProvider func() *tiktoken.Tiktoken
-	bindings          bindings
+	vm       *vm.Program
+	mode     compileMode
+	bindings bindings
 }
 
 var emptyStringMap = map[string]string{}
@@ -148,11 +146,9 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
 	prg := &compiledProgram{
-		vm:                vmPrg,
-		mode:              mode,
-		tokenizer:         tokenizer,
-		tokenizerProvider: e.tokenizerProvider,
-		bindings:          programBindings(mode, b),
+		vm:       vmPrg,
+		mode:     mode,
+		bindings: programBindings(mode, b),
 	}
 	// The failsTokenEfficiency and filter-namespace closures capture this
 	// *runtimeBindings; concurrent evals then read its tokenizer fields
