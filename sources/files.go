@@ -82,7 +82,12 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 				logger.Error().Err(err).Msg("skipping symlink: could not evaluate")
 				return nil
 			}
-			if realPathFileInfo, _ := os.Stat(realPath); realPathFileInfo.IsDir() {
+			realPathFileInfo, err := os.Stat(realPath)
+			if err != nil {
+				logger.Error().Err(err).Str("target", realPath).Msg("skipping symlink: could not stat target")
+				return nil
+			}
+			if realPathFileInfo.IsDir() {
 				logger.Debug().Str("target", realPath).Msgf("skipping symlink: target is directory")
 				return nil
 			}
