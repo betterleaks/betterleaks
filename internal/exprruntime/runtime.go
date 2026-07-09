@@ -210,8 +210,13 @@ func (prg Program) evalBindings() bindings {
 	if prg.bindings != nil {
 		b := cloneBindings(prg.bindings)
 		if rt, ok := b["__runtime"].(*runtimeBindings); ok {
+			rtCopy := *rt
+			rt = &rtCopy
 			rt.tokenizer = prg.tokenizer
 			rt.tokenizerProvider = prg.tokenizerProvider
+			b["__runtime"] = rt
+			b["filter"] = filterNamespace(rt)
+			b["failsTokenEfficiency"] = rt.failsTokenEfficiency
 		}
 		return b
 	}
