@@ -20,7 +20,9 @@ var (
 func filterNamespace(rt *runtimeBindings) map[string]any {
 	return map[string]any{
 		"matchesAny":           matchesAny,
+		"matchesAnyNearMatch":  rt.matchesAnyNearMatch,
 		"containsAny":          containsAny,
+		"containsAnyNearMatch": rt.containsAnyNearMatch,
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
 	}
@@ -76,6 +78,24 @@ func matchesAny(s string, patterns any) bool {
 func containsAny(s string, terms any) bool {
 	trie := getOrBuildTrie(toStringSlice(terms))
 	return trie != nil && len(trie.FindAllString(strings.ToLower(s))) > 0
+}
+
+func (rt *runtimeBindings) matchesAnyNearMatch(_ any, patterns any, charsBefore, charsAfter int) bool {
+	return matchesAny(rt.nearMatchText(charsBefore, charsAfter), patterns)
+}
+
+func (rt *runtimeBindings) containsAnyNearMatch(_ any, terms any, charsBefore, charsAfter int) bool {
+	return containsAny(rt.nearMatchText(charsBefore, charsAfter), terms)
+}
+
+func (rt *runtimeBindings) nearMatchText(charsBefore, charsAfter int) string {
+	w := rt.matchWindow
+	if w.Raw == "" || w.MatchStart < 0 || w.MatchEnd < w.MatchStart || w.MatchEnd > len(w.Raw) {
+		return ""
+	}
+	start := max(w.MatchStart-max(charsBefore, 0), 0)
+	end := min(w.MatchEnd+max(charsAfter, 0), len(w.Raw))
+	return w.Raw[start:end]
 }
 
 func toStringSlice(v any) []string {

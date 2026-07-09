@@ -169,6 +169,26 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 	return findings
 }
 
+func TestDetectFilterMatchesNearMatch(t *testing.T) {
+	rule := config.Rule{
+		RuleID: "near-match",
+		Regex:  regexp.MustCompile(`[A-Z0-9]{20}`),
+		Filter: `filter.matchesAnyNearMatch(finding, ["red-herring"], 50, 0)`,
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+	require.NoError(t, cfg.CompileFilters(nil))
+
+	d := NewDetector(cfg)
+	findings := d.Detect(sources.Fragment{Raw: "red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST"})
+
+	require.Len(t, findings, 1)
+	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
+}
+
 func TestDetect(t *testing.T) {
 	logging.Logger = logging.Logger.Level(zerolog.TraceLevel)
 	tests := map[string]struct {
