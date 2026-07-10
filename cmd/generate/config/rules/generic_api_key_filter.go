@@ -11,7 +11,7 @@ var genericAPIKeyFilter = buildGenericAPIKeyFilter()
 
 func buildGenericAPIKeyFilter() string {
 	return `matchesAny(finding["secret"], [` + "`^[a-zA-Z_.-]+$`" + `])
-|| (filter.matchesAnyNearMatch(finding, [` + "`" + genericAPIKeyMatchFilter + "`" + `], 50, 0) || containsAny(finding["secret"], ` + exprStringList(DefaultStopWords) + `))
+|| (containsAny(finding["secret"], ` + exprStringList(DefaultStopWords) + `) || filter.matchesAnyNearMatch(finding, [` + "`" + genericAPIKeyMatchFilter + "`" + `], 50, 0))
 || matchesAny(finding["line"], [
   ` + "`--mount=type=secret,`" + `,
   ` + "`import[ \\t]+{[ \\t\\w,]+}[ \\t]+from[ \\t]+['\"][^'\"]+['\"]`" + `
@@ -111,6 +111,20 @@ var testAndPublicAPIFilters = []testAndPublicAPIFilter{
 	{`pk_live_[0-9A-F]{16}`, []string{"magic"}},         // Magic Publishable Key
 }
 
+var testAndPublicAPISecretLengthBounds = map[string][2]int{
+	`[0-9a-f]{8}`:          {8, 8},
+	`[0-9a-zA-Z]{6}`:       {6, 6},
+	`[0-9A-Z]{5,6}`:        {5, 6},
+	`[0-9]{12}`:            {12, 12},
+	`[0-9a-zA-Z_-]{20}`:    {20, 20},
+	`[0-9a-fA-F]{24}`:      {24, 24},
+	`[a-zA-Z0-9\/=]{24}`:   {24, 24},
+	`[a-zA-Z0-9]{21,22}`:   {21, 22},
+	`[a-zA-Z0-9=+]{21,24}`: {21, 24},
+	`[0-9a-zA-Z]{27}`:      {27, 27},
+	`[0-9a-zA-Z]{40}`:      {40, 40},
+}
+
 // buildTestAndPublicAPIFilters renders one OR clause per testAndPublicAPIFilter.
 // Entries without keywords match on the (anchored) secret regex alone; entries
 // with keywords additionally require a keyword nearby on the line. containsAny
@@ -121,6 +135,14 @@ func buildTestAndPublicAPIFilters() string {
 	for _, f := range testAndPublicAPIFilters {
 		secretRegex := "`^" + f.regex + "$`"
 		secretMatch := `matchesAny(finding["secret"], [` + secretRegex + `])`
+		if bounds, ok := testAndPublicAPISecretLengthBounds[f.regex]; ok {
+			secretLen := `len(finding["secret"])`
+			if bounds[0] == bounds[1] {
+				secretMatch = secretLen + " == " + strconv.Itoa(bounds[0]) + " && " + secretMatch
+			} else {
+				secretMatch = "(" + secretLen + " >= " + strconv.Itoa(bounds[0]) + " && " + secretLen + " <= " + strconv.Itoa(bounds[1]) + ") && " + secretMatch
+			}
+		}
 		if len(f.keywords) == 0 {
 			secretOnly = append(secretOnly, secretRegex)
 			continue
