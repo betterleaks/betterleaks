@@ -210,6 +210,7 @@ func main() {
 		rules.GCPApplicationDefaultCredentials(),
 		rules.GCPServiceAccount(),
 		rules.GCPAPIKey(),
+		rules.GCPGeminiAPIKey(),
 		rules.GiteaAccessToken(),
 		rules.GitHubPat(),
 		rules.GitHubFineGrainedPat(),
