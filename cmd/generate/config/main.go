@@ -134,6 +134,7 @@ func main() {
 		rules.CloudflareAPIKey(),
 		rules.CloudflareGlobalAPIKey(),
 		rules.CloudflareOriginCAKey(),
+		rules.CloudsmithAPIKey(),
 		rules.CloudinaryCloudName(),
 		rules.CloudinaryAPIKey(),
 		rules.CloudinaryAPISecret(),

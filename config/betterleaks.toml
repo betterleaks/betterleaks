@@ -1255,6 +1255,26 @@ keywords = ["cloudinary"]
 skipReport = true
 
 # ──────────────────────────────────────────────────────────────────────────────
+# cloudsmith-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cloudsmith-api-key"
+description = "Detected a Cloudsmith API key, which may expose package repositories and artifact management operations to unauthorized access."
+regex = '''\b(csa_[a-f0-9]{30}[A-Za-z0-9]{6})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["csa_"]
+validate = '''
+let r = http.get("https://api.cloudsmith.io/user/self/", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); r.status == 200 && (r.json?.authenticated ?? false) == true ? {
+    "result": "valid",
+    "account": (r.json?.slug ?? "")
+  } : r.status in [401, 403] || (r.status == 200 && (r.json?.authenticated ?? false) == false) ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # cockroachlabs-cloud-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
