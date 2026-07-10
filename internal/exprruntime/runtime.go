@@ -154,6 +154,15 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 		tokenizerProvider: e.tokenizerProvider,
 		bindings:          programBindings(mode, b),
 	}
+	// Filter/prefilter programs are cached and evaluated concurrently, so their
+	// bindings (including the shared *runtimeBindings) must be immutable after
+	// compile. The tokenizer and provider are program-constant, so bake them in
+	// here — once, on the compiling goroutine, before the program is shared —
+	// rather than writing them on every Eval (which raced). See evalBindings.
+	if rt, ok := prg.bindings["__runtime"].(*runtimeBindings); ok {
+		rt.tokenizer = prg.tokenizer
+		rt.tokenizerProvider = prg.tokenizerProvider
+	}
 
 	e.mu.Lock()
 	e.cache[cacheKey] = prg
@@ -206,14 +215,14 @@ func (e *Runtime) EvalPrefilter(prg Program, attributes map[string]string) (bool
 	return runBool(prg, b, "prefilter")
 }
 
+// evalBindings returns a per-eval shallow copy of the program's bindings. The
+// map is cloned so callers can layer dynamic values (finding, attributes)
+// without racing, while the shared function bindings — including the immutable
+// *runtimeBindings whose tokenizer/provider were fixed at compile time — are
+// safe to share by pointer across concurrent evaluations.
 func (prg Program) evalBindings() bindings {
 	if prg.bindings != nil {
-		b := cloneBindings(prg.bindings)
-		if rt, ok := b["__runtime"].(*runtimeBindings); ok {
-			rt.tokenizer = prg.tokenizer
-			rt.tokenizerProvider = prg.tokenizerProvider
-		}
-		return b
+		return cloneBindings(prg.bindings)
 	}
 	return bindings{}
 }
