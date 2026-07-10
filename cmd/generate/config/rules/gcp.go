@@ -11,7 +11,9 @@ const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/id
     "result": "invalid",
     "reason": "Unauthorized"
   } : (let r = http.get("https://generativelanguage.googleapis.com/v1beta/models?key=" + finding["secret"], {}); r.status == 200 && (r.body contains '"models"') ? {
-    "result": "valid"
+    "result": "valid",
+    "active_google_key": true,
+    "gemini_access": true
   } : r.status == 403 && (r.body contains "API_KEY_HTTP_REFERRER_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked by HTTP referrer restriction",
@@ -38,7 +40,7 @@ const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/id
     "restriction": "android_app"
   } : r.status == 403 && (r.body contains "API_KEY_SERVICE_BLOCKED") ? {
     "result": "needs_validation",
-    "reason": "Active Google API key without Gemini access",
+    "reason": "Active Google API key blocked from Gemini API",
     "active_google_key": true,
     "gemini_access": false
   } : r.status == 403 ? {
@@ -48,9 +50,12 @@ const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/id
     "gemini_access": "unknown"
   } : r.status == 400 && k.status in [200, 403] ? {
     "result": "needs_validation",
-    "reason": "Active Google API key without Gemini access",
+    "reason": "Active Google API key not accepted by Gemini API",
     "active_google_key": true,
     "gemini_access": false
+  } : r.status == 400 && (r.body contains "API_KEY_INVALID") ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
   } : r.status == 400 ? {
     "result": "invalid",
     "reason": "Unauthorized"
