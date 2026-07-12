@@ -830,7 +830,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	for _, matchIndex := range matches {
 		// Extract secret from match
 		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
-		filterMatchIndex := []int{matchIndex[0], matchIndex[1]}
+		filterMatchIndex := [2]int{matchIndex[0], matchIndex[1]}
 
 		// For any meta data from decoding
 		var metaTags []string
@@ -852,7 +852,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			// Fixes: https://github.com/gitleaks/gitleaks/issues/1352
 			// removes the incorrectly following line that was detected by regex expression '\n'
 			matchIndex[1] = matchIndex[0] + len(secret)
-			filterMatchIndex[1] = filterMatchIndex[0] + len(secret)
 		}
 
 		// determine location of match. Note that the location

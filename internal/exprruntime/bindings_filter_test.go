@@ -1,6 +1,8 @@
 package exprruntime
 
 import (
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,6 +45,33 @@ func TestFilterNearMatchHelpers(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, got)
 	})
+}
+
+func TestFilterNearMatchBounds(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	maxInt := strconv.Itoa(math.MaxInt)
+
+	tests := []struct {
+		name   string
+		expr   string
+		window MatchWindow
+		want   bool
+	}{
+		{"clamps both ends", `filter.containsAnyNearMatch(finding, ["prefix", "suffix"], ` + maxInt + `, ` + maxInt + `)`, MatchWindow{Raw: "prefix SECRET suffix", MatchStart: 7, MatchEnd: 13}, true},
+		{"negative becomes zero", `filter.containsAnyNearMatch(finding, ["prefix"], -1, -1)`, MatchWindow{Raw: "prefix SECRET", MatchStart: 7, MatchEnd: 13}, false},
+		{"empty", `filter.containsAnyNearMatch(finding, ["prefix"], 10, 10)`, MatchWindow{}, false},
+		{"invalid", `filter.containsAnyNearMatch(finding, ["prefix"], 10, 10)`, MatchWindow{Raw: "short", MatchStart: -1, MatchEnd: math.MaxInt}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prg, err := env.CompileFilter(tt.expr, nil)
+			require.NoError(t, err)
+			got, err := env.EvalFilterWithMatchWindow(prg, nil, nil, tt.window)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestFilterEvalBindingsDoNotShareRuntimeState(t *testing.T) {

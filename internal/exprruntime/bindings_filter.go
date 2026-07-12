@@ -90,11 +90,21 @@ func (rt *runtimeBindings) containsAnyNearMatch(_ any, terms any, charsBefore, c
 
 func (rt *runtimeBindings) nearMatchText(charsBefore, charsAfter int) string {
 	w := rt.matchWindow
-	if w.Raw == "" || w.MatchStart < 0 || w.MatchEnd < w.MatchStart || w.MatchEnd > len(w.Raw) {
+	if w.MatchStart < 0 || w.MatchEnd < w.MatchStart || w.MatchEnd > len(w.Raw) {
 		return ""
 	}
-	start := max(w.MatchStart-max(charsBefore, 0), 0)
-	end := min(w.MatchEnd+max(charsAfter, 0), len(w.Raw))
+	start := w.MatchStart
+	if charsBefore > start {
+		start = 0
+	} else if charsBefore > 0 {
+		start -= charsBefore
+	}
+	end := w.MatchEnd
+	if charsAfter > len(w.Raw)-end {
+		end = len(w.Raw)
+	} else if charsAfter > 0 {
+		end += charsAfter
+	}
 	return w.Raw[start:end]
 }
 

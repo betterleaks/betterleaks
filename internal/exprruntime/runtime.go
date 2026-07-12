@@ -47,6 +47,7 @@ type EvalResult struct {
 	Debug map[string]any
 }
 
+// MatchWindow identifies a regex match within Raw using byte offsets.
 type MatchWindow struct {
 	Raw        string
 	MatchStart int
