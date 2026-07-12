@@ -93,19 +93,9 @@ func (rt *runtimeBindings) nearMatchText(charsBefore, charsAfter int) string {
 	if w.MatchStart < 0 || w.MatchEnd < w.MatchStart || w.MatchEnd > len(w.Raw) {
 		return ""
 	}
-	start := w.MatchStart
-	if charsBefore > start {
-		start = 0
-	} else if charsBefore > 0 {
-		start -= charsBefore
-	}
-	end := w.MatchEnd
-	if charsAfter > len(w.Raw)-end {
-		end = len(w.Raw)
-	} else if charsAfter > 0 {
-		end += charsAfter
-	}
-	return w.Raw[start:end]
+	charsBefore = min(max(charsBefore, 0), w.MatchStart)
+	charsAfter = min(max(charsAfter, 0), len(w.Raw)-w.MatchEnd)
+	return w.Raw[w.MatchStart-charsBefore : w.MatchEnd+charsAfter]
 }
 
 func toStringSlice(v any) []string {
