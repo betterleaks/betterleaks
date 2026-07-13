@@ -104,40 +104,63 @@ func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *byt
 
 	// If not, read ahead until we (hopefully) find some.
 	newlineCount = 0
-	for {
-		data = peekBuf.Bytes()
-		// Check if the last character is a newline.
-		lastChar = data[len(data)-1]
-		if lastChar == '\n' {
-			newlineCount++
+	if c := peekBuf.Bytes()[peekBuf.Len()-1]; c == '\n' {
+		newlineCount++
+	}
 
-			// Stop if two consecutive newlines are found
-			if newlineCount >= 2 {
-				break
-			}
-		} else if isWhitespace[lastChar] {
-			// The presence of other whitespace characters (`\r`, ` `, `\t`) shouldn't reset the count.
-			// (Intentionally do nothing.)
-		} else {
-			newlineCount = 0 // Reset if a non-newline character is found
+	for (peekBuf.Len() - n) < maxPeekSize {
+		remaining := maxPeekSize - (peekBuf.Len() - n)
+		data, err := r.Peek(remaining)
+		if err != nil && err != io.EOF && err != bufio.ErrBufferFull {
+			return err
 		}
-
-		// Stop growing the buffer if it reaches maxSize
-		if (peekBuf.Len() - n) >= maxPeekSize {
+		if len(data) == 0 {
 			break
 		}
 
-		// Read additional data into a temporary buffer
-		b, err := r.ReadByte()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return err
+		consume := scanUntilSafeBoundary(data, &newlineCount)
+		peekBuf.Write(data[:consume])
+		if _, discardErr := r.Discard(consume); discardErr != nil {
+			return discardErr
 		}
-		peekBuf.WriteByte(b)
+		if newlineCount >= 2 || err == io.EOF {
+			break
+		}
 	}
 	return nil
+}
+
+func scanUntilSafeBoundary(data []byte, newlineCount *int) int {
+	consume := 0
+	for consume < len(data) {
+		i := bytes.IndexByte(data[consume:], '\n')
+		if i < 0 {
+			if hasNonWhitespace(data[consume:]) {
+				*newlineCount = 0
+			}
+			return len(data)
+		}
+
+		next := consume + i
+		if hasNonWhitespace(data[consume:next]) {
+			*newlineCount = 0
+		}
+		*newlineCount++
+		consume = next + 1
+		if *newlineCount >= 2 {
+			return consume
+		}
+	}
+	return consume
+}
+
+func hasNonWhitespace(data []byte) bool {
+	for _, c := range data {
+		if !isWhitespace[c] {
+			return true
+		}
+	}
+	return false
 }
 
 type sourceDownloadOptions struct {
