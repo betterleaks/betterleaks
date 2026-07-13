@@ -830,6 +830,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	for _, matchIndex := range matches {
 		// Extract secret from match
 		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
+		filterMatchIndex := [2]int{matchIndex[0], matchIndex[1]}
 
 		// For any meta data from decoding
 		var metaTags []string
@@ -977,12 +978,13 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 				findingMap["line"] = currentLine
 			}
 		}
+		matchWindow := exprruntime.MatchWindow{Raw: currentRaw, MatchStart: filterMatchIndex[0], MatchEnd: filterMatchIndex[1]}
 
 		// Global filter: Expr path (attributes + finding).
 		if prg, ok, err := d.globalFilterProgram(); err != nil {
 			logger.Warn().Err(err).Msg("global filter compile error")
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilterWithMatchWindow(prg, findingMap, fragment.Attributes, matchWindow)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -997,7 +999,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
 			logger.Warn().Err(err).Msg("rule filter compile error")
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilterWithMatchWindow(prg, findingMap, fragment.Attributes, matchWindow)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {

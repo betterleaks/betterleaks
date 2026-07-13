@@ -3,6 +3,7 @@ package detect
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -167,6 +168,72 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 		findings[i].SetExprContext("")
 	}
 	return findings
+}
+
+func TestDetectFilterMatchesNearMatch(t *testing.T) {
+	rule := config.Rule{
+		RuleID: "near-match",
+		Regex:  regexp.MustCompile(`[A-Z0-9]{20}`),
+		Filter: `filter.matchesAnyNearMatch(finding, ["red-herring"], 50, 0, false)`,
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+	require.NoError(t, cfg.CompileFilters(nil))
+
+	d := NewDetector(cfg)
+	findings := d.Detect(sources.Fragment{Raw: "red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST"})
+
+	require.Len(t, findings, 1)
+	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
+}
+
+func TestDecodedFilterUsesDecodedMatchWindow(t *testing.T) {
+	decoded := "provider decoded-secret-ABCDEFGHIJKLMNOPQRST"
+	raw := base64.StdEncoding.EncodeToString([]byte(decoded))
+
+	for _, tc := range []struct {
+		name     string
+		before   int
+		findings int
+	}{
+		{"inside window", 9, 0},
+		{"outside window", 8, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rule := config.Rule{
+				RuleID: "decoded-near-match",
+				Regex:  regexp.MustCompile(`decoded-secret-[A-Z]{20}`),
+				Filter: fmt.Sprintf(`filter.containsAnyNearMatch(finding, ["provider"], %d, 0, false)`, tc.before),
+			}
+			cfg := &config.Config{
+				Rules:          map[string]config.Rule{rule.RuleID: rule},
+				NoKeywordRules: []string{rule.RuleID},
+				OrderedRules:   []string{rule.RuleID},
+			}
+			d := NewDetector(cfg)
+			d.MaxDecodeDepth = 1
+
+			require.Len(t, d.Detect(sources.Fragment{Raw: raw}), tc.findings)
+		})
+	}
+}
+
+func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
+	rule := config.Rule{
+		RuleID: "original-match-bounds",
+		Regex:  regexp.MustCompile("\nSECRET"),
+		Filter: "filter.matchesAnyNearMatch(finding, [`\\nSECRET$`], 0, 0, false)",
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+
+	require.Empty(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "prefix\nSECRET"}))
 }
 
 func TestDetect(t *testing.T) {

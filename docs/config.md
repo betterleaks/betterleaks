@@ -66,7 +66,9 @@ with Expr. If a filter expression evaluates to `true`, the item is skipped.
 | Function | Description |
 | :--- | :--- |
 | `filter.matchesAny(string, list)` | Returns `true` if the string matches any regex pattern in the list. |
+| `filter.matchesAnyNearMatch(finding, list, before, after, limitToLine)` | Matches regex patterns against the finding's regex match plus up to `before` and `after` surrounding characters. When `limitToLine` is `true`, surrounding context stops at line boundaries. |
 | `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
+| `filter.containsAnyNearMatch(finding, list, before, after, limitToLine)` | Searches the finding's regex match plus up to `before` and `after` surrounding characters for any listed term. When `limitToLine` is `true`, surrounding context stops at line boundaries. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `filter.failsTokenEfficiency(string)` | Returns `true` if the string tokenizes too efficiently and looks like natural language rather than a random secret. |
 

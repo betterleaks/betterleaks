@@ -47,6 +47,13 @@ type EvalResult struct {
 	Debug map[string]any
 }
 
+// MatchWindow identifies a regex match within Raw using byte offsets.
+type MatchWindow struct {
+	Raw        string
+	MatchStart int
+	MatchEnd   int
+}
+
 type evalState struct {
 	debug bool
 	meta  map[string]any
@@ -194,9 +201,16 @@ func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken
 // Compile and runtime bindings expose the same names. Dynamic values are layered
 // onto a shallow copy so compiled programs can share static function bindings.
 func (e *Runtime) EvalFilter(prg Program, finding, attributes map[string]string) (bool, error) {
+	return e.EvalFilterWithMatchWindow(prg, finding, attributes, MatchWindow{})
+}
+
+func (e *Runtime) EvalFilterWithMatchWindow(prg Program, finding, attributes map[string]string, window MatchWindow) (bool, error) {
 	b := prg.evalBindings()
 	b["finding"] = nonNilStringMap(finding)
 	b["attributes"] = nonNilStringMap(attributes)
+	if rt, ok := b["__runtime"].(*runtimeBindings); ok {
+		rt.matchWindow = window
+	}
 	return runBool(prg, b, "filter")
 }
 
@@ -318,6 +332,7 @@ type runtimeBindings struct {
 	finding           any
 	attrs             any
 	captures          any
+	matchWindow       MatchWindow
 	debug             *evalState
 }
 
