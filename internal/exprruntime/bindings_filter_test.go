@@ -20,7 +20,7 @@ func TestFilterNearMatchHelpers(t *testing.T) {
 	}
 
 	t.Run("contains before match", func(t *testing.T) {
-		prg, err := env.CompileFilter(`filter.containsAnyNearMatch(finding, ["provider"], 20, 0)`, nil)
+		prg, err := env.CompileFilter(`filter.matchesAnyNearMatch(finding, ["provider"], 20, 0, true)`, nil)
 		require.NoError(t, err)
 
 		got, err := env.EvalFilterWithMatchWindow(prg, finding, nil, window)
@@ -38,7 +38,7 @@ func TestFilterNearMatchHelpers(t *testing.T) {
 	})
 
 	t.Run("respects window bounds", func(t *testing.T) {
-		prg, err := env.CompileFilter(`filter.containsAnyNearMatch(finding, ["prefix"], 5, 0)`, nil)
+		prg, err := env.CompileFilter(`filter.matchesAnyNearMatch(finding, ["prefix"], 5, 0, false)`, nil)
 		require.NoError(t, err)
 
 		got, err := env.EvalFilterWithMatchWindow(prg, finding, nil, window)
@@ -78,10 +78,10 @@ func TestFilterNearMatchBounds(t *testing.T) {
 		window MatchWindow
 		want   bool
 	}{
-		{"clamps both ends", `filter.containsAnyNearMatch(finding, ["prefix", "suffix"], ` + maxInt + `, ` + maxInt + `)`, MatchWindow{Raw: "prefix SECRET suffix", MatchStart: 7, MatchEnd: 13}, true},
-		{"negative becomes zero", `filter.containsAnyNearMatch(finding, ["prefix"], -1, -1)`, MatchWindow{Raw: "prefix SECRET", MatchStart: 7, MatchEnd: 13}, false},
-		{"empty", `filter.containsAnyNearMatch(finding, ["prefix"], 10, 10)`, MatchWindow{}, false},
-		{"invalid", `filter.containsAnyNearMatch(finding, ["prefix"], 10, 10)`, MatchWindow{Raw: "short", MatchStart: -1, MatchEnd: math.MaxInt}, false},
+		{"clamps both ends", `filter.matchesAnyNearMatch(finding, ["prefix", "suffix"], ` + maxInt + `, ` + maxInt + `, false)`, MatchWindow{Raw: "prefix SECRET suffix", MatchStart: 7, MatchEnd: 13}, true},
+		{"negative becomes zero", `filter.matchesAnyNearMatch(finding, ["prefix"], -1, -1, false)`, MatchWindow{Raw: "prefix SECRET", MatchStart: 7, MatchEnd: 13}, false},
+		{"empty", `filter.matchesAnyNearMatch(finding, ["prefix"], 10, 10, false)`, MatchWindow{}, false},
+		{"invalid", `filter.matchesAnyNearMatch(finding, ["prefix"], 10, 10, false)`, MatchWindow{Raw: "short", MatchStart: -1, MatchEnd: math.MaxInt}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,7 +98,7 @@ func TestFilterEvalBindingsDoNotShareRuntimeState(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
 
-	prg, err := env.CompileFilter(`filter.containsAnyNearMatch(finding, ["provider"], 20, 0)`, nil)
+	prg, err := env.CompileFilter(`filter.matchesAnyNearMatch(finding, ["provider"], 20, 0, false)`, nil)
 	require.NoError(t, err)
 
 	a := prg.evalBindings()
@@ -115,9 +115,9 @@ func TestFilterEvalBindingsDoNotShareRuntimeState(t *testing.T) {
 
 	filterA := a["filter"].(map[string]any)
 	filterB := b["filter"].(map[string]any)
-	containsA := filterA["containsAnyNearMatch"].(func(any, any, int, int) bool)
-	containsB := filterB["containsAnyNearMatch"].(func(any, any, int, int) bool)
+	matchesA := filterA["matchesAnyNearMatch"].(func(any, any, int, int, bool) bool)
+	matchesB := filterB["matchesAnyNearMatch"].(func(any, any, int, int, bool) bool)
 
-	require.True(t, containsA(nil, []string{"provider"}, 20, 0))
-	require.False(t, containsB(nil, []string{"provider"}, 20, 0))
+	require.True(t, matchesA(nil, []string{"provider"}, 20, 0, false))
+	require.False(t, matchesB(nil, []string{"provider"}, 20, 0, false))
 }
