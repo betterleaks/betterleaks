@@ -211,6 +211,16 @@ func TestBuildRequiredSets_JSONSerialization(t *testing.T) {
 	require.Len(t, components, 2)
 }
 
+func TestFindingRawMatchContext(t *testing.T) {
+	f := Finding{}
+	f.SetRawMatch("before\r\nprovider SECRET trailing\nafter", len("before\r\nprovider "), len("before\r\nprovider SECRET"))
+
+	require.Equal(t, len("before\r\n"), f.RawLineStart)
+	require.Equal(t, len("before\r\nprovider SECRET trailing"), f.RawLineEnd)
+	require.NotContains(t, f.ToExprMap(), "raw")
+	require.Equal(t, f.RawMatchStart, f.ToFilterExprMap()["raw_match_start"])
+}
+
 func TestFindingAttrFallsBackToDeprecatedFields(t *testing.T) {
 	f := Finding{
 		File:   "fallback.txt",

@@ -887,6 +887,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			Tags:            tags,
 			RuleSpecificity: r.Specificity,
 		}
+		finding.SetRawMatch(currentRaw, filterMatchIndex[0], filterMatchIndex[1])
 
 		// TODO eventually move this git specific bit into somewhere... better?
 		platform := finding.Attr(sources.AttrGitPlatform)
@@ -967,9 +968,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		// Build finding map once, only when at least one filter program is compiled.
-		var findingMap map[string]string
+		var findingMap map[string]any
 		if hasGlobalFilter || hasRuleFilter {
-			findingMap = finding.ToExprMap()
+			findingMap = finding.ToFilterExprMap()
 			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
 			// For decoded segments, currentLine carries the decoded line text
 			// (via codec.CurrentLine). The old checkFindingAllowed used this for
@@ -978,13 +979,11 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 				findingMap["line"] = currentLine
 			}
 		}
-		matchWindow := exprruntime.MatchWindow{Raw: currentRaw, MatchStart: filterMatchIndex[0], MatchEnd: filterMatchIndex[1]}
-
 		// Global filter: Expr path (attributes + finding).
 		if prg, ok, err := d.globalFilterProgram(); err != nil {
 			logger.Warn().Err(err).Msg("global filter compile error")
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilterWithMatchWindow(prg, findingMap, fragment.Attributes, matchWindow)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -999,7 +998,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
 			logger.Warn().Err(err).Msg("rule filter compile error")
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilterWithMatchWindow(prg, findingMap, fragment.Attributes, matchWindow)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {

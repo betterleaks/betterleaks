@@ -163,6 +163,11 @@ func composeFilters(skipParts []string, userExpr string) string {
 		parts = append(parts, sp)
 	}
 	if userExpr != "" {
+		// A declaration is only valid at expression precedence zero. Keep it at
+		// the root of its grouped user expression when legacy predicates precede it.
+		if len(parts) > 0 && strings.HasPrefix(strings.TrimSpace(userExpr), "let ") {
+			userExpr = "(" + userExpr + ")"
+		}
 		parts = append(parts, userExpr)
 	}
 	if len(parts) <= 1 {

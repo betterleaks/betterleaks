@@ -188,6 +188,12 @@ func TestComposeFilters(t *testing.T) {
 			userExpr:  "condC",
 			expected:  "condA\n|| condB\n|| condC",
 		},
+		{
+			name:      "skip parts and user expr with declaration",
+			skipParts: []string{"condA"},
+			userExpr:  "let context = finding.raw; context == secret",
+			expected:  "condA\n|| (let context = finding.raw; context == secret)",
+		},
 	}
 
 	for _, tt := range tests {

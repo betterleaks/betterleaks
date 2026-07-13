@@ -33,6 +33,18 @@ type Finding struct {
 
 	Line string `json:"-"`
 
+	// Raw is the text searched by the detector. For decoded findings, this is
+	// the decoded text rather than the original fragment.
+	Raw string `json:"-"`
+
+	// RawMatchStart and RawMatchEnd are byte offsets into Raw.
+	RawMatchStart int `json:"-"`
+	RawMatchEnd   int `json:"-"`
+
+	// RawLineStart and RawLineEnd bound the lines in Raw touched by the match.
+	RawLineStart int `json:"-"`
+	RawLineEnd   int `json:"-"`
+
 	// CaptureGroups holds named regex capture groups from the match.
 	CaptureGroups map[string]string `json:",omitempty"`
 
@@ -221,6 +233,24 @@ func (f *Finding) SetExprContext(context string) {
 	f.exprContext = context
 }
 
+// SetRawMatch stores filter-only text coordinates for the finding.
+func (f *Finding) SetRawMatch(raw string, start, end int) {
+	f.Raw = raw
+	f.RawMatchStart = start
+	f.RawMatchEnd = end
+	f.RawLineStart = 0
+	f.RawLineEnd = len(raw)
+	if start < 0 || end < start || end > len(raw) {
+		return
+	}
+	if newline := strings.LastIndexAny(raw[:start], "\r\n"); newline >= 0 {
+		f.RawLineStart = newline + 1
+	}
+	if newline := strings.IndexAny(raw[end:], "\r\n"); newline >= 0 {
+		f.RawLineEnd = end + newline
+	}
+}
+
 // Print writes a verbose finding using the pretty box format.
 func (f Finding) Print(noColor bool, redact uint) {
 	f.printPretty(noColor, redact)
@@ -352,4 +382,18 @@ func (f *Finding) ToExprMap() map[string]string {
 		"description": f.Description,
 		"context":     f.exprContext,
 	}
+}
+
+// ToFilterExprMap returns the typed finding data available to filter expressions.
+func (f *Finding) ToFilterExprMap() map[string]any {
+	m := make(map[string]any, 11)
+	for key, value := range f.ToExprMap() {
+		m[key] = value
+	}
+	m["raw"] = f.Raw
+	m["raw_match_start"] = f.RawMatchStart
+	m["raw_match_end"] = f.RawMatchEnd
+	m["raw_line_start"] = f.RawLineStart
+	m["raw_line_end"] = f.RawLineEnd
+	return m
 }

@@ -56,6 +56,18 @@ r.json?.login ?? ""
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
 
+Filter expressions also receive `finding["raw"]` and the byte offsets
+`raw_match_start`, `raw_match_end`, `raw_line_start`, and `raw_line_end`.
+These can be combined with Expr string slicing to select context around a match:
+
+```expr
+let providerMatchContext = finding["raw"][
+    max(finding["raw_match_start"] - 150, finding["raw_line_start"]):
+    min(finding["raw_match_end"] + 50, finding["raw_line_end"])
+];
+filter.containsAny(providerMatchContext, ["provider"])
+```
+
 ## Filtering
 
 Filters replace legacy allowlists, entropy checks, and token efficiency checks
@@ -66,9 +78,7 @@ with Expr. If a filter expression evaluates to `true`, the item is skipped.
 | Function | Description |
 | :--- | :--- |
 | `filter.matchesAny(string, list)` | Returns `true` if the string matches any regex pattern in the list. |
-| `filter.matchesAnyNearMatch(finding, list, before, after, limitToLine)` | Matches regex patterns against the finding's regex match plus up to `before` and `after` surrounding characters. When `limitToLine` is `true`, surrounding context stops at line boundaries. |
 | `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
-| `filter.containsAnyNearMatch(finding, list, before, after, limitToLine)` | Searches the finding's regex match plus up to `before` and `after` surrounding characters for any listed term. When `limitToLine` is `true`, surrounding context stops at line boundaries. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `filter.failsTokenEfficiency(string)` | Returns `true` if the string tokenizes too efficiently and looks like natural language rather than a random secret. |
 

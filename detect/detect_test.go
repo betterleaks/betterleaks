@@ -143,7 +143,8 @@ func compare(t *testing.T, got, want []report.Finding) {
 		cmpopts.IgnoreFields(report.Finding{},
 			"Fingerprint", "Author", "Email", "Date", "Message", "Commit",
 			"File", "SymlinkFile", "Attributes",
-			"RequiredSets", "RuleSpecificity"),
+			"RequiredSets", "RuleSpecificity",
+			"Raw", "RawMatchStart", "RawMatchEnd", "RawLineStart", "RawLineEnd"),
 		cmpopts.IgnoreFields(report.RequiredFinding{}, "RuleSpecificity"),
 		cmpopts.IgnoreUnexported(report.Finding{}),
 		cmpopts.EquateApprox(0.0001, 0), // For floating point Entropy comparison
@@ -160,6 +161,11 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 		findings[i].Attributes = nil
 		findings[i].Link = ""
 		findings[i].RuleSpecificity = 0
+		findings[i].Raw = ""
+		findings[i].RawMatchStart = 0
+		findings[i].RawMatchEnd = 0
+		findings[i].RawLineStart = 0
+		findings[i].RawLineEnd = 0
 		for si := range findings[i].RequiredSets {
 			for ci := range findings[i].RequiredSets[si].Components {
 				findings[i].RequiredSets[si].Components[ci].RuleSpecificity = 0
@@ -170,11 +176,11 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 	return findings
 }
 
-func TestDetectFilterMatchesNearMatch(t *testing.T) {
+func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "near-match",
 		Regex:  regexp.MustCompile(`[A-Z0-9]{20}`),
-		Filter: `filter.matchesAnyNearMatch(finding, ["red-herring"], 50, 0, false)`,
+		Filter: `let matchContext = finding["raw"][max(finding["raw_match_start"] - 50, 0):finding["raw_match_end"]]; filter.matchesAny(matchContext, ["red-herring"])`,
 	}
 	cfg := &config.Config{
 		Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -190,7 +196,7 @@ func TestDetectFilterMatchesNearMatch(t *testing.T) {
 	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
 }
 
-func TestDecodedFilterUsesDecodedMatchWindow(t *testing.T) {
+func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 	decoded := "provider decoded-secret-ABCDEFGHIJKLMNOPQRST"
 	raw := base64.StdEncoding.EncodeToString([]byte(decoded))
 
@@ -206,7 +212,7 @@ func TestDecodedFilterUsesDecodedMatchWindow(t *testing.T) {
 			rule := config.Rule{
 				RuleID: "decoded-near-match",
 				Regex:  regexp.MustCompile(`decoded-secret-[A-Z]{20}`),
-				Filter: fmt.Sprintf(`filter.containsAnyNearMatch(finding, ["provider"], %d, 0, false)`, tc.before),
+				Filter: fmt.Sprintf(`let matchContext = finding["raw"][max(finding["raw_match_start"] - %d, 0):finding["raw_match_end"]]; filter.containsAny(matchContext, ["provider"])`, tc.before),
 			}
 			cfg := &config.Config{
 				Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -225,7 +231,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "original-match-bounds",
 		Regex:  regexp.MustCompile("\nSECRET"),
-		Filter: "filter.matchesAnyNearMatch(finding, [`\\nSECRET$`], 0, 0, false)",
+		Filter: "let matchContext = finding[\"raw\"][finding[\"raw_match_start\"]:finding[\"raw_match_end\"]]; filter.matchesAny(matchContext, [`\\nSECRET$`])",
 	}
 	cfg := &config.Config{
 		Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -234,6 +240,21 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	}
 
 	require.Empty(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "prefix\nSECRET"}))
+}
+
+func TestFilterContextCanStayOnMatchLine(t *testing.T) {
+	rule := config.Rule{
+		RuleID: "line-context",
+		Regex:  regexp.MustCompile(`SECRET`),
+		Filter: `let matchContext = finding["raw"][finding["raw_line_start"]:finding["raw_line_end"]]; filter.containsAny(matchContext, ["other-line"])`,
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+
+	require.Len(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
 }
 
 func TestDetect(t *testing.T) {
