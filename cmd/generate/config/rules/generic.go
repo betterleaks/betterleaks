@@ -22,7 +22,7 @@ func GenericCredential() *config.Rule {
 			"passw(?:or)?d",
 			"secret",
 			"token",
-		}, `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`, true),
+		}, `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,149}={0,3}`, true),
 		Keywords: []string{
 			"access",
 			"api",

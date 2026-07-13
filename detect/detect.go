@@ -70,6 +70,12 @@ type Result struct {
 
 type ruleCandidates struct {
 	marked []bool
+	spans  [][]searchSpan
+}
+
+type searchSpan struct {
+	start int
+	end   int
 }
 
 // Detector is the main detector struct
@@ -137,6 +143,7 @@ type Detector struct {
 	rulesBySpecificity []string
 	keywordRuleIndexes [][]int
 	noKeywordIndexes   []int
+	ruleSearchScopes   []int
 	candidatePool      sync.Pool
 
 	// TODO remove this in v2
@@ -249,10 +256,12 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
+	d.ruleSearchScopes = make([]int, len(d.rulesBySpecificity))
 	d.keywordRuleIndexes = make([][]int, len(keywords))
 	ruleIndexes := make(map[string]int, len(d.rulesBySpecificity))
 	for i, ruleID := range d.rulesBySpecificity {
 		ruleIndexes[ruleID] = i
+		d.ruleSearchScopes[i] = inferKeywordScope(cfg.Rules[ruleID])
 	}
 	for patternID, keyword := range keywords {
 		ruleIDs := cfg.KeywordToRules[keyword]
@@ -264,7 +273,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		d.noKeywordIndexes = append(d.noKeywordIndexes, ruleIndexes[ruleID])
 	}
 	d.candidatePool.New = func() any {
-		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
+		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity)), spans: make([][]searchSpan, len(d.rulesBySpecificity))}
 	}
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
 
@@ -697,9 +706,15 @@ ScanLoop:
 			break ScanLoop
 		default:
 			candidates := d.candidatePool.Get().(*ruleCandidates)
-			d.prefilter.Visit(currentRaw, func(patternID, _, _ int) bool {
+			d.prefilter.Visit(currentRaw, func(patternID, start, end int) bool {
 				for _, ruleIndex := range d.keywordRuleIndexes[patternID] {
 					candidates.marked[ruleIndex] = true
+					if scope := d.ruleSearchScopes[ruleIndex]; scope > 0 {
+						candidates.spans[ruleIndex] = append(candidates.spans[ruleIndex], searchSpan{
+							start: max(0, start-scope),
+							end:   min(len(currentRaw), end+scope),
+						})
+					}
 				}
 				return true
 			})
@@ -712,17 +727,21 @@ ScanLoop:
 				if !candidates.marked[ruleIndex] {
 					continue
 				}
+				candidates.marked[ruleIndex] = false
 				select {
 				case <-ctx.Done():
 					clear(candidates.marked)
+					for i := range candidates.spans {
+						candidates.spans[i] = candidates.spans[i][:0]
+					}
 					d.candidatePool.Put(candidates)
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)...)
+					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings, candidates.spans[ruleIndex])...)
+					candidates.spans[ruleIndex] = candidates.spans[ruleIndex][:0]
 				}
 			}
-			clear(candidates.marked)
 			d.candidatePool.Put(candidates)
 
 			// increment the depth by 1 as we start our decoding pass
@@ -749,13 +768,14 @@ func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,
 	currentRaw string,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
-	priorFindings []report.Finding) []report.Finding {
+	priorFindings []report.Finding,
+	keywordSpans []searchSpan) []report.Finding {
 	if d.RuleTimings == nil {
-		return d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
+		return d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings, keywordSpans)
 	}
 
 	start := time.Now()
-	findings := d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
+	findings := d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings, keywordSpans)
 	d.RuleTimings.Record(r.RuleID, time.Since(start))
 	return findings
 }
@@ -782,12 +802,39 @@ func orderedRulesBySpecificity(cfg *config.Config) []string {
 	return ruleIDs
 }
 
+func findRuleMatches(raw string, r config.Rule, spans []searchSpan) [][]int {
+	if spans == nil {
+		return r.Regex.FindAllStringIndex(raw, -1)
+	}
+	if len(spans) == 0 {
+		return nil
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+	merged := spans[:0]
+	for _, span := range spans {
+		if len(merged) > 0 && span.start <= merged[len(merged)-1].end {
+			merged[len(merged)-1].end = max(merged[len(merged)-1].end, span.end)
+			continue
+		}
+		merged = append(merged, span)
+	}
+
+	var matches [][]int
+	for _, span := range merged {
+		for _, match := range r.Regex.FindAllStringIndex(raw[span.start:span.end], -1) {
+			matches = append(matches, []int{match[0] + span.start, match[1] + span.start})
+		}
+	}
+	return matches
+}
+
 // detectFragmentWithRule scans the given fragment for the given rule and returns a list of findings
 func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	currentRaw string,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
-	priorFindings []report.Finding) []report.Finding {
+	priorFindings []report.Finding,
+	keywordSpans []searchSpan) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
@@ -817,7 +864,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	matches := r.Regex.FindAllStringIndex(currentRaw, -1)
+	matches := findRuleMatches(currentRaw, r, keywordSpans)
 	if len(matches) == 0 {
 		return findings
 	}
@@ -1047,7 +1094,7 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		inheritedFragment.InheritedFromFinding = true
 
 		// Call detectRule once for each required rule
-		requiredFindings := d.detectFragmentWithRuleTimed(inheritedFragment, currentRaw, rule, encodedSegments, nil)
+		requiredFindings := d.detectFragmentWithRuleTimed(inheritedFragment, currentRaw, rule, encodedSegments, nil, nil)
 		allRequiredFindings[requiredRule.RuleID] = requiredFindings
 
 		logger.Debug().
