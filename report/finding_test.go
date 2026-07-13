@@ -218,7 +218,10 @@ func TestFindingRawMatchContext(t *testing.T) {
 	require.Equal(t, len("before\r\n"), f.RawLineStart)
 	require.Equal(t, len("before\r\nprovider SECRET trailing"), f.RawLineEnd)
 	require.NotContains(t, f.ToExprMap(), "raw")
-	require.Equal(t, f.RawMatchStart, f.ToFilterExprMap()["raw_match_start"])
+	filterFinding := f.ToFilterExprMap()
+	require.NotContains(t, filterFinding, "raw")
+	require.Equal(t, f.Raw, filterFinding["fragment_raw"])
+	require.Equal(t, f.RawMatchStart, filterFinding["raw_match_start"])
 }
 
 func TestFindingAttrFallsBackToDeprecatedFields(t *testing.T) {

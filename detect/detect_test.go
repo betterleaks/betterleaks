@@ -180,7 +180,7 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "near-match",
 		Regex:  regexp.MustCompile(`[A-Z0-9]{20}`),
-		Filter: `let matchContext = finding["raw"][max(finding["raw_match_start"] - 50, 0):finding["raw_match_end"]]; filter.matchesAny(matchContext, ["red-herring"])`,
+		Filter: `let matchContext = finding["fragment_raw"][max(finding["raw_match_start"] - 50, 0):finding["raw_match_end"]]; filter.matchesAny(matchContext, ["red-herring"])`,
 	}
 	cfg := &config.Config{
 		Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -212,7 +212,7 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 			rule := config.Rule{
 				RuleID: "decoded-near-match",
 				Regex:  regexp.MustCompile(`decoded-secret-[A-Z]{20}`),
-				Filter: fmt.Sprintf(`let matchContext = finding["raw"][max(finding["raw_match_start"] - %d, 0):finding["raw_match_end"]]; filter.containsAny(matchContext, ["provider"])`, tc.before),
+				Filter: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["raw_match_start"] - %d, 0):finding["raw_match_end"]]; filter.containsAny(matchContext, ["provider"])`, tc.before),
 			}
 			cfg := &config.Config{
 				Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -231,7 +231,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "original-match-bounds",
 		Regex:  regexp.MustCompile("\nSECRET"),
-		Filter: "let matchContext = finding[\"raw\"][finding[\"raw_match_start\"]:finding[\"raw_match_end\"]]; filter.matchesAny(matchContext, [`\\nSECRET$`])",
+		Filter: "let matchContext = finding[\"fragment_raw\"][finding[\"raw_match_start\"]:finding[\"raw_match_end\"]]; filter.matchesAny(matchContext, [`\\nSECRET$`])",
 	}
 	cfg := &config.Config{
 		Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -246,7 +246,7 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "line-context",
 		Regex:  regexp.MustCompile(`SECRET`),
-		Filter: `let matchContext = finding["raw"][finding["raw_line_start"]:finding["raw_line_end"]]; filter.containsAny(matchContext, ["other-line"])`,
+		Filter: `let matchContext = finding["fragment_raw"][finding["raw_line_start"]:finding["raw_line_end"]]; filter.containsAny(matchContext, ["other-line"])`,
 	}
 	cfg := &config.Config{
 		Rules:          map[string]config.Rule{rule.RuleID: rule},

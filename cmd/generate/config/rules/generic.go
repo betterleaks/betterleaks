@@ -36,11 +36,11 @@ func GenericCredential() *config.Rule {
 			"token",
 		},
 		Specificity: 0,
-		Filter: `let providerMatchContext = finding["raw"][
+		Filter: `let providerMatchContext = finding["fragment_raw"][
   max(finding["raw_match_start"] - 150, finding["raw_line_start"]):
   min(finding["raw_match_end"] + 50, finding["raw_line_end"])
 ];
-let genericMatchContext = finding["raw"][
+let genericMatchContext = finding["fragment_raw"][
   max(finding["raw_match_start"] - 50, finding["raw_line_start"]):
   min(finding["raw_match_end"], finding["raw_line_end"])
 ];

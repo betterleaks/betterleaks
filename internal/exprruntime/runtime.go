@@ -45,7 +45,7 @@ var emptyFilterFinding = map[string]any{
 	"description":     "",
 	"context":         "",
 	"entropy":         "",
-	"raw":             "",
+	"fragment_raw":    "",
 	"raw_match_start": 0,
 	"raw_match_end":   0,
 	"raw_line_start":  0,

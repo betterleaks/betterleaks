@@ -390,7 +390,7 @@ func (f *Finding) ToFilterExprMap() map[string]any {
 	for key, value := range f.ToExprMap() {
 		m[key] = value
 	}
-	m["raw"] = f.Raw
+	m["fragment_raw"] = f.Raw
 	m["raw_match_start"] = f.RawMatchStart
 	m["raw_match_end"] = f.RawMatchEnd
 	m["raw_line_start"] = f.RawLineStart

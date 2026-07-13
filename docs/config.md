@@ -56,12 +56,12 @@ r.json?.login ?? ""
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
 
-Filter expressions also receive `finding["raw"]` and the byte offsets
+Filter expressions also receive `finding["fragment_raw"]` and the byte offsets
 `raw_match_start`, `raw_match_end`, `raw_line_start`, and `raw_line_end`.
 These can be combined with Expr string slicing to select context around a match:
 
 ```expr
-let providerMatchContext = finding["raw"][
+let providerMatchContext = finding["fragment_raw"][
     max(finding["raw_match_start"] - 150, finding["raw_line_start"]):
     min(finding["raw_match_end"] + 50, finding["raw_line_end"])
 ];
