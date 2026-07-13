@@ -6,7 +6,6 @@ import (
 	"math"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
@@ -229,41 +228,6 @@ func stripEmptyMeta(m map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-// lowercaseBufPool provides reusable byte buffers for lowercasing strings
-// without allocating a new string via strings.ToLower each time.
-var lowercaseBufPool = sync.Pool{
-	New: func() any {
-		buf := make([]byte, 0, 128*1024)
-		return &buf
-	},
-}
-
-// getLowerBuf returns an ASCII-lowercased copy of s in a pooled byte buffer.
-// Caller must call putLowerBuf when done with the returned slice.
-func getLowerBuf(s string) (*[]byte, []byte) {
-	bp := lowercaseBufPool.Get().(*[]byte)
-	buf := *bp
-	if cap(buf) < len(s) {
-		buf = make([]byte, len(s))
-	} else {
-		buf = buf[:len(s)]
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			buf[i] = c + 32
-		} else {
-			buf[i] = c
-		}
-	}
-	*bp = buf
-	return bp, buf
-}
-
-func putLowerBuf(bp *[]byte) {
-	lowercaseBufPool.Put(bp)
 }
 
 // findNewlineIndices returns the start indices of all newlines in s.

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -33,11 +34,67 @@ const configPath = "../testdata/config/"
 const repoBasePath = "../testdata/repos/"
 const archivesBasePath = "../testdata/archives/"
 
+type cancelOnSecondCheck struct {
+	checks int
+	open   chan struct{}
+	closed chan struct{}
+}
+
+func newCancelOnSecondCheck() *cancelOnSecondCheck {
+	closed := make(chan struct{})
+	close(closed)
+	return &cancelOnSecondCheck{open: make(chan struct{}), closed: closed}
+}
+
+func (c *cancelOnSecondCheck) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *cancelOnSecondCheck) Done() <-chan struct{} {
+	c.checks++
+	if c.checks > 1 {
+		return c.closed
+	}
+	return c.open
+}
+func (c *cancelOnSecondCheck) Err() error    { return context.Canceled }
+func (c *cancelOnSecondCheck) Value(any) any { return nil }
+
 func loadTestConfig(t *testing.T, cfgName string) *config.Config {
 	t.Helper()
 	cfg, err := config.LoadFile(filepath.Join(configPath, cfgName+".toml"))
 	require.NoError(t, err)
 	return cfg
+}
+
+func TestCandidateBitmap(t *testing.T) {
+	rules := map[string]config.Rule{
+		"high":   {RuleID: "high", Specificity: 30, Keywords: []string{"shared", "alias"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
+		"low":    {RuleID: "low", Specificity: 20, Keywords: []string{"shared"}, Regex: regexp.MustCompile(`LOWSECRET`)},
+		"cancel": {RuleID: "cancel", Specificity: 10, Keywords: []string{"cancel"}, Regex: regexp.MustCompile(`ALWAYSSECRET`)},
+		"always": {RuleID: "always", Regex: regexp.MustCompile(`ALWAYSSECRET`)},
+	}
+	cfg := &config.Config{
+		Rules:          rules,
+		Keywords:       map[string]struct{}{"shared": {}, "alias": {}, "cancel": {}},
+		KeywordToRules: map[string][]string{"shared": {"high", "low"}, "alias": {"high"}, "cancel": {"cancel"}},
+		NoKeywordRules: []string{"always"},
+	}
+	d := NewDetector(cfg)
+
+	// Cancellation after candidates are marked must not leak them into the next scan.
+	require.Empty(t, d.detectFragment(newCancelOnSecondCheck(), sources.Fragment{Raw: "cancel ALWAYSSECRET"}))
+	require.Equal(t, []string{"always"}, findingRuleIDs(d.DetectString("ALWAYSSECRET")))
+
+	// One keyword selects multiple rules, multiple keywords select one rule,
+	// rules without keywords always run, and specificity order is retained.
+	require.Equal(t, []string{"high", "low", "always"}, findingRuleIDs(d.DetectString("shared HIGHSECRET LOWSECRET ALWAYSSECRET")))
+	require.Equal(t, []string{"high", "always"}, findingRuleIDs(d.DetectString("alias HIGHSECRET ALWAYSSECRET")))
+}
+
+func findingRuleIDs(findings []report.Finding) []string {
+	ids := make([]string, len(findings))
+	for i := range findings {
+		ids[i] = findings[i].RuleID
+	}
+	return ids
 }
 
 const encodedTestValues = `

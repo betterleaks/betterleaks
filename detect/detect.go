@@ -19,6 +19,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
+	"github.com/betterleaks/betterleaks/internal/ahocorasick"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
@@ -27,7 +28,6 @@ import (
 	"github.com/betterleaks/betterleaks/sources"
 
 	"github.com/fatih/semgroup"
-	ahocorasick "github.com/rrethy/ahocorasick"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
 )
@@ -66,6 +66,10 @@ const (
 type Result struct {
 	Finding report.Finding
 	Err     error
+}
+
+type ruleCandidates struct {
+	marked []bool
 }
 
 // Detector is the main detector struct
@@ -131,6 +135,9 @@ type Detector struct {
 	filterProgramM     sync.Mutex
 	filterPrograms     map[string]exprruntime.Program
 	rulesBySpecificity []string
+	keywordRuleIndexes [][]int
+	noKeywordIndexes   []int
+	candidatePool      sync.Pool
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -227,12 +234,13 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Fatal().Err(exprErr).Msg("failed to create expr runtime")
 	}
 
+	keywords := maps.Keys(cfg.Keywords)
 	d := &Detector{
 		gitleaksIgnore:         make(map[string]struct{}),
 		findings:               make([]report.Finding, 0),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
-		prefilter:              ahocorasick.CompileStrings(maps.Keys(cfg.Keywords)),
+		prefilter:              ahocorasick.Compile(keywords, true),
 		Sema:                   semgroup.NewGroup(ctx, 40),
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
@@ -241,6 +249,23 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
+	d.keywordRuleIndexes = make([][]int, len(keywords))
+	ruleIndexes := make(map[string]int, len(d.rulesBySpecificity))
+	for i, ruleID := range d.rulesBySpecificity {
+		ruleIndexes[ruleID] = i
+	}
+	for patternID, keyword := range keywords {
+		ruleIDs := cfg.KeywordToRules[keyword]
+		for _, ruleID := range ruleIDs {
+			d.keywordRuleIndexes[patternID] = append(d.keywordRuleIndexes[patternID], ruleIndexes[ruleID])
+		}
+	}
+	for _, ruleID := range cfg.NoKeywordRules {
+		d.noKeywordIndexes = append(d.noKeywordIndexes, ruleIndexes[ruleID])
+	}
+	d.candidatePool.New = func() any {
+		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
+	}
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
 
 	// Compile only global prefilter programs so they are available before scanning.
@@ -671,36 +696,34 @@ ScanLoop:
 		case <-ctx.Done():
 			break ScanLoop
 		default:
-			// Use Aho-Corasick to find keyword matches, then map directly
-			// to the rules that need checking via KeywordToRules.
-			// Use a pooled byte buffer for lowercasing to avoid allocating
-			lowerBufPtr, lowerBuf := getLowerBuf(currentRaw)
-			acMatches := d.prefilter.FindAllByteSlice(lowerBuf)
-
-			// Build a set of rule IDs to check based on keyword matches.
-			rulesToCheck := make(map[string]struct{}, len(acMatches))
-			for _, m := range acMatches {
-				keyword := string(m.Word)
-				for _, ruleID := range d.Config.KeywordToRules[keyword] {
-					rulesToCheck[ruleID] = struct{}{}
+			candidates := d.candidatePool.Get().(*ruleCandidates)
+			d.prefilter.Visit(currentRaw, func(patternID, _, _ int) bool {
+				for _, ruleIndex := range d.keywordRuleIndexes[patternID] {
+					candidates.marked[ruleIndex] = true
 				}
-			}
-			putLowerBuf(lowerBufPtr)
+				return true
+			})
 			// Always include rules that have no keywords.
-			for _, ruleID := range d.Config.NoKeywordRules {
-				rulesToCheck[ruleID] = struct{}{}
+			for _, ruleIndex := range d.noKeywordIndexes {
+				candidates.marked[ruleIndex] = true
 			}
 
-			ruleIDs := d.orderedRuleIDs(rulesToCheck)
-			for _, ruleID := range ruleIDs {
+			for ruleIndex, ruleID := range d.rulesBySpecificity {
+				if !candidates.marked[ruleIndex] {
+					continue
+				}
 				select {
 				case <-ctx.Done():
+					clear(candidates.marked)
+					d.candidatePool.Put(candidates)
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
 					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)...)
 				}
 			}
+			clear(candidates.marked)
+			d.candidatePool.Put(candidates)
 
 			// increment the depth by 1 as we start our decoding pass
 			currentDecodeDepth++
@@ -720,29 +743,6 @@ ScanLoop:
 		}
 	}
 	return filter(findings)
-}
-
-func (d *Detector) orderedRuleIDs(ruleSet map[string]struct{}) []string {
-	var ruleIDs []string
-	seen := make(map[string]struct{}, len(ruleSet))
-	appendRule := func(ruleID string) {
-		if _, ok := ruleSet[ruleID]; !ok {
-			return
-		}
-		if _, ok := seen[ruleID]; ok {
-			return
-		}
-		seen[ruleID] = struct{}{}
-		ruleIDs = append(ruleIDs, ruleID)
-	}
-
-	for _, ruleID := range d.rulesBySpecificity {
-		appendRule(ruleID)
-	}
-	for ruleID := range ruleSet {
-		appendRule(ruleID)
-	}
-	return ruleIDs
 }
 
 func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,
