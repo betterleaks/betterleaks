@@ -29,7 +29,7 @@ func TestFilterNearMatchHelpers(t *testing.T) {
 	})
 
 	t.Run("matches after match", func(t *testing.T) {
-		prg, err := env.CompileFilter("filter.matchesAnyNearMatch(finding, [`trailing$`], 0, 10)", nil)
+		prg, err := env.CompileFilter("filter.matchesAnyNearMatch(finding, [`trailing$`], 0, 10, false)", nil)
 		require.NoError(t, err)
 
 		got, err := env.EvalFilterWithMatchWindow(prg, finding, nil, window)
@@ -44,6 +44,26 @@ func TestFilterNearMatchHelpers(t *testing.T) {
 		got, err := env.EvalFilterWithMatchWindow(prg, finding, nil, window)
 		require.NoError(t, err)
 		require.False(t, got)
+	})
+
+	t.Run("stays on match line", func(t *testing.T) {
+		raw := "before\nprovider SECRET trailing\nafter"
+		window := MatchWindow{Raw: raw, MatchStart: len("before\nprovider "), MatchEnd: len("before\nprovider SECRET")}
+		for _, tc := range []struct {
+			pattern     string
+			limitToLine bool
+			want        bool
+		}{
+			{"before", true, false},
+			{"after", true, false},
+			{"before", false, true},
+		} {
+			prg, err := env.CompileFilter(`filter.matchesAnyNearMatch(finding, ["`+tc.pattern+`"], 100, 100, `+strconv.FormatBool(tc.limitToLine)+`)`, nil)
+			require.NoError(t, err)
+			got, err := env.EvalFilterWithMatchWindow(prg, finding, nil, window)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		}
 	})
 }
 

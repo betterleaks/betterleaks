@@ -80,22 +80,31 @@ func containsAny(s string, terms any) bool {
 	return trie != nil && len(trie.FindAllString(strings.ToLower(s))) > 0
 }
 
-func (rt *runtimeBindings) matchesAnyNearMatch(_ any, patterns any, charsBefore, charsAfter int) bool {
-	return matchesAny(rt.nearMatchText(charsBefore, charsAfter), patterns)
+func (rt *runtimeBindings) matchesAnyNearMatch(_ any, patterns any, charsBefore, charsAfter int, limitToLine bool) bool {
+	return matchesAny(rt.nearMatchText(charsBefore, charsAfter, limitToLine), patterns)
 }
 
 func (rt *runtimeBindings) containsAnyNearMatch(_ any, terms any, charsBefore, charsAfter int) bool {
-	return containsAny(rt.nearMatchText(charsBefore, charsAfter), terms)
+	return containsAny(rt.nearMatchText(charsBefore, charsAfter, false), terms)
 }
 
-func (rt *runtimeBindings) nearMatchText(charsBefore, charsAfter int) string {
+func (rt *runtimeBindings) nearMatchText(charsBefore, charsAfter int, limitToLine bool) string {
 	w := rt.matchWindow
 	if w.MatchStart < 0 || w.MatchEnd < w.MatchStart || w.MatchEnd > len(w.Raw) {
 		return ""
 	}
 	charsBefore = min(max(charsBefore, 0), w.MatchStart)
 	charsAfter = min(max(charsAfter, 0), len(w.Raw)-w.MatchEnd)
-	return w.Raw[w.MatchStart-charsBefore : w.MatchEnd+charsAfter]
+	start, end := w.MatchStart-charsBefore, w.MatchEnd+charsAfter
+	if limitToLine {
+		if newline := strings.LastIndexAny(w.Raw[start:w.MatchStart], "\r\n"); newline >= 0 {
+			start += newline + 1
+		}
+		if newline := strings.IndexAny(w.Raw[w.MatchEnd:end], "\r\n"); newline >= 0 {
+			end = w.MatchEnd + newline
+		}
+	}
+	return w.Raw[start:end]
 }
 
 func toStringSlice(v any) []string {

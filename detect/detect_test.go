@@ -174,7 +174,7 @@ func TestDetectFilterMatchesNearMatch(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "near-match",
 		Regex:  regexp.MustCompile(`[A-Z0-9]{20}`),
-		Filter: `filter.matchesAnyNearMatch(finding, ["red-herring"], 50, 0)`,
+		Filter: `filter.matchesAnyNearMatch(finding, ["red-herring"], 50, 0, false)`,
 	}
 	cfg := &config.Config{
 		Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -225,7 +225,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "original-match-bounds",
 		Regex:  regexp.MustCompile("\nSECRET"),
-		Filter: "filter.matchesAnyNearMatch(finding, [`\\nSECRET$`], 0, 0)",
+		Filter: "filter.matchesAnyNearMatch(finding, [`\\nSECRET$`], 0, 0, false)",
 	}
 	cfg := &config.Config{
 		Rules:          map[string]config.Rule{rule.RuleID: rule},
