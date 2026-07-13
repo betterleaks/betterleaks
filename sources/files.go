@@ -42,7 +42,6 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 		return nil
 	}
 
-	var yieldMu sync.Mutex
 	walkFn := func(path string, d fs.DirEntry, err error) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -122,8 +121,6 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			return nil
 		}
 
-		yieldMu.Lock()
-		defer yieldMu.Unlock()
 		return yield(scanTarget, nil)
 	}
 
