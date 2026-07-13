@@ -132,6 +132,11 @@ type Detector struct {
 	filterPrograms     map[string]exprruntime.Program
 	rulesBySpecificity []string
 
+	// requiredRuleIDs is the set of rule IDs referenced by some rule's
+	// RequiredRules. It is empty when the config has no composite rules, which
+	// lets detectFragment skip all composite bookkeeping on the hot path.
+	requiredRuleIDs map[string]struct{}
+
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
 	// slice while consuming results from Run.
@@ -241,6 +246,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
+	d.requiredRuleIDs = collectRequiredRuleIDs(cfg)
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
 
 	// Compile only global prefilter programs so they are available before scanning.
@@ -659,6 +665,23 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 
 	findings := []report.Finding{}
 
+	// Composite rules (those with RequiredRules) may have their primary match and
+	// their dependency surface at different decode depths — e.g. a plaintext token
+	// whose required cookie only appears base64-encoded. Resolving dependencies at
+	// each individual depth misses these pairings, so we defer composite handling:
+	// primary findings are accumulated in pendingPrimaries, every decode pass is
+	// recorded in passes, and after the loop the dependencies are detected across
+	// all passes and paired (see resolveCompositeFindings). This bookkeeping is
+	// skipped entirely when the config has no composite rules.
+	hasComposites := len(d.requiredRuleIDs) > 0 && !fragment.InheritedFromFinding
+	var (
+		pendingPrimaries map[string][]report.Finding
+		passes           []decodePass
+	)
+	if hasComposites {
+		pendingPrimaries = make(map[string][]report.Finding)
+	}
+
 	// setup variables to handle different decoding passes
 	currentRaw := fragment.Raw
 	encodedSegments := []*codec.EncodedSegment{}
@@ -671,6 +694,14 @@ ScanLoop:
 		case <-ctx.Done():
 			break ScanLoop
 		default:
+			// Record this pass so composite dependencies can later be detected
+			// against the exact raw/segments the primaries were scanned against.
+			// decoder.Decode allocates a fresh string and segment slice each pass,
+			// so retaining these references is cheap (no copy).
+			if hasComposites {
+				passes = append(passes, decodePass{raw: currentRaw, segments: encodedSegments})
+			}
+
 			// Use Aho-Corasick to find keyword matches, then map directly
 			// to the rules that need checking via KeywordToRules.
 			// Use a pooled byte buffer for lowercasing to avoid allocating
@@ -698,7 +729,13 @@ ScanLoop:
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)...)
+					ruleFindings := d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)
+					// Defer composite primaries; emit everything else immediately.
+					if hasComposites && len(rule.RequiredRules) > 0 {
+						pendingPrimaries[ruleID] = append(pendingPrimaries[ruleID], ruleFindings...)
+					} else {
+						findings = append(findings, ruleFindings...)
+					}
 				}
 			}
 
@@ -719,6 +756,13 @@ ScanLoop:
 			}
 		}
 	}
+
+	// Resolve deferred composite rules by pairing each accumulated primary with
+	// its required-rule dependencies detected across every recorded decode pass.
+	if hasComposites && len(pendingPrimaries) > 0 {
+		findings = append(findings, d.resolveCompositeFindings(fragment, passes, pendingPrimaries)...)
+	}
+
 	return filter(findings)
 }
 
@@ -758,6 +802,19 @@ func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,
 	findings := d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
 	d.RuleTimings.Record(r.RuleID, time.Since(start))
 	return findings
+}
+
+// collectRequiredRuleIDs returns the set of rule IDs referenced by any rule's
+// RequiredRules across the config. An empty result means there are no composite
+// rules, letting detectFragment skip composite bookkeeping entirely.
+func collectRequiredRuleIDs(cfg *config.Config) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, r := range cfg.Rules {
+		for _, req := range r.RequiredRules {
+			ids[req.RuleID] = struct{}{}
+		}
+	}
+	return ids
 }
 
 func orderedRulesBySpecificity(cfg *config.Config) []string {
@@ -1016,94 +1073,126 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		findings = append(findings, finding)
 	}
 
-	// Handle required rules (multi-part rules)
-	if fragment.InheritedFromFinding || len(r.RequiredRules) == 0 {
-		return findings
-	}
-
-	// Process required rules and create findings with auxiliary findings
-	return d.processRequiredRules(fragment, currentRaw, r, encodedSegments, findings, logger)
+	return findings
 }
 
-// processRequiredRules handles the logic for multi-part rules with auxiliary findings
-func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
-	if len(primaryFindings) == 0 {
-		logger.Debug().Msg("no primary findings to process for required rules")
-		return primaryFindings
+// decodePass captures the raw content and encoded segments scanned during a
+// single decode pass, so composite dependencies can later be detected against
+// the same input the primaries were scanned against.
+type decodePass struct {
+	raw      string
+	segments []*codec.EncodedSegment
+}
+
+// resolveCompositeFindings pairs accumulated composite-primary findings with
+// their required-rule dependencies. Dependencies are detected across every
+// recorded decode pass, so a primary and its dependency can be paired even when
+// they surface at different decode depths (e.g. a plaintext token and a
+// base64-encoded cookie). Positions on all findings are already normalized to
+// original fragment coordinates (see codec.AdjustMatchIndex), so proximity
+// comparisons are depth-agnostic.
+func (d *Detector) resolveCompositeFindings(fragment sources.Fragment, passes []decodePass, pendingPrimaries map[string][]report.Finding) []report.Finding {
+	logger := fragment.Logger()
+
+	// Determine which required rules are needed across all pending composites.
+	requiredIDs := make(map[string]struct{})
+	for primaryID := range pendingPrimaries {
+		for _, req := range d.Config.Rules[primaryID].RequiredRules {
+			requiredIDs[req.RuleID] = struct{}{}
+		}
 	}
 
-	// Pre-collect all required rule findings once
-	allRequiredFindings := make(map[string][]report.Finding)
-
-	for _, requiredRule := range r.RequiredRules {
-		rule, ok := d.Config.Rules[requiredRule.RuleID]
+	// Detect each required rule against every recorded pass, then dedupe. A
+	// dependency decoded at depth k is found when scanning that pass; a plaintext
+	// dependency is found when scanning pass 0 (which has no segments).
+	allRequiredFindings := make(map[string][]report.Finding, len(requiredIDs))
+	for reqID := range requiredIDs {
+		rule, ok := d.Config.Rules[reqID]
 		if !ok {
-			logger.Error().Str("rule-id", requiredRule.RuleID).Msg("required rule not found in config")
+			logger.Error().Str("rule-id", reqID).Msg("required rule not found in config")
 			continue
 		}
 
-		// Mark fragment as inherited to prevent infinite recursion
-		inheritedFragment := fragment
-		inheritedFragment.InheritedFromFinding = true
-
-		// Call detectRule once for each required rule
-		requiredFindings := d.detectFragmentWithRuleTimed(inheritedFragment, currentRaw, rule, encodedSegments, nil)
-		allRequiredFindings[requiredRule.RuleID] = requiredFindings
-
-		logger.Debug().
-			Str("rule-id", requiredRule.RuleID).
-			Int("findings", len(requiredFindings)).
-			Msg("collected required rule findings")
+		var collected []report.Finding
+		for _, pass := range passes {
+			// Mark fragment as inherited to prevent recursion / SkipReport gating.
+			inheritedFragment := fragment
+			inheritedFragment.InheritedFromFinding = true
+			collected = append(collected,
+				d.detectFragmentWithRuleTimed(inheritedFragment, pass.raw, rule, pass.segments, nil)...)
+		}
+		allRequiredFindings[reqID] = dedupeFindings(collected)
 	}
 
 	var finalFindings []report.Finding
 
-	// Now process each primary finding against the pre-collected required findings
-	for _, primaryFinding := range primaryFindings {
-		var requiredFindings []*report.RequiredFinding
+	// Iterate composites in specificity order for deterministic output.
+	for _, primaryID := range d.rulesBySpecificity {
+		primaries, ok := pendingPrimaries[primaryID]
+		if !ok {
+			continue
+		}
+		r := d.Config.Rules[primaryID]
 
-		for _, requiredRule := range r.RequiredRules {
-			foundRequiredFindings, exists := allRequiredFindings[requiredRule.RuleID]
-			if !exists {
-				continue // Rule wasn't found earlier, skip
-			}
+		for _, primaryFinding := range dedupeFindings(primaries) {
+			var requiredFindings []*report.RequiredFinding
 
-			// Filter findings that are within proximity of the primary finding
-			for _, requiredFinding := range foundRequiredFindings {
-				if d.withinProximity(primaryFinding, requiredFinding, requiredRule) {
-					req := &report.RequiredFinding{
-						RuleID:          requiredFinding.RuleID,
-						StartLine:       requiredFinding.StartLine,
-						EndLine:         requiredFinding.EndLine,
-						StartColumn:     requiredFinding.StartColumn,
-						EndColumn:       requiredFinding.EndColumn,
-						Line:            requiredFinding.Line,
-						Match:           requiredFinding.Match,
-						Secret:          requiredFinding.Secret,
-						CaptureGroups:   requiredFinding.CaptureGroups,
-						RuleSpecificity: requiredFinding.RuleSpecificity,
+			for _, requiredRule := range r.RequiredRules {
+				for _, requiredFinding := range allRequiredFindings[requiredRule.RuleID] {
+					if d.withinProximity(primaryFinding, requiredFinding, requiredRule) {
+						requiredFindings = append(requiredFindings, &report.RequiredFinding{
+							RuleID:          requiredFinding.RuleID,
+							StartLine:       requiredFinding.StartLine,
+							EndLine:         requiredFinding.EndLine,
+							StartColumn:     requiredFinding.StartColumn,
+							EndColumn:       requiredFinding.EndColumn,
+							Line:            requiredFinding.Line,
+							Match:           requiredFinding.Match,
+							Secret:          requiredFinding.Secret,
+							CaptureGroups:   requiredFinding.CaptureGroups,
+							RuleSpecificity: requiredFinding.RuleSpecificity,
+						})
 					}
-					requiredFindings = append(requiredFindings, req)
 				}
 			}
-		}
 
-		// Check if we have at least one auxiliary finding for each required rule
-		if len(requiredFindings) > 0 && d.hasAllRequiredRules(requiredFindings, r.RequiredRules) {
-			// Create a finding with auxiliary findings
-			newFinding := primaryFinding // Copy the primary finding
-			newFinding.BuildRequiredSets(requiredFindings, maxRequiredSets)
-			finalFindings = append(finalFindings, newFinding)
+			// Emit only when at least one dependency of every required rule is present.
+			if len(requiredFindings) > 0 && d.hasAllRequiredRules(requiredFindings, r.RequiredRules) {
+				newFinding := primaryFinding // Copy the primary finding
+				newFinding.BuildRequiredSets(requiredFindings, maxRequiredSets)
+				finalFindings = append(finalFindings, newFinding)
 
-			logger.Debug().
-				Str("primary-rule", r.RuleID).
-				Int("primary-line", primaryFinding.StartLine).
-				Int("auxiliary-count", len(requiredFindings)).
-				Msg("multi-part rule satisfied")
+				logger.Debug().
+					Str("primary-rule", r.RuleID).
+					Int("primary-line", primaryFinding.StartLine).
+					Int("auxiliary-count", len(requiredFindings)).
+					Msg("multi-part rule satisfied")
+			}
 		}
 	}
 
 	return finalFindings
+}
+
+// dedupeFindings removes findings that share the same original-coordinate
+// location and secret. Matches can repeat across decode passes when a decoded
+// segment sits adjacent to another encoded segment; deduping keeps required-set
+// combinations (and their cartesian product) from being inflated.
+func dedupeFindings(findings []report.Finding) []report.Finding {
+	if len(findings) <= 1 {
+		return findings
+	}
+	seen := make(map[string]struct{}, len(findings))
+	out := make([]report.Finding, 0, len(findings))
+	for _, f := range findings {
+		key := fmt.Sprintf("%d:%d:%d:%d:%s", f.StartLine, f.StartColumn, f.EndLine, f.EndColumn, f.Secret)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, f)
+	}
+	return out
 }
 
 // hasAllRequiredRules checks if we have at least one auxiliary finding for each required rule
