@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -128,7 +127,8 @@ var testAndPublicAPISecretLengthBounds = map[string][2]int{
 
 // buildTestAndPublicAPIFilters renders one OR clause per testAndPublicAPIFilter.
 // Entries without keywords match on the (anchored) secret regex alone; entries
-// with keywords additionally require a keyword nearby on the line.
+// with keywords additionally require a keyword nearby on the line. containsAny
+// lowercases its input, so the lowercase keywords match case-insensitively.
 func buildTestAndPublicAPIFilters() string {
 	var b strings.Builder
 	var secretOnly []string
@@ -147,12 +147,8 @@ func buildTestAndPublicAPIFilters() string {
 			secretOnly = append(secretOnly, secretRegex)
 			continue
 		}
-		patterns := make([]string, len(f.keywords))
-		for i, keyword := range f.keywords {
-			patterns[i] = "(?i)" + regexp.QuoteMeta(keyword)
-		}
 		b.WriteString("\n|| ")
-		b.WriteString("(" + secretMatch + ` && filter.matchesAnyNearMatch(finding, ` + exprStringListInline(patterns) + ", 150, 50, true))")
+		b.WriteString("(" + secretMatch + ` && filter.containsAnyNearMatch(finding, ` + exprStringListInline(f.keywords) + ", 150, 50, true))")
 	}
 	if len(secretOnly) > 0 {
 		return "\n|| matchesAny(finding[\"secret\"], " + exprList(secretOnly) + ")" + b.String()

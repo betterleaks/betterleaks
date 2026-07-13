@@ -22,6 +22,7 @@ func filterNamespace(rt *runtimeBindings) map[string]any {
 		"matchesAny":           matchesAny,
 		"matchesAnyNearMatch":  rt.matchesAnyNearMatch,
 		"containsAny":          containsAny,
+		"containsAnyNearMatch": rt.containsAnyNearMatch,
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
 	}
@@ -81,6 +82,10 @@ func containsAny(s string, terms any) bool {
 
 func (rt *runtimeBindings) matchesAnyNearMatch(_ any, patterns any, charsBefore, charsAfter int, limitToLine bool) bool {
 	return matchesAny(rt.nearMatchText(charsBefore, charsAfter, limitToLine), patterns)
+}
+
+func (rt *runtimeBindings) containsAnyNearMatch(_ any, terms any, charsBefore, charsAfter int, limitToLine bool) bool {
+	return containsAny(rt.nearMatchText(charsBefore, charsAfter, limitToLine), terms)
 }
 
 func (rt *runtimeBindings) nearMatchText(charsBefore, charsAfter int, limitToLine bool) string {

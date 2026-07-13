@@ -206,7 +206,7 @@ func TestDecodedFilterUsesDecodedMatchWindow(t *testing.T) {
 			rule := config.Rule{
 				RuleID: "decoded-near-match",
 				Regex:  regexp.MustCompile(`decoded-secret-[A-Z]{20}`),
-				Filter: fmt.Sprintf(`filter.matchesAnyNearMatch(finding, ["provider"], %d, 0, false)`, tc.before),
+				Filter: fmt.Sprintf(`filter.containsAnyNearMatch(finding, ["provider"], %d, 0, false)`, tc.before),
 			}
 			cfg := &config.Config{
 				Rules:          map[string]config.Rule{rule.RuleID: rule},
