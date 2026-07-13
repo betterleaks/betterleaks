@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/charlievieth/fastwalk"
 	"github.com/fatih/semgroup"
 )
 
@@ -30,7 +31,22 @@ type Files struct {
 
 // scanTargets yields scan targets to a callback func
 func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) error) error {
-	return filepath.WalkDir(s.Path, func(path string, d fs.DirEntry, err error) error {
+	rootInfo, err := os.Lstat(s.Path)
+	if err != nil {
+		logger := logging.With().Str("path", s.Path).Logger()
+		if os.IsPermission(err) {
+			logger.Warn().Err(errors.New("permission denied")).Msg("skipping directory")
+		} else {
+			logger.Warn().Err(err).Msg("skipping")
+		}
+		return nil
+	}
+
+	var yieldMu sync.Mutex
+	walkFn := func(path string, d fs.DirEntry, err error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		scanTarget := ScanTarget{Path: path}
 		logger := logging.With().Str("path", path).Logger()
 
@@ -106,8 +122,15 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			return nil
 		}
 
+		yieldMu.Lock()
+		defer yieldMu.Unlock()
 		return yield(scanTarget, nil)
-	})
+	}
+
+	if !rootInfo.IsDir() {
+		return walkFn(s.Path, fs.FileInfoToDirEntry(rootInfo), nil)
+	}
+	return fastwalk.Walk(nil, s.Path, walkFn)
 }
 
 // Fragments yields fragments from files discovered under the path

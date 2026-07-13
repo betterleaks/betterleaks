@@ -5,6 +5,7 @@ go 1.25.0
 toolchain go1.25.10
 
 require (
+	github.com/charlievieth/fastwalk v1.0.14
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/semgroup v1.2.0
 	github.com/gitleaks/go-gitdiff v0.9.1
