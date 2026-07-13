@@ -73,11 +73,12 @@ func TestCandidateBitmap(t *testing.T) {
 	}
 	cfg := &config.Config{
 		Rules:          rules,
-		Keywords:       map[string]struct{}{"shared": {}, "alias": {}, "cancel": {}},
-		KeywordToRules: map[string][]string{"shared": {"high", "low"}, "alias": {"high"}, "cancel": {"cancel"}},
-		NoKeywordRules: []string{"always"},
+		Keywords:       map[string]struct{}{"shared": {}, "alias": {}, "cancel": {}, "stale": {}},
+		KeywordToRules: map[string][]string{"shared": {"high", "low"}, "alias": {"high"}, "cancel": {"cancel"}, "stale": {"missing"}},
+		NoKeywordRules: []string{"always", "missing"},
 	}
 	d := NewDetector(cfg)
+	require.Empty(t, d.DetectString("stale HIGHSECRET"))
 
 	// Cancellation after candidates are marked must not leak them into the next scan.
 	require.Empty(t, d.detectFragment(newCancelOnSecondCheck(), sources.Fragment{Raw: "cancel ALWAYSSECRET"}))

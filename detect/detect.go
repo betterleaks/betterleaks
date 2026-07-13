@@ -257,11 +257,19 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	for patternID, keyword := range keywords {
 		ruleIDs := cfg.KeywordToRules[keyword]
 		for _, ruleID := range ruleIDs {
-			d.keywordRuleIndexes[patternID] = append(d.keywordRuleIndexes[patternID], ruleIndexes[ruleID])
+			ruleIndex, ok := ruleIndexes[ruleID]
+			if !ok {
+				continue
+			}
+			d.keywordRuleIndexes[patternID] = append(d.keywordRuleIndexes[patternID], ruleIndex)
 		}
 	}
 	for _, ruleID := range cfg.NoKeywordRules {
-		d.noKeywordIndexes = append(d.noKeywordIndexes, ruleIndexes[ruleID])
+		ruleIndex, ok := ruleIndexes[ruleID]
+		if !ok {
+			continue
+		}
+		d.noKeywordIndexes = append(d.noKeywordIndexes, ruleIndex)
 	}
 	d.candidatePool.New = func() any {
 		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
