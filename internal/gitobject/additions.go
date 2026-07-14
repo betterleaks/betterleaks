@@ -51,6 +51,32 @@ func (s *store) walkAdditions(ctx context.Context, yield func(Blob) error) error
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
+			batch := make([]blobCandidate, 0, 4096)
+			flush := func() error {
+				for i := range batch {
+					if loc, ok := s.find(batch[i].change.newID); ok {
+						batch[i].change.offset, batch[i].change.packed = loc.offset, true
+					}
+				}
+				sort.SliceStable(batch, func(i, j int) bool {
+					if batch[i].change.packed && batch[j].change.packed {
+						return batch[i].change.offset < batch[j].change.offset
+					}
+					return batch[i].change.packed
+				})
+				for _, candidate := range batch {
+					change := candidate.change
+					if change.newID == (hash{}) || isTreeMode(change.mode) || (!strings.HasPrefix(change.mode, "100") && change.mode != "120000") {
+						continue
+					}
+					if err := s.emitAdditions(change.path, change.oldID, change.newID, candidate.appearance, yield); err != nil {
+						return err
+					}
+				}
+				batch = batch[:0]
+				return nil
+			}
+			count := 0
 			for id := range jobs {
 				if err := ctx.Err(); err != nil {
 					errMu.Lock()
@@ -60,13 +86,38 @@ func (s *store) walkAdditions(ctx context.Context, yield func(Blob) error) error
 					errMu.Unlock()
 					return
 				}
-				if _, err := s.diffCommit(ctx, id, yield); err != nil {
+				err := s.diffCommit(ctx, id, func(candidate blobCandidate) error {
+					batch = append(batch, candidate)
+					return nil
+				})
+				if err != nil {
 					errMu.Lock()
 					if firstErr == nil {
 						firstErr = err
 					}
 					errMu.Unlock()
 					return
+				}
+				count++
+				if count == 32 {
+					if err := flush(); err != nil {
+						errMu.Lock()
+						if firstErr == nil {
+							firstErr = err
+						}
+						errMu.Unlock()
+						return
+					}
+					count = 0
+				}
+			}
+			if len(batch) > 0 {
+				if err := flush(); err != nil {
+					errMu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					errMu.Unlock()
 				}
 			}
 		}()
@@ -117,37 +168,27 @@ func (s *store) reachableCommits(ctx context.Context, tips []hash) ([]hash, erro
 	return commits, nil
 }
 
-func (s *store) diffCommit(ctx context.Context, id hash, yield func(Blob) error) ([]hash, error) {
+func (s *store) diffCommit(ctx context.Context, id hash, yield func(blobCandidate) error) error {
 	obj, err := s.load(id)
-	if err != nil {
-		return nil, err
-	}
-	if obj.typ == 4 {
-		target, err := tagTarget(obj.data)
-		if err != nil {
-			return nil, err
-		}
-		return []hash{target}, nil
-	}
-	if obj.typ != 1 {
-		return nil, nil
+	if err != nil || obj.typ != 1 {
+		return err
 	}
 	commit, err := parseCommit(id, obj.data)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if len(commit.parents) > 1 {
-		return commit.parents, nil
+		return nil
 	}
 	var oldTree hash
 	if len(commit.parents) == 1 {
 		parentObj, err := s.load(commit.parents[0])
 		if err != nil {
-			return nil, err
+			return err
 		}
 		parent, err := parseCommit(commit.parents[0], parentObj.data)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		oldTree = parent.tree
 	}
@@ -157,18 +198,18 @@ func (s *store) diffCommit(ctx context.Context, id hash, yield func(Blob) error)
 		return nil
 	})
 	if err != nil {
-		return commit.parents, err
+		return err
 	}
 	s.pairRenames(changes)
 	for _, change := range changes {
 		if change.newID == (hash{}) || isTreeMode(change.mode) || (!strings.HasPrefix(change.mode, "100") && change.mode != "120000") {
 			continue
 		}
-		if err := s.emitAdditions(change.path, change.oldID, change.newID, commit.appearance, yield); err != nil {
-			return commit.parents, err
+		if err := yield(blobCandidate{change: change, appearance: commit.appearance}); err != nil {
+			return err
 		}
 	}
-	return commit.parents, err
+	return nil
 }
 
 type treeEntry struct {
@@ -178,10 +219,17 @@ type treeEntry struct {
 }
 
 type treeChange struct {
-	path  string
-	oldID hash
-	newID hash
-	mode  string
+	path   string
+	oldID  hash
+	newID  hash
+	mode   string
+	offset int64
+	packed bool
+}
+
+type blobCandidate struct {
+	change     treeChange
+	appearance Appearance
 }
 
 func isTreeMode(mode string) bool { return mode == "40000" || mode == "040000" }
@@ -383,6 +431,10 @@ func (s *store) emitAdditions(path string, oldID, newID hash, appearance Appeara
 	if newObj.typ != 3 {
 		return nil
 	}
+	appearance.Path = path
+	if isBinary(newObj.data) {
+		return yield(Blob{Hash: newID.String(), Size: int64(len(newObj.data)), Content: bytes.NewReader(newObj.data), StartLine: 1, Binary: true, Appearance: appearance})
+	}
 	var old []byte
 	if oldID != (hash{}) {
 		oldObj, err := s.load(oldID)
@@ -393,8 +445,7 @@ func (s *store) emitAdditions(path string, oldID, newID hash, appearance Appeara
 			old = oldObj.data
 		}
 	}
-	appearance.Path = path
-	if isBinary(newObj.data) || isBinary(old) {
+	if isBinary(old) {
 		if bytes.Equal(old, newObj.data) {
 			return nil
 		}

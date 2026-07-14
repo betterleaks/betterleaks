@@ -80,6 +80,16 @@ type pack struct {
 	hashesAt  int
 	offsetsAt int
 	largeAt   int
+	offsets   []int64
+	meta      []packMeta
+}
+
+type packMeta struct {
+	typ        byte
+	size       int64
+	dataPos    int64
+	baseOffset int64
+	baseHash   hash
 }
 
 type object struct {
@@ -396,9 +406,88 @@ func openStore(repoPath string) (*store, error) {
 			s.close()
 			return nil, err
 		}
+		if err := preparePack(p); err != nil {
+			s.close()
+			return nil, fmt.Errorf("index %s: %w", idxPath, err)
+		}
 		s.packs = append(s.packs, p)
 	}
 	return s, nil
+}
+
+func preparePack(p *pack) error {
+	headers := make([]struct {
+		offset int64
+		meta   packMeta
+	}, p.count)
+	for i := 0; i < p.count; i++ {
+		offset, ok := p.offsetAt(i)
+		if !ok {
+			return errors.New("invalid pack offset")
+		}
+		var header [64]byte
+		n, err := p.file.ReadAt(header[:], offset)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			return io.ErrUnexpectedEOF
+		}
+		pos := 0
+		next := func() byte { b := header[pos]; pos++; return b }
+		c := next()
+		typ := (c >> 4) & 7
+		size := int64(c & 15)
+		for shift := uint(4); c&0x80 != 0; shift += 7 {
+			if shift > 63 || pos >= n {
+				return errors.New("invalid pack header")
+			}
+			c = next()
+			size |= int64(c&0x7f) << shift
+		}
+		m := packMeta{typ: typ, size: size, dataPos: offset + int64(pos)}
+		if typ == 6 {
+			if pos >= n {
+				return io.ErrUnexpectedEOF
+			}
+			c = next()
+			distance := int64(c & 0x7f)
+			for c&0x80 != 0 {
+				if pos >= n {
+					return io.ErrUnexpectedEOF
+				}
+				c = next()
+				distance = ((distance + 1) << 7) | int64(c&0x7f)
+			}
+			m.baseOffset = offset - distance
+		} else if typ == 7 {
+			if pos+20 > n {
+				return io.ErrUnexpectedEOF
+			}
+			copy(m.baseHash[:], header[pos:pos+20])
+			pos += 20
+		}
+		m.dataPos = offset + int64(pos)
+		headers[i] = struct {
+			offset int64
+			meta   packMeta
+		}{offset, m}
+	}
+	sort.Slice(headers, func(i, j int) bool { return headers[i].offset < headers[j].offset })
+	p.offsets = make([]int64, p.count)
+	p.meta = make([]packMeta, p.count)
+	for i, h := range headers {
+		p.offsets[i], p.meta[i] = h.offset, h.meta
+	}
+	return nil
+}
+
+func (p *pack) metaAt(offset int64) (packMeta, bool) {
+	i := sort.Search(len(p.offsets), func(i int) bool { return p.offsets[i] >= offset })
+	if i == len(p.offsets) || p.offsets[i] != offset {
+		return packMeta{}, false
+	}
+	return p.meta[i], true
 }
 
 func readIndex(path string) (*pack, error) {
@@ -470,7 +559,7 @@ func (s *store) load(h hash) (object, error) {
 		if obj, ok := s.getCache(key); ok {
 			return obj, nil
 		}
-		obj, err = s.loadPack(loc.pack, loc.offset, 0)
+		return s.loadPack(loc.pack, loc.offset, 0)
 	} else {
 		key = cacheKey{loose: h}
 		if obj, ok := s.getCache(key); ok {
@@ -492,64 +581,19 @@ func (s *store) loadPack(p *pack, offset int64, depth int) (object, error) {
 	if obj, ok := s.getCache(key); ok {
 		return obj, nil
 	}
-	var header [64]byte
-	n, readErr := p.file.ReadAt(header[:], offset)
-	if readErr != nil && readErr != io.EOF {
-		return object{}, readErr
+	meta, ok := p.metaAt(offset)
+	if !ok {
+		return object{}, errors.New("pack object offset not indexed")
 	}
-	if n == 0 {
-		return object{}, io.ErrUnexpectedEOF
-	}
-	pos := 0
-	nextByte := func() (byte, error) {
-		if pos == n {
-			return 0, io.ErrUnexpectedEOF
-		}
-		b := header[pos]
-		pos++
-		return b, nil
-	}
-	c, err := nextByte()
-	if err != nil {
-		return object{}, err
-	}
-	typ := (c >> 4) & 7
-	size := int64(c & 15)
-	for shift := uint(4); c&0x80 != 0; shift += 7 {
-		if shift > 63 {
-			return object{}, errors.New("invalid pack object size")
-		}
-		c, err = nextByte()
-		if err != nil {
-			return object{}, err
-		}
-		size |= int64(c&0x7f) << shift
-	}
+	typ, size := meta.typ, meta.size
+	var err error
 
 	var base object
 	switch typ {
 	case 6:
-		c, err = nextByte()
-		if err != nil {
-			return object{}, err
-		}
-		distance := int64(c & 0x7f)
-		for c&0x80 != 0 {
-			c, err = nextByte()
-			if err != nil {
-				return object{}, err
-			}
-			distance = ((distance + 1) << 7) | int64(c&0x7f)
-		}
-		base, err = s.loadPack(p, offset-distance, depth+1)
+		base, err = s.loadPack(p, meta.baseOffset, depth+1)
 	case 7:
-		var baseHash hash
-		if pos+len(baseHash) > n {
-			return object{}, io.ErrUnexpectedEOF
-		}
-		copy(baseHash[:], header[pos:pos+len(baseHash)])
-		pos += len(baseHash)
-		base, err = s.load(baseHash)
+		base, err = s.load(meta.baseHash)
 	}
 	if err != nil {
 		return object{}, err
@@ -558,7 +602,7 @@ func (s *store) loadPack(p *pack, offset int64, depth int) (object, error) {
 	if size < 0 || uint64(size) > uint64(^uint(0)>>1) {
 		return object{}, errors.New("pack object too large")
 	}
-	r := io.NewSectionReader(p.file, offset+int64(pos), 1<<63-1-offset-int64(pos))
+	r := io.NewSectionReader(p.file, meta.dataPos, 1<<63-1-meta.dataPos)
 	data, err := s.inflate(r, int(size))
 	if err != nil {
 		return object{}, err
