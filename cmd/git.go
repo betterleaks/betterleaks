@@ -96,7 +96,15 @@ func runGit(cmd *cobra.Command, args []string) {
 		}
 		resolvedPlatform, remoteURL := sources.ResolveRemote(cmd.Context(), scmPlatform, source)
 
-		if gitWorkers > 0 {
+		if gitWorkers == 0 && logOpts == "" {
+			src = &sources.ObjectGit{
+				RepoPath:        source,
+				ShouldSkip:      detector.SkipFunc(),
+				Platform:        resolvedPlatform,
+				RemoteURL:       remoteURL,
+				MaxArchiveDepth: detector.MaxArchiveDepth,
+			}
+		} else if gitWorkers > 0 {
 			src = &sources.ParallelGit{
 				RepoPath:        source,
 				ShouldSkip:      detector.SkipFunc(),
