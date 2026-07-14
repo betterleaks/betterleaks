@@ -6018,6 +6018,31 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# render-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "render-api-key"
+description = "Detected a Render API key, which may expose hosted services and account resources to unauthorized access."
+regex = '''\b(rnd_[A-Za-z0-9]{28})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["rnd_"]
+validate = '''
+let r = http.get("https://api.render.com/v1/services?limit=1", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == 200 && (true) ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # replicate-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
