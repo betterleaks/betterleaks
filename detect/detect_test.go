@@ -90,6 +90,61 @@ func TestCandidateBitmap(t *testing.T) {
 	require.Equal(t, []string{"high", "always"}, findingRuleIDs(d.DetectString("alias HIGHSECRET ALWAYSSECRET")))
 }
 
+func TestInferredCandidateRegions(t *testing.T) {
+	scoped := config.Rule{
+		RuleID:      "scoped",
+		Specificity: 20,
+		Keywords:    []string{"key", "token"},
+		Regex:       regexp.MustCompile(`(?i:key)=([A-Z]{4})`),
+		SecretGroup: 1,
+	}
+	unscoped := config.Rule{
+		RuleID:      "unscoped",
+		Specificity: 10,
+		Keywords:    []string{"open"},
+		Regex:       regexp.MustCompile(`open.*(ZZZZ)`),
+		SecretGroup: 1,
+	}
+	cfg := &config.Config{
+		Rules:    map[string]config.Rule{scoped.RuleID: scoped, unscoped.RuleID: unscoped},
+		Keywords: map[string]struct{}{"key": {}, "token": {}, "open": {}},
+		KeywordToRules: map[string][]string{
+			"key": {scoped.RuleID}, "token": {scoped.RuleID}, "open": {unscoped.RuleID},
+		},
+	}
+	d := NewDetector(cfg)
+	require.Positive(t, d.ruleSearchScopes[0])
+	require.Zero(t, d.ruleSearchScopes[1])
+
+	raw := "KEY=AAAA\n" + strings.Repeat("x", 100) + " token \nkey=BBBB\nopen distant ZZZZ"
+	findings := d.DetectString(raw)
+	require.Equal(t, []string{"scoped", "scoped", "unscoped"}, findingRuleIDs(findings))
+	require.Equal(t, []string{"AAAA", "BBBB", "ZZZZ"}, []string{findings[0].Secret, findings[1].Secret, findings[2].Secret})
+	require.Equal(t, []int{0, 2, 3}, []int{findings[0].StartLine, findings[1].StartLine, findings[2].StartLine})
+}
+
+func TestFindRuleMatchesMergesAndOffsets(t *testing.T) {
+	raw := "value=0000 token=1111 value=2222"
+	rule := config.Rule{Regex: regexp.MustCompile(`(?:token|value)=\d{4}`)}
+	full := rule.Regex.FindAllStringIndex(raw, -1)
+	require.Equal(t, full, findRuleMatches(raw, rule, nil))
+	require.Equal(t, full, findRuleMatches(raw, rule, []searchSpan{{start: 0, end: 24}, {start: 12, end: len(raw)}}))
+
+	start := strings.Index(raw, "token")
+	require.Equal(t, [][]int{{start, start + len("token=1111")}}, findRuleMatches(raw, rule, []searchSpan{{start: start, end: start + len("token=1111")}}))
+}
+
+func TestFindRuleMatchesPreservesAnchorsAndBoundaries(t *testing.T) {
+	for _, pattern := range []string{`^token=1234`, `token=1234$`, `\btoken=1234\b`} {
+		rule := config.Rule{Regex: regexp.MustCompile(pattern)}
+		for _, raw := range []string{"token=1234", strings.Repeat("x", 30) + " token=1234 " + strings.Repeat("y", 30)} {
+			start := strings.Index(raw, "token")
+			span := searchSpan{start: max(0, start-10), end: min(len(raw), start+len("token")+10)}
+			require.Equal(t, rule.Regex.FindAllStringIndex(raw, -1), findRuleMatches(raw, rule, []searchSpan{span}))
+		}
+	}
+}
+
 func findingRuleIDs(findings []report.Finding) []string {
 	ids := make([]string, len(findings))
 	for i := range findings {
@@ -2674,7 +2729,7 @@ let password = 'Summer2024!';`
 			f := tc.fragment
 			f.Raw = raw
 
-			actual := d.detectFragmentWithRule(f, raw, rule, []*codec.EncodedSegment{}, nil)
+			actual := d.detectFragmentWithRule(f, raw, rule, []*codec.EncodedSegment{}, nil, nil)
 			compare(t, tc.expected, actual)
 		})
 	}
@@ -2834,7 +2889,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	require.NoError(t, err)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{}, nil)
+			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{}, nil, nil)
 			compare(t, test.expected, actual)
 		})
 	}
@@ -3062,7 +3117,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			require.NoError(t, cfg.CompileFilters(nil))
 			rule := cfg.Rules[test.rule.RuleID]
 
-			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, rule, []*codec.EncodedSegment{}, nil)
+			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, rule, []*codec.EncodedSegment{}, nil, nil)
 			compare(t, test.expected, actual)
 		})
 	}
