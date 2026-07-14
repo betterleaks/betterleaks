@@ -80,6 +80,9 @@ func containsAny(s string, terms any) bool {
 	return trie != nil && len(trie.FindAllString(strings.ToLower(s))) > 0
 }
 
+// The finding argument makes these functions natural to call from Expr
+// (filter.containsAnyNearMatch(finding, ...)). The match offsets live on the
+// per-evaluation runtime because finding contains only the extracted match.
 func (rt *runtimeBindings) matchesAnyNearMatch(_ any, patterns any, charsBefore, charsAfter int, limitToLine bool) bool {
 	return matchesAny(rt.nearMatchText(charsBefore, charsAfter, limitToLine), patterns)
 }
@@ -93,6 +96,8 @@ func (rt *runtimeBindings) nearMatchText(charsBefore, charsAfter int, limitToLin
 	if w.MatchStart < 0 || w.MatchEnd < w.MatchStart || w.MatchEnd > len(w.Raw) {
 		return ""
 	}
+	// MatchWindow offsets and the requested distances are bytes, matching Go's
+	// regexp indexes and string slicing. limitToLine further clamps the window.
 	charsBefore = min(max(charsBefore, 0), w.MatchStart)
 	charsAfter = min(max(charsAfter, 0), len(w.Raw)-w.MatchEnd)
 	start, end := w.MatchStart-charsBefore, w.MatchEnd+charsAfter

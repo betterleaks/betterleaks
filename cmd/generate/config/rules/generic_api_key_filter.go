@@ -111,6 +111,8 @@ var testAndPublicAPIFilters = []testAndPublicAPIFilter{
 	{`pk_live_[0-9A-F]{16}`, []string{"magic"}},         // Magic Publishable Key
 }
 
+// Length bounds let the generated Expr reject impossible secret lengths before
+// invoking the regex engine. Keys must exactly match the regex above.
 var testAndPublicAPISecretLengthBounds = map[string][2]int{
 	`[0-9a-f]{8}`:          {8, 8},
 	`[0-9a-zA-Z]{6}`:       {6, 6},

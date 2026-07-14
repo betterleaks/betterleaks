@@ -69,6 +69,8 @@ type Result struct {
 }
 
 type ruleCandidates struct {
+	// Indexes match rulesBySpecificity, preserving rule order without building
+	// a map and sorted slice for every fragment and decode pass.
 	marked []bool
 }
 
@@ -134,10 +136,25 @@ type Detector struct {
 	globalFilter       exprruntime.Program
 	filterProgramM     sync.Mutex
 	filterPrograms     map[string]exprruntime.Program
+
+	// rulesBySpecificity contains every configured rule ID in descending
+	// specificity order. Its positions are the shared index space used by the
+	// candidate slices below, so it must not change after detector construction.
 	rulesBySpecificity []string
+
+	// keywordRuleIndexes maps each Aho-Corasick pattern ID to the positions in
+	// rulesBySpecificity of rules that use that keyword. Precomputing this avoids
+	// keyword strings and map lookups while scanning each fragment.
 	keywordRuleIndexes [][]int
-	noKeywordIndexes   []int
-	candidatePool      sync.Pool
+
+	// noKeywordIndexes contains positions in rulesBySpecificity for rules with no
+	// keyword prefilter. These rules are candidates on every scan and decode pass.
+	noKeywordIndexes []int
+
+	// candidatePool reuses one bitmap per active scan. A set bit means the rule at
+	// the same rulesBySpecificity position should run. Bitmaps must be cleared
+	// before they are returned because the pool is shared by concurrent scans.
+	candidatePool sync.Pool
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -249,6 +266,8 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
+	// The matcher returns stable keyword indexes. Resolve those to rule indexes
+	// once so the hot scan loop does not allocate strings or maps.
 	d.keywordRuleIndexes = make([][]int, len(keywords))
 	ruleIndexes := make(map[string]int, len(d.rulesBySpecificity))
 	for i, ruleID := range d.rulesBySpecificity {
@@ -705,6 +724,8 @@ ScanLoop:
 			break ScanLoop
 		default:
 			candidates := d.candidatePool.Get().(*ruleCandidates)
+			// A rule is a candidate when any of its keywords matched. The bitmap
+			// deduplicates rules referenced by multiple matching keywords.
 			d.prefilter.Visit(currentRaw, func(patternID, _, _ int) bool {
 				for _, ruleIndex := range d.keywordRuleIndexes[patternID] {
 					candidates.marked[ruleIndex] = true
@@ -730,6 +751,7 @@ ScanLoop:
 					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)...)
 				}
 			}
+			// Pool entries must be blank because later scans may run on any goroutine.
 			clear(candidates.marked)
 			d.candidatePool.Put(candidates)
 
@@ -838,6 +860,8 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	for _, matchIndex := range matches {
 		// Extract secret from match
 		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
+		// Preserve offsets into currentRaw for near-match filters. matchIndex may be
+		// adjusted below to point back into the original, encoded fragment.
 		filterMatchIndex := [2]int{matchIndex[0], matchIndex[1]}
 
 		// For any meta data from decoding

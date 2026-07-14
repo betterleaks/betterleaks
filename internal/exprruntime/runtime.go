@@ -47,7 +47,9 @@ type EvalResult struct {
 	Debug map[string]any
 }
 
-// MatchWindow identifies a regex match within Raw using byte offsets.
+// MatchWindow identifies a regex match within the exact text scanned by a rule.
+// Raw may be decoded text rather than the fragment's original contents; the
+// offsets are bytes, as returned by regexp.FindStringSubmatchIndex.
 type MatchWindow struct {
 	Raw        string
 	MatchStart int

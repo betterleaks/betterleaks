@@ -9,12 +9,26 @@ import (
 )
 
 // Matcher is a flat Aho-Corasick DFA. Pattern IDs are their input indexes.
+// A compiled Matcher is read-only and safe to use from concurrent scans.
 type Matcher struct {
+	// transitions is a flattened [state][byte] table. Every entry is populated,
+	// including failure transitions, so Visit needs one lookup per input byte.
 	transitions []uint32
-	outputs     [][]uint32
-	lengths     []int
-	maxLength   int
-	foldASCII   bool
+
+	// outputs lists the pattern IDs completed at each state. It includes outputs
+	// inherited through failure links, which is how overlapping matches are found.
+	outputs [][]uint32
+
+	// lengths stores each pattern's matcher-byte length, indexed by pattern ID.
+	// Visit uses it to recover the source start offset of a completed match.
+	lengths []int
+
+	// maxLength bounds the source-offset ring used by Visit.
+	maxLength int
+
+	// foldASCII makes ASCII matching case-insensitive. Visit also recognizes
+	// Unicode runes whose simple-fold set contains an ASCII byte.
+	foldASCII bool
 }
 
 type node struct {
@@ -45,6 +59,9 @@ func Compile(patterns []string, foldASCII bool) *Matcher {
 		nodes[state].out = append(nodes[state].out, uint32(id))
 	}
 
+	// A dense table costs more memory than maps, but lets Visit advance with one
+	// indexed lookup per byte. Fill missing edges from each state's failure state
+	// so the scan never has to walk the failure chain.
 	transitions := make([]uint32, len(nodes)*256)
 	queue := make([]uint32, 0, len(nodes))
 	for b, child := range nodes[0].next {
@@ -81,64 +98,50 @@ func Compile(patterns []string, foldASCII bool) *Matcher {
 // Visit calls fn for every match. Returning false stops traversal.
 func (m *Matcher) Visit(text string, fn func(patternID, start, end int) bool) {
 	state := uint32(0)
-	var localExtras [128]uint8
-	extras := localExtras[:]
-	if m.maxLength > len(extras) {
-		extras = make([]uint8, m.maxLength)
+	var localStarts [128]int
+	starts := localStarts[:]
+	if m.maxLength > len(starts) {
+		starts = make([]int, m.maxLength)
 	}
-	correctionRemaining := 0
-	correctionPos := -1
+	position := 0
 
 	for i := 0; i < len(text); {
 		b := text[i]
 		size := 1
-		extra := 0
 		if m.foldASCII && b >= utf8.RuneSelf {
 			r, runeSize := utf8.DecodeRuneInString(text[i:])
 			folded, ok := foldRuneASCII(r)
 			if !ok {
 				state = 0
-				correctionRemaining = 0
 				i += runeSize
 				continue
 			}
-			b, size, extra = folded, runeSize, runeSize-1
-			if correctionRemaining == 0 {
-				clear(extras)
-				correctionPos = -1
-			}
-			correctionRemaining = m.maxLength
+			b, size = folded, runeSize
 		} else {
 			b = fold(b, m.foldASCII)
 		}
 
-		if correctionRemaining > 0 {
-			correctionPos++
-			extras[correctionPos%len(extras)] = uint8(extra)
-		}
+		// Patterns are measured in matcher bytes, while a Unicode rune that folds
+		// to ASCII occupies multiple source bytes. Keep the source start of the
+		// last maxLength matcher bytes so callbacks still receive byte offsets.
+		starts[position%len(starts)] = i
 		state = m.transitions[int(state)*256+int(b)]
 		for _, id := range m.outputs[state] {
 			end := i + size
-			start := end - m.lengths[id]
-			if correctionRemaining > 0 {
-				for j := 0; j < m.lengths[id]; j++ {
-					pos := correctionPos - j
-					if pos >= 0 {
-						start -= int(extras[pos%len(extras)])
-					}
-				}
+			start := end
+			if length := m.lengths[id]; length > 0 {
+				start = starts[(position+1-length)%len(starts)]
 			}
 			if !fn(int(id), start, end) {
 				return
 			}
 		}
-		if correctionRemaining > 0 {
-			correctionRemaining--
-		}
+		position++
 		i += size
 	}
 }
 
+// foldRuneASCII reports the ASCII member of a rune's Unicode simple-fold set.
 func foldRuneASCII(r rune) (byte, bool) {
 	for next := r; ; next = unicode.SimpleFold(next) {
 		if next < utf8.RuneSelf {
