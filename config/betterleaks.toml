@@ -266,6 +266,29 @@ filter.entropy(finding["secret"]) < 3.3
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# aiven-auth-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "aiven-auth-token"
+description = "Detected an Aiven authentication token, which may expose Aiven projects and services."
+regex = '''(?i:aiven)[\s\S]{0,32}?\b([A-Za-z0-9/+=]{372})(?:[^A-Za-z0-9/+=]|$)'''
+keywords = ["aiven"]
+validate = '''
+let r = http.get("https://api.aiven.io/v1/project", {
+    "Authorization": "aivenv1 " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.3
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # algolia-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -468,6 +491,31 @@ let r = http.get("https://api.anthropic.com/v1/models", {
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# apify-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "apify-api-token"
+description = "Detected an Apify API token, which may expose actors, tasks, and stored data."
+regex = '''\b(apify_api_[A-Za-z0-9]{34,38})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["apify_api_"]
+validate = '''
+let r = http.get("https://api.apify.com/v2/users/me", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == 200 && ((r.body contains "\"data\"") && (r.body contains "\"username\"")) ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # artifactory-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -527,6 +575,31 @@ filter.entropy(finding["secret"]) < 3.5
 '''
 [[rules.required]]
 id = "artifactory-jfrog-url"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# asaas-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "asaas-api-token"
+description = "Detected an Asaas API token, which may expose payment and customer data."
+regex = '''(?:^|[^A-Za-z0-9_-])(\$aact_(?:prod|hmlg)_[A-Za-z0-9_-]{20,100})(?:[^A-Za-z0-9_-]|$)'''
+keywords = ["$aact_"]
+validate = '''
+let url = finding["secret"].contains("$aact_hmlg_") ? "https://api-sandbox.asaas.com/v3/myAccount/commercialInfo/" : "https://api.asaas.com/v3/myAccount/commercialInfo/";
+let r = http.get(url, {
+    "access_token": finding["secret"],
+    "Accept": "application/json",
+    "User-Agent": "betterleaks"
+  }); r.status == 200 && (r.body contains "\"commercialInfo\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # asana-client-id
@@ -903,6 +976,29 @@ filter.entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# bitrise-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "bitrise-access-token"
+description = "Detected a Bitrise personal or workspace access token, which may expose CI/CD applications and builds."
+regex = '''(?i:(?:bitrise(?:[ _-]*(?:personal|workspace))?(?:[ _-]*(?:access|api))?[ _-]*token)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_-]{60,120})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["bitrise"]
+validate = '''
+let r = http.get("https://api.bitrise.io/v0.1/apps", {
+    "Authorization": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # bittrex-access-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -919,6 +1015,29 @@ id = "bittrex-secret-key"
 description = "Detected a Bittrex Secret Key, potentially compromising cryptocurrency transactions and financial security."
 regex = '''(?i)(?:bittrex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["bittrex"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# block-protocol-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "block-protocol-api-key"
+description = "Detected a Block Protocol API key, which may expose private hub resources."
+regex = '''\b(b10ck5\.[A-Za-z0-9]{32}\.[A-Za-z0-9]{36})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["b10ck5."]
+validate = '''
+let r = http.get("https://blockprotocol.org/api/blocks", {
+    "x-api-key": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # box-api-access-token
@@ -972,6 +1091,74 @@ let r = http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&c
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.2
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# buildkite-service-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "buildkite-service-token"
+description = "Detected a Buildkite agent, package, or portal token, which may expose CI/CD workloads or packages."
+regex = '''\b(bkaa_[A-Za-z0-9_-]{75}|bkaj_[A-Za-z0-9_-]{333}|bkar_[A-Za-z0-9_-]{73}|bkct_[A-Za-z0-9_-]{73}|bkpt_[A-Za-z0-9_-]{199}|bkpat_[A-Za-z0-9_-]{54}|bkps_[A-Za-z0-9_-]{64})\b'''
+keywords = [
+    "bkaa_",
+    "bkaj_",
+    "bkar_",
+    "bkct_",
+    "bkpt_",
+    "bkpat_",
+    "bkps_",
+]
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# buildkite-user-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "buildkite-user-access-token"
+description = "Detected a Buildkite user access token, which may expose pipelines, builds, and organization data."
+regex = '''\b(bkua_(?:[a-z0-9]{40}|[a-z0-9]{53}))\b'''
+keywords = ["bkua_"]
+validate = '''
+let r = http.get("https://api.buildkite.com/v2/access-token", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == 200 && ((r.body contains "\"scopes\"")) ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# canadian-digital-service-notify-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "canadian-digital-service-notify-api-key"
+description = "Detected a GC Notify API key, which may allow unauthorized notification access."
+regex = '''\b((?i:ApiKey-v1)\s+(?i:gcntfy)-[A-Za-z0-9_]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
+keywords = ["gcntfy-"]
+validate = '''
+let r = http.get("https://api.notification.canada.ca/v2/notifications", {
+    "Authorization": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6170,11 +6357,22 @@ entropy(finding["secret"]) <= 2.0
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
 id = "sendinblue-api-token"
-description = "Identified a Sendinblue API token, which may compromise email marketing services and subscriber data privacy."
-regex = '''\b(xkeysib-[a-f0-9]{64}\-(?i)[a-z0-9]{16})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+description = "Identified a Brevo (formerly Sendinblue) API token, which may compromise email marketing services and subscriber data privacy."
+regex = '''\b(xkeysib-[A-Za-z0-9_-]{81})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["xkeysib-"]
+validate = '''
+let r = http.get("https://api.brevo.com/v3/account", {
+    "api-key": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
 filter = '''
-entropy(finding["secret"]) <= 2.0
+entropy(finding["secret"]) < 3.2
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
