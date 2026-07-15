@@ -36,7 +36,15 @@ func GenericCredential() *config.Rule {
 			"token",
 		},
 		Specificity: 0,
-		Filter: `entropy(finding["secret"]) <= 3.5
+		Filter: `let providerMatchContext = finding["fragment_raw"][
+  max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
+  min(finding["match_end_idx"] + 50, finding["match_line_end_idx"])
+];
+let genericMatchContext = finding["fragment_raw"][
+  max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
+  min(finding["match_end_idx"], finding["match_line_end_idx"])
+];
+entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
 || ` + genericAPIKeyFilter,
 	}

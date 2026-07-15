@@ -32,7 +32,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 		},
 		{
 			name: "filter",
-			fns:  functionNames(filterBindings(nil, emptyStringMap, emptyStringMap)),
+			fns:  functionNames(filterBindings(nil, emptyFilterFinding, emptyStringMap)),
 			current: []string{
 				"filter.matchesAny", "filter.containsAny", "filter.entropy",
 				"filter.failsTokenEfficiency",
@@ -79,7 +79,7 @@ func TestFilterEntropy(t *testing.T) {
 	prg, err := env.CompileFilter(`entropy(finding["secret"]) <= 1.0`, nil)
 	require.NoError(t, err)
 
-	skip, err := env.EvalFilter(prg, map[string]string{
+	skip, err := env.EvalFilter(prg, map[string]any{
 		"secret": "aaaaaaaa",
 	}, nil)
 	require.NoError(t, err)
@@ -92,11 +92,11 @@ func TestFilterEvalUsesPerCallBindings(t *testing.T) {
 	prg, err := env.CompileFilter(`finding["secret"] == attributes["expected"]`, nil)
 	require.NoError(t, err)
 
-	skip, err := env.EvalFilter(prg, map[string]string{"secret": "one"}, map[string]string{"expected": "one"})
+	skip, err := env.EvalFilter(prg, map[string]any{"secret": "one"}, map[string]string{"expected": "one"})
 	require.NoError(t, err)
 	require.True(t, skip)
 
-	skip, err = env.EvalFilter(prg, map[string]string{"secret": "two"}, map[string]string{"expected": "one"})
+	skip, err = env.EvalFilter(prg, map[string]any{"secret": "two"}, map[string]string{"expected": "one"})
 	require.NoError(t, err)
 	require.False(t, skip)
 }

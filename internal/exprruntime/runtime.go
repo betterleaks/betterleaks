@@ -37,6 +37,20 @@ type compiledProgram struct {
 }
 
 var emptyStringMap = map[string]string{}
+var emptyFilterFinding = map[string]any{
+	"secret":               "",
+	"match":                "",
+	"line":                 "",
+	"rule_id":              "",
+	"description":          "",
+	"context":              "",
+	"entropy":              "",
+	"fragment_raw":         "",
+	"match_start_idx":      0,
+	"match_end_idx":        0,
+	"match_line_start_idx": 0,
+	"match_line_end_idx":   0,
+}
 
 type EvalOptions struct {
 	Debug bool
@@ -45,13 +59,6 @@ type EvalOptions struct {
 type EvalResult struct {
 	Value any
 	Debug map[string]any
-}
-
-// MatchWindow identifies a regex match within Raw using byte offsets.
-type MatchWindow struct {
-	Raw        string
-	MatchStart int
-	MatchEnd   int
 }
 
 type evalState struct {
@@ -188,7 +195,7 @@ func programBindings(mode compileMode, b bindings) bindings {
 func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken) (bindings, []expr.Option) {
 	switch mode {
 	case modeFilter:
-		return filterBindings(tokenizer, emptyStringMap, emptyStringMap), []expr.Option{expr.AsBool()}
+		return filterBindings(tokenizer, emptyFilterFinding, emptyStringMap), []expr.Option{expr.AsBool()}
 	case modePrefilter:
 		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
 	default:
@@ -200,17 +207,13 @@ func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken
 
 // Compile and runtime bindings expose the same names. Dynamic values are layered
 // onto a shallow copy so compiled programs can share static function bindings.
-func (e *Runtime) EvalFilter(prg Program, finding, attributes map[string]string) (bool, error) {
-	return e.EvalFilterWithMatchWindow(prg, finding, attributes, MatchWindow{})
-}
-
-func (e *Runtime) EvalFilterWithMatchWindow(prg Program, finding, attributes map[string]string, window MatchWindow) (bool, error) {
+func (e *Runtime) EvalFilter(prg Program, finding map[string]any, attributes map[string]string) (bool, error) {
 	b := prg.evalBindings()
-	b["finding"] = nonNilStringMap(finding)
-	b["attributes"] = nonNilStringMap(attributes)
-	if rt, ok := b["__runtime"].(*runtimeBindings); ok {
-		rt.matchWindow = window
+	if finding == nil {
+		finding = emptyFilterFinding
 	}
+	b["finding"] = finding
+	b["attributes"] = nonNilStringMap(attributes)
 	return runBool(prg, b, "filter")
 }
 
@@ -332,7 +335,6 @@ type runtimeBindings struct {
 	finding           any
 	attrs             any
 	captures          any
-	matchWindow       MatchWindow
 	debug             *evalState
 }
 
@@ -372,7 +374,7 @@ func nonNilStringMap(m map[string]string) map[string]string {
 	return m
 }
 
-func filterBindings(tokenizer *tiktoken.Tiktoken, finding, attributes map[string]string) bindings {
+func filterBindings(tokenizer *tiktoken.Tiktoken, finding map[string]any, attributes map[string]string) bindings {
 	b := baseBindings(&runtimeBindings{tokenizer: tokenizer, attrs: attributes})
 	b["finding"] = finding
 	return b
