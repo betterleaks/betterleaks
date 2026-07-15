@@ -6563,9 +6563,9 @@ validate = '''
 let r = http.get("https://api.stripe.com/v1/account", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }); (r.status == 200 && (r.body contains "\"object\":\"account\"")) || r.status == 403 ? {
+  }); r.status == 200 && (r.json?.object ?? "") == "account" ? {
     "result": "valid"
-  } : r.status in [401, 404] ? {
+  } : r.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
