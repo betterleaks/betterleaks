@@ -68,6 +68,23 @@ let providerMatchContext = finding["fragment_raw"][
 filter.containsAny(providerMatchContext, ["provider"])
 ```
 
+Regex extraction can further restrict a context window. This example recreates
+a `[\w.-]{0,50}` regex preamble by retaining only the contiguous word, dot, and
+hyphen suffix immediately before the match:
+
+```expr
+let genericMatchPrefix = filter.findMatch(
+    finding["fragment_raw"][
+        max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
+        finding["match_start_idx"]
+    ],
+    `[\w.-]{0,50}$`
+);
+let genericMatchContext =
+    genericMatchPrefix +
+    finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+```
+
 ## Filtering
 
 Filters replace legacy allowlists, entropy checks, and token efficiency checks
@@ -78,6 +95,7 @@ with Expr. If a filter expression evaluates to `true`, the item is skipped.
 | Function | Description |
 | :--- | :--- |
 | `filter.matchesAny(string, list)` | Returns `true` if the string matches any regex pattern in the list. |
+| `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. |
 | `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `filter.failsTokenEfficiency(string)` | Returns `true` if the string tokenizes too efficiently and looks like natural language rather than a random secret. |
