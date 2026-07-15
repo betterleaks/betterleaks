@@ -2,7 +2,6 @@ package sources
 
 import (
 	"context"
-	"io"
 	"maps"
 	"time"
 
@@ -42,11 +41,7 @@ func (s *ObjectGit) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 
 		if !blob.Binary {
-			raw, err := io.ReadAll(blob.Content)
-			if err != nil {
-				return err
-			}
-			return yield(Fragment{Raw: string(raw), StartLine: blob.StartLine, Attributes: attrs}, nil)
+			return yield(Fragment{Raw: blob.Text, StartLine: blob.StartLine, Attributes: attrs}, nil)
 		}
 		if !isArchive(ctx, blob.Appearance.Path) {
 			return nil

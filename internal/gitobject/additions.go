@@ -440,9 +440,14 @@ func (s *store) pairRenames(changes []treeChange) {
 	// ponytail: Similarity checks same basenames only; broaden it if renamed
 	// files with changed names create a measurable parity gap.
 	deleted := make(map[hash][]int)
+	// The similarity fallback only considers equal basenames. Index them once
+	// instead of walking every deletion for every addition; large commits made
+	// that quadratic search a material part of the entire scan.
+	deletedByBase := make(map[string][]int)
 	for i, change := range changes {
 		if change.oldID != (hash{}) && change.newID == (hash{}) && !isTreeMode(change.mode) {
 			deleted[change.oldID] = append(deleted[change.oldID], i)
+			deletedByBase[path.Base(change.path)] = append(deletedByBase[path.Base(change.path)], i)
 		}
 	}
 	used := make(map[int]bool)
@@ -465,9 +470,9 @@ func (s *store) pairRenames(changes []treeChange) {
 		}
 
 		best, bestScore := -1, 0.0
-		for candidate := range changes {
+		for _, candidate := range deletedByBase[path.Base(change.path)] {
 			old := changes[candidate]
-			if used[candidate] || old.oldID == (hash{}) || old.newID != (hash{}) || path.Base(old.path) != path.Base(change.path) {
+			if used[candidate] {
 				continue
 			}
 			score := s.lineSimilarity(old.oldID, change.newID)
@@ -546,7 +551,7 @@ func (s *store) emitAdditionsObject(path string, oldID, newID hash, newObj objec
 		if raw != "" {
 			raw += "\n"
 		}
-		if err := yield(Blob{Hash: newID.String(), Size: int64(len(raw)), Content: strings.NewReader(raw), StartLine: hunk.start, Appearance: appearance}); err != nil {
+		if err := yield(Blob{Hash: newID.String(), Size: int64(len(raw)), Text: raw, StartLine: hunk.start, Appearance: appearance}); err != nil {
 			return err
 		}
 	}

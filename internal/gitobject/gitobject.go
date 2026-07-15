@@ -55,8 +55,11 @@ type Appearance struct {
 
 // Blob is a decoded Git blob. Content is valid only during the callback.
 type Blob struct {
-	Hash       string
-	Size       int64
+	Hash string
+	Size int64
+	// Text is set for normal text hunks. Content is retained for binary/archive
+	// payloads, which must remain streamable.
+	Text       string
 	Content    io.Reader
 	StartLine  int
 	Binary     bool
