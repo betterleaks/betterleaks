@@ -12,7 +12,17 @@ func SourceGraph() *config.Rule {
 		Description: "Sourcegraph is a code search and navigation engine.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40}`, true),
 		Keywords:    []string{"sgp_"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		ValidateExpr: `let r = http.post("https://sourcegraph.com/.api/graphql", {
+    "Authorization": "token " + finding["secret"],
+    "Content-Type": "application/json"
+  }, "{\"query\":\"query ValidateToken { site { id } }\"}"); r.status == 200 && (r.json?.data?.site?.id ?? "") != "" ? {
+    "result": "valid",
+    "site_id": (r.json?.data?.site?.id ?? "")
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
+		Filter: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
