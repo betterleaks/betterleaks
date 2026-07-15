@@ -126,7 +126,6 @@ func main() {
 		rules.BittrexSecretKey(),
 		rules.Beamer(),
 		rules.BoxAPIAccessToken(),
-		rules.BlockProtocolAPIKey(),
 		rules.BraveSearchAPIKey(),
 		rules.BuildkiteUserAccessToken(),
 		rules.BuildkiteServiceToken(),

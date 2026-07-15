@@ -1017,29 +1017,6 @@ regex = '''(?i)(?:bittrex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 keywords = ["bittrex"]
 
 # ──────────────────────────────────────────────────────────────────────────────
-# block-protocol-api-key
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "block-protocol-api-key"
-description = "Detected a Block Protocol API key, which may expose private hub resources."
-regex = '''\b(b10ck5\.[A-Za-z0-9]{32}\.[A-Za-z0-9]{36})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = ["b10ck5."]
-validate = '''
-let r = http.get("https://blockprotocol.org/api/blocks", {
-    "x-api-key": finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-'''
-filter = '''
-entropy(finding["secret"]) < 3.5
-'''
-
-# ──────────────────────────────────────────────────────────────────────────────
 # box-api-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
