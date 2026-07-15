@@ -3,6 +3,7 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/regexp"
 )
 
 func SendInBlueAPIToken() *config.Rule {
@@ -10,7 +11,7 @@ func SendInBlueAPIToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "sendinblue-api-token",
 		Description: "Identified a Brevo (formerly Sendinblue) API token, which may compromise email marketing services and subscriber data privacy.",
-		Regex:       utils.GenerateUniqueTokenRegex(`xkeysib-[A-Za-z0-9_-]{81}`, false),
+		Regex:       regexp.MustCompile(`\b(xkeysib-[a-fA-F0-9]{64}-[a-zA-Z0-9]{16})\b`),
 		Keywords: []string{
 			"xkeysib-",
 		},
@@ -29,11 +30,12 @@ func SendInBlueAPIToken() *config.Rule {
 	return utils.Validate(r,
 		[]string{
 			`BREVO_API_KEY=xkeysib-abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd-1234567890abcd12`,
-			`SENDINBLUE_API_KEY=xkeysib-C6S1LXk_u4mw_uIss4MGmJpH8yrOwFep2aN5YLALYVpAb4buJ7uvxqYfrb3kZL5ao2JvUEFb1vRk79IXj`,
+			`SENDINBLUE_API_KEY=xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78`,
+			`BREVO_KEYS=[xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78]`,
 		},
 		[]string{
 			`BREVO_API_KEY=xkeysib-too-short`,
-			`BREVO_API_KEY=xkeysib-C6S1LXk_u4mw_uIss4MGmJpH8yrOwFep2aN5YLALYVpAb4buJ7uvxqYfrb3kZL5ao2JvUEFb1vRk79IXj_extra`,
+			`BREVO_API_KEY=xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78_extra`,
 		},
 	)
 }

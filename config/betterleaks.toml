@@ -496,7 +496,7 @@ let r = http.get("https://api.anthropic.com/v1/models", {
 [[rules]]
 id = "apify-api-token"
 description = "Detected an Apify API token, which may expose actors, tasks, and stored data."
-regex = '''\b(apify_api_[A-Za-z0-9]{34,38})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)\b(apify_api_[A-Z0-9]{34,38})\b'''
 keywords = ["apify_api_"]
 validate = '''
 let r = http.get("https://api.apify.com/v2/users/me", {
@@ -6335,7 +6335,7 @@ entropy(finding["secret"]) <= 2.0
 [[rules]]
 id = "sendinblue-api-token"
 description = "Identified a Brevo (formerly Sendinblue) API token, which may compromise email marketing services and subscriber data privacy."
-regex = '''\b(xkeysib-[A-Za-z0-9_-]{81})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''\b(xkeysib-[a-fA-F0-9]{64}-[a-zA-Z0-9]{16})\b'''
 keywords = ["xkeysib-"]
 validate = '''
 let r = http.get("https://api.brevo.com/v3/account", {
