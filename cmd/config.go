@@ -198,13 +198,19 @@ func validateConfig(cfg *configpkg.Config) error {
 	return nil
 }
 
-func fakeFinding() map[string]string {
-	return map[string]string{
-		"secret":      "betterleaks-check-secret",
-		"match":       "betterleaks-check-match",
-		"line":        "betterleaks-check-line",
-		"ruleID":      "betterleaks-check-rule",
-		"description": "betterleaks check rule",
+func fakeFinding() map[string]any {
+	raw := "betterleaks-check-line"
+	return map[string]any{
+		"secret":               "betterleaks-check-secret",
+		"match":                "betterleaks-check-match",
+		"line":                 raw,
+		"ruleID":               "betterleaks-check-rule",
+		"description":          "betterleaks check rule",
+		"fragment_raw":         raw,
+		"match_start_idx":      0,
+		"match_end_idx":        len(raw),
+		"match_line_start_idx": 0,
+		"match_line_end_idx":   len(raw),
 	}
 }
 

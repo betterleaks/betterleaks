@@ -20,9 +20,8 @@ var (
 func filterNamespace(rt *runtimeBindings) map[string]any {
 	return map[string]any{
 		"matchesAny":           matchesAny,
-		"matchesAnyNearMatch":  rt.matchesAnyNearMatch,
+		"findMatch":            findMatch,
 		"containsAny":          containsAny,
-		"containsAnyNearMatch": rt.containsAnyNearMatch,
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
 	}
@@ -75,41 +74,17 @@ func matchesAny(s string, patterns any) bool {
 	return re != nil && re.MatchString(s)
 }
 
+func findMatch(s, pattern string) string {
+	re := getOrCompileJoinedRegex([]string{pattern})
+	if re == nil {
+		return ""
+	}
+	return re.FindString(s)
+}
+
 func containsAny(s string, terms any) bool {
 	trie := getOrBuildTrie(toStringSlice(terms))
 	return trie != nil && len(trie.FindAllString(strings.ToLower(s))) > 0
-}
-
-// The finding argument makes these functions natural to call from Expr
-// (filter.containsAnyNearMatch(finding, ...)). The match offsets live on the
-// per-evaluation runtime because finding contains only the extracted match.
-func (rt *runtimeBindings) matchesAnyNearMatch(_ any, patterns any, charsBefore, charsAfter int, limitToLine bool) bool {
-	return matchesAny(rt.nearMatchText(charsBefore, charsAfter, limitToLine), patterns)
-}
-
-func (rt *runtimeBindings) containsAnyNearMatch(_ any, terms any, charsBefore, charsAfter int, limitToLine bool) bool {
-	return containsAny(rt.nearMatchText(charsBefore, charsAfter, limitToLine), terms)
-}
-
-func (rt *runtimeBindings) nearMatchText(charsBefore, charsAfter int, limitToLine bool) string {
-	w := rt.matchWindow
-	if w.MatchStart < 0 || w.MatchEnd < w.MatchStart || w.MatchEnd > len(w.Raw) {
-		return ""
-	}
-	// MatchWindow offsets and the requested distances are bytes, matching Go's
-	// regexp indexes and string slicing. limitToLine further clamps the window.
-	charsBefore = min(max(charsBefore, 0), w.MatchStart)
-	charsAfter = min(max(charsAfter, 0), len(w.Raw)-w.MatchEnd)
-	start, end := w.MatchStart-charsBefore, w.MatchEnd+charsAfter
-	if limitToLine {
-		if newline := strings.LastIndexAny(w.Raw[start:w.MatchStart], "\r\n"); newline >= 0 {
-			start += newline + 1
-		}
-		if newline := strings.IndexAny(w.Raw[w.MatchEnd:end], "\r\n"); newline >= 0 {
-			end = w.MatchEnd + newline
-		}
-	}
-	return w.Raw[start:end]
 }
 
 func toStringSlice(v any) []string {

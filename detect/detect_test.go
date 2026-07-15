@@ -228,11 +228,11 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 	return findings
 }
 
-func TestDetectFilterMatchesNearMatch(t *testing.T) {
+func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "near-match",
 		Regex:  regexp.MustCompile(`[A-Z0-9]{20}`),
-		Filter: `filter.matchesAnyNearMatch(finding, ["red-herring"], 50, 0, false)`,
+		Filter: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; filter.matchesAny(matchContext, ["red-herring"])`,
 	}
 	cfg := &config.Config{
 		Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -248,7 +248,7 @@ func TestDetectFilterMatchesNearMatch(t *testing.T) {
 	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
 }
 
-func TestDecodedFilterUsesDecodedMatchWindow(t *testing.T) {
+func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 	decoded := "provider decoded-secret-ABCDEFGHIJKLMNOPQRST"
 	raw := base64.StdEncoding.EncodeToString([]byte(decoded))
 
@@ -264,7 +264,7 @@ func TestDecodedFilterUsesDecodedMatchWindow(t *testing.T) {
 			rule := config.Rule{
 				RuleID: "decoded-near-match",
 				Regex:  regexp.MustCompile(`decoded-secret-[A-Z]{20}`),
-				Filter: fmt.Sprintf(`filter.containsAnyNearMatch(finding, ["provider"], %d, 0, false)`, tc.before),
+				Filter: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; filter.containsAny(matchContext, ["provider"])`, tc.before),
 			}
 			cfg := &config.Config{
 				Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -283,7 +283,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "original-match-bounds",
 		Regex:  regexp.MustCompile("\nSECRET"),
-		Filter: "filter.matchesAnyNearMatch(finding, [`\\nSECRET$`], 0, 0, false)",
+		Filter: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; filter.matchesAny(matchContext, [`\\nSECRET$`])",
 	}
 	cfg := &config.Config{
 		Rules:          map[string]config.Rule{rule.RuleID: rule},
@@ -292,6 +292,21 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	}
 
 	require.Empty(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "prefix\nSECRET"}))
+}
+
+func TestFilterContextCanStayOnMatchLine(t *testing.T) {
+	rule := config.Rule{
+		RuleID: "line-context",
+		Regex:  regexp.MustCompile(`SECRET`),
+		Filter: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; filter.containsAny(matchContext, ["other-line"])`,
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+
+	require.Len(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
 }
 
 func TestDetect(t *testing.T) {

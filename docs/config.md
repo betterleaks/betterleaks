@@ -56,6 +56,35 @@ r.json?.login ?? ""
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
 
+Filter expressions also receive `finding["fragment_raw"]` and the byte offsets
+`match_start_idx`, `match_end_idx`, `match_line_start_idx`, and
+`match_line_end_idx`. These can be combined with Expr string slicing:
+
+```expr
+let providerMatchContext = finding["fragment_raw"][
+    max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
+    min(finding["match_end_idx"] + 50, finding["match_line_end_idx"])
+];
+filter.containsAny(providerMatchContext, ["provider"])
+```
+
+Regex extraction can further restrict a context window. This example recreates
+a `[\w.-]{0,50}` regex preamble by retaining only the contiguous word, dot, and
+hyphen suffix immediately before the match:
+
+```expr
+let genericMatchPrefix = filter.findMatch(
+    finding["fragment_raw"][
+        max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
+        finding["match_start_idx"]
+    ],
+    `[\w.-]{0,50}$`
+);
+let genericMatchContext =
+    genericMatchPrefix +
+    finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+```
+
 ## Filtering
 
 Filters replace legacy allowlists, entropy checks, and token efficiency checks
@@ -66,9 +95,8 @@ with Expr. If a filter expression evaluates to `true`, the item is skipped.
 | Function | Description |
 | :--- | :--- |
 | `filter.matchesAny(string, list)` | Returns `true` if the string matches any regex pattern in the list. |
-| `filter.matchesAnyNearMatch(finding, list, before, after, limitToLine)` | Matches regex patterns against the finding's regex match plus up to `before` and `after` surrounding characters. When `limitToLine` is `true`, surrounding context stops at line boundaries. |
+| `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. |
 | `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
-| `filter.containsAnyNearMatch(finding, list, before, after, limitToLine)` | Searches the finding's regex match plus up to `before` and `after` surrounding characters for any listed term. When `limitToLine` is `true`, surrounding context stops at line boundaries. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `filter.failsTokenEfficiency(string)` | Returns `true` if the string tokenizes too efficiently and looks like natural language rather than a random secret. |
 

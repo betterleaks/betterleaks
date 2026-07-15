@@ -70,7 +70,7 @@ func TestFilterBindingAliases(t *testing.T) {
 			newPrg, err := env.CompileFilter(tc.new, nil)
 			require.NoError(t, err)
 
-			finding := map[string]string{"secret": "secret-value"}
+			finding := map[string]any{"secret": "secret-value"}
 			oldGot, err := env.EvalFilter(oldPrg, finding, nil)
 			require.NoError(t, err)
 			newGot, err := env.EvalFilter(newPrg, finding, nil)

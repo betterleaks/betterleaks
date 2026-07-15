@@ -163,12 +163,26 @@ func composeFilters(skipParts []string, userExpr string) string {
 		parts = append(parts, sp)
 	}
 	if userExpr != "" {
+		if len(parts) > 0 && startsWithLet(userExpr) {
+			userExpr = "(" + userExpr + ")"
+		}
 		parts = append(parts, userExpr)
 	}
 	if len(parts) <= 1 {
 		return strings.Join(parts, "")
 	}
 	return strings.Join(parts, "\n|| ")
+}
+
+func startsWithLet(expr string) bool {
+	for expr = strings.TrimSpace(expr); strings.HasPrefix(expr, "//"); expr = strings.TrimSpace(expr) {
+		newline := strings.IndexByte(expr, '\n')
+		if newline < 0 {
+			return false
+		}
+		expr = expr[newline+1:]
+	}
+	return strings.HasPrefix(expr, "let ")
 }
 
 // exprRegexLit returns an Expr string literal for a regex pattern. Backtick

@@ -36,7 +36,29 @@ func GenericCredential() *config.Rule {
 			"token",
 		},
 		Specificity: 0,
-		Filter: `entropy(finding["secret"]) <= 3.5
+		Filter: `// Provider checks use a fixed window around the match, clamped to its line.
+let providerMatchContext = finding["fragment_raw"][
+  max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
+  min(finding["match_end_idx"] + 50, finding["match_line_end_idx"])
+];
+
+// Recreate the generic rule's former [\w.-]{0,50} preamble. Only the
+// contiguous word, dot, and hyphen suffix immediately before the match counts.
+let genericMatchPrefix = filter.findMatch(
+  finding["fragment_raw"][
+    max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
+    finding["match_start_idx"]
+  ],
+  ` + "`[\\w.-]{0,50}$`" + `
+);
+
+// Recreate the generic rule's former regex which includes the [\w.-]{0,50} preamble.
+let genericMatchContext =
+  genericMatchPrefix +
+  finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+
+// big ol expression to filter out FPs
+entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
 || ` + genericAPIKeyFilter,
 	}

@@ -104,7 +104,7 @@ var allowlistRegexTests = map[string]struct {
 }
 
 func globalSecretAllowed(secret string) bool {
-	skip, err := exprRuntime.EvalFilter(globalFilterProgram, map[string]string{"secret": secret}, nil)
+	skip, err := exprRuntime.EvalFilter(globalFilterProgram, map[string]any{"secret": secret}, nil)
 	if err != nil {
 		panic(err)
 	}
