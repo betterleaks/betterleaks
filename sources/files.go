@@ -31,6 +31,8 @@ type Files struct {
 
 // scanTargets yields scan targets to a callback func
 func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) error) error {
+	// fastwalk only accepts directory roots. Lstat also preserves the existing
+	// symlink handling when the requested root is a single file or symlink.
 	rootInfo, err := os.Lstat(s.Path)
 	if err != nil {
 		logger := logging.With().Str("path", s.Path).Logger()
@@ -42,6 +44,8 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 		return nil
 	}
 
+	// fastwalk visits paths concurrently, but scanTargets has always exposed a
+	// serial callback. Keep that contract without serializing file inspection.
 	var yieldMu sync.Mutex
 	walkFn := func(path string, d fs.DirEntry, err error) error {
 		if err := ctx.Err(); err != nil {
