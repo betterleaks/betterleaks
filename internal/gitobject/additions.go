@@ -39,94 +39,182 @@ func (s *store) walkAdditions(ctx context.Context, yield func(Blob) error) error
 		}
 		return aok
 	})
+	// Discovery and pack reading deliberately use separate pools. Discovery is
+	// tree/commit heavy; the second stage sees a bounded global view of blobs and
+	// can therefore inflate each pack object once for all of its appearances.
+	workCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	jobs := make(chan hash, len(commits))
 	for _, id := range commits {
 		jobs <- id
 	}
 	close(jobs)
-	var workers sync.WaitGroup
-	var firstErr error
+	candidates := make(chan blobCandidate, 4096)
+	var discover sync.WaitGroup
 	var errMu sync.Mutex
+	var firstErr error
+	recordErr := func(err error) {
+		if err == nil || errors.Is(err, context.Canceled) {
+			return
+		}
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+			cancel()
+		}
+		errMu.Unlock()
+	}
 	for range max(runtime.GOMAXPROCS(0), 16) {
-		workers.Add(1)
+		discover.Add(1)
 		go func() {
-			defer workers.Done()
-			batch := make([]blobCandidate, 0, 4096)
-			flush := func() error {
-				for i := range batch {
-					if loc, ok := s.find(batch[i].change.newID); ok {
-						batch[i].change.offset, batch[i].change.packed = loc.offset, true
-					}
-				}
-				sort.SliceStable(batch, func(i, j int) bool {
-					if batch[i].change.packed && batch[j].change.packed {
-						return batch[i].change.offset < batch[j].change.offset
-					}
-					return batch[i].change.packed
-				})
-				for _, candidate := range batch {
-					change := candidate.change
-					if change.newID == (hash{}) || isTreeMode(change.mode) || (!strings.HasPrefix(change.mode, "100") && change.mode != "120000") {
-						continue
-					}
-					if err := s.emitAdditions(change.path, change.oldID, change.newID, candidate.appearance, yield); err != nil {
-						return err
-					}
-				}
-				batch = batch[:0]
-				return nil
-			}
-			count := 0
+			defer discover.Done()
 			for id := range jobs {
-				if err := ctx.Err(); err != nil {
-					errMu.Lock()
-					if firstErr == nil {
-						firstErr = err
-					}
-					errMu.Unlock()
+				if err := workCtx.Err(); err != nil {
 					return
 				}
-				err := s.diffCommit(ctx, id, func(candidate blobCandidate) error {
-					batch = append(batch, candidate)
-					return nil
+				err := s.diffCommit(workCtx, id, func(candidate blobCandidate) error {
+					select {
+					case candidates <- candidate:
+						return nil
+					case <-workCtx.Done():
+						return workCtx.Err()
+					}
 				})
 				if err != nil {
-					errMu.Lock()
-					if firstErr == nil {
-						firstErr = err
-					}
-					errMu.Unlock()
+					recordErr(err)
 					return
-				}
-				count++
-				if count == 32 {
-					if err := flush(); err != nil {
-						errMu.Lock()
-						if firstErr == nil {
-							firstErr = err
-						}
-						errMu.Unlock()
-						return
-					}
-					count = 0
-				}
-			}
-			if len(batch) > 0 {
-				if err := flush(); err != nil {
-					errMu.Lock()
-					if firstErr == nil {
-						firstErr = err
-					}
-					errMu.Unlock()
 				}
 			}
 		}()
 	}
-	workers.Wait()
-	if firstErr != nil {
-		return fmt.Errorf("walk additions: %w", firstErr)
+	go func() { discover.Wait(); close(candidates) }()
+
+	const candidateWindow = 65536
+	window := make([]blobCandidate, 0, candidateWindow)
+	for candidate := range candidates {
+		window = append(window, candidate)
+		if len(window) == candidateWindow {
+			if err := s.processCandidateWindow(workCtx, window, yield); err != nil {
+				recordErr(err)
+			}
+			window = window[:0]
+		}
 	}
-	return nil
+	if len(window) > 0 {
+		if err := s.processCandidateWindow(workCtx, window, yield); err != nil {
+			recordErr(err)
+		}
+	}
+	errMu.Lock()
+	err = firstErr
+	errMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("walk additions: %w", err)
+	}
+	return ctx.Err()
+}
+
+type candidateGroup struct {
+	id         hash
+	loc        location
+	packed     bool
+	candidates []blobCandidate
+}
+
+// processCandidateWindow is the pack-oriented half of the walk. The window is
+// bounded, but is global across commit walkers: duplicate blobs collapse into a
+// single inflate and groups are submitted in physical pack order.
+func (s *store) processCandidateWindow(ctx context.Context, candidates []blobCandidate, yield func(Blob) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	groups := make([]candidateGroup, 0, len(candidates))
+	packed := make(map[location]int, len(candidates))
+	loose := make(map[hash]int)
+	for _, candidate := range candidates {
+		change := candidate.change
+		if change.newID == (hash{}) || isTreeMode(change.mode) || (!strings.HasPrefix(change.mode, "100") && change.mode != "120000") {
+			continue
+		}
+		if loc, ok := s.find(change.newID); ok {
+			if n, exists := packed[loc]; exists {
+				groups[n].candidates = append(groups[n].candidates, candidate)
+				continue
+			}
+			packed[loc] = len(groups)
+			groups = append(groups, candidateGroup{id: change.newID, loc: loc, packed: true, candidates: []blobCandidate{candidate}})
+		} else if n, exists := loose[change.newID]; exists {
+			groups[n].candidates = append(groups[n].candidates, candidate)
+		} else {
+			loose[change.newID] = len(groups)
+			groups = append(groups, candidateGroup{id: change.newID, candidates: []blobCandidate{candidate}})
+		}
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		a, b := groups[i], groups[j]
+		if a.packed != b.packed {
+			return a.packed
+		}
+		if !a.packed {
+			return bytes.Compare(a.id[:], b.id[:]) < 0
+		}
+		if a.loc.pack.order != b.loc.pack.order {
+			return a.loc.pack.order < b.loc.pack.order
+		}
+		return a.loc.offset < b.loc.offset
+	})
+	workers := max(runtime.GOMAXPROCS(0), 16)
+	jobs := make(chan candidateGroup, workers*2)
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var firstErr error
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for group := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				obj, err := s.load(group.id)
+				if err == nil && obj.typ == 3 {
+					for _, candidate := range group.candidates {
+						err = s.emitAdditionsObject(candidate.change.path, candidate.change.oldID, group.id, obj, candidate.appearance, yield)
+						if err != nil {
+							break
+						}
+					}
+				}
+				if err != nil {
+					errMu.Lock()
+					if firstErr == nil {
+						firstErr = err
+						cancel()
+					}
+					errMu.Unlock()
+					return
+				}
+			}
+		}()
+	}
+	for _, group := range groups {
+		errMu.Lock()
+		failed := firstErr != nil
+		errMu.Unlock()
+		if failed {
+			break
+		}
+		select {
+		case jobs <- group:
+		case <-ctx.Done():
+			break
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	errMu.Lock()
+	err := firstErr
+	errMu.Unlock()
+	return err
 }
 
 func (s *store) reachableCommits(ctx context.Context, tips []hash) ([]hash, error) {
@@ -219,12 +307,10 @@ type treeEntry struct {
 }
 
 type treeChange struct {
-	path   string
-	oldID  hash
-	newID  hash
-	mode   string
-	offset int64
-	packed bool
+	path  string
+	oldID hash
+	newID hash
+	mode  string
 }
 
 type blobCandidate struct {
@@ -428,6 +514,10 @@ func (s *store) emitAdditions(path string, oldID, newID hash, appearance Appeara
 	if err != nil {
 		return err
 	}
+	return s.emitAdditionsObject(path, oldID, newID, newObj, appearance, yield)
+}
+
+func (s *store) emitAdditionsObject(path string, oldID, newID hash, newObj object, appearance Appearance, yield func(Blob) error) error {
 	if newObj.typ != 3 {
 		return nil
 	}

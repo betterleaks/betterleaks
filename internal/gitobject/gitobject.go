@@ -74,6 +74,7 @@ type entry struct {
 }
 
 type pack struct {
+	order     int
 	file      *mmap.ReaderAt
 	index     []byte
 	count     int
@@ -410,6 +411,7 @@ func openStore(repoPath string) (*store, error) {
 			s.close()
 			return nil, fmt.Errorf("index %s: %w", idxPath, err)
 		}
+		p.order = len(s.packs)
 		s.packs = append(s.packs, p)
 	}
 	return s, nil
