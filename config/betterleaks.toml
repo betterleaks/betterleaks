@@ -6499,7 +6499,7 @@ keywords = ["sonar"]
 [[rules]]
 id = "sourcegraph-access-token"
 description = "Sourcegraph is a code search and navigation engine."
-regex = '''(?i)\b((sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)\b(sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["sgp_"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
