@@ -20,6 +20,15 @@ func StripeAccessToken() *config.Rule {
 			"rk_live",
 			"rk_prod",
 		},
+		ValidateExpr: `let r = http.get("https://api.stripe.com/v1/account", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); (r.status == 200 && (r.body contains "\"object\":\"account\"")) || r.status == 403 ? {
+    "result": "valid"
+  } : r.status in [401, 404] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
 		Filter: `entropy(finding["secret"]) <= 2.0`,
 	}
 
