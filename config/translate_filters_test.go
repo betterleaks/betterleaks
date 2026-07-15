@@ -194,6 +194,12 @@ func TestComposeFilters(t *testing.T) {
 			userExpr:  "let context = finding.fragment_raw; context == secret",
 			expected:  "condA\n|| (let context = finding.fragment_raw; context == secret)",
 		},
+		{
+			name:      "skip part and commented user declaration",
+			skipParts: []string{"condA"},
+			userExpr:  "// explain context\nlet context = finding.fragment_raw; context == secret",
+			expected:  "condA\n|| (// explain context\nlet context = finding.fragment_raw; context == secret)",
+		},
 	}
 
 	for _, tt := range tests {
