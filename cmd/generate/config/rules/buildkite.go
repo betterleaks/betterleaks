@@ -45,7 +45,7 @@ func BuildkiteServiceToken() *config.Rule {
 			`bkpt_[A-Za-z0-9_-]{199}|` +
 			`bkpat_[A-Za-z0-9_-]{54}|` +
 			`bkps_[A-Za-z0-9_-]{64}` +
-			`)\b`),
+			`)(?:$|[^A-Za-z0-9_-])`),
 		Keywords: []string{"bkaa_", "bkaj_", "bkar_", "bkct_", "bkpt_", "bkpat_", "bkps_"},
 		Filter:   utils.MinEntropy(3.5),
 	}
@@ -59,8 +59,12 @@ func BuildkiteServiceToken() *config.Rule {
 			`BUILDKITE_PACKAGE_TOKEN=bkpt_` + buildkiteTestToken(199),
 			`BUILDKITE_PORTAL_TOKEN=bkpat_` + buildkiteTestToken(54),
 			`BUILDKITE_PORTAL_SECRET=bkps_` + buildkiteTestToken(64),
+			`BUILDKITE_AGENT_TOKEN=bkaa_` + buildkiteTestToken(74) + `-]`,
 		},
-		[]string{`BUILDKITE_AGENT_TOKEN=bkaa_` + buildkiteTestToken(74)},
+		[]string{
+			`BUILDKITE_AGENT_TOKEN=bkaa_` + buildkiteTestToken(74),
+			`BUILDKITE_AGENT_TOKEN=bkaa_` + buildkiteTestToken(74) + `-extra`,
+		},
 	)
 }
 

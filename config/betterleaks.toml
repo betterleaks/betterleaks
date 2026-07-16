@@ -496,7 +496,7 @@ let r = http.get("https://api.anthropic.com/v1/models", {
 [[rules]]
 id = "apify-api-token"
 description = "Detected an Apify API token, which may expose actors, tasks, and stored data."
-regex = '''(?i)\b(apify_api_[A-Z0-9]{34,38})\b'''
+regex = '''\b(apify_api_[A-Za-z0-9]{34,38})\b'''
 keywords = ["apify_api_"]
 validate = '''
 let r = http.get("https://api.apify.com/v2/users/me", {
@@ -1076,7 +1076,7 @@ filter.entropy(finding["secret"]) < 3.2
 [[rules]]
 id = "buildkite-service-token"
 description = "Detected a Buildkite agent, package, or portal token, which may expose CI/CD workloads or packages."
-regex = '''\b(bkaa_[A-Za-z0-9_-]{75}|bkaj_[A-Za-z0-9_-]{333}|bkar_[A-Za-z0-9_-]{73}|bkct_[A-Za-z0-9_-]{73}|bkpt_[A-Za-z0-9_-]{199}|bkpat_[A-Za-z0-9_-]{54}|bkps_[A-Za-z0-9_-]{64})\b'''
+regex = '''\b(bkaa_[A-Za-z0-9_-]{75}|bkaj_[A-Za-z0-9_-]{333}|bkar_[A-Za-z0-9_-]{73}|bkct_[A-Za-z0-9_-]{73}|bkpt_[A-Za-z0-9_-]{199}|bkpat_[A-Za-z0-9_-]{54}|bkps_[A-Za-z0-9_-]{64})(?:$|[^A-Za-z0-9_-])'''
 keywords = [
     "bkaa_",
     "bkaj_",
@@ -1121,7 +1121,7 @@ entropy(finding["secret"]) < 3.5
 [[rules]]
 id = "canadian-digital-service-notify-api-key"
 description = "Detected a GC Notify API key, which may allow unauthorized notification access."
-regex = '''\b((?i:ApiKey-v1)\s+(?i:gcntfy)-[A-Za-z0-9_]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
+regex = '''(?i:\b(ApiKey-v1\s+gcntfy-[a-z0-9_]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b)'''
 keywords = ["gcntfy-"]
 validate = '''
 let r = http.get("https://api.notification.canada.ca/v2/notifications", {
