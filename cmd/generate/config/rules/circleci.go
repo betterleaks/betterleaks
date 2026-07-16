@@ -14,8 +14,9 @@ func CircleCIPersonalToken() *config.Rule {
 		Regex:       regexp.MustCompile(`\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})`),
 		Keywords:    []string{"CCIPAT_"},
 		ValidateExpr: `let r = http.get("https://circleci.com/api/v2/me", {
+    "Accept": "application/json",
     "Circle-Token": finding["secret"]
-  }); r.status == 200 ? {
+  }); r.status == 200 && (r.json?.id ?? "") != "" ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
@@ -43,13 +44,13 @@ func CircleCIProjectToken() *config.Rule {
 		ValidateExpr: `let r = http.get("https://circleci.com/api/v1.1/projects", {
     "Circle-Token": finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"vcs_url\"") ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.3`,
+		Filter: utils.MinEntropy(3.3),
 	}
 
 	// validate

@@ -1230,8 +1230,9 @@ regex = '''\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})'''
 keywords = ["ccipat_"]
 validate = '''
 let r = http.get("https://circleci.com/api/v2/me", {
+    "Accept": "application/json",
     "Circle-Token": finding["secret"]
-  }); r.status == 200 ? {
+  }); r.status == 200 && (r.json?.id ?? "") != "" ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
@@ -1251,7 +1252,7 @@ validate = '''
 let r = http.get("https://circleci.com/api/v1.1/projects", {
     "Circle-Token": finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"vcs_url\"") ? {
+  }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
     "result": "invalid",
@@ -1259,7 +1260,7 @@ let r = http.get("https://circleci.com/api/v1.1/projects", {
   } : validate.unknown(r)
 '''
 filter = '''
-entropy(finding["secret"]) <= 3.3
+entropy(finding["secret"]) < 3.3
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
