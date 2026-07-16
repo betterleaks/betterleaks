@@ -36,6 +36,9 @@ sudo dnf install betterleaks
 # Containers
 docker pull ghcr.io/betterleaks/betterleaks:latest
 
+# Go
+go install github.com/betterleaks/betterleaks@latest
+
 # Source
 git clone https://github.com/betterleaks/betterleaks
 cd betterleaks
