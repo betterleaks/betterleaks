@@ -1202,6 +1202,68 @@ entropy(finding["secret"]) <= 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# checkout-secret-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "checkout-secret-key"
+description = "Checkout.com secret key."
+regex = '''(?i)(?:checkout)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["checkout"]
+validate = '''
+let r = http.get("https://api.checkout.com/workflows", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# circleci-personal-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "circleci-personal-token"
+description = "CircleCI personal access token."
+regex = '''\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})'''
+keywords = ["ccipat_"]
+validate = '''
+let r = http.get("https://circleci.com/api/v2/me", {
+    "Accept": "application/json",
+    "Circle-Token": finding["secret"]
+  }); r.status == 200 && (r.json?.id ?? "") != "" ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# circleci-project-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "circleci-project-token"
+description = "CircleCI project token."
+regex = '''(?i)(?:circleci)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["circleci"]
+validate = '''
+let r = http.get("https://circleci.com/api/v1.1/projects", {
+    "Circle-Token": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.3
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # cisco-meraki-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -1628,6 +1690,25 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# crates-io-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "crates-io-api-key"
+description = "crates.io API key."
+regex = '''(?i)(?:crates(?:[_.-]?io)?)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(cio[A-Za-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["crates"]
+validate = '''
+let r = http.get("https://crates.io/api/v1/me", {
+    "Authorization": finding["secret"]
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # curl-auth-header
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -1681,6 +1762,25 @@ let r = http.get("https://api.cursor.com/v0/me", {
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# databento-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "databento-api-key"
+description = "Databento API key."
+regex = '''(?i)(?:databento)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(db-[A-Za-z0-9]{29})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["databento"]
+validate = '''
+let r = http.get("https://hist.databento.com/v0/metadata.list_datasets", {
+    "Authorization": "Basic " + (finding["secret"] + ":").b64enc()
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
