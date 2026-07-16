@@ -378,6 +378,12 @@ func main() {
 		rules.Snyk(),
 		rules.Sonar(),
 		rules.SourceGraph(),
+		// rules.CfxreServerKey(), found in GHAS but imo not worth it to add it at this time.
+		rules.CheckoutSecretKey(),
+		rules.CircleCIPersonalToken(),
+		rules.CircleCIProjectToken(),
+		rules.CratesIOAPIKey(),
+		rules.DatabentoAPIKey(),
 		rules.StabilityAI(),
 		rules.StripeAccessToken(),
 		rules.SquareAccessToken(),
