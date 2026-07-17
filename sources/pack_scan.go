@@ -72,6 +72,10 @@ const (
 	// secrets intact for ordinary source/doc files while still deduping the
 	// handful of very large generated blobs that dominate raw byte volume.
 	smallBlobFullScan = 1 << 20 // 1 MiB
+	// deterministicLineShards is intentionally independent of --git-workers.
+	// A root always belongs to the same shard, so worker-count changes affect
+	// throughput only, never line ownership or findings.
+	deterministicLineShards = 16
 )
 
 // Fragments implements Source.
@@ -117,7 +121,7 @@ func (s *PackScan) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	seen := newBlobSeen()
 	lineSets := []*lineSeen{newLineSeen()}
 	if s.Deterministic {
-		lineSets = newLineSeenShards(s.workers(), 1<<25)
+		lineSets = newLineSeenShards(deterministicLineShards, 1<<25)
 	}
 	for _, p := range packs {
 		if err := s.scanPack(ctx, p, attrib, seen, lineSets, yield); err != nil {
@@ -140,50 +144,56 @@ func (s *PackScan) scanPack(
 	if !s.Deterministic {
 		return s.scanPackFast(ctx, p, roots, attrib, seen, lineSets[0], yield)
 	}
-	workerCount := min(s.workers(), len(roots))
-	if workerCount == 0 {
+	queues, shardOrder := deterministicRootShards(p, roots)
+	if len(shardOrder) == 0 {
 		return nil
 	}
 
-	queues := balancedRootQueues(p, roots, workerCount)
+	workerCount := min(s.workers(), len(shardOrder))
+	jobs := make(chan int, len(shardOrder))
 	g, gctx := errgroup.WithContext(ctx)
-	for w := range workerCount {
-		lines := lineSets[w]
-		queue := queues[w]
+	for range workerCount {
 		g.Go(func() error {
-			walker := newPackWalker(p)
-			for _, rootIdx := range queue {
-				err := walker.walkFamily(rootIdx, func(idx int32, content []byte) error {
-					select {
-					case <-gctx.Done():
-						return gctx.Err()
-					default:
+			for shard := range jobs {
+				walker := newPackWalker(p)
+				for _, rootIdx := range queues[shard] {
+					err := walker.walkFamily(rootIdx, func(idx int32, content []byte) error {
+						select {
+						case <-gctx.Done():
+							return gctx.Err()
+						default:
+						}
+						at, ok := attrib.lookup(p.objects[idx].sha)
+						full := !ok || at.fullScan
+						return s.emitBlob(gctx, p.objects[idx].sha, content, full, attrib, seen, lineSets[shard], yield)
+					})
+					if err != nil {
+						return err
 					}
-					at, ok := attrib.lookup(p.objects[idx].sha)
-					full := !ok || at.fullScan
-					return s.emitBlob(gctx, p.objects[idx].sha, content, full, attrib, seen, lines, yield)
-				})
-				if err != nil {
-					return err
 				}
 			}
 			return nil
 		})
 	}
+	g.Go(func() error {
+		defer close(jobs)
+		for _, shard := range shardOrder {
+			select {
+			case jobs <- shard:
+			case <-gctx.Done():
+				return gctx.Err()
+			}
+		}
+		return nil
+	})
 
 	return g.Wait()
 }
 
-// balancedRootQueues uses delta-family size as a deterministic work estimate.
-// Round-robin root ownership is stable but badly imbalanced on real packs:
-// one large delta family can strand most workers. Greedy least-loaded
-// assignment balances those families while retaining a fixed owner for every
-// root. Each queue is restored to physical pack order for locality.
-func balancedRootQueues(p *packFile, roots []int32, workers int) [][]int32 {
-	type weightedRoot struct {
-		idx  int32
-		cost uint32
-	}
+// deterministicRootShards assigns each physical root to a stable SHA-derived
+// shard. Shards are then offered in descending estimated cost to keep workers
+// busy, while roots within a shard retain physical pack order.
+func deterministicRootShards(p *packFile, roots []int32) ([][]int32, []int) {
 	memo := make([]uint32, len(p.objects))
 	var familyCost func(int32) uint32
 	familyCost = func(idx int32) uint32 {
@@ -198,35 +208,27 @@ func balancedRootQueues(p *packFile, roots []int32, workers int) [][]int32 {
 		return cost
 	}
 
-	weighted := make([]weightedRoot, len(roots))
-	for i, root := range roots {
-		weighted[i] = weightedRoot{idx: root, cost: familyCost(root)}
+	shardCount := min(deterministicLineShards, len(roots))
+	queues := make([][]int32, shardCount)
+	loads := make([]uint32, shardCount)
+	for _, root := range roots {
+		shard := int(binary.LittleEndian.Uint64(p.objects[root].sha[:8]) % uint64(shardCount))
+		queues[shard] = append(queues[shard], root)
+		loads[shard] += familyCost(root)
 	}
-	sort.Slice(weighted, func(i, j int) bool {
-		if weighted[i].cost != weighted[j].cost {
-			return weighted[i].cost > weighted[j].cost
+	order := make([]int, 0, shardCount)
+	for shard, queue := range queues {
+		if len(queue) > 0 {
+			order = append(order, shard)
 		}
-		return p.objects[weighted[i].idx].offset < p.objects[weighted[j].idx].offset
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if loads[order[i]] != loads[order[j]] {
+			return loads[order[i]] > loads[order[j]]
+		}
+		return order[i] < order[j]
 	})
-
-	queues := make([][]int32, workers)
-	loads := make([]uint32, workers)
-	for _, root := range weighted {
-		worker := 0
-		for i := 1; i < workers; i++ {
-			if loads[i] < loads[worker] {
-				worker = i
-			}
-		}
-		queues[worker] = append(queues[worker], root.idx)
-		loads[worker] += root.cost
-	}
-	for _, queue := range queues {
-		sort.Slice(queue, func(i, j int) bool {
-			return p.objects[queue[i]].offset < p.objects[queue[j]].offset
-		})
-	}
-	return queues
+	return queues, order
 }
 
 // scanPackFast is the original shared-line-set work-stealing implementation.

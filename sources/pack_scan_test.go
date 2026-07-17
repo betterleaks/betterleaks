@@ -99,29 +99,29 @@ func TestLineSeenDedup(t *testing.T) {
 	}
 }
 
-func TestBalancedRootQueuesAreStableAndBalanceFamilies(t *testing.T) {
+func TestDeterministicRootShardsAreStable(t *testing.T) {
 	p := &packFile{objects: []packObject{
-		{offset: 10, children: []int32{1, 2, 3, 4}},
+		{offset: 10, sha: [20]byte{1}, children: []int32{1, 2, 3, 4}},
 		{offset: 11},
 		{offset: 12},
 		{offset: 13},
 		{offset: 14},
-		{offset: 20},
-		{offset: 30},
+		{offset: 20, sha: [20]byte{2}},
+		{offset: 30, sha: [20]byte{3}},
 	}}
 	roots := []int32{0, 5, 6}
-	first := balancedRootQueues(p, roots, 2)
-	second := balancedRootQueues(p, roots, 2)
-	if len(first) != 2 || len(second) != 2 {
-		t.Fatalf("queue count = %d, want 2", len(first))
+	first, firstOrder := deterministicRootShards(p, roots)
+	second, secondOrder := deterministicRootShards(p, roots)
+	if len(first) != len(second) {
+		t.Fatalf("queue count = %d, want %d", len(first), len(second))
 	}
 	for worker := range first {
 		if !slices.Equal(first[worker], second[worker]) {
-			t.Fatalf("worker %d assignment is not stable: %v vs %v", worker, first[worker], second[worker])
+			t.Fatalf("shard %d assignment is not stable: %v vs %v", worker, first[worker], second[worker])
 		}
 	}
-	if len(first[0]) != 1 || first[0][0] != 0 {
-		t.Fatalf("largest family should be isolated first, got %v", first[0])
+	if !slices.Equal(firstOrder, secondOrder) {
+		t.Fatalf("shard order is not stable: %v vs %v", firstOrder, secondOrder)
 	}
 }
 func makeInsertDelta(baseLen int, target []byte) []byte {
