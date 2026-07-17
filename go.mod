@@ -14,6 +14,7 @@ require (
 	github.com/google/go-github/v72 v72.0.0
 	github.com/h2non/filetype v1.1.3
 	github.com/hashicorp/go-version v1.7.0
+	github.com/klauspost/compress v1.18.6
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mholt/archives v0.1.6-0.20260429171216-ef71b7a32fae
 	github.com/pelletier/go-toml/v2 v2.3.1
@@ -39,7 +40,6 @@ require (
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mikelolasagasti/xz v1.0.1 // indirect

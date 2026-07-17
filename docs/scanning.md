@@ -60,6 +60,9 @@ betterleaks git .
 # parallel history scan
 betterleaks git . --git-workers 8
 
+# experimental direct-packfile history scan
+betterleaks git . --packfile --git-workers 8
+
 # custom git log scope
 betterleaks git . --log-opts="--all --since='90 days ago'"
 
@@ -75,6 +78,11 @@ betterleaks git . --platform github
 # history scan with JSON output
 betterleaks git . --git-workers 8 --report-path findings.json --report-format json
 ```
+
+`--packfile` is an experimental high-throughput history source. It reads Git
+packfiles directly and uses `git log --raw` only to associate blobs with commit
+metadata. It scans a deduplicated superset of patch additions, so use the
+default scanner when exact `git log -p` fragment semantics are required.
 
 ---
 
