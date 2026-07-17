@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -98,6 +99,31 @@ func TestLineSeenDedup(t *testing.T) {
 	}
 }
 
+func TestBalancedRootQueuesAreStableAndBalanceFamilies(t *testing.T) {
+	p := &packFile{objects: []packObject{
+		{offset: 10, children: []int32{1, 2, 3, 4}},
+		{offset: 11},
+		{offset: 12},
+		{offset: 13},
+		{offset: 14},
+		{offset: 20},
+		{offset: 30},
+	}}
+	roots := []int32{0, 5, 6}
+	first := balancedRootQueues(p, roots, 2)
+	second := balancedRootQueues(p, roots, 2)
+	if len(first) != 2 || len(second) != 2 {
+		t.Fatalf("queue count = %d, want 2", len(first))
+	}
+	for worker := range first {
+		if !slices.Equal(first[worker], second[worker]) {
+			t.Fatalf("worker %d assignment is not stable: %v vs %v", worker, first[worker], second[worker])
+		}
+	}
+	if len(first[0]) != 1 || first[0][0] != 0 {
+		t.Fatalf("largest family should be isolated first, got %v", first[0])
+	}
+}
 func makeInsertDelta(baseLen int, target []byte) []byte {
 	var d []byte
 	d = appendDeltaSize(d, baseLen)

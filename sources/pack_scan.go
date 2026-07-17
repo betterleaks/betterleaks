@@ -47,6 +47,9 @@ type PackScan struct {
 	// FullScanAll disables delta-region optimization and scans every blob's
 	// full content. Slower but not subject to pack delta-base artifacts.
 	FullScanAll bool
+	// Deterministic gives each pack root a fixed worker and private line-set
+	// shard. It preserves parallel walking without first-writer-wins ownership.
+	Deterministic bool
 }
 
 func (s *PackScan) workers() int {
@@ -108,16 +111,20 @@ func (s *PackScan) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		Int("objects", total).
 		Int("attributed_blobs", attrib.len()).
 		Int("workers", s.workers()).
+		Bool("deterministic", s.Deterministic).
 		Msg("pack scan")
 
 	seen := newBlobSeen()
-	lines := newLineSeen()
+	lineSets := []*lineSeen{newLineSeen()}
+	if s.Deterministic {
+		lineSets = newLineSeenShards(s.workers(), 1<<25)
+	}
 	for _, p := range packs {
-		if err := s.scanPack(ctx, p, attrib, seen, lines, yield); err != nil {
+		if err := s.scanPack(ctx, p, attrib, seen, lineSets, yield); err != nil {
 			return err
 		}
 	}
-	return s.scanLooseBlobs(ctx, attrib, seen, lines, yield)
+	return s.scanLooseBlobs(ctx, attrib, seen, lineSets[0], yield)
 }
 
 // scanPack walks one pack's delta forest with parallel workers.
@@ -126,14 +133,116 @@ func (s *PackScan) scanPack(
 	p *packFile,
 	attrib *blobAttribution,
 	seen *blobSeen,
-	lines *lineSeen,
+	lineSets []*lineSeen,
 	yield FragmentsFunc,
 ) error {
 	roots := p.blobRoots()
+	if !s.Deterministic {
+		return s.scanPackFast(ctx, p, roots, attrib, seen, lineSets[0], yield)
+	}
+	workerCount := min(s.workers(), len(roots))
+	if workerCount == 0 {
+		return nil
+	}
 
+	queues := balancedRootQueues(p, roots, workerCount)
+	g, gctx := errgroup.WithContext(ctx)
+	for w := range workerCount {
+		lines := lineSets[w]
+		queue := queues[w]
+		g.Go(func() error {
+			walker := newPackWalker(p)
+			for _, rootIdx := range queue {
+				err := walker.walkFamily(rootIdx, func(idx int32, content []byte) error {
+					select {
+					case <-gctx.Done():
+						return gctx.Err()
+					default:
+					}
+					at, ok := attrib.lookup(p.objects[idx].sha)
+					full := !ok || at.fullScan
+					return s.emitBlob(gctx, p.objects[idx].sha, content, full, attrib, seen, lines, yield)
+				})
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+
+	return g.Wait()
+}
+
+// balancedRootQueues uses delta-family size as a deterministic work estimate.
+// Round-robin root ownership is stable but badly imbalanced on real packs:
+// one large delta family can strand most workers. Greedy least-loaded
+// assignment balances those families while retaining a fixed owner for every
+// root. Each queue is restored to physical pack order for locality.
+func balancedRootQueues(p *packFile, roots []int32, workers int) [][]int32 {
+	type weightedRoot struct {
+		idx  int32
+		cost uint32
+	}
+	memo := make([]uint32, len(p.objects))
+	var familyCost func(int32) uint32
+	familyCost = func(idx int32) uint32 {
+		if memo[idx] != 0 {
+			return memo[idx]
+		}
+		cost := uint32(1)
+		for _, child := range p.objects[idx].children {
+			cost += familyCost(child)
+		}
+		memo[idx] = cost
+		return cost
+	}
+
+	weighted := make([]weightedRoot, len(roots))
+	for i, root := range roots {
+		weighted[i] = weightedRoot{idx: root, cost: familyCost(root)}
+	}
+	sort.Slice(weighted, func(i, j int) bool {
+		if weighted[i].cost != weighted[j].cost {
+			return weighted[i].cost > weighted[j].cost
+		}
+		return p.objects[weighted[i].idx].offset < p.objects[weighted[j].idx].offset
+	})
+
+	queues := make([][]int32, workers)
+	loads := make([]uint32, workers)
+	for _, root := range weighted {
+		worker := 0
+		for i := 1; i < workers; i++ {
+			if loads[i] < loads[worker] {
+				worker = i
+			}
+		}
+		queues[worker] = append(queues[worker], root.idx)
+		loads[worker] += root.cost
+	}
+	for _, queue := range queues {
+		sort.Slice(queue, func(i, j int) bool {
+			return p.objects[queue[i]].offset < p.objects[queue[j]].offset
+		})
+	}
+	return queues
+}
+
+// scanPackFast is the original shared-line-set work-stealing implementation.
+// It is retained for A/B benchmarking; its first writer wins line ownership.
+func (s *PackScan) scanPackFast(
+	ctx context.Context,
+	p *packFile,
+	roots []int32,
+	attrib *blobAttribution,
+	seen *blobSeen,
+	lines *lineSeen,
+	yield FragmentsFunc,
+) error {
 	rootCh := make(chan int32, 256)
 	g, gctx := errgroup.WithContext(ctx)
-	for w := 0; w < s.workers(); w++ {
+	for range s.workers() {
 		g.Go(func() error {
 			walker := newPackWalker(p)
 			for rootIdx := range rootCh {
@@ -154,19 +263,17 @@ func (s *PackScan) scanPack(
 			return nil
 		})
 	}
-
 	g.Go(func() error {
 		defer close(rootCh)
-		for _, r := range roots {
+		for _, rootIdx := range roots {
 			select {
-			case rootCh <- r:
+			case rootCh <- rootIdx:
 			case <-gctx.Done():
 				return gctx.Err()
 			}
 		}
 		return nil
 	})
-
 	return g.Wait()
 }
 

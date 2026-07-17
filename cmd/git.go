@@ -30,6 +30,7 @@ func init() {
 	gitCmd.Flags().String("log-opts", "", "git log options")
 	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process)")
 	gitCmd.Flags().Bool("packfile", false, "experimental fast Git-history scan using packfiles directly (added-content superset)")
+	gitCmd.Flags().Bool("packfile-deterministic", true, "use deterministic parallel packfile ownership")
 }
 
 var gitCmd = &cobra.Command{
@@ -68,6 +69,7 @@ func runGit(cmd *cobra.Command, args []string) {
 	preCommit := mustGetBoolFlag(cmd, "pre-commit")
 	gitWorkers := mustGetIntFlag(cmd, "git-workers")
 	packfile := mustGetBoolFlag(cmd, "packfile")
+	packfileDeterministic := mustGetBoolFlag(cmd, "packfile-deterministic")
 	noColor := mustGetBoolFlag(cmd, "no-color")
 	redact := mustGetUIntFlag(cmd, "redact")
 	verbose := mustGetBoolFlag(cmd, "verbose")
@@ -110,6 +112,7 @@ func runGit(cmd *cobra.Command, args []string) {
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 				LogOpts:         logOpts,
 				Workers:         gitWorkers,
+				Deterministic:   packfileDeterministic,
 			}
 		} else if gitWorkers > 0 {
 			src = &sources.ParallelGit{

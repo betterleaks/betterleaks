@@ -268,6 +268,20 @@ func newLineSeenSized(n int) *lineSeen {
 
 func newLineSeen() *lineSeen { return newLineSeenSized(1 << 25) }
 
+// newLineSeenShards partitions one global entry budget across independent
+// workers. Their total capacity remains approximately the old global table.
+func newLineSeenShards(workers, entries int) []*lineSeen {
+	if workers < 1 {
+		workers = 1
+	}
+	perWorker := (entries + workers - 1) / workers
+	shards := make([]*lineSeen, workers)
+	for i := range shards {
+		shards[i] = newLineSeenSized(perWorker)
+	}
+	return shards
+}
+
 // markNew records the line's fingerprint and returns true if it was not already
 // present.
 func (ls *lineSeen) markNew(line []byte) bool {
