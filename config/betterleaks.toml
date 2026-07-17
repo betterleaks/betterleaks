@@ -1853,6 +1853,29 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# datastax-astra-application-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "datastax-astra-application-token"
+description = "DataStax Astra application token."
+regex = '''\b(AstraCS:[A-Za-z0-9]{20,})'''
+keywords = ["astracs:"]
+validate = '''
+let r = http.get("https://api.astra.datastax.com/v2/tokens", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # deepgram-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -1919,6 +1942,75 @@ r.status == 200 && ((r.body contains "\"id\"")) ? {
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# devcycle-client-sdk-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "devcycle-client-sdk-key"
+description = "DevCycle client SDK key."
+regex = '''\b(dvc_client_[A-Za-z0-9]{8,32})'''
+keywords = ["dvc_client_"]
+validate = '''
+let r = http.post("https://bucketing-api.devcycle.com/v1/variables", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Content-Type": "application/json"
+  }, "{\"user_id\":\"betterleaks-validation-user\"}"); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# devcycle-mobile-sdk-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "devcycle-mobile-sdk-key"
+description = "DevCycle mobile SDK key."
+regex = '''\b(dvc_mobile_[A-Za-z0-9]{8,32})'''
+keywords = ["dvc_mobile_"]
+validate = '''
+let r = http.post("https://bucketing-api.devcycle.com/v1/variables", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Content-Type": "application/json"
+  }, "{\"user_id\":\"betterleaks-validation-user\"}"); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# devcycle-server-sdk-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "devcycle-server-sdk-key"
+description = "DevCycle server SDK key."
+regex = '''\b(dvc_server_[A-Za-z0-9]{8,32})'''
+keywords = ["dvc_server_"]
+validate = '''
+let r = http.post("https://bucketing-api.devcycle.com/v1/variables", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Content-Type": "application/json"
+  }, "{\"user_id\":\"betterleaks-validation-user\"}"); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2085,6 +2177,30 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# docker-swarm-join-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "docker-swarm-join-token"
+description = "Docker Swarm join token."
+regex = '''\b(SWMTKN-1-[a-z0-9]{50,60}-[a-z0-9]{24,30})'''
+keywords = ["swmtkn-1-"]
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# docker-swarm-unlock-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "docker-swarm-unlock-key"
+description = "Docker Swarm unlock key."
+regex = '''\b(SWMKEY-1-[A-Za-z0-9+/]{40,50})'''
+keywords = ["swmkey-1-"]
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # dockerhub-organization-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -2202,6 +2318,18 @@ regex = '''\bEZTK(?i)[a-z0-9]{54}\b'''
 keywords = ["eztk"]
 filter = '''
 entropy(finding["secret"]) <= 2.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ebay-client-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "ebay-client-secret"
+description = "eBay client secret."
+regex = '''(?i:(?:ebay(?:[_. -]*(?:client|api))?[_. -]*(?:secret|key))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:PRD|SBX)-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4,12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["ebay"]
+filter = '''
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2463,6 +2591,21 @@ regex = '''(?i)(?:finnhub)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 keywords = ["finnhub"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# firebase-cloud-messaging-server-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "firebase-cloud-messaging-server-key"
+description = "Firebase Cloud Messaging legacy server key."
+regex = '''(?i)(?:(?:firebase|fcm)(?:[_. -]*(?:server|api))?[_. -]*(?:key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(AAAA[A-Za-z0-9_-]{7}:APA91b[A-Za-z0-9_-]{120,180})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "firebase",
+    "fcm",
+]
+filter = '''
+entropy(finding["secret"]) < 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # flickr-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -2540,6 +2683,20 @@ id = "frameio-api-token"
 description = "Found a Frame.io API token, potentially compromising video collaboration and project management."
 regex = '''fio-u-(?i)[a-z0-9\-_=]{64}'''
 keywords = ["fio-u-"]
+validate = '''
+let r = http.get("https://api.frame.io/v2/me", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.3
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # freemius-secret-key
@@ -2574,6 +2731,32 @@ r.status == 200 && (true) ? {
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# fullstory-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "fullstory-api-key"
+description = "FullStory API key."
+regex = '''(?i)(?:(?:fullstory|fs_api|fullstory_api))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:na1|eu1)\.[A-Za-z0-9]{20,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "fullstory",
+    "fs_api",
+]
+validate = '''
+let r = http.get("https://api.fullstory.com/me", {
+    "Authorization": "Basic " + (finding["secret"] + ":").b64enc(),
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.3
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4902,6 +5085,18 @@ entropy(finding["secret"]) <= 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# guardsquare-appsweep-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "guardsquare-appsweep-api-key"
+description = "GuardSquare AppSweep API key."
+regex = '''\b(gs_appsweep_[a-zA-Z0-9_-]{24,48})'''
+keywords = ["gs_appsweep_"]
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # gumroad-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -4919,6 +5114,18 @@ let r = http.get("https://api.gumroad.com/v2/user?access_token=" + finding["secr
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# hackclub-ai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "hackclub-ai-api-key"
+description = "Hack Club AI API key."
+regex = '''\b(sk-hc-v1-[a-f0-9]{64})'''
+keywords = ["sk-hc-v1-"]
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
