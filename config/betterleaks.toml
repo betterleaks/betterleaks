@@ -1774,7 +1774,7 @@ regex = '''(?i)(?:databento)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 keywords = ["databento"]
 validate = '''
 let r = http.get("https://hist.databento.com/v0/metadata.list_datasets", {
-    "Authorization": "Basic " + (finding["secret"] + ":").b64enc()
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":"))
   }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
@@ -2760,7 +2760,7 @@ keywords = [
 ]
 validate = '''
 let r = http.get("https://api.fullstory.com/me", {
-    "Authorization": "Basic " + (finding["secret"] + ":").b64enc(),
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":")),
     "Accept": "application/json"
   }); r.status == 200 ? {
     "result": "valid"

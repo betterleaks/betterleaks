@@ -13,7 +13,7 @@ func DatabentoAPIKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"databento"}, `db-[A-Za-z0-9]{29}`, true),
 		Keywords:    []string{"databento"},
 		ValidateExpr: `let r = http.get("https://hist.databento.com/v0/metadata.list_datasets", {
-    "Authorization": "Basic " + (finding["secret"] + ":").b64enc()
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":"))
   }); r.status == 200 ? {
     "result": "valid"
   } : r.status in [401, 403] ? {

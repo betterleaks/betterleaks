@@ -18,7 +18,7 @@ func FullStoryAPIKey() *config.Rule {
 		),
 		Keywords: []string{"fullstory", "fs_api"},
 		ValidateExpr: `let r = http.get("https://api.fullstory.com/me", {
-    "Authorization": "Basic " + (finding["secret"] + ":").b64enc(),
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":")),
     "Accept": "application/json"
   }); r.status == 200 ? {
     "result": "valid"
