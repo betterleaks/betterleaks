@@ -6185,6 +6185,30 @@ entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# neon-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "neon-api-key"
+description = "Neon API key."
+regex = '''\b(napi_[A-Za-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["napi_"]
+validate = '''
+let r = http.get("https://console.neon.tech/api/v2/projects", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 || (r.status == 400
+    && (r.json?.message ?? "") == "org_id is required, you can find it on your organization settings page") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # netlify-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -6337,6 +6361,90 @@ entropy(finding["secret"]) <= 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# onesignal-rich-authentication-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "onesignal-rich-authentication-token"
+description = "OneSignal rich authentication token."
+regex = '''\b(os_v2_(?:app|org)_[a-z2-7]{103})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "os_v2_app_",
+    "os_v2_org_",
+]
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# onfido-live-api-token-ca
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "onfido-live-api-token-ca"
+description = "Onfido live API token."
+regex = '''\b(api_live_ca\.[A-Za-z0-9_-]{20,80})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["api_live_ca."]
+validate = '''
+let r = http.get("https://api.ca.onfido.com/v3.6/webhooks/", {
+    "Authorization": "Token token=" + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# onfido-live-api-token-eu
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "onfido-live-api-token-eu"
+description = "Onfido live API token."
+regex = '''\b(api_live\.[A-Za-z0-9_-]{20,80})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["api_live."]
+validate = '''
+let r = http.get("https://api.eu.onfido.com/v3.6/webhooks/", {
+    "Authorization": "Token token=" + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# onfido-live-api-token-us
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "onfido-live-api-token-us"
+description = "Onfido live API token."
+regex = '''\b(api_live_us\.[A-Za-z0-9_-]{20,80})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["api_live_us."]
+validate = '''
+let r = http.get("https://api.us.onfido.com/v3.6/webhooks/", {
+    "Authorization": "Token token=" + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # openai-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -6380,6 +6488,31 @@ regex = '''\b(sha256~[\w-]{43})(?:[^\w-]|\z)'''
 keywords = ["sha256~"]
 filter = '''
 entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# openweather-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "openweather-api-key"
+description = "OpenWeather API key."
+regex = '''(?i:(?:openweather|pyowm)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "openweather",
+    "pyowm",
+]
+validate = '''
+let r = http.get("https://api.openweathermap.org/data/2.5/forecast?q=London&appid=" + finding["secret"], {
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
