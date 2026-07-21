@@ -9,7 +9,7 @@ import (
 func PostHogProjectAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "posthog-project-api-key",
-		Description: "Detected a PostHog Project API Key, which may expose product analytics data and event tracking to unauthorized access.",
+		Description: "Detected a PostHog Project API Key, a public write-only token used to send events to a PostHog project.",
 		// "phc_" + a random token. The encoding has changed over time, so the body
 		// length varies across keys still in the wild:
 		//   - base62(32 bytes)          → 41-43 chars (2021 .. early 2026)

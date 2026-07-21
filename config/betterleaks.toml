@@ -6685,7 +6685,7 @@ entropy(finding["secret"]) <= 3.0
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
 id = "posthog-project-api-key"
-description = "Detected a PostHog Project API Key, which may expose product analytics data and event tracking to unauthorized access."
+description = "Detected a PostHog Project API Key, a public write-only token used to send events to a PostHog project."
 regex = '''(?i)\b(phc_[a-zA-Z0-9_\-]{41,44})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["phc_"]
 filter = '''
