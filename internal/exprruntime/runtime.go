@@ -29,11 +29,9 @@ const (
 )
 
 type compiledProgram struct {
-	vm                *vm.Program
-	mode              compileMode
-	tokenizer         *tiktoken.Tiktoken
-	tokenizerProvider func() *tiktoken.Tiktoken
-	bindings          bindings
+	vm       *vm.Program
+	mode     compileMode
+	bindings bindings
 }
 
 var emptyStringMap = map[string]string{}
@@ -162,11 +160,17 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
 	prg := &compiledProgram{
-		vm:                vmPrg,
-		mode:              mode,
-		tokenizer:         tokenizer,
-		tokenizerProvider: e.tokenizerProvider,
-		bindings:          programBindings(mode, b),
+		vm:       vmPrg,
+		mode:     mode,
+		bindings: programBindings(mode, b),
+	}
+	// The failsTokenEfficiency and filter-namespace closures capture this
+	// *runtimeBindings; concurrent evals then read its tokenizer fields
+	// without synchronization. Resolve them now, before the program is
+	// cached and shared, because any write once evals begin is a data race.
+	if rt, ok := prg.bindings["__runtime"].(*runtimeBindings); ok {
+		rt.tokenizer = tokenizer
+		rt.tokenizerProvider = e.tokenizerProvider
 	}
 
 	e.mu.Lock()
@@ -225,17 +229,12 @@ func (e *Runtime) EvalPrefilter(prg Program, attributes map[string]string) (bool
 
 func (prg Program) evalBindings() bindings {
 	if prg.bindings != nil {
-		b := cloneBindings(prg.bindings)
-		if rt, ok := b["__runtime"].(*runtimeBindings); ok {
-			rtCopy := *rt
-			rt = &rtCopy
-			rt.tokenizer = prg.tokenizer
-			rt.tokenizerProvider = prg.tokenizerProvider
-			b["__runtime"] = rt
-			b["filter"] = filterNamespace(rt)
-			b["failsTokenEfficiency"] = rt.failsTokenEfficiency
-		}
-		return b
+		// cloneBindings is shallow: the returned map is per-eval, but its
+		// __runtime entry still aliases the program's shared
+		// *runtimeBindings. Concurrent evals share that struct, so no eval
+		// may write through __runtime; compile time already resolved its
+		// tokenizer fields.
+		return cloneBindings(prg.bindings)
 	}
 	return bindings{}
 }
