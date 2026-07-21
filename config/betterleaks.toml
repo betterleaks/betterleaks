@@ -5969,11 +5969,11 @@ entropy(finding["secret"]) <= 4.0
 [[rules]]
 id = "mercury-production-api-token"
 description = "Mercury production API token."
-regex = '''\b(secret-token:mercury_production_[a-z]{3,6}_[A-Za-z0-9]{40,50}_yrucrem)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''\b(mercury_production_[a-z]{3,6}_[A-Za-z0-9]{40,50}_yrucrem)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["mercury_production_"]
 validate = '''
 let r = http.get("https://api.mercury.com/api/v1/accounts", {
-    "Authorization": "Bearer " + finding["secret"],
+    "Authorization": "Bearer secret-token:" + finding["secret"],
     "Accept": "application/json"
   }); r.status == 200 ? {
     "result": "valid"
