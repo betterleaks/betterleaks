@@ -230,29 +230,6 @@ func stripEmptyMeta(m map[string]any) map[string]any {
 	return out
 }
 
-// findNewlineIndices returns the start indices of all newlines in s.
-// This replaces the previous regex-based approach which was expensive
-// when using go-re2 (WASM overhead for a literal \n search).
-//
-// Diffs to regex version:
-// - uses the strings library over a regex search
-// - pre-size the array using a heuristic based on the string length
-// - returns a slice of arrays instead of slice of slices
-func findNewlineIndices(s string) [][2]int {
-	indices := make([][2]int, 0, len(s)/128)
-	offset := 0
-	for {
-		i := strings.IndexByte(s[offset:], '\n')
-		if i == -1 {
-			break
-		}
-		idx := offset + i
-		indices = append(indices, [2]int{idx, idx + 1})
-		offset = idx + 1
-	}
-	return indices
-}
-
 // containsAllowSignature checks if the line contains any of the allow signatures
 func containsAllowSignature(line string) bool {
 	for _, sig := range allowSignatures {
