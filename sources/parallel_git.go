@@ -17,11 +17,12 @@ import (
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
-// ParallelGit scans a git repo by running multiple `git log -p` processes
-// in parallel, each covering a distinct set of commits. Commit SHAs are
-// enumerated once via `git rev-list` and then partitioned across workers,
-// guaranteeing deterministic, non-overlapping coverage regardless of
-// timestamp ties in the commit graph.
+// ParallelGit scans a git repo with a fixed pool of git log -p worker
+// processes. Commit SHAs are enumerated once via git rev-list, split into many
+// small batches, and drained from a shared queue by the workers. Every commit
+// belongs to exactly one batch and every batch runs on exactly one worker, so
+// coverage is complete and non-overlapping. Findings are independent of scan
+// order, so it does not matter which worker runs a given batch.
 type ParallelGit struct {
 	RepoPath        string
 	ShouldSkip      SkipFunc
@@ -40,12 +41,22 @@ func (s *ParallelGit) workers() int {
 	return min(runtime.NumCPU(), 4)
 }
 
-// Fragments implements Source by partitioning commits across
-// multiple parallel git log workers.
+// Fragments implements Source. It scans the repo's commits with a fixed pool
+// of concurrent git log workers; the first worker to error cancels the others
+// and that error is returned. It falls back to a single git log process when
+// commit enumeration fails or when only one worker would run, matching a
+// non-parallel scan.
 func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	commits, err := listCommits(ctx, s.RepoPath, s.LogOpts)
 	if err != nil {
-		return fmt.Errorf("list commits: %w", err)
+		// Some --log-opts are valid for `git log` but not `git rev-list`
+		// (e.g. `-n 5` with no ref). Fall back to a single `git log -p`
+		// process, which preserves the exact non-partitioned behavior.
+		// A genuinely broken repo or bad revision still surfaces an error
+		// through the fallback's own git log; Warn makes the loss of
+		// parallelism visible at default verbosity.
+		logging.Warn().Err(err).Msg("git rev-list failed; falling back to a single git log process (no parallelism)")
+		return s.runSingleWorker(ctx, yield)
 	}
 
 	count := len(commits)
@@ -57,32 +68,56 @@ func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error 
 		workers = count
 	}
 
-	// For very small repos, just run a single worker (no overhead)
+	// One effective worker (single CPU, Workers=1, or a one-commit repo) has
+	// nothing to parallelize; skip the batching machinery.
 	if workers <= 1 {
 		return s.runSingleWorker(ctx, yield)
 	}
 
-	chunkSize := (count + workers - 1) / workers
-	logging.Info().Int("commits", count).Int("workers", workers).Int("chunk_size", chunkSize).Msg("parallel git scan")
+	// Commit diff sizes are heavy-tailed, and heavy commits cluster in
+	// contiguous stretches of history (e.g. vendored-dependency churn), so a
+	// contiguous partition landing on a cluster straggles while other workers
+	// idle. Two mitigations compose: batches stride across all of history
+	// (batch b holds commits b, b+numBatches, b+2*numBatches, ...) so each
+	// samples heavy regions evenly, and workers pull from a shared queue so
+	// residual imbalance self-corrects. Aim for about 8 batches per worker:
+	// enough to smooth the tail through stealing, few enough to amortize git
+	// process startup, with a 64-commit floor so small repos do not spawn a
+	// process per handful of commits.
+	batchSize := max(count/(workers*8), 64)
+	numBatches := (count + batchSize - 1) / batchSize
+	logging.Info().Int("commits", count).Int("workers", workers).Int("batch_size", batchSize).Int("batches", numBatches).Msg("parallel git scan")
+
+	batches := make(chan []string, numBatches)
+	for b := range numBatches {
+		batch := make([]string, 0, batchSize)
+		for i := b; i < count; i += numBatches {
+			batch = append(batch, commits[i])
+		}
+		batches <- batch
+	}
+	close(batches)
 
 	g, gctx := errgroup.WithContext(ctx)
-	for i := range workers {
-		start := i * chunkSize
-		if start >= count {
-			break
-		}
-		end := min(start+chunkSize, count)
-		chunk := commits[start:end]
+	for range workers {
 		g.Go(func() error {
-			return s.runWorkerCommits(gctx, yield, chunk)
+			for batch := range batches {
+				if err := gctx.Err(); err != nil {
+					return err
+				}
+				if err := s.runWorkerCommits(gctx, yield, batch); err != nil {
+					return err
+				}
+			}
+			return nil
 		})
 	}
 
 	return g.Wait()
 }
 
-// runSingleWorker runs a full git log (no partitioning) for small repos or
-// single-worker mode.
+// runSingleWorker runs one full, unpartitioned git log, used for the
+// enumeration-failure fallback and when only one worker would run.
 func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) error {
 	gitCmd, err := newGitLogCmd(ctx, s.RepoPath, s.LogOpts)
 	if err != nil {
@@ -226,10 +261,10 @@ func startGitLogCmd(ctx context.Context, repoPath string, args []string) (*GitCm
 	}, nil
 }
 
-// listCommits returns all commit SHAs matching the given log options.
-// The order is deterministic for a given repo state (reverse chronological
-// from a single rev-list invocation), which is critical for correct
-// partitioning across workers.
+// listCommits returns the commit SHAs matching logOpts from a single git
+// rev-list invocation. When batched across workers, Fragments scans every
+// returned SHA exactly once, so coverage depends only on the set being
+// complete, not on its order.
 func listCommits(ctx context.Context, source string, logOpts string) ([]string, error) {
 	sourceClean := filepath.Clean(source)
 	args := []string{"-C", sourceClean, "rev-list"}
