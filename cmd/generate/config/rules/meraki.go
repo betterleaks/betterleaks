@@ -13,11 +13,20 @@ func Meraki() *config.Rule {
 		Description: "Cisco Meraki is a cloud-managed IT solution that provides networking, security, and device management through an easy-to-use interface.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`(?-i:[Mm]eraki|MERAKI)`}, `[0-9a-f]{40}`, false),
 		Keywords:    []string{"meraki"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		ValidateExpr: `let r = http.get("https://api.meraki.com/api/v1/organizations", {
+    "X-Cisco-Meraki-API-Key": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
+		Filter: utils.MinEntropy(3.3),
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("meraki", secrets.NewSecretWithEntropy(utils.Hex("40"), 3))
+	tps := utils.GenerateSampleSecrets("meraki", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.3))
 	fps := []string{
 		`meraki: aaaaaaaaaa1111111111bbbbbbbbbb2222222222`,                                   // low entropy
 		`meraki-api-key: acdeFf05b1a6d4c890237bf08c5e6e8d2b4d0f2e`,                           // invalid case

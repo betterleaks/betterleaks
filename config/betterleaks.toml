@@ -1271,8 +1271,19 @@ id = "cisco-meraki-api-key"
 description = "Cisco Meraki is a cloud-managed IT solution that provides networking, security, and device management through an easy-to-use interface."
 regex = '''(?i:(?:(?-i:[Mm]eraki|MERAKI))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["meraki"]
+validate = '''
+let r = http.get("https://api.meraki.com/api/v1/organizations", {
+    "X-Cisco-Meraki-API-Key": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
 filter = '''
-entropy(finding["secret"]) <= 3.0
+entropy(finding["secret"]) < 3.3
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5862,6 +5873,29 @@ let dc = substring(finding["secret"], lastIndexOf(finding["secret"], "-") + 1); 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# mailersend-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mailersend-api-token"
+description = "MailerSend API token."
+regex = '''\b(mlsn\.[A-Za-z0-9]{30,100})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["mlsn."]
+validate = '''
+let r = http.get("https://api.mailersend.com/v1/api-quota", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # mailgun-private-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -5930,6 +5964,52 @@ entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# mercury-production-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mercury-production-api-token"
+description = "Mercury production API token."
+regex = '''\b(secret-token:mercury_production_[a-z]{3,6}_[A-Za-z0-9]{40,50}_yrucrem)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["mercury_production_"]
+validate = '''
+let r = http.get("https://api.mercury.com/api/v1/accounts", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mergify-application-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mergify-application-key"
+description = "Mergify application API key."
+regex = '''\b(mergify_application_key_[A-Za-z0-9_-]{40,200})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["mergify_application_key_"]
+validate = '''
+let r = http.get("https://api.mergify.com/v1/application", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"id\"") && (r.body contains "\"name\"") && (r.body contains "\"scope\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.2
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # messagebird-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -5967,6 +6047,29 @@ keywords = [
     "webhookb2",
     "incomingwebhook",
 ]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# midtrans-production-server-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "midtrans-production-server-key"
+description = "Midtrans production server key."
+regex = '''(?i)(?:midtrans)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(Mid-server-[A-Za-z0-9_]{10,20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["midtrans"]
+validate = '''
+let r = http.get("https://api.midtrans.com/v2/betterleaks-validation-nonexistent/status", {
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":")),
+    "Accept": "application/json"
+  }); r.status in [200, 404] ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 2.8
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # minimax-api-key
