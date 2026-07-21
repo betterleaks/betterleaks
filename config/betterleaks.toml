@@ -5196,6 +5196,30 @@ entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# highnote-secret-live-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "highnote-secret-live-key"
+description = "Highnote secret API key for the live environment."
+regex = '''\b(sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2})'''
+keywords = ["sk_live_a2v5xz"]
+validate = '''
+let r = http.post("https://api.us.highnote.com/graphql", {
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"])),
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"query\":\"query { ping }\"}"); r.status == 200 && (r.json?.data?.ping ?? "") == "pong" ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # honeycomb-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -5382,6 +5406,30 @@ entropy(finding["secret"]) <= 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# ionic-personal-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "ionic-personal-access-token"
+description = "Ionic personal access token."
+regex = '''\b(ion_[A-Za-z0-9]{42})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["ion_"]
+validate = '''
+let r = http.post("https://api.ionic.io/graphql", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  }, "{\"query\":\"query ValidateToken { viewer { __typename } }\"}"); r.status == 200 && (r.body contains "\"data\":{\"viewer\":{\"__typename\":") ? {
+    "result": "valid"
+  } : r.status in [401, 403] || (r.body contains "\"Unauthorized\"") ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # jumpcloud-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -5542,6 +5590,87 @@ regex = '''(?i)(?:kucoin)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 keywords = ["kucoin"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# langchain-langsmith-personal-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "langchain-langsmith-personal-access-token"
+description = "LangSmith personal access token."
+regex = '''\b(lsv2_pt_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})'''
+keywords = ["lsv2_pt_"]
+validate = '''
+let r = http.get("https://api.smith.langchain.com/api/v1/api-key/current", {
+    "X-API-Key": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# langchain-langsmith-service-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "langchain-langsmith-service-key"
+description = "LangSmith service API key."
+regex = '''\b(lsv2_sk_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})'''
+keywords = ["lsv2_sk_"]
+validate = '''
+let r = http.get("https://api.smith.langchain.com/api/v1/orgs/current", {
+    "X-API-Key": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# lark-app-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "lark-app-id"
+description = "Lark application ID, used as a component of the Lark application-secret rule."
+regex = '''\b(cli_[A-Za-z0-9]{16})'''
+keywords = ["cli_"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# lark-app-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "lark-app-secret"
+description = "Lark application secret."
+regex = '''(?i)(?:lark|larksuite)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["lark"]
+validate = '''
+let r = http.post("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"app_id\":" + json.string(captures["lark-app-id"]) + ",\"app_secret\":" + json.string(finding["secret"]) + "}"); r.status == 200 && (r.json?.code ?? -1) == 0 ? {
+    "result": "valid"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "lark-app-id"
+
+# ──────────────────────────────────────────────────────────────────────────────
 # launchdarkly-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -5549,6 +5678,30 @@ id = "launchdarkly-access-token"
 description = "Uncovered a Launchdarkly Access Token, potentially compromising feature flag management and application functionality."
 regex = '''(?i)(?:launchdarkly)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9=_\-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["launchdarkly"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# lichess-personal-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "lichess-personal-access-token"
+description = "Lichess personal access token."
+regex = '''\b(lip_[A-Za-z0-9_]{16,60})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["lip_"]
+validate = '''
+let r = http.get("https://lichess.org/api/account", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid",
+    "username": (r.json?.username ?? "")
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # lighton-paradigm-api-key
@@ -7052,7 +7205,8 @@ let r = http.get("https://api.stripe.com/v1/account", {
   } : validate.unknown(r)
 '''
 filter = '''
-entropy(finding["secret"]) <= 2.0
+filter.matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
+|| entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────

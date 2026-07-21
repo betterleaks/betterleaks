@@ -29,7 +29,8 @@ func StripeAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter: `filter.matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
+|| entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -39,6 +40,9 @@ func StripeAccessToken() *config.Rule {
 		"sk_test_51OuEMLAlTWGaDypq4P5cuDHbuKeG4tAGPYHJpEXQ7zE8mKK3jkhTFPvCxnSSK5zB5EQZrJsYdsatNmAHGgb0vSKD00GTMSWRHs", // gitleaks:allow
 		"rk_prod_51OuEMLAlTWGaDypquDn9aZigaJOsa9NR1w1BxZXs9JlYsVVkv5XDu6aLmAxwt5Tgun5WcSwQMKzQyqV16c9iD4sx00BRijuoon", // gitleaks:allow
 	)
-	fps := []string{"nonMatchingToken := \"task_test_" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("30"), 2) + "\""}
+	fps := []string{
+		"nonMatchingToken := \"task_test_" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("30"), 2) + "\"",
+		`HIGHNOTE_API_KEY="sk_live_a2V5XzAxS1BSWE1LTjBEWE1INlpBU0VEWjU2VFE3LFdjOWxFMTNDS29xRkdlYU9uMUpDbUpTZWE"`,
+	}
 	return utils.Validate(r, tps, fps)
 }
