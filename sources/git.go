@@ -19,8 +19,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/betterleaks/betterleaks/internal/gitdiff"
 	"github.com/fatih/semgroup"
-	"github.com/gitleaks/go-gitdiff/gitdiff"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
