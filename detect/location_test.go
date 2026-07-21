@@ -9,13 +9,13 @@ import (
 // TestGetLocation tests the getLocation function.
 func TestGetLocation(t *testing.T) {
 	tests := []struct {
-		linePairs    [][]int
+		linePairs    [][2]int
 		start        int
 		end          int
 		wantLocation Location
 	}{
 		{
-			linePairs: [][]int{
+			linePairs: [][2]int{
 				{0, 39},
 				{40, 55},
 				{56, 57},
@@ -32,7 +32,7 @@ func TestGetLocation(t *testing.T) {
 			},
 		},
 		{
-			linePairs: [][]int{
+			linePairs: [][2]int{
 				{0, 39},
 				{40, 55},
 				{56, 57},
