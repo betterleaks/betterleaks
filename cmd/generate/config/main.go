@@ -192,6 +192,8 @@ func main() {
 		rules.DroneciAccessToken(),
 		rules.Duffel(),
 		rules.Dynatrace(),
+		rules.DynatraceVerified(),
+		rules.DynatraceTenantURL(),
 		rules.EasyPost(),
 		rules.ElasticCloudAPIKey(),
 		rules.ElevenLabs(),
