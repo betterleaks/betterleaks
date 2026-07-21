@@ -5660,8 +5660,13 @@ validate = '''
 let r = http.post("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
     "Content-Type": "application/json",
     "Accept": "application/json"
-  }, "{\"app_id\":" + json.string(captures["lark-app-id"]) + ",\"app_secret\":" + json.string(finding["secret"]) + "}"); r.status == 200 && (r.json?.code ?? -1) == 0 ? {
+  }, "{\"app_id\":" + json.string(captures["lark-app-id"]) + ",\"app_secret\":" + json.string(finding["secret"]) + "}");
+let code = r.json?.code ?? -1;
+r.status == 200 && code == 0 ? {
     "result": "valid"
+  } : r.status == 200 && code in [10003, 10005, 10014, 10015] ? {
+    "result": "invalid",
+    "reason": (r.json?.msg ?? "Invalid application credentials")
   } : validate.unknown(r)
 '''
 filter = '''
