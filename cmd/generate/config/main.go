@@ -311,7 +311,7 @@ func main() {
 		rules.MergifyApplicationKey(),
 		rules.MessageBirdAPIToken(),
 		rules.MessageBirdClientID(),
-		rules.MidtransProductionServerKey(),
+		rules.MidtransProductionServerClientKey(),
 		rules.MiniMaxAPIKey(),
 		rules.MongoDBAtlasServiceAccountID(),
 		rules.MongoDBAtlasServiceAccountSecret(),
