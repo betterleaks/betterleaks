@@ -13,7 +13,16 @@ func OneSignalRichAuthenticationToken() *config.Rule {
 		Description: "OneSignal rich authentication token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`os_v2_(?:app|org)_[a-z2-7]{103}`, false),
 		Keywords:    []string{"os_v2_app_", "os_v2_org_"},
-		Filter:      utils.MinEntropy(3.5),
+		ValidateExpr: `let r = http.get("https://api.onesignal.com/apps", {
+    "Authorization": "Key " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 || (r.status == 403 && size(r.json?.errors ?? []) > 0) ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
+		Filter: utils.MinEntropy(3.5),
 	}
 
 	// validate

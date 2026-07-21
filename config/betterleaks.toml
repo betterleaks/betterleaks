@@ -6371,6 +6371,17 @@ keywords = [
     "os_v2_app_",
     "os_v2_org_",
 ]
+validate = '''
+let r = http.get("https://api.onesignal.com/apps", {
+    "Authorization": "Key " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 || (r.status == 403 && size(r.json?.errors ?? []) > 0) ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
