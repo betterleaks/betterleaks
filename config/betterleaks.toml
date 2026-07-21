@@ -6654,8 +6654,28 @@ entropy(finding["secret"]) <= 3.5
 [[rules]]
 id = "posthog-personal-api-key"
 description = "Detected a PostHog Personal API Key, which may expose administrative access to PostHog analytics projects."
-regex = '''(?i)\b(phx_[a-zA-Z0-9_\-]{47})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)\b(phx_[a-zA-Z0-9_\-]{41,49})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["phx_"]
+validate = '''
+let us = http.get("https://us.posthog.com/api/users/@me/", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); us.status in [200, 403] ? {
+    "result": "valid",
+    "region": "us",
+    "email": (us.json?.email ?? ""),
+    "organization": (us.json?.organization?.name ?? "")
+  } : us.status == 401 ? (let eu = http.get("https://eu.posthog.com/api/users/@me/", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); eu.status in [200, 403] ? {
+    "result": "valid",
+    "region": "eu",
+    "email": (eu.json?.email ?? ""),
+    "organization": (eu.json?.organization?.name ?? "")
+  } : eu.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(eu)) : validate.unknown(us)
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
@@ -6666,7 +6686,7 @@ entropy(finding["secret"]) <= 3.0
 [[rules]]
 id = "posthog-project-api-key"
 description = "Detected a PostHog Project API Key, which may expose product analytics data and event tracking to unauthorized access."
-regex = '''(?i)\b(phc_[a-zA-Z0-9_\-]{43})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)\b(phc_[a-zA-Z0-9_\-]{41,44})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["phc_"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
