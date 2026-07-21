@@ -42,7 +42,10 @@ func RampClientSecret() *config.Rule {
     "Authorization": "Basic " + base64.encode(bytes(captures["ramp-client-id"] + ":" + finding["secret"])),
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
-  }, "grant_type=client_credentials&scope=betterleaks%3Avalidate"); r.status == 400
+  }, "grant_type=client_credentials&scope=betterleaks%3Avalidate"); r.status == 200
+    && (r.json?.access_token ?? "") != "" ? {
+    "result": "valid"
+  } : r.status == 400
     && (r.json?.error ?? "") in ["invalid_scope", "unauthorized_client"] ? {
     "result": "valid"
   } : r.status == 401 && (r.json?.error_v2?.error_code ?? "") == "5001" ? {
