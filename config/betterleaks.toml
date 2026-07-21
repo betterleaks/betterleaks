@@ -6584,6 +6584,30 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# paddle-live-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "paddle-live-api-key"
+description = "Paddle live API key."
+regex = '''\b(pdl_live_apikey_[a-z0-9]{26}_[A-Za-z0-9]{22}_[A-Za-z0-9]{3})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["pdl_live_apikey_"]
+validate = '''
+let r = http.get("https://api.paddle.com/event-types", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 || (r.status == 403
+    && (r.json?.error?.code ?? "") in ["authentication_malformed", "authentication_invalid"]) ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # perplexity-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -6604,6 +6628,113 @@ let r = http.post("https://api.perplexity.ai/chat/completions", {
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# persona-production-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "persona-production-api-key"
+description = "Persona production API key."
+regex = '''\b(persona_production_[a-z0-9_-]{20,80})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["persona_production_"]
+validate = '''
+let r = http.get("https://api.withpersona.com/api/v1/accounts?page[size]=1", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Persona-Version": "2023-01-05",
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 403 && size(r.json?.errors ?? []) > 0 ? {
+    "result": "valid",
+    "reason": "Authenticated but access is restricted"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# pinecone-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "pinecone-api-key"
+description = "Pinecone API key."
+regex = '''\b(pcsk_[A-Za-z0-9]{5,6}_[A-Za-z0-9]{63})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["pcsk_"]
+validate = '''
+let r = http.get("https://api.pinecone.io/indexes", {
+    "Api-Key": finding["secret"],
+    "X-Pinecone-Api-Version": "2025-10",
+    "Accept": "application/json"
+  }); r.status == 200 && r.json?.indexes != null ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but control-plane access is restricted"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# pinecone-legacy-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "pinecone-legacy-api-key"
+description = "Pinecone legacy API key."
+regex = '''(?i:(?:pinecone(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["pinecone"]
+validate = '''
+let r = http.get("https://api.pinecone.io/indexes", {
+    "Api-Key": finding["secret"],
+    "X-Pinecone-Api-Version": "2025-10",
+    "Accept": "application/json"
+  }); r.status == 200 && r.json?.indexes != null ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but control-plane access is restricted"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# pinterest-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "pinterest-access-token"
+description = "Pinterest access token."
+regex = '''\b(pina_[A-Za-z0-9_-]{20,200})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["pina_"]
+validate = '''
+let r = http.get("https://api.pinterest.com/v5/user_account", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && r.json?.username != null ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but user-account access is restricted"
+  } : r.status == 401 && (r.json?.code ?? 0) == 2 ? {
+    "result": "invalid",
+    "reason": "Authentication failed"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6711,6 +6842,126 @@ regex = '''(?i)\b(pscale_pw_(?i)[\w=\.-]{32,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)''
 keywords = ["pscale_pw_"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# plivo-auth-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "plivo-auth-id"
+description = "Plivo Auth ID, used as a component of the Plivo Auth Token composite rule."
+regex = '''(?i)(?:plivo(?:[_. -]*(?:auth|account))?[_. -]*(?:id|sid))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(MA[A-Z0-9]{18})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["plivo"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 2.8
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# plivo-auth-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "plivo-auth-token"
+description = "Plivo Auth Token."
+regex = '''(?i:(?:plivo(?:[_. -]*(?:auth))?[_. -]*(?:secret|token|key))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["plivo"]
+validate = '''
+let authID = captures["plivo-auth-id"];
+let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
+  "Authorization": "Basic " + base64.encode(bytes(authID + ":" + finding["secret"])),
+  "Accept": "application/json"
+}); r.status == 200 ? {
+  "result": "valid"
+} : r.status == 403 ? {
+  "result": "valid",
+  "reason": "Authenticated but account access is restricted"
+} : r.status == 401 ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "plivo-auth-id"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# polar-oauth-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "polar-oauth-access-token"
+description = "Polar OAuth access token."
+regex = '''\b(polar_at_[A-Za-z0-9_-]{20,100})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["polar_at_"]
+validate = '''
+let r = http.get("https://api.polar.sh/v1/oauth2/userinfo", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && r.json?.sub != null ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but user-info access is restricted"
+  } : r.status == 401 && (r.json?.error ?? "") == "invalid_token" ? {
+    "result": "invalid",
+    "reason": "Invalid token"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# polar-organization-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "polar-organization-access-token"
+description = "Polar organization access token."
+regex = '''\b(polar_oat_[A-Za-z0-9_-]{20,100})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["polar_oat_"]
+validate = '''
+let r = http.get("https://api.polar.sh/v1/organizations/", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && r.json?.items != null ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but organization access is restricted"
+  } : r.status == 401 && (r.json?.error ?? "") == "invalid_token" ? {
+    "result": "invalid",
+    "reason": "Invalid token"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# polar-personal-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "polar-personal-access-token"
+description = "Polar personal access token."
+regex = '''\b(polar_pat_[A-Za-z0-9_-]{20,100})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["polar_pat_"]
+validate = '''
+let r = http.get("https://api.polar.sh/v1/oauth2/userinfo", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && r.json?.sub != null ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but user-info access is restricted"
+  } : r.status == 401 && (r.json?.error ?? "") == "invalid_token" ? {
+    "result": "invalid",
+    "reason": "Invalid token"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6866,6 +7117,31 @@ entropy(finding["secret"]) <= 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# proof-full-access-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "proof-full-access-api-key"
+description = "Proof production full-access API key."
+regex = '''\b(prf_(?:cli_)?[A-Za-z0-9_-]{20,80})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["prf_"]
+validate = '''
+let r = http.post("https://api.proof.com/v1/transactions", {
+    "ApiKey": finding["secret"],
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{}"); r.status == 422 && (r.body contains "signer") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+filter.matchesAny(finding["secret"], ["^prf_(?:cli_)?test_"])
+|| entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # pulumi-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -6888,6 +7164,73 @@ keywords = ["pypi-ageichlwas5vcmc"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# rainforest-pay-production-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "rainforest-pay-production-api-key"
+description = "Rainforest Pay production API key."
+regex = '''(?i:(?:rainforest(?:[_. -]*pay)?(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(apikey_[a-f0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["rainforest"]
+validate = '''
+let r = http.get("https://api.rainforestpay.com/v1/merchants?limit=1", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Rainforest-Api-Version": "2024-10-16",
+    "Accept": "application/json"
+  }); r.status == 200 && (r.json?.status ?? "") == "SUCCESS" ? {
+    "result": "valid"
+  } : r.status == 403 && (r.json?.status ?? "") == "ERROR" ? {
+    "result": "valid",
+    "reason": "Authenticated but merchant access is restricted"
+  } : r.status == 401 && (r.json?.status ?? "") == "ERROR" ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ramp-client-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "ramp-client-id"
+description = "Ramp client ID, used as a component of the Ramp client-secret composite rule."
+regex = '''\b(ramp_id_[A-Za-z0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["ramp_id_"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ramp-client-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "ramp-client-secret"
+description = "Ramp OAuth client secret."
+regex = '''\b(ramp_sec_[A-Za-z0-9]{48})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["ramp_sec_"]
+validate = '''
+let r = http.post("https://api.ramp.com/developer/v1/token", {
+    "Authorization": "Basic " + base64.encode(bytes(captures["ramp-client-id"] + ":" + finding["secret"])),
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json"
+  }, "grant_type=client_credentials&scope=betterleaks%3Avalidate"); r.status == 400
+    && (r.json?.error ?? "") in ["invalid_scope", "unauthorized_client"] ? {
+    "result": "valid"
+  } : r.status == 401 && (r.json?.error_v2?.error_code ?? "") == "5001" ? {
+    "result": "invalid",
+    "reason": "Invalid client credentials"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "ramp-client-id"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # rapidapi-access-token
