@@ -6664,17 +6664,17 @@ let us = http.get("https://us.posthog.com/api/users/@me/", {
     "region": "us",
     "email": (us.json?.email ?? ""),
     "organization": (us.json?.organization?.name ?? "")
-  } : us.status == 401 ? (let eu = http.get("https://eu.posthog.com/api/users/@me/", {
+  } : (let eu = http.get("https://eu.posthog.com/api/users/@me/", {
     "Authorization": "Bearer " + finding["secret"]
   }); eu.status in [200, 403] ? {
     "result": "valid",
     "region": "eu",
     "email": (eu.json?.email ?? ""),
     "organization": (eu.json?.organization?.name ?? "")
-  } : eu.status == 401 ? {
+  } : (us.status == 401 && eu.status == 401) ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(eu)) : validate.unknown(us)
+  } : validate.unknown(eu))
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0

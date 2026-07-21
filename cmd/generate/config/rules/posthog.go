@@ -50,8 +50,10 @@ func PostHogPersonalAPIKey() *config.Rule {
 		Keywords: []string{"phx_"},
 		Filter:   `entropy(finding["secret"]) <= 3.0`,
 		// A valid key hits us/eu.posthog.com and returns 200 (has user:read) or
-		// 403 (authenticated but missing the user:read scope); an unknown/revoked
-		// key returns 401. Keys are region-bound, so fall back from US to EU.
+		// 403 (authenticated but missing the user:read scope); a revoked/unknown
+		// key returns 401. Keys are region-bound, so any non-valid US response
+		// (401, or a 429/5xx outage) falls back to EU. Only report "invalid" when
+		// both regions definitively return 401 — if either errored, stay unknown.
 		ValidateExpr: `let us = http.get("https://us.posthog.com/api/users/@me/", {
     "Authorization": "Bearer " + finding["secret"]
   }); us.status in [200, 403] ? {
@@ -59,17 +61,17 @@ func PostHogPersonalAPIKey() *config.Rule {
     "region": "us",
     "email": (us.json?.email ?? ""),
     "organization": (us.json?.organization?.name ?? "")
-  } : us.status == 401 ? (let eu = http.get("https://eu.posthog.com/api/users/@me/", {
+  } : (let eu = http.get("https://eu.posthog.com/api/users/@me/", {
     "Authorization": "Bearer " + finding["secret"]
   }); eu.status in [200, 403] ? {
     "result": "valid",
     "region": "eu",
     "email": (eu.json?.email ?? ""),
     "organization": (eu.json?.organization?.name ?? "")
-  } : eu.status == 401 ? {
+  } : (us.status == 401 && eu.status == 401) ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : validate.unknown(eu)) : validate.unknown(us)`,
+  } : validate.unknown(eu))`,
 	}
 
 	// Positives are generated at scan time (never committed) so no realistic-looking
