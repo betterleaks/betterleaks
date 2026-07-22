@@ -27,6 +27,9 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Validate default config
+        run: go run . config check config/betterleaks.toml
+
       - name: Set up gotestsum
         # https://github.com/gotestyourself/gotestsum/releases
         run: |
