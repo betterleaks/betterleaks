@@ -6658,38 +6658,11 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
-# pinecone-api-key
+# pinecone-api-key.1
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
-id = "pinecone-api-key"
-description = "Pinecone API key."
-regex = '''\b(pcsk_[A-Za-z0-9]{5,6}_[A-Za-z0-9]{63})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-keywords = ["pcsk_"]
-validate = '''
-let r = http.get("https://api.pinecone.io/indexes", {
-    "Api-Key": finding["secret"],
-    "X-Pinecone-Api-Version": "2025-10",
-    "Accept": "application/json"
-  }); r.status == 200 && r.json?.indexes != null ? {
-    "result": "valid"
-  } : r.status == 403 ? {
-    "result": "valid",
-    "reason": "Authenticated but control-plane access is restricted"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-'''
-filter = '''
-entropy(finding["secret"]) < 3.5
-'''
-
-# ──────────────────────────────────────────────────────────────────────────────
-# pinecone-legacy-api-key
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "pinecone-legacy-api-key"
-description = "Pinecone legacy API key."
+id = "pinecone-api-key.1"
+description = "Pinecone API key version 1 (UUID format)."
 regex = '''(?i:(?:pinecone(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["pinecone"]
 validate = '''
@@ -6709,6 +6682,33 @@ let r = http.get("https://api.pinecone.io/indexes", {
 '''
 filter = '''
 entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# pinecone-api-key.2
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "pinecone-api-key.2"
+description = "Pinecone API key version 2 (pcsk format)."
+regex = '''\b(pcsk_[A-Za-z0-9]{5,6}_[A-Za-z0-9]{63})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["pcsk_"]
+validate = '''
+let r = http.get("https://api.pinecone.io/indexes", {
+    "Api-Key": finding["secret"],
+    "X-Pinecone-Api-Version": "2025-10",
+    "Accept": "application/json"
+  }); r.status == 200 && r.json?.indexes != null ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but control-plane access is restricted"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
