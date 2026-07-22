@@ -16,7 +16,7 @@ func PinterestAccessToken() *config.Rule {
 		ValidateExpr: `let r = http.get("https://api.pinterest.com/v5/user_account", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.username != null ? {
+  }); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
