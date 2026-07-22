@@ -10,7 +10,7 @@ const pineconeValidateExpr = `let r = http.get("https://api.pinecone.io/indexes"
     "Api-Key": finding["secret"],
     "X-Pinecone-Api-Version": "2025-10",
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.indexes != null ? {
+  }); r.status == 200 && (r.body contains "\"indexes\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
