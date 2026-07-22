@@ -6670,7 +6670,7 @@ let r = http.get("https://api.pinecone.io/indexes", {
     "Api-Key": finding["secret"],
     "X-Pinecone-Api-Version": "2025-10",
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.indexes != null ? {
+  }); r.status == 200 && (r.body contains "\"indexes\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
@@ -6697,7 +6697,7 @@ let r = http.get("https://api.pinecone.io/indexes", {
     "Api-Key": finding["secret"],
     "X-Pinecone-Api-Version": "2025-10",
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.indexes != null ? {
+  }); r.status == 200 && (r.body contains "\"indexes\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
@@ -6723,7 +6723,7 @@ validate = '''
 let r = http.get("https://api.pinterest.com/v5/user_account", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.username != null ? {
+  }); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
@@ -6898,7 +6898,7 @@ validate = '''
 let r = http.get("https://api.polar.sh/v1/oauth2/userinfo", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.sub != null ? {
+  }); r.status == 200 && (r.body contains "\"sub\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
@@ -6924,7 +6924,7 @@ validate = '''
 let r = http.get("https://api.polar.sh/v1/organizations/", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.items != null ? {
+  }); r.status == 200 && (r.body contains "\"items\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
@@ -6950,7 +6950,7 @@ validate = '''
 let r = http.get("https://api.polar.sh/v1/oauth2/userinfo", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.sub != null ? {
+  }); r.status == 200 && (r.body contains "\"sub\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
@@ -7277,6 +7277,29 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# redirect-pizza-api-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "redirect-pizza-api-token.1"
+description = "redirect.pizza API token."
+regex = '''\b(rpa_[A-Za-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["rpa_"]
+validate = '''
+let r = http.get("https://redirect.pizza/api/v1/domains", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 && (r.json?.message ?? "") == "Unauthenticated." ? {
+    "result": "invalid",
+    "reason": "Unauthenticated"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # render-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -7325,6 +7348,29 @@ entropy(finding["secret"]) <= 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# rootly-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "rootly-api-key.1"
+description = "Rootly API key."
+regex = '''\b(rootly_[a-f0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["rootly_"]
+validate = '''
+let r = http.get("https://api.rootly.com/v1/incidents", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status in [200, 404] ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Invalid token"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # rubygems-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -7334,6 +7380,93 @@ regex = '''\b(rubygems_[a-f0-9]{48})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["rubygems_"]
 filter = '''
 entropy(finding["secret"]) <= 2.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# runpod-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "runpod-api-key.1"
+description = "RunPod API key."
+regex = '''\b(rpa_[A-Z0-9]{40}[A-Za-z0-9]{6})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["rpa_"]
+validate = '''
+let r = http.post("https://api.runpod.io/graphql", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"query\":\"{ myself { id } }\"}"); r.status == 200
+    && (r.json?.data?.myself?.id ?? "") != "" ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# salesforce-access-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "salesforce-access-token.1"
+description = "Salesforce access token."
+regex = '''\b(00[A-Za-z0-9]{13}![A-Za-z0-9._-]{80,260})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["salesforce.com"]
+validate = '''
+let r = http.get("https://" + captures["salesforce-instance-url.1"] + "/services/data/v60.0/limits", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"DailyApiRequests\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.3
+'''
+[[rules.required]]
+id = "salesforce-instance-url.1"
+withinLines = 30
+
+# ──────────────────────────────────────────────────────────────────────────────
+# salesforce-instance-url.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "salesforce-instance-url.1"
+description = "Salesforce instance host, used as a component of the Salesforce access-token rule."
+regex = '''(?i)\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){0,4}\.my\.salesforce\.com|[a-z]{2,8}[0-9]{1,4}\.salesforce\.com))\b'''
+keywords = ["salesforce.com"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# samsara-api-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "samsara-api-token.1"
+description = "Samsara API token."
+regex = '''\b(samsara_api_[A-Za-z0-9]{26,32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["samsara_api_"]
+validate = '''
+let r = http.get("https://api.samsara.com/fleet/vehicles", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but vehicle access is restricted"
+  } : r.status == 401 && (r.json?.message ?? "") == "invalid token" ? {
+    "result": "invalid",
+    "reason": "Invalid token"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7370,6 +7503,55 @@ regex = '''\b(tk-us-[\w-]{48})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["tk-us-"]
 filter = '''
 entropy(finding["secret"]) <= 2.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# scalr-api-access-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "scalr-api-access-token.1"
+description = "Scalr API access token."
+regex = '''(?i:(?:scalr(?:[_. -]*(?:api|access))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJ1c2VyIiwianRpIjoiYXQt[A-Za-z0-9_-]{20,40}\.[A-Za-z0-9_-]{43})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["scalr"]
+validate = '''
+let r = http.get("https://scalr.io/api/iacp/v3/accounts", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/vnd.api+json"
+  }); r.status == 200 && (r.body contains "\"data\"") ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but account access is restricted"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# segment-public-api-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "segment-public-api-token.1"
+description = "Segment workspace bearer token for the Public API."
+regex = '''\b(sgp_[A-Za-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["sgp_"]
+validate = '''
+let r = http.get("https://api.segmentapis.com/", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "invalid",
+    "reason": "Not authorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.3
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7723,6 +7905,48 @@ regex = '''(?:https?://)?hooks.slack.com/(?:services|workflows|triggers)/[A-Za-z
 keywords = ["hooks.slack.com"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# snowflake-account-host.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "snowflake-account-host.1"
+description = "Snowflake account host, used as a component of the programmatic access-token rule."
+regex = '''(?i)\b([a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.snowflakecomputing\.com)\b'''
+keywords = ["snowflakecomputing.com"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# snowflake-programmatic-access-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "snowflake-programmatic-access-token.1"
+description = "Snowflake programmatic access token."
+regex = '''(?i:(?:(?:snowflake[_. -]*(?:programmatic[_. -]*)?(?:access[_. -]*)?token|sf[_. -]*token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_-]{100,500})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "snowflake",
+    "sf_token",
+]
+validate = '''
+let r = http.post("https://" + captures["snowflake-account-host.1"] + "/api/v2/statements", {
+    "Authorization": "Bearer " + finding["secret"],
+    "X-Snowflake-Authorization-Token-Type": "PROGRAMMATIC_ACCESS_TOKEN",
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"statement\":\"select 1\",\"timeout\":5}"); r.status in [200, 202]
+    && ((r.body contains "\"statementHandle\"") || (r.body contains "\"resultSetMetaData\"")) ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "snowflake-account-host.1"
+withinLines = 30
+
+# ──────────────────────────────────────────────────────────────────────────────
 # snyk-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -7788,6 +8012,30 @@ id = "squarespace-access-token"
 description = "Identified a Squarespace Access Token, which may compromise website management and content control on Squarespace."
 regex = '''(?i)(?:squarespace)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["squarespace"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# sslmate-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "sslmate-api-key.1"
+description = "SSLMate API key."
+regex = '''(?i:(?:sslmate(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{36})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["sslmate"]
+validate = '''
+let r = http.get("https://sslmate.com/api/v2/certs/example.com", {
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":")),
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"cn\"")
+    && (r.body contains "\"exists\"") ? {
+    "result": "valid"
+  } : r.status == 401 && (r.json?.reason ?? "") == "bad_credentials" ? {
+    "result": "invalid",
+    "reason": "Bad credentials"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # stability-ai-api-key
@@ -7915,6 +8163,80 @@ keywords = ["supabase.co"]
 skipReport = true
 filter = '''
 entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tableau-personal-access-token-name.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tableau-personal-access-token-name.1"
+description = "Tableau personal access-token name, used as a component of the token rule."
+regex = '''(?i:(?:tableau(?:[_. -]*(?:personal[_. -]*access|pat))?[_. -]*(?:token[_. -]*)?name)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z][A-Za-z0-9_-]{2,50})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["tableau"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tableau-personal-access-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tableau-personal-access-token.1"
+description = "Tableau personal access token."
+regex = '''\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b'''
+keywords = ["tableau"]
+validate = '''
+let r = http.post("https://" + captures["tableau-server-host.1"] + "/api/3.26/auth/signin", {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"credentials\":{\"personalAccessTokenName\":\"" + captures["tableau-personal-access-token-name.1"]
+    + "\",\"personalAccessTokenSecret\":\"" + finding["secret"] + "\",\"site\":{}}}");
+  r.status == 200 && (r.json?.credentials?.token ?? "") != "" ? {
+    "result": "valid"
+  } : r.status in [400, 401, 403] ? {
+    "result": "invalid",
+    "reason": "Invalid Tableau credentials"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "tableau-personal-access-token-name.1"
+withinLines = 20
+[[rules.required]]
+id = "tableau-server-host.1"
+withinLines = 20
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tableau-server-host.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tableau-server-host.1"
+description = "Tableau Online server host, used as a component of the personal access-token rule."
+regex = '''(?i)\b([a-z0-9-]+\.online\.tableau\.com)\b'''
+keywords = ["online.tableau.com"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tailscale-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tailscale-api-key.1"
+description = "Tailscale API access token."
+regex = '''\b(tskey-api-[A-Za-z0-9_-]{20,36})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["tskey-api-"]
+validate = '''
+let r = http.post("https://api.tailscale.com/api/v2/secret-scanning/verify", {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json"
+  }, "key=" + finding["secret"]); r.status == 204 ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Invalid API token"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────

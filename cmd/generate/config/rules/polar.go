@@ -9,7 +9,7 @@ import (
 const polarUserTokenValidateExpr = `let r = http.get("https://api.polar.sh/v1/oauth2/userinfo", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.sub != null ? {
+  }); r.status == 200 && (r.body contains "\"sub\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
@@ -29,7 +29,7 @@ func PolarOrganizationAccessToken() *config.Rule {
 		ValidateExpr: `let r = http.get("https://api.polar.sh/v1/organizations/", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 && r.json?.items != null ? {
+  }); r.status == 200 && (r.body contains "\"items\"") ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "valid",
