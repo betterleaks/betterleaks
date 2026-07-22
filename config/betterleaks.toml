@@ -7416,11 +7416,14 @@ description = "Salesforce access token."
 regex = '''\b(00[A-Za-z0-9]{13}![A-Za-z0-9._-]{80,260})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["salesforce.com"]
 validate = '''
-let r = http.get("https://" + captures["salesforce-instance-url.1"] + "/services/data/v60.0/limits", {
+let r = http.get("https://" + captures["salesforce-instance-url.1"] + "/services/data/v67.0/limits", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }); r.status == 200 && (r.body contains "\"DailyApiRequests\"") ? {
     "result": "valid"
+  } : r.status == 403 && (r.body contains "\"REQUEST_LIMIT_EXCEEDED\"") ? {
+    "result": "valid",
+    "reason": "Authenticated but the organization API request limit is exceeded"
   } : r.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -7439,7 +7442,7 @@ withinLines = 30
 [[rules]]
 id = "salesforce-instance-url.1"
 description = "Salesforce instance host, used as a component of the Salesforce access-token rule."
-regex = '''(?i)\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){0,4}\.my\.salesforce\.com|[a-z]{2,8}[0-9]{1,4}\.salesforce\.com))\b'''
+regex = '''(?i)(?:^|[^a-z0-9.-])(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){0,4}\.my\.salesforce\.com|[a-z]{2,8}[0-9]{1,4}\.salesforce\.com))(?:[^a-z0-9.-]|$)'''
 keywords = ["salesforce.com"]
 skipReport = true
 
