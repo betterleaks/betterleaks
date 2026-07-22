@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
 )
 
 const highnoteLiveValidationExpr = `let r = http.post("https://api.us.highnote.com/graphql", {
@@ -21,10 +20,14 @@ const highnoteLiveValidationExpr = `let r = http.post("https://api.us.highnote.c
 func HighnoteSecretLiveKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "highnote-secret-live-key",
-		Description:  "Highnote secret API key for the live environment.",
-		Regex:        regexp.MustCompile(`\b(sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2})`),
-		Keywords:     []string{"sk_live_a2V5Xz"},
+		RuleID:      "highnote-secret-live-key",
+		Description: "Highnote secret API key for the live environment.",
+		Regex: utils.GenerateSemiGenericRegex(
+			[]string{`highnote(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token|sk[_. -]*live)`},
+			`sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2}`,
+			false,
+		),
+		Keywords:     []string{"highnote"},
 		ValidateExpr: highnoteLiveValidationExpr,
 		Filter:       utils.MinEntropy(3.5),
 	}
@@ -35,6 +38,7 @@ func HighnoteSecretLiveKey() *config.Rule {
 	}
 	fps := []string{
 		`HIGHNOTE_SK_LIVE="sk_live_short"`,
+		`WORKOS_API_KEY="sk_live_a2V5XzAxS1BSWE1LTjBEWE1INlpBU0VEWjU2VFE3LFdjOWxFMTNDS29xRkdlYU9uMUpDbUpTZWE"`,
 	}
 	return utils.Validate(r, tps, fps)
 }
