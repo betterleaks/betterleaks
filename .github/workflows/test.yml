@@ -27,8 +27,11 @@ jobs:
       - name: Build
         run: go build ./...
 
-      - name: Validate default config
+      - name: Validate default config with RE2
         run: go run . config check config/betterleaks.toml
+
+      - name: Validate default config with stdlib regex
+        run: go run . --regex-engine stdlib config check config/betterleaks.toml
 
       - name: Set up gotestsum
         # https://github.com/gotestyourself/gotestsum/releases
