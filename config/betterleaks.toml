@@ -5212,8 +5212,8 @@ entropy(finding["secret"]) <= 4.0
 [[rules]]
 id = "highnote-secret-live-key"
 description = "Highnote secret API key for the live environment."
-regex = '''\b(sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2})'''
-keywords = ["sk_live_a2v5xz"]
+regex = '''(?i:(?:highnote(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token|sk[_. -]*live))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["highnote"]
 validate = '''
 let r = http.post("https://api.us.highnote.com/graphql", {
     "Authorization": "Basic " + base64.encode(bytes(finding["secret"])),
@@ -8252,6 +8252,80 @@ regex = '''(?i)(?:telegr)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 keywords = ["telegr"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# telnyx-api-v2-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "telnyx-api-v2-key.1"
+description = "Telnyx API v2 key."
+regex = '''(?i:(?:telnyx(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(KEY[0-9A-Za-z_-]{55})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["telnyx"]
+validate = '''
+let r = http.get("https://api.telnyx.com/v2/balance", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"balance\"") ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but balance access is restricted"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Authentication failed"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# temporal-cloud-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "temporal-cloud-api-key.1"
+description = "Temporal Cloud API key."
+regex = '''\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*Y2NvdW50X2lk[A-Za-z0-9_-]*InRlbXBvcmFsLmlv[A-Za-z0-9_-]*(?:ICJrZXlfaWQiOi|a2V5X2lk|rZXlfaWQi)[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["inrlbxbvcmfslmlv"]
+validate = '''
+let r = http.get("https://saas-api.tmprl.cloud/cloud/current-identity", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && ((r.body contains "\"user\"") || (r.body contains "\"serviceAccount\"")) ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Request not authenticated"
+  } : validate.unknown(r)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.2
+|| !filter.matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){3}"])
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# thunderstore-api-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "thunderstore-api-token.1"
+description = "Thunderstore API token."
+regex = '''\b(tss_[A-Za-z0-9_-]{20,80})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["tss_"]
+validate = '''
+let r = http.get("https://thunderstore.io/api/experimental/current-user/", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"username\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Invalid Service Account token"
+  } : validate.unknown(r)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+|| !filter.matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){2}"])
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # togetherai-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -8359,6 +8433,33 @@ regex = '''(?i)(?:typeform)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 keywords = ["tfp_"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# unkey-root-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "unkey-root-key.1"
+description = "Unkey administrative root key."
+regex = '''\b(unkey_[A-Za-z0-9]{20,32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["unkey_"]
+validate = '''
+let r = http.post("https://api.unkey.com/v2/keys.verifyKey", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"key\":\"betterleaks_validation_key\"}"); r.status == 200 && (r.body contains "\"data\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Invalid root key"
+  } : validate.unknown(r)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+|| !filter.matchesAny(finding["secret"], ["[0-9]"])
+|| !filter.matchesAny(finding["secret"], ["[A-Z]"])
+|| !filter.matchesAny(finding["secret"], ["[a-z]"])
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # upcloud-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -8394,6 +8495,30 @@ let r = http.get("https://api.upstage.ai/v1/models", {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# val-town-api-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "val-town-api-token.1"
+description = "Val Town API token."
+regex = '''\b(vtwn_[A-Za-z0-9_-]{20,80})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["vtwn_"]
+validate = '''
+let r = http.get("https://api.val.town/v1/me", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"id\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+|| !filter.matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){2}"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8572,6 +8697,78 @@ entropy(finding["secret"]) <= 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# wakatime-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "wakatime-api-key.1"
+description = "WakaTime API key version 1 (UUID format)."
+regex = '''(?i:(?:waka[_. -]?time(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = [
+    "wakatime",
+    "waka_time",
+    "waka-time",
+    "waka time",
+    "waka.time",
+]
+validate = '''
+let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"data\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# wakatime-api-key.2
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "wakatime-api-key.2"
+description = "WakaTime API key version 2 (waka_ format)."
+regex = '''(?i)\b(waka_[a-z0-9]{36,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["waka_"]
+validate = '''
+let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"data\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# weatherstack-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "weatherstack-api-key.1"
+description = "Weatherstack API key."
+regex = '''(?i:(?:weatherstack(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-z]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["weatherstack"]
+validate = '''
+let r = http.get("https://api.weatherstack.com/current?access_key=" + finding["secret"] + "&query=Los%20Angeles", {
+    "Accept": "application/json"
+  }); r.status == 200 && ((r.body contains "\"location\"") || (r.body contains "Access Restricted - Your current Subscription Plan does not support HTTPS Encryption")) ? {
+    "result": "valid"
+  } : r.status == 401 && (r.body contains "\"invalid_access_key\"") ? {
+    "result": "invalid",
+    "reason": "Invalid access key"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # weights-and-biases-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -8622,6 +8819,68 @@ let r = http.post("https://api.wandb.ai/graphql", {
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# workato-developer-api-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "workato-developer-api-token.1"
+description = "Workato Developer API token."
+regex = '''\b(wrka(?:[a-z]{2})?-eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{64,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["wrka"]
+validate = '''
+let token = finding["secret"];
+let host = filter.matchesAny(token, ["^wrkaeu-"]) ? "https://app.eu.workato.com" :
+  filter.matchesAny(token, ["^wrkajp-"]) ? "https://app.jp.workato.com" :
+  filter.matchesAny(token, ["^wrkasg-"]) ? "https://app.sg.workato.com" :
+  filter.matchesAny(token, ["^wrkaau-"]) ? "https://app.au.workato.com" :
+  filter.matchesAny(token, ["^wrkail-"]) ? "https://app.il.workato.com" :
+  filter.matchesAny(token, ["^wrkacn-"]) ? "https://app.workatoapp.cn" :
+  filter.matchesAny(token, ["^wrkakr-"]) ? "https://app.kr.workato.com" :
+  "https://www.workato.com";
+let r = http.get(host + "/api/users/me", {
+    "Authorization": "Bearer " + token,
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"id\"") ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but workspace-details access is restricted"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# workos-production-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "workos-production-api-key.1"
+description = "WorkOS production API key."
+regex = '''(?i:(?:workos(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["workos"]
+validate = '''
+let r = http.get("https://api.workos.com/organizations", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"data\"") ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated but organization access is restricted"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5
+|| filter.matchesAny(finding["secret"], ["(?i)example"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8708,4 +8967,28 @@ id = "zendesk-secret-key"
 description = "Detected a Zendesk Secret Key, risking unauthorized access to customer support services and sensitive ticketing data."
 regex = '''(?i)(?:zendesk)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["zendesk"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# zuplo-consumer-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zuplo-consumer-api-key.1"
+description = "Zuplo consumer API key."
+regex = '''\b(zpka_[a-z0-9]{32}_[0-9a-f]{8})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["zpka_"]
+validate = '''
+let r = http.get("https://dev.zuplo.com/v1/who-am-i", {
+    "Authorization": "Bearer " + finding["secret"],
+    "x-api-key": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Authorization failed"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.3
+'''
 
