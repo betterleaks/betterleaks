@@ -164,7 +164,7 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 //
 // This is intentionally not a full shell parser: no variable expansion,
 // command substitution, glob expansion, or other shell features. Also, a
-// standalone empty quoted token (for example '') is currently dropped.
+// standalone empty quoted token (for example ”) is currently dropped.
 func splitGitLogOpts(input string) ([]string, error) {
 	var (
 		args     []string

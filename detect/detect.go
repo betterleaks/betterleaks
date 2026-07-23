@@ -852,9 +852,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	// Lazily compute newline indices — only when we actually need location info.
-	var newlineIndices [][]int
-	newlineComputed := false
+	// Lazily compute line indices — only when we actually need location info.
+	var lineOffsets []int
+	lineOffsetsComputed := false
 
 	// Reuse the matches slice from above instead of calling FindAllStringIndex again.
 	for _, matchIndex := range matches {
@@ -888,15 +888,12 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// in the finding will be the line/column numbers of the _match_
 		// not the _secret_, which will be different if the secretGroup
 		// value is set for this rule
-		if !newlineComputed {
-			newlineIndices = findNewlineIndices(fragment.Raw)
-			newlineComputed = true
+		if !lineOffsetsComputed {
+			lineOffsets = findLineOffsets(fragment.Raw)
+			lineOffsetsComputed = true
 		}
-		loc := location(newlineIndices, fragment.Raw, matchIndex)
 
-		if matchIndex[1] > loc.endLineIndex {
-			loc.endLineIndex = matchIndex[1]
-		}
+		loc := location(lineOffsets, fragment.Raw, matchIndex)
 
 		tags := r.Tags
 		if len(metaTags) > 0 {
