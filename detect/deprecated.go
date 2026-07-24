@@ -16,10 +16,24 @@ import (
 // DetectSource scans the given source and returns a list of findings
 // Deprecated: use Run instead for more flexible and efficient processing of findings.
 func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]report.Finding, error) {
-	// Initialize deprecated fields used only by this code path.
+	// Reset per-scan state so that a Detector reused across multiple
+	// DetectSource calls returns findings and counters for *this* scan only,
+	// not accumulated across every prior call. Keeps Run and DetectSource on
+	// the same "each invocation is its own scan" contract.
+	d.findings = d.findings[:0]
+	d.TotalBytes.Store(0)
+	if d.ValidationCounts == nil {
+		d.ValidationCounts = make(map[string]int)
+	} else {
+		clear(d.ValidationCounts)
+	}
 	if d.commitMap == nil {
 		d.commitMap = make(map[string]bool)
 		d.commitMutex = &sync.Mutex{}
+	} else {
+		d.commitMutex.Lock()
+		clear(d.commitMap)
+		d.commitMutex.Unlock()
 	}
 
 	// We have a single channel for sending findings to.
@@ -107,6 +121,12 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 			Uint64("http_requests", misses).
 			Uint64("cache_hits", hits).
 			Msg("validation cache stats")
+
+		// Nil out the reference so a second DetectSource call on the same
+		// Detector does not route findings into the closed pool, where
+		// p.jobs <- job would panic. Callers that want validation on
+		// subsequent scans must assign a fresh pool before the next call.
+		d.ValidationPool = nil
 	}
 
 	close(d.findingsCh)
