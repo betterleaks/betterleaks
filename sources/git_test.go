@@ -1,5 +1,27 @@
 package sources
 
+import (
+	"strings"
+	"testing"
+)
+
+func TestGitConfigIsolationEnv(t *testing.T) {
+	env := gitConfigIsolationEnv()
+	joined := strings.Join(env, "\n")
+
+	for _, want := range []string{
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=safe.directory",
+		"GIT_CONFIG_VALUE_0=*",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("gitConfigIsolationEnv() missing %q in:\n%s", want, joined)
+		}
+	}
+}
+
 // TODO: commenting out this test for now because it's flaky. Alternatives to consider to get this working:
 // -- use `git stash` instead of `restore()`
 
