@@ -454,6 +454,7 @@ func main() {
 		rules.TogetherAI(),
 		rules.TelegramBotToken(),
 		rules.TravisCIAccessToken(),
+		rules.TrelloAccessToken(),
 		rules.Twilio(),
 		rules.TwitchAPIToken(),
 		rules.TwitterAPIKey(),
