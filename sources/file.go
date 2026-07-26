@@ -205,6 +205,21 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 // decompressorFragments recursively crawls archives and yields fragments
 func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) {
+	// Declared upfront so that the deferred func can release it even if
+	// decompression panics on malformed content.
+	var innerReader io.ReadCloser
+	defer func() {
+		if innerReader != nil {
+			_ = innerReader.Close()
+		}
+		if r := recover(); r != nil {
+			logging.Warn().
+				Str("path", s.FullPath()).
+				Str("panic", fmt.Sprint(r)).
+				Msg("skipping compressed file: panic during decompression")
+		}
+	}()
+
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
 		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not read compressed file")
@@ -216,9 +231,6 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 	if err := s.fileFragments(ctx, br, true, yield); err != nil {
 		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("error reading compressed file")
 	}
-
-	_ = innerReader.Close()
-	return
 }
 
 // fileFragments reads the file into fragments to yield.
