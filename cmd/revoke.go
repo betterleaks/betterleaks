@@ -117,25 +117,35 @@ func runRevoke(cmd *cobra.Command, args []string) {
 	initConfig(source)
 	cfg := Config(cmd)
 
-	findings, err := loadFindingsReport(reportPath)
+	allFindings, err := loadFindingsReport(reportPath)
 	if err != nil {
 		logging.Fatal().Err(err).Str("path", reportPath).Msg("failed to load report")
 	}
-	if fingerprint != "" {
-		filtered := findings[:0]
-		for _, f := range findings {
-			if f.Fingerprint == fingerprint {
-				filtered = append(filtered, f)
-			}
-		}
-		findings = filtered
-		if len(findings) == 0 {
-			logging.Fatal().Str("fingerprint", fingerprint).Msg("no finding in the report matches this fingerprint")
-		}
-	}
-	if len(findings) == 0 {
+	if len(allFindings) == 0 {
 		logging.Info().Msg("report contains no findings, nothing to revoke")
 		return
+	}
+
+	// targets is the subset of allFindings to actually attempt revocation
+	// against. allFindings itself is never filtered down - --output must
+	// always write back the complete original set (with only the attempted
+	// findings' statuses updated), otherwise every finding excluded by
+	// --fingerprint would silently disappear from the written report and
+	// from downstream baseline processing.
+	var targets []*report.Finding
+	if fingerprint != "" {
+		for i := range allFindings {
+			if allFindings[i].Fingerprint == fingerprint {
+				targets = append(targets, &allFindings[i])
+			}
+		}
+		if len(targets) == 0 {
+			logging.Fatal().Str("fingerprint", fingerprint).Msg("no finding in the report matches this fingerprint")
+		}
+	} else {
+		for i := range allFindings {
+			targets = append(targets, &allFindings[i])
+		}
 	}
 
 	runtime, err := cfg.CompileRevocation()
@@ -146,8 +156,23 @@ func runRevoke(cmd *cobra.Command, args []string) {
 	reader := bufio.NewReader(os.Stdin)
 	counts := map[revocationOutcome]int{}
 
-	for i := range findings {
-		f := &findings[i]
+	writeOutput := func() {
+		if outputPath == "" || dryRun {
+			return
+		}
+		out, err := json.MarshalIndent(allFindings, "", " ")
+		if err != nil {
+			logging.Fatal().Err(err).Msg("failed to marshal updated report")
+		}
+		// 0o600: this file can contain revoked/skipped/failed secrets in
+		// plaintext, so it must not be group- or world-readable.
+		if err := os.WriteFile(outputPath, out, 0o600); err != nil {
+			logging.Fatal().Err(err).Str("path", outputPath).Msg("failed to write updated report")
+		}
+		logging.Info().Str("path", outputPath).Msg("wrote updated report")
+	}
+
+	for _, f := range targets {
 
 		rule, ok := cfg.Rules[f.RuleID]
 		if !ok || rule.RevokeExpr == "" {
@@ -194,6 +219,10 @@ func runRevoke(cmd *cobra.Command, args []string) {
 			if !continueOnError {
 				fmt.Printf("\nrevoked=%d unsupported=%d skipped=%d failed=%d\n",
 					counts[outcomeRevoked], counts[outcomeUnsupported], counts[outcomeSkipped], counts[outcomeFailed])
+				// Write back whatever was already revoked before stopping -
+				// otherwise a real, successful, irreversible revocation would
+				// go unrecorded in the report just because a later finding failed.
+				writeOutput()
 				os.Exit(1)
 			}
 		}
@@ -202,16 +231,7 @@ func runRevoke(cmd *cobra.Command, args []string) {
 	fmt.Printf("\nrevoked=%d unsupported=%d skipped=%d failed=%d\n",
 		counts[outcomeRevoked], counts[outcomeUnsupported], counts[outcomeSkipped], counts[outcomeFailed])
 
-	if outputPath != "" && !dryRun {
-		out, err := json.MarshalIndent(findings, "", " ")
-		if err != nil {
-			logging.Fatal().Err(err).Msg("failed to marshal updated report")
-		}
-		if err := os.WriteFile(outputPath, out, 0o644); err != nil {
-			logging.Fatal().Err(err).Str("path", outputPath).Msg("failed to write updated report")
-		}
-		logging.Info().Str("path", outputPath).Msg("wrote updated report")
-	}
+	writeOutput()
 }
 
 // loadFindingsReport reads a JSON report (as produced by --report-format json)
