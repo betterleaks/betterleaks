@@ -70,6 +70,17 @@ type Rule struct {
 	// validationProgram is the compiled validation program, set at config load time.
 	validationProgram exprruntime.Program
 
+	// RevokeExpr is the raw expression used to revoke a secret at its
+	// provider, e.g. calling a DELETE /access-token endpoint. Unlike
+	// ValidateExpr, it is never run automatically during a scan - it only
+	// runs when a user explicitly requests revocation for a specific
+	// finding (see the `revoke` command), since revocation is a
+	// destructive, irreversible action against a live credential.
+	RevokeExpr string
+
+	// revocationProgram is the compiled revocation program, set at config load time.
+	revocationProgram exprruntime.Program
+
 	// Filter is an expression evaluated against attributes + finding per regex match.
 	// Returns true = skip (discard this finding); false = keep.
 	// Deprecated legacy Allowlists, Entropy, and TokenEfficiency are translated into this field.
@@ -134,6 +145,16 @@ func (r *Rule) Validate() error {
 // ValidationProgram returns the compiled validation program for this rule, or nil.
 func (r *Rule) ValidationProgram() exprruntime.Program {
 	return r.validationProgram
+}
+
+// RevocationProgram returns the compiled revocation program for this rule, or nil.
+func (r *Rule) RevocationProgram() exprruntime.Program {
+	return r.revocationProgram
+}
+
+// SetRevocationProgram stores a compiled revocation program on the rule.
+func (r *Rule) SetRevocationProgram(p exprruntime.Program) {
+	r.revocationProgram = p
 }
 
 // SetValidationProgram stores a compiled validation program on the rule.

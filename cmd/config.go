@@ -178,6 +178,10 @@ func validateConfig(cfg *configpkg.Config) error {
 	if err != nil {
 		return err
 	}
+	revocationRT, err := cfg.CompileRevocation()
+	if err != nil {
+		return err
+	}
 	for _, id := range sortedRuleIDs(cfg) {
 		rule := cfg.Rules[id]
 		if rule.Filter != "" {
@@ -192,6 +196,11 @@ func validateConfig(cfg *configpkg.Config) error {
 		if validationRT != nil && rule.ValidateExpr != "" {
 			if _, err := validationRT.CompileValidation(rule.ValidateExpr); err != nil {
 				return fmt.Errorf("compiling rule %s validation: %w", id, err)
+			}
+		}
+		if revocationRT != nil && rule.RevokeExpr != "" {
+			if _, err := revocationRT.CompileValidation(rule.RevokeExpr); err != nil {
+				return fmt.Errorf("compiling rule %s revocation: %w", id, err)
 			}
 		}
 	}

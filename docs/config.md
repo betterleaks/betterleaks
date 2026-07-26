@@ -22,6 +22,7 @@ Each `[[rules]]` entry can use:
 - `regex`: regular expression used to detect the secret.
 - `filter`: rule-specific Expr expression to discard false positives.
 - `validate`: Expr expression to actively verify whether a secret is live.
+- `revoke`: Expr expression to deactivate a live secret at its provider. Never run during a scan; only runs via `betterleaks revoke`.
 - `[[rules.required]]`: composite rule requirements.
 
 `keywords` are strongly recommended. Betterleaks checks them with an
@@ -210,6 +211,42 @@ r.status == 200 && (r.json?.slug ?? "") != "" ? {
 For more complex validation setups, such as Basic Auth, dynamic request bodies,
 HMAC signatures, or composite `[[rules.required]]` rules, check the built-in
 rules in `cmd/generate/config/rules`.
+
+## Revocation
+
+Revocation deactivates a live secret at its provider by evaluating the rule's
+`revoke` Expr expression - for example, deleting an access token via a
+provider's `DELETE` endpoint. Unlike `validate`, `revoke` is never run
+automatically during a scan; it only runs against findings you already have in
+a report, via `betterleaks revoke <report-file>`, and only for rules whose
+config defines a `revoke` expression. This is deliberate: revocation is a
+destructive, irreversible action against a real credential, so it should
+never happen as a side effect of scanning.
+
+`revoke` uses the same result format as `validate` (a map with a `"result"`
+key). A successful revocation must return `"result": "revoked"` - any other
+result is treated as a failed revocation, not a success. `revoke` expressions
+have access to `finding` the same way `validate` does, and can use all the
+same [validation functions](#validation-functions), plus
+`revoke.unknown(response)` (the `revoke`-namespace equivalent of
+`validate.unknown`).
+
+Example, mirroring the `validate` example above:
+
+```toml
+revoke = '''
+let r = http.delete("https://api.buildkite.com/v2/access-token", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == 204 ? {
+    "result": "revoked"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "token was already invalid or unauthorized"
+  } : revoke.unknown(r)
+'''
+```
 
 ### Overriding rule defaults with env vars
 

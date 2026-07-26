@@ -314,6 +314,7 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures, att
 	b["env_get"] = rt.envGet
 	b["strings"] = stringsNamespace()
 	b["validate"] = validateNamespace()
+	b["revoke"] = revokeNamespace()
 	b["json"] = jsonNamespace()
 	b["crypto"] = cryptoNamespace()
 	b["hex"] = hexNamespace()

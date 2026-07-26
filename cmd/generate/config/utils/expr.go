@@ -19,3 +19,20 @@ r.status == 200 && (` + successCheck + `) ? {
   } : validate.unknown(r)
 `
 }
+
+// BearerDeleteRevokeExpr builds a revoke expression for providers whose
+// credential revocation is a DELETE request authenticated by the secret
+// itself as a bearer token, succeeding on successStatus.
+func BearerDeleteRevokeExpr(url string, successStatus int) string {
+	return `let r = http.delete("` + url + `", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == ` + fmt.Sprintf("%d", successStatus) + ` ? {
+    "result": "revoked"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "token was already invalid or unauthorized"
+  } : revoke.unknown(r)
+`
+}

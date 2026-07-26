@@ -1111,6 +1111,19 @@ r.status == 200 && ((r.body contains "\"scopes\"")) ? {
   } : validate.unknown(r)
 
 '''
+revoke = '''
+let r = http.delete("https://api.buildkite.com/v2/access-token", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == 204 ? {
+    "result": "revoked"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "token was already invalid or unauthorized"
+  } : revoke.unknown(r)
+
+'''
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''

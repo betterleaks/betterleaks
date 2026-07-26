@@ -18,6 +18,7 @@ Development is supported by
 | :--- | :--- |
 | **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. If you're coming from Gitleaks, think of this feature as a more expressive `[[allowlist]]` system. |
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using Expr. |
+| **Secrets Revocation** | Deliberately revoke a live secret at its provider via `betterleaks revoke`, using a rule-level `revoke` expression. Manual and explicit only — never run during a scan. |
 | **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
@@ -146,3 +147,40 @@ r.status == 200 && (r.json?.login ?? "") != "" ? {
 Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config. If you're using Betterleaks in production, it is recommended you maintain your own config instead of extending the upstream default config directly. This keeps your rule set stable across Betterleaks upgrades and lets you review new upstream rules before adopting them.
 
 Test out your rules in the [Betterleaks Playground](https://betterleaks.com/playground)
+
+### Revocation
+
+A rule can also define a `revoke` expression, written the same way as `validate`, that deactivates a live secret at its provider (for example, deleting a Buildkite access token via its `DELETE /v2/access-token` endpoint).
+
+```toml
+[[rules]]
+id = "buildkite-user-access-token"
+# ... regex, keywords, validate, etc ...
+
+revoke = '''
+let r = http.delete("https://api.buildkite.com/v2/access-token", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == 204 ? {
+    "result": "revoked"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "token was already invalid or unauthorized"
+  } : revoke.unknown(r)
+'''
+```
+
+Unlike `validate`, `revoke` is **never** run automatically during a scan — it's destructive and irreversible against a real, live credential, so it only ever runs when you explicitly ask for it:
+
+```bash
+betterleaks revoke report.json
+```
+
+This walks the findings in a report file (as produced by `--report-format json`) and, for each one whose rule defines a `revoke` expression, prompts for confirmation before calling it. Findings for rules with no `revoke` expression are reported as unsupported and skipped. Useful flags:
+
+- `--fingerprint <fp>` — only consider the finding with this exact fingerprint, instead of every finding in the report
+- `--dry-run` — print what would be revoked without calling any provider
+- `--yes` — skip the interactive per-finding confirmation prompt (e.g. for CI)
+- `--continue-on-error` — keep going after a revocation fails, instead of stopping
+- `--output <path>` — write an updated copy of the report, with successfully revoked findings marked, to this path
