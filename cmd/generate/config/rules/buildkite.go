@@ -18,6 +18,10 @@ func BuildkiteUserAccessToken() *config.Rule {
 			"https://api.buildkite.com/v2/access-token",
 			`(r.body contains "\"scopes\"")`,
 		),
+		RevokeExpr: utils.BearerDeleteRevokeExpr(
+			"https://api.buildkite.com/v2/access-token",
+			204,
+		),
 		Filter: utils.MinEntropy(3.5),
 	}
 

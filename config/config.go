@@ -66,6 +66,7 @@ type rawRule struct {
 	Allowlists      []*rawRuleAllowlist `toml:"allowlists"`
 	Required        []*rawRequired      `toml:"required"`
 	Validate        string              `toml:"validate"`
+	Revoke          string              `toml:"revoke"`
 	SkipReport      bool                `toml:"skipReport"`
 	TokenEfficiency bool                `toml:"tokenEfficiency"`
 
@@ -258,6 +259,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		}
 
 		cr.ValidateExpr = vr.Validate
+		cr.RevokeExpr = vr.Revoke
 		cr.Filter = vr.Filter
 
 		orderedRules = append(orderedRules, cr.RuleID)
@@ -529,6 +531,36 @@ func (c *Config) CompileFilters(tokenizer *tiktoken.Tiktoken) error {
 	return nil
 }
 
+// CompileRevocation returns a runtime for per-rule revocation expressions.
+// Individual revocation programs are compiled lazily by the `revoke` command
+// via Rule.RevocationProgram/SetRevocationProgram, mirroring how validation
+// programs are compiled lazily by the detector.
+//
+// This is deliberately never called from the scan path (git/dir/stdin/etc.).
+// Revocation is a destructive action against a live credential and must
+// only run when a user explicitly invokes the `revoke` command for a
+// specific finding - never implicitly as a side effect of scanning.
+// Returns (nil, nil) when no rules have revocation expressions.
+func (c *Config) CompileRevocation() (*exprruntime.Runtime, error) {
+	hasRevocation := false
+	for _, r := range c.Rules {
+		if r.RevokeExpr != "" {
+			hasRevocation = true
+			break
+		}
+	}
+	if !hasRevocation {
+		return nil, nil
+	}
+
+	runtime, err := exprruntime.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating revocation env: %w", err)
+	}
+
+	return runtime, nil
+}
+
 // CompileValidation returns a runtime for per-rule validation expressions.
 // Individual validation programs are compiled lazily by the detector.
 // Returns (nil, nil) when no rules have validation expressions.
@@ -654,6 +686,9 @@ func (c *Config) extend(extensionConfig *Config) {
 			}
 			if currentRule.ValidateExpr != "" {
 				baseRule.ValidateExpr = currentRule.ValidateExpr
+			}
+			if currentRule.RevokeExpr != "" {
+				baseRule.RevokeExpr = currentRule.RevokeExpr
 			}
 			// Current rule's Filter replaces the extending one if set.
 			if currentRule.Filter != "" {

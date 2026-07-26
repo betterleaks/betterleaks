@@ -13,8 +13,9 @@ import (
 
 func httpNamespace(rt *runtimeBindings) map[string]any {
 	return map[string]any{
-		"get":  rt.httpGet,
-		"post": rt.httpPost,
+		"get":    rt.httpGet,
+		"post":   rt.httpPost,
+		"delete": rt.httpDelete,
 	}
 }
 
@@ -24,6 +25,13 @@ func (rt *runtimeBindings) httpGet(rawURL string, headers any) (map[string]any, 
 
 func (rt *runtimeBindings) httpPost(rawURL string, headers any, body string) (map[string]any, error) {
 	return rt.httpRequest(rt.ctx, http.MethodPost, rawURL, headers, body)
+}
+
+// httpDelete exists primarily for revoke expressions: most providers expose
+// token/credential revocation as a DELETE endpoint (e.g. Buildkite's
+// DELETE /v2/access-token).
+func (rt *runtimeBindings) httpDelete(rawURL string, headers any) (map[string]any, error) {
+	return rt.httpRequest(rt.ctx, http.MethodDelete, rawURL, headers, "")
 }
 
 func (rt *runtimeBindings) httpRequest(ctx context.Context, method, rawURL string, headers any, body string) (map[string]any, error) {
