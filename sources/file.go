@@ -143,6 +143,21 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 // extractorFragments recursively crawls archives and yields fragments
 func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield FragmentsFunc) {
+	// Malformed archives can make the extraction library panic (e.g. a tiny
+	// .rar whose block header encodes a bogus size). Recover here so a bad
+	// archive is skipped with a warning instead of killing the process. This
+	// guard sits inside extractorFragments (rather than at the dispatch site)
+	// so it protects every nesting level: extractorFragments recurses into
+	// nested entries via file.Fragments below.
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Warn().
+				Str("path", s.FullPath()).
+				Str("panic", fmt.Sprint(r)).
+				Msg("skipping archive: panic during extraction")
+		}
+	}()
+
 	if _, isSeekReaderAt := reader.(seekReaderAt); !isSeekReaderAt {
 		switch extractor.(type) {
 		case archives.SevenZip, archives.Zip:

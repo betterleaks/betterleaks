@@ -1,10 +1,12 @@
 package sources
 
 import (
+	"context"
 	"io"
 	"strings"
 	"testing"
 
+	"github.com/mholt/archives"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,5 +67,45 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 				func(Fragment, error) error { return nil },
 			)
 		})
+	})
+}
+
+// panicExtractor is an archives.Extractor whose Extract panics, emulating a
+// decoder (e.g. rardecode) that blows up on a malformed archive header.
+type panicExtractor struct{}
+
+func (panicExtractor) Extract(context.Context, io.Reader, archives.FileHandler) error {
+	panic("boom during extract")
+}
+
+func TestFile_extractorFragments_recoversPanic(t *testing.T) {
+	s := &File{Path: "evil.rar"}
+
+	require.NotPanics(t, func() {
+		s.extractorFragments(
+			t.Context(),
+			panicExtractor{},
+			strings.NewReader("irrelevant"),
+			func(Fragment, error) error { return nil },
+		)
+	})
+}
+
+// TestFile_Fragments_malformedRarDoesNotPanic drives the real 16-byte RAR5
+// payload through the public entry point. Before the extractorFragments
+// recover() guard, this panicked with "slice bounds out of range [3:1]" inside
+// rardecode and killed the process.
+func TestFile_Fragments_malformedRarDoesNotPanic(t *testing.T) {
+	// RAR5 signature followed by 8 zero bytes -> block header parses size = 0.
+	payload := "Rar!\x1a\x07\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+	s := &File{
+		Content:         strings.NewReader(payload),
+		Path:            "evil.rar",
+		MaxArchiveDepth: 5,
+	}
+
+	require.NotPanics(t, func() {
+		err := s.Fragments(t.Context(), func(Fragment, error) error { return nil })
+		require.NoError(t, err)
 	})
 }
