@@ -158,17 +158,6 @@ id = "aikido-ci-token"
 description = "Detected an Aikido CI token, which may allow unauthorized CI scan integration activity in Aikido."
 regex = '''\b(AIK_CI_[A-Za-z0-9]{20,44})\b'''
 keywords = ["aik_ci_"]
-validate = '''
-let r = http.post("https://app.aikido.dev/api/integrations/ci/scan/start", {
-    "X-AIK-API-SECRET": finding["secret"],
-    "Content-Type": "application/json"
-  }, "{}"); r.status in [200, 400, 403] && !(r.body contains "\"Unauthorized\"") ? {
-    "result": "valid"
-  } : r.status in [401, 403] || (r.body contains "\"Unauthorized\"") ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-'''
 filter = '''
 filter.entropy(finding["secret"]) < 3.0
 '''
@@ -194,18 +183,6 @@ id = "aikido-client-secret"
 description = "Detected an Aikido client secret, which may allow unauthorized access to Aikido APIs when paired with a client ID."
 regex = '''\b(AIK_SECRET_[A-Za-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["aik_secret_"]
-validate = '''
-let r = http.post("https://app.aikido.dev/api/oauth/token", {
-    "Accept": "application/json",
-    "Content-Type": "application/x-www-form-urlencoded",
-    "Authorization": "Basic " + base64.encode(bytes(captures["aikido-client-id"] + ":" + finding["secret"]))
-  }, "grant_type=client_credentials"); r.status == 200 && (r.body contains "\"access_token\"") && (r.body contains "\"token_type\"") ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-'''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
