@@ -61,6 +61,8 @@ type validationRequestContext struct {
 	state  *evalState
 }
 
+type validationTimeoutBudgetContextKey struct{}
+
 type validationRequestLimiter struct {
 	mu sync.Mutex
 
@@ -245,6 +247,11 @@ func (t *validationLimitTransport) RoundTrip(req *http.Request) (*http.Response,
 		return nil, err
 	}
 
+	timeoutBudget := validationTimeoutBudgetForRequest(req, t.requestTimeout)
+	if timeoutBudget != nil && !timeoutBudget.hasRemaining() {
+		return nil, context.DeadlineExceeded
+	}
+
 	if hit := t.limiter.admit(ruleID, target); hit != nil {
 		if requestContext != nil && requestContext.state != nil {
 			requestContext.state.recordValidationLimitHit(*hit)
@@ -253,52 +260,111 @@ func (t *validationLimitTransport) RoundTrip(req *http.Request) (*http.Response,
 	}
 
 	providerReq := req
-	var cancel context.CancelFunc
-	if t.requestTimeout > 0 {
-		var providerCtx context.Context
-		providerCtx, cancel = context.WithTimeout(req.Context(), t.requestTimeout)
+	var finishProviderRequest func()
+	if timeoutBudget != nil {
+		providerCtx, finish, err := timeoutBudget.start(req.Context())
+		if err != nil {
+			return nil, err
+		}
+		providerCtx = context.WithValue(providerCtx, validationTimeoutBudgetContextKey{}, timeoutBudget)
 		providerReq = req.Clone(providerCtx)
+		finishProviderRequest = finish
 	}
 
 	resp, err := base.RoundTrip(providerReq)
 	if err != nil {
-		if cancel != nil {
-			cancel()
+		if finishProviderRequest != nil {
+			finishProviderRequest()
 		}
 		return nil, err
 	}
-	if cancel != nil {
+	if finishProviderRequest != nil {
 		if resp.Body == nil {
-			cancel()
+			finishProviderRequest()
 		} else {
 			resp.Body = &validationTimeoutBody{
 				ReadCloser: resp.Body,
-				cancel:     cancel,
+				finish:     finishProviderRequest,
 			}
 		}
 	}
+	// Preserve the shared timeout budget for a redirect request even when a
+	// custom RoundTripper omits or replaces Response.Request.
+	resp.Request = providerReq
 	return resp, nil
 }
 
+// validationTimeoutBudget tracks provider-active time across every request in
+// one redirect chain. Rate-limit waits happen before start and do not consume
+// the budget.
+type validationTimeoutBudget struct {
+	mu        sync.Mutex
+	remaining time.Duration
+}
+
+// validationTimeoutBudgetForRequest starts a budget for an initial request and
+// recovers it from the previous response for redirects. The budget value
+// survives cancellation of the prior hop's request context.
+func validationTimeoutBudgetForRequest(req *http.Request, timeout time.Duration) *validationTimeoutBudget {
+	if timeout <= 0 {
+		return nil
+	}
+	if req != nil && req.Response != nil && req.Response.Request != nil {
+		if budget, ok := req.Response.Request.Context().Value(validationTimeoutBudgetContextKey{}).(*validationTimeoutBudget); ok {
+			return budget
+		}
+	}
+	return &validationTimeoutBudget{remaining: timeout}
+}
+
+func (b *validationTimeoutBudget) hasRemaining() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.remaining > 0
+}
+
+func (b *validationTimeoutBudget) start(parent context.Context) (context.Context, func(), error) {
+	b.mu.Lock()
+	remaining := b.remaining
+	b.mu.Unlock()
+	if remaining <= 0 {
+		return nil, nil, context.DeadlineExceeded
+	}
+
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(parent, remaining)
+	var once sync.Once
+	finish := func() {
+		once.Do(func() {
+			cancel()
+			elapsed := time.Since(started)
+			b.mu.Lock()
+			b.remaining = max(0, b.remaining-elapsed)
+			b.mu.Unlock()
+		})
+	}
+	return ctx, finish, nil
+}
+
 // validationTimeoutBody keeps the provider request context alive until the
-// response body is consumed or closed. This preserves http.Client.Timeout's
-// body-read coverage while starting the timeout after the rate-limit wait.
+// response body is consumed or closed and then charges that active time to the
+// redirect chain's shared timeout budget.
 type validationTimeoutBody struct {
 	io.ReadCloser
-	cancel context.CancelFunc
+	finish func()
 	once   sync.Once
 }
 
 func (b *validationTimeoutBody) Read(p []byte) (int, error) {
 	n, err := b.ReadCloser.Read(p)
 	if err != nil {
-		b.once.Do(b.cancel)
+		b.once.Do(b.finish)
 	}
 	return n, err
 }
 
 func (b *validationTimeoutBody) Close() error {
-	b.once.Do(b.cancel)
+	b.once.Do(b.finish)
 	return b.ReadCloser.Close()
 }
 

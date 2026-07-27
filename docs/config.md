@@ -154,7 +154,9 @@ origin share its maximum-request budget. Redirects and multi-request validation
 expressions count each actual outbound request. Validation cache hits do not
 count. Time spent waiting for an RPS slot does not consume
 `--validation-timeout`; that timeout begins when the provider request starts and
-remains active while its response body is read.
+remains active while its response body is read. Redirect hops share that one
+provider-time budget, while each hop still counts as an outbound request for RPS
+and maximum-request enforcement.
 
 For example:
 
