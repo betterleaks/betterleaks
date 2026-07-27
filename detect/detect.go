@@ -35,12 +35,15 @@ import (
 // ValidationOptions controls secret validation behavior.
 // Zero value means validation is disabled.
 type ValidationOptions struct {
-	Enabled      bool
-	Debug        bool
-	Workers      int
-	Timeout      time.Duration
-	ExtractEmpty bool
-	StatusFilter string // comma-separated list of statuses to include
+	Enabled                 bool
+	Debug                   bool
+	Workers                 int
+	Timeout                 time.Duration
+	ExtractEmpty            bool
+	StatusFilter            string // comma-separated list of statuses to include
+	MaxRequestsPerTarget    int
+	RequestsPerSecond       float64
+	RequestsPerSecondByRule map[string]float64
 	// ValidationEnvVars lists environment variable names the validation Expr
 	// env(...) binding may read (see --validation-env-vars). Parsed into
 	// exprruntime.Runtime.AllowedEnv when the validation env is created.
@@ -306,11 +309,18 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		if valOpts.Timeout > 0 {
 			validationRuntime.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
 		}
+		if err := validationRuntime.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
+			MaxRequestsPerTarget:    valOpts.MaxRequestsPerTarget,
+			RequestsPerSecond:       valOpts.RequestsPerSecond,
+			RequestsPerSecondByRule: valOpts.RequestsPerSecondByRule,
+		}); err != nil {
+			logging.Fatal().Err(err).Msg("invalid validation request limits")
+		}
 		workers := valOpts.Workers
 		if workers <= 0 {
 			workers = 10
 		}
-		d.ValidationPool = validate.NewPool(workers, validationRuntime)
+		d.ValidationPool = validate.NewPoolContext(ctx, workers, validationRuntime)
 		d.ValidationPool.Debug = valOpts.Debug
 
 		if valOpts.StatusFilter != "" {

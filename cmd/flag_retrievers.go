@@ -44,3 +44,11 @@ func mustGetInt64Flag(cmd *cobra.Command, name string) int64 {
 	}
 	return value
 }
+
+func mustGetFloat64Flag(cmd *cobra.Command, name string) float64 {
+	value, err := cmd.Flags().GetFloat64(name)
+	if err != nil {
+		logging.Fatal().Err(err).Msgf("could not get flag: %s", name)
+	}
+	return value
+}
