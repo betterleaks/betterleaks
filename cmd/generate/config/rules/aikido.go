@@ -34,16 +34,6 @@ func AikidoClientSecret() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "aikido-client-id"},
 		},
-		ValidateExpr: `let r = http.post("https://app.aikido.dev/api/oauth/token", {
-    "Accept": "application/json",
-    "Content-Type": "application/x-www-form-urlencoded",
-    "Authorization": "Basic " + base64.encode(bytes(captures["aikido-client-id"] + ":" + finding["secret"]))
-  }, "grant_type=client_credentials"); r.status == 200 && (r.body contains "\"access_token\"") && (r.body contains "\"token_type\"") ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
@@ -62,15 +52,6 @@ func AikidoCIToken() *config.Rule {
 		Description: "Detected an Aikido CI token, which may allow unauthorized CI scan integration activity in Aikido.",
 		Regex:       regexp.MustCompile(`\b(AIK_CI_[A-Za-z0-9]{20,44})\b`),
 		Keywords:    []string{"AIK_CI_"},
-		ValidateExpr: `let r = http.post("https://app.aikido.dev/api/integrations/ci/scan/start", {
-    "X-AIK-API-SECRET": finding["secret"],
-    "Content-Type": "application/json"
-  }, "{}"); r.status in [200, 400, 403] && !(r.body contains "\"Unauthorized\"") ? {
-    "result": "valid"
-  } : r.status in [401, 403] || (r.body contains "\"Unauthorized\"") ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
