@@ -57,13 +57,17 @@ type EvalOptions struct {
 }
 
 type EvalResult struct {
-	Value any
-	Debug map[string]any
+	Value           any
+	Debug           map[string]any
+	RequestLimitHit *ValidationRequestLimitHit
 }
 
 type evalState struct {
 	debug bool
 	meta  map[string]any
+
+	limitMu  sync.Mutex
+	limitHit *ValidationRequestLimitHit
 }
 
 func (s *evalState) addDebug(name string, value any) {
@@ -76,12 +80,39 @@ func (s *evalState) addDebug(name string, value any) {
 	s.meta[name] = value
 }
 
+func (s *evalState) recordValidationLimitHit(hit ValidationRequestLimitHit) {
+	if s == nil {
+		return
+	}
+	s.limitMu.Lock()
+	defer s.limitMu.Unlock()
+	if s.limitHit == nil {
+		s.limitHit = &hit
+	}
+}
+
+func (s *evalState) validationLimitHit() *ValidationRequestLimitHit {
+	if s == nil {
+		return nil
+	}
+	s.limitMu.Lock()
+	defer s.limitMu.Unlock()
+	if s.limitHit == nil {
+		return nil
+	}
+	hit := *s.limitHit
+	return &hit
+}
+
 // maxResponseBody is the maximum number of bytes read from an HTTP response body.
 const maxResponseBody = 1 << 20 // 1 MB
 
 // Runtime holds compiled Expr programs and validation services (if needed).
 type Runtime struct {
 	client *http.Client
+	// validationLimiter is applied to every request made through client,
+	// including generic HTTP and typed cloud validation bindings.
+	validationLimiter *validationRequestLimiter
 
 	mu    sync.RWMutex
 	cache map[string]Program
@@ -105,7 +136,21 @@ func DefaultHTTPClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
 
-func (e *Runtime) SetHTTPClient(c *http.Client) { e.client = c }
+func (e *Runtime) SetHTTPClient(c *http.Client) {
+	e.client = wrapValidationLimitClient(c, e.validationLimiter)
+}
+
+// SetValidationRequestLimits applies request-level validation limits to the
+// Runtime's shared HTTP client.
+func (e *Runtime) SetValidationRequestLimits(cfg ValidationRequestLimits) error {
+	limiter, err := newValidationRequestLimiter(cfg)
+	if err != nil {
+		return err
+	}
+	e.validationLimiter = limiter
+	e.client = wrapValidationLimitClient(e.client, limiter)
+	return nil
+}
 
 func (e *Runtime) SetTokenizerProvider(provider func() *tiktoken.Tiktoken) {
 	e.tokenizerProvider = provider
@@ -274,10 +319,21 @@ func (e *Runtime) EvalWithContext(ctx context.Context, prg Program, finding, cap
 }
 
 func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, captures, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	state := &evalState{debug: opts.Debug}
+	ctx = context.WithValue(ctx, validationRequestContextKey{}, &validationRequestContext{
+		ruleID: lookupString(finding, "rule_id"),
+		state:  state,
+	})
 	b := e.validationBindings(ctx, finding, captures, attributes, state)
 	val, err := expr.Run(prg.vm, b)
-	return EvalResult{Value: val, Debug: state.meta}, err
+	return EvalResult{
+		Value:           val,
+		Debug:           state.meta,
+		RequestLimitHit: state.validationLimitHit(),
+	}, err
 }
 
 func (e *Runtime) validationBindings(ctx context.Context, finding, captures, attributes map[string]string, state *evalState) bindings {

@@ -1,0 +1,809 @@
+package exprruntime
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+type validationRecordingTransport struct {
+	mu      sync.Mutex
+	targets []string
+	times   []time.Time
+}
+
+type validationRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f validationRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type validationRedirectTransport struct {
+	mu        sync.Mutex
+	delay     time.Duration
+	redirects int
+	calls     int
+	responses []bool
+}
+
+func (t *validationRedirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	timer := time.NewTimer(t.delay)
+	select {
+	case <-req.Context().Done():
+		timer.Stop()
+		return nil, req.Context().Err()
+	case <-timer.C:
+	}
+
+	t.mu.Lock()
+	t.calls++
+	call := t.calls
+	t.responses = append(t.responses, req.Response != nil)
+	t.mu.Unlock()
+
+	status := http.StatusOK
+	header := make(http.Header)
+	if call <= t.redirects {
+		status = http.StatusFound
+		header.Set("Location", "/hop")
+	}
+	return &http.Response{
+		StatusCode: status,
+		Header:     header,
+		Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+		Request:    req,
+	}, nil
+}
+
+func (t *validationRedirectTransport) snapshot() (int, []bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.calls, append([]bool(nil), t.responses...)
+}
+
+func (t *validationRecordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.mu.Lock()
+	t.targets = append(t.targets, validationRequestTarget(req.URL))
+	t.times = append(t.times, time.Now())
+	t.mu.Unlock()
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+		Request:    req,
+	}, nil
+}
+
+func (t *validationRecordingTransport) snapshot() ([]string, []time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.targets...), append([]time.Time(nil), t.times...)
+}
+
+func TestValidationMaxRequestsSharedByTargetAcrossRules(t *testing.T) {
+	recorder := &validationRecordingTransport{}
+	rt, err := New(&http.Client{Transport: recorder})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{MaxRequestsPerTarget: 2}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+
+	firstTarget, err := rt.CompileValidation(`http.get("https://api.example.test/v1/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile first target: %v", err)
+	}
+	otherTarget, err := rt.CompileValidation(`http.get("https://other.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile other target: %v", err)
+	}
+
+	for _, ruleID := range []string{"rule-a", "rule-b"} {
+		result, evalErr := rt.EvalValidation(
+			context.Background(),
+			firstTarget,
+			map[string]string{"rule_id": ruleID},
+			nil,
+			nil,
+			EvalOptions{},
+		)
+		if evalErr != nil {
+			t.Fatalf("admitted evaluation for %s: %v", ruleID, evalErr)
+		}
+		if result.RequestLimitHit != nil {
+			t.Fatalf("admitted evaluation for %s reported limit: %#v", ruleID, result.RequestLimitHit)
+		}
+	}
+
+	blocked, evalErr := rt.EvalValidation(
+		context.Background(),
+		firstTarget,
+		map[string]string{"rule_id": "rule-c"},
+		nil,
+		nil,
+		EvalOptions{},
+	)
+	if evalErr == nil {
+		t.Fatal("blocked evaluation returned no expression error")
+	}
+	if blocked.RequestLimitHit == nil {
+		t.Fatal("blocked evaluation did not report request limit")
+	}
+	if got, want := blocked.RequestLimitHit.Target, "https://api.example.test"; got != want {
+		t.Fatalf("target = %q, want %q", got, want)
+	}
+	if got, want := blocked.RequestLimitHit.RequestsSent, 2; got != want {
+		t.Fatalf("requests sent = %d, want %d", got, want)
+	}
+	if got, want := blocked.RequestLimitHit.RuleID, "rule-c"; got != want {
+		t.Fatalf("rule ID = %q, want %q", got, want)
+	}
+
+	if _, evalErr := rt.EvalValidation(
+		context.Background(),
+		otherTarget,
+		map[string]string{"rule_id": "rule-c"},
+		nil,
+		nil,
+		EvalOptions{},
+	); evalErr != nil {
+		t.Fatalf("different target should have its own budget: %v", evalErr)
+	}
+
+	targets, _ := recorder.snapshot()
+	if got, want := len(targets), 3; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+}
+
+func TestValidationLimitsCoverTypedCloudBindings(t *testing.T) {
+	recorder := &validationRecordingTransport{}
+	rt, err := New(&http.Client{Transport: recorder})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	rt.STSEndpoint = "https://api.example.test/sts"
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{MaxRequestsPerTarget: 1}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+
+	generic, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile generic: %v", err)
+	}
+	if _, err := rt.EvalValidation(
+		context.Background(),
+		generic,
+		map[string]string{"rule_id": "generic-rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	); err != nil {
+		t.Fatalf("generic evaluation: %v", err)
+	}
+
+	awsProgram, err := rt.CompileValidation(
+		`aws.validate("AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY").status`,
+	)
+	if err != nil {
+		t.Fatalf("compile AWS: %v", err)
+	}
+	blocked, _ := rt.EvalValidation(
+		context.Background(),
+		awsProgram,
+		map[string]string{"rule_id": "aws-secret-access-key"},
+		nil,
+		nil,
+		EvalOptions{},
+	)
+	if blocked.RequestLimitHit == nil {
+		t.Fatal("typed AWS validation did not report shared request limit")
+	}
+	if got, want := blocked.RequestLimitHit.Target, "https://api.example.test"; got != want {
+		t.Fatalf("target = %q, want %q", got, want)
+	}
+	targets, _ := recorder.snapshot()
+	if got, want := len(targets), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+}
+
+func TestValidationMaxRequestsDoesNotWaitForRPSAfterTargetIsExhausted(t *testing.T) {
+	recorder := &validationRecordingTransport{}
+	rt, err := New(&http.Client{Transport: recorder})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+		MaxRequestsPerTarget: 1,
+		RequestsPerSecond:    1,
+	}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if _, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	); err != nil {
+		t.Fatalf("first evaluation: %v", err)
+	}
+
+	start := time.Now()
+	blocked, _ := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	)
+	if blocked.RequestLimitHit == nil {
+		t.Fatal("second evaluation did not report request limit")
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("exhausted target waited %s for RPS limit", elapsed)
+	}
+}
+
+func TestValidationGlobalRPSStrictlySpacesRequests(t *testing.T) {
+	recorder := &validationRecordingTransport{}
+	rt, err := New(&http.Client{Transport: recorder})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{RequestsPerSecond: 50}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	runConcurrentValidations(t, rt, prg, "rule", 3)
+	_, times := recorder.snapshot()
+	assertMinimumRequestSpacing(t, times, 15*time.Millisecond)
+}
+
+func TestValidationRuleRPSComposesWithGlobalRPS(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		globalRPS float64
+		ruleRPS   float64
+	}{
+		{name: "rule is stricter", globalRPS: 100, ruleRPS: 20},
+		{name: "global is stricter", globalRPS: 20, ruleRPS: 100},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := &validationRecordingTransport{}
+			rt, err := New(&http.Client{Transport: recorder})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+				RequestsPerSecond:       test.globalRPS,
+				RequestsPerSecondByRule: map[string]float64{"limited-rule": test.ruleRPS},
+			}); err != nil {
+				t.Fatalf("SetValidationRequestLimits: %v", err)
+			}
+			prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+			if err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+
+			runConcurrentValidations(t, rt, prg, "limited-rule", 3)
+			_, times := recorder.snapshot()
+			assertMinimumRequestSpacing(t, times, 40*time.Millisecond)
+		})
+	}
+}
+
+func TestValidationRPSWaitHonorsCancellationAndDoesNotCountRequest(t *testing.T) {
+	recorder := &validationRecordingTransport{}
+	rt, err := New(&http.Client{Transport: recorder})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{RequestsPerSecond: 1}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if _, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	); err != nil {
+		t.Fatalf("first evaluation: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := rt.EvalValidation(
+		ctx,
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	); err == nil {
+		t.Fatal("canceled evaluation returned no error")
+	}
+
+	targets, _ := recorder.snapshot()
+	if got, want := len(targets), 1; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+}
+
+func TestCanceledSlowRuleDoesNotReserveFutureGlobalCapacity(t *testing.T) {
+	limiter, err := newValidationRequestLimiter(ValidationRequestLimits{
+		RequestsPerSecond:       100,
+		RequestsPerSecondByRule: map[string]float64{"slow-rule": 1},
+	})
+	if err != nil {
+		t.Fatalf("newValidationRequestLimiter: %v", err)
+	}
+	if err := limiter.wait(context.Background(), "slow-rule"); err != nil {
+		t.Fatalf("first slow-rule wait: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := limiter.wait(ctx, "slow-rule"); err == nil {
+		t.Fatal("second slow-rule wait returned no cancellation error")
+	}
+
+	start := time.Now()
+	if err := limiter.wait(context.Background(), "other-rule"); err != nil {
+		t.Fatalf("other-rule wait: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("slow rule reserved global capacity for %s", elapsed)
+	}
+}
+
+func TestRateWaitDoesNotConsumeProviderRequestTimeout(t *testing.T) {
+	recorder := &validationRecordingTransport{}
+	rt, err := New(&http.Client{
+		Transport: recorder,
+		Timeout:   40 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+		RequestsPerSecond: 10,
+	}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if _, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	); err != nil {
+		t.Fatalf("first evaluation: %v", err)
+	}
+
+	start := time.Now()
+	if _, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	); err != nil {
+		t.Fatalf("second evaluation after rate wait: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < 70*time.Millisecond {
+		t.Fatalf("second evaluation waited only %s; test did not exceed provider timeout", elapsed)
+	}
+}
+
+func TestProviderRequestTimeoutStartsAfterLimiter(t *testing.T) {
+	rt, err := New(&http.Client{
+		Transport: validationRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		}),
+		Timeout: 30 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+		MaxRequestsPerTarget: 10,
+	}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	start := time.Now()
+	if _, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	); err == nil {
+		t.Fatal("provider request returned no timeout error")
+	}
+	elapsed := time.Since(start)
+	if elapsed < 20*time.Millisecond || elapsed > 500*time.Millisecond {
+		t.Fatalf("provider timeout elapsed = %s, want approximately 30ms", elapsed)
+	}
+}
+
+func TestProviderRequestTimeoutCoversResponseBodyRead(t *testing.T) {
+	rt, err := New(&http.Client{
+		Transport: validationRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       &validationContextBody{ctx: req.Context()},
+				Request:    req,
+			}, nil
+		}),
+		Timeout: 30 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+		MaxRequestsPerTarget: 10,
+	}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	start := time.Now()
+	if _, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	); err == nil {
+		t.Fatal("response body read returned no timeout error")
+	}
+	elapsed := time.Since(start)
+	if elapsed < 20*time.Millisecond || elapsed > 500*time.Millisecond {
+		t.Fatalf("body-read timeout elapsed = %s, want approximately 30ms", elapsed)
+	}
+}
+
+func TestDisablingValidationLimitsRestoresClientTimeout(t *testing.T) {
+	const requestTimeout = 75 * time.Millisecond
+	rt, err := New(&http.Client{Timeout: requestTimeout})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+		MaxRequestsPerTarget: 10,
+	}); err != nil {
+		t.Fatalf("enable limits: %v", err)
+	}
+	if rt.client.Timeout != 0 {
+		t.Fatalf("limited client timeout = %s, want 0", rt.client.Timeout)
+	}
+
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{}); err != nil {
+		t.Fatalf("disable limits: %v", err)
+	}
+	if rt.client.Timeout != requestTimeout {
+		t.Fatalf("restored client timeout = %s, want %s", rt.client.Timeout, requestTimeout)
+	}
+	if _, ok := rt.client.Transport.(*validationLimitTransport); ok {
+		t.Fatal("disabled client still has validation limit transport")
+	}
+}
+
+func TestRedirectsShareProviderRequestTimeout(t *testing.T) {
+	redirects := &validationRedirectTransport{
+		delay:     35 * time.Millisecond,
+		redirects: 2,
+	}
+	rt, err := New(&http.Client{
+		Transport: redirects,
+		Timeout:   80 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+		MaxRequestsPerTarget: 10,
+	}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	start := time.Now()
+	if _, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	); err == nil {
+		t.Fatal("redirect chain returned no timeout error")
+	}
+	elapsed := time.Since(start)
+	if elapsed < 65*time.Millisecond || elapsed > 500*time.Millisecond {
+		t.Fatalf("redirect-chain timeout elapsed = %s, want approximately 80ms", elapsed)
+	}
+
+	calls, responses := redirects.snapshot()
+	if calls != 2 {
+		t.Fatalf("completed provider requests = %d, want 2 before third hop timed out", calls)
+	}
+	if len(responses) != 2 || responses[0] || !responses[1] {
+		t.Fatalf("request redirect markers = %v, want [false true]", responses)
+	}
+}
+
+func TestRedirectRateWaitDoesNotConsumeSharedProviderTimeout(t *testing.T) {
+	redirects := &validationRedirectTransport{
+		delay:     10 * time.Millisecond,
+		redirects: 1,
+	}
+	rt, err := New(&http.Client{
+		Transport: redirects,
+		Timeout:   40 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+		MaxRequestsPerTarget: 10,
+		RequestsPerSecond:    10,
+	}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	start := time.Now()
+	result, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	)
+	if err != nil {
+		t.Fatalf("redirect evaluation: %v", err)
+	}
+	if result.Value != int64(http.StatusOK) {
+		t.Fatalf("redirect status = %#v, want %d", result.Value, http.StatusOK)
+	}
+	if elapsed := time.Since(start); elapsed < 80*time.Millisecond {
+		t.Fatalf("redirect evaluation elapsed = %s; RPS wait was not exercised", elapsed)
+	}
+}
+
+func TestRedirectHopsCountTowardTargetRequestCap(t *testing.T) {
+	redirects := &validationRedirectTransport{
+		redirects: 1,
+	}
+	rt, err := New(&http.Client{
+		Transport: redirects,
+		Timeout:   time.Second,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+		MaxRequestsPerTarget: 1,
+	}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(`http.get("https://api.example.test/check", {}).status`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	result, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	)
+	if err == nil {
+		t.Fatal("redirect over target cap returned no expression error")
+	}
+	if result.RequestLimitHit == nil {
+		t.Fatal("redirect over target cap did not report limit metadata")
+	}
+	if got, want := result.RequestLimitHit.RequestsSent, 1; got != want {
+		t.Fatalf("requests sent = %d, want %d", got, want)
+	}
+	if calls, _ := redirects.snapshot(); calls != 1 {
+		t.Fatalf("provider requests = %d, want 1", calls)
+	}
+}
+
+func TestIndependentRequestsReceiveIndependentProviderTimeouts(t *testing.T) {
+	rt, err := New(&http.Client{
+		Transport: validationRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			timer := time.NewTimer(20 * time.Millisecond)
+			select {
+			case <-req.Context().Done():
+				timer.Stop()
+				return nil, req.Context().Err()
+			case <-timer.C:
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+				Request:    req,
+			}, nil
+		}),
+		Timeout: 30 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := rt.SetValidationRequestLimits(ValidationRequestLimits{
+		MaxRequestsPerTarget: 10,
+	}); err != nil {
+		t.Fatalf("SetValidationRequestLimits: %v", err)
+	}
+	prg, err := rt.CompileValidation(
+		`let firstReq = http.get("https://api.example.test/first", {}); ` +
+			`let secondReq = http.get("https://api.example.test/second", {}); ` +
+			`firstReq.status == 200 && secondReq.status == 200`,
+	)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	result, err := rt.EvalValidation(
+		context.Background(),
+		prg,
+		map[string]string{"rule_id": "rule"},
+		nil,
+		nil,
+		EvalOptions{},
+	)
+	if err != nil {
+		t.Fatalf("independent evaluations: %v", err)
+	}
+	if result.Value != true {
+		t.Fatalf("independent evaluation result = %#v, want true", result.Value)
+	}
+}
+
+type validationContextBody struct {
+	ctx context.Context
+}
+
+func (b *validationContextBody) Read(_ []byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (b *validationContextBody) Close() error {
+	return nil
+}
+
+func TestValidationRequestLimitConfigurationRejectsInvalidRates(t *testing.T) {
+	tests := []ValidationRequestLimits{
+		{MaxRequestsPerTarget: -1},
+		{RequestsPerSecond: -1},
+		{RequestsPerSecondByRule: map[string]float64{"": 1}},
+		{RequestsPerSecondByRule: map[string]float64{"rule": 0}},
+	}
+	for _, cfg := range tests {
+		if _, err := newValidationRequestLimiter(cfg); err == nil {
+			t.Fatalf("newValidationRequestLimiter(%#v) returned no error", cfg)
+		}
+	}
+}
+
+func TestValidationRequestTargetNormalizesDefaultPorts(t *testing.T) {
+	for _, test := range []struct {
+		raw  string
+		want string
+	}{
+		{raw: "https://API.EXAMPLE.TEST:443/v1", want: "https://api.example.test"},
+		{raw: "http://API.EXAMPLE.TEST:80/v1", want: "http://api.example.test"},
+		{raw: "https://api.example.test:8443/v1", want: "https://api.example.test:8443"},
+		{raw: "https://[::1]:443/v1", want: "https://[::1]"},
+	} {
+		u, err := url.Parse(test.raw)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", test.raw, err)
+		}
+		if got := validationRequestTarget(u); got != test.want {
+			t.Fatalf("validationRequestTarget(%q) = %q, want %q", test.raw, got, test.want)
+		}
+	}
+}
+
+func runConcurrentValidations(t *testing.T, rt *Runtime, prg Program, ruleID string, count int) {
+	t.Helper()
+	var wg sync.WaitGroup
+	errs := make(chan error, count)
+	for range count {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := rt.EvalValidation(
+				context.Background(),
+				prg,
+				map[string]string{"rule_id": ruleID},
+				nil,
+				nil,
+				EvalOptions{},
+			)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("evaluation: %v", err)
+		}
+	}
+}
+
+func assertMinimumRequestSpacing(t *testing.T, times []time.Time, minimum time.Duration) {
+	t.Helper()
+	if len(times) < 2 {
+		t.Fatalf("recorded %d request times, want at least 2", len(times))
+	}
+	sort.Slice(times, func(i, j int) bool { return times[i].Before(times[j]) })
+	for i := 1; i < len(times); i++ {
+		if spacing := times[i].Sub(times[i-1]); spacing < minimum {
+			t.Fatalf("request spacing %s is less than %s", spacing, minimum)
+		}
+	}
+}

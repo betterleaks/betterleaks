@@ -134,6 +134,46 @@ the `--validation` flag.
 Validation runs asynchronously, and responses are cached in memory so duplicate
 secrets only trigger one network request.
 
+### Request limits
+
+Live validation can send many authentication requests when a scan finds
+different candidate credentials for the same provider. The following flags
+limit the actual outbound requests made by generic HTTP validators and the
+built-in AWS, GCP, and Azure validators:
+
+| Flag | Description |
+| :--- | :--- |
+| `--validation-max-requests N` | Sends at most `N` requests to each provider target origin during the scan. `0` means unlimited. The singular `--validation-max-request` spelling is accepted as an alias. |
+| `--validation-rps N` | Limits all validation requests to `N` requests per second. Fractional values are accepted; `0` means unlimited. |
+| `--validation-rps-rule RULE=N` | Limits one exact rule ID to `N` requests per second. Repeat the flag for additional rules. |
+
+The global and rule-specific rates compose: a request must satisfy both limits.
+Rate limits use strict spacing with no initial burst. A provider target is an
+HTTP origin such as `https://api.github.com`; multiple rules that use the same
+origin share its maximum-request budget. Redirects and multi-request validation
+expressions count each actual outbound request. Validation cache hits do not
+count. Time spent waiting for an RPS slot does not consume
+`--validation-timeout`; that timeout begins when the provider request starts and
+remains active while its response body is read. Redirect hops share that one
+provider-time budget, while each hop still counts as an outbound request for RPS
+and maximum-request enforcement.
+
+For example:
+
+```sh
+betterleaks dir . --validation \
+  --validation-max-requests 1000 \
+  --validation-rps 10 \
+  --validation-rps-rule github-pat=2 \
+  --validation-rps-rule github-fine-grained-pat=2
+```
+
+Once a provider target reaches `--validation-max-requests`, further validations
+that need to call it return `needs_validation` without sending the request. The
+finding includes `betterleaks_max_requests_hit`,
+`betterleaks_validation_target`, `betterleaks_validation_max_requests`, and
+`betterleaks_validation_requests_sent` metadata.
+
 ### Result format
 
 A validation expression must return a map with a `"result"` key. Supported
