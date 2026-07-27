@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"net/http"
@@ -209,8 +210,9 @@ func (l *validationRequestLimiter) limitHitLocked(ruleID, target string) *Valida
 }
 
 type validationLimitTransport struct {
-	base    http.RoundTripper
-	limiter *validationRequestLimiter
+	base           http.RoundTripper
+	limiter        *validationRequestLimiter
+	requestTimeout time.Duration
 }
 
 func (t *validationLimitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -239,6 +241,9 @@ func (t *validationLimitTransport) RoundTrip(req *http.Request) (*http.Response,
 	if err := t.limiter.wait(req.Context(), ruleID); err != nil {
 		return nil, err
 	}
+	if err := req.Context().Err(); err != nil {
+		return nil, err
+	}
 
 	if hit := t.limiter.admit(ruleID, target); hit != nil {
 		if requestContext != nil && requestContext.state != nil {
@@ -247,7 +252,54 @@ func (t *validationLimitTransport) RoundTrip(req *http.Request) (*http.Response,
 		return nil, &ValidationRequestLimitError{Hit: *hit}
 	}
 
-	return base.RoundTrip(req)
+	providerReq := req
+	var cancel context.CancelFunc
+	if t.requestTimeout > 0 {
+		var providerCtx context.Context
+		providerCtx, cancel = context.WithTimeout(req.Context(), t.requestTimeout)
+		providerReq = req.Clone(providerCtx)
+	}
+
+	resp, err := base.RoundTrip(providerReq)
+	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
+		return nil, err
+	}
+	if cancel != nil {
+		if resp.Body == nil {
+			cancel()
+		} else {
+			resp.Body = &validationTimeoutBody{
+				ReadCloser: resp.Body,
+				cancel:     cancel,
+			}
+		}
+	}
+	return resp, nil
+}
+
+// validationTimeoutBody keeps the provider request context alive until the
+// response body is consumed or closed. This preserves http.Client.Timeout's
+// body-read coverage while starting the timeout after the rate-limit wait.
+type validationTimeoutBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (b *validationTimeoutBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil {
+		b.once.Do(b.cancel)
+	}
+	return n, err
+}
+
+func (b *validationTimeoutBody) Close() error {
+	b.once.Do(b.cancel)
+	return b.ReadCloser.Close()
 }
 
 func validationRequestTarget(u *url.URL) string {
@@ -281,12 +333,26 @@ func wrapValidationLimitClient(client *http.Client, limiter *validationRequestLi
 	}
 	clone := *client
 	base := clone.Transport
+	requestTimeout := clone.Timeout
 	if current, ok := base.(*validationLimitTransport); ok {
 		base = current.base
+		if requestTimeout == 0 {
+			requestTimeout = current.requestTimeout
+		}
 	}
 	clone.Transport = base
 	if limiter != nil {
-		clone.Transport = &validationLimitTransport{base: base, limiter: limiter}
+		// http.Client.Timeout starts before RoundTrip, so leaving it here would
+		// count rate-limit queue time against the provider request. The wrapper
+		// starts the same timeout immediately before the underlying RoundTrip.
+		clone.Timeout = 0
+		clone.Transport = &validationLimitTransport{
+			base:           base,
+			limiter:        limiter,
+			requestTimeout: requestTimeout,
+		}
+	} else {
+		clone.Timeout = requestTimeout
 	}
 	return &clone
 }

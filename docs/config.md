@@ -152,7 +152,9 @@ Rate limits use strict spacing with no initial burst. A provider target is an
 HTTP origin such as `https://api.github.com`; multiple rules that use the same
 origin share its maximum-request budget. Redirects and multi-request validation
 expressions count each actual outbound request. Validation cache hits do not
-count.
+count. Time spent waiting for an RPS slot does not consume
+`--validation-timeout`; that timeout begins when the provider request starts and
+remains active while its response body is read.
 
 For example:
 
