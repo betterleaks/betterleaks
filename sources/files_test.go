@@ -32,6 +32,15 @@ func TestFilesScanTargetsPathsMatchFilepathWalkDir(t *testing.T) {
 		return nil
 	}))
 
+	// shouldSkipPath evaluates both the native and forward-slash forms on
+	// Windows for compatibility with path filters.
+	if isWindows {
+		nativePaths := append([]string(nil), wantVisited...)
+		for _, path := range nativePaths {
+			wantVisited = append(wantVisited, filepath.ToSlash(path))
+		}
+	}
+
 	var (
 		visitedMu sync.Mutex
 		visited   []string
