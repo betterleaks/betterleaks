@@ -134,7 +134,21 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 	if !rootInfo.IsDir() {
 		return walkFn(s.Path, fs.FileInfoToDirEntry(rootInfo), nil)
 	}
-	return fastwalk.Walk(nil, s.Path, walkFn)
+
+	// filepath.WalkDir preserves the root path exactly as supplied, then uses
+	// filepath.Join for descendants. fastwalk joins paths by concatenating the
+	// directory, separator, and entry name, which leaves lexical elements such
+	// as "./" in descendant paths. Preserve the filepath.WalkDir behavior that
+	// callers and report output relied on before switching walkers.
+	compatibleWalkFn := func(path string, d fs.DirEntry, err error) error {
+		if fastwalk.DirEntryDepth(d) == 0 {
+			path = s.Path
+		} else {
+			path = filepath.Clean(path)
+		}
+		return walkFn(path, d, err)
+	}
+	return fastwalk.Walk(nil, s.Path, compatibleWalkFn)
 }
 
 // Fragments yields fragments from files discovered under the path
