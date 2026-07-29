@@ -29,9 +29,9 @@ func TestGetLocation(t *testing.T) {
 				startLine:      1,
 				startColumn:    36,
 				endLine:        2,
-				endColumn:      5,
+				endColumn:      4,
 				startLineIndex: 0,
-				endLineIndex:   55,
+				endLineIndex:   56,
 			},
 		},
 		{
@@ -42,9 +42,9 @@ func TestGetLocation(t *testing.T) {
 				startLine:      1,
 				startColumn:    26,
 				endLine:        1,
-				endColumn:      39,
+				endColumn:      38,
 				startLineIndex: 0,
-				endLineIndex:   39,
+				endLineIndex:   40,
 			},
 		},
 		{
@@ -53,9 +53,9 @@ func TestGetLocation(t *testing.T) {
 			matchEnd:    129,
 			wantLocation: Location{
 				startLine:      3,
-				startColumn:    0,
+				startColumn:    1,
 				endLine:        4,
-				endColumn:      2,
+				endColumn:      1,
 				startLineIndex: 56,
 				endLineIndex:   len(raw),
 			},
@@ -119,6 +119,11 @@ func TestFindLineOffsets(t *testing.T) {
 			name:     "Multiple newlines and CRLFS together",
 			text:     "Hello\n\r\nworld\n",
 			expected: []int{0, 6, 8},
+		},
+		{
+			name:     "newline at beginning",
+			text:     "\nHello world!",
+			expected: []int{0, 1},
 		},
 	}
 

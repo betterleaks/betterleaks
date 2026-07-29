@@ -19,7 +19,7 @@ type Location struct {
 // each line in a file
 func findLineOffsets(s string) []int {
 	offsets := make([]int, 1, max(1, len(s)/128))
-	offset := 1
+	offset := 0
 	n := len(s)
 	for offset < n {
 		i := strings.IndexByte(s[offset:], '\n')

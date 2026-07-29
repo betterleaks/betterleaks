@@ -485,7 +485,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					}
 					fragment := Fragment{
 						Raw:        textFragment.Raw(gitdiff.OpAdd),
-						StartLine:  int(textFragment.NewPosition),
+						StartLine:  int(textFragment.NewPosition) - 1,
 						Attributes: commitAttrs,
 					}
 					fragment.SetAttr(AttrPath, gitdiffFile.NewName)
