@@ -273,6 +273,37 @@ id = "algolia-api-key"
 description = "Identified an Algolia API Key, which could result in unauthorized search operations and data exposure on Algolia-managed platforms."
 regex = '''(?i)(?:algolia)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["algolia"]
+validate = '''
+let r = http.get("https://" + captures["algolia-application-id"] + ".algolia.net/1/keys/" + finding["secret"], {
+    "Accept": "application/json",
+    "X-Algolia-API-Key": finding["secret"],
+    "X-Algolia-Application-Id": captures["algolia-application-id"]
+  }); let acl = r.json?.acl ?? []; let public_acl_count =
+    ("search" in acl ? 1 : 0)
+    + ("browse" in acl ? 1 : 0)
+    + ("listIndexes" in acl ? 1 : 0)
+    + ("settings" in acl ? 1 : 0);
+  r.status == 200 && size(acl) > public_acl_count ? {
+    "result": "valid",
+    "acl": acl
+  } : r.status == 200 && size(acl) > 0 && size(acl) == public_acl_count ? {
+    "result": "invalid",
+    "reason": "Public Algolia Search API key",
+    "acl": acl
+  } : validate.unknown(r)
+'''
+[[rules.required]]
+id = "algolia-application-id"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# algolia-application-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "algolia-application-id"
+description = "Detected an Algolia application ID, used as a component of the algolia-api-key composite rule."
+regex = '''(?i)(?:algolia)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{10})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["algolia"]
+skipReport = true
 
 # ──────────────────────────────────────────────────────────────────────────────
 # alibaba-access-key-id
