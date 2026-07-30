@@ -41,7 +41,7 @@ func offsetToLineNumber(lineOffsets []int, offset int) int {
 	if found || index == 0 {
 		return index + 1
 	} else {
-		// since it wasn't found the line before is just the index
+		// Since it wasn't found, the index == the line number.
 		return index
 	}
 }
@@ -54,6 +54,8 @@ func location(lineOffsets []int, raw string, matchIndex []int) Location {
 	endLineIndex := len(raw)
 
 	if endLine < len(lineOffsets) {
+		// Since counting starts at 1 and indexing starts at 0, the index for
+		// the next line is endLine.
 		endLineIndex = lineOffsets[endLine]
 	}
 
