@@ -858,7 +858,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	// Lazily compute line indices — only when we actually need location info.
+	// Lazily compute line offsets — only when we actually need location info.
 	var lineOffsets []int
 	lineOffsetsComputed := false
 
@@ -895,7 +895,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// not the _secret_, which will be different if the secretGroup
 		// value is set for this rule
 		if !lineOffsetsComputed {
-			lineOffsets = findLineOffsets(fragment.Raw)
+			lineOffsets = computeLineOffsets(fragment.Raw)
 			lineOffsetsComputed = true
 		}
 

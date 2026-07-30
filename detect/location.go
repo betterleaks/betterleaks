@@ -15,12 +15,14 @@ type Location struct {
 	endLineIndex   int
 }
 
-// findLineOffsets returns a list of offsets for the beginning of
-// each line in a file
-func findLineOffsets(s string) []int {
-	offsets := make([]int, 1, max(1, len(s)/128))
-	offset := 0
+// computeLineOffsets returns a list of offsets for the beginning of
+// each line in a file. It should always return at least []int{0}.
+func computeLineOffsets(s string) []int {
 	n := len(s)
+	// init size to 1 so offsets[0] == 0
+	offsets := make([]int, 1, max(1, n/128))
+	offset := 0
+
 	for offset < n {
 		i := strings.IndexByte(s[offset:], '\n')
 		offset += i + 1
