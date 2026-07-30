@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -261,18 +263,32 @@ func NewGitDiffCmdContext(ctx context.Context, source string, staged bool) (*Git
 	}, nil
 }
 
-// patchSentinelPath is the path of a synthetic file appended to every patch, so
-// that the patch can be shown to have been parsed all the way to its end. It is
-// never scanned, and a real patch entry for this path is discarded.
-const patchSentinelPath = ".betterleaks/patch-end-sentinel"
+// patchSentinelPathPrefix prefixes the path of the synthetic file appended to
+// every patch, so that the patch can be shown to have been parsed all the way
+// to its end.
+const patchSentinelPathPrefix = ".betterleaks/patch-end-sentinel-"
 
-// patchSentinel is a minimal, well-formed patch entry for patchSentinelPath.
-var patchSentinel = "diff --git a/" + patchSentinelPath + " b/" + patchSentinelPath + "\n" +
-	"new file mode 100644\n" +
-	"--- /dev/null\n" +
-	"+++ b/" + patchSentinelPath + "\n" +
-	"@@ -0,0 +1,1 @@\n" +
-	"+betterleaks\n"
+// newPatchSentinel returns the path of a synthetic file and a minimal,
+// well-formed patch entry creating it. The path carries a random suffix so that
+// an entry in the patch being scanned cannot pass itself off as the sentinel,
+// which would both hide that entry from the scan and vouch for a patch that was
+// never parsed to its end.
+func newPatchSentinel() (path, entry string, err error) {
+	var suffix [16]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return "", "", fmt.Errorf("could not generate a patch sentinel: %w", err)
+	}
+
+	path = patchSentinelPathPrefix + hex.EncodeToString(suffix[:])
+	entry = "diff --git a/" + path + " b/" + path + "\n" +
+		"new file mode 100644\n" +
+		"--- /dev/null\n" +
+		"+++ b/" + path + "\n" +
+		"@@ -0,0 +1,1 @@\n" +
+		"+betterleaks\n"
+
+	return path, entry, nil
+}
 
 // GitPatchOptions configures how a pre-computed patch is interpreted.
 type GitPatchOptions struct {
@@ -300,7 +316,12 @@ func NewGitPatchCmd(r io.Reader, opts GitPatchOptions) (*GitCmd, error) {
 	// zero-finding scan. Appending an entry we know to be valid turns that into
 	// something observable: if the sentinel comes back, everything before it
 	// parsed; if it does not, the patch is broken.
-	patch := io.MultiReader(newlineTerminated(r), strings.NewReader(patchSentinel))
+	sentinelPath, sentinelEntry, err := newPatchSentinel()
+	if err != nil {
+		return nil, err
+	}
+
+	patch := io.MultiReader(newlineTerminated(r), strings.NewReader(sentinelEntry))
 
 	gitdiffFiles, err := gitdiff.Parse(patch)
 	if err != nil {
@@ -318,7 +339,7 @@ func NewGitPatchCmd(r io.Reader, opts GitPatchOptions) (*GitCmd, error) {
 
 		sawSentinel := false
 		for file := range gitdiffFiles {
-			if file.NewName == patchSentinelPath {
+			if file.NewName == sentinelPath {
 				sawSentinel = true
 				continue
 			}

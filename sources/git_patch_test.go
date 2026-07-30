@@ -298,10 +298,46 @@ func TestNewGitPatchCmd(t *testing.T) {
 	})
 
 	t.Run("the sentinel entry is never scanned", func(t *testing.T) {
-		fragments, scanErr := collectPatchFragments(t, patchSentinel, GitPatchOptions{})
+		fragments, scanErr := collectPatchFragments(t, "", GitPatchOptions{})
 
 		require.NoError(t, scanErr)
 		assert.Empty(t, fragments)
+	})
+
+	t.Run("an entry cannot pass itself off as the sentinel", func(t *testing.T) {
+		// An entry that mimics the sentinel must be scanned like any other file,
+		// and must not vouch for the rest of the patch having been parsed.
+		guesses := []string{
+			strings.TrimSuffix(patchSentinelPathPrefix, "-"),
+			patchSentinelPathPrefix + "0",
+			patchSentinelPathPrefix + strings.Repeat("0", 32),
+		}
+
+		for _, path := range guesses {
+			t.Run(path, func(t *testing.T) {
+				lookalike := "diff --git a/" + path + " b/" + path + "\n" +
+					"new file mode 100644\n" +
+					"--- /dev/null\n" +
+					"+++ b/" + path + "\n" +
+					"@@ -0,0 +1,1 @@\n" +
+					"+token := \"AKIALALEMEL33243OLIA\"\n"
+
+				fragments, scanErr := collectPatchFragments(t, lookalike, GitPatchOptions{})
+				require.NoError(t, scanErr)
+				require.Len(t, fragments, 1)
+				assert.Equal(t, path, fragments[0].Attr(AttrPath))
+
+				_, scanErr = collectPatchFragments(t, lookalike+
+					"diff --git a/bad.go b/bad.go\n"+
+					"--- a/bad.go\n"+
+					"+++ b/bad.go\n"+
+					"@@ -10,6 +10,8 @@\n"+
+					" context\n", GitPatchOptions{})
+
+				require.Error(t, scanErr)
+				assert.Contains(t, scanErr.Error(), "malformed patch")
+			})
+		}
 	})
 
 	t.Run("strip-components removes the a/ and b/ prefixes of a bare unified diff", func(t *testing.T) {
