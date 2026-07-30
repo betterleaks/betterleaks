@@ -134,6 +134,11 @@ the `--validation` flag.
 Validation runs asynchronously, and responses are cached in memory so duplicate
 secrets only trigger one network request.
 
+To revalidate one known credential without scanning or re-running a rule's
+detection regex, use `betterleaks validate --rule-id <rule-id>`. See the
+[`validate` command guide](scanning.md#validate) for stdin, multipart
+credentials, captures, request controls, and reporting.
+
 ### Request limits
 
 Live validation can send many authentication requests when a scan finds

@@ -191,7 +191,7 @@ func printValidationLegacy(f Finding, noColor bool) {
 		return
 	}
 
-	statusStyle := validationStyle(string(f.ValidationStatus), noColor)
+	statusStyle := ValidationStyle(string(f.ValidationStatus), noColor)
 
 	fmt.Printf("%-12s %s", "Validation:", statusStyle.Render(strings.ToUpper(string(f.ValidationStatus))))
 	if f.ValidationReason != "" {
@@ -209,7 +209,8 @@ func printValidationLegacy(f Finding, noColor bool) {
 	}
 }
 
-func validationStyle(status string, noColor bool) color.Style {
+// ValidationStyle returns the terminal style used for a validation status.
+func ValidationStyle(status string, noColor bool) color.Style {
 	if noColor {
 		return color.New()
 	}

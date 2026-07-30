@@ -79,6 +79,12 @@ betterleaks s3 'https://<account-id>.r2.cloudflarestorage.com/*'
 
 # Scan stdin
 cat some_file.txt | betterleaks stdin -v
+
+# Revalidate a known credential without running detection
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat
+
+# Print only its status (for example, VALID)
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat --simple
 ```
 
 For more advanced scanning examples check out the [scanning doc](docs/scanning.md).

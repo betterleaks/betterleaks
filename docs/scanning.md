@@ -13,6 +13,7 @@ Use `--help` for full flag descriptions. This page is for patterns.
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
 | S3 (and S3-compatible: R2, MinIO, etc.) | `betterleaks s3 <url>` |
+| A known credential and rule | `betterleaks validate --rule-id <rule-id>` |
 | Piped content | `betterleaks stdin` |
 
 ---
@@ -525,6 +526,117 @@ betterleaks s3 --workers=4 https://my-bucket.s3.us-east-1.amazonaws.com/
 ```
 
 Objects in `GLACIER`, `GLACIER_IR`, and `DEEP_ARCHIVE` storage classes are skipped before fetching, as are empty objects and directory markers (`key/`).
+
+---
+
+## `validate`
+
+Use `validate` when you already know the credential and the rule that owns it.
+The command evaluates that rule's `validate` expression directly; it does not
+run the rule's regex, filters, or source scanning. This is useful when the
+original source is unavailable or a standalone credential no longer has the
+provider context its detection regex expects.
+
+List the rules in the selected config that support direct validation:
+
+```sh
+betterleaks validate --list
+betterleaks validate --list --report-format json
+```
+
+Pass a credential on stdin when possible so it is not stored in shell history
+or exposed in the process argument list:
+
+```sh
+printf '%s\n' "$GITHUB_TOKEN" |
+	betterleaks validate --rule-id github-pat
+```
+
+A positional credential is also accepted for interactive use:
+
+```sh
+betterleaks validate --rule-id github-pat 'ghp_...'
+```
+
+When there is no positional credential, `validate` reads piped or redirected
+stdin automatically. Ordinary input is the primary secret. Input beginning with
+`{` is decoded as a JSON credential object, allowing multipart credentials to
+keep every component out of command-line arguments:
+
+```sh
+jq -n '{
+  secret: env.AWS_ACCESS_KEY_ID,
+  components: {
+    "aws-secret-access-key": env.AWS_SECRET_ACCESS_KEY
+  }
+}' | betterleaks validate \
+	--rule-id aws-access-token
+```
+
+The JSON fields are `secret` (required), `components`, `captures`, and
+`attributes`; the latter three are string-to-string objects. For less sensitive
+interactive use, supply each rule declared in `[[rules.required]]` as
+`--component rule-id=secret`. Use `--capture name=value` when a validation
+expression needs a named regex capture that cannot be reconstructed from the
+credential. A component capture uses `--capture rule-id:name=value`.
+Source-aware custom validators can receive attributes through repeated
+`--set-attr key=value` flags.
+
+The default report is concise text. Use `--simple` when only the uppercase
+status is needed:
+
+```sh
+printf '%s\n' "$GITHUB_TOKEN" |
+	betterleaks validate --rule-id github-pat --simple
+# VALID
+```
+
+`--simple` supports text output only and can be combined with `--no-color` for
+machine-readable output.
+
+Full JSON output uses a versioned credential-report shape with validation under
+its own key:
+
+```json
+{
+  "schema_version": 1,
+  "rule_id": "github-pat",
+  "validation": {
+    "status": "valid",
+    "metadata": {
+      "username": "octocat"
+    }
+  }
+}
+```
+
+```sh
+# JSON on stdout
+printf '%s\n' "$GITHUB_TOKEN" |
+	betterleaks validate \
+	--rule-id github-pat \
+	--report-format json
+
+# The .json extension infers JSON and writes no result to stdout
+printf '%s\n' "$GITHUB_TOKEN" |
+	betterleaks validate \
+	--rule-id github-pat \
+	--report-path validation.json
+```
+
+Reports never include the supplied primary or component credentials. If a
+validator returns one in its reason, metadata, debug URL, or debug request body,
+the matching value is replaced with `[redacted]`. Validation metadata may still
+contain sensitive identity or account information, so newly created report
+files use owner-only permissions.
+
+`validate` honors the same outbound request controls as scan-time validation:
+`--validation-timeout`, `--validation-max-requests`, `--validation-rps`,
+`--validation-rps-rule`, `--validation-env-vars`, `--validation-debug`, and
+`--validation-extract-empty`. A completed validation—including `invalid`,
+`revoked`, `unknown`, or `error`—is a successful command result represented by
+the reported status; input, configuration, I/O, and cancellation failures
+return command errors.
 
 ---
 
