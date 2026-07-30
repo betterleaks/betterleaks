@@ -232,7 +232,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 		}()
 	}
 
-	totalLines := 0
+	lineOffset := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -266,7 +266,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 			}
 
 			// Only check the filetype at the start of file.
-			if totalLines == 0 {
+			if lineOffset == 0 {
 				// TODO: could other optimizations be introduced here?
 				if mimetype, err := filetype.Match(s.Buffer[:n]); err != nil {
 					if isArchiveContent {
@@ -304,10 +304,10 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 
 			fragment.Raw = peekBuf.String()
 			fragment.Bytes = peekBuf.Bytes()
-			fragment.StartLine = totalLines
+			fragment.StartLine = lineOffset + 1
 
 			// Count the number of newlines in this chunk
-			totalLines += strings.Count(fragment.Raw, "\n")
+			lineOffset += strings.Count(fragment.Raw, "\n")
 
 			if s.Symlink != "" {
 				symlink := s.Symlink

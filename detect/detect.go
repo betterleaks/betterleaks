@@ -697,6 +697,9 @@ func (d *Detector) DetectString(content string) []report.Finding {
 }
 
 func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	// Ensure default fields are properly set
+	fragment.SetDefaults()
+
 	// Skip the config file and baseline file to prevent self-scanning.
 	if path := fragment.Attr(sources.AttrPath); path != "" {
 		if samePath(path, d.Config.Path) || (d.baselinePath != "" && samePath(path, d.baselinePath)) {
@@ -827,6 +830,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
+	// Ensure default fields are properly set
+	fragment.SetDefaults()
+
 	if r.Path != nil {
 		if r.Regex == nil && len(encodedSegments) == 0 {
 			if rulePathMatchesFragment(r.Path, fragment) {
@@ -900,11 +906,12 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			tags = append(append([]string(nil), r.Tags...), metaTags...)
 		}
 
+		startLineOffset := fragment.StartLine - 1
 		finding := report.Finding{
 			RuleID:          r.RuleID,
 			Description:     r.Description,
-			StartLine:       fragment.StartLine + loc.startLine,
-			EndLine:         fragment.StartLine + loc.endLine,
+			StartLine:       startLineOffset + loc.startLine,
+			EndLine:         startLineOffset + loc.endLine,
 			StartColumn:     loc.startColumn,
 			EndColumn:       loc.endColumn,
 			Line:            fragment.Raw[loc.startLineIndex:loc.endLineIndex],
