@@ -36,19 +36,19 @@ func AlgoliaApiKey() *config.Rule {
 		RequiredRules: []*config.Required{
 			{RuleID: "algolia-application-id"},
 		},
+		// Algolia's public Search API key includes these four read-only ACLs.
+		// "settings" reads index settings; "editSettings" is the write permission.
 		ValidateExpr: `let r = http.get("https://" + captures["algolia-application-id"] + ".algolia.net/1/keys/" + finding["secret"], {
     "Accept": "application/json",
     "X-Algolia-API-Key": finding["secret"],
     "X-Algolia-Application-Id": captures["algolia-application-id"]
-  }); let acl = r.json?.acl ?? []; let public_acl_count =
-    ("search" in acl ? 1 : 0)
-    + ("browse" in acl ? 1 : 0)
-    + ("listIndexes" in acl ? 1 : 0)
-    + ("settings" in acl ? 1 : 0);
-  r.status == 200 && size(acl) > public_acl_count ? {
+  }); let acl = r.json?.acl ?? [];
+  let public_acls = ["search", "browse", "listIndexes", "settings"];
+  let has_sensitive_acl = any(acl, {# not in public_acls});
+  r.status == 200 && has_sensitive_acl ? {
     "result": "valid",
     "acl": acl
-  } : r.status == 200 && size(acl) > 0 && size(acl) == public_acl_count ? {
+  } : r.status == 200 && "search" in acl ? {
     "result": "invalid",
     "reason": "Public Algolia Search API key",
     "acl": acl
