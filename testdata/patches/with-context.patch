@@ -1,0 +1,14 @@
+diff --git a/svc/main.go b/svc/main.go
+index 1234567..89abcde 100644
+--- a/svc/main.go
++++ b/svc/main.go
+@@ -10,6 +10,8 @@ func main() {
+ 	ctx := context.Background()
+ 	log.Println("start")
+-	old := 1
++	newvar := 2
++	first := "AKIALALEMEL33243OLIA"
+ 	log.Println("mid")
++	second := "AKIALALEMEL33243OLIB"
+ 	log.Println("end")
+ 	return

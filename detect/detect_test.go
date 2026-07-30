@@ -33,6 +33,7 @@ const maxDecodeDepth = 8
 const configPath = "../testdata/config/"
 const repoBasePath = "../testdata/repos/"
 const archivesBasePath = "../testdata/archives/"
+const patchBasePath = "../testdata/patches/"
 
 type cancelOnSecondCheck struct {
 	checks int
@@ -3081,4 +3082,207 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			compare(t, test.expected, actual)
 		})
 	}
+}
+
+// TestFromPatch scans pre-computed patches, the way the diff command does when
+// the content to scan is only available as a diff and there is no repository
+// behind it.
+func TestFromPatch(t *testing.T) {
+	tests := map[string]struct {
+		patch            string
+		stripComponents  int
+		expectedFindings []report.Finding
+	}{
+		// A patch carrying commit headers, as "git log -p" output does. Commit
+		// details come from those headers — note that the commit identifier is
+		// whatever the header holds, not necessarily a SHA — and the private key
+		// spans several added lines.
+		"commit-headers.patch": {
+			expectedFindings: []report.Finding{
+				{
+					RuleID:      "aws-access-key",
+					Description: "AWS Access Key",
+					StartLine:   4,
+					EndLine:     4,
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\nawsToken := \"AKIALALEMEL33243OLIA\"",
+					Match:       "AKIALALEMEL33243OLIA",
+					Secret:      "AKIALALEMEL33243OLIA",
+					File:        "firstfile",
+					Commit:      "32",
+					Entropy:     3.0841837,
+					Author:      "Dev Eloper",
+					Email:       "dev@example.com",
+					Date:        "2023-07-24T05:18:05Z",
+					Message:     "add a token and a deploy key",
+					Tags:        []string{"key", "AWS"},
+					Fingerprint: "32:firstfile:aws-access-key:4",
+				},
+				{
+					RuleID:      "apkey",
+					Description: "Asymmetric Private Key",
+					StartLine:   1,
+					EndLine:     1,
+					StartColumn: 1,
+					EndColumn:   31,
+					Line:        "-----BEGIN RSA PRIVATE KEY-----",
+					Match:       "-----BEGIN RSA PRIVATE KEY-----",
+					Secret:      "-----BEGIN RSA PRIVATE KEY-----",
+					File:        "config/deploy.key",
+					Commit:      "32",
+					Entropy:     3.3822913,
+					Author:      "Dev Eloper",
+					Email:       "dev@example.com",
+					Date:        "2023-07-24T05:18:05Z",
+					Message:     "add a token and a deploy key",
+					Tags:        []string{"key", "AsymmetricPrivateKey"},
+					Fingerprint: "32:config/deploy.key:apkey:1",
+				},
+			},
+		},
+		// A patch with no commit headers, as "git diff" output has none. So
+		// findings carry no commit details and the fingerprint falls back to
+		// the path.
+		"staged.patch": {
+			expectedFindings: []report.Finding{
+				{
+					RuleID:      "aws-access-key",
+					Description: "AWS Access Key",
+					StartLine:   7,
+					EndLine:     7,
+					StartColumn: 17,
+					EndColumn:   36,
+					Line:        "\taws_token2 := \"AKIALALEMEL33243OLIA\" // this one is not",
+					Match:       "AKIALALEMEL33243OLIA",
+					Secret:      "AKIALALEMEL33243OLIA",
+					File:        "api/api.go",
+					Commit:      "",
+					Entropy:     3.0841837,
+					Tags:        []string{"key", "AWS"},
+					Fingerprint: "api/api.go:aws-access-key:7",
+				},
+			},
+		},
+		// A patch carrying context lines. Context and deleted lines are not
+		// scanned, but they still have to be counted correctly for the added
+		// lines to be reported at their real line numbers.
+		"with-context.patch": {
+			expectedFindings: []report.Finding{
+				{
+					RuleID:      "aws-access-key",
+					Description: "AWS Access Key",
+					StartLine:   13,
+					EndLine:     13,
+					StartColumn: 13,
+					EndColumn:   32,
+					Line:        "\n\tfirst := \"AKIALALEMEL33243OLIA\"",
+					Match:       "AKIALALEMEL33243OLIA",
+					Secret:      "AKIALALEMEL33243OLIA",
+					File:        "svc/main.go",
+					Entropy:     3.0841837,
+					Tags:        []string{"key", "AWS"},
+					Fingerprint: "svc/main.go:aws-access-key:13",
+				},
+				{
+					RuleID:      "aws-access-key",
+					Description: "AWS Access Key",
+					StartLine:   15,
+					EndLine:     15,
+					StartColumn: 13,
+					EndColumn:   32,
+					Line:        "\tsecond := \"AKIALALEMEL33243OLIB\"",
+					Match:       "AKIALALEMEL33243OLIB",
+					Secret:      "AKIALALEMEL33243OLIB",
+					File:        "svc/main.go",
+					Entropy:     3.2464395,
+					Tags:        []string{"key", "AWS"},
+					Fingerprint: "svc/main.go:aws-access-key:15",
+				},
+			},
+		},
+		// A bare unified diff with no "diff --git" header. The a/ and b/
+		// prefixes cannot be told apart from real directories, so the caller
+		// has to ask for them to be stripped.
+		"bare-unified.patch": {
+			stripComponents: 1,
+			expectedFindings: []report.Finding{
+				{
+					RuleID:      "aws-access-key",
+					Description: "AWS Access Key",
+					StartLine:   5,
+					EndLine:     5,
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\nawsToken := \"AKIALALEMEL33243OLIA\"",
+					Match:       "AKIALALEMEL33243OLIA",
+					Secret:      "AKIALALEMEL33243OLIA",
+					File:        "api/api.go",
+					Entropy:     3.0841837,
+					Tags:        []string{"key", "AWS"},
+					Fingerprint: "api/api.go:aws-access-key:5",
+				},
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			patch, err := os.Open(filepath.Join(patchBasePath, name))
+			require.NoError(t, err)
+			defer patch.Close()
+
+			detector := NewDetector(loadTestConfig(t, "simple"))
+			gitCmd, err := sources.NewGitPatchCmd(patch, sources.GitPatchOptions{
+				StripComponents: tt.stripComponents,
+			})
+			require.NoError(t, err)
+
+			findings, err := detector.DetectSource(t.Context(), &sources.Git{
+				Cmd:             gitCmd,
+				ShouldSkip:      detector.SkipFunc(),
+				Platform:        scm.NoPlatform,
+				Sema:            detector.Sema,
+				MaxArchiveDepth: detector.MaxArchiveDepth,
+			})
+			require.NoError(t, err)
+
+			assert.ElementsMatch(t,
+				stripFindingAttributes(tt.expectedFindings),
+				stripFindingAttributes(findings))
+		})
+	}
+}
+
+// TestFromPatchMalformed asserts that a patch that cannot be read in full fails
+// the scan, rather than being passed off as a scan that found nothing.
+func TestFromPatchMalformed(t *testing.T) {
+	// The hunk header promises more lines than the hunk holds.
+	patch := "diff --git a/api/api.go b/api/api.go\n" +
+		"--- a/api/api.go\n" +
+		"+++ b/api/api.go\n" +
+		"@@ -10,6 +10,8 @@\n" +
+		" context\n" +
+		"+token := \"AKIALALEMEL33243OLIA\"\n"
+
+	detector := NewDetector(loadTestConfig(t, "simple"))
+	detector.SkipFindingAppend = true
+	gitCmd, err := sources.NewGitPatchCmd(strings.NewReader(patch), sources.GitPatchOptions{})
+	require.NoError(t, err)
+
+	var scanErrs []error
+	for result := range detector.Run(t.Context(), &sources.Git{
+		Cmd:             gitCmd,
+		ShouldSkip:      detector.SkipFunc(),
+		Platform:        scm.NoPlatform,
+		Sema:            detector.Sema,
+		MaxArchiveDepth: detector.MaxArchiveDepth,
+	}) {
+		if result.Err != nil {
+			scanErrs = append(scanErrs, result.Err)
+		}
+	}
+
+	require.Len(t, scanErrs, 1)
+	assert.Contains(t, scanErrs[0].Error(), "malformed patch")
 }

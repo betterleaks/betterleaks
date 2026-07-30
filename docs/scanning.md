@@ -9,6 +9,7 @@ Use `--help` for full flag descriptions. This page is for patterns.
 | Files on disk | `betterleaks dir` |
 | Git history | `betterleaks git` |
 | Staged or pre-commit diffs | `betterleaks git --pre-commit [--staged]` |
+| A diff produced elsewhere, with no repo to scan | `betterleaks diff <patch>` |
 | GitHub repos, Issues, PRs, Actions, Releases, Discussions, Gists | `betterleaks github <url>` |
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
@@ -75,6 +76,54 @@ betterleaks git . --platform github
 # history scan with JSON output
 betterleaks git . --git-workers 8 --report-path findings.json --report-format json
 ```
+
+---
+
+## `diff`
+
+Use `diff` when the content to scan is only available as a diff. The repository
+the diff came from may be unreachable, may not exist yet, or may not be git at
+all — any producer of git-formatted unified diffs will do.
+
+Everything else — `git`, `dir`, `github` — has content it can go and read.
+`diff` does not, so it scans the patch itself.
+
+```sh
+# a patch on disk
+betterleaks diff changes.patch
+
+# a patch on stdin
+git diff -U0 --staged | betterleaks diff
+
+# a whole history, as a patch
+git log -p -U0 > history.patch && betterleaks diff history.patch
+
+# a patch with no "diff --git" headers, only "--- a/… / +++ b/…"
+betterleaks diff --strip-components 1 changes.patch
+```
+
+Only added lines are scanned. Findings are reported against the path and line
+numbers of the file the patch produces, so they line up with what a scan of the
+resulting repository would report — including when the patch carries context
+lines. When the patch has commit headers, as `git log -p` output does, the
+commit, author and date are attached to the findings and included in their
+fingerprints; when it does not, as with `git diff` output, findings carry no
+commit details.
+
+A patch that cannot be read to its end fails the scan rather than being reported
+as a scan that found nothing, since the unread part may be where the secrets
+are.
+
+### Limitations
+
+- A secret is only found if the added lines contain enough of it. One that can
+  only be recognised together with surrounding unchanged lines is not
+  detectable from a diff, whatever the tool.
+- Binary files are skipped. Their contents are not in the patch, and there is no
+  repository to fetch them from — so unlike `git`, `diff` cannot look inside
+  added archives.
+- Findings carry no `Link`, since a patch does not say which remote it came
+  from.
 
 ---
 
