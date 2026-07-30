@@ -906,12 +906,12 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			tags = append(append([]string(nil), r.Tags...), metaTags...)
 		}
 
-		startLineOffset := fragment.StartLine - 1
+		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
 			RuleID:          r.RuleID,
 			Description:     r.Description,
-			StartLine:       startLineOffset + loc.startLine,
-			EndLine:         startLineOffset + loc.endLine,
+			StartLine:       prevFragmentEndLine + loc.startLine,
+			EndLine:         prevFragmentEndLine + loc.endLine,
 			StartColumn:     loc.startColumn,
 			EndColumn:       loc.endColumn,
 			Line:            fragment.Raw[loc.startLineIndex:loc.endLineIndex],
