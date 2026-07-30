@@ -35,8 +35,8 @@ func computeLineOffsets(s string) []int {
 	return offsets
 }
 
-// findOffsetLine returns the line a specific offset is on
-func findOffsetLine(lineOffsets []int, offset int) int {
+// offsetToLineNumber returns the line number of an offset
+func offsetToLineNumber(lineOffsets []int, offset int) int {
 	index, found := slices.BinarySearch(lineOffsets, offset)
 	if found || index == 0 {
 		return index + 1
@@ -48,9 +48,9 @@ func findOffsetLine(lineOffsets []int, offset int) int {
 
 func location(lineOffsets []int, raw string, matchIndex []int) Location {
 	startIndex := matchIndex[0]
-	startLine := findOffsetLine(lineOffsets, startIndex)
+	startLine := offsetToLineNumber(lineOffsets, startIndex)
 	endIndex := matchIndex[1]
-	endLine := findOffsetLine(lineOffsets, endIndex)
+	endLine := offsetToLineNumber(lineOffsets, endIndex)
 	endLineIndex := len(raw)
 
 	if endLine < len(lineOffsets) {
