@@ -46,6 +46,19 @@ func newCancelOnSecondCheck() *cancelOnSecondCheck {
 	return &cancelOnSecondCheck{open: make(chan struct{}), closed: closed}
 }
 
+func normalizeFindings(fs []report.Finding) {
+	// TODO: Temporary mitigation.
+	// https://github.com/gitleaks/gitleaks/issues/1641
+	for i := 0; i < len(fs); i++ {
+		f := &fs[i]
+		f.Line = strings.ReplaceAll(f.Line, "\r", "")
+		before := len(f.Match)
+		f.Match = strings.ReplaceAll(f.Match, "\r", "")
+		after := len(f.Match)
+		f.EndColumn -= before - after
+	}
+}
+
 func (c *cancelOnSecondCheck) Deadline() (time.Time, bool) { return time.Time{}, false }
 func (c *cancelOnSecondCheck) Done() <-chan struct{} {
 	c.checks++
@@ -1762,20 +1775,8 @@ func TestFromFiles(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			// TODO: Temporary mitigation.
-			// https://github.com/gitleaks/gitleaks/issues/1641
-			normalizedFindings := make([]report.Finding, len(findings))
-			for i, f := range findings {
-				if strings.HasSuffix(f.Line, "\r") {
-					f.Line = strings.ReplaceAll(f.Line, "\r", "")
-				}
-				if strings.HasSuffix(f.Match, "\r") {
-					f.EndColumn = f.EndColumn - 1
-					f.Match = strings.ReplaceAll(f.Match, "\r", "")
-				}
-				normalizedFindings[i] = f
-			}
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(normalizedFindings))
+			normalizeFindings(findings)
+			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
 		})
 	}
 }
@@ -2350,20 +2351,8 @@ func TestDetectWithArchives(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			// TODO: Temporary mitigation.
-			// https://github.com/gitleaks/gitleaks/issues/1641
-			normalizedFindings := make([]report.Finding, len(findings))
-			for i, f := range findings {
-				if strings.HasSuffix(f.Line, "\r") {
-					f.Line = strings.ReplaceAll(f.Line, "\r", "")
-				}
-				if strings.HasSuffix(f.Match, "\r") {
-					f.EndColumn = f.EndColumn - 1
-					f.Match = strings.ReplaceAll(f.Match, "\r", "")
-				}
-				normalizedFindings[i] = f
-			}
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(normalizedFindings))
+			normalizeFindings(findings)
+			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
 		})
 	}
 
