@@ -60,11 +60,15 @@ func getOrBuildTrie(terms []string) *ahocorasick.Matcher {
 	if len(terms) == 0 {
 		return nil
 	}
-	key := sortedKey(terms)
+	normalized := make([]string, len(terms))
+	for i, term := range terms {
+		normalized[i] = strings.ToLower(term)
+	}
+	key := sortedKey(normalized)
 	if v, ok := acTrieCache.Load(key); ok {
 		return v.(*ahocorasick.Matcher)
 	}
-	trie := ahocorasick.CompileStrings(terms)
+	trie := ahocorasick.CompileStrings(normalized)
 	acTrieCache.Store(key, trie)
 	return trie
 }
