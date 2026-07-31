@@ -23,11 +23,9 @@ import (
 )
 
 var banner = fmt.Sprintf(`
-
-  ○
-  ○
-  ●
-  ○  betterleaks %s
+ + ○
+   ▾
+ betterleaks %s
 
 `, version.Version)
 

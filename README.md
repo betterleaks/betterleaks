@@ -1,9 +1,7 @@
 # Betterleaks
 ```
-     ○
-     ○
-ghp_ ● qOomCIZBWchHR4v5FPp9UiQRS9CyigrCkXXuIJQPfe63f12a
-     ○
+ + ○
+   ▾
 ```
 
 Betterleaks is a configurable, fast, and thorough secrets scanner. It is maintained by the folks who made Gitleaks, including the original author.
