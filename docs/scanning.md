@@ -573,14 +573,12 @@ jq -n '{
 	--rule-id aws-access-token
 ```
 
-The JSON fields are `secret` (required), `components`, `captures`, and
-`attributes`; the latter three are string-to-string objects. For less sensitive
-interactive use, supply each rule declared in `[[rules.required]]` as
+The JSON fields are `secret` (required), `components`, and `captures`; the latter
+two are string-to-string objects. For less sensitive interactive use, supply
+each rule declared in `[[rules.required]]` as
 `--component rule-id=secret`. Use `--capture name=value` when a validation
 expression needs a named regex capture that cannot be reconstructed from the
 credential. A component capture uses `--capture rule-id:name=value`.
-Source-aware custom validators can receive attributes through repeated
-`--set-attr key=value` flags.
 
 The default report is concise text. Use `--simple` when only the uppercase
 status is needed:

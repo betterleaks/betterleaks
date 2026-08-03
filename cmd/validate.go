@@ -39,7 +39,6 @@ func newValidateCmd() *cobra.Command {
 	cmd.Flags().String("rule-id", "", "rule whose validation expression should validate the secret")
 	cmd.Flags().StringArray("component", nil, "required credential component as rule-id=secret (repeatable)")
 	cmd.Flags().StringArray("capture", nil, "validation capture as name=value; use rule-id:name=value for a component (repeatable)")
-	cmd.Flags().StringArray("set-attr", nil, "finding/source attribute as key=value (repeatable)")
 	cmd.Flags().Bool("list", false, "list rules that support direct validation")
 	cmd.Flags().Bool("simple", false, "print only the validation status")
 	return cmd
@@ -141,7 +140,7 @@ func validateListMode(cmd *cobra.Command, args []string) error {
 	if len(args) != 0 {
 		return errors.New("--list does not accept a secret")
 	}
-	for _, name := range []string{"rule-id", "component", "capture", "set-attr", "simple"} {
+	for _, name := range []string{"rule-id", "component", "capture", "simple"} {
 		if cmd.Flags().Changed(name) {
 			return fmt.Errorf("--list cannot be combined with --%s", name)
 		}
@@ -153,7 +152,6 @@ type validateCredentialInput struct {
 	Secret     string            `json:"secret"`
 	Components map[string]string `json:"components,omitempty"`
 	Captures   map[string]string `json:"captures,omitempty"`
-	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 func readValidateCredentialInput(cmd *cobra.Command, args []string) (validateCredentialInput, error) {
@@ -167,7 +165,7 @@ func readValidateCredentialInput(cmd *cobra.Command, args []string) (validateCre
 			return validateCredentialInput{}, err
 		}
 		if validateCredentialInputIsJSON(data) {
-			for _, name := range []string{"component", "capture", "set-attr"} {
+			for _, name := range []string{"component", "capture"} {
 				if cmd.Flags().Changed(name) {
 					return validateCredentialInput{}, fmt.Errorf("piped credential JSON cannot be combined with --%s", name)
 				}
@@ -193,14 +191,6 @@ func readValidateCredentialInput(cmd *cobra.Command, args []string) (validateCre
 	if err != nil {
 		return validateCredentialInput{}, fmt.Errorf("invalid --capture value: %w", err)
 	}
-	attrValues, err := cmd.Flags().GetStringArray("set-attr")
-	if err != nil {
-		return validateCredentialInput{}, err
-	}
-	attrs, err := parseSetAttrValues(attrValues)
-	if err != nil {
-		return validateCredentialInput{}, fmt.Errorf("invalid --set-attr value: %w", err)
-	}
 	componentValues, err := cmd.Flags().GetStringArray("component")
 	if err != nil {
 		return validateCredentialInput{}, err
@@ -214,7 +204,6 @@ func readValidateCredentialInput(cmd *cobra.Command, args []string) (validateCre
 		Secret:     secret,
 		Components: components,
 		Captures:   captures,
-		Attributes: attrs,
 	}
 	if err := validateCredentialInputValues(input); err != nil {
 		return validateCredentialInput{}, err
@@ -280,11 +269,6 @@ func validateCredentialInputValues(input validateCredentialInput) error {
 	for name := range input.Captures {
 		if name == "" {
 			return errors.New("capture name must not be empty")
-		}
-	}
-	for name := range input.Attributes {
-		if name == "" {
-			return errors.New("attribute name must not be empty")
 		}
 	}
 	return nil
@@ -397,13 +381,7 @@ func evaluateCredential(
 
 func buildValidateFinding(rule configpkg.Rule, input validateCredentialInput) (report.Finding, []string, error) {
 	captures := input.Captures
-	attrs := input.Attributes
-	if attrs == nil {
-		attrs = map[string]string{}
-	}
-	if _, ok := attrs[sources.AttrPath]; !ok {
-		attrs[sources.AttrPath] = "betterleaks://validate"
-	}
+	attrs := map[string]string{sources.AttrPath: "betterleaks://validate"}
 
 	components, supplied, componentSecrets := buildValidateComponents(input.Components, captures)
 	if err := validateRequiredComponents(rule, supplied); err != nil {

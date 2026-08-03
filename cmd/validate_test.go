@@ -33,7 +33,7 @@ regex = '''(test-token)'''
 validate = '''
 finding["secret"] == %q &&
 captures["tenant"] == "acme" &&
-attributes["region"] == "us" ? {
+attributes["path"] == "betterleaks://validate" ? {
   "result": "valid",
   "owner": "alice",
   "echo": "credential=" + finding["secret"],
@@ -50,7 +50,6 @@ attributes["region"] == "us" ? {
 		"--config", configPath,
 		"--rule-id", "test-token",
 		"--capture", "tenant=acme",
-		"--set-attr", "region=us",
 		"--report-format", "json",
 		secret,
 	})
@@ -227,8 +226,7 @@ regex = '''(secret-[a-z]+)'''
 validate = '''
 finding["secret"] == "secret-primary" &&
 captures["client-id"] == "client-primary" &&
-captures["client-id:tenant"] == "acme" &&
-attributes["region"] == "eu" ? {
+captures["client-id:tenant"] == "acme" ? {
   "result": "valid",
   "echo": finding["secret"] + ":" + captures["client-id"]
 } : {
@@ -244,8 +242,7 @@ id = "client-id"
 	root.SetIn(strings.NewReader(`{
   "secret": "secret-primary",
   "components": {"client-id": "client-primary"},
-  "captures": {"client-id:tenant": "acme"},
-  "attributes": {"region": "eu"}
+  "captures": {"client-id:tenant": "acme"}
 }`))
 	root.SetArgs([]string{
 		"validate",
@@ -269,6 +266,16 @@ id = "client-id"
 	}
 	if got.Validation.Metadata["echo"] != "[redacted]:[redacted]" {
 		t.Fatalf("sanitized metadata = %#v", got.Validation.Metadata["echo"])
+	}
+}
+
+func TestDecodeValidateCredentialInputRejectsAttributes(t *testing.T) {
+	_, err := decodeValidateCredentialInput([]byte(`{
+  "secret": "secret-primary",
+  "attributes": {"region": "eu"}
+}`))
+	if err == nil || !strings.Contains(err.Error(), `unknown field "attributes"`) {
+		t.Fatalf("error = %v, want unknown attributes field", err)
 	}
 }
 
