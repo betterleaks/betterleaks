@@ -1,71 +1,69 @@
-package cmd
+package report
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
-
-	"github.com/spf13/cobra"
-
-	configpkg "github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/report"
 )
 
-const credentialReportSchemaVersion = 1
+const CredentialReportSchemaVersion = 1
 
-// credentialReport keeps validation in its own namespace. Credential access
+// CredentialReport keeps validation in its own namespace. Credential access
 // analysis can be added later as an "analysis" sibling without changing the
 // validation result contract.
-type credentialReport struct {
+type CredentialReport struct {
 	SchemaVersion int                        `json:"schema_version"`
 	RuleID        string                     `json:"rule_id"`
-	Validation    credentialValidationReport `json:"validation"`
+	Validation    CredentialValidationReport `json:"validation"`
 }
 
-type credentialValidationReport struct {
-	Status       report.ValidationStatus       `json:"status"`
+// CredentialValidationReport is the validation portion of a credential report.
+type CredentialValidationReport struct {
+	Status       ValidationStatus              `json:"status"`
 	Reason       string                        `json:"reason,omitempty"`
 	Metadata     map[string]any                `json:"metadata,omitempty"`
-	RequiredSets []credentialRequiredSetReport `json:"required_sets,omitempty"`
+	RequiredSets []CredentialRequiredSetReport `json:"required_sets,omitempty"`
 }
 
-type credentialRequiredSetReport struct {
-	Status     report.ValidationStatus `json:"status,omitempty"`
-	Reason     string                  `json:"reason,omitempty"`
-	Components []string                `json:"components"`
+// CredentialRequiredSetReport describes one validated set of companion credentials.
+type CredentialRequiredSetReport struct {
+	Status     ValidationStatus `json:"status,omitempty"`
+	Reason     string           `json:"reason,omitempty"`
+	Components []string         `json:"components"`
 }
 
-type credentialRuleList struct {
+// CredentialRuleList is the versioned output produced by validate --list.
+type CredentialRuleList struct {
 	SchemaVersion int                     `json:"schema_version"`
-	Rules         []credentialRuleSummary `json:"rules"`
+	Rules         []CredentialRuleSummary `json:"rules"`
 }
 
-type credentialRuleSummary struct {
+// CredentialRuleSummary describes a rule that supports direct validation.
+type CredentialRuleSummary struct {
 	RuleID             string   `json:"rule_id"`
 	Description        string   `json:"description,omitempty"`
 	RequiredComponents []string `json:"required_components,omitempty"`
 }
 
-func newCredentialReport(finding report.Finding, secrets []string, includeEmpty bool) credentialReport {
+// NewCredentialReport builds a redacted report from a validated finding.
+func NewCredentialReport(finding Finding, secrets []string, includeEmpty bool) CredentialReport {
 	secrets = credentialSecretsForRedaction(secrets)
 	metadata := sanitizeCredentialMetadata(finding.ValidationMeta, secrets, includeEmpty)
-	result := credentialReport{
-		SchemaVersion: credentialReportSchemaVersion,
+	result := CredentialReport{
+		SchemaVersion: CredentialReportSchemaVersion,
 		RuleID:        finding.RuleID,
-		Validation: credentialValidationReport{
+		Validation: CredentialValidationReport{
 			Status:   finding.ValidationStatus,
 			Reason:   sanitizeCredentialString(finding.ValidationReason, secrets),
 			Metadata: metadata,
 		},
 	}
 	for _, set := range finding.RequiredSets {
-		setResult := credentialRequiredSetReport{
+		setResult := CredentialRequiredSetReport{
 			Status: set.ValidationStatus,
 			Reason: sanitizeCredentialString(set.ValidationReason, secrets),
 		}
@@ -74,31 +72,6 @@ func newCredentialReport(finding report.Finding, secrets []string, includeEmpty 
 		}
 		sort.Strings(setResult.Components)
 		result.Validation.RequiredSets = append(result.Validation.RequiredSets, setResult)
-	}
-	return result
-}
-
-func newCredentialRuleList(cfg *configpkg.Config) credentialRuleList {
-	result := credentialRuleList{SchemaVersion: credentialReportSchemaVersion}
-	seen := make(map[string]struct{}, len(cfg.Rules))
-	for _, id := range sortedRuleIDs(cfg) {
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		rule := cfg.Rules[id]
-		if strings.TrimSpace(rule.ValidateExpr) == "" {
-			continue
-		}
-		summary := credentialRuleSummary{
-			RuleID:      rule.RuleID,
-			Description: rule.Description,
-		}
-		for _, required := range rule.RequiredRules {
-			summary.RequiredComponents = append(summary.RequiredComponents, required.RuleID)
-		}
-		sort.Strings(summary.RequiredComponents)
-		result.Rules = append(result.Rules, summary)
 	}
 	return result
 }
@@ -186,111 +159,72 @@ func credentialSecretsForRedaction(secrets []string) []string {
 	return ordered
 }
 
-func writeCredentialReport(cmd *cobra.Command, result credentialReport) error {
-	noColor, err := cmd.Flags().GetBool("no-color")
-	if err != nil {
-		return err
-	}
-	simple, err := cmd.Flags().GetBool("simple")
-	if err != nil {
-		return err
-	}
-	path, err := cmd.Flags().GetString("report-path")
-	if err != nil {
-		return err
-	}
-	if path != "" && path != report.StdoutReportPath {
-		noColor = true
-	}
-	writeText := func(w io.Writer) error {
-		if simple {
-			return writeCredentialStatus(w, result.Validation.Status, noColor)
-		}
-		return writeCredentialText(w, result, noColor)
-	}
-	return writeCredentialOutput(
-		cmd,
-		writeText,
-		result,
-	)
-}
+// CredentialReportFormat identifies a supported direct-validation report format.
+type CredentialReportFormat string
 
-func writeCredentialRuleList(cmd *cobra.Command, result credentialRuleList) error {
-	return writeCredentialOutput(
-		cmd,
-		func(w io.Writer) error { return writeCredentialRuleListText(w, result) },
-		result,
-	)
-}
+const (
+	CredentialReportFormatText CredentialReportFormat = "text"
+	CredentialReportFormatJSON CredentialReportFormat = "json"
+)
 
-func writeCredentialOutput(cmd *cobra.Command, writeText func(io.Writer) error, jsonValue any) (returnErr error) {
-	format, err := credentialReportFormat(cmd)
-	if err != nil {
-		return err
-	}
-	path, err := cmd.Flags().GetString("report-path")
-	if err != nil {
-		return err
-	}
-
-	var writer io.Writer = cmd.OutOrStdout()
-	if path != "" && path != report.StdoutReportPath {
-		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-		if err != nil {
-			return fmt.Errorf("opening validation report %q: %w", path, err)
-		}
-		writer = file
-		defer func() {
-			if err := file.Close(); returnErr == nil && err != nil {
-				returnErr = fmt.Errorf("closing validation report %q: %w", path, err)
-			}
-		}()
-	}
-
-	switch format {
-	case "text":
-		return writeText(writer)
-	case "json":
-		encoder := json.NewEncoder(writer)
-		encoder.SetEscapeHTML(false)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(jsonValue)
-	default:
-		return fmt.Errorf("unsupported validation report format %q", format)
-	}
-}
-
-func credentialReportFormat(cmd *cobra.Command) (string, error) {
-	templatePath, err := cmd.Flags().GetString("report-template")
-	if err != nil {
-		return "", err
-	}
-	if templatePath != "" {
-		return "", errors.New("--report-template is not supported by validate; use --report-format text or json")
-	}
-
-	format, err := cmd.Flags().GetString("report-format")
-	if err != nil {
-		return "", err
-	}
+// ResolveCredentialReportFormat validates an explicit format or infers one
+// from the report path. Text is the default when neither selects JSON.
+func ResolveCredentialReportFormat(format, path string) (CredentialReportFormat, error) {
 	format = strings.ToLower(strings.TrimSpace(format))
 	if format == "" {
-		path, err := cmd.Flags().GetString("report-path")
-		if err != nil {
-			return "", err
-		}
 		if strings.EqualFold(filepath.Ext(path), ".json") {
-			return "json", nil
+			return CredentialReportFormatJSON, nil
 		}
-		return "text", nil
+		return CredentialReportFormatText, nil
 	}
 	if format != "text" && format != "json" {
-		return "", fmt.Errorf("--report-format must be text or json for validate, got %q", format)
+		return "", fmt.Errorf("credential report format must be text or json, got %q", format)
 	}
-	return format, nil
+	return CredentialReportFormat(format), nil
 }
 
-func writeCredentialText(w io.Writer, result credentialReport, noColor bool) error {
+// CredentialReporter renders direct-validation results and rule lists.
+type CredentialReporter struct {
+	Format  CredentialReportFormat
+	NoColor bool
+	Simple  bool
+}
+
+// Write renders a direct-validation result.
+func (r CredentialReporter) Write(w io.Writer, result CredentialReport) error {
+	switch r.Format {
+	case CredentialReportFormatText:
+		if r.Simple {
+			return writeCredentialStatus(w, result.Validation.Status, r.NoColor)
+		}
+		return writeCredentialText(w, result, r.NoColor)
+	case CredentialReportFormatJSON:
+		return writeCredentialJSON(w, result)
+	default:
+		return fmt.Errorf("unsupported validation report format %q", r.Format)
+	}
+}
+
+// WriteRuleList renders the rules that support direct validation.
+func (r CredentialReporter) WriteRuleList(w io.Writer, result CredentialRuleList) error {
+	switch r.Format {
+	case CredentialReportFormatText:
+		return writeCredentialRuleListText(w, result)
+	case CredentialReportFormatJSON:
+		return writeCredentialJSON(w, result)
+	default:
+		return fmt.Errorf("unsupported validation report format %q", r.Format)
+	}
+}
+
+func writeCredentialJSON(w io.Writer, value any) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
+}
+
+func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) error {
 	if _, err := fmt.Fprintf(w, "\n┌─%s──○\n│\n│ validation:\n", result.RuleID); err != nil {
 		return err
 	}
@@ -338,7 +272,7 @@ func writeCredentialText(w io.Writer, result credentialReport, noColor bool) err
 	return err
 }
 
-func writeCredentialStatus(w io.Writer, status report.ValidationStatus, noColor bool) error {
+func writeCredentialStatus(w io.Writer, status ValidationStatus, noColor bool) error {
 	_, err := fmt.Fprintln(w, formatCredentialStatus(status, noColor))
 	return err
 }
@@ -349,29 +283,29 @@ func writeCredentialDotLeader(w io.Writer, key, value string, maxKey int) error 
 	return err
 }
 
-func formatCredentialStatus(status report.ValidationStatus, noColor bool) string {
+func formatCredentialStatus(status ValidationStatus, noColor bool) string {
 	text := strings.ToUpper(string(status))
-	return report.ValidationStyle(string(status), noColor).Render(text)
+	return ValidationStyle(string(status), noColor).Render(text)
 }
 
-func formatCredentialStatusIcon(status report.ValidationStatus, noColor bool) string {
+func formatCredentialStatusIcon(status ValidationStatus, noColor bool) string {
 	var icon string
 	switch status {
-	case report.ValidationStatusValid:
+	case ValidationStatusValid:
 		icon = "✓"
-	case report.ValidationStatusInvalid, report.ValidationStatusError:
+	case ValidationStatusInvalid, ValidationStatusError:
 		icon = "✗"
-	case report.ValidationStatusRevoked:
+	case ValidationStatusRevoked:
 		icon = "!"
-	case report.ValidationStatusNeedsValidation, report.ValidationStatusUnknown:
+	case ValidationStatusNeedsValidation, ValidationStatusUnknown:
 		icon = "?"
 	default:
 		icon = "-"
 	}
-	return report.ValidationStyle(string(status), noColor).Render(icon)
+	return ValidationStyle(string(status), noColor).Render(icon)
 }
 
-func writeCredentialRuleListText(w io.Writer, result credentialRuleList) error {
+func writeCredentialRuleListText(w io.Writer, result CredentialRuleList) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	if _, err := fmt.Fprintln(tw, "RULE ID\tREQUIRED COMPONENTS"); err != nil {
 		return err

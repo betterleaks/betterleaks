@@ -53,7 +53,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if simple && format != "text" {
+	if simple && format != report.CredentialReportFormatText {
 		return errors.New("--simple only supports text output; remove --report-format or use --report-format text")
 	}
 
@@ -132,7 +132,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	result := newCredentialReport(validated, suppliedSecrets, includeEmpty)
+	result := report.NewCredentialReport(validated, suppliedSecrets, includeEmpty)
 	return writeCredentialReport(cmd, result)
 }
 
@@ -146,6 +146,97 @@ func validateListMode(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return nil
+}
+
+func credentialReportFormat(cmd *cobra.Command) (report.CredentialReportFormat, error) {
+	templatePath, err := cmd.Flags().GetString("report-template")
+	if err != nil {
+		return "", err
+	}
+	if templatePath != "" {
+		return "", errors.New("--report-template is not supported by validate; use --report-format text or json")
+	}
+	format, err := cmd.Flags().GetString("report-format")
+	if err != nil {
+		return "", err
+	}
+	path, err := cmd.Flags().GetString("report-path")
+	if err != nil {
+		return "", err
+	}
+	return report.ResolveCredentialReportFormat(format, path)
+}
+
+func credentialReporter(cmd *cobra.Command) (report.CredentialReporter, string, error) {
+	format, err := credentialReportFormat(cmd)
+	if err != nil {
+		return report.CredentialReporter{}, "", err
+	}
+	path, err := cmd.Flags().GetString("report-path")
+	if err != nil {
+		return report.CredentialReporter{}, "", err
+	}
+	noColor, err := cmd.Flags().GetBool("no-color")
+	if err != nil {
+		return report.CredentialReporter{}, "", err
+	}
+	simple, err := cmd.Flags().GetBool("simple")
+	if err != nil {
+		return report.CredentialReporter{}, "", err
+	}
+	if path != "" && path != report.StdoutReportPath {
+		noColor = true
+	}
+	return report.CredentialReporter{
+		Format:  format,
+		NoColor: noColor,
+		Simple:  simple,
+	}, path, nil
+}
+
+func writeCredentialReport(cmd *cobra.Command, result report.CredentialReport) error {
+	reporter, path, err := credentialReporter(cmd)
+	if err != nil {
+		return err
+	}
+	return report.WriteOutput(path, cmd.OutOrStdout(), func(w io.Writer) error {
+		return reporter.Write(w, result)
+	})
+}
+
+func writeCredentialRuleList(cmd *cobra.Command, result report.CredentialRuleList) error {
+	reporter, path, err := credentialReporter(cmd)
+	if err != nil {
+		return err
+	}
+	return report.WriteOutput(path, cmd.OutOrStdout(), func(w io.Writer) error {
+		return reporter.WriteRuleList(w, result)
+	})
+}
+
+func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
+	result := report.CredentialRuleList{SchemaVersion: report.CredentialReportSchemaVersion}
+	seen := make(map[string]struct{}, len(cfg.Rules))
+	for _, id := range sortedRuleIDs(cfg) {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		rule := cfg.Rules[id]
+		if strings.TrimSpace(rule.ValidateExpr) == "" {
+			continue
+		}
+		summary := report.CredentialRuleSummary{
+			RuleID:      rule.RuleID,
+			Description: rule.Description,
+		}
+		for _, required := range rule.RequiredRules {
+			summary.RequiredComponents = append(summary.RequiredComponents, required.RuleID)
+		}
+		sort.Strings(summary.RequiredComponents)
+		result.Rules = append(result.Rules, summary)
+	}
+	return result
 }
 
 type validateCredentialInput struct {

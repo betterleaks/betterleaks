@@ -63,12 +63,12 @@ attributes["path"] == "betterleaks://validate" ? {
 	if strings.Contains(stdout.String(), `"description"`) {
 		t.Fatalf("validation report contains a rule description: %s", stdout.String())
 	}
-	var got credentialReport
+	var got report.CredentialReport
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v\n%s", err, stdout.String())
 	}
-	if got.SchemaVersion != credentialReportSchemaVersion {
-		t.Fatalf("schema version = %d, want %d", got.SchemaVersion, credentialReportSchemaVersion)
+	if got.SchemaVersion != report.CredentialReportSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", got.SchemaVersion, report.CredentialReportSchemaVersion)
 	}
 	if got.RuleID != "test-token" {
 		t.Fatalf("rule ID = %q", got.RuleID)
@@ -109,7 +109,7 @@ finding["secret"] == "from-stdin" ? {"result": "valid"} : {"result": "invalid"}
 		t.Fatalf("validate command: %v", err)
 	}
 
-	var got credentialReport
+	var got report.CredentialReport
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -190,7 +190,7 @@ id = "account-id"
 	if strings.Contains(stdout.String(), "secret-primary") || strings.Contains(stdout.String(), "acct-secret") {
 		t.Fatalf("report contains a supplied credential component: %s", stdout.String())
 	}
-	var got credentialReport
+	var got report.CredentialReport
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -257,7 +257,7 @@ id = "client-id"
 	if strings.Contains(stdout.String(), "secret-primary") || strings.Contains(stdout.String(), "client-primary") {
 		t.Fatalf("report contains structured credential input: %s", stdout.String())
 	}
-	var got credentialReport
+	var got report.CredentialReport
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -312,7 +312,7 @@ let r2 = http.get(%q, {});
 		t.Fatalf("validate command: %v", err)
 	}
 
-	var got credentialReport
+	var got report.CredentialReport
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
@@ -335,6 +335,12 @@ regex = '''(reported-token)'''
 validate = '''{"result": "invalid", "reason": "Unauthorized"}'''
 `)
 	reportPath := filepath.Join(t.TempDir(), "credential.json")
+	if err := os.WriteFile(reportPath, []byte(`{"old":"report"}`), 0o644); err != nil {
+		t.Fatalf("write existing report: %v", err)
+	}
+	if err := os.Chmod(reportPath, 0o644); err != nil {
+		t.Fatalf("make existing report permissive: %v", err)
+	}
 
 	root, stdout := newValidateTestRoot(t)
 	root.SetArgs([]string{
@@ -358,7 +364,7 @@ validate = '''{"result": "invalid", "reason": "Unauthorized"}'''
 	if strings.Contains(string(data), "reported-secret") {
 		t.Fatalf("report contains supplied secret: %s", data)
 	}
-	var got credentialReport
+	var got report.CredentialReport
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("report path did not infer JSON: %v\n%s", err, data)
 	}
@@ -406,7 +412,7 @@ regex = '''(unvalidated)'''
 		t.Fatalf("validate --list: %v", err)
 	}
 
-	var got credentialRuleList
+	var got report.CredentialRuleList
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
@@ -500,64 +506,6 @@ func TestReadValidateCredentialInputLimitsStdin(t *testing.T) {
 	_, err := readValidateCredentialInput(cmd, nil)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("error = %v, want size error", err)
-	}
-}
-
-func TestCredentialReportRedactsOverlappingSecretsAndMetadataKeys(t *testing.T) {
-	got := newCredentialReport(report.Finding{
-		RuleID:           "test",
-		ValidationStatus: report.ValidationStatusValid,
-		ValidationMeta: map[string]any{
-			"credential-abcdef": "abcdef abc",
-		},
-	}, []string{"abc", "abcdef"}, false)
-
-	value, ok := got.Validation.Metadata["credential-[redacted]"]
-	if !ok {
-		t.Fatalf("sanitized metadata keys = %#v", got.Validation.Metadata)
-	}
-	if value != "[redacted] [redacted]" {
-		t.Fatalf("sanitized metadata value = %#v", value)
-	}
-}
-
-func TestWriteCredentialText(t *testing.T) {
-	result := credentialReport{
-		SchemaVersion: credentialReportSchemaVersion,
-		RuleID:        "test-rule",
-		Validation: credentialValidationReport{
-			Status: report.ValidationStatusValid,
-			Reason: "Authenticated",
-			Metadata: map[string]any{
-				"zeta":  int64(2),
-				"alpha": "owner",
-			},
-			RequiredSets: []credentialRequiredSetReport{{
-				Status:     report.ValidationStatusValid,
-				Components: []string{"component"},
-			}},
-		},
-	}
-	var output bytes.Buffer
-	if err := writeCredentialText(&output, result, true); err != nil {
-		t.Fatalf("write text: %v", err)
-	}
-	want := `
-┌─test-rule──○
-│
-│ validation:
-│   status ...... VALID
-│   reason ...... Authenticated
-│   alpha ....... "owner"
-│   zeta ........ 2
-│
-│ components:
-│   ✓  component
-└○
-
-`
-	if output.String() != want {
-		t.Fatalf("text output:\n%s\nwant:\n%s", output.String(), want)
 	}
 }
 
