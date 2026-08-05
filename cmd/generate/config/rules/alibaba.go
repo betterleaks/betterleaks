@@ -35,8 +35,8 @@ func AlibabaSecretKey() *config.Rule {
 		Keywords:    []string{"alibaba", "aliyun"},
 		Components: []*config.Component{
 			{
-				RuleID:      "alibaba-access-key-id",
-				WithinLines: utils.Ptr(5),
+				RuleID: "alibaba-access-key-id",
+				Within: "5L",
 			},
 		},
 		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-access-key-id", "", ""),
@@ -99,12 +99,12 @@ func AlibabaSTSAccessKeySecret() *config.Rule {
 		Keywords:    []string{"alibaba", "aliyun"},
 		Components: []*config.Component{
 			{
-				RuleID:      "alibaba-sts-access-key-id",
-				WithinLines: utils.Ptr(10),
+				RuleID: "alibaba-sts-access-key-id",
+				Within: "10L",
 			},
 			{
-				RuleID:      "alibaba-sts-security-token",
-				WithinLines: utils.Ptr(10),
+				RuleID: "alibaba-sts-security-token",
+				Within: "10L",
 			},
 		},
 		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-sts-access-key-id", "alibaba-sts-security-token", "SecurityToken"),

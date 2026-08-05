@@ -89,10 +89,9 @@ type rawRequired struct {
 }
 
 type rawComponent struct {
-	ID            string `toml:"id"`
-	Optional      bool   `toml:"optional"`
-	WithinLines   *int   `toml:"withinLines"`
-	WithinColumns *int   `toml:"withinColumns"`
+	ID       string `toml:"id"`
+	Optional bool   `toml:"optional"`
+	Within   string `toml:"within"`
 }
 
 type rawRuleAllowlist struct {
@@ -266,10 +265,9 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 					component = &rawComponent{}
 				}
 				cr.Components = append(cr.Components, &Component{
-					RuleID:        component.ID,
-					Optional:      component.Optional,
-					WithinLines:   component.WithinLines,
-					WithinColumns: component.WithinColumns,
+					RuleID:   component.ID,
+					Optional: component.Optional,
+					Within:   component.Within,
 				})
 			}
 		} else if vr.Required != nil {
@@ -278,10 +276,15 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 				if required == nil {
 					required = &rawRequired{}
 				}
+				if required.WithinLines != nil && *required.WithinLines < 0 {
+					return nil, fmt.Errorf("%s: [[rules.required]] withinLines must be non-negative", cr.RuleID)
+				}
+				if required.WithinColumns != nil && *required.WithinColumns < 0 {
+					return nil, fmt.Errorf("%s: [[rules.required]] withinColumns must be non-negative", cr.RuleID)
+				}
 				cr.Components = append(cr.Components, &Component{
-					RuleID:        required.ID,
-					WithinLines:   required.WithinLines,
-					WithinColumns: required.WithinColumns,
+					RuleID: required.ID,
+					Within: legacyComponentWithin(required.WithinLines, required.WithinColumns),
 				})
 			}
 		}
@@ -404,6 +407,17 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 	}
 
 	return c, nil
+}
+
+func legacyComponentWithin(lines, columns *int) string {
+	var parts []string
+	if lines != nil {
+		parts = append(parts, fmt.Sprintf("%dL", *lines))
+	}
+	if columns != nil {
+		parts = append(parts, fmt.Sprintf("%dC", *columns))
+	}
+	return strings.Join(parts, ",")
 }
 
 func validateMinVersion(gitleaksMinVer, betterleaksMinVer, configPath string) error {

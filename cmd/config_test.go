@@ -11,7 +11,6 @@ import (
 )
 
 func TestRenderConfigTOMLComponents(t *testing.T) {
-	lines := 5
 	cfg := &configpkg.Config{
 		Rules: map[string]configpkg.Rule{
 			"primary": {
@@ -19,9 +18,9 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 				Regex:  regexp.MustCompile("primary"),
 				Components: []*configpkg.Component{
 					{
-						RuleID:      "component",
-						Optional:    true,
-						WithinLines: &lines,
+						RuleID:   "component",
+						Optional: true,
+						Within:   "-5L,+2L",
 					},
 				},
 			},
@@ -35,7 +34,7 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 
 	rendered := renderConfigTOML(renderConfig(cfg))
 	assert.Contains(t, rendered, `components = [
-  { id = 'component', optional = true, withinLines = 5 },
+  { id = 'component', optional = true, within = '-5L,+2L' },
 ]`)
 	assert.NotContains(t, rendered, "[[rules.required]]")
 
@@ -43,6 +42,7 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, parsed.Rules["primary"].Components, 1)
 	assert.True(t, parsed.Rules["primary"].Components[0].Optional)
+	assert.Equal(t, "-5L,+2L", parsed.Rules["primary"].Components[0].Within)
 }
 
 func TestRenderConfigTOMLMigratesLegacyRequired(t *testing.T) {

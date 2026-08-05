@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/regexp"
 )
@@ -87,9 +88,9 @@ type Rule struct {
 type Component struct {
 	RuleID string
 	// Optional components are attached when found but do not gate the primary finding.
-	Optional      bool
-	WithinLines   *int
-	WithinColumns *int
+	Optional bool
+	// Within uses the same directional L/C grammar as --match-context.
+	Within string
 }
 
 // Validate guards against common misconfigurations.
@@ -146,11 +147,8 @@ func (r *Rule) Validate() error {
 			return fmt.Errorf("%s: duplicate component rule ID %q", r.RuleID, component.RuleID)
 		}
 		seenComponents[component.RuleID] = struct{}{}
-		if component.WithinLines != nil && *component.WithinLines < 0 {
-			return fmt.Errorf("%s: component %q withinLines must be non-negative", r.RuleID, component.RuleID)
-		}
-		if component.WithinColumns != nil && *component.WithinColumns < 0 {
-			return fmt.Errorf("%s: component %q withinColumns must be non-negative", r.RuleID, component.RuleID)
+		if _, err := contextwindow.Parse(component.Within); err != nil {
+			return fmt.Errorf("%s: component %q has invalid within value %q: %w", r.RuleID, component.RuleID, component.Within, err)
 		}
 	}
 

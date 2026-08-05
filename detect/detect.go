@@ -20,6 +20,7 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/internal/ahocorasick"
+	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
@@ -1085,8 +1086,16 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 
 	// Pre-collect each component rule's findings once per fragment.
 	allComponentFindings := make(map[string][]report.Finding)
+	componentWindows := make(map[string]contextwindow.Spec, len(r.Components))
 
 	for _, component := range r.Components {
+		window, err := contextwindow.Parse(component.Within)
+		if err != nil {
+			logger.Error().Err(err).Str("rule-id", component.RuleID).Str("within", component.Within).Msg("invalid component within value")
+			continue
+		}
+		componentWindows[component.RuleID] = window
+
 		rule, ok := d.Config.Rules[component.RuleID]
 		if !ok {
 			logger.Error().Str("rule-id", component.RuleID).Msg("component rule not found in config")
@@ -1117,9 +1126,10 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 			if !exists {
 				continue
 			}
+			window := componentWindows[component.RuleID]
 
 			for _, found := range foundComponentFindings {
-				if d.withinProximity(primaryFinding, found, component) {
+				if withinProximity(fragment.Raw, fragment.StartLine, primaryFinding, found, window) {
 					componentFindings = append(componentFindings, &report.ComponentFinding{
 						RuleID:          found.RuleID,
 						Optional:        component.Optional,
@@ -1169,28 +1179,69 @@ func (d *Detector) hasAllRequiredComponents(componentFindings []*report.Componen
 	return true
 }
 
-func (d *Detector) withinProximity(primary, componentFinding report.Finding, component *config.Component) bool {
-	// If neither within_lines nor within_columns is set, findings just need to be in the same fragment
-	if component.WithinLines == nil && component.WithinColumns == nil {
+func withinProximity(raw string, fragmentStartLine int, primary, component report.Finding, window contextwindow.Spec) bool {
+	if window.IsZero() {
 		return true
 	}
 
-	// Check line proximity (vertical distance)
-	if component.WithinLines != nil {
-		lineDiff := abs(primary.StartLine - componentFinding.StartLine)
-		if lineDiff > *component.WithinLines {
+	switch window.Mode {
+	case contextwindow.ModeCols:
+		lineStarts := rawLineStarts(raw)
+		primaryStart, ok := findingStartOffset(lineStarts, fragmentStartLine, primary)
+		if !ok {
 			return false
 		}
-	}
-
-	// Check column proximity (horizontal distance)
-	if component.WithinColumns != nil {
-		// Use the start column of each finding for proximity calculation
-		colDiff := abs(primary.StartColumn - componentFinding.StartColumn)
-		if colDiff > *component.WithinColumns {
+		primaryEnd, ok := findingEndOffset(lineStarts, fragmentStartLine, primary)
+		if !ok {
 			return false
 		}
-	}
+		componentStart, ok := findingStartOffset(lineStarts, fragmentStartLine, component)
+		if !ok {
+			return false
+		}
+		return componentStart >= max(primaryStart-window.ColsBefore, 0) &&
+			componentStart < min(primaryEnd+window.ColsAfter, len(raw))
 
-	return true
+	case contextwindow.ModeBox:
+		if component.StartLine < primary.StartLine-window.LinesBefore ||
+			component.StartLine > primary.EndLine+window.LinesAfter {
+			return false
+		}
+		if primary.StartLine == primary.EndLine && (window.ColsBefore > 0 || window.ColsAfter > 0) {
+			componentColumn := component.StartColumn - 1
+			windowStart := max(primary.StartColumn-1-window.ColsBefore, 0)
+			windowEnd := primary.EndColumn + window.ColsAfter
+			return componentColumn >= windowStart && componentColumn < windowEnd
+		}
+		return true
+
+	default:
+		return false
+	}
+}
+
+func rawLineStarts(raw string) []int {
+	starts := []int{0}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == '\n' {
+			starts = append(starts, i+1)
+		}
+	}
+	return starts
+}
+
+func findingStartOffset(lineStarts []int, fragmentStartLine int, finding report.Finding) (int, bool) {
+	line := finding.StartLine - fragmentStartLine
+	if line < 0 || line >= len(lineStarts) || finding.StartColumn < 1 {
+		return 0, false
+	}
+	return lineStarts[line] + finding.StartColumn - 1, true
+}
+
+func findingEndOffset(lineStarts []int, fragmentStartLine int, finding report.Finding) (int, bool) {
+	line := finding.EndLine - fragmentStartLine
+	if line < 0 || line >= len(lineStarts) || finding.EndColumn < 0 {
+		return 0, false
+	}
+	return lineStarts[line] + finding.EndColumn, true
 }

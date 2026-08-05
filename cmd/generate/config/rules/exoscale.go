@@ -15,8 +15,8 @@ func ExoscaleAPIKey() *config.Rule {
 		Entropy:     3.0,
 		Components: []*config.Component{
 			{
-				RuleID:      "exoscale-api-secret",
-				WithinLines: utils.Ptr(5),
+				RuleID: "exoscale-api-secret",
+				Within: "5L",
 			},
 		},
 		ValidateExpr: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(

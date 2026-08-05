@@ -52,8 +52,8 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 			"5q~", "6q~", "7q~", "8q~", "9q~",
 		},
 		Components: []*config.Component{
-			{RuleID: "azure-tenant-id", WithinLines: utils.Ptr(8)},
-			{RuleID: "azure-client-id", WithinLines: utils.Ptr(8)},
+			{RuleID: "azure-tenant-id", Within: "8L"},
+			{RuleID: "azure-client-id", Within: "8L"},
 		},
 		ValidateExpr: `let r = azure.validateServicePrincipal(captures["azure-tenant-id"], captures["azure-client-id"], finding["secret"]); r.status == 200 ? {
   "result": "valid",
@@ -121,7 +121,7 @@ func AzureStorageAccountKey() *config.Rule {
 		Regex:       regexp.MustCompile(`(?i)\b(?:AccountKey|(?:azure[_\s.-]*)?(?:storage[_\s.-]*)?(?:account[_\s.-]*)?(?:access[_\s.-]*)?key)\b(?s:.{0,24}?)([A-Za-z0-9+/]{86}==)`),
 		Keywords:    []string{"AccountKey", "storage", "key"},
 		Components: []*config.Component{
-			{RuleID: "azure-storage-account-name", WithinLines: utils.Ptr(8)},
+			{RuleID: "azure-storage-account-name", Within: "8L"},
 		},
 		ValidateExpr: `let r = azure.validateStorage(captures["azure-storage-account-name"], finding["secret"]); r.status == 200 ? {
   "result": "valid",

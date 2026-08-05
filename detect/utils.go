@@ -258,14 +258,6 @@ func containsAllowSignature(line string) bool {
 	return false
 }
 
-// abs returns the absolute value of an integer
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
 func RedactFindings(findings []report.Finding, percent uint) {
 	if percent == 0 {
 		return

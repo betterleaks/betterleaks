@@ -1,110 +1,26 @@
 package detect
 
 import (
-	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
+
+	"github.com/betterleaks/betterleaks/internal/contextwindow"
 )
 
 // ContextMode determines how match context is extracted.
-type ContextMode int
+type ContextMode = contextwindow.Mode
 
 const (
-	ContextModeNone ContextMode = iota
-	ContextModeCols             // offset-based (characters/columns before/after)
-	ContextModeBox              // line-based; optional C clips each line to a column window around the match
+	ContextModeNone = contextwindow.ModeNone
+	ContextModeCols = contextwindow.ModeCols // offset-based (characters/columns before/after)
+	ContextModeBox  = contextwindow.ModeBox  // line-based; optional C clips each line to a column window around the match
 )
 
 // MatchContextSpec describes how much context to extract around a match.
-type MatchContextSpec struct {
-	Mode        ContextMode
-	ColsBefore  int // cols mode: context window; box mode: per-line column clip before match
-	ColsAfter   int // cols mode: context window; box mode: per-line column clip after match
-	LinesBefore int
-	LinesAfter  int
-}
-
-// IsZero returns true if no context extraction is configured.
-func (m MatchContextSpec) IsZero() bool {
-	return m.Mode == ContextModeNone
-}
-
-type contextDirection struct {
-	before     int
-	after      int
-	bidirected int
-}
-
-var tokenRe = regexp.MustCompile(`(?i)^([+-]?)(\d+)([CL]?)$`)
+type MatchContextSpec = contextwindow.Spec
 
 // ParseMatchContext parses a match-context specification string.
 func ParseMatchContext(s string) (MatchContextSpec, error) {
-	s = strings.TrimSpace(s)
-	if s == "" || s == "0" {
-		return MatchContextSpec{}, nil
-	}
-
-	var c, l contextDirection
-	hasL, hasC := false, false
-
-	for tok := range strings.SplitSeq(s, ",") {
-		tok = strings.TrimSpace(tok)
-		if tok == "" {
-			return MatchContextSpec{}, fmt.Errorf("empty token in match-context spec %q", s)
-		}
-
-		m := tokenRe.FindStringSubmatch(tok)
-		if m == nil {
-			return MatchContextSpec{}, fmt.Errorf("invalid match-context token %q", tok)
-		}
-
-		direction := m[1]
-		val, _ := strconv.Atoi(m[2])
-		typ := strings.ToUpper(m[3])
-		if typ == "" {
-			typ = "C" // Default to Cols
-		}
-
-		if typ == "L" {
-			hasL = true
-			val = max(val-1, 0) // L includes match line, subtract 1 for expansion count
-			if direction == "-" {
-				l.before = max(l.before, val)
-			} else if direction == "+" {
-				l.after = max(l.after, val)
-			} else {
-				l.bidirected = max(l.bidirected, val)
-			}
-		} else {
-			hasC = true
-			if direction == "-" {
-				c.before = max(c.before, val)
-			} else if direction == "+" {
-				c.after = max(c.after, val)
-			} else {
-				c.bidirected = max(c.bidirected, val)
-			}
-		}
-	}
-
-	// Because all values are >= 0, resolution is simply max(directed, undirected)
-	spec := MatchContextSpec{
-		ColsBefore: max(c.before, c.bidirected),
-		ColsAfter:  max(c.after, c.bidirected),
-	}
-
-	if hasL {
-		spec.Mode = ContextModeBox
-		spec.LinesBefore = max(l.before, l.bidirected)
-		spec.LinesAfter = max(l.after, l.bidirected)
-	} else if hasC {
-		spec.Mode = ContextModeCols
-	} else {
-		return MatchContextSpec{}, fmt.Errorf("invalid match-context spec %q", s)
-	}
-
-	return spec, nil
+	return contextwindow.Parse(s)
 }
 
 // extractContext extracts context around the match from the fragment raw content.

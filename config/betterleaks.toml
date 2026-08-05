@@ -352,7 +352,7 @@ filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
 components = [
-    { id = "alibaba-access-key-id", withinLines = 5 },
+    { id = "alibaba-access-key-id", within = "5L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -403,8 +403,8 @@ filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
 components = [
-    { id = "alibaba-sts-access-key-id", withinLines = 10 },
-    { id = "alibaba-sts-security-token", withinLines = 10 },
+    { id = "alibaba-sts-access-key-id", within = "10L" },
+    { id = "alibaba-sts-security-token", within = "10L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -717,7 +717,7 @@ entropy(finding["secret"]) <= 3.0
 || matchesAny(finding["secret"], [`.+EXAMPLE$`])
 '''
 components = [
-    { id = "aws-secret-access-key", withinLines = 5 },
+    { id = "aws-secret-access-key", within = "5L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -797,8 +797,8 @@ filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
 components = [
-    { id = "azure-tenant-id", withinLines = 8 },
-    { id = "azure-client-id", withinLines = 8 },
+    { id = "azure-tenant-id", within = "8L" },
+    { id = "azure-client-id", within = "8L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -898,7 +898,7 @@ filter = '''
 entropy(finding["secret"]) <= 4.0
 '''
 components = [
-    { id = "azure-storage-account-name", withinLines = 8 },
+    { id = "azure-storage-account-name", within = "8L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2484,7 +2484,7 @@ let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
       } : validate.unknown(r)))
 '''
 components = [
-    { id = "exoscale-api-secret", withinLines = 5 },
+    { id = "exoscale-api-secret", within = "5L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6575,8 +6575,8 @@ filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
 components = [
-    { id = "ovh-application-key", withinLines = 20 },
-    { id = "ovh-consumer-key", withinLines = 20 },
+    { id = "ovh-application-key", within = "20L" },
+    { id = "ovh-consumer-key", within = "20L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7013,8 +7013,8 @@ filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
 components = [
-    { id = "polymarket-api-secret", withinLines = 20 },
-    { id = "polymarket-passphrase", withinLines = 20 },
+    { id = "polymarket-api-secret", within = "20L" },
+    { id = "polymarket-passphrase", within = "20L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7443,7 +7443,7 @@ filter = '''
 entropy(finding["secret"]) < 3.3
 '''
 components = [
-    { id = "salesforce-instance-url.1", withinLines = 30 },
+    { id = "salesforce-instance-url.1", within = "30L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7956,7 +7956,7 @@ filter = '''
 entropy(finding["secret"]) < 3.5
 '''
 components = [
-    { id = "snowflake-account-host.1", withinLines = 30 },
+    { id = "snowflake-account-host.1", within = "30L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8214,8 +8214,8 @@ filter = '''
 entropy(finding["secret"]) < 3.5
 '''
 components = [
-    { id = "tableau-personal-access-token-name.1", withinLines = 20 },
-    { id = "tableau-server-host.1", withinLines = 20 },
+    { id = "tableau-personal-access-token-name.1", within = "20L" },
+    { id = "tableau-server-host.1", within = "20L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────

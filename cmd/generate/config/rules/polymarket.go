@@ -56,12 +56,12 @@ func PolymarketAPIKey() *config.Rule {
 		Keywords:    []string{"poly"},
 		Components: []*config.Component{
 			{
-				RuleID:      "polymarket-api-secret",
-				WithinLines: utils.Ptr(20),
+				RuleID: "polymarket-api-secret",
+				Within: "20L",
 			},
 			{
-				RuleID:      "polymarket-passphrase",
-				WithinLines: utils.Ptr(20),
+				RuleID: "polymarket-passphrase",
+				Within: "20L",
 			},
 		},
 		ValidateExpr: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(

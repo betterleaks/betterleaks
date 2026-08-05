@@ -261,15 +261,18 @@ top-level rule regex remains the reported secret and proximity anchor:
 id = "credential"
 regex = '''credential[=: ]+([A-Za-z0-9_-]+)'''
 components = [
-  { id = "account-id", withinLines = 5 },
-  { id = "session-token", optional = true, withinLines = 5 },
+  { id = "account-id", within = "5L" },
+  { id = "session-token", optional = true, within = "-2L,+4C" },
 ]
 ```
 
 Components are required by default. Set `optional = true` to attach a component
 when present without making it gate the primary finding; `optional = false` is
-equivalent to omitting the field. `withinLines` and `withinColumns` are optional,
-non-negative proximity bounds; when both are supplied, both must be satisfied.
+equivalent to omitting the field. `within` is optional and uses the same grammar
+as `--match-context`: `5L` allows the primary match line plus up to four lines
+before and after, `100C` allows 100 characters on either side, and signs make a
+boundary directional (for example, `-2L,+4C`). When `within` is omitted, the
+component only needs to occur in the same fragment.
 
 Matched components are available to validation expressions by referenced rule
 ID, for example `captures["account-id"]`. An unmatched optional component is
@@ -277,7 +280,8 @@ omitted from `captures`, so use a safe lookup such as
 `get(captures, "session-token", "")`.
 
 The older `[[rules.required]]` syntax is deprecated and treated as required
-components when `components` is absent. If both forms are present on a rule,
+components when `components` is absent. Its `withinLines` and `withinColumns`
+fields are translated to `within`. If both forms are present on a rule,
 `components` takes precedence. Config display and generated configs emit only
 the new field.
 

@@ -568,8 +568,8 @@ func TestComponents(t *testing.T) {
 id = "primary"
 regex = "primary"
 components = [
-  { id = "required-component", optional = false, withinLines = 5 },
-  { id = "optional-component", optional = true, withinColumns = 12 },
+  { id = "required-component", optional = false, within = "5L" },
+  { id = "optional-component", optional = true, within = "-12C,+4C" },
 ]
 
 [[rules]]
@@ -584,9 +584,9 @@ regex = "optional"
 		components := cfg.Rules["primary"].Components
 		require.Len(t, components, 2)
 		assert.False(t, components[0].Optional)
-		assert.Equal(t, 5, *components[0].WithinLines)
+		assert.Equal(t, "5L", components[0].Within)
 		assert.True(t, components[1].Optional)
-		assert.Equal(t, 12, *components[1].WithinColumns)
+		assert.Equal(t, "-12C,+4C", components[1].Within)
 	})
 
 	t.Run("legacy required syntax", func(t *testing.T) {
@@ -597,6 +597,7 @@ regex = "primary"
 [[rules.required]]
 id = "component"
 withinLines = 3
+withinColumns = 12
 
 [[rules]]
 id = "component"
@@ -606,7 +607,19 @@ regex = "component"
 		require.Len(t, cfg.Rules["primary"].Components, 1)
 		component := cfg.Rules["primary"].Components[0]
 		assert.False(t, component.Optional)
-		assert.Equal(t, 3, *component.WithinLines)
+		assert.Equal(t, "3L,12C", component.Within)
+	})
+
+	t.Run("legacy proximity must be non-negative", func(t *testing.T) {
+		_, err := ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = "primary"
+[[rules.required]]
+id = "component"
+withinColumns = -1
+`, "")
+		require.ErrorContains(t, err, "withinColumns must be non-negative")
 	})
 
 	t.Run("components supersede legacy syntax", func(t *testing.T) {
@@ -647,8 +660,8 @@ components = [{ id = "component", optional = "yes" }]
 		want       string
 	}{
 		{name: "empty ID", components: `{ id = "" }`, want: "component rule ID is empty"},
-		{name: "negative lines", components: `{ id = "component", withinLines = -1 }`, want: "withinLines must be non-negative"},
-		{name: "negative columns", components: `{ id = "component", withinColumns = -1 }`, want: "withinColumns must be non-negative"},
+		{name: "invalid within unit", components: `{ id = "component", within = "10X" }`, want: "invalid within value"},
+		{name: "malformed within", components: `{ id = "component", within = "10L-" }`, want: "invalid within value"},
 		{name: "missing rule", components: `{ id = "missing" }`, want: "does not exist"},
 		{name: "duplicate ID", components: `{ id = "component" }, { id = "component", optional = true }`, want: "duplicate component rule ID"},
 	}

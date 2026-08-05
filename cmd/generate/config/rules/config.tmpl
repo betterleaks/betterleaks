@@ -56,6 +56,6 @@ validate = {{ tomlExpr . }}{{ end }}
 filter = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Components }}
 components = [{{ range . }}
-    { id = "{{ .RuleID }}"{{ if .Optional }}, optional = true{{ end }}{{ with .WithinLines }}, withinLines = {{ . }}{{ end }}{{ with .WithinColumns }}, withinColumns = {{ . }}{{ end }} },{{ end }}
+    { id = "{{ .RuleID }}"{{ if .Optional }}, optional = true{{ end }}{{ with .Within }}, within = "{{ . }}"{{ end }} },{{ end }}
 ]{{ end }}
 {{ end }}

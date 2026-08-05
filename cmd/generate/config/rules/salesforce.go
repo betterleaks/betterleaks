@@ -41,7 +41,7 @@ func SalesforceAccessToken() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`00[A-Za-z0-9]{13}![A-Za-z0-9._-]{80,260}`, false),
 		Keywords:    []string{"salesforce.com"},
 		Components: []*config.Component{
-			{RuleID: "salesforce-instance-url.1", WithinLines: utils.Ptr(30)},
+			{RuleID: "salesforce-instance-url.1", Within: "30L"},
 		},
 		ValidateExpr: `let r = http.get("https://" + captures["salesforce-instance-url.1"] + "/services/data/v67.0/limits", {
     "Authorization": "Bearer " + finding["secret"],

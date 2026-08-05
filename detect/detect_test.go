@@ -304,19 +304,108 @@ skipReport = true
 }
 
 func TestComponentProximity(t *testing.T) {
-	withinLines := 2
-	withinColumns := 5
-	component := &config.Component{
-		RuleID:        "component",
-		WithinLines:   &withinLines,
-		WithinColumns: &withinColumns,
+	tests := []struct {
+		name              string
+		raw               string
+		fragmentStartLine int
+		primary           report.Finding
+		component         report.Finding
+		within            string
+		want              bool
+	}{
+		{
+			name:      "symmetric lines inside",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 14, EndLine: 14, StartColumn: 10, EndColumn: 14},
+			within:    "5L",
+			want:      true,
+		},
+		{
+			name:      "symmetric lines outside",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 15, EndLine: 15, StartColumn: 10, EndColumn: 14},
+			within:    "5L",
+			want:      false,
+		},
+		{
+			name:      "directed lines before",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 9, EndLine: 9, StartColumn: 10, EndColumn: 14},
+			within:    "-2L",
+			want:      true,
+		},
+		{
+			name:      "directed lines reject opposite side",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 11, EndLine: 11, StartColumn: 10, EndColumn: 14},
+			within:    "-2L",
+			want:      false,
+		},
+		{
+			name:              "character offsets before",
+			raw:               "COMP PRIMARY",
+			fragmentStartLine: 0,
+			primary:           report.Finding{StartLine: 0, EndLine: 0, StartColumn: 6, EndColumn: 12},
+			component:         report.Finding{StartLine: 0, EndLine: 0, StartColumn: 1, EndColumn: 4},
+			within:            "-5C",
+			want:              true,
+		},
+		{
+			name:              "character offsets outside",
+			raw:               "COMP PRIMARY",
+			fragmentStartLine: 0,
+			primary:           report.Finding{StartLine: 0, EndLine: 0, StartColumn: 6, EndColumn: 12},
+			component:         report.Finding{StartLine: 0, EndLine: 0, StartColumn: 1, EndColumn: 4},
+			within:            "-4C",
+			want:              false,
+		},
+		{
+			name:      "mixed line and column window",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 9, EndLine: 9, StartColumn: 7, EndColumn: 11},
+			within:    "-2L,-3C",
+			want:      true,
+		},
+		{
+			name:      "mixed window rejects column",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 9, EndLine: 9, StartColumn: 7, EndColumn: 11},
+			within:    "-2L,-2C",
+			want:      false,
+		},
 	}
-	detector := &Detector{}
-	primary := report.Finding{StartLine: 10, StartColumn: 20}
 
-	assert.True(t, detector.withinProximity(primary, report.Finding{StartLine: 12, StartColumn: 25}, component))
-	assert.False(t, detector.withinProximity(primary, report.Finding{StartLine: 13, StartColumn: 25}, component))
-	assert.False(t, detector.withinProximity(primary, report.Finding{StartLine: 12, StartColumn: 26}, component))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			window, err := ParseMatchContext(tt.within)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, withinProximity(tt.raw, tt.fragmentStartLine, tt.primary, tt.component, window))
+		})
+	}
+}
+
+func TestDirectionalWithinComponents(t *testing.T) {
+	cfg, err := config.ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = '''primary=([a-z]+)'''
+components = [{ id = "optional-component", optional = true, within = "-2L" }]
+
+[[rules]]
+id = "optional-component"
+regex = '''optional=([a-z]+)'''
+skipReport = true
+`, "")
+	require.NoError(t, err)
+	detector := NewDetector(cfg)
+
+	findings := detector.DetectString("optional=session\nprimary=secret")
+	require.Len(t, findings, 1)
+	require.Len(t, findings[0].ComponentSets, 1)
+
+	findings = detector.DetectString("primary=secret\noptional=session")
+	require.Len(t, findings, 1)
+	assert.Empty(t, findings[0].ComponentSets)
 }
 
 func TestDetectFilterMatchesContextWindow(t *testing.T) {

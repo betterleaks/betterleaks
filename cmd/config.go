@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 
 	ahocorasick "github.com/rrethy/ahocorasick"
@@ -307,10 +306,9 @@ type ruleView struct {
 }
 
 type componentView struct {
-	ID            string `toml:"id"`
-	Optional      bool   `toml:"optional,omitempty"`
-	WithinLines   *int   `toml:"withinLines,omitempty"`
-	WithinColumns *int   `toml:"withinColumns,omitempty"`
+	ID       string `toml:"id"`
+	Optional bool   `toml:"optional,omitempty"`
+	Within   string `toml:"within,omitempty"`
 }
 
 func renderConfig(cfg *configpkg.Config) configView {
@@ -339,10 +337,9 @@ func renderConfig(cfg *configpkg.Config) configView {
 		}
 		for _, component := range rule.Components {
 			rv.Components = append(rv.Components, componentView{
-				ID:            component.RuleID,
-				Optional:      component.Optional,
-				WithinLines:   component.WithinLines,
-				WithinColumns: component.WithinColumns,
+				ID:       component.RuleID,
+				Optional: component.Optional,
+				Within:   component.Within,
 			})
 		}
 		view.Rules = append(view.Rules, rv)
@@ -393,13 +390,9 @@ func writeComponents(b *strings.Builder, components []componentView) {
 		if component.Optional {
 			b.WriteString(", optional = true")
 		}
-		if component.WithinLines != nil {
-			b.WriteString(", withinLines = ")
-			b.WriteString(strconv.Itoa(*component.WithinLines))
-		}
-		if component.WithinColumns != nil {
-			b.WriteString(", withinColumns = ")
-			b.WriteString(strconv.Itoa(*component.WithinColumns))
+		if component.Within != "" {
+			b.WriteString(", within = ")
+			b.WriteString(tomlString(component.Within))
 		}
 		b.WriteString(" },\n")
 	}
