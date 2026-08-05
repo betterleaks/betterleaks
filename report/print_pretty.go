@@ -349,28 +349,28 @@ func prettySetIcon(status string, noColor bool) string {
 	}
 }
 
-func (f *Finding) PrintRequiredFindings(noColor bool, redact uint) {
-	if len(f.RequiredSets) == 0 {
+func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
+	if len(f.ComponentSets) == 0 {
 		return
 	}
 
-	sort.SliceStable(f.RequiredSets, func(i, j int) bool {
-		return f.RequiredSets[i].ValidationStatus == ValidationStatusValid &&
-			f.RequiredSets[j].ValidationStatus != ValidationStatusValid
+	sort.SliceStable(f.ComponentSets, func(i, j int) bool {
+		return f.ComponentSets[i].ValidationStatus == ValidationStatusValid &&
+			f.ComponentSets[j].ValidationStatus != ValidationStatusValid
 	})
 
 	hasValid := false
-	for _, set := range f.RequiredSets {
+	for _, set := range f.ComponentSets {
 		if set.ValidationStatus == ValidationStatusValid {
 			hasValid = true
 			break
 		}
 	}
 
-	var toRender []RequiredSet
+	var toRender []ComponentSet
 	maxKey := 0
 	invalidCount := 0
-	for _, set := range f.RequiredSets {
+	for _, set := range f.ComponentSets {
 		if hasValid && set.ValidationStatus != ValidationStatusValid {
 			invalidCount++
 			continue
@@ -645,5 +645,5 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 			dotLeader(k, fmt.Sprintf("%v", f.ValidationMeta[k]), maxVK)
 		}
 	}
-	f.PrintRequiredFindings(noColor, redact)
+	f.PrintComponentFindings(noColor, redact)
 }

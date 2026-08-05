@@ -22,7 +22,7 @@ Each `[[rules]]` entry can use:
 - `regex`: regular expression used to detect the secret.
 - `filter`: rule-specific Expr expression to discard false positives.
 - `validate`: Expr expression to actively verify whether a secret is live.
-- `[[rules.required]]`: composite rule requirements.
+- `components`: required or optional component rules used to build multipart findings.
 
 `keywords` are strongly recommended. Betterleaks checks them with an
 Aho-Corasick trie before running the heavier regex.
@@ -248,8 +248,38 @@ r.status == 200 && (r.json?.slug ?? "") != "" ? {
 ```
 
 For more complex validation setups, such as Basic Auth, dynamic request bodies,
-HMAC signatures, or composite `[[rules.required]]` rules, check the built-in
+HMAC signatures, or composite rules, check the built-in
 rules in `cmd/generate/config/rules`.
+
+## Components
+
+A rule can reference other rules as required or optional components. The
+top-level rule regex remains the reported secret and proximity anchor:
+
+```toml
+[[rules]]
+id = "credential"
+regex = '''credential[=: ]+([A-Za-z0-9_-]+)'''
+components = [
+  { id = "account-id", withinLines = 5 },
+  { id = "session-token", optional = true, withinLines = 5 },
+]
+```
+
+Components are required by default. Set `optional = true` to attach a component
+when present without making it gate the primary finding; `optional = false` is
+equivalent to omitting the field. `withinLines` and `withinColumns` are optional,
+non-negative proximity bounds; when both are supplied, both must be satisfied.
+
+Matched components are available to validation expressions by referenced rule
+ID, for example `captures["account-id"]`. An unmatched optional component is
+omitted from `captures`, so use a safe lookup such as
+`get(captures, "session-token", "")`.
+
+The older `[[rules.required]]` syntax is deprecated and treated as required
+components when `components` is absent. If both forms are present on a rule,
+`components` takes precedence. Config display and generated configs emit only
+the new field.
 
 ### Overriding rule defaults with env vars
 

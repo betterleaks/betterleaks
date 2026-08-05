@@ -142,3 +142,39 @@ func TestPoolMaxRequestsReturnsNeedsValidationMetadataAndDoesNotCountCacheHits(t
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 }
+
+func TestPoolOmitsAbsentOptionalComponentCapture(t *testing.T) {
+	rt, err := exprruntime.New(nil)
+	if err != nil {
+		t.Fatalf("exprruntime.New: %v", err)
+	}
+	prg, err := rt.CompileValidation(`len(captures) == 1 && captures["required-component"] == "account" ? {"result": "valid"} : {"result": "invalid"}`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	emitted := make(chan report.Finding, 1)
+	p := NewPool(1, rt)
+	p.Emit = func(finding report.Finding) { emitted <- finding }
+	p.Submit(report.Finding{
+		RuleID: "primary",
+		Secret: "secret",
+		ComponentSets: []report.ComponentSet{
+			{Components: []*report.ComponentFinding{{RuleID: "required-component", Secret: "account"}}},
+		},
+	}, prg)
+	p.Close()
+
+	got := <-emitted
+	if got.ValidationStatus != report.ValidationStatusValid {
+		t.Fatalf("validation status = %q, want valid (absent optional capture must not be injected)", got.ValidationStatus)
+	}
+}
+
+func TestCacheKeyIncludesComponentCombination(t *testing.T) {
+	withoutOptional := CacheKey("primary", "secret", map[string]string{"required": "account"})
+	withOptional := CacheKey("primary", "secret", map[string]string{"required": "account", "optional": "session"})
+	if withoutOptional == withOptional {
+		t.Fatal("cache keys for distinct component combinations must differ")
+	}
+}

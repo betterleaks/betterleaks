@@ -52,9 +52,13 @@ type Rule struct {
 	// validated is an internal flag to track whether `Validate()` has been called.
 	validated bool
 
-	// If a rule has RequiredRules, it makes the rule dependent on the RequiredRules.
-	// In otherwords, this rule is now a composite rule.
-	RequiredRules []*Required
+	// Components are other rules whose matches contribute to this rule.
+	// Required components gate the rule; optional components are attached when found.
+	Components []*Component
+
+	// componentsSet records whether a config explicitly supplied components. It is
+	// used while extending configs to distinguish omission from components = [].
+	componentsSet bool
 
 	SkipReport bool
 
@@ -79,8 +83,11 @@ type Rule struct {
 	filterProgram exprruntime.Program
 }
 
-type Required struct {
-	RuleID        string
+// Component references another rule that contributes a nearby match to a multipart finding.
+type Component struct {
+	RuleID string
+	// Optional components are attached when found but do not gate the primary finding.
+	Optional      bool
 	WithinLines   *int
 	WithinColumns *int
 }
@@ -124,6 +131,26 @@ func (r *Rule) Validate() error {
 		}
 		if err := allowlist.Validate(); err != nil {
 			return fmt.Errorf("%s: %w", r.RuleID, err)
+		}
+	}
+
+	seenComponents := make(map[string]struct{}, len(r.Components))
+	for _, component := range r.Components {
+		if component == nil {
+			return fmt.Errorf("%s: component is nil", r.RuleID)
+		}
+		if strings.TrimSpace(component.RuleID) == "" {
+			return fmt.Errorf("%s: component rule ID is empty", r.RuleID)
+		}
+		if _, exists := seenComponents[component.RuleID]; exists {
+			return fmt.Errorf("%s: duplicate component rule ID %q", r.RuleID, component.RuleID)
+		}
+		seenComponents[component.RuleID] = struct{}{}
+		if component.WithinLines != nil && *component.WithinLines < 0 {
+			return fmt.Errorf("%s: component %q withinLines must be non-negative", r.RuleID, component.RuleID)
+		}
+		if component.WithinColumns != nil && *component.WithinColumns < 0 {
+			return fmt.Errorf("%s: component %q withinColumns must be non-negative", r.RuleID, component.RuleID)
 		}
 	}
 

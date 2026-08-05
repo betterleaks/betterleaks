@@ -33,7 +33,7 @@ func AlgoliaApiKey() *config.Rule {
 		RuleID:      "algolia-api-key",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{32}`, true),
 		Keywords:    []string{"algolia"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "algolia-application-id"},
 		},
 		// Algolia's public Search API key includes these four read-only ACLs.

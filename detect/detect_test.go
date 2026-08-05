@@ -201,8 +201,8 @@ func compare(t *testing.T, got, want []report.Finding) {
 		cmpopts.IgnoreFields(report.Finding{},
 			"Fingerprint", "Author", "Email", "Date", "Message", "Commit",
 			"File", "SymlinkFile", "Attributes",
-			"RequiredSets", "RuleSpecificity"),
-		cmpopts.IgnoreFields(report.RequiredFinding{}, "RuleSpecificity"),
+			"ComponentSets", "RuleSpecificity"),
+		cmpopts.IgnoreFields(report.ComponentFinding{}, "RuleSpecificity"),
 		cmpopts.IgnoreUnexported(report.Finding{}),
 		cmpopts.EquateApprox(0.0001, 0), // For floating point Entropy comparison
 	); diff != "" {
@@ -218,14 +218,105 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 		findings[i].Attributes = nil
 		findings[i].Link = ""
 		findings[i].RuleSpecificity = 0
-		for si := range findings[i].RequiredSets {
-			for ci := range findings[i].RequiredSets[si].Components {
-				findings[i].RequiredSets[si].Components[ci].RuleSpecificity = 0
+		for si := range findings[i].ComponentSets {
+			for ci := range findings[i].ComponentSets[si].Components {
+				findings[i].ComponentSets[si].Components[ci].RuleSpecificity = 0
 			}
 		}
 		findings[i].SetExprContext("")
 	}
 	return findings
+}
+
+func TestRequiredAndOptionalComponents(t *testing.T) {
+	cfg, err := config.ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = '''primary=([a-z]+)'''
+components = [
+  { id = "required-component" },
+  { id = "optional-component", optional = true },
+]
+
+[[rules]]
+id = "required-component"
+regex = '''required=([a-z]+)'''
+skipReport = true
+
+[[rules]]
+id = "optional-component"
+regex = '''optional=([a-z]+)'''
+skipReport = true
+`, "")
+	require.NoError(t, err)
+	detector := NewDetector(cfg)
+
+	t.Run("required component gates finding", func(t *testing.T) {
+		assert.Empty(t, detector.DetectString("primary=secret\noptional=session"))
+	})
+
+	t.Run("absent optional component is omitted", func(t *testing.T) {
+		findings := detector.DetectString("primary=secret\nrequired=account")
+		require.Len(t, findings, 1)
+		require.Len(t, findings[0].ComponentSets, 1)
+		require.Len(t, findings[0].ComponentSets[0].Components, 1)
+		component := findings[0].ComponentSets[0].Components[0]
+		assert.Equal(t, "required-component", component.RuleID)
+		assert.False(t, component.Optional)
+	})
+
+	t.Run("present optional component joins combinations", func(t *testing.T) {
+		findings := detector.DetectString("primary=secret\nrequired=account\noptional=first\noptional=second")
+		require.Len(t, findings, 1)
+		require.Len(t, findings[0].ComponentSets, 2)
+		for _, set := range findings[0].ComponentSets {
+			require.Len(t, set.Components, 2)
+			assert.False(t, set.Components[0].Optional)
+			assert.True(t, set.Components[1].Optional)
+		}
+	})
+}
+
+func TestOptionalOnlyComponents(t *testing.T) {
+	cfg, err := config.ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = '''primary=([a-z]+)'''
+components = [{ id = "optional-component", optional = true }]
+
+[[rules]]
+id = "optional-component"
+regex = '''optional=([a-z]+)'''
+skipReport = true
+`, "")
+	require.NoError(t, err)
+	detector := NewDetector(cfg)
+
+	findings := detector.DetectString("primary=secret")
+	require.Len(t, findings, 1)
+	assert.Empty(t, findings[0].ComponentSets)
+
+	findings = detector.DetectString("primary=secret\noptional=session")
+	require.Len(t, findings, 1)
+	require.Len(t, findings[0].ComponentSets, 1)
+	require.Len(t, findings[0].ComponentSets[0].Components, 1)
+	assert.True(t, findings[0].ComponentSets[0].Components[0].Optional)
+}
+
+func TestComponentProximity(t *testing.T) {
+	withinLines := 2
+	withinColumns := 5
+	component := &config.Component{
+		RuleID:        "component",
+		WithinLines:   &withinLines,
+		WithinColumns: &withinColumns,
+	}
+	detector := &Detector{}
+	primary := report.Finding{StartLine: 10, StartColumn: 20}
+
+	assert.True(t, detector.withinProximity(primary, report.Finding{StartLine: 12, StartColumn: 25}, component))
+	assert.False(t, detector.withinProximity(primary, report.Finding{StartLine: 13, StartColumn: 25}, component))
+	assert.False(t, detector.withinProximity(primary, report.Finding{StartLine: 12, StartColumn: 26}, component))
 }
 
 func TestDetectFilterMatchesContextWindow(t *testing.T) {
@@ -1067,7 +1158,7 @@ const token = "mockSecret";
 			if tt.expectedAuxOutput != "" {
 				capturedOutput := captureStdout(func() {
 					for _, finding := range findings {
-						finding.PrintRequiredFindings(false, 0)
+						finding.PrintComponentFindings(false, 0)
 					}
 				})
 

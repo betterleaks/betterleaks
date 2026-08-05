@@ -61,9 +61,9 @@ const (
 	// This is useful for identifying problematic files and tuning the allowlist.
 	SlowWarningThreshold = 5 * time.Second
 
-	// maxRequiredSets caps the Cartesian product of required-finding combinations
+	// maxComponentSets caps the Cartesian product of component-finding combinations
 	// to prevent excessive memory use with large multi-part rules.
-	maxRequiredSets = 100
+	maxComponentSets = 100
 )
 
 type Result struct {
@@ -1068,29 +1068,28 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		findings = append(findings, finding)
 	}
 
-	// Handle required rules (multi-part rules)
-	if fragment.InheritedFromFinding || len(r.RequiredRules) == 0 {
+	// Handle component rules (multi-part rules).
+	if fragment.InheritedFromFinding || len(r.Components) == 0 {
 		return findings
 	}
 
-	// Process required rules and create findings with auxiliary findings
-	return d.processRequiredRules(fragment, currentRaw, r, encodedSegments, findings, logger)
+	return d.processComponents(fragment, currentRaw, r, encodedSegments, findings, logger)
 }
 
-// processRequiredRules handles the logic for multi-part rules with auxiliary findings
-func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
+// processComponents attaches nearby component matches and enforces required components.
+func (d *Detector) processComponents(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
 	if len(primaryFindings) == 0 {
-		logger.Debug().Msg("no primary findings to process for required rules")
+		logger.Debug().Msg("no primary findings to process for components")
 		return primaryFindings
 	}
 
-	// Pre-collect all required rule findings once
-	allRequiredFindings := make(map[string][]report.Finding)
+	// Pre-collect each component rule's findings once per fragment.
+	allComponentFindings := make(map[string][]report.Finding)
 
-	for _, requiredRule := range r.RequiredRules {
-		rule, ok := d.Config.Rules[requiredRule.RuleID]
+	for _, component := range r.Components {
+		rule, ok := d.Config.Rules[component.RuleID]
 		if !ok {
-			logger.Error().Str("rule-id", requiredRule.RuleID).Msg("required rule not found in config")
+			logger.Error().Str("rule-id", component.RuleID).Msg("component rule not found in config")
 			continue
 		}
 
@@ -1098,59 +1097,55 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		inheritedFragment := fragment
 		inheritedFragment.InheritedFromFinding = true
 
-		// Call detectRule once for each required rule
-		requiredFindings := d.detectFragmentWithRuleTimed(inheritedFragment, currentRaw, rule, encodedSegments, nil)
-		allRequiredFindings[requiredRule.RuleID] = requiredFindings
+		componentFindings := d.detectFragmentWithRuleTimed(inheritedFragment, currentRaw, rule, encodedSegments, nil)
+		allComponentFindings[component.RuleID] = componentFindings
 
 		logger.Debug().
-			Str("rule-id", requiredRule.RuleID).
-			Int("findings", len(requiredFindings)).
-			Msg("collected required rule findings")
+			Str("rule-id", component.RuleID).
+			Int("findings", len(componentFindings)).
+			Msg("collected component rule findings")
 	}
 
 	var finalFindings []report.Finding
 
-	// Now process each primary finding against the pre-collected required findings
+	// Process each primary finding against the pre-collected component findings.
 	for _, primaryFinding := range primaryFindings {
-		var requiredFindings []*report.RequiredFinding
+		var componentFindings []*report.ComponentFinding
 
-		for _, requiredRule := range r.RequiredRules {
-			foundRequiredFindings, exists := allRequiredFindings[requiredRule.RuleID]
+		for _, component := range r.Components {
+			foundComponentFindings, exists := allComponentFindings[component.RuleID]
 			if !exists {
-				continue // Rule wasn't found earlier, skip
+				continue
 			}
 
-			// Filter findings that are within proximity of the primary finding
-			for _, requiredFinding := range foundRequiredFindings {
-				if d.withinProximity(primaryFinding, requiredFinding, requiredRule) {
-					req := &report.RequiredFinding{
-						RuleID:          requiredFinding.RuleID,
-						StartLine:       requiredFinding.StartLine,
-						EndLine:         requiredFinding.EndLine,
-						StartColumn:     requiredFinding.StartColumn,
-						EndColumn:       requiredFinding.EndColumn,
-						Line:            requiredFinding.Line,
-						Match:           requiredFinding.Match,
-						Secret:          requiredFinding.Secret,
-						CaptureGroups:   requiredFinding.CaptureGroups,
-						RuleSpecificity: requiredFinding.RuleSpecificity,
-					}
-					requiredFindings = append(requiredFindings, req)
+			for _, found := range foundComponentFindings {
+				if d.withinProximity(primaryFinding, found, component) {
+					componentFindings = append(componentFindings, &report.ComponentFinding{
+						RuleID:          found.RuleID,
+						Optional:        component.Optional,
+						StartLine:       found.StartLine,
+						EndLine:         found.EndLine,
+						StartColumn:     found.StartColumn,
+						EndColumn:       found.EndColumn,
+						Line:            found.Line,
+						Match:           found.Match,
+						Secret:          found.Secret,
+						CaptureGroups:   found.CaptureGroups,
+						RuleSpecificity: found.RuleSpecificity,
+					})
 				}
 			}
 		}
 
-		// Check if we have at least one auxiliary finding for each required rule
-		if len(requiredFindings) > 0 && d.hasAllRequiredRules(requiredFindings, r.RequiredRules) {
-			// Create a finding with auxiliary findings
-			newFinding := primaryFinding // Copy the primary finding
-			newFinding.BuildRequiredSets(requiredFindings, maxRequiredSets)
+		if d.hasAllRequiredComponents(componentFindings, r.Components) {
+			newFinding := primaryFinding
+			newFinding.BuildComponentSets(componentFindings, maxComponentSets)
 			finalFindings = append(finalFindings, newFinding)
 
 			logger.Debug().
 				Str("primary-rule", r.RuleID).
 				Int("primary-line", primaryFinding.StartLine).
-				Int("auxiliary-count", len(requiredFindings)).
+				Int("component-count", len(componentFindings)).
 				Msg("multi-part rule satisfied")
 		}
 	}
@@ -1158,16 +1153,15 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 	return finalFindings
 }
 
-// hasAllRequiredRules checks if we have at least one auxiliary finding for each required rule
-func (d *Detector) hasAllRequiredRules(auxiliaryFindings []*report.RequiredFinding, requiredRules []*config.Required) bool {
+// hasAllRequiredComponents checks that every required component has a nearby match.
+func (d *Detector) hasAllRequiredComponents(componentFindings []*report.ComponentFinding, components []*config.Component) bool {
 	foundRules := make(map[string]bool)
-	// AuxiliaryFinding
-	for _, aux := range auxiliaryFindings {
-		foundRules[aux.RuleID] = true
+	for _, finding := range componentFindings {
+		foundRules[finding.RuleID] = true
 	}
 
-	for _, required := range requiredRules {
-		if !foundRules[required.RuleID] {
+	for _, component := range components {
+		if !component.Optional && !foundRules[component.RuleID] {
 			return false
 		}
 	}
@@ -1175,25 +1169,25 @@ func (d *Detector) hasAllRequiredRules(auxiliaryFindings []*report.RequiredFindi
 	return true
 }
 
-func (d *Detector) withinProximity(primary, required report.Finding, requiredRule *config.Required) bool {
+func (d *Detector) withinProximity(primary, componentFinding report.Finding, component *config.Component) bool {
 	// If neither within_lines nor within_columns is set, findings just need to be in the same fragment
-	if requiredRule.WithinLines == nil && requiredRule.WithinColumns == nil {
+	if component.WithinLines == nil && component.WithinColumns == nil {
 		return true
 	}
 
 	// Check line proximity (vertical distance)
-	if requiredRule.WithinLines != nil {
-		lineDiff := abs(primary.StartLine - required.StartLine)
-		if lineDiff > *requiredRule.WithinLines {
+	if component.WithinLines != nil {
+		lineDiff := abs(primary.StartLine - componentFinding.StartLine)
+		if lineDiff > *component.WithinLines {
 			return false
 		}
 	}
 
 	// Check column proximity (horizontal distance)
-	if requiredRule.WithinColumns != nil {
+	if component.WithinColumns != nil {
 		// Use the start column of each finding for proximity calculation
-		colDiff := abs(primary.StartColumn - required.StartColumn)
-		if colDiff > *requiredRule.WithinColumns {
+		colDiff := abs(primary.StartColumn - componentFinding.StartColumn)
+		if colDiff > *component.WithinColumns {
 			return false
 		}
 	}

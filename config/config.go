@@ -63,11 +63,19 @@ type rawRule struct {
 	// TODO: Remove this in 9.x.
 	AllowList *rawRuleAllowlist `toml:"allowlist"`
 
-	Allowlists      []*rawRuleAllowlist `toml:"allowlists"`
-	Required        []*rawRequired      `toml:"required"`
-	Validate        string              `toml:"validate"`
-	SkipReport      bool                `toml:"skipReport"`
-	TokenEfficiency bool                `toml:"tokenEfficiency"`
+	Allowlists []*rawRuleAllowlist `toml:"allowlists"`
+
+	// Components is a pointer so config extension can distinguish omission
+	// from an explicit empty list.
+	Components *[]*rawComponent `toml:"components"`
+
+	// Deprecated: translated to required components when Components is absent.
+	// TODO: Remove this in 9.x.
+	Required []*rawRequired `toml:"required"`
+
+	Validate        string `toml:"validate"`
+	SkipReport      bool   `toml:"skipReport"`
+	TokenEfficiency bool   `toml:"tokenEfficiency"`
 
 	// Filter is an Expr expression evaluated per match (attributes + finding).
 	// Returns true = skip (discard this finding); false = keep.
@@ -76,6 +84,13 @@ type rawRule struct {
 
 type rawRequired struct {
 	ID            string `toml:"id"`
+	WithinLines   *int   `toml:"withinLines"`
+	WithinColumns *int   `toml:"withinColumns"`
+}
+
+type rawComponent struct {
+	ID            string `toml:"id"`
+	Optional      bool   `toml:"optional"`
 	WithinLines   *int   `toml:"withinLines"`
 	WithinColumns *int   `toml:"withinColumns"`
 }
@@ -244,17 +259,31 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			cr.Allowlists = append(cr.Allowlists, allowlist)
 		}
 
-		for _, r := range vr.Required {
-			if r.ID == "" {
-				return nil, fmt.Errorf("%s: [[rules.required]] rule ID is empty", cr.RuleID)
+		if vr.Components != nil {
+			cr.componentsSet = true
+			for _, component := range *vr.Components {
+				if component == nil {
+					component = &rawComponent{}
+				}
+				cr.Components = append(cr.Components, &Component{
+					RuleID:        component.ID,
+					Optional:      component.Optional,
+					WithinLines:   component.WithinLines,
+					WithinColumns: component.WithinColumns,
+				})
 			}
-			requiredRule := Required{
-				RuleID:        r.ID,
-				WithinLines:   r.WithinLines,
-				WithinColumns: r.WithinColumns,
-				// Distance: r.Distance,
+		} else if vr.Required != nil {
+			cr.componentsSet = true
+			for _, required := range vr.Required {
+				if required == nil {
+					required = &rawRequired{}
+				}
+				cr.Components = append(cr.Components, &Component{
+					RuleID:        required.ID,
+					WithinLines:   required.WithinLines,
+					WithinColumns: required.WithinColumns,
+				})
 			}
-			cr.RequiredRules = append(cr.RequiredRules, &requiredRule)
 		}
 
 		cr.ValidateExpr = vr.Validate
@@ -262,16 +291,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 
 		orderedRules = append(orderedRules, cr.RuleID)
 		rulesMap[cr.RuleID] = cr
-	}
-
-	// after all the rules have been processed, let's ensure the required rules
-	// actually exist.
-	for _, r := range rulesMap {
-		for _, rr := range r.RequiredRules {
-			if _, ok := rulesMap[rr.RuleID]; !ok {
-				return nil, fmt.Errorf("%s: [[rules.required]] rule ID '%s' does not exist", r.RuleID, rr.RuleID)
-			}
-		}
 	}
 
 	// Assemble the config.
@@ -342,6 +361,11 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		for _, rule := range c.Rules {
 			if err := rule.Validate(); err != nil {
 				return nil, err
+			}
+			for _, component := range rule.Components {
+				if _, ok := c.Rules[component.RuleID]; !ok {
+					return nil, fmt.Errorf("%s: component rule ID %q does not exist", rule.RuleID, component.RuleID)
+				}
 			}
 		}
 
@@ -662,6 +686,10 @@ func (c *Config) extend(extensionConfig *Config) {
 			baseRule.Tags = append(baseRule.Tags, currentRule.Tags...)
 			baseRule.Keywords = append(baseRule.Keywords, currentRule.Keywords...)
 			baseRule.Allowlists = append(baseRule.Allowlists, currentRule.Allowlists...)
+			if currentRule.componentsSet {
+				baseRule.Components = currentRule.Components
+				baseRule.componentsSet = true
+			}
 			// The keywords from the base rule and the extended rule must be merged into the global keywords list
 			for _, k := range baseRule.Keywords {
 				c.Keywords[k] = struct{}{}

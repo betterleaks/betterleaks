@@ -93,11 +93,11 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 	}
 	r.Keywords = keywords
 
-	// SkipReport and RequiredRules are runtime concerns — strip them so the
+	// SkipReport and Components are runtime concerns; strip them so the
 	// generation-time regex validation can detect findings normally.
 	testRule := *r
 	testRule.SkipReport = false
-	testRule.RequiredRules = nil
+	testRule.Components = nil
 	rules := map[string]config.Rule{
 		r.RuleID: testRule,
 	}

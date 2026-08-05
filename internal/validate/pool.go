@@ -64,7 +64,7 @@ func NewPoolContext(ctx context.Context, workers int, runtime *exprruntime.Runti
 	return p
 }
 
-// Submit queues a job for validation. RequiredSets (if any) are already on the finding.
+// Submit queues a job for validation. ComponentSets (if any) are already on the finding.
 func (p *Pool) Submit(finding report.Finding, program exprruntime.Program) {
 	_ = p.SubmitContext(context.Background(), finding, program)
 }
@@ -103,8 +103,8 @@ func (p *Pool) worker() {
 	for job := range p.jobs {
 		f := job.finding
 
-		if len(f.RequiredSets) == 0 {
-			// Simple path: no required components, validate the secret with its own captures.
+		if len(f.ComponentSets) == 0 {
+			// Simple path: no matched components, validate the secret with its own captures.
 			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ToExprMap(), job.captures, f.Attributes)
 			if err != nil {
 				f.ValidationStatus = report.ValidationStatusError
@@ -120,16 +120,16 @@ func (p *Pool) worker() {
 			continue
 		}
 
-		// Composite path: iterate pre-built required sets on the finding, validate
+		// Composite path: iterate pre-built component sets on the finding, validate
 		// each, write per-set status, and roll up to a finding-level status.
-		setResults := make(map[string]*Result, len(f.RequiredSets))
+		setResults := make(map[string]*Result, len(f.ComponentSets))
 		var (
 			overallStatus report.ValidationStatus
 			bestResult    *Result
 		)
 
-		for i := range f.RequiredSets {
-			set := &f.RequiredSets[i]
+		for i := range f.ComponentSets {
+			set := &f.ComponentSets[i]
 
 			// Build merged captures from the set's components.
 			merged := make(map[string]string, len(job.captures)+len(set.Components)*2)
@@ -174,20 +174,20 @@ func (p *Pool) worker() {
 			f.ValidationMeta = bestResult.Metadata
 		}
 
-		// When at least one required set validates, keep only valid sets on the
+		// When at least one component set validates, keep only valid sets on the
 		// emitted finding so reports are not cluttered with failed combinations.
 		// We build a new slice so we do not compact a backing array that other
 		// copies of this Finding may still reference.
-		if slices.ContainsFunc(f.RequiredSets, func(s report.RequiredSet) bool {
+		if slices.ContainsFunc(f.ComponentSets, func(s report.ComponentSet) bool {
 			return s.ValidationStatus == report.ValidationStatusValid
 		}) {
-			validOnly := make([]report.RequiredSet, 0, len(f.RequiredSets))
-			for _, s := range f.RequiredSets {
+			validOnly := make([]report.ComponentSet, 0, len(f.ComponentSets))
+			for _, s := range f.ComponentSets {
 				if s.ValidationStatus == report.ValidationStatusValid {
 					validOnly = append(validOnly, s)
 				}
 			}
-			f.RequiredSets = validOnly
+			f.ComponentSets = validOnly
 		}
 
 		if p.Emit != nil {

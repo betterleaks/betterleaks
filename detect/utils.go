@@ -143,13 +143,13 @@ func shannonEntropy(data string) (entropy float64) {
 
 // filter will dedupe and redact findings
 func filter(findings []report.Finding) []report.Finding {
-	// Collect every required finding's (line, secret) so we can suppress
+	// Collect every component finding's (line, secret) so we can suppress
 	// standalone duplicates that are already surfaced as components.
-	requiredSet := make(map[string]struct{})
+	componentSet := make(map[string]struct{})
 	for _, f := range findings {
-		for _, set := range f.RequiredSets {
+		for _, set := range f.ComponentSets {
 			for _, comp := range set.Components {
-				requiredSet[fmt.Sprintf("%d:%s", comp.StartLine, comp.Secret)] = struct{}{}
+				componentSet[fmt.Sprintf("%d:%s", comp.StartLine, comp.Secret)] = struct{}{}
 			}
 		}
 	}
@@ -158,11 +158,11 @@ func filter(findings []report.Finding) []report.Finding {
 	for _, f := range findings {
 		include := true
 
-		// Skip findings that are already surfaced as a required component
+		// Skip findings that are already surfaced as a component
 		// of another (composite) finding in this batch.
-		if _, isRequired := requiredSet[fmt.Sprintf("%d:%s", f.StartLine, f.Secret)]; isRequired {
+		if _, isComponent := componentSet[fmt.Sprintf("%d:%s", f.StartLine, f.Secret)]; isComponent {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
-			logging.Trace().Msgf("skipping %s finding (%s), already a required component of another finding", f.RuleID, redactedMatch)
+			logging.Trace().Msgf("skipping %s finding (%s), already a component of another finding", f.RuleID, redactedMatch)
 			include = false
 		} else if isSuppressedByHigherSpecificityFinding(f, findings) {
 			include = false
@@ -187,7 +187,7 @@ func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.
 			logging.Debug().Msgf("skipping %s finding (%s), %s rule takes precedence (%s)", f.RuleID, genericMatch, fPrime.RuleID, betterMatch)
 			return true
 		}
-		for _, set := range fPrime.RequiredSets {
+		for _, set := range fPrime.ComponentSets {
 			for _, comp := range set.Components {
 				if f.StartLine == comp.StartLine &&
 					f.RuleID != comp.RuleID &&
@@ -195,7 +195,7 @@ func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.
 					comp.RuleSpecificity > f.RuleSpecificity {
 					genericMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 					betterMatch := strings.ReplaceAll(comp.Match, comp.Secret, "REDACTED")
-					logging.Trace().Msgf("skipping %s finding (%s), %s required component takes precedence (%s)", f.RuleID, genericMatch, comp.RuleID, betterMatch)
+					logging.Trace().Msgf("skipping %s finding (%s), %s component takes precedence (%s)", f.RuleID, genericMatch, comp.RuleID, betterMatch)
 					return true
 				}
 			}
