@@ -70,7 +70,6 @@ type rawRule struct {
 	Components *[]*rawComponent `toml:"components"`
 
 	// Deprecated: translated to required components when Components is absent.
-	// TODO: Remove this in 9.x.
 	Required []*rawRequired `toml:"required"`
 
 	Validate        string `toml:"validate"`
