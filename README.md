@@ -1,9 +1,7 @@
 # Betterleaks
 ```
-     ○
-     ○
-ghp_ ● qOomCIZBWchHR4v5FPp9UiQRS9CyigrCkXXuIJQPfe63f12a
-     ○
+ + ○
+   ▾
 ```
 
 Betterleaks is a configurable, fast, and thorough secrets scanner. It is maintained by the folks who made Gitleaks, including the original author.
@@ -35,6 +33,9 @@ sudo dnf install betterleaks
 
 # Containers
 docker pull ghcr.io/betterleaks/betterleaks:latest
+
+# Go
+go install github.com/betterleaks/betterleaks@latest
 
 # Source
 git clone https://github.com/betterleaks/betterleaks

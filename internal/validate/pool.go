@@ -2,6 +2,7 @@ package validate
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"sync"
@@ -21,6 +22,7 @@ type validationJob struct {
 type Pool struct {
 	runtime *exprruntime.Runtime
 	cache   *Cache
+	ctx     context.Context
 	Debug   bool
 
 	// one job per to-be-validated finding
@@ -35,12 +37,22 @@ type Pool struct {
 
 // NewPool creates a validation pool with the given number of workers.
 func NewPool(workers int, runtime *exprruntime.Runtime) *Pool {
+	return NewPoolContext(context.Background(), workers, runtime)
+}
+
+// NewPoolContext creates a validation pool whose evaluations and request-limit
+// waits are canceled with ctx.
+func NewPoolContext(ctx context.Context, workers int, runtime *exprruntime.Runtime) *Pool {
 	if workers <= 0 {
 		workers = 10
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	p := &Pool{
 		runtime: runtime,
 		cache:   NewCache(),
+		ctx:     ctx,
 		jobs:    make(chan validationJob, workers*10),
 	}
 
@@ -203,7 +215,29 @@ func (p *Pool) evalWithCacheKey(cacheKey string, program exprruntime.Program, fi
 }
 
 func (p *Pool) evalProgram(program exprruntime.Program, finding, captures, attributes map[string]string) (*Result, error) {
-	result, evalErr := p.runtime.EvalValidation(context.Background(), program, finding, captures, attributes, exprruntime.EvalOptions{Debug: p.Debug})
+	result, evalErr := p.runtime.EvalValidation(p.ctx, program, finding, captures, attributes, exprruntime.EvalOptions{Debug: p.Debug})
+	if result.RequestLimitHit != nil {
+		hit := result.RequestLimitHit
+		metadata := map[string]any{
+			"betterleaks_max_requests_hit":         true,
+			"betterleaks_validation_target":        hit.Target,
+			"betterleaks_validation_max_requests":  hit.MaxRequests,
+			"betterleaks_validation_requests_sent": hit.RequestsSent,
+		}
+		if hit.RuleID != "" {
+			metadata["betterleaks_validation_rule_id"] = hit.RuleID
+		}
+		maps.Copy(metadata, result.Debug)
+		return &Result{
+			Status: report.ValidationStatusNeedsValidation,
+			Reason: fmt.Sprintf(
+				"validation request limit reached for %s after %d requests",
+				hit.Target,
+				hit.RequestsSent,
+			),
+			Metadata: metadata,
+		}, nil
+	}
 	if evalErr != nil {
 		metadata := map[string]any{}
 		maps.Copy(metadata, result.Debug)

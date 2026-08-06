@@ -37,19 +37,37 @@ type compiledProgram struct {
 }
 
 var emptyStringMap = map[string]string{}
+var emptyFilterFinding = map[string]any{
+	"secret":               "",
+	"match":                "",
+	"line":                 "",
+	"rule_id":              "",
+	"description":          "",
+	"context":              "",
+	"entropy":              "",
+	"fragment_raw":         "",
+	"match_start_idx":      0,
+	"match_end_idx":        0,
+	"match_line_start_idx": 0,
+	"match_line_end_idx":   0,
+}
 
 type EvalOptions struct {
 	Debug bool
 }
 
 type EvalResult struct {
-	Value any
-	Debug map[string]any
+	Value           any
+	Debug           map[string]any
+	RequestLimitHit *ValidationRequestLimitHit
 }
 
 type evalState struct {
 	debug bool
 	meta  map[string]any
+
+	limitMu  sync.Mutex
+	limitHit *ValidationRequestLimitHit
 }
 
 func (s *evalState) addDebug(name string, value any) {
@@ -62,19 +80,51 @@ func (s *evalState) addDebug(name string, value any) {
 	s.meta[name] = value
 }
 
+func (s *evalState) recordValidationLimitHit(hit ValidationRequestLimitHit) {
+	if s == nil {
+		return
+	}
+	s.limitMu.Lock()
+	defer s.limitMu.Unlock()
+	if s.limitHit == nil {
+		s.limitHit = &hit
+	}
+}
+
+func (s *evalState) validationLimitHit() *ValidationRequestLimitHit {
+	if s == nil {
+		return nil
+	}
+	s.limitMu.Lock()
+	defer s.limitMu.Unlock()
+	if s.limitHit == nil {
+		return nil
+	}
+	hit := *s.limitHit
+	return &hit
+}
+
 // maxResponseBody is the maximum number of bytes read from an HTTP response body.
 const maxResponseBody = 1 << 20 // 1 MB
 
 // Runtime holds compiled Expr programs and validation services (if needed).
 type Runtime struct {
 	client *http.Client
+	// validationLimiter is applied to every request made through client,
+	// including generic HTTP and typed cloud validation bindings.
+	validationLimiter *validationRequestLimiter
 
 	mu    sync.RWMutex
 	cache map[string]Program
 
-	STSEndpoint      string
-	GCPTokenEndpoint string
-	AllowedEnv       map[string]struct{}
+	// These endpoints are used for tests, not for real scans.
+	STSEndpoint             string
+	GCPTokenEndpoint        string
+	AzureTokenEndpoint      string
+	AzureStorageEndpoint    string
+	AzureAppConfigEndpoint  string
+	AzureServiceBusEndpoint string
+	AllowedEnv              map[string]struct{}
 
 	tokenizerProvider func() *tiktoken.Tiktoken
 }
@@ -86,7 +136,21 @@ func DefaultHTTPClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
 
-func (e *Runtime) SetHTTPClient(c *http.Client) { e.client = c }
+func (e *Runtime) SetHTTPClient(c *http.Client) {
+	e.client = wrapValidationLimitClient(c, e.validationLimiter)
+}
+
+// SetValidationRequestLimits applies request-level validation limits to the
+// Runtime's shared HTTP client.
+func (e *Runtime) SetValidationRequestLimits(cfg ValidationRequestLimits) error {
+	limiter, err := newValidationRequestLimiter(cfg)
+	if err != nil {
+		return err
+	}
+	e.validationLimiter = limiter
+	e.client = wrapValidationLimitClient(e.client, limiter)
+	return nil
+}
 
 func (e *Runtime) SetTokenizerProvider(provider func() *tiktoken.Tiktoken) {
 	e.tokenizerProvider = provider
@@ -176,7 +240,7 @@ func programBindings(mode compileMode, b bindings) bindings {
 func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken) (bindings, []expr.Option) {
 	switch mode {
 	case modeFilter:
-		return filterBindings(tokenizer, emptyStringMap, emptyStringMap), []expr.Option{expr.AsBool()}
+		return filterBindings(tokenizer, emptyFilterFinding, emptyStringMap), []expr.Option{expr.AsBool()}
 	case modePrefilter:
 		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
 	default:
@@ -188,9 +252,12 @@ func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken
 
 // Compile and runtime bindings expose the same names. Dynamic values are layered
 // onto a shallow copy so compiled programs can share static function bindings.
-func (e *Runtime) EvalFilter(prg Program, finding, attributes map[string]string) (bool, error) {
+func (e *Runtime) EvalFilter(prg Program, finding map[string]any, attributes map[string]string) (bool, error) {
 	b := prg.evalBindings()
-	b["finding"] = nonNilStringMap(finding)
+	if finding == nil {
+		finding = emptyFilterFinding
+	}
+	b["finding"] = finding
 	b["attributes"] = nonNilStringMap(attributes)
 	return runBool(prg, b, "filter")
 }
@@ -205,8 +272,13 @@ func (prg Program) evalBindings() bindings {
 	if prg.bindings != nil {
 		b := cloneBindings(prg.bindings)
 		if rt, ok := b["__runtime"].(*runtimeBindings); ok {
+			rtCopy := *rt
+			rt = &rtCopy
 			rt.tokenizer = prg.tokenizer
 			rt.tokenizerProvider = prg.tokenizerProvider
+			b["__runtime"] = rt
+			b["filter"] = filterNamespace(rt)
+			b["failsTokenEfficiency"] = rt.failsTokenEfficiency
 		}
 		return b
 	}
@@ -247,10 +319,21 @@ func (e *Runtime) EvalWithContext(ctx context.Context, prg Program, finding, cap
 }
 
 func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, captures, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	state := &evalState{debug: opts.Debug}
+	ctx = context.WithValue(ctx, validationRequestContextKey{}, &validationRequestContext{
+		ruleID: lookupString(finding, "rule_id"),
+		state:  state,
+	})
 	b := e.validationBindings(ctx, finding, captures, attributes, state)
 	val, err := expr.Run(prg.vm, b)
-	return EvalResult{Value: val, Debug: state.meta}, err
+	return EvalResult{
+		Value:           val,
+		Debug:           state.meta,
+		RequestLimitHit: state.validationLimitHit(),
+	}, err
 }
 
 func (e *Runtime) validationBindings(ctx context.Context, finding, captures, attributes map[string]string, state *evalState) bindings {
@@ -294,6 +377,7 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures, att
 	b["time"] = timeNamespace()
 	b["aws"] = awsNamespace(rt)
 	b["gcp"] = gcpNamespace(rt)
+	b["azure"] = azureNamespace(rt)
 	b["unknown"] = unknownResult
 	b["obfuscate"] = func(s string) (string, error) { return obfuscate(s), nil }
 	return b
@@ -346,7 +430,7 @@ func nonNilStringMap(m map[string]string) map[string]string {
 	return m
 }
 
-func filterBindings(tokenizer *tiktoken.Tiktoken, finding, attributes map[string]string) bindings {
+func filterBindings(tokenizer *tiktoken.Tiktoken, finding map[string]any, attributes map[string]string) bindings {
 	b := baseBindings(&runtimeBindings{tokenizer: tokenizer, attrs: attributes})
 	b["finding"] = finding
 	return b

@@ -56,6 +56,35 @@ r.json?.login ?? ""
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
 
+Filter expressions also receive `finding["fragment_raw"]` and the byte offsets
+`match_start_idx`, `match_end_idx`, `match_line_start_idx`, and
+`match_line_end_idx`. These can be combined with Expr string slicing:
+
+```expr
+let providerMatchContext = finding["fragment_raw"][
+    max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
+    min(finding["match_end_idx"] + 50, finding["match_line_end_idx"])
+];
+filter.containsAny(providerMatchContext, ["provider"])
+```
+
+Regex extraction can further restrict a context window. This example recreates
+a `[\w.-]{0,50}` regex preamble by retaining only the contiguous word, dot, and
+hyphen suffix immediately before the match:
+
+```expr
+let genericMatchPrefix = filter.findMatch(
+    finding["fragment_raw"][
+        max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
+        finding["match_start_idx"]
+    ],
+    `[\w.-]{0,50}$`
+);
+let genericMatchContext =
+    genericMatchPrefix +
+    finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+```
+
 ## Filtering
 
 Filters replace legacy allowlists, entropy checks, and token efficiency checks
@@ -66,6 +95,7 @@ with Expr. If a filter expression evaluates to `true`, the item is skipped.
 | Function | Description |
 | :--- | :--- |
 | `filter.matchesAny(string, list)` | Returns `true` if the string matches any regex pattern in the list. |
+| `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. |
 | `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `filter.failsTokenEfficiency(string)` | Returns `true` if the string tokenizes too efficiently and looks like natural language rather than a random secret. |
@@ -104,6 +134,46 @@ the `--validation` flag.
 Validation runs asynchronously, and responses are cached in memory so duplicate
 secrets only trigger one network request.
 
+### Request limits
+
+Live validation can send many authentication requests when a scan finds
+different candidate credentials for the same provider. The following flags
+limit the actual outbound requests made by generic HTTP validators and the
+built-in AWS, GCP, and Azure validators:
+
+| Flag | Description |
+| :--- | :--- |
+| `--validation-max-requests N` | Sends at most `N` requests to each provider target origin during the scan. `0` means unlimited. The singular `--validation-max-request` spelling is accepted as an alias. |
+| `--validation-rps N` | Limits all validation requests to `N` requests per second. Fractional values are accepted; `0` means unlimited. |
+| `--validation-rps-rule RULE=N` | Limits one exact rule ID to `N` requests per second. Repeat the flag for additional rules. |
+
+The global and rule-specific rates compose: a request must satisfy both limits.
+Rate limits use strict spacing with no initial burst. A provider target is an
+HTTP origin such as `https://api.github.com`; multiple rules that use the same
+origin share its maximum-request budget. Redirects and multi-request validation
+expressions count each actual outbound request. Validation cache hits do not
+count. Time spent waiting for an RPS slot does not consume
+`--validation-timeout`; that timeout begins when the provider request starts and
+remains active while its response body is read. Redirect hops share that one
+provider-time budget, while each hop still counts as an outbound request for RPS
+and maximum-request enforcement.
+
+For example:
+
+```sh
+betterleaks dir . --validation \
+  --validation-max-requests 1000 \
+  --validation-rps 10 \
+  --validation-rps-rule github-pat=2 \
+  --validation-rps-rule github-fine-grained-pat=2
+```
+
+Once a provider target reaches `--validation-max-requests`, further validations
+that need to call it return `needs_validation` without sending the request. The
+finding includes `betterleaks_max_requests_hit`,
+`betterleaks_validation_target`, `betterleaks_validation_max_requests`, and
+`betterleaks_validation_requests_sent` metadata.
+
 ### Result format
 
 A validation expression must return a map with a `"result"` key. Supported
@@ -140,6 +210,10 @@ Any additional keys are attached to the finding as validation metadata, such as
 | `time.nowRFC3339()` | Returns the current UTC timestamp in RFC3339 format. |
 | `aws.validate(key, secret)` | Makes a SigV4-signed AWS STS request to validate AWS credentials. |
 | `gcp.validate(json)` | Exchanges GCP service-account or ADC JSON for an OAuth token and returns validation metadata. |
+| `azure.validateStorage(account, key)` | Makes a SharedKey-signed Azure Storage request to validate an account key. |
+| `azure.validateServicePrincipal(tenant, client, secret)` | Requests a Microsoft identity token to validate an Azure service principal secret. |
+| `azure.validateAppConfig(endpoint, id, secret)` | Makes an HMAC-signed Azure App Configuration request to validate a connection string. |
+| `azure.validateServiceBusSAS(connectionString)` | Makes a SAS-authenticated Azure Service Bus/Event Hub request to validate a connection string. |
 | `base64.encode(bytes)` / `base64.decode(string)` | Encodes or decodes standard base64. |
 | `let name = value; expr` | Binds a variable to avoid repeating sub-expressions. |
 

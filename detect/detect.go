@@ -19,6 +19,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
+	"github.com/betterleaks/betterleaks/internal/ahocorasick"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
@@ -27,7 +28,6 @@ import (
 	"github.com/betterleaks/betterleaks/sources"
 
 	"github.com/fatih/semgroup"
-	ahocorasick "github.com/rrethy/ahocorasick"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
 )
@@ -35,12 +35,15 @@ import (
 // ValidationOptions controls secret validation behavior.
 // Zero value means validation is disabled.
 type ValidationOptions struct {
-	Enabled      bool
-	Debug        bool
-	Workers      int
-	Timeout      time.Duration
-	ExtractEmpty bool
-	StatusFilter string // comma-separated list of statuses to include
+	Enabled                 bool
+	Debug                   bool
+	Workers                 int
+	Timeout                 time.Duration
+	ExtractEmpty            bool
+	StatusFilter            string // comma-separated list of statuses to include
+	MaxRequestsPerTarget    int
+	RequestsPerSecond       float64
+	RequestsPerSecondByRule map[string]float64
 	// ValidationEnvVars lists environment variable names the validation Expr
 	// env(...) binding may read (see --validation-env-vars). Parsed into
 	// exprruntime.Runtime.AllowedEnv when the validation env is created.
@@ -66,6 +69,12 @@ const (
 type Result struct {
 	Finding report.Finding
 	Err     error
+}
+
+type ruleCandidates struct {
+	// Indexes match rulesBySpecificity, preserving rule order without building
+	// a map and sorted slice for every fragment and decode pass.
+	marked []bool
 }
 
 // Detector is the main detector struct
@@ -113,6 +122,9 @@ type Detector struct {
 
 	TotalBytes atomic.Uint64
 
+	// RuleTimings records per-rule diagnostic timings when diagnostics are enabled.
+	RuleTimings *RuleTimingCollector
+
 	tokenizer     *tiktoken.Tiktoken
 	tokenizerOnce sync.Once
 
@@ -127,7 +139,25 @@ type Detector struct {
 	globalFilter       exprruntime.Program
 	filterProgramM     sync.Mutex
 	filterPrograms     map[string]exprruntime.Program
+
+	// rulesBySpecificity contains every configured rule ID in descending
+	// specificity order. Its positions are the shared index space used by the
+	// candidate slices below, so it must not change after detector construction.
 	rulesBySpecificity []string
+
+	// keywordRuleIndexes maps each Aho-Corasick pattern ID to the positions in
+	// rulesBySpecificity of rules that use that keyword. Precomputing this avoids
+	// keyword strings and map lookups while scanning each fragment.
+	keywordRuleIndexes [][]int
+
+	// noKeywordIndexes contains positions in rulesBySpecificity for rules with no
+	// keyword prefilter. These rules are candidates on every scan and decode pass.
+	noKeywordIndexes []int
+
+	// candidatePool reuses one bitmap per active scan. A set bit means the rule at
+	// the same rulesBySpecificity position should run. Bitmaps must be cleared
+	// before they are returned because the pool is shared by concurrent scans.
+	candidatePool sync.Pool
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -224,12 +254,13 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Fatal().Err(exprErr).Msg("failed to create expr runtime")
 	}
 
+	keywords := maps.Keys(cfg.Keywords)
 	d := &Detector{
 		gitleaksIgnore:         make(map[string]struct{}),
 		findings:               make([]report.Finding, 0),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
-		prefilter:              ahocorasick.CompileStrings(maps.Keys(cfg.Keywords)),
+		prefilter:              ahocorasick.Compile(keywords, true),
 		Sema:                   semgroup.NewGroup(ctx, 40),
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
@@ -238,6 +269,33 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
+	// The matcher returns stable keyword indexes. Resolve those to rule indexes
+	// once so the hot scan loop does not allocate strings or maps.
+	d.keywordRuleIndexes = make([][]int, len(keywords))
+	ruleIndexes := make(map[string]int, len(d.rulesBySpecificity))
+	for i, ruleID := range d.rulesBySpecificity {
+		ruleIndexes[ruleID] = i
+	}
+	for patternID, keyword := range keywords {
+		ruleIDs := cfg.KeywordToRules[keyword]
+		for _, ruleID := range ruleIDs {
+			ruleIndex, ok := ruleIndexes[ruleID]
+			if !ok {
+				continue
+			}
+			d.keywordRuleIndexes[patternID] = append(d.keywordRuleIndexes[patternID], ruleIndex)
+		}
+	}
+	for _, ruleID := range cfg.NoKeywordRules {
+		ruleIndex, ok := ruleIndexes[ruleID]
+		if !ok {
+			continue
+		}
+		d.noKeywordIndexes = append(d.noKeywordIndexes, ruleIndex)
+	}
+	d.candidatePool.New = func() any {
+		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
+	}
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
 
 	// Compile only global prefilter programs so they are available before scanning.
@@ -251,11 +309,18 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		if valOpts.Timeout > 0 {
 			validationRuntime.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
 		}
+		if err := validationRuntime.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
+			MaxRequestsPerTarget:    valOpts.MaxRequestsPerTarget,
+			RequestsPerSecond:       valOpts.RequestsPerSecond,
+			RequestsPerSecondByRule: valOpts.RequestsPerSecondByRule,
+		}); err != nil {
+			logging.Fatal().Err(err).Msg("invalid validation request limits")
+		}
 		workers := valOpts.Workers
 		if workers <= 0 {
 			workers = 10
 		}
-		d.ValidationPool = validate.NewPool(workers, validationRuntime)
+		d.ValidationPool = validate.NewPoolContext(ctx, workers, validationRuntime)
 		d.ValidationPool.Debug = valOpts.Debug
 
 		if valOpts.StatusFilter != "" {
@@ -668,36 +733,37 @@ ScanLoop:
 		case <-ctx.Done():
 			break ScanLoop
 		default:
-			// Use Aho-Corasick to find keyword matches, then map directly
-			// to the rules that need checking via KeywordToRules.
-			// Use a pooled byte buffer for lowercasing to avoid allocating
-			lowerBufPtr, lowerBuf := getLowerBuf(currentRaw)
-			acMatches := d.prefilter.FindAllByteSlice(lowerBuf)
-
-			// Build a set of rule IDs to check based on keyword matches.
-			rulesToCheck := make(map[string]struct{}, len(acMatches))
-			for _, m := range acMatches {
-				keyword := string(m.Word)
-				for _, ruleID := range d.Config.KeywordToRules[keyword] {
-					rulesToCheck[ruleID] = struct{}{}
+			candidates := d.candidatePool.Get().(*ruleCandidates)
+			// A rule is a candidate when any of its keywords matched. The bitmap
+			// deduplicates rules referenced by multiple matching keywords.
+			d.prefilter.Visit(currentRaw, func(patternID, _, _ int) bool {
+				for _, ruleIndex := range d.keywordRuleIndexes[patternID] {
+					candidates.marked[ruleIndex] = true
 				}
-			}
-			putLowerBuf(lowerBufPtr)
+				return true
+			})
 			// Always include rules that have no keywords.
-			for _, ruleID := range d.Config.NoKeywordRules {
-				rulesToCheck[ruleID] = struct{}{}
+			for _, ruleIndex := range d.noKeywordIndexes {
+				candidates.marked[ruleIndex] = true
 			}
 
-			ruleIDs := d.orderedRuleIDs(rulesToCheck)
-			for _, ruleID := range ruleIDs {
+			for ruleIndex, ruleID := range d.rulesBySpecificity {
+				if !candidates.marked[ruleIndex] {
+					continue
+				}
 				select {
 				case <-ctx.Done():
+					clear(candidates.marked)
+					d.candidatePool.Put(candidates)
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRule(fragment, currentRaw, rule, encodedSegments, findings)...)
+					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)...)
 				}
 			}
+			// Pool entries must be blank because later scans may run on any goroutine.
+			clear(candidates.marked)
+			d.candidatePool.Put(candidates)
 
 			// increment the depth by 1 as we start our decoding pass
 			currentDecodeDepth++
@@ -719,27 +785,19 @@ ScanLoop:
 	return filter(findings)
 }
 
-func (d *Detector) orderedRuleIDs(ruleSet map[string]struct{}) []string {
-	var ruleIDs []string
-	seen := make(map[string]struct{}, len(ruleSet))
-	appendRule := func(ruleID string) {
-		if _, ok := ruleSet[ruleID]; !ok {
-			return
-		}
-		if _, ok := seen[ruleID]; ok {
-			return
-		}
-		seen[ruleID] = struct{}{}
-		ruleIDs = append(ruleIDs, ruleID)
+func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,
+	currentRaw string,
+	r config.Rule,
+	encodedSegments []*codec.EncodedSegment,
+	priorFindings []report.Finding) []report.Finding {
+	if d.RuleTimings == nil {
+		return d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
 	}
 
-	for _, ruleID := range d.rulesBySpecificity {
-		appendRule(ruleID)
-	}
-	for ruleID := range ruleSet {
-		appendRule(ruleID)
-	}
-	return ruleIDs
+	start := time.Now()
+	findings := d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
+	d.RuleTimings.Record(r.RuleID, time.Since(start))
+	return findings
 }
 
 func orderedRulesBySpecificity(cfg *config.Config) []string {
@@ -812,6 +870,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	for _, matchIndex := range matches {
 		// Extract secret from match
 		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
+		filterMatchStartIdx, filterMatchEndIdx := matchIndex[0], matchIndex[1]
 
 		// For any meta data from decoding
 		var metaTags []string
@@ -948,10 +1007,24 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		// Build finding map once, only when at least one filter program is compiled.
-		var findingMap map[string]string
+		var findingMap map[string]any
 		if hasGlobalFilter || hasRuleFilter {
-			findingMap = finding.ToExprMap()
+			findingMap = make(map[string]any, 12)
+			for key, value := range finding.ToExprMap() {
+				findingMap[key] = value
+			}
 			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
+			findingMap["fragment_raw"] = currentRaw
+			findingMap["match_start_idx"] = filterMatchStartIdx
+			findingMap["match_end_idx"] = filterMatchEndIdx
+			findingMap["match_line_start_idx"] = 0
+			findingMap["match_line_end_idx"] = len(currentRaw)
+			if newline := strings.LastIndexAny(currentRaw[:filterMatchStartIdx], "\r\n"); newline >= 0 {
+				findingMap["match_line_start_idx"] = newline + 1
+			}
+			if newline := strings.IndexAny(currentRaw[filterMatchEndIdx:], "\r\n"); newline >= 0 {
+				findingMap["match_line_end_idx"] = filterMatchEndIdx + newline
+			}
 			// For decoded segments, currentLine carries the decoded line text
 			// (via codec.CurrentLine). The old checkFindingAllowed used this for
 			// regexTarget="line". Preserve that behaviour in the Expr path.
@@ -959,7 +1032,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 				findingMap["line"] = currentLine
 			}
 		}
-
 		// Global filter: Expr path (attributes + finding).
 		if prg, ok, err := d.globalFilterProgram(); err != nil {
 			logger.Warn().Err(err).Msg("global filter compile error")
@@ -968,6 +1040,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
+				logger.Trace().
+					Str("finding", finding.Secret).
+					Msg("skipping finding: global filter")
 				continue
 			}
 		}
@@ -980,6 +1055,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {
+				logger.Trace().
+					Str("finding", finding.Secret).
+					Msg("skipping finding: rule filter")
 				continue
 			}
 		}
@@ -1021,7 +1099,7 @@ func (d *Detector) processRequiredRules(fragment sources.Fragment, currentRaw st
 		inheritedFragment.InheritedFromFinding = true
 
 		// Call detectRule once for each required rule
-		requiredFindings := d.detectFragmentWithRule(inheritedFragment, currentRaw, rule, encodedSegments, nil)
+		requiredFindings := d.detectFragmentWithRuleTimed(inheritedFragment, currentRaw, rule, encodedSegments, nil)
 		allRequiredFindings[requiredRule.RuleID] = requiredFindings
 
 		logger.Debug().

@@ -3,6 +3,7 @@ package detect
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -32,11 +34,68 @@ const configPath = "../testdata/config/"
 const repoBasePath = "../testdata/repos/"
 const archivesBasePath = "../testdata/archives/"
 
+type cancelOnSecondCheck struct {
+	checks int
+	open   chan struct{}
+	closed chan struct{}
+}
+
+func newCancelOnSecondCheck() *cancelOnSecondCheck {
+	closed := make(chan struct{})
+	close(closed)
+	return &cancelOnSecondCheck{open: make(chan struct{}), closed: closed}
+}
+
+func (c *cancelOnSecondCheck) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *cancelOnSecondCheck) Done() <-chan struct{} {
+	c.checks++
+	if c.checks > 1 {
+		return c.closed
+	}
+	return c.open
+}
+func (c *cancelOnSecondCheck) Err() error    { return context.Canceled }
+func (c *cancelOnSecondCheck) Value(any) any { return nil }
+
 func loadTestConfig(t *testing.T, cfgName string) *config.Config {
 	t.Helper()
 	cfg, err := config.LoadFile(filepath.Join(configPath, cfgName+".toml"))
 	require.NoError(t, err)
 	return cfg
+}
+
+func TestCandidateBitmap(t *testing.T) {
+	rules := map[string]config.Rule{
+		"high":   {RuleID: "high", Specificity: 30, Keywords: []string{"shared", "alias"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
+		"low":    {RuleID: "low", Specificity: 20, Keywords: []string{"shared"}, Regex: regexp.MustCompile(`LOWSECRET`)},
+		"cancel": {RuleID: "cancel", Specificity: 10, Keywords: []string{"cancel"}, Regex: regexp.MustCompile(`ALWAYSSECRET`)},
+		"always": {RuleID: "always", Regex: regexp.MustCompile(`ALWAYSSECRET`)},
+	}
+	cfg := &config.Config{
+		Rules:          rules,
+		Keywords:       map[string]struct{}{"shared": {}, "alias": {}, "cancel": {}, "stale": {}},
+		KeywordToRules: map[string][]string{"shared": {"high", "low"}, "alias": {"high"}, "cancel": {"cancel"}, "stale": {"missing"}},
+		NoKeywordRules: []string{"always", "missing"},
+	}
+	d := NewDetector(cfg)
+	require.Empty(t, d.DetectString("stale HIGHSECRET"))
+
+	// Cancellation after candidates are marked must not leak them into the next scan.
+	require.Empty(t, d.detectFragment(newCancelOnSecondCheck(), sources.Fragment{Raw: "cancel ALWAYSSECRET"}))
+	require.Equal(t, []string{"always"}, findingRuleIDs(d.DetectString("ALWAYSSECRET")))
+
+	// One keyword selects multiple rules, multiple keywords select one rule,
+	// rules without keywords always run, and specificity order is retained.
+	require.Equal(t, []string{"high", "low", "always"}, findingRuleIDs(d.DetectString("shared HIGHSECRET LOWSECRET ALWAYSSECRET")))
+	require.Equal(t, []string{"high", "always"}, findingRuleIDs(d.DetectString("alias HIGHSECRET ALWAYSSECRET")))
+}
+
+func findingRuleIDs(findings []report.Finding) []string {
+	ids := make([]string, len(findings))
+	for i := range findings {
+		ids[i] = findings[i].RuleID
+	}
+	return ids
 }
 
 const encodedTestValues = `
@@ -167,6 +226,87 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 		findings[i].SetExprContext("")
 	}
 	return findings
+}
+
+func TestDetectFilterMatchesContextWindow(t *testing.T) {
+	rule := config.Rule{
+		RuleID: "near-match",
+		Regex:  regexp.MustCompile(`[A-Z0-9]{20}`),
+		Filter: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; filter.matchesAny(matchContext, ["red-herring"])`,
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+	require.NoError(t, cfg.CompileFilters(nil))
+
+	d := NewDetector(cfg)
+	findings := d.Detect(sources.Fragment{Raw: "red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST"})
+
+	require.Len(t, findings, 1)
+	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
+}
+
+func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
+	decoded := "provider decoded-secret-ABCDEFGHIJKLMNOPQRST"
+	raw := base64.StdEncoding.EncodeToString([]byte(decoded))
+
+	for _, tc := range []struct {
+		name     string
+		before   int
+		findings int
+	}{
+		{"inside window", 9, 0},
+		{"outside window", 8, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rule := config.Rule{
+				RuleID: "decoded-near-match",
+				Regex:  regexp.MustCompile(`decoded-secret-[A-Z]{20}`),
+				Filter: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; filter.containsAny(matchContext, ["provider"])`, tc.before),
+			}
+			cfg := &config.Config{
+				Rules:          map[string]config.Rule{rule.RuleID: rule},
+				NoKeywordRules: []string{rule.RuleID},
+				OrderedRules:   []string{rule.RuleID},
+			}
+			d := NewDetector(cfg)
+			d.MaxDecodeDepth = 1
+
+			require.Len(t, d.Detect(sources.Fragment{Raw: raw}), tc.findings)
+		})
+	}
+}
+
+func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
+	rule := config.Rule{
+		RuleID: "original-match-bounds",
+		Regex:  regexp.MustCompile("\nSECRET"),
+		Filter: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; filter.matchesAny(matchContext, [`\\nSECRET$`])",
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+
+	require.Empty(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "prefix\nSECRET"}))
+}
+
+func TestFilterContextCanStayOnMatchLine(t *testing.T) {
+	rule := config.Rule{
+		RuleID: "line-context",
+		Regex:  regexp.MustCompile(`SECRET`),
+		Filter: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; filter.containsAny(matchContext, ["other-line"])`,
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+
+	require.Len(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
 }
 
 func TestDetect(t *testing.T) {

@@ -563,6 +563,12 @@ betterleaks git . --baseline-path findings.json
 # enable live validation
 betterleaks dir . --validation --validation-status valid,unknown
 
+# cap and rate-limit outbound validation requests
+betterleaks dir . --validation \
+	--validation-max-requests 1000 \
+	--validation-rps 10 \
+	--validation-rps-rule github-pat=2
+
 # redact output
 betterleaks git . -v --redact
 

@@ -23,11 +23,9 @@ import (
 )
 
 var banner = fmt.Sprintf(`
-
-  ○
-  ○
-  ●
-  ○  betterleaks %s
+ + ○
+   ▾
+ betterleaks %s
 
 `, version.Version)
 
@@ -103,13 +101,18 @@ func init() {
 	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none (none = rules without validation)")
 	rootCmd.PersistentFlags().Duration("validation-timeout", 10*time.Second, "per-request timeout for validation")
 	rootCmd.PersistentFlags().Int("validation-workers", 10, "number of concurrent validation workers")
+	rootCmd.PersistentFlags().Int("validation-max-requests", 0, "maximum validation requests sent to each provider target (0 = unlimited)")
+	rootCmd.PersistentFlags().Int("validation-max-request", 0, "alias for --validation-max-requests")
+	_ = rootCmd.PersistentFlags().MarkHidden("validation-max-request")
+	rootCmd.PersistentFlags().Float64("validation-rps", 0, "global validation requests per second (0 = unlimited)")
+	rootCmd.PersistentFlags().StringSlice("validation-rps-rule", nil, "rule-specific validation request rate as RULE=RPS (repeatable)")
 	rootCmd.PersistentFlags().Bool("validation-extract-empty", false, "include empty values from extractors in output")
 	rootCmd.PersistentFlags().Bool("validation-debug", false, "include validation HTTP debug metadata in output")
 	rootCmd.PersistentFlags().StringSlice("validation-env-vars", nil, "comma-separated env var names the validation env(...) binding may read (repeat flag to add more); unset means env() is disabled")
 
 	// Add diagnostics flags
-	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace). cpu=CPU prof, mem=memory prof, trace=exec tracing, http=serve via net/http/pprof")
-	rootCmd.PersistentFlags().String("diagnostics-dir", "", "directory to store diagnostics output files when not using http mode (defaults to current directory)")
+	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace,rules,rules-csv). cpu=CPU prof, mem=memory prof, trace=exec tracing, rules=rule timings text, rules-csv=rule timings CSV, http=serve via net/http/pprof")
+	rootCmd.PersistentFlags().String("diagnostics-dir", "", "directory to store diagnostics output files when not using http mode (defaults to ./diagnostics)")
 
 }
 
@@ -347,17 +350,39 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	if err != nil {
 		logging.Fatal().Err(err).Msg("validation-env-vars flag")
 	}
+	validationMaxRequests, err := getValidationMaxRequests(cmd)
+	if err != nil {
+		logging.Fatal().Err(err).Msg("validation maximum requests")
+	}
+	validationRPS := mustGetFloat64Flag(cmd, "validation-rps")
+	if err := validateValidationRPS(validationRPS); err != nil {
+		logging.Fatal().Err(err).Msg("validation-rps")
+	}
+	validationRPSRuleValues, err := cmd.Flags().GetStringSlice("validation-rps-rule")
+	if err != nil {
+		logging.Fatal().Err(err).Msg("validation-rps-rule flag")
+	}
+	validationRPSByRule, err := parseValidationRuleRPS(validationRPSRuleValues)
+	if err != nil {
+		logging.Fatal().Err(err).Msg("validation-rps-rule")
+	}
 	valOpts := detect.ValidationOptions{
-		Enabled:           mustGetBoolFlag(cmd, "validation"),
-		Debug:             mustGetBoolFlag(cmd, "validation-debug"),
-		Workers:           mustGetIntFlag(cmd, "validation-workers"),
-		ExtractEmpty:      mustGetBoolFlag(cmd, "validation-extract-empty"),
-		StatusFilter:      mustGetStringFlag(cmd, "validation-status"),
-		ValidationEnvVars: validationEnvVars,
+		Enabled:                 mustGetBoolFlag(cmd, "validation"),
+		Debug:                   mustGetBoolFlag(cmd, "validation-debug"),
+		Workers:                 mustGetIntFlag(cmd, "validation-workers"),
+		ExtractEmpty:            mustGetBoolFlag(cmd, "validation-extract-empty"),
+		StatusFilter:            mustGetStringFlag(cmd, "validation-status"),
+		MaxRequestsPerTarget:    validationMaxRequests,
+		RequestsPerSecond:       validationRPS,
+		RequestsPerSecondByRule: validationRPSByRule,
+		ValidationEnvVars:       validationEnvVars,
 	}
 	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
 
 	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
+	if diagnosticsManager != nil && diagnosticsManager.RuleTimings != nil {
+		detector.RuleTimings = diagnosticsManager.RuleTimings
+	}
 
 	if detector.MaxDecodeDepth, err = cmd.Flags().GetInt("max-decode-depth"); err != nil {
 		logging.Fatal().Err(err).Send()

@@ -2,23 +2,40 @@ package rules
 
 import (
 	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/regexp"
 )
 
 func SendInBlueAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "sendinblue-api-token",
-		Description: "Identified a Sendinblue API token, which may compromise email marketing services and subscriber data privacy.",
-		Regex:       utils.GenerateUniqueTokenRegex(`xkeysib-[a-f0-9]{64}\-(?i)[a-z0-9]{16}`, false),
+		Description: "Identified a Brevo (formerly Sendinblue) API token, which may compromise email marketing services and subscriber data privacy.",
+		Regex:       regexp.MustCompile(`\b(xkeysib-[a-fA-F0-9]{64}-[a-zA-Z0-9]{16})\b`),
 		Keywords: []string{
 			"xkeysib-",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		ValidateExpr: `let r = http.get("https://api.brevo.com/v3/account", {
+    "api-key": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
+		Filter: utils.MinEntropy(3.2),
 	}
 
-	// validate
-	tps := utils.GenerateSampleSecrets("sendinblue", "xkeysib-"+secrets.NewSecretWithEntropy(utils.Hex("64"), 2)+"-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 2))
-	return utils.Validate(r, tps, nil)
+	return utils.Validate(r,
+		[]string{
+			`BREVO_API_KEY=xkeysib-abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd-1234567890abcd12`,
+			`SENDINBLUE_API_KEY=xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78`,
+			`BREVO_KEYS=[xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78]`,
+		},
+		[]string{
+			`BREVO_API_KEY=xkeysib-too-short`,
+			`BREVO_API_KEY=xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78_extra`,
+		},
+	)
 }

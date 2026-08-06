@@ -25,7 +25,7 @@ func KubernetesSecret() *config.Rule {
 		Description: "Possible Kubernetes Secret detected, posing a risk of leaking credentials/tokens from your deployments",
 		Regex: regexp.MustCompile(fmt.Sprintf(
 			//language=regexp
-			`(?i)(?:%s(?s:.){0,200}?%s|%s(?s:.){0,200}?%s)`, kindPat, dataPat, dataPat, kindPat)),
+			`(?i)(?:%s(?s:.){0,1000}?%s|%s(?s:.){0,1000}?%s)`, kindPat, dataPat, dataPat, kindPat)),
 		Keywords: []string{
 			"secret",
 		},
@@ -50,6 +50,19 @@ metadata:
 data:
   # base64 encoded password. E.g.: echo -n "mypassword" | base64
   key: bXlwYXNzd29yZA==`,
+		"annotations.yaml": `apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: "testk8smain-vault-secrets"
+  labels:
+    app.k8s.veepee.tech/mutate: mutate
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    vault.security.banzaicloud.io/vault-role: "corporate-sre_community_shared"
+data:
+  MINIO_ROOT_PASSWORD: dmF1bHQ6cHJvZHVjdHMvZGF0YS9pbnQvemF6ZXIvdGVzdGs4c21haW4vY29tbXVuaXR5L3NoYXJlZC9taW5pbyNNSU5JT19ST09UX1BBU1NXT1JE
+  MINIO_ROOT_USER: dmF1bHQ6cHJvZHVjdHMvZGF0YS9pbnQvemF6ZXIvdGVzdGs4c21haW4vY29tbXVuaXR5L3NoYXJlZC9taW5pbyNNSU5JT19ST09UX1VTRVI=`,
 		// The "data"-key is before the identifier "kind: Secret"
 		"before-kubernetes.yaml": `apiVersion: v1
  data:

@@ -143,6 +143,21 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 // extractorFragments recursively crawls archives and yields fragments
 func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield FragmentsFunc) {
+	// Malformed archives can make the extraction library panic (e.g. a tiny
+	// .rar whose block header encodes a bogus size). Recover here so a bad
+	// archive is skipped with a warning instead of killing the process. This
+	// guard sits inside extractorFragments (rather than at the dispatch site)
+	// so it protects every nesting level: extractorFragments recurses into
+	// nested entries via file.Fragments below.
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Warn().
+				Str("path", s.FullPath()).
+				Str("panic", fmt.Sprint(r)).
+				Msg("skipping archive: panic during extraction")
+		}
+	}()
+
 	if _, isSeekReaderAt := reader.(seekReaderAt); !isSeekReaderAt {
 		switch extractor.(type) {
 		case archives.SevenZip, archives.Zip:
@@ -205,6 +220,21 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 // decompressorFragments recursively crawls archives and yields fragments
 func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) {
+	// Declared upfront so that the deferred func can release it even if
+	// decompression panics on malformed content.
+	var innerReader io.ReadCloser
+	defer func() {
+		if innerReader != nil {
+			_ = innerReader.Close()
+		}
+		if r := recover(); r != nil {
+			logging.Warn().
+				Str("path", s.FullPath()).
+				Str("panic", fmt.Sprint(r)).
+				Msg("skipping compressed file: panic during decompression")
+		}
+	}()
+
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
 		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not read compressed file")
@@ -216,9 +246,6 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 	if err := s.fileFragments(ctx, br, true, yield); err != nil {
 		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("error reading compressed file")
 	}
-
-	_ = innerReader.Close()
-	return
 }
 
 // fileFragments reads the file into fragments to yield.

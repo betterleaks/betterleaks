@@ -20,6 +20,7 @@ var (
 func filterNamespace(rt *runtimeBindings) map[string]any {
 	return map[string]any{
 		"matchesAny":           matchesAny,
+		"findMatch":            findMatch,
 		"containsAny":          containsAny,
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
@@ -59,11 +60,15 @@ func getOrBuildTrie(terms []string) *ahocorasick.Matcher {
 	if len(terms) == 0 {
 		return nil
 	}
-	key := sortedKey(terms)
+	normalized := make([]string, len(terms))
+	for i, term := range terms {
+		normalized[i] = strings.ToLower(term)
+	}
+	key := sortedKey(normalized)
 	if v, ok := acTrieCache.Load(key); ok {
 		return v.(*ahocorasick.Matcher)
 	}
-	trie := ahocorasick.CompileStrings(terms)
+	trie := ahocorasick.CompileStrings(normalized)
 	acTrieCache.Store(key, trie)
 	return trie
 }
@@ -71,6 +76,14 @@ func getOrBuildTrie(terms []string) *ahocorasick.Matcher {
 func matchesAny(s string, patterns any) bool {
 	re := getOrCompileJoinedRegex(toStringSlice(patterns))
 	return re != nil && re.MatchString(s)
+}
+
+func findMatch(s, pattern string) string {
+	re := getOrCompileJoinedRegex([]string{pattern})
+	if re == nil {
+		return ""
+	}
+	return re.FindString(s)
 }
 
 func containsAny(s string, terms any) bool {

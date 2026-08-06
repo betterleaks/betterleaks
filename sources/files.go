@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/charlievieth/fastwalk"
 	"github.com/fatih/semgroup"
 )
 
@@ -30,7 +31,26 @@ type Files struct {
 
 // scanTargets yields scan targets to a callback func
 func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) error) error {
-	return filepath.WalkDir(s.Path, func(path string, d fs.DirEntry, err error) error {
+	// fastwalk only accepts directory roots. Lstat also preserves the existing
+	// symlink handling when the requested root is a single file or symlink.
+	rootInfo, err := os.Lstat(s.Path)
+	if err != nil {
+		logger := logging.With().Str("path", s.Path).Logger()
+		if os.IsPermission(err) {
+			logger.Warn().Err(errors.New("permission denied")).Msg("skipping directory")
+		} else {
+			logger.Warn().Err(err).Msg("skipping")
+		}
+		return nil
+	}
+
+	// fastwalk visits paths concurrently, but scanTargets has always exposed a
+	// serial callback. Keep that contract without serializing file inspection.
+	var yieldMu sync.Mutex
+	walkFn := func(path string, d fs.DirEntry, err error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		scanTarget := ScanTarget{Path: path}
 		logger := logging.With().Str("path", path).Logger()
 
@@ -106,8 +126,29 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			return nil
 		}
 
+		yieldMu.Lock()
+		defer yieldMu.Unlock()
 		return yield(scanTarget, nil)
-	})
+	}
+
+	if !rootInfo.IsDir() {
+		return walkFn(s.Path, fs.FileInfoToDirEntry(rootInfo), nil)
+	}
+
+	// filepath.WalkDir preserves the root path exactly as supplied, then uses
+	// filepath.Join for descendants. fastwalk joins paths by concatenating the
+	// directory, separator, and entry name, which leaves lexical elements such
+	// as "./" in descendant paths. Preserve the filepath.WalkDir behavior that
+	// callers and report output relied on before switching walkers.
+	compatibleWalkFn := func(path string, d fs.DirEntry, err error) error {
+		if fastwalk.DirEntryDepth(d) == 0 {
+			path = s.Path
+		} else {
+			path = filepath.Clean(path)
+		}
+		return walkFn(path, d, err)
+	}
+	return fastwalk.Walk(nil, s.Path, compatibleWalkFn)
 }
 
 // Fragments yields fragments from files discovered under the path
