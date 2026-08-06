@@ -22,6 +22,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
+	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
@@ -377,7 +378,7 @@ func TestComponentProximity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			window, err := ParseMatchContext(tt.within)
+			window, err := contextwindow.Parse(tt.within)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, withinProximity(tt.raw, tt.fragmentStartLine, tt.primary, tt.component, window))
 		})

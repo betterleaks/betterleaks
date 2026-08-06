@@ -61,19 +61,25 @@ func Parse(value string) (Spec, error) {
 		}
 
 		directionMarker := matches[1]
-		amount, _ := strconv.Atoi(matches[2])
+		amount, err := strconv.Atoi(matches[2])
+		if err != nil {
+			return Spec{}, fmt.Errorf("invalid context window amount %q: %w", matches[2], err)
+		}
 		unit := strings.ToUpper(matches[3])
 		if unit == "" {
 			unit = "C"
 		}
 
-		if unit == "L" {
+		switch unit {
+		case "L":
 			hasLines = true
 			amount = max(amount-1, 0)
 			applyDirection(&lines, directionMarker, amount)
-		} else {
+		case "C":
 			hasCols = true
 			applyDirection(&cols, directionMarker, amount)
+		default:
+			return Spec{}, fmt.Errorf("invalid context window unit %q", unit)
 		}
 	}
 
@@ -103,4 +109,72 @@ func applyDirection(target *direction, marker string, amount int) {
 	default:
 		target.bidirected = max(target.bidirected, amount)
 	}
+}
+
+// Extract returns the context selected by spec around matchIndex in raw.
+func Extract(raw string, matchIndex []int, spec Spec) string {
+	if spec.IsZero() || len(raw) == 0 {
+		return ""
+	}
+
+	switch spec.Mode {
+	case ModeCols:
+		start := max(matchIndex[0]-spec.ColsBefore, 0)
+		end := min(matchIndex[1]+spec.ColsAfter, len(raw))
+		return raw[start:end]
+	case ModeBox:
+		return extractBox(raw, matchIndex, spec)
+	default:
+		return ""
+	}
+}
+
+func extractBox(raw string, matchIndex []int, spec Spec) string {
+	matchStart, matchEnd := matchIndex[0], matchIndex[1]
+
+	lineStart := strings.LastIndexByte(raw[:matchStart], '\n') + 1
+	lineEnd := strings.IndexByte(raw[matchEnd:], '\n')
+	if lineEnd == -1 {
+		lineEnd = len(raw)
+	} else {
+		lineEnd += matchEnd
+	}
+
+	contextStart := lineStart
+	for i := 0; i < spec.LinesBefore && contextStart > 0; i++ {
+		contextStart = strings.LastIndexByte(raw[:contextStart-1], '\n') + 1
+	}
+
+	contextEnd := lineEnd
+	for i := 0; i < spec.LinesAfter && contextEnd < len(raw); i++ {
+		nextNewline := strings.IndexByte(raw[contextEnd+1:], '\n')
+		if nextNewline == -1 {
+			contextEnd = len(raw)
+			break
+		}
+		contextEnd += nextNewline + 1
+	}
+
+	extracted := raw[contextStart:contextEnd]
+
+	// Column clipping only makes sense for single-line matches. For multiline
+	// matches, the first-line column offset does not apply to subsequent lines.
+	if !strings.ContainsRune(raw[matchStart:matchEnd], '\n') && (spec.ColsBefore > 0 || spec.ColsAfter > 0) {
+		matchColumn := matchStart - lineStart
+		matchLength := matchEnd - matchStart
+		clipStart := max(matchColumn-spec.ColsBefore, 0)
+		clipEnd := matchColumn + matchLength + spec.ColsAfter
+
+		lines := strings.Split(extracted, "\n")
+		for i, line := range lines {
+			lineStart := clipStart
+			if len(line) <= lineStart {
+				lineStart = 0
+			}
+			lines[i] = line[lineStart:min(clipEnd, len(line))]
+		}
+		extracted = strings.Join(lines, "\n")
+	}
+
+	return extracted
 }

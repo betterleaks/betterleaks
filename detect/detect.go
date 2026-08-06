@@ -87,7 +87,7 @@ type Detector struct {
 	MaxDecodeDepth int
 
 	// MatchContext specifies how much context to extract around a match.
-	MatchContext MatchContextSpec
+	MatchContext contextwindow.Spec
 
 	// ValidationStatusFilter, when non-empty, restricts which findings are
 	// printed in verbose mode. Parsed from --validation-status.
@@ -998,8 +998,8 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
 		// Validation/filter expressions need context text in the finding map.
 		if r.ValidateExpr != "" || r.ValidationProgram() != nil || hasGlobalFilter || hasRuleFilter {
-			finding.SetExprContext(extractContext(fragment.Raw, matchIndex, MatchContextSpec{
-				Mode:        ContextModeBox,
+			finding.SetExprContext(contextwindow.Extract(fragment.Raw, matchIndex, contextwindow.Spec{
+				Mode:        contextwindow.ModeBox,
 				LinesBefore: 20,
 				LinesAfter:  20,
 				ColsBefore:  350,
@@ -1064,7 +1064,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		if !d.MatchContext.IsZero() {
-			finding.MatchContext = extractContext(fragment.Raw, matchIndex, d.MatchContext)
+			finding.MatchContext = contextwindow.Extract(fragment.Raw, matchIndex, d.MatchContext)
 		}
 		findings = append(findings, finding)
 	}
