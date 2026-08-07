@@ -15,6 +15,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
+	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	regexpre2 "github.com/betterleaks/betterleaks/regexp/re2"
@@ -23,11 +24,9 @@ import (
 )
 
 var banner = fmt.Sprintf(`
-
-  ○
-  ○
-  ●
-  ○  betterleaks %s
+ + ○
+   ▾
+ betterleaks %s
 
 `, version.Version)
 
@@ -429,7 +428,7 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		logging.Fatal().Err(err).Send()
 	}
 	if matchContextStr != "" {
-		detector.MatchContext, err = detect.ParseMatchContext(matchContextStr)
+		detector.MatchContext, err = contextwindow.Parse(matchContextStr)
 		if err != nil {
 			logging.Fatal().Err(err).Msg("invalid --match-context value")
 		}

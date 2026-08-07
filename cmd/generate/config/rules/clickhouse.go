@@ -16,7 +16,7 @@ func ClickHouseCloud() *config.Rule {
 		Keywords: []string{
 			"4b1d", // Prefix
 		},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "clickhouse-cloud-key-id"},
 		},
 		ValidateExpr: `let r = http.get("https://api.clickhouse.cloud/v1/organizations", {

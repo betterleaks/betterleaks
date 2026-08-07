@@ -15,7 +15,7 @@ func MongoDBAtlasServiceAccountSecret() *config.Rule {
 		Description: "Detected a MongoDB Atlas service account client secret, which could allow unauthorized Atlas administration API access when paired with a service account client ID.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mdb_sa_sk_[A-Za-z0-9_-]{40}`, false),
 		Keywords:    []string{"mdb_sa_sk_"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "mongodb-atlas-service-account-id"},
 		},
 		ValidateExpr: `let r = http.post("https://cloud.mongodb.com/api/oauth/token", {

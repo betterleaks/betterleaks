@@ -186,8 +186,9 @@ keywords = ["aik_secret_"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "aikido-client-id"
+components = [
+    { id = "aikido-client-id" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # airtable-api-key
@@ -273,6 +274,36 @@ id = "algolia-api-key"
 description = "Identified an Algolia API Key, which could result in unauthorized search operations and data exposure on Algolia-managed platforms."
 regex = '''(?i)(?:algolia)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["algolia"]
+validate = '''
+let r = http.get("https://" + captures["algolia-application-id"] + ".algolia.net/1/keys/" + finding["secret"], {
+    "Accept": "application/json",
+    "X-Algolia-API-Key": finding["secret"],
+    "X-Algolia-Application-Id": captures["algolia-application-id"]
+  }); let acl = r.json?.acl ?? [];
+  let public_acls = ["search", "browse", "listIndexes", "settings"];
+  let has_sensitive_acl = any(acl, {# not in public_acls});
+  r.status == 200 && has_sensitive_acl ? {
+    "result": "valid",
+    "acl": acl
+  } : r.status == 200 && "search" in acl ? {
+    "result": "invalid",
+    "reason": "Public Algolia Search API key",
+    "acl": acl
+  } : validate.unknown(r)
+'''
+components = [
+    { id = "algolia-application-id" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# algolia-application-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "algolia-application-id"
+description = "Detected an Algolia application ID, used as a component of the algolia-api-key composite rule."
+regex = '''(?i)(?:algolia)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{10})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+keywords = ["algolia"]
+skipReport = true
 
 # ──────────────────────────────────────────────────────────────────────────────
 # alibaba-access-key-id
@@ -320,9 +351,9 @@ r.status == 200 && (r.body contains "\"Arn\"") ? {
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "alibaba-access-key-id"
-withinLines = 5
+components = [
+    { id = "alibaba-access-key-id", within = "5L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # alibaba-sts-access-key-id
@@ -371,12 +402,10 @@ r.status == 200 && (r.body contains "\"Arn\"") ? {
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "alibaba-sts-access-key-id"
-withinLines = 10
-[[rules.required]]
-id = "alibaba-sts-security-token"
-withinLines = 10
+components = [
+    { id = "alibaba-sts-access-key-id", within = "10L" },
+    { id = "alibaba-sts-security-token", within = "10L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # alibaba-sts-security-token
@@ -513,8 +542,9 @@ let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "artifactory-jfrog-url"
+components = [
+    { id = "artifactory-jfrog-url" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # artifactory-jfrog-url
@@ -550,8 +580,9 @@ let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "artifactory-jfrog-url"
+components = [
+    { id = "artifactory-jfrog-url" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # asaas-api-token
@@ -685,9 +716,9 @@ filter = '''
 entropy(finding["secret"]) <= 3.0
 || matchesAny(finding["secret"], [`.+EXAMPLE$`])
 '''
-[[rules.required]]
-id = "aws-secret-access-key"
-withinLines = 5
+components = [
+    { id = "aws-secret-access-key", within = "5L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # aws-amazon-bedrock-api-key-long-lived
@@ -765,12 +796,10 @@ let r = azure.validateServicePrincipal(captures["azure-tenant-id"], captures["az
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
-[[rules.required]]
-id = "azure-tenant-id"
-withinLines = 8
-[[rules.required]]
-id = "azure-client-id"
-withinLines = 8
+components = [
+    { id = "azure-tenant-id", within = "8L" },
+    { id = "azure-client-id", within = "8L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # azure-app-configuration-connection-string
@@ -868,9 +897,9 @@ let r = azure.validateStorage(captures["azure-storage-account-name"], finding["s
 filter = '''
 entropy(finding["secret"]) <= 4.0
 '''
-[[rules.required]]
-id = "azure-storage-account-name"
-withinLines = 8
+components = [
+    { id = "azure-storage-account-name", within = "8L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # azure-storage-account-name
@@ -1153,8 +1182,9 @@ let r = http.post("https://api.canva.com/rest/v1/oauth/token", {
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "canva-client-id"
+components = [
+    { id = "canva-client-id" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # cerebras-api-key
@@ -1326,8 +1356,9 @@ let r = http.get("https://api.clickhouse.cloud/v1/organizations", {
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "clickhouse-cloud-key-id"
+components = [
+    { id = "clickhouse-cloud-key-id" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # clickhouse-cloud-key-id
@@ -1453,10 +1484,10 @@ let r = http.get("https://api.cloudinary.com/v1_1/" + captures["cloudinary-cloud
 filter = '''
 filter.entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "cloudinary-api-key"
-[[rules.required]]
-id = "cloudinary-cloud-name"
+components = [
+    { id = "cloudinary-api-key" },
+    { id = "cloudinary-cloud-name" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # cloudinary-cloud-name
@@ -2346,8 +2377,9 @@ r.status == 200 && (r.json?.active ?? true) == false ? {
 filter = '''
 entropy(finding["secret"]) < 3.0
 '''
-[[rules.required]]
-id = "ebay-client-id"
+components = [
+    { id = "ebay-client-id" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # elastic-cloud-api-key
@@ -2451,9 +2483,9 @@ let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
         "reason": "Unauthorized"
       } : validate.unknown(r)))
 '''
-[[rules.required]]
-id = "exoscale-api-secret"
-withinLines = 5
+components = [
+    { id = "exoscale-api-secret", within = "5L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # exoscale-api-secret
@@ -5660,8 +5692,9 @@ r.status == 200 && code == 0 ? {
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "lark-app-id"
+components = [
+    { id = "lark-app-id" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # launchdarkly-access-token
@@ -6139,8 +6172,9 @@ filter = '''
 entropy(finding["secret"]) <= 3.0
 || matchesAny(finding["secret"], [`^mdb_sa_sk_[0-9]{40}$`])
 '''
-[[rules.required]]
-id = "mongodb-atlas-service-account-id"
+components = [
+    { id = "mongodb-atlas-service-account-id" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # mongodb-connection-string
@@ -6540,12 +6574,10 @@ let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/detail
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
-[[rules.required]]
-id = "ovh-application-key"
-withinLines = 20
-[[rules.required]]
-id = "ovh-consumer-key"
-withinLines = 20
+components = [
+    { id = "ovh-application-key", within = "20L" },
+    { id = "ovh-consumer-key", within = "20L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ovh-consumer-key
@@ -6778,8 +6810,9 @@ let r = http.get("https://api.planetscale.com/v1/organizations", {
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
-[[rules.required]]
-id = "planetscale-id"
+components = [
+    { id = "planetscale-id" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # planetscale-id
@@ -6860,8 +6893,9 @@ let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "plivo-auth-id"
+components = [
+    { id = "plivo-auth-id" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # polar-oauth-access-token
@@ -6978,12 +7012,10 @@ let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
-[[rules.required]]
-id = "polymarket-api-secret"
-withinLines = 20
-[[rules.required]]
-id = "polymarket-passphrase"
-withinLines = 20
+components = [
+    { id = "polymarket-api-secret", within = "20L" },
+    { id = "polymarket-passphrase", within = "20L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # polymarket-api-secret
@@ -7229,8 +7261,9 @@ let r = http.post("https://api.ramp.com/developer/v1/token", {
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "ramp-client-id"
+components = [
+    { id = "ramp-client-id" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # rapidapi-access-token
@@ -7409,9 +7442,9 @@ let r = http.get("https://" + captures["salesforce-instance-url.1"] + "/services
 filter = '''
 entropy(finding["secret"]) < 3.3
 '''
-[[rules.required]]
-id = "salesforce-instance-url.1"
-withinLines = 30
+components = [
+    { id = "salesforce-instance-url.1", within = "30L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # salesforce-instance-url.1
@@ -7922,9 +7955,9 @@ let r = http.post("https://" + captures["snowflake-account-host.1"] + "/api/v2/s
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "snowflake-account-host.1"
-withinLines = 30
+components = [
+    { id = "snowflake-account-host.1", within = "30L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # snyk-api-token
@@ -8129,8 +8162,9 @@ let r = http.get(captures["supabase-project-url"] + "/rest/v1/?select=*", {
 filter = '''
 entropy(finding["secret"]) <= 4.0
 '''
-[[rules.required]]
-id = "supabase-project-url"
+components = [
+    { id = "supabase-project-url" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # supabase-project-url
@@ -8179,12 +8213,10 @@ let r = http.post("https://" + captures["tableau-server-host.1"] + "/api/3.26/au
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
-[[rules.required]]
-id = "tableau-personal-access-token-name.1"
-withinLines = 20
-[[rules.required]]
-id = "tableau-server-host.1"
-withinLines = 20
+components = [
+    { id = "tableau-personal-access-token-name.1", within = "20L" },
+    { id = "tableau-server-host.1", within = "20L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # tableau-server-host.1

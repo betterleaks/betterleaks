@@ -89,6 +89,7 @@ func main() {
 		rules.AirtableApiKey(),
 		rules.AirtablePersonalAccessToken(),
 		rules.AirtableOAuthToken(),
+		rules.AlgoliaApplicationID(),
 		rules.AlgoliaApiKey(),
 		rules.AlibabaAccessKey(),
 		rules.AlibabaSecretKey(),

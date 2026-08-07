@@ -52,7 +52,7 @@ func CloudinaryAPISecret() *config.Rule {
 		Description: "Detected a Cloudinary API secret, which may allow unauthorized access to Cloudinary media and account APIs when paired with a cloud name and API key.",
 		Regex:       regexp.MustCompile(`(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|API[_\s]?SECRET)(?:.|[\n\r]){0,32}?\b([A-Za-z0-9]{32})\b`),
 		Keywords:    []string{"cloudinary"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "cloudinary-api-key"},
 			{RuleID: "cloudinary-cloud-name"},
 		},

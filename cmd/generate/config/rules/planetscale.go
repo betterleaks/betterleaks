@@ -57,7 +57,7 @@ func PlanetScaleAPIToken() *config.Rule {
 		Keywords: []string{
 			"pscale_tkn_",
 		},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "planetscale-id"},
 		},
 		ValidateExpr: `let r = http.get("https://api.planetscale.com/v1/organizations", {

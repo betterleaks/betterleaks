@@ -33,13 +33,13 @@ func TestRedact(t *testing.T) {
 	}
 }
 
-func TestRedact_RequiredSets(t *testing.T) {
+func TestRedact_ComponentSets(t *testing.T) {
 	f := Finding{
 		Match:  "line containing secret",
 		Secret: "secret",
-		RequiredSets: []RequiredSet{
+		ComponentSets: []ComponentSet{
 			{
-				Components: []*RequiredFinding{
+				Components: []*ComponentFinding{
 					{RuleID: "rule-a", Secret: "comp-secret-1", Match: "match comp-secret-1 here"},
 					{RuleID: "rule-b", Secret: "comp-secret-2", Match: "match comp-secret-2 here"},
 				},
@@ -48,22 +48,22 @@ func TestRedact_RequiredSets(t *testing.T) {
 	}
 	f.Redact(100)
 	assert.Equal(t, "REDACTED", f.Secret)
-	assert.Equal(t, "REDACTED", f.RequiredSets[0].Components[0].Secret)
-	assert.Equal(t, "match REDACTED here", f.RequiredSets[0].Components[0].Match)
-	assert.Equal(t, "REDACTED", f.RequiredSets[0].Components[1].Secret)
-	assert.Equal(t, "match REDACTED here", f.RequiredSets[0].Components[1].Match)
+	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[0].Secret)
+	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[0].Match)
+	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[1].Secret)
+	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[1].Match)
 }
 
 func TestRedact_SharedPointerDedup(t *testing.T) {
-	// When the same RequiredFinding pointer appears in multiple sets (Cartesian product),
+	// When the same ComponentFinding pointer appears in multiple sets (Cartesian product),
 	// partial redaction (percent < 100) must only mask the secret once.
-	shared := &RequiredFinding{RuleID: "rule-a", Secret: "abcdefghij", Match: "found abcdefghij here"}
+	shared := &ComponentFinding{RuleID: "rule-a", Secret: "abcdefghij", Match: "found abcdefghij here"}
 	f := Finding{
 		Match:  "primary",
 		Secret: "primary",
-		RequiredSets: []RequiredSet{
-			{Components: []*RequiredFinding{shared}},
-			{Components: []*RequiredFinding{shared}},
+		ComponentSets: []ComponentSet{
+			{Components: []*ComponentFinding{shared}},
+			{Components: []*ComponentFinding{shared}},
 		},
 	}
 	f.Redact(75)
@@ -126,51 +126,51 @@ func TestMaskSecret(t *testing.T) {
 	}
 }
 
-func TestBuildRequiredSets_Empty(t *testing.T) {
+func TestBuildComponentSets_Empty(t *testing.T) {
 	f := &Finding{}
-	f.BuildRequiredSets(nil, 100)
-	assert.Nil(t, f.RequiredSets)
+	f.BuildComponentSets(nil, 100)
+	assert.Nil(t, f.ComponentSets)
 }
 
-func TestBuildRequiredSets_SingleRuleSingleFinding(t *testing.T) {
-	rf := &RequiredFinding{RuleID: "rule-a", Secret: "secret-a", StartLine: 1}
+func TestBuildComponentSets_SingleRuleSingleFinding(t *testing.T) {
+	rf := &ComponentFinding{RuleID: "rule-a", Secret: "secret-a", StartLine: 1}
 	f := &Finding{}
-	f.BuildRequiredSets([]*RequiredFinding{rf}, 100)
+	f.BuildComponentSets([]*ComponentFinding{rf}, 100)
 
-	require.Len(t, f.RequiredSets, 1)
-	require.Len(t, f.RequiredSets[0].Components, 1)
-	assert.Equal(t, "rule-a", f.RequiredSets[0].Components[0].RuleID)
-	assert.Equal(t, "secret-a", f.RequiredSets[0].Components[0].Secret)
+	require.Len(t, f.ComponentSets, 1)
+	require.Len(t, f.ComponentSets[0].Components, 1)
+	assert.Equal(t, "rule-a", f.ComponentSets[0].Components[0].RuleID)
+	assert.Equal(t, "secret-a", f.ComponentSets[0].Components[0].Secret)
 }
 
-func TestBuildRequiredSets_MultiRuleMultiFinding(t *testing.T) {
-	reqs := []*RequiredFinding{
+func TestBuildComponentSets_MultiRuleMultiFinding(t *testing.T) {
+	reqs := []*ComponentFinding{
 		{RuleID: "rule-a", Secret: "a1", StartLine: 1},
 		{RuleID: "rule-a", Secret: "a2", StartLine: 2},
 		{RuleID: "rule-b", Secret: "b1", StartLine: 3},
 	}
 	f := &Finding{}
-	f.BuildRequiredSets(reqs, 100)
+	f.BuildComponentSets(reqs, 100)
 
 	// 2 values for rule-a × 1 value for rule-b = 2 sets
-	require.Len(t, f.RequiredSets, 2)
-	for _, set := range f.RequiredSets {
+	require.Len(t, f.ComponentSets, 2)
+	for _, set := range f.ComponentSets {
 		require.Len(t, set.Components, 2, "each set should have one component per rule")
 		assert.Equal(t, "rule-a", set.Components[0].RuleID)
 		assert.Equal(t, "rule-b", set.Components[1].RuleID)
 	}
 	// Verify distinct secrets in rule-a position.
 	secrets := map[string]bool{
-		f.RequiredSets[0].Components[0].Secret: true,
-		f.RequiredSets[1].Components[0].Secret: true,
+		f.ComponentSets[0].Components[0].Secret: true,
+		f.ComponentSets[1].Components[0].Secret: true,
 	}
 	assert.True(t, secrets["a1"])
 	assert.True(t, secrets["a2"])
 }
 
-func TestBuildRequiredSets_MaxCap(t *testing.T) {
+func TestBuildComponentSets_MaxCap(t *testing.T) {
 	// 3 × 3 = 9 sets, cap at 5
-	reqs := []*RequiredFinding{
+	reqs := []*ComponentFinding{
 		{RuleID: "r1", Secret: "s1"},
 		{RuleID: "r1", Secret: "s2"},
 		{RuleID: "r1", Secret: "s3"},
@@ -179,20 +179,20 @@ func TestBuildRequiredSets_MaxCap(t *testing.T) {
 		{RuleID: "r2", Secret: "t3"},
 	}
 	f := &Finding{}
-	f.BuildRequiredSets(reqs, 5)
-	assert.Len(t, f.RequiredSets, 5)
+	f.BuildComponentSets(reqs, 5)
+	assert.Len(t, f.ComponentSets, 5)
 }
 
-func TestBuildRequiredSets_JSONSerialization(t *testing.T) {
-	reqs := []*RequiredFinding{
+func TestBuildComponentSets_JSONSerialization(t *testing.T) {
+	reqs := []*ComponentFinding{
 		{RuleID: "aws-secret", Secret: "wJalrXUtnFEMI", StartLine: 10},
-		{RuleID: "aws-region", Secret: "us-east-1", StartLine: 11},
+		{RuleID: "aws-region", Optional: true, Secret: "us-east-1", StartLine: 11},
 	}
 	f := &Finding{
 		RuleID: "aws-access-key",
 		Secret: "AKIAIOSFODNN7EXAMPLE",
 	}
-	f.BuildRequiredSets(reqs, 100)
+	f.BuildComponentSets(reqs, 100)
 
 	data, err := json.Marshal(f)
 	require.NoError(t, err)
@@ -200,8 +200,9 @@ func TestBuildRequiredSets_JSONSerialization(t *testing.T) {
 	var parsed map[string]any
 	require.NoError(t, json.Unmarshal(data, &parsed))
 
-	sets, ok := parsed["RequiredSets"]
-	require.True(t, ok, "RequiredSets should be present in JSON")
+	sets, ok := parsed["ComponentSets"]
+	require.True(t, ok, "ComponentSets should be present in JSON")
+	assert.NotContains(t, parsed, "RequiredSets")
 	setSlice, ok := sets.([]any)
 	require.True(t, ok)
 	require.Len(t, setSlice, 1)
@@ -209,6 +210,8 @@ func TestBuildRequiredSets_JSONSerialization(t *testing.T) {
 	set := setSlice[0].(map[string]any)
 	components := set["components"].([]any)
 	require.Len(t, components, 2)
+	assert.Equal(t, false, components[0].(map[string]any)["Optional"])
+	assert.Equal(t, true, components[1].(map[string]any)["Optional"])
 }
 
 func TestFindingAttrFallsBackToDeprecatedFields(t *testing.T) {

@@ -40,7 +40,7 @@ func SupabaseProjectAPIKey() *config.Rule {
 		Description: "Detected a Supabase Project API Key, which may expose project data through Supabase APIs when paired with a project URL.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sb_secret_[A-Za-z0-9_-]{31}`, false),
 		Keywords:    []string{"sb_secret_"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "supabase-project-url"},
 		},
 		ValidateExpr: `let r = http.get(captures["supabase-project-url"] + "/rest/v1/?select=*", {

@@ -61,9 +61,9 @@ func TableauPersonalAccessToken() *config.Rule {
 		Description: "Tableau personal access token.",
 		Regex:       regexp.MustCompile(`\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`),
 		Keywords:    []string{"tableau"},
-		RequiredRules: []*config.Required{
-			{RuleID: "tableau-personal-access-token-name.1", WithinLines: utils.Ptr(20)},
-			{RuleID: "tableau-server-host.1", WithinLines: utils.Ptr(20)},
+		Components: []*config.Component{
+			{RuleID: "tableau-personal-access-token-name.1", Within: "20L"},
+			{RuleID: "tableau-server-host.1", Within: "20L"},
 		},
 		ValidateExpr: `let r = http.post("https://" + captures["tableau-server-host.1"] + "/api/3.26/auth/signin", {
     "Content-Type": "application/json",

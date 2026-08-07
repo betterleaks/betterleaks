@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -558,6 +559,160 @@ specificity = 0
 	require.NoError(t, err)
 	assert.Equal(t, DefaultRuleSpecificity, cfg.Rules["default"].Specificity)
 	assert.Equal(t, 0, cfg.Rules["fallback"].Specificity)
+}
+
+func TestComponents(t *testing.T) {
+	t.Run("new syntax", func(t *testing.T) {
+		cfg, err := ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = "primary"
+components = [
+  { id = "required-component", optional = false, within = "5L" },
+  { id = "optional-component", optional = true, within = "-12C,+4C" },
+]
+
+[[rules]]
+id = "required-component"
+regex = "required"
+
+[[rules]]
+id = "optional-component"
+regex = "optional"
+`, "")
+		require.NoError(t, err)
+		components := cfg.Rules["primary"].Components
+		require.Len(t, components, 2)
+		assert.False(t, components[0].Optional)
+		assert.Equal(t, "5L", components[0].Within)
+		assert.True(t, components[1].Optional)
+		assert.Equal(t, "-12C,+4C", components[1].Within)
+	})
+
+	t.Run("legacy required syntax", func(t *testing.T) {
+		cfg, err := ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = "primary"
+[[rules.required]]
+id = "component"
+withinLines = 3
+withinColumns = 12
+
+[[rules]]
+id = "component"
+regex = "component"
+`, "")
+		require.NoError(t, err)
+		require.Len(t, cfg.Rules["primary"].Components, 1)
+		component := cfg.Rules["primary"].Components[0]
+		assert.False(t, component.Optional)
+		assert.Equal(t, "3L,12C", component.Within)
+	})
+
+	t.Run("legacy proximity must be non-negative", func(t *testing.T) {
+		_, err := ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = "primary"
+[[rules.required]]
+id = "component"
+withinColumns = -1
+`, "")
+		require.ErrorContains(t, err, "withinColumns must be non-negative")
+	})
+
+	t.Run("components supersede legacy syntax", func(t *testing.T) {
+		cfg, err := ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = "primary"
+components = [{ id = "optional-component", optional = true }]
+[[rules.required]]
+id = "legacy-component"
+
+[[rules]]
+id = "optional-component"
+regex = "optional"
+
+[[rules]]
+id = "legacy-component"
+regex = "legacy"
+`, "")
+		require.NoError(t, err)
+		require.Len(t, cfg.Rules["primary"].Components, 1)
+		assert.Equal(t, "optional-component", cfg.Rules["primary"].Components[0].RuleID)
+	})
+}
+
+func TestComponentValidation(t *testing.T) {
+	_, err := ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = "primary"
+components = [{ id = "component", optional = "yes" }]
+`, "")
+	require.ErrorContains(t, err, "Optional")
+
+	tests := []struct {
+		name       string
+		components string
+		want       string
+	}{
+		{name: "empty ID", components: `{ id = "" }`, want: "component rule ID is empty"},
+		{name: "invalid within unit", components: `{ id = "component", within = "10X" }`, want: "invalid within value"},
+		{name: "malformed within", components: `{ id = "component", within = "10L-" }`, want: "invalid within value"},
+		{name: "missing rule", components: `{ id = "missing" }`, want: "does not exist"},
+		{name: "duplicate ID", components: `{ id = "component" }, { id = "component", optional = true }`, want: "duplicate component rule ID"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseTOMLString(fmt.Sprintf(`
+[[rules]]
+id = "primary"
+regex = "primary"
+components = [%s]
+
+[[rules]]
+id = "component"
+regex = "component"
+`, tt.components), "")
+			require.ErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+func TestComponentsWithExtend(t *testing.T) {
+	tempDir := t.TempDir()
+	basePath := filepath.Join(tempDir, "base.toml")
+	require.NoError(t, os.WriteFile(basePath, []byte(`
+[[rules]]
+id = "base-primary"
+regex = "primary"
+components = [{ id = "component" }]
+
+[[rules]]
+id = "component"
+regex = "component"
+`), 0o600))
+
+	cfg, err := ParseTOMLString(fmt.Sprintf(`
+[extend]
+path = %q
+
+[[rules]]
+id = "base-primary"
+components = []
+
+[[rules]]
+id = "child-primary"
+regex = "child"
+components = [{ id = "component" }]
+`, basePath), filepath.Join(tempDir, "child.toml"))
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Rules["base-primary"].Components, "an explicit empty list should clear inherited components")
+	require.Len(t, cfg.Rules["child-primary"].Components, 1, "references should resolve after extension")
 }
 
 func loadTestConfig(cfgName string) (*Config, error) {

@@ -21,10 +21,10 @@ func AWS() *config.Rule {
 			"ABIA", // AWS STS service bearer token
 			"ACCA", // Context-specific credential
 		},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{
-				RuleID:      "aws-secret-access-key",
-				WithinLines: utils.Ptr(5),
+				RuleID: "aws-secret-access-key",
+				Within: "5L",
 			},
 		},
 		ValidateExpr: `let r = aws.validate(finding["secret"], captures["aws-secret-access-key"]); r.status == 200 ? {

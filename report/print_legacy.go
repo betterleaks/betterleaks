@@ -113,23 +113,23 @@ func (f Finding) PrintLegacy(noColor bool, redact uint) {
 	}
 
 	printValidationLegacy(f, noColor)
-	f.printRequiredFindingsLegacy(noColor, redact)
+	f.printComponentFindingsLegacy(noColor, redact)
 	fmt.Println("")
 }
 
-func (f *Finding) printRequiredFindingsLegacy(noColor bool, redact uint) {
-	if len(f.RequiredSets) == 0 {
+func (f *Finding) printComponentFindingsLegacy(noColor bool, redact uint) {
+	if len(f.ComponentSets) == 0 {
 		return
 	}
 
-	fmt.Println("Required:")
+	fmt.Println("Components:")
 
 	orangeStyle := color.New()
 	if !noColor {
 		orangeStyle = orangeStyle.Foreground("#bf9478")
 	}
 
-	for _, set := range f.RequiredSets {
+	for _, set := range f.ComponentSets {
 		statusSuffix := ""
 		if set.ValidationStatus != "" {
 			statusSuffix = " " + formatSetStatusLegacy(string(set.ValidationStatus), noColor)

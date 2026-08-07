@@ -97,6 +97,23 @@ func TestPathAllowed(t *testing.T) {
 	}
 }
 
+func TestContainsStopWordCaseInsensitive(t *testing.T) {
+	allowlist := Allowlist{StopWords: []string{"VendorDir"}}
+	if err := allowlist.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	for _, secret := range []string{"vendordir", "VENDORDIR", "prefix-VeNdOrDiR-suffix"} {
+		allowed, stopword := allowlist.ContainsStopWord(secret)
+		if !allowed {
+			t.Errorf("ContainsStopWord(%q) = false, want true", secret)
+		}
+		if stopword != "vendordir" {
+			t.Errorf("ContainsStopWord(%q) stopword = %q, want %q", secret, stopword, "vendordir")
+		}
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := map[string]struct {
 		input    Allowlist
