@@ -21,9 +21,10 @@ import (
 	configpkg "github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/report"
+	"github.com/betterleaks/betterleaks/sources"
 )
 
-func TestValidateCommandJSON(t *testing.T) {
+func TestValidateCommandJSONL(t *testing.T) {
 	const secret = "live-secret"
 	configPath := writeValidateTestConfig(t, fmt.Sprintf(`
 [[rules]]
@@ -50,7 +51,7 @@ attributes["path"] == "betterleaks://validate" ? {
 		"--config", configPath,
 		"--rule-id", "test-token",
 		"--capture", "tenant=acme",
-		"--report-format", "json",
+		"--report-format", "jsonl",
 		secret,
 	})
 	if err := root.Execute(); err != nil {
@@ -73,6 +74,9 @@ attributes["path"] == "betterleaks://validate" ? {
 	if got.RuleID != "test-token" {
 		t.Fatalf("rule ID = %q", got.RuleID)
 	}
+	if got.Attributes[sources.AttrPath] != "betterleaks://validate" {
+		t.Fatalf("attributes = %#v", got.Attributes)
+	}
 	if got.Validation.Status != report.ValidationStatusValid {
 		t.Fatalf("status = %q", got.Validation.Status)
 	}
@@ -84,6 +88,9 @@ attributes["path"] == "betterleaks://validate" ? {
 	}
 	if _, ok := got.Validation.Metadata["empty"]; ok {
 		t.Fatalf("empty metadata was not removed: %#v", got.Validation.Metadata)
+	}
+	if strings.Count(stdout.String(), "\n") != 1 {
+		t.Fatalf("JSONL output must be exactly one line: %q", stdout.String())
 	}
 }
 
@@ -103,7 +110,7 @@ finding["secret"] == "from-stdin" ? {"result": "valid"} : {"result": "invalid"}
 		"validate",
 		"--config", configPath,
 		"--rule-id", "stdin-token",
-		"--report-format", "json",
+		"--report-format", "jsonl",
 	})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("validate command: %v", err)
@@ -169,8 +176,7 @@ captures["account-id:region"] == "us" ? {
 }
 '''
 
-[[rules.required]]
-id = "account-id"
+components = [{ id = "account-id" }]
 `)
 
 	root, stdout := newValidateTestRoot(t)
@@ -180,7 +186,7 @@ id = "account-id"
 		"--rule-id", "account-secret",
 		"--component", "account-id=acct-secret",
 		"--capture", "account-id:region=us",
-		"--report-format", "json",
+		"--report-format", "jsonl",
 		"secret-primary",
 	})
 	if err := root.Execute(); err != nil {
@@ -197,20 +203,128 @@ id = "account-id"
 	if got.Validation.Status != report.ValidationStatusValid {
 		t.Fatalf("status = %q", got.Validation.Status)
 	}
-	if len(got.Validation.RequiredSets) != 1 {
-		t.Fatalf("required sets = %#v", got.Validation.RequiredSets)
+	if len(got.Validation.ComponentSets) != 1 {
+		t.Fatalf("component sets = %#v", got.Validation.ComponentSets)
 	}
-	set := got.Validation.RequiredSets[0]
+	set := got.Validation.ComponentSets[0]
 	if set.Status != report.ValidationStatusValid {
-		t.Fatalf("required set status = %q", set.Status)
+		t.Fatalf("component set status = %q", set.Status)
 	}
-	if len(set.Components) != 1 || set.Components[0] != "account-id" {
+	if len(set.Components) != 1 || set.Components[0].RuleID != "account-id" || set.Components[0].Optional {
 		t.Fatalf("components = %#v", set.Components)
 	}
 	nested, ok := got.Validation.Metadata["nested"].(map[string]any)
 	if !ok || nested["component"] != "[redacted]" {
 		t.Fatalf("nested metadata was not sanitized: %#v", got.Validation.Metadata["nested"])
 	}
+}
+
+func TestValidateCommandOptionalComponents(t *testing.T) {
+	configPath := writeValidateTestConfig(t, `
+[[rules]]
+id = "required-part"
+regex = '''(required-part)'''
+skipReport = true
+
+[[rules]]
+id = "optional-part"
+regex = '''(optional-part)'''
+skipReport = true
+
+[[rules]]
+id = "primary"
+regex = '''(primary)'''
+components = [
+  { id = "required-part" },
+  { id = "optional-part", optional = true },
+]
+validate = '''
+captures["required-part"] == "required-secret" &&
+get(captures, "optional-part", "") in ["", "optional-secret"] ? {
+  "result": "valid"
+} : {
+  "result": "invalid"
+}
+'''
+`)
+
+	tests := []struct {
+		name               string
+		componentArguments []string
+		wantOptional       bool
+	}{
+		{
+			name:               "optional component omitted",
+			componentArguments: []string{"--component", "required-part=required-secret"},
+		},
+		{
+			name: "optional component supplied",
+			componentArguments: []string{
+				"--component", "required-part=required-secret",
+				"--component", "optional-part=optional-secret",
+			},
+			wantOptional: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, stdout := newValidateTestRoot(t)
+			args := []string{
+				"validate",
+				"--config", configPath,
+				"--rule-id", "primary",
+				"--report-format", "jsonl",
+			}
+			args = append(args, test.componentArguments...)
+			args = append(args, "primary-secret")
+			root.SetArgs(args)
+			if err := root.Execute(); err != nil {
+				t.Fatalf("validate command: %v", err)
+			}
+
+			var got report.CredentialReport
+			if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+				t.Fatalf("decode report: %v", err)
+			}
+			if got.Validation.Status != report.ValidationStatusValid {
+				t.Fatalf("status = %q", got.Validation.Status)
+			}
+			if len(got.Validation.ComponentSets) != 1 {
+				t.Fatalf("component sets = %#v", got.Validation.ComponentSets)
+			}
+			components := got.Validation.ComponentSets[0].Components
+			present, optional := findCredentialComponent(components, "optional-part")
+			if present != test.wantOptional {
+				t.Fatalf("optional component present = %t, want %t; components = %#v", present, test.wantOptional, components)
+			}
+			if present && !optional {
+				t.Fatalf("optional component was reported as required: %#v", components)
+			}
+		})
+	}
+
+	root, _ := newValidateTestRoot(t)
+	root.SetArgs([]string{
+		"validate",
+		"--config", configPath,
+		"--rule-id", "primary",
+		"--component", "optional-part=optional-secret",
+		"primary-secret",
+	})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "missing required component(s): required-part") {
+		t.Fatalf("error = %v, want missing required component", err)
+	}
+}
+
+func findCredentialComponent(components []report.CredentialComponentReport, ruleID string) (present, optional bool) {
+	for _, component := range components {
+		if component.RuleID == ruleID {
+			return true, component.Optional
+		}
+	}
+	return false, false
 }
 
 func TestValidateCommandReadsStructuredCredentialFromStdin(t *testing.T) {
@@ -234,8 +348,7 @@ captures["client-id:tenant"] == "acme" ? {
 }
 '''
 
-[[rules.required]]
-id = "client-id"
+components = [{ id = "client-id" }]
 `)
 
 	root, stdout := newValidateTestRoot(t)
@@ -248,7 +361,7 @@ id = "client-id"
 		"validate",
 		"--config", configPath,
 		"--rule-id", "client-secret",
-		"--report-format", "json",
+		"--report-format", "jsonl",
 	})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("validate command: %v", err)
@@ -305,7 +418,7 @@ let r2 = http.get(%q, {});
 		"--config", configPath,
 		"--rule-id", "limited-token",
 		"--validation-max-requests", "1",
-		"--report-format", "json",
+		"--report-format", "jsonl",
 		"limited-secret",
 	})
 	if err := root.Execute(); err != nil {
@@ -327,20 +440,14 @@ let r2 = http.get(%q, {});
 	}
 }
 
-func TestValidateCommandWritesPrivateJSONReport(t *testing.T) {
+func TestValidateCommandRejectsReportPath(t *testing.T) {
 	configPath := writeValidateTestConfig(t, `
 [[rules]]
 id = "reported-token"
 regex = '''(reported-token)'''
 validate = '''{"result": "invalid", "reason": "Unauthorized"}'''
 `)
-	reportPath := filepath.Join(t.TempDir(), "credential.json")
-	if err := os.WriteFile(reportPath, []byte(`{"old":"report"}`), 0o644); err != nil {
-		t.Fatalf("write existing report: %v", err)
-	}
-	if err := os.Chmod(reportPath, 0o644); err != nil {
-		t.Fatalf("make existing report permissive: %v", err)
-	}
+	reportPath := filepath.Join(t.TempDir(), "credential.jsonl")
 
 	root, stdout := newValidateTestRoot(t)
 	root.SetArgs([]string{
@@ -350,33 +457,15 @@ validate = '''{"result": "invalid", "reason": "Unauthorized"}'''
 		"--report-path", reportPath,
 		"reported-secret",
 	})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("validate command: %v", err)
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--report-path is not supported by validate") {
+		t.Fatalf("error = %v, want unsupported report path", err)
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-
-	data, err := os.ReadFile(reportPath)
-	if err != nil {
-		t.Fatalf("read report: %v", err)
-	}
-	if strings.Contains(string(data), "reported-secret") {
-		t.Fatalf("report contains supplied secret: %s", data)
-	}
-	var got report.CredentialReport
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("report path did not infer JSON: %v\n%s", err, data)
-	}
-	if got.Validation.Status != report.ValidationStatusInvalid {
-		t.Fatalf("status = %q", got.Validation.Status)
-	}
-	info, err := os.Stat(reportPath)
-	if err != nil {
-		t.Fatalf("stat report: %v", err)
-	}
-	if gotMode := info.Mode().Perm(); gotMode != 0o600 {
-		t.Fatalf("report permissions = %o, want 600", gotMode)
+	if _, statErr := os.Stat(reportPath); !os.IsNotExist(statErr) {
+		t.Fatalf("report path was created: %v", statErr)
 	}
 }
 
@@ -388,13 +477,20 @@ regex = '''(component)'''
 skipReport = true
 
 [[rules]]
+id = "optional-component"
+regex = '''(optional-component)'''
+skipReport = true
+
+[[rules]]
 id = "validated"
 description = "Validated rule"
 regex = '''(validated)'''
 validate = '''{"result": "valid"}'''
 
-[[rules.required]]
-id = "component"
+components = [
+  { id = "component" },
+  { id = "optional-component", optional = true },
+]
 
 [[rules]]
 id = "unvalidated"
@@ -406,7 +502,7 @@ regex = '''(unvalidated)'''
 		"validate",
 		"--config", configPath,
 		"--list",
-		"--report-format", "json",
+		"--report-format", "jsonl",
 	})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("validate --list: %v", err)
@@ -419,8 +515,17 @@ regex = '''(unvalidated)'''
 	if len(got.Rules) != 1 || got.Rules[0].RuleID != "validated" {
 		t.Fatalf("listed rules = %#v", got.Rules)
 	}
-	if len(got.Rules[0].RequiredComponents) != 1 || got.Rules[0].RequiredComponents[0] != "component" {
-		t.Fatalf("required components = %#v", got.Rules[0].RequiredComponents)
+	if strings.Count(stdout.String(), "\n") != 1 {
+		t.Fatalf("JSONL rule list must be exactly one line: %q", stdout.String())
+	}
+	if len(got.Rules[0].Components) != 2 {
+		t.Fatalf("components = %#v", got.Rules[0].Components)
+	}
+	if got.Rules[0].Components[0].RuleID != "component" || got.Rules[0].Components[0].Optional {
+		t.Fatalf("required component = %#v", got.Rules[0].Components[0])
+	}
+	if got.Rules[0].Components[1].RuleID != "optional-component" || !got.Rules[0].Components[1].Optional {
+		t.Fatalf("optional component = %#v", got.Rules[0].Components[1])
 	}
 }
 
@@ -450,7 +555,7 @@ validate = '''{"result": "valid"}'''
 		{
 			name: "extra component",
 			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--component", "other=value", "secret"},
-			want: "not required",
+			want: "not declared",
 		},
 		{
 			name: "duplicate capture",
@@ -460,12 +565,17 @@ validate = '''{"result": "valid"}'''
 		{
 			name: "unsupported report",
 			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--report-format", "sarif", "secret"},
-			want: "must be text or json",
+			want: "must be pretty or jsonl",
 		},
 		{
-			name: "simple JSON report",
-			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--simple", "--report-format", "json", "secret"},
-			want: "--simple only supports text output",
+			name: "legacy JSON report",
+			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--report-format", "json", "secret"},
+			want: "must be pretty or jsonl",
+		},
+		{
+			name: "simple JSONL report",
+			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--simple", "--report-format", "jsonl", "secret"},
+			want: "--simple cannot be combined",
 		},
 		{
 			name: "list with rule",

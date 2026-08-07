@@ -541,7 +541,7 @@ List the rules in the selected config that support direct validation:
 
 ```sh
 betterleaks validate --list
-betterleaks validate --list --report-format json
+betterleaks validate --list --report-format jsonl
 ```
 
 Pass a credential on stdin when possible so it is not stored in shell history
@@ -575,12 +575,13 @@ jq -n '{
 
 The JSON fields are `secret` (required), `components`, and `captures`; the latter
 two are string-to-string objects. For less sensitive interactive use, supply
-each rule declared in `[[rules.required]]` as
-`--component rule-id=secret`. Use `--capture name=value` when a validation
-expression needs a named regex capture that cannot be reconstructed from the
-credential. A component capture uses `--capture rule-id:name=value`.
+components declared by the rule as `--component rule-id=secret`. Every
+non-optional component is required; components declared with `optional = true`
+may be omitted. Use `--capture name=value` when a validation expression needs a
+named regex capture that cannot be reconstructed from the credential. A
+component capture uses `--capture rule-id:name=value`.
 
-The default report is concise text. Use `--simple` when only the uppercase
+The default output is concise text. Use `--simple` when only the uppercase
 status is needed:
 
 ```sh
@@ -589,16 +590,21 @@ printf '%s\n' "$GITHUB_TOKEN" |
 # VALID
 ```
 
-`--simple` supports text output only and can be combined with `--no-color` for
-machine-readable output.
+`--simple` can be combined with `--no-color` for machine-readable output and
+cannot be combined with JSONL.
 
-Full JSON output uses a versioned credential-report shape with validation under
-its own key:
+JSONL output uses a versioned credential-report shape. Each invocation emits
+one compact object followed by a newline. Finding attributes are top-level,
+while validation has its own namespace so a future `analysis` object can be
+added alongside it:
 
 ```json
 {
   "schema_version": 1,
   "rule_id": "github-pat",
+  "attributes": {
+    "path": "betterleaks://validate"
+  },
   "validation": {
     "status": "valid",
     "metadata": {
@@ -608,25 +614,42 @@ its own key:
 }
 ```
 
-```sh
-# JSON on stdout
-printf '%s\n' "$GITHUB_TOKEN" |
-	betterleaks validate \
-	--rule-id github-pat \
-	--report-format json
+Multipart JSONL records use the same component terminology as rule
+configuration and identify optional components explicitly:
 
-# The .json extension infers JSON and writes no result to stdout
-printf '%s\n' "$GITHUB_TOKEN" |
-	betterleaks validate \
-	--rule-id github-pat \
-	--report-path validation.json
+```json
+{
+  "schema_version": 1,
+  "rule_id": "example-credential",
+  "validation": {
+    "status": "valid",
+    "component_sets": [
+      {
+        "status": "valid",
+        "components": [
+          {"rule_id": "account-id"},
+          {"rule_id": "region", "optional": true}
+        ]
+      }
+    ]
+  }
+}
 ```
 
-Reports never include the supplied primary or component credentials. If a
-validator returns one in its reason, metadata, debug URL, or debug request body,
-the matching value is replaced with `[redacted]`. Validation metadata may still
-contain sensitive identity or account information, so newly created report
-files use owner-only permissions.
+```sh
+# JSONL on stdout
+printf '%s\n' "$GITHUB_TOKEN" |
+	betterleaks validate \
+	--rule-id github-pat \
+	--report-format jsonl
+```
+
+`validate` always writes results to stdout and does not support `--report-path`
+or `--report-template`. Output never includes the supplied primary or component
+credentials. If a validator returns one in its reason, metadata, debug URL, or
+debug request body, the matching value is replaced with `[redacted]`.
+Attributes are sanitized the same way. Validation metadata may still contain
+sensitive identity or account information.
 
 `validate` honors the same outbound request controls as scan-time validation:
 `--validation-timeout`, `--validation-max-requests`, `--validation-rps`,

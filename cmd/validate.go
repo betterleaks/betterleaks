@@ -37,7 +37,7 @@ func newValidateCmd() *cobra.Command {
 		RunE:         runValidate,
 	}
 	cmd.Flags().String("rule-id", "", "rule whose validation expression should validate the secret")
-	cmd.Flags().StringArray("component", nil, "required credential component as rule-id=secret (repeatable)")
+	cmd.Flags().StringArray("component", nil, "credential component as rule-id=secret (repeatable)")
 	cmd.Flags().StringArray("capture", nil, "validation capture as name=value; use rule-id:name=value for a component (repeatable)")
 	cmd.Flags().Bool("list", false, "list rules that support direct validation")
 	cmd.Flags().Bool("simple", false, "print only the validation status")
@@ -53,8 +53,8 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if simple && format != report.CredentialReportFormatText {
-		return errors.New("--simple only supports text output; remove --report-format or use --report-format text")
+	if simple && format != report.CredentialReportFormatPretty {
+		return errors.New("--simple cannot be combined with --report-format=jsonl")
 	}
 
 	list, err := cmd.Flags().GetBool("list")
@@ -149,69 +149,61 @@ func validateListMode(cmd *cobra.Command, args []string) error {
 }
 
 func credentialReportFormat(cmd *cobra.Command) (report.CredentialReportFormat, error) {
+	path, err := cmd.Flags().GetString("report-path")
+	if err != nil {
+		return "", err
+	}
+	if path != "" {
+		return "", errors.New("--report-path is not supported by validate; validation results are written to stdout")
+	}
 	templatePath, err := cmd.Flags().GetString("report-template")
 	if err != nil {
 		return "", err
 	}
 	if templatePath != "" {
-		return "", errors.New("--report-template is not supported by validate; use --report-format text or json")
+		return "", errors.New("--report-template is not supported by validate; use pretty, --simple, or --report-format=jsonl")
 	}
 	format, err := cmd.Flags().GetString("report-format")
 	if err != nil {
 		return "", err
 	}
-	path, err := cmd.Flags().GetString("report-path")
-	if err != nil {
-		return "", err
-	}
-	return report.ResolveCredentialReportFormat(format, path)
+	return report.ResolveCredentialReportFormat(format)
 }
 
-func credentialReporter(cmd *cobra.Command) (report.CredentialReporter, string, error) {
+func credentialReporter(cmd *cobra.Command) (report.CredentialReporter, error) {
 	format, err := credentialReportFormat(cmd)
 	if err != nil {
-		return report.CredentialReporter{}, "", err
-	}
-	path, err := cmd.Flags().GetString("report-path")
-	if err != nil {
-		return report.CredentialReporter{}, "", err
+		return report.CredentialReporter{}, err
 	}
 	noColor, err := cmd.Flags().GetBool("no-color")
 	if err != nil {
-		return report.CredentialReporter{}, "", err
+		return report.CredentialReporter{}, err
 	}
 	simple, err := cmd.Flags().GetBool("simple")
 	if err != nil {
-		return report.CredentialReporter{}, "", err
-	}
-	if path != "" && path != report.StdoutReportPath {
-		noColor = true
+		return report.CredentialReporter{}, err
 	}
 	return report.CredentialReporter{
 		Format:  format,
 		NoColor: noColor,
 		Simple:  simple,
-	}, path, nil
+	}, nil
 }
 
 func writeCredentialReport(cmd *cobra.Command, result report.CredentialReport) error {
-	reporter, path, err := credentialReporter(cmd)
+	reporter, err := credentialReporter(cmd)
 	if err != nil {
 		return err
 	}
-	return report.WriteOutput(path, cmd.OutOrStdout(), func(w io.Writer) error {
-		return reporter.Write(w, result)
-	})
+	return reporter.Write(cmd.OutOrStdout(), result)
 }
 
 func writeCredentialRuleList(cmd *cobra.Command, result report.CredentialRuleList) error {
-	reporter, path, err := credentialReporter(cmd)
+	reporter, err := credentialReporter(cmd)
 	if err != nil {
 		return err
 	}
-	return report.WriteOutput(path, cmd.OutOrStdout(), func(w io.Writer) error {
-		return reporter.WriteRuleList(w, result)
-	})
+	return reporter.WriteRuleList(cmd.OutOrStdout(), result)
 }
 
 func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
@@ -230,10 +222,15 @@ func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 			RuleID:      rule.RuleID,
 			Description: rule.Description,
 		}
-		for _, required := range rule.RequiredRules {
-			summary.RequiredComponents = append(summary.RequiredComponents, required.RuleID)
+		for _, component := range rule.Components {
+			summary.Components = append(summary.Components, report.CredentialComponentReport{
+				RuleID:   component.RuleID,
+				Optional: component.Optional,
+			})
 		}
-		sort.Strings(summary.RequiredComponents)
+		sort.Slice(summary.Components, func(i, j int) bool {
+			return summary.Components[i].RuleID < summary.Components[j].RuleID
+		})
 		result.Rules = append(result.Rules, summary)
 	}
 	return result
@@ -474,8 +471,8 @@ func buildValidateFinding(rule configpkg.Rule, input validateCredentialInput) (r
 	captures := input.Captures
 	attrs := map[string]string{sources.AttrPath: "betterleaks://validate"}
 
-	components, supplied, componentSecrets := buildValidateComponents(input.Components, captures)
-	if err := validateRequiredComponents(rule, supplied); err != nil {
+	components, supplied, componentSecrets := buildValidateComponents(rule, input.Components, captures)
+	if err := validateComponents(rule, supplied); err != nil {
 		return report.Finding{}, nil, err
 	}
 	if err := validateComponentCaptures(captures, supplied); err != nil {
@@ -497,7 +494,7 @@ func buildValidateFinding(rule configpkg.Rule, input validateCredentialInput) (r
 	}
 	finding.SetAttributes(attrs)
 	if len(components) > 0 {
-		finding.RequiredSets = []report.RequiredSet{{Components: components}}
+		finding.ComponentSets = []report.ComponentSet{{Components: components}}
 	}
 	finding.SetFingerprint()
 
@@ -549,10 +546,15 @@ func parseValidateComponentAssignments(values []string) (map[string]string, erro
 }
 
 func buildValidateComponents(
+	rule configpkg.Rule,
 	values map[string]string,
 	captures map[string]string,
-) ([]*report.RequiredFinding, map[string]struct{}, []string) {
-	components := make([]*report.RequiredFinding, 0, len(values))
+) ([]*report.ComponentFinding, map[string]struct{}, []string) {
+	components := make([]*report.ComponentFinding, 0, len(values))
+	optional := make(map[string]bool, len(rule.Components))
+	for _, component := range rule.Components {
+		optional[component.RuleID] = component.Optional
+	}
 	supplied := make(map[string]struct{}, len(values))
 	secrets := make([]string, 0, len(values))
 	ruleIDs := make([]string, 0, len(values))
@@ -564,8 +566,9 @@ func buildValidateComponents(
 		secret := values[ruleID]
 		supplied[ruleID] = struct{}{}
 		secrets = append(secrets, secret)
-		components = append(components, &report.RequiredFinding{
+		components = append(components, &report.ComponentFinding{
 			RuleID:        ruleID,
+			Optional:      optional[ruleID],
 			StartLine:     1,
 			EndLine:       1,
 			StartColumn:   1,
@@ -608,10 +611,14 @@ func validateComponentCaptures(captures map[string]string, supplied map[string]s
 	return nil
 }
 
-func validateRequiredComponents(rule configpkg.Rule, supplied map[string]struct{}) error {
-	required := make(map[string]struct{}, len(rule.RequiredRules))
-	for _, requirement := range rule.RequiredRules {
-		required[requirement.RuleID] = struct{}{}
+func validateComponents(rule configpkg.Rule, supplied map[string]struct{}) error {
+	declared := make(map[string]struct{}, len(rule.Components))
+	required := make(map[string]struct{}, len(rule.Components))
+	for _, component := range rule.Components {
+		declared[component.RuleID] = struct{}{}
+		if !component.Optional {
+			required[component.RuleID] = struct{}{}
+		}
 	}
 
 	var missing []string
@@ -622,7 +629,7 @@ func validateRequiredComponents(rule configpkg.Rule, supplied map[string]struct{
 	}
 	var extra []string
 	for ruleID := range supplied {
-		if _, ok := required[ruleID]; !ok {
+		if _, ok := declared[ruleID]; !ok {
 			extra = append(extra, ruleID)
 		}
 	}
@@ -635,7 +642,7 @@ func validateRequiredComponents(rule configpkg.Rule, supplied map[string]struct{
 	}
 	if len(extra) > 0 {
 		problems = append(problems, fmt.Sprintf(
-			"component(s) not required by rule %q: %s",
+			"component(s) not declared by rule %q: %s",
 			rule.RuleID,
 			strings.Join(extra, ", "),
 		))

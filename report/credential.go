@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -18,22 +17,30 @@ const CredentialReportSchemaVersion = 1
 type CredentialReport struct {
 	SchemaVersion int                        `json:"schema_version"`
 	RuleID        string                     `json:"rule_id"`
+	Attributes    map[string]string          `json:"attributes,omitempty"`
 	Validation    CredentialValidationReport `json:"validation"`
 }
 
 // CredentialValidationReport is the validation portion of a credential report.
 type CredentialValidationReport struct {
-	Status       ValidationStatus              `json:"status"`
-	Reason       string                        `json:"reason,omitempty"`
-	Metadata     map[string]any                `json:"metadata,omitempty"`
-	RequiredSets []CredentialRequiredSetReport `json:"required_sets,omitempty"`
+	Status        ValidationStatus               `json:"status"`
+	Reason        string                         `json:"reason,omitempty"`
+	Metadata      map[string]any                 `json:"metadata,omitempty"`
+	ComponentSets []CredentialComponentSetReport `json:"component_sets,omitempty"`
 }
 
-// CredentialRequiredSetReport describes one validated set of companion credentials.
-type CredentialRequiredSetReport struct {
-	Status     ValidationStatus `json:"status,omitempty"`
-	Reason     string           `json:"reason,omitempty"`
-	Components []string         `json:"components"`
+// CredentialComponentSetReport describes one validated set of companion credentials.
+type CredentialComponentSetReport struct {
+	Status     ValidationStatus            `json:"status,omitempty"`
+	Reason     string                      `json:"reason,omitempty"`
+	Components []CredentialComponentReport `json:"components"`
+}
+
+// CredentialComponentReport identifies one component and whether the rule
+// declares it optional.
+type CredentialComponentReport struct {
+	RuleID   string `json:"rule_id"`
+	Optional bool   `json:"optional,omitempty"`
 }
 
 // CredentialRuleList is the versioned output produced by validate --list.
@@ -44,9 +51,9 @@ type CredentialRuleList struct {
 
 // CredentialRuleSummary describes a rule that supports direct validation.
 type CredentialRuleSummary struct {
-	RuleID             string   `json:"rule_id"`
-	Description        string   `json:"description,omitempty"`
-	RequiredComponents []string `json:"required_components,omitempty"`
+	RuleID      string                      `json:"rule_id"`
+	Description string                      `json:"description,omitempty"`
+	Components  []CredentialComponentReport `json:"components,omitempty"`
 }
 
 // NewCredentialReport builds a redacted report from a validated finding.
@@ -56,24 +63,41 @@ func NewCredentialReport(finding Finding, secrets []string, includeEmpty bool) C
 	result := CredentialReport{
 		SchemaVersion: CredentialReportSchemaVersion,
 		RuleID:        finding.RuleID,
+		Attributes:    sanitizeCredentialAttributes(finding.Attributes, secrets),
 		Validation: CredentialValidationReport{
 			Status:   finding.ValidationStatus,
 			Reason:   sanitizeCredentialString(finding.ValidationReason, secrets),
 			Metadata: metadata,
 		},
 	}
-	for _, set := range finding.RequiredSets {
-		setResult := CredentialRequiredSetReport{
+	for _, set := range finding.ComponentSets {
+		setResult := CredentialComponentSetReport{
 			Status: set.ValidationStatus,
 			Reason: sanitizeCredentialString(set.ValidationReason, secrets),
 		}
 		for _, component := range set.Components {
-			setResult.Components = append(setResult.Components, component.RuleID)
+			setResult.Components = append(setResult.Components, CredentialComponentReport{
+				RuleID:   component.RuleID,
+				Optional: component.Optional,
+			})
 		}
-		sort.Strings(setResult.Components)
-		result.Validation.RequiredSets = append(result.Validation.RequiredSets, setResult)
+		sort.Slice(setResult.Components, func(i, j int) bool {
+			return setResult.Components[i].RuleID < setResult.Components[j].RuleID
+		})
+		result.Validation.ComponentSets = append(result.Validation.ComponentSets, setResult)
 	}
 	return result
+}
+
+func sanitizeCredentialAttributes(attributes map[string]string, secrets []string) map[string]string {
+	if len(attributes) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(attributes))
+	for key, value := range attributes {
+		out[sanitizeCredentialString(key, secrets)] = sanitizeCredentialString(value, secrets)
+	}
+	return out
 }
 
 func sanitizeCredentialMetadata(metadata map[string]any, secrets []string, includeEmpty bool) map[string]any {
@@ -163,22 +187,19 @@ func credentialSecretsForRedaction(secrets []string) []string {
 type CredentialReportFormat string
 
 const (
-	CredentialReportFormatText CredentialReportFormat = "text"
-	CredentialReportFormatJSON CredentialReportFormat = "json"
+	CredentialReportFormatPretty CredentialReportFormat = "pretty"
+	CredentialReportFormatJSONL  CredentialReportFormat = "jsonl"
 )
 
-// ResolveCredentialReportFormat validates an explicit format or infers one
-// from the report path. Text is the default when neither selects JSON.
-func ResolveCredentialReportFormat(format, path string) (CredentialReportFormat, error) {
+// ResolveCredentialReportFormat validates an explicit format. Pretty output is
+// the default; JSONL emits one compact credential record per line.
+func ResolveCredentialReportFormat(format string) (CredentialReportFormat, error) {
 	format = strings.ToLower(strings.TrimSpace(format))
 	if format == "" {
-		if strings.EqualFold(filepath.Ext(path), ".json") {
-			return CredentialReportFormatJSON, nil
-		}
-		return CredentialReportFormatText, nil
+		return CredentialReportFormatPretty, nil
 	}
-	if format != "text" && format != "json" {
-		return "", fmt.Errorf("credential report format must be text or json, got %q", format)
+	if format != "pretty" && format != "jsonl" {
+		return "", fmt.Errorf("validate output format must be pretty or jsonl, got %q", format)
 	}
 	return CredentialReportFormat(format), nil
 }
@@ -193,34 +214,33 @@ type CredentialReporter struct {
 // Write renders a direct-validation result.
 func (r CredentialReporter) Write(w io.Writer, result CredentialReport) error {
 	switch r.Format {
-	case CredentialReportFormatText:
+	case CredentialReportFormatPretty:
 		if r.Simple {
 			return writeCredentialStatus(w, result.Validation.Status, r.NoColor)
 		}
 		return writeCredentialText(w, result, r.NoColor)
-	case CredentialReportFormatJSON:
-		return writeCredentialJSON(w, result)
+	case CredentialReportFormatJSONL:
+		return writeCredentialJSONL(w, result)
 	default:
-		return fmt.Errorf("unsupported validation report format %q", r.Format)
+		return fmt.Errorf("unsupported validate output format %q", r.Format)
 	}
 }
 
 // WriteRuleList renders the rules that support direct validation.
 func (r CredentialReporter) WriteRuleList(w io.Writer, result CredentialRuleList) error {
 	switch r.Format {
-	case CredentialReportFormatText:
+	case CredentialReportFormatPretty:
 		return writeCredentialRuleListText(w, result)
-	case CredentialReportFormatJSON:
-		return writeCredentialJSON(w, result)
+	case CredentialReportFormatJSONL:
+		return writeCredentialJSONL(w, result)
 	default:
-		return fmt.Errorf("unsupported validation report format %q", r.Format)
+		return fmt.Errorf("unsupported validate output format %q", r.Format)
 	}
 }
 
-func writeCredentialJSON(w io.Writer, value any) error {
+func writeCredentialJSONL(w io.Writer, value any) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
 }
 
@@ -252,13 +272,13 @@ func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) err
 		}
 	}
 
-	if len(result.Validation.RequiredSets) > 0 {
+	if len(result.Validation.ComponentSets) > 0 {
 		if _, err := fmt.Fprintln(w, "│\n│ components:"); err != nil {
 			return err
 		}
-		for _, set := range result.Validation.RequiredSets {
+		for _, set := range result.Validation.ComponentSets {
 			icon := formatCredentialStatusIcon(set.Status, noColor)
-			if _, err := fmt.Fprintf(w, "│   %s  %s\n", icon, strings.Join(set.Components, ", ")); err != nil {
+			if _, err := fmt.Fprintf(w, "│   %s  %s\n", icon, formatCredentialComponents(set.Components)); err != nil {
 				return err
 			}
 			if set.Reason != "" {
@@ -307,15 +327,27 @@ func formatCredentialStatusIcon(status ValidationStatus, noColor bool) string {
 
 func writeCredentialRuleListText(w io.Writer, result CredentialRuleList) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "RULE ID\tREQUIRED COMPONENTS"); err != nil {
+	if _, err := fmt.Fprintln(tw, "RULE ID\tCOMPONENTS"); err != nil {
 		return err
 	}
 	for _, rule := range result.Rules {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\n", rule.RuleID, strings.Join(rule.RequiredComponents, ", ")); err != nil {
+		if _, err := fmt.Fprintf(tw, "%s\t%s\n", rule.RuleID, formatCredentialComponents(rule.Components)); err != nil {
 			return err
 		}
 	}
 	return tw.Flush()
+}
+
+func formatCredentialComponents(components []CredentialComponentReport) string {
+	formatted := make([]string, 0, len(components))
+	for _, component := range components {
+		label := component.RuleID
+		if component.Optional {
+			label += " (optional)"
+		}
+		formatted = append(formatted, label)
+	}
+	return strings.Join(formatted, ", ")
 }
 
 func sortedAnyMapKeys(values map[string]any) []string {
