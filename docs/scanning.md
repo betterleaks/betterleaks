@@ -559,27 +559,26 @@ betterleaks validate --rule-id github-pat 'ghp_...'
 ```
 
 When there is no positional credential, `validate` reads piped or redirected
-stdin automatically. Ordinary input is the primary secret. Input beginning with
-`{` is decoded as a JSON credential object, allowing multipart credentials to
-keep every component out of command-line arguments:
+stdin automatically. The input is always the primary secret and is never
+decoded as a command envelope. This means a JSON credential, such as a GCP
+service account or application-default credential, is passed to its validator
+unchanged.
+
+Multipart credentials must supply each component explicitly with the repeatable
+`--component rule-id=secret` option:
 
 ```sh
-jq -n '{
-  secret: env.AWS_ACCESS_KEY_ID,
-  components: {
-    "aws-secret-access-key": env.AWS_SECRET_ACCESS_KEY
-  }
-}' | betterleaks validate \
-	--rule-id aws-access-token
+printf '%s\n' "$AWS_ACCESS_KEY_ID" |
+	betterleaks validate \
+	--rule-id aws-access-token \
+	--component "aws-secret-access-key=$AWS_SECRET_ACCESS_KEY"
 ```
 
-The JSON fields are `secret` (required), `components`, and `captures`; the latter
-two are string-to-string objects. For less sensitive interactive use, supply
-components declared by the rule as `--component rule-id=secret`. Every
-non-optional component is required; components declared with `optional = true`
-may be omitted. Use `--capture name=value` when a validation expression needs a
-named regex capture that cannot be reconstructed from the credential. A
-component capture uses `--capture rule-id:name=value`.
+Every non-optional component declared by the rule is required; components
+declared with `optional = true` may be omitted. Repeat `--component` when a rule
+needs more than one component. Use `--capture name=value` when a validation
+expression needs a named regex capture that cannot be reconstructed from the
+credential. A component capture uses `--capture rule-id:name=value`.
 
 The default output is concise text. Use `--simple` when only the uppercase
 status is needed:

@@ -327,7 +327,7 @@ func findCredentialComponent(components []report.CredentialComponentReport, rule
 	return false, false
 }
 
-func TestValidateCommandReadsStructuredCredentialFromStdin(t *testing.T) {
+func TestValidateCommandReadsMultipartPrimaryFromStdin(t *testing.T) {
 	configPath := writeValidateTestConfig(t, `
 [[rules]]
 id = "client-id"
@@ -352,15 +352,13 @@ components = [{ id = "client-id" }]
 `)
 
 	root, stdout := newValidateTestRoot(t)
-	root.SetIn(strings.NewReader(`{
-  "secret": "secret-primary",
-  "components": {"client-id": "client-primary"},
-  "captures": {"client-id:tenant": "acme"}
-}`))
+	root.SetIn(strings.NewReader("secret-primary\n"))
 	root.SetArgs([]string{
 		"validate",
 		"--config", configPath,
 		"--rule-id", "client-secret",
+		"--component", "client-id=client-primary",
+		"--capture", "client-id:tenant=acme",
 		"--report-format", "jsonl",
 	})
 	if err := root.Execute(); err != nil {
@@ -368,7 +366,7 @@ components = [{ id = "client-id" }]
 	}
 
 	if strings.Contains(stdout.String(), "secret-primary") || strings.Contains(stdout.String(), "client-primary") {
-		t.Fatalf("report contains structured credential input: %s", stdout.String())
+		t.Fatalf("report contains supplied credential input: %s", stdout.String())
 	}
 	var got report.CredentialReport
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
@@ -382,13 +380,31 @@ components = [{ id = "client-id" }]
 	}
 }
 
-func TestDecodeValidateCredentialInputRejectsAttributes(t *testing.T) {
-	_, err := decodeValidateCredentialInput([]byte(`{
-  "secret": "secret-primary",
-  "attributes": {"region": "eu"}
-}`))
-	if err == nil || !strings.Contains(err.Error(), `unknown field "attributes"`) {
-		t.Fatalf("error = %v, want unknown attributes field", err)
+func TestValidateCommandTreatsJSONStdinAsPrimarySecret(t *testing.T) {
+	const credential = `{"type":"authorized_user","client_id":"fake.apps.googleusercontent.com","client_secret":"fake-secret","refresh_token":"fake-refresh"}`
+	configPath := writeValidateTestConfig(t, fmt.Sprintf(`
+[[rules]]
+id = "json-credential"
+regex = '''(json-credential)'''
+validate = '''
+finding["secret"] == %q ? {"result": "valid"} : {"result": "invalid"}
+'''
+`, credential))
+
+	root, stdout := newValidateTestRoot(t)
+	root.SetIn(strings.NewReader(credential + "\n"))
+	root.SetArgs([]string{
+		"validate",
+		"--config", configPath,
+		"--rule-id", "json-credential",
+		"--simple",
+		"--no-color",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("validate command: %v", err)
+	}
+	if got, want := stdout.String(), "VALID\n"; got != want {
+		t.Fatalf("simple output = %q, want %q", got, want)
 	}
 }
 

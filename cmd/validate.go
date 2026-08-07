@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,7 +29,7 @@ func newValidateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "validate --rule-id <rule-id> [secret]",
 		Short:        "validate a known secret without running detection",
-		Long:         "Validate a known secret without running detection.\n\nWhen [secret] is omitted, input is read from piped or redirected stdin automatically. A JSON object is treated as a multipart credential.",
+		Long:         "Validate a known secret without running detection.\n\nWhen [secret] is omitted, the primary secret is read from piped or redirected stdin automatically. Supply multipart credential components explicitly with --component.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE:         runValidate,
@@ -237,9 +235,9 @@ func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 }
 
 type validateCredentialInput struct {
-	Secret     string            `json:"secret"`
-	Components map[string]string `json:"components,omitempty"`
-	Captures   map[string]string `json:"captures,omitempty"`
+	Secret     string
+	Components map[string]string
+	Captures   map[string]string
 }
 
 func readValidateCredentialInput(cmd *cobra.Command, args []string) (validateCredentialInput, error) {
@@ -251,14 +249,6 @@ func readValidateCredentialInput(cmd *cobra.Command, args []string) (validateCre
 		data, err := readLimitedValidateStdin(cmd)
 		if err != nil {
 			return validateCredentialInput{}, err
-		}
-		if validateCredentialInputIsJSON(data) {
-			for _, name := range []string{"component", "capture"} {
-				if cmd.Flags().Changed(name) {
-					return validateCredentialInput{}, fmt.Errorf("piped credential JSON cannot be combined with --%s", name)
-				}
-			}
-			return decodeValidateCredentialInput(data)
 		}
 		secret, err = validateSecretFromBytes(data)
 		if err != nil {
@@ -297,31 +287,6 @@ func readValidateCredentialInput(cmd *cobra.Command, args []string) (validateCre
 		return validateCredentialInput{}, err
 	}
 	return input, nil
-}
-
-func decodeValidateCredentialInput(data []byte) (validateCredentialInput, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var input validateCredentialInput
-	if err := decoder.Decode(&input); err != nil {
-		return validateCredentialInput{}, fmt.Errorf("decoding credential JSON from stdin: %w", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return validateCredentialInput{}, errors.New("credential stdin must contain exactly one JSON object")
-		}
-		return validateCredentialInput{}, fmt.Errorf("decoding credential JSON from stdin: %w", err)
-	}
-	if err := validateCredentialInputValues(input); err != nil {
-		return validateCredentialInput{}, err
-	}
-	return input, nil
-}
-
-func validateCredentialInputIsJSON(data []byte) bool {
-	trimmed := bytes.TrimSpace(data)
-	return len(trimmed) > 0 && trimmed[0] == '{'
 }
 
 func validateStdinAvailable(reader io.Reader) bool {
