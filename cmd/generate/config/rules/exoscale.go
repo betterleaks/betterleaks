@@ -13,10 +13,10 @@ func ExoscaleAPIKey() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`EXO[a-zA-Z0-9]{24,30}`, false),
 		Keywords:    []string{"EXO"},
 		Entropy:     3.0,
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{
-				RuleID:      "exoscale-api-secret",
-				WithinLines: utils.Ptr(5),
+				RuleID: "exoscale-api-secret",
+				Within: "5L",
 			},
 		},
 		ValidateExpr: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(

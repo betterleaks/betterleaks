@@ -33,7 +33,7 @@ func CanvaClientSecret() *config.Rule {
 		Description: "Detected a Canva Connect API client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
 		Regex:       regexp.MustCompile(`\b(cnvca[a-zA-Z0-9_-]{51})\b`),
 		Keywords:    []string{"cnvca"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "canva-client-id"},
 		},
 		ValidateExpr: `let r = http.post("https://api.canva.com/rest/v1/oauth/token", {

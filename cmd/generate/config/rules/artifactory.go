@@ -14,7 +14,7 @@ func ArtifactoryApiKey() *config.Rule {
 		Description: "Detected an Artifactory api key, posing a risk unauthorized access to the central repository.",
 		Regex:       regexp.MustCompile(`\bAKCp[A-Za-z0-9]{68,70}\b`),
 		Keywords:    []string{"AKCp"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "artifactory-jfrog-url"},
 		},
 		ValidateExpr: `let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
@@ -50,7 +50,7 @@ func ArtifactoryReferenceToken() *config.Rule {
 		Description: "Detected an Artifactory reference token, posing a risk of impersonation and unauthorized access to the central repository.",
 		Regex:       regexp.MustCompile(`\bcmVmd[A-Za-z0-9]{59}\b`),
 		Keywords:    []string{"cmVmd"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "artifactory-jfrog-url"},
 		},
 		ValidateExpr: `let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {

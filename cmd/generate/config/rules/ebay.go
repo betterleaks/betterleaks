@@ -39,7 +39,7 @@ func EBayClientSecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"ebay"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "ebay-client-id"},
 		},
 		ValidateExpr: `let clientID = captures["ebay-client-id"];

@@ -291,24 +291,24 @@ type configView struct {
 }
 
 type ruleView struct {
-	ID          string         `toml:"id"`
-	Description string         `toml:"description,omitempty"`
-	Path        string         `toml:"path,omitempty"`
-	Regex       string         `toml:"regex,omitempty"`
-	SecretGroup int            `toml:"secretGroup,omitempty"`
-	Keywords    []string       `toml:"keywords,omitempty"`
-	Tags        []string       `toml:"tags,omitempty"`
-	Specificity int            `toml:"specificity,omitempty"`
-	Required    []requiredView `toml:"required,omitempty"`
-	Validate    string         `toml:"validate,omitempty"`
-	SkipReport  bool           `toml:"skipReport,omitempty"`
-	Filter      string         `toml:"filter,omitempty"`
+	ID          string          `toml:"id"`
+	Description string          `toml:"description,omitempty"`
+	Path        string          `toml:"path,omitempty"`
+	Regex       string          `toml:"regex,omitempty"`
+	SecretGroup int             `toml:"secretGroup,omitempty"`
+	Keywords    []string        `toml:"keywords,omitempty"`
+	Tags        []string        `toml:"tags,omitempty"`
+	Specificity int             `toml:"specificity,omitempty"`
+	Components  []componentView `toml:"components,omitempty"`
+	Validate    string          `toml:"validate,omitempty"`
+	SkipReport  bool            `toml:"skipReport,omitempty"`
+	Filter      string          `toml:"filter,omitempty"`
 }
 
-type requiredView struct {
-	ID            string `toml:"id"`
-	WithinLines   *int   `toml:"withinLines,omitempty"`
-	WithinColumns *int   `toml:"withinColumns,omitempty"`
+type componentView struct {
+	ID       string `toml:"id"`
+	Optional bool   `toml:"optional,omitempty"`
+	Within   string `toml:"within,omitempty"`
 }
 
 func renderConfig(cfg *configpkg.Config) configView {
@@ -335,11 +335,11 @@ func renderConfig(cfg *configpkg.Config) configView {
 			SkipReport:  rule.SkipReport,
 			Filter:      rule.Filter,
 		}
-		for _, required := range rule.RequiredRules {
-			rv.Required = append(rv.Required, requiredView{
-				ID:            required.RuleID,
-				WithinLines:   required.WithinLines,
-				WithinColumns: required.WithinColumns,
+		for _, component := range rule.Components {
+			rv.Components = append(rv.Components, componentView{
+				ID:       component.RuleID,
+				Optional: component.Optional,
+				Within:   component.Within,
 			})
 		}
 		view.Rules = append(view.Rules, rv)
@@ -373,15 +373,30 @@ func renderConfigTOML(view configView) string {
 		writeString(&b, "validate", rule.Validate)
 		writeBool(&b, "skipReport", rule.SkipReport)
 		writeString(&b, "filter", rule.Filter)
-		for _, required := range rule.Required {
-			b.WriteString("\n[[rules.required]]\n")
-			writeString(&b, "id", required.ID)
-			writeIntPtr(&b, "withinLines", required.WithinLines)
-			writeIntPtr(&b, "withinColumns", required.WithinColumns)
-		}
+		writeComponents(&b, rule.Components)
 	}
 
 	return b.String()
+}
+
+func writeComponents(b *strings.Builder, components []componentView) {
+	if len(components) == 0 {
+		return
+	}
+	b.WriteString("components = [\n")
+	for _, component := range components {
+		b.WriteString("  { id = ")
+		b.WriteString(tomlString(component.ID))
+		if component.Optional {
+			b.WriteString(", optional = true")
+		}
+		if component.Within != "" {
+			b.WriteString(", within = ")
+			b.WriteString(tomlString(component.Within))
+		}
+		b.WriteString(" },\n")
+	}
+	b.WriteString("]\n")
 }
 
 func writeString(b *strings.Builder, key, value string) {
@@ -416,16 +431,6 @@ func writeInt(b *strings.Builder, key string, value int) {
 	b.WriteString(key)
 	b.WriteString(" = ")
 	_, _ = fmt.Fprint(b, value)
-	b.WriteByte('\n')
-}
-
-func writeIntPtr(b *strings.Builder, key string, value *int) {
-	if value == nil {
-		return
-	}
-	b.WriteString(key)
-	b.WriteString(" = ")
-	_, _ = fmt.Fprint(b, *value)
 	b.WriteByte('\n')
 }
 

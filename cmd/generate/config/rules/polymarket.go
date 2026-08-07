@@ -54,14 +54,14 @@ func PolymarketAPIKey() *config.Rule {
 		Description: "Identified a Polymarket API key, potentially compromising access to the Polymarket trading platform.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}key"}, utils.Hex8_4_4_4_12(), false),
 		Keywords:    []string{"poly"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{
-				RuleID:      "polymarket-api-secret",
-				WithinLines: utils.Ptr(20),
+				RuleID: "polymarket-api-secret",
+				Within: "20L",
 			},
 			{
-				RuleID:      "polymarket-passphrase",
-				WithinLines: utils.Ptr(20),
+				RuleID: "polymarket-passphrase",
+				Within: "20L",
 			},
 		},
 		ValidateExpr: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(

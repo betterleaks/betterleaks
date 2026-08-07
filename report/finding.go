@@ -49,9 +49,9 @@ type Finding struct {
 
 	RuleSpecificity int `json:"-"`
 
-	// RequiredSets holds the Cartesian-product combinations of required findings.
+	// ComponentSets holds the Cartesian-product combinations of component findings.
 	// Each set is one complete group of components that can be validated independently.
-	RequiredSets []RequiredSet `json:",omitempty"`
+	ComponentSets []ComponentSet `json:",omitempty"`
 
 	ValidationStatus ValidationStatus `json:",omitempty"`
 	ValidationReason string           `json:",omitempty"`
@@ -89,19 +89,20 @@ type Finding struct {
 	Message string
 }
 
-// RequiredSet represents one combination of required findings (one element per
-// required rule) from the Cartesian product. Each set can be validated
+// ComponentSet represents one combination of component findings (one element per
+// matched component rule) from the Cartesian product. Each set can be validated
 // independently and carries its own validation result.
-type RequiredSet struct {
-	Components       []*RequiredFinding `json:"components"`
-	ValidationStatus ValidationStatus   `json:"validationStatus,omitempty"`
-	ValidationReason string             `json:"validationReason,omitempty"`
+type ComponentSet struct {
+	Components       []*ComponentFinding `json:"components"`
+	ValidationStatus ValidationStatus    `json:"validationStatus,omitempty"`
+	ValidationReason string              `json:"validationReason,omitempty"`
 }
 
-type RequiredFinding struct {
+type ComponentFinding struct {
 	// contains a subset of the Finding fields
 	// only used for reporting
 	RuleID          string
+	Optional        bool
 	StartLine       int
 	EndLine         int
 	StartColumn     int
@@ -113,50 +114,50 @@ type RequiredFinding struct {
 	RuleSpecificity int               `json:"-"`
 }
 
-// BuildRequiredSets generates the Cartesian product of the given required findings
-// grouped by RuleID and populates f.RequiredSets. maxRequiredSets caps the total number of
+// BuildComponentSets generates the Cartesian product of the given component findings
+// grouped by RuleID and populates f.ComponentSets. maxComponentSets caps the total number of
 // combos to prevent excessive memory use.
-func (f *Finding) BuildRequiredSets(requiredFindings []*RequiredFinding, maxRequiredSets int) {
-	if len(requiredFindings) == 0 {
-		f.RequiredSets = nil
+func (f *Finding) BuildComponentSets(componentFindings []*ComponentFinding, maxComponentSets int) {
+	if len(componentFindings) == 0 {
+		f.ComponentSets = nil
 		return
 	}
 
 	// Group by RuleID, preserving first-occurrence order.
 	var ruleOrder []string
-	byRule := make(map[string][]*RequiredFinding)
-	for _, rf := range requiredFindings {
+	byRule := make(map[string][]*ComponentFinding)
+	for _, rf := range componentFindings {
 		if _, exists := byRule[rf.RuleID]; !exists {
 			ruleOrder = append(ruleOrder, rf.RuleID)
 		}
 		byRule[rf.RuleID] = append(byRule[rf.RuleID], rf)
 	}
 
-	products := cartesianFindings(ruleOrder, byRule, maxRequiredSets)
-	f.RequiredSets = make([]RequiredSet, len(products))
+	products := cartesianFindings(ruleOrder, byRule, maxComponentSets)
+	f.ComponentSets = make([]ComponentSet, len(products))
 	for i, components := range products {
-		f.RequiredSets[i] = RequiredSet{Components: components}
+		f.ComponentSets[i] = ComponentSet{Components: components}
 	}
 }
 
-// cartesianFindings computes the Cartesian product over RequiredFinding slices
-// keyed by ruleOrder. It stops early once maxRequiredSets is reached.
-func cartesianFindings(ruleOrder []string, byRule map[string][]*RequiredFinding, maxRequiredSets int) [][]*RequiredFinding {
+// cartesianFindings computes the Cartesian product over ComponentFinding slices
+// keyed by ruleOrder. It stops early once maxComponentSets is reached.
+func cartesianFindings(ruleOrder []string, byRule map[string][]*ComponentFinding, maxComponentSets int) [][]*ComponentFinding {
 	if len(ruleOrder) == 0 {
-		return [][]*RequiredFinding{{}}
+		return [][]*ComponentFinding{{}}
 	}
 
 	head := ruleOrder[0]
-	rest := cartesianFindings(ruleOrder[1:], byRule, maxRequiredSets)
+	rest := cartesianFindings(ruleOrder[1:], byRule, maxComponentSets)
 
-	var result [][]*RequiredFinding
+	var result [][]*ComponentFinding
 	for _, rf := range byRule[head] {
 		for _, tail := range rest {
-			row := make([]*RequiredFinding, 0, len(tail)+1)
+			row := make([]*ComponentFinding, 0, len(tail)+1)
 			row = append(row, rf)
 			row = append(row, tail...)
 			result = append(result, row)
-			if len(result) >= maxRequiredSets {
+			if len(result) >= maxComponentSets {
 				return result
 			}
 		}
@@ -181,8 +182,8 @@ func (f *Finding) Redact(percent uint) {
 	}
 	f.Secret = secret
 
-	seen := make(map[*RequiredFinding]struct{})
-	for _, set := range f.RequiredSets {
+	seen := make(map[*ComponentFinding]struct{})
+	for _, set := range f.ComponentSets {
 		for _, comp := range set.Components {
 			if _, ok := seen[comp]; ok {
 				continue

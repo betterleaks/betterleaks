@@ -22,6 +22,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
+	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
@@ -201,8 +202,8 @@ func compare(t *testing.T, got, want []report.Finding) {
 		cmpopts.IgnoreFields(report.Finding{},
 			"Fingerprint", "Author", "Email", "Date", "Message", "Commit",
 			"File", "SymlinkFile", "Attributes",
-			"RequiredSets", "RuleSpecificity"),
-		cmpopts.IgnoreFields(report.RequiredFinding{}, "RuleSpecificity"),
+			"ComponentSets", "RuleSpecificity"),
+		cmpopts.IgnoreFields(report.ComponentFinding{}, "RuleSpecificity"),
 		cmpopts.IgnoreUnexported(report.Finding{}),
 		cmpopts.EquateApprox(0.0001, 0), // For floating point Entropy comparison
 	); diff != "" {
@@ -218,14 +219,194 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 		findings[i].Attributes = nil
 		findings[i].Link = ""
 		findings[i].RuleSpecificity = 0
-		for si := range findings[i].RequiredSets {
-			for ci := range findings[i].RequiredSets[si].Components {
-				findings[i].RequiredSets[si].Components[ci].RuleSpecificity = 0
+		for si := range findings[i].ComponentSets {
+			for ci := range findings[i].ComponentSets[si].Components {
+				findings[i].ComponentSets[si].Components[ci].RuleSpecificity = 0
 			}
 		}
 		findings[i].SetExprContext("")
 	}
 	return findings
+}
+
+func TestRequiredAndOptionalComponents(t *testing.T) {
+	cfg, err := config.ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = '''primary=([a-z]+)'''
+components = [
+  { id = "required-component" },
+  { id = "optional-component", optional = true },
+]
+
+[[rules]]
+id = "required-component"
+regex = '''required=([a-z]+)'''
+skipReport = true
+
+[[rules]]
+id = "optional-component"
+regex = '''optional=([a-z]+)'''
+skipReport = true
+`, "")
+	require.NoError(t, err)
+	detector := NewDetector(cfg)
+
+	t.Run("required component gates finding", func(t *testing.T) {
+		assert.Empty(t, detector.DetectString("primary=secret\noptional=session"))
+	})
+
+	t.Run("absent optional component is omitted", func(t *testing.T) {
+		findings := detector.DetectString("primary=secret\nrequired=account")
+		require.Len(t, findings, 1)
+		require.Len(t, findings[0].ComponentSets, 1)
+		require.Len(t, findings[0].ComponentSets[0].Components, 1)
+		component := findings[0].ComponentSets[0].Components[0]
+		assert.Equal(t, "required-component", component.RuleID)
+		assert.False(t, component.Optional)
+	})
+
+	t.Run("present optional component joins combinations", func(t *testing.T) {
+		findings := detector.DetectString("primary=secret\nrequired=account\noptional=first\noptional=second")
+		require.Len(t, findings, 1)
+		require.Len(t, findings[0].ComponentSets, 2)
+		for _, set := range findings[0].ComponentSets {
+			require.Len(t, set.Components, 2)
+			assert.False(t, set.Components[0].Optional)
+			assert.True(t, set.Components[1].Optional)
+		}
+	})
+}
+
+func TestOptionalOnlyComponents(t *testing.T) {
+	cfg, err := config.ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = '''primary=([a-z]+)'''
+components = [{ id = "optional-component", optional = true }]
+
+[[rules]]
+id = "optional-component"
+regex = '''optional=([a-z]+)'''
+skipReport = true
+`, "")
+	require.NoError(t, err)
+	detector := NewDetector(cfg)
+
+	findings := detector.DetectString("primary=secret")
+	require.Len(t, findings, 1)
+	assert.Empty(t, findings[0].ComponentSets)
+
+	findings = detector.DetectString("primary=secret\noptional=session")
+	require.Len(t, findings, 1)
+	require.Len(t, findings[0].ComponentSets, 1)
+	require.Len(t, findings[0].ComponentSets[0].Components, 1)
+	assert.True(t, findings[0].ComponentSets[0].Components[0].Optional)
+}
+
+func TestComponentProximity(t *testing.T) {
+	tests := []struct {
+		name              string
+		raw               string
+		fragmentStartLine int
+		primary           report.Finding
+		component         report.Finding
+		within            string
+		want              bool
+	}{
+		{
+			name:      "symmetric lines inside",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 14, EndLine: 14, StartColumn: 10, EndColumn: 14},
+			within:    "5L",
+			want:      true,
+		},
+		{
+			name:      "symmetric lines outside",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 15, EndLine: 15, StartColumn: 10, EndColumn: 14},
+			within:    "5L",
+			want:      false,
+		},
+		{
+			name:      "directed lines before",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 9, EndLine: 9, StartColumn: 10, EndColumn: 14},
+			within:    "-2L",
+			want:      true,
+		},
+		{
+			name:      "directed lines reject opposite side",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 11, EndLine: 11, StartColumn: 10, EndColumn: 14},
+			within:    "-2L",
+			want:      false,
+		},
+		{
+			name:              "character offsets before",
+			raw:               "COMP PRIMARY",
+			fragmentStartLine: 0,
+			primary:           report.Finding{StartLine: 0, EndLine: 0, StartColumn: 6, EndColumn: 12},
+			component:         report.Finding{StartLine: 0, EndLine: 0, StartColumn: 1, EndColumn: 4},
+			within:            "-5C",
+			want:              true,
+		},
+		{
+			name:              "character offsets outside",
+			raw:               "COMP PRIMARY",
+			fragmentStartLine: 0,
+			primary:           report.Finding{StartLine: 0, EndLine: 0, StartColumn: 6, EndColumn: 12},
+			component:         report.Finding{StartLine: 0, EndLine: 0, StartColumn: 1, EndColumn: 4},
+			within:            "-4C",
+			want:              false,
+		},
+		{
+			name:      "mixed line and column window",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 9, EndLine: 9, StartColumn: 7, EndColumn: 11},
+			within:    "-2L,-3C",
+			want:      true,
+		},
+		{
+			name:      "mixed window rejects column",
+			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
+			component: report.Finding{StartLine: 9, EndLine: 9, StartColumn: 7, EndColumn: 11},
+			within:    "-2L,-2C",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			window, err := contextwindow.Parse(tt.within)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, withinProximity(tt.raw, tt.fragmentStartLine, tt.primary, tt.component, window))
+		})
+	}
+}
+
+func TestDirectionalWithinComponents(t *testing.T) {
+	cfg, err := config.ParseTOMLString(`
+[[rules]]
+id = "primary"
+regex = '''primary=([a-z]+)'''
+components = [{ id = "optional-component", optional = true, within = "-2L" }]
+
+[[rules]]
+id = "optional-component"
+regex = '''optional=([a-z]+)'''
+skipReport = true
+`, "")
+	require.NoError(t, err)
+	detector := NewDetector(cfg)
+
+	findings := detector.DetectString("optional=session\nprimary=secret")
+	require.Len(t, findings, 1)
+	require.Len(t, findings[0].ComponentSets, 1)
+
+	findings = detector.DetectString("primary=secret\noptional=session")
+	require.Len(t, findings, 1)
+	assert.Empty(t, findings[0].ComponentSets)
 }
 
 func TestDetectFilterMatchesContextWindow(t *testing.T) {
@@ -1067,7 +1248,7 @@ const token = "mockSecret";
 			if tt.expectedAuxOutput != "" {
 				capturedOutput := captureStdout(func() {
 					for _, finding := range findings {
-						finding.PrintRequiredFindings(false, 0)
+						finding.PrintComponentFindings(false, 0)
 					}
 				})
 

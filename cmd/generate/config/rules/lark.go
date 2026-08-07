@@ -39,7 +39,7 @@ func LarkAppSecret() *config.Rule {
 			true,
 		),
 		Keywords: []string{"lark"},
-		RequiredRules: []*config.Required{
+		Components: []*config.Component{
 			{RuleID: "lark-app-id"},
 		},
 		ValidateExpr: `let r = http.post("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {

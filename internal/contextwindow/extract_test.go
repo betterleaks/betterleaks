@@ -1,4 +1,4 @@
-package detect
+package contextwindow
 
 import (
 	"reflect"
@@ -10,40 +10,41 @@ func TestParseMatchContext(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
-		want    MatchContextSpec
+		want    Spec
 		wantErr bool
 	}{
 		// Zero / Empty states
-		{"Empty string", "", MatchContextSpec{Mode: ContextModeNone}, false},
-		{"Zero", "0", MatchContextSpec{Mode: ContextModeNone}, false},
-		{"Spaces", "   ", MatchContextSpec{Mode: ContextModeNone}, false},
+		{"Empty string", "", Spec{Mode: ModeNone}, false},
+		{"Zero", "0", Spec{Mode: ModeNone}, false},
+		{"Spaces", "   ", Spec{Mode: ModeNone}, false},
 
 		// Cols Mode (C)
-		{"Implicit cols", "100", MatchContextSpec{Mode: ContextModeCols, ColsBefore: 100, ColsAfter: 100}, false},
-		{"Explicit cols", "100C", MatchContextSpec{Mode: ContextModeCols, ColsBefore: 100, ColsAfter: 100}, false},
-		{"Directed cols", "-10C, +20C", MatchContextSpec{Mode: ContextModeCols, ColsBefore: 10, ColsAfter: 20}, false},
-		{"Overriding cols", "10C, -50C", MatchContextSpec{Mode: ContextModeCols, ColsBefore: 50, ColsAfter: 10}, false},
+		{"Implicit cols", "100", Spec{Mode: ModeCols, ColsBefore: 100, ColsAfter: 100}, false},
+		{"Explicit cols", "100C", Spec{Mode: ModeCols, ColsBefore: 100, ColsAfter: 100}, false},
+		{"Directed cols", "-10C, +20C", Spec{Mode: ModeCols, ColsBefore: 10, ColsAfter: 20}, false},
+		{"Overriding cols", "10C, -50C", Spec{Mode: ModeCols, ColsBefore: 50, ColsAfter: 10}, false},
 
 		// Box Mode (L mixed with C for clipping)
-		{"Lines only", "10L", MatchContextSpec{Mode: ContextModeBox, LinesBefore: 9, LinesAfter: 9}, false},
-		{"Directed lines", "-2L, +3L", MatchContextSpec{Mode: ContextModeBox, LinesBefore: 1, LinesAfter: 2}, false},
-		{"Lines and cols mixed (explicit)", "2L, 15C", MatchContextSpec{Mode: ContextModeBox, LinesBefore: 1, LinesAfter: 1, ColsBefore: 15, ColsAfter: 15}, false},
-		{"Lines and cols mixed (implicit C)", "15, 2L", MatchContextSpec{Mode: ContextModeBox, LinesBefore: 1, LinesAfter: 1, ColsBefore: 15, ColsAfter: 15}, false},
-		{"Directed mixed", "-2L, +10C", MatchContextSpec{Mode: ContextModeBox, LinesBefore: 1, ColsAfter: 10}, false},
+		{"Lines only", "10L", Spec{Mode: ModeBox, LinesBefore: 9, LinesAfter: 9}, false},
+		{"Directed lines", "-2L, +3L", Spec{Mode: ModeBox, LinesBefore: 1, LinesAfter: 2}, false},
+		{"Lines and cols mixed (explicit)", "2L, 15C", Spec{Mode: ModeBox, LinesBefore: 1, LinesAfter: 1, ColsBefore: 15, ColsAfter: 15}, false},
+		{"Lines and cols mixed (implicit C)", "15, 2L", Spec{Mode: ModeBox, LinesBefore: 1, LinesAfter: 1, ColsBefore: 15, ColsAfter: 15}, false},
+		{"Directed mixed", "-2L, +10C", Spec{Mode: ModeBox, LinesBefore: 1, ColsAfter: 10}, false},
 
 		// Errors
-		{"Invalid token", "10X", MatchContextSpec{}, true},
-		{"Malformed token", "10L-", MatchContextSpec{}, true},
+		{"Invalid token", "10X", Spec{}, true},
+		{"Malformed token", "10L-", Spec{}, true},
+		{"Amount overflow", "999999999999999999999999999999999999999999C", Spec{}, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseMatchContext(tt.input)
+			got, err := Parse(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("ParseMatchContext() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("Parse() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ParseMatchContext() = %+v, want %+v", got, tt.want)
+				t.Errorf("Parse() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
@@ -102,56 +103,56 @@ L19|tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
 
 	tests := []struct {
 		name string
-		spec MatchContextSpec
+		spec Spec
 		want string
 	}{
 		{
 			name: "Zero spec",
-			spec: MatchContextSpec{Mode: ContextModeNone},
+			spec: Spec{Mode: ModeNone},
 			want: "",
 		},
 		{
 			name: "Cols: 5 before, 5 after",
-			spec: MatchContextSpec{Mode: ContextModeCols, ColsBefore: 5, ColsAfter: 5},
+			spec: Spec{Mode: ModeCols, ColsBefore: 5, ColsAfter: 5},
 			want: rawContent[matchStart-5 : matchEnd+5],
 		},
 		{
 			name: "Cols: directed -10, +5",
-			spec: MatchContextSpec{Mode: ContextModeCols, ColsBefore: 10, ColsAfter: 5},
+			spec: Spec{Mode: ModeCols, ColsBefore: 10, ColsAfter: 5},
 			want: rawContent[matchStart-10 : matchEnd+5],
 		},
 		{
 			name: "Cols: out of bounds",
-			spec: MatchContextSpec{Mode: ContextModeCols, ColsBefore: 10000, ColsAfter: 10000},
+			spec: Spec{Mode: ModeCols, ColsBefore: 10000, ColsAfter: 10000},
 			want: rawContent,
 		},
 		{
 			name: "Box: match line only",
-			spec: MatchContextSpec{Mode: ContextModeBox},
+			spec: Spec{Mode: ModeBox},
 			want: lines[10],
 		},
 		{
 			name: "Box: 2 lines before, 3 lines after",
-			spec: MatchContextSpec{Mode: ContextModeBox, LinesBefore: 2, LinesAfter: 3},
+			spec: Spec{Mode: ModeBox, LinesBefore: 2, LinesAfter: 3},
 			want: joinLines(8, 13),
 		},
 		{
 			name: "Box: match line, 10C clip",
-			spec: MatchContextSpec{Mode: ContextModeBox, ColsBefore: 10, ColsAfter: 10},
+			spec: Spec{Mode: ModeBox, ColsBefore: 10, ColsAfter: 10},
 			want: clipLine(lines[10], matchCol-10, matchCol+len(secret)+10),
 		},
 		{
 			name: "Box: 3 lines before/after, 20C clip",
-			spec: MatchContextSpec{Mode: ContextModeBox, LinesBefore: 3, LinesAfter: 3, ColsBefore: 20, ColsAfter: 20},
+			spec: Spec{Mode: ModeBox, LinesBefore: 3, LinesAfter: 3, ColsBefore: 20, ColsAfter: 20},
 			want: clipLines(7, 13, matchCol-20, matchCol+len(secret)+20),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractContext(rawContent, matchIdx, tt.spec)
+			got := Extract(rawContent, matchIdx, tt.spec)
 			if got != tt.want {
-				t.Errorf("extractContext()\ngot:  %q\nwant: %q", got, tt.want)
+				t.Errorf("Extract()\ngot:  %q\nwant: %q", got, tt.want)
 			}
 		})
 	}
@@ -168,12 +169,12 @@ func TestExtractContextMultiLineMatch(t *testing.T) {
 
 	tests := []struct {
 		name string
-		spec MatchContextSpec
+		spec Spec
 		want string
 	}{
 		{
 			name: "Box: multi-line match skips col clipping",
-			spec: MatchContextSpec{Mode: ContextModeBox, LinesBefore: 1, LinesAfter: 1, ColsBefore: 2, ColsAfter: 2},
+			spec: Spec{Mode: ModeBox, LinesBefore: 1, LinesAfter: 1, ColsBefore: 2, ColsAfter: 2},
 			// All 4 lines returned unclipped because the match spans lines.
 			want: "aaa\nbbbSECRET_START\nSECRET_ENDccc\nddd",
 		},
@@ -181,9 +182,9 @@ func TestExtractContextMultiLineMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractContext(raw, matchIdx, tt.spec)
+			got := Extract(raw, matchIdx, tt.spec)
 			if got != tt.want {
-				t.Errorf("extractContext()\ngot:  %q\nwant: %q", got, tt.want)
+				t.Errorf("Extract()\ngot:  %q\nwant: %q", got, tt.want)
 			}
 		})
 	}
@@ -234,12 +235,12 @@ L19|tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
 
 	tests := []struct {
 		name string
-		spec MatchContextSpec
+		spec Spec
 		want string
 	}{
 		{
 			name: "Box: 3 lines before/after, 20C clip",
-			spec: MatchContextSpec{Mode: ContextModeBox, LinesBefore: 3, LinesAfter: 3, ColsBefore: 20, ColsAfter: 20},
+			spec: Spec{Mode: ModeBox, LinesBefore: 3, LinesAfter: 3, ColsBefore: 20, ColsAfter: 20},
 			want: "L07|h\n" +
 				"iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii\n" +
 				"L09|jj\n" +
@@ -250,7 +251,7 @@ L19|tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
 		},
 		{
 			name: "Box: 5 lines before/after, 10C clip",
-			spec: MatchContextSpec{Mode: ContextModeBox, LinesBefore: 5, LinesAfter: 5, ColsBefore: 10, ColsAfter: 10},
+			spec: Spec{Mode: ModeBox, LinesBefore: 5, LinesAfter: 5, ColsBefore: 10, ColsAfter: 10},
 			want: "L05|ff\n" +
 				"gggggggggggggggggggggggggggggggggggg\n" +
 				"L07|h\n" +
@@ -267,9 +268,9 @@ L19|tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractContext(rawContent, matchIdx, tt.spec)
+			got := Extract(rawContent, matchIdx, tt.spec)
 			if got != tt.want {
-				t.Errorf("extractContext()\ngot:  %q\nwant: %q", got, tt.want)
+				t.Errorf("Extract()\ngot:  %q\nwant: %q", got, tt.want)
 			}
 		})
 	}
