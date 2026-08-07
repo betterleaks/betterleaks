@@ -151,3 +151,4 @@ Refer to the default [betterleaks config](https://github.com/betterleaks/betterl
 
 Test out your rules in the [Betterleaks Playground](https://betterleaks.com/playground)
 
+
