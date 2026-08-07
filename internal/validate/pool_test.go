@@ -143,12 +143,17 @@ func TestPoolMaxRequestsReturnsNeedsValidationMetadataAndDoesNotCountCacheHits(t
 	}
 }
 
-func TestPoolOmitsAbsentOptionalComponentCapture(t *testing.T) {
+func TestPoolSeparatesCapturesAndComponents(t *testing.T) {
 	rt, err := exprruntime.New(nil)
 	if err != nil {
 		t.Fatalf("exprruntime.New: %v", err)
 	}
-	prg, err := rt.CompileValidation(`len(captures) == 1 && captures["required-component"] == "account" ? {"result": "valid"} : {"result": "invalid"}`)
+	prg, err := rt.CompileValidation(`len(captures) == 1
+&& (finding["captures"]?.primary_group ?? "") == "named-value"
+&& len(components) == 1
+&& (components["required-component"]?.secret ?? "") == "account"
+&& (components["required-component"]?.captures?.kind ?? "") == "tenant"
+? {"result": "valid"} : {"result": "invalid"}`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -157,24 +162,54 @@ func TestPoolOmitsAbsentOptionalComponentCapture(t *testing.T) {
 	p := NewPool(1, rt)
 	p.Emit = func(finding report.Finding) { emitted <- finding }
 	p.Submit(report.Finding{
-		RuleID: "primary",
-		Secret: "secret",
+		RuleID:        "primary",
+		Secret:        "secret",
+		CaptureGroups: map[string]string{"primary_group": "named-value"},
 		ComponentSets: []report.ComponentSet{
-			{Components: []*report.ComponentFinding{{RuleID: "required-component", Secret: "account"}}},
+			{Components: []*report.ComponentFinding{{
+				RuleID:        "required-component",
+				Secret:        "account",
+				CaptureGroups: map[string]string{"kind": "tenant"},
+			}}},
 		},
 	}, prg)
 	p.Close()
 
 	got := <-emitted
 	if got.ValidationStatus != report.ValidationStatusValid {
-		t.Fatalf("validation status = %q, want valid (absent optional capture must not be injected)", got.ValidationStatus)
+		t.Fatalf("validation status = %q, want valid (captures and components must remain separate)", got.ValidationStatus)
 	}
 }
 
 func TestCacheKeyIncludesComponentCombination(t *testing.T) {
-	withoutOptional := CacheKey("primary", "secret", map[string]string{"required": "account"})
-	withOptional := CacheKey("primary", "secret", map[string]string{"required": "account", "optional": "session"})
+	withoutOptional := CacheKey("primary", "secret", nil, map[string]cacheComponent{
+		"required": {Secret: "account"},
+	})
+	withOptional := CacheKey("primary", "secret", nil, map[string]cacheComponent{
+		"required": {Secret: "account"},
+		"optional": {Secret: "session"},
+	})
 	if withoutOptional == withOptional {
 		t.Fatal("cache keys for distinct component combinations must differ")
+	}
+}
+
+func TestCacheKeySeparatesCapturesAndComponents(t *testing.T) {
+	capture := CacheKey("primary", "secret", map[string]string{"shared": "value"}, nil)
+	component := CacheKey("primary", "secret", nil, map[string]cacheComponent{"shared": {Secret: "value"}})
+	if capture == component {
+		t.Fatal("capture and component values must occupy separate cache-key namespaces")
+	}
+}
+
+func TestCacheKeyIncludesComponentCaptures(t *testing.T) {
+	first := CacheKey("primary", "secret", nil, map[string]cacheComponent{
+		"component": {Secret: "value", Captures: map[string]string{"group": "one"}},
+	})
+	second := CacheKey("primary", "secret", nil, map[string]cacheComponent{
+		"component": {Secret: "value", Captures: map[string]string{"group": "two"}},
+	})
+	if first == second {
+		t.Fatal("component named capture groups must contribute to the validation cache key")
 	}
 }

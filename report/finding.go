@@ -101,15 +101,16 @@ type ComponentSet struct {
 type ComponentFinding struct {
 	// contains a subset of the Finding fields
 	// only used for reporting
-	RuleID          string
-	Optional        bool
-	StartLine       int
-	EndLine         int
-	StartColumn     int
-	EndColumn       int
-	Line            string `json:"-"`
-	Match           string
-	Secret          string
+	RuleID      string
+	Optional    bool
+	StartLine   int
+	EndLine     int
+	StartColumn int
+	EndColumn   int
+	Line        string `json:"-"`
+	Match       string
+	Secret      string
+	// CaptureGroups holds named regex capture groups from the component match.
 	CaptureGroups   map[string]string `json:",omitempty"`
 	RuleSpecificity int               `json:"-"`
 }

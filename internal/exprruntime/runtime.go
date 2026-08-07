@@ -244,7 +244,7 @@ func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken
 	case modePrefilter:
 		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
 	default:
-		b := e.validationBindings(context.Background(), nil, nil, nil, nil)
+		b := e.validationBindings(context.Background(), nil, nil, nil, nil, nil)
 		setCompileMaps(b)
 		return b, []expr.Option{expr.WithContext("ctx")}
 	}
@@ -309,6 +309,13 @@ func (e *Runtime) Eval(prg Program, finding, captures map[string]string) (any, e
 	return e.EvalWithContext(context.Background(), prg, finding, captures, nil)
 }
 
+// EvalWithComponents evaluates a validation program with primary named regex
+// captures and structured component findings.
+func (e *Runtime) EvalWithComponents(prg Program, finding, captures map[string]string, components map[string]any) (any, error) {
+	result, err := e.EvalValidationWithComponents(context.Background(), prg, finding, captures, components, nil, EvalOptions{})
+	return result.Value, err
+}
+
 func (e *Runtime) EvalWithAttributes(prg Program, finding, captures, attributes map[string]string) (any, error) {
 	return e.EvalWithContext(context.Background(), prg, finding, captures, attributes)
 }
@@ -319,6 +326,12 @@ func (e *Runtime) EvalWithContext(ctx context.Context, prg Program, finding, cap
 }
 
 func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, captures, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
+	return e.EvalValidationWithComponents(ctx, prg, finding, captures, nil, attributes, opts)
+}
+
+// EvalValidationWithComponents evaluates a validation program with structured
+// component findings isolated from the primary rule's named capture groups.
+func (e *Runtime) EvalValidationWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -327,7 +340,7 @@ func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, capt
 		ruleID: lookupString(finding, "rule_id"),
 		state:  state,
 	})
-	b := e.validationBindings(ctx, finding, captures, attributes, state)
+	b := e.validationBindings(ctx, finding, captures, components, attributes, state)
 	val, err := expr.Run(prg.vm, b)
 	return EvalResult{
 		Value:           val,
@@ -336,29 +349,39 @@ func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, capt
 	}, err
 }
 
-func (e *Runtime) validationBindings(ctx context.Context, finding, captures, attributes map[string]string, state *evalState) bindings {
+func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[string]string, components map[string]any, attributes map[string]string, state *evalState) bindings {
 	if finding == nil {
 		finding = emptyStringMap
 	}
 	if captures == nil {
 		captures = emptyStringMap
 	}
+	if components == nil {
+		components = map[string]any{}
+	}
 	if attributes == nil {
 		attributes = emptyStringMap
 	}
+	findingWithCaptures := make(map[string]any, len(finding)+1)
+	for key, value := range finding {
+		findingWithCaptures[key] = value
+	}
+	findingWithCaptures["captures"] = captures
 	rt := &runtimeBindings{
 		validation: e,
 		ctx:        ctx,
 		tokenizer:  nil,
-		finding:    finding,
+		finding:    findingWithCaptures,
 		attrs:      attributes,
 		captures:   captures,
+		components: components,
 		debug:      state,
 	}
 	b := baseBindings(rt)
 	b["ctx"] = rt.ctx
 	b["finding"] = rt.finding
 	b["captures"] = rt.captures
+	b["components"] = rt.components
 	b["secret"] = lookupString(rt.finding, "secret")
 	b["bytes"] = func(s string) []byte { return []byte(s) }
 	b["size"] = size
@@ -391,6 +414,7 @@ type runtimeBindings struct {
 	finding           any
 	attrs             any
 	captures          any
+	components        any
 	debug             *evalState
 }
 
@@ -405,7 +429,6 @@ func baseBindings(rt *runtimeBindings) bindings {
 	rtb := bindings{
 		"attributes":           rt.attrs,
 		"get":                  getDefault,
-		"getPath":              getPathDefault,
 		"filter":               filterNamespace(rt),
 		"matchesAny":           matchesAny,
 		"containsAny":          containsAny,
@@ -417,9 +440,10 @@ func baseBindings(rt *runtimeBindings) bindings {
 }
 
 func setCompileMaps(b bindings) {
-	b["finding"] = map[string]any{}
+	b["finding"] = map[string]any{"captures": map[string]any{}}
 	b["attributes"] = map[string]any{}
 	b["captures"] = map[string]any{}
+	b["components"] = map[string]any{}
 	b["secret"] = ""
 }
 
@@ -484,18 +508,6 @@ func getDefault(container any, key string, fallback any) any {
 		return v
 	}
 	return fallback
-}
-
-func getPathDefault(container any, path string, fallback any) any {
-	cur := container
-	for part := range strings.SplitSeq(path, ".") {
-		next, ok := lookup(cur, part)
-		if !ok || next == nil {
-			return fallback
-		}
-		cur = next
-	}
-	return cur
 }
 
 func lookup(container any, key string) (any, bool) {

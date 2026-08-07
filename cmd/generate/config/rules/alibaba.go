@@ -124,13 +124,13 @@ func alibabaAccessKeyValidationExpr(accessKeyIDCapture, securityTokenCapture, se
 	securityTokenExpr := ""
 	if securityTokenCapture != "" {
 		securityTokenExpr = `
-  "&` + securityTokenParam + `=" + strings.urlQueryEscape(captures["` + securityTokenCapture + `"]) +`
+  "&` + securityTokenParam + `=" + strings.urlQueryEscape((components["` + securityTokenCapture + `"]?.secret ?? "")) +`
 	}
 
 	return `let ts = time.nowRFC3339();
 let nonce = time.nowUnix();
 let params =
-  "AccessKeyId=" + strings.urlQueryEscape(captures["` + accessKeyIDCapture + `"]) +` + securityTokenExpr + `
+  "AccessKeyId=" + strings.urlQueryEscape((components["` + accessKeyIDCapture + `"]?.secret ?? "")) +` + securityTokenExpr + `
   "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
   "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01";
 let string_to_sign = "GET&%2F&" + replace(replace(replace(strings.urlQueryEscape(params), "+", "%20"), "*", "%2A"), "%7E", "~");

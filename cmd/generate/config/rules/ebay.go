@@ -42,7 +42,7 @@ func EBayClientSecret() *config.Rule {
 		Components: []*config.Component{
 			{RuleID: "ebay-client-id"},
 		},
-		ValidateExpr: `let clientID = captures["ebay-client-id"];
+		ValidateExpr: `let clientID = (components["ebay-client-id"]?.secret ?? "");
 let r = http.post("https://api.ebay.com/identity/v1/oauth2/token/introspect", {
   "Authorization": "Basic " + base64.encode(bytes(clientID + ":" + finding["secret"])),
   "Content-Type": "application/x-www-form-urlencoded",

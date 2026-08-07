@@ -39,7 +39,7 @@ func RampClientSecret() *config.Rule {
 			{RuleID: "ramp-client-id"},
 		},
 		ValidateExpr: `let r = http.post("https://api.ramp.com/developer/v1/token", {
-    "Authorization": "Basic " + base64.encode(bytes(captures["ramp-client-id"] + ":" + finding["secret"])),
+    "Authorization": "Basic " + base64.encode(bytes((components["ramp-client-id"]?.secret ?? "") + ":" + finding["secret"])),
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
   }, "grant_type=client_credentials&scope=betterleaks%3Avalidate"); r.status == 200

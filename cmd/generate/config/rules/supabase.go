@@ -43,7 +43,7 @@ func SupabaseProjectAPIKey() *config.Rule {
 		Components: []*config.Component{
 			{RuleID: "supabase-project-url"},
 		},
-		ValidateExpr: `let r = http.get(captures["supabase-project-url"] + "/rest/v1/?select=*", {
+		ValidateExpr: `let r = http.get((components["supabase-project-url"]?.secret ?? "") + "/rest/v1/?select=*", {
     "Apikey": finding["secret"],
     "User-Agent": ""
   }); r.status == 200 && (r.body contains "\"host\":") ? {

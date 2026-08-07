@@ -300,13 +300,13 @@ var compatExpressions = []struct {
 		`cel.bind(ts, time.now_unix(),
   cel.bind(sig,
     crypto.hmac_sha256(
-      base64.decode(captures["polymarket-api-secret"]),
+      base64.decode((components["polymarket-api-secret"]?.secret ?? "")),
       bytes(ts + "GET" + "/data/orders")
     ),
     cel.bind(r,
       http.get("https://clob.polymarket.com/data/orders", {
         "POLY_BUILDER_API_KEY": finding["secret"],
-        "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
+        "POLY_BUILDER_PASSPHRASE": (components["polymarket-passphrase"]?.secret ?? ""),
         "POLY_BUILDER_TIMESTAMP": ts,
         "POLY_BUILDER_SIGNATURE": base64.encode(sig).replace("+", "-").replace("/", "_")
       }),
@@ -341,12 +341,12 @@ var compatExpressions = []struct {
 		"ovh-application-secret",
 		`cel.bind(ts, string(time.now_unix()),
   cel.bind(url, "https://api.us.ovhcloud.com/1.0/auth/details",
-    cel.bind(sig_payload, finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts,
+    cel.bind(sig_payload, finding["secret"] + "+" + (components["ovh-consumer-key"]?.secret ?? "") + "+GET+" + url + "++" + ts,
       cel.bind(sig, "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))),
         cel.bind(r,
           http.get(url, {
-            "X-Ovh-Application": captures["ovh-application-key"],
-            "X-Ovh-Consumer": captures["ovh-consumer-key"],
+            "X-Ovh-Application": (components["ovh-application-key"]?.secret ?? ""),
+            "X-Ovh-Consumer": (components["ovh-consumer-key"]?.secret ?? ""),
             "X-Ovh-Timestamp": ts,
             "X-Ovh-Signature": sig
           }),

@@ -98,7 +98,7 @@ func TestAWSValidateExprBinding_Valid(t *testing.T) {
 	env.STSEndpoint = ts.URL
 
 	expr := `cel.bind(r,
-  aws.validate(finding["secret"], captures["aws-secret-access-key"]),
+  aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")),
   r.status == 200 ? {
     "result": "valid",
     "arn": r.arn,
@@ -117,10 +117,10 @@ func TestAWSValidateExprBinding_Valid(t *testing.T) {
 	finding := map[string]string{
 		"secret": "AKIAIOSFODNN7EXAMPLE",
 	}
-	captures := map[string]string{
-		"aws-secret-access-key": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+	components := map[string]any{
+		"aws-secret-access-key": map[string]any{"secret": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"},
 	}
-	got, err := env.Eval(prg, finding, captures)
+	got, err := env.EvalWithComponents(prg, finding, nil, components)
 	if err != nil {
 		t.Fatalf("eval: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestAWSValidateExprBinding_Invalid(t *testing.T) {
 	env.STSEndpoint = ts.URL
 
 	expr := `cel.bind(r,
-  aws.validate(finding["secret"], captures["aws-secret-access-key"]),
+  aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")),
   r.status == 200 ? {
     "result": "valid"
   } : r.status == 403 ? {
@@ -163,10 +163,10 @@ func TestAWSValidateExprBinding_Invalid(t *testing.T) {
 	finding := map[string]string{
 		"secret": "AKIAIOSFODNN7EXAMPLE",
 	}
-	captures := map[string]string{
-		"aws-secret-access-key": "badkey",
+	components := map[string]any{
+		"aws-secret-access-key": map[string]any{"secret": "badkey"},
 	}
-	got, err := env.Eval(prg, finding, captures)
+	got, err := env.EvalWithComponents(prg, finding, nil, components)
 	if err != nil {
 		t.Fatalf("eval: %v", err)
 	}

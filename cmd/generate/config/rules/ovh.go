@@ -58,9 +58,9 @@ func OVHApplicationSecret() *config.Rule {
 		Description: "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}secret"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},
-		ValidateExpr: `let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/details"; (let sig_payload = finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts; (let sig = "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))); (let r = http.get(url, {
-            "X-Ovh-Application": captures["ovh-application-key"],
-            "X-Ovh-Consumer": captures["ovh-consumer-key"],
+		ValidateExpr: `let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/details"; (let sig_payload = finding["secret"] + "+" + (components["ovh-consumer-key"]?.secret ?? "") + "+GET+" + url + "++" + ts; (let sig = "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))); (let r = http.get(url, {
+            "X-Ovh-Application": (components["ovh-application-key"]?.secret ?? ""),
+            "X-Ovh-Consumer": (components["ovh-consumer-key"]?.secret ?? ""),
             "X-Ovh-Timestamp": ts,
             "X-Ovh-Signature": sig
           }); r.status == 200 ? {
