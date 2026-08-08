@@ -1,6 +1,8 @@
 package sources
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"strings"
@@ -144,6 +146,19 @@ func TestFile_Fragments_decodesUTF16(t *testing.T) {
 	t.Run("empty content produces no fragments", func(t *testing.T) {
 		s := &File{Content: strings.NewReader(""), Path: "empty.txt"}
 		require.Empty(t, collectFragments(t, s))
+	})
+
+	t.Run("UTF-16 inside a gzip-compressed file decodes correctly", func(t *testing.T) {
+		content := encodeWithBOM(t, text, unicode.LittleEndian)
+
+		var gz bytes.Buffer
+		w := gzip.NewWriter(&gz)
+		_, err := w.Write(content)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+
+		s := &File{Content: bytes.NewReader(gz.Bytes()), Path: "secret.txt.gz", MaxArchiveDepth: 1}
+		require.Contains(t, collectFragments(t, s), secret)
 	})
 
 	t.Run("UTF-16 content spanning multiple buffer reads decodes correctly", func(t *testing.T) {
