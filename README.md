@@ -43,6 +43,8 @@ cd betterleaks
 make build
 ```
 
+Betterleaks is also bundled in [MegaLinter](https://megalinter.io), an open-source linters aggregator for CI — see its [Betterleaks page](https://megalinter.io/latest/descriptors/repository_betterleaks/) for setup details.
+
 ### Usage
 ```
 # Scan Git
