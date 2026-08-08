@@ -69,6 +69,11 @@ var (
 // to plain UTF-8 so byte/ASCII-oriented rule regexes can match it. The
 // overwhelming majority of files carry no BOM, so br is returned unchanged
 // in that case -- callers pay no extra allocation or copy on the hot path.
+//
+// ponytail: BOM sniffing only recognizes UTF-8/UTF-16 signatures (not
+// UTF-32, and not BOM-less UTF-16); a binary file that coincidentally starts
+// with a UTF-16 BOM would be misdecoded. Upgrade to content-based charset
+// detection if that proves to matter in practice.
 func finalizeReader(br *bufio.Reader) *bufio.Reader {
 	peek, _ := br.Peek(3)
 	switch {

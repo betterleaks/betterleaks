@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -159,6 +160,26 @@ func TestFile_Fragments_decodesUTF16(t *testing.T) {
 
 		s := &File{Content: bytes.NewReader(gz.Bytes()), Path: "secret.txt.gz", MaxArchiveDepth: 1}
 		require.Contains(t, collectFragments(t, s), secret)
+	})
+
+	t.Run("UTF-16 inside a zip archive member decodes correctly", func(t *testing.T) {
+		content := encodeWithBOM(t, text, unicode.LittleEndian)
+
+		var zipBuf bytes.Buffer
+		zw := zip.NewWriter(&zipBuf)
+		f, err := zw.Create("secret.txt")
+		require.NoError(t, err)
+		_, err = f.Write(content)
+		require.NoError(t, err)
+		require.NoError(t, zw.Close())
+
+		s := &File{Content: bytes.NewReader(zipBuf.Bytes()), Path: "archive.zip", MaxArchiveDepth: 1}
+		require.Contains(t, collectFragments(t, s), secret)
+	})
+
+	t.Run("content shorter than a BOM is not mistaken for one", func(t *testing.T) {
+		s := &File{Content: strings.NewReader("\xFF"), Path: "short.txt"}
+		require.Equal(t, "\xFF", collectFragments(t, s))
 	})
 
 	t.Run("UTF-16 content spanning multiple buffer reads decodes correctly", func(t *testing.T) {
