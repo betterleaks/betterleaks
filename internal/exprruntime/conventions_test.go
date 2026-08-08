@@ -69,8 +69,20 @@ func TestFilterScopes(t *testing.T) {
 
 	_, err = env.CompilePrefilter(`finding["secret"] == ""`)
 	require.Error(t, err)
-	_, err = env.CompilePrefilter(`matchesAny(get(attributes, "path", ""), [".go"])`)
+	_, err = env.CompilePrefilter(`matchesAny(attributes["path"], [".go"])`)
 	require.NoError(t, err)
+}
+
+func TestAttributeMapAccessIsSafeWhenKeyIsMissing(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+
+	prg, err := env.CompilePrefilter(`attributes["path"] == ""`)
+	require.NoError(t, err)
+
+	got, err := env.EvalPrefilter(prg, nil)
+	require.NoError(t, err)
+	require.True(t, got)
 }
 
 func TestFilterEntropy(t *testing.T) {

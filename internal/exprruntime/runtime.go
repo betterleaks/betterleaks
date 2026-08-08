@@ -367,13 +367,14 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 		findingWithCaptures[key] = value
 	}
 	findingWithCaptures["captures"] = captures
+	legacyCaptures := legacyValidationCaptures(captures, components)
 	rt := &runtimeBindings{
 		validation: e,
 		ctx:        ctx,
 		tokenizer:  nil,
 		finding:    findingWithCaptures,
 		attrs:      attributes,
-		captures:   captures,
+		captures:   legacyCaptures,
 		components: components,
 		debug:      state,
 	}
@@ -404,6 +405,43 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 	b["unknown"] = unknownResult
 	b["obfuscate"] = func(s string) (string, error) { return obfuscate(s), nil }
 	return b
+}
+
+// legacyValidationCaptures preserves the v1 composite-validation contract at
+// the top-level captures binding. New expressions should use finding["captures"]
+// for primary named groups and components for component data. The overloaded
+// binding can be removed in a future breaking release.
+func legacyValidationCaptures(primary map[string]string, components map[string]any) map[string]string {
+	if len(components) == 0 {
+		return primary
+	}
+
+	legacy := make(map[string]string, len(primary)+len(components)*2)
+	for name, value := range primary {
+		legacy[name] = value
+	}
+	for ruleID, raw := range components {
+		component, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if secret, ok := component["secret"].(string); ok {
+			legacy[ruleID] = secret
+		}
+		switch captures := component["captures"].(type) {
+		case map[string]string:
+			for name, value := range captures {
+				legacy[ruleID+":"+name] = value
+			}
+		case map[string]any:
+			for name, rawValue := range captures {
+				if value, ok := rawValue.(string); ok {
+					legacy[ruleID+":"+name] = value
+				}
+			}
+		}
+	}
+	return legacy
 }
 
 type runtimeBindings struct {

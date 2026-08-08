@@ -38,11 +38,11 @@ compatibility, but new configs should use Expr syntax.
 - `validate` runs after filtering when validation is enabled and has
   `attributes`, `finding`, and `components`.
 
-Safe single-level map access uses `get`. For nested data, use optional access
-with `?.` and provide a fallback with `??`:
+Use brackets to access map values. For nested data that may be absent, use `?.`
+and provide a fallback with `??`:
 
 ```expr
-get(attributes, "path", "")
+attributes["path"]
 components["account-id"]?.secret ?? ""
 r.json?.login ?? ""
 ```
@@ -107,13 +107,13 @@ Example:
 ```toml
 filter = '''
 (
-    filter.matchesAny(get(attributes, "git.author_name", ""), [`\[bot\]$`]) &&
-    filter.matchesAny(get(attributes, "path", ""), [`^tests/fixtures/`]) &&
+    filter.matchesAny(attributes["git.author_name"], [`\[bot\]$`]) &&
+    filter.matchesAny(attributes["path"], [`^tests/fixtures/`]) &&
     filter.containsAny(finding["secret"], ["_MOCK_", "_TEST_"])
 )
 ||
 (
-    filter.matchesAny(get(attributes, "path", ""), [`(?i)\.(?:md|txt|csv)$`]) &&
+    filter.matchesAny(attributes["path"], [`(?i)\.(?:md|txt|csv)$`]) &&
     (
         filter.containsAny(finding["line"], ["Example:", "Placeholder:", "Replace this with"]) ||
         finding["secret"] == "SUPER_SECRET_EXAMPLE_KEY_12345"
@@ -286,21 +286,13 @@ components["account-id"]?.captures?.id       // component named capture group
 ```
 
 Use `?.` when a component or nested field may be absent, and `??` to select a
-fallback. This is especially useful for optional components and avoids
-intermediate `let` bindings:
+fallback. An optional component that is not found has no entry in `components`:
 
 ```expr
 let account = components["account-id"]?.secret ?? "";
 let session = components["session-token"]?.secret ?? "";
 let region = components["account-id"]?.captures?.region ?? "";
 ```
-
-An unmatched optional component is omitted from `components`. Component data is
-never merged into `finding["captures"]`. The top-level `captures` binding remains
-available as a compatibility alias for primary captures, but new and generated
-configs should use `finding["captures"]`. Both `captures` maps contain named
-groups only. Unnamed groups are used only to select the rule's `secret` through
-the normal `secretGroup` or first-non-empty-group behavior.
 
 The older `[[rules.required]]` syntax is deprecated and treated as required
 components when `components` is absent. Its `withinLines` and `withinColumns`

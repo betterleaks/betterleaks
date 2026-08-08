@@ -143,16 +143,20 @@ func TestPoolMaxRequestsReturnsNeedsValidationMetadataAndDoesNotCountCacheHits(t
 	}
 }
 
-func TestPoolSeparatesCapturesAndComponents(t *testing.T) {
+func TestPoolExposesCanonicalAndLegacyComponentBindings(t *testing.T) {
 	rt, err := exprruntime.New(nil)
 	if err != nil {
 		t.Fatalf("exprruntime.New: %v", err)
 	}
-	prg, err := rt.CompileValidation(`len(captures) == 1
+	prg, err := rt.CompileValidation(`len(finding["captures"]) == 1
 && (finding["captures"]?.primary_group ?? "") == "named-value"
 && len(components) == 1
 && (components["required-component"]?.secret ?? "") == "account"
 && (components["required-component"]?.captures?.kind ?? "") == "tenant"
+&& len(captures) == 3
+&& captures["primary_group"] == "named-value"
+&& captures["required-component"] == "account"
+&& captures["required-component:kind"] == "tenant"
 ? {"result": "valid"} : {"result": "invalid"}`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
@@ -177,7 +181,7 @@ func TestPoolSeparatesCapturesAndComponents(t *testing.T) {
 
 	got := <-emitted
 	if got.ValidationStatus != report.ValidationStatusValid {
-		t.Fatalf("validation status = %q, want valid (captures and components must remain separate)", got.ValidationStatus)
+		t.Fatalf("validation status = %q, want valid (canonical and legacy bindings must both work)", got.ValidationStatus)
 	}
 }
 

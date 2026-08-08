@@ -88,12 +88,12 @@ Betterleaks' strength comes from its expressive configuration. Filtering and val
 ```toml
 # Global prefilter, it runs before expensive regex calls
 prefilter = '''
-filter.matchesAny(get(attributes, "path", ""), [
+filter.matchesAny(attributes["path"], [
   `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff|pdf|exe)$`,
   `(?:^|/)node_modules(?:/.*)?$`,
   `(?:^|/)vendor(?:/.*)?$`
 ])
-|| get(attributes, "git.author_name", "") == "renovate[bot]"
+|| attributes["git.author_name"] == "renovate[bot]"
 '''
 
 # Global filter, it runs for _every_ candidate secret.
@@ -116,8 +116,8 @@ keywords = ["github_pat_"]
 # Rule-level filter
 filter = '''
 (
-    get(attributes, "git.author_name", "") == "ci-runner" &&
-    filter.matchesAny(get(attributes, "path", ""), [`^mocks/`]) &&
+    attributes["git.author_name"] == "ci-runner" &&
+    filter.matchesAny(attributes["path"], [`^mocks/`]) &&
     finding["secret"] contains "TESTING"
 )
 || (filter.entropy(finding["secret"]) <= 3.0)

@@ -21,7 +21,7 @@ betterleaksMinVersion = "v1.7.0"
 
 
 prefilter = '''
-matchesAny(get(attributes, "path", ""), [
+matchesAny(attributes["path"], [
   `gitleaks\.toml`,
   `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$`,
   `(?i)\.(?:eot|[ot]tf|woff2?)$`,
@@ -4493,7 +4493,7 @@ entropy(finding["secret"]) <= 3.5
   `--mount=type=secret,`,
   `import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]`
 ])
-|| (matchesAny(get(attributes, "path", ""), [
+|| (matchesAny(attributes["path"], [
   `\.bb$`,
   `\.bbappend$`,
   `\.bbclass$`,
@@ -4610,7 +4610,7 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
-|| matchesAny((attributes["path"] ?? ""), [`(?:^|/)@octokit/auth-token/README\.md$`])
+|| matchesAny(attributes["path"], [`(?:^|/)@octokit/auth-token/README\.md$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4689,7 +4689,7 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
-|| matchesAny((attributes["path"] ?? ""), [`(?:^|/)@octokit/auth-token/README\.md$`])
+|| matchesAny(attributes["path"], [`(?:^|/)@octokit/auth-token/README\.md$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
