@@ -14,6 +14,8 @@ import (
 	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
 	"github.com/rs/zerolog"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 
 	"github.com/betterleaks/betterleaks/logging"
 )
@@ -135,7 +137,10 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		logging.Warn().Str("path", s.FullPath()).Msg("skipping unknown archive type")
 	}
 
-	br := getReader(stream)
+	// Transcode UTF-16 (and stray UTF-8) BOM-prefixed content to plain UTF-8
+	// so byte/ASCII-oriented rule regexes can match it. Content with no BOM
+	// passes through unchanged (transform.Nop).
+	br := getReader(transform.NewReader(stream, unicode.BOMOverride(transform.Nop)))
 	defer putReader(br)
 	isArchiveContent := s.archiveDepth > 0
 	return s.fileFragments(ctx, br, isArchiveContent, yield)
