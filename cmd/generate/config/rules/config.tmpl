@@ -37,7 +37,8 @@ path = '''{{ . }}'''{{ end -}}
 {{- with $rule.SecretGroup }}
 secretGroup = {{ . }}{{ end -}}
 {{- if eq $rule.RuleID "generic-api-key" }}
-specificity = 0{{ end -}}
+specificity = 0{{ else }}{{ with $rule.Specificity }}
+specificity = {{ . }}{{ end }}{{ end -}}
 {{- with $rule.Keywords }}
 {{- if gt (len .) 1}}
 keywords = [{{ range $j, $keyword := . }}
