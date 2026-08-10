@@ -65,10 +65,10 @@ func TableauPersonalAccessToken() *config.Rule {
 			{RuleID: "tableau-personal-access-token-name.1", Within: "20L"},
 			{RuleID: "tableau-server-host.1", Within: "20L"},
 		},
-		ValidateExpr: `let r = http.post("https://" + captures["tableau-server-host.1"] + "/api/3.26/auth/signin", {
+		ValidateExpr: `let r = http.post("https://" + (components["tableau-server-host.1"]?.secret ?? "") + "/api/3.26/auth/signin", {
     "Content-Type": "application/json",
     "Accept": "application/json"
-  }, "{\"credentials\":{\"personalAccessTokenName\":\"" + captures["tableau-personal-access-token-name.1"]
+  }, "{\"credentials\":{\"personalAccessTokenName\":\"" + (components["tableau-personal-access-token-name.1"]?.secret ?? "")
     + "\",\"personalAccessTokenSecret\":\"" + finding["secret"] + "\",\"site\":{}}}");
   r.status == 200 && (r.json?.credentials?.token ?? "") != "" ? {
     "result": "valid"

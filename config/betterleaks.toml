@@ -17,11 +17,11 @@ title = "betterleaks config"
 # betterleaksMinVersion indicates the minimum betterleaks version required.
 # If the running version is older, a warning will be logged.
 minVersion = "v8.25.0"
-betterleaksMinVersion = "v1.7.0"
+betterleaksMinVersion = "v1.7.4"
 
 
 prefilter = '''
-matchesAny(get(attributes, "path", ""), [
+matchesAny(attributes["path"], [
   `gitleaks\.toml`,
   `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$`,
   `(?i)\.(?:eot|[ot]tf|woff2?)$`,
@@ -275,10 +275,10 @@ description = "Identified an Algolia API Key, which could result in unauthorized
 regex = '''(?i)(?:algolia)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["algolia"]
 validate = '''
-let r = http.get("https://" + captures["algolia-application-id"] + ".algolia.net/1/keys/" + finding["secret"], {
+let r = http.get("https://" + (components["algolia-application-id"]?.secret ?? "") + ".algolia.net/1/keys/" + finding["secret"], {
     "Accept": "application/json",
     "X-Algolia-API-Key": finding["secret"],
-    "X-Algolia-Application-Id": captures["algolia-application-id"]
+    "X-Algolia-Application-Id": (components["algolia-application-id"]?.secret ?? "")
   }); let acl = r.json?.acl ?? [];
   let public_acls = ["search", "browse", "listIndexes", "settings"];
   let has_sensitive_acl = any(acl, {# not in public_acls});
@@ -333,7 +333,7 @@ validate = '''
 let ts = time.nowRFC3339();
 let nonce = time.nowUnix();
 let params =
-  "AccessKeyId=" + strings.urlQueryEscape(captures["alibaba-access-key-id"]) +
+  "AccessKeyId=" + strings.urlQueryEscape((components["alibaba-access-key-id"]?.secret ?? "")) +
   "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
   "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01";
 let string_to_sign = "GET&%2F&" + replace(replace(replace(strings.urlQueryEscape(params), "+", "%20"), "*", "%2A"), "%7E", "~");
@@ -383,8 +383,8 @@ validate = '''
 let ts = time.nowRFC3339();
 let nonce = time.nowUnix();
 let params =
-  "AccessKeyId=" + strings.urlQueryEscape(captures["alibaba-sts-access-key-id"]) +
-  "&SecurityToken=" + strings.urlQueryEscape(captures["alibaba-sts-security-token"]) +
+  "AccessKeyId=" + strings.urlQueryEscape((components["alibaba-sts-access-key-id"]?.secret ?? "")) +
+  "&SecurityToken=" + strings.urlQueryEscape((components["alibaba-sts-security-token"]?.secret ?? "")) +
   "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
   "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01";
 let string_to_sign = "GET&%2F&" + replace(replace(replace(strings.urlQueryEscape(params), "+", "%20"), "*", "%2A"), "%7E", "~");
@@ -530,7 +530,7 @@ description = "Detected an Artifactory api key, posing a risk unauthorized acces
 regex = '''\bAKCp[A-Za-z0-9]{68,70}\b'''
 keywords = ["akcp"]
 validate = '''
-let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/repositories", {
     "X-JFrog-Art-Api": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid"
@@ -568,7 +568,7 @@ description = "Detected an Artifactory reference token, posing a risk of imperso
 regex = '''\bcmVmd[A-Za-z0-9]{59}\b'''
 keywords = ["cmvmd"]
 validate = '''
-let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/repositories", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid"
@@ -696,7 +696,7 @@ keywords = [
     "acca",
 ]
 validate = '''
-let r = aws.validate(finding["secret"], captures["aws-secret-access-key"]); r.status == 200 ? {
+let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
     "result": "valid",
     "arn": r.arn,
     "account": r.account,
@@ -782,7 +782,7 @@ keywords = [
     "9q~",
 ]
 validate = '''
-let r = azure.validateServicePrincipal(captures["azure-tenant-id"], captures["azure-client-id"], finding["secret"]); r.status == 200 ? {
+let r = azure.validateServicePrincipal((components["azure-tenant-id"]?.secret ?? ""), (components["azure-client-id"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
   "tenant_id": r.tenant_id,
   "client_id": r.client_id
@@ -815,7 +815,11 @@ keywords = [
     "secret=",
 ]
 validate = '''
-let r = azure.validateAppConfig(captures["azure_appconfig_endpoint"], captures["azure_appconfig_id"], finding["secret"]); r.status == 200 ? {
+let r = azure.validateAppConfig(
+  finding["captures"]?.azure_appconfig_endpoint ?? "",
+  finding["captures"]?.azure_appconfig_id ?? "",
+  finding["secret"]
+); r.status == 200 ? {
   "result": "valid",
   "endpoint": r.endpoint,
   "id": r.id
@@ -883,7 +887,7 @@ keywords = [
     "key",
 ]
 validate = '''
-let r = azure.validateStorage(captures["azure-storage-account-name"], finding["secret"]); r.status == 200 ? {
+let r = azure.validateStorage((components["azure-storage-account-name"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
   "account": r.account,
   "containers": r.containers
@@ -1170,7 +1174,7 @@ let r = http.post("https://api.canva.com/rest/v1/oauth/token", {
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
   },
-  "grant_type=authorization_code&client_id=" + captures["canva-client-id"] +
+  "grant_type=authorization_code&client_id=" + (components["canva-client-id"]?.secret ?? "") +
   "&client_secret=" + finding["secret"] +
   "&code_verifier=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abcdefgh&code=invalid"); r.status == 400 && (r.body contains "\"invalid_grant\"") && !(r.body contains "\"invalid_client\"") ? {
     "result": "valid"
@@ -1345,7 +1349,7 @@ regex = '''\b(4b1d[A-Za-z0-9]{38})\b'''
 keywords = ["4b1d"]
 validate = '''
 let r = http.get("https://api.clickhouse.cloud/v1/organizations", {
-    "Authorization": "Basic " + base64.encode(bytes(captures["clickhouse-cloud-key-id"] + ":" + finding["secret"]))
+    "Authorization": "Basic " + base64.encode(bytes((components["clickhouse-cloud-key-id"]?.secret ?? "") + ":" + finding["secret"]))
   }); r.status == 200 && (r.body contains "\"id\":") && (r.body contains "\"name\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
@@ -1471,8 +1475,8 @@ description = "Detected a Cloudinary API secret, which may allow unauthorized ac
 regex = '''(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|API[_\s]?SECRET)(?:.|[\n\r]){0,32}?\b([A-Za-z0-9]{32})\b'''
 keywords = ["cloudinary"]
 validate = '''
-let r = http.get("https://api.cloudinary.com/v1_1/" + captures["cloudinary-cloud-name"] + "/usage", {
-    "Authorization": "Basic " + base64.encode(bytes(captures["cloudinary-api-key"] + ":" + finding["secret"])),
+let r = http.get("https://api.cloudinary.com/v1_1/" + (components["cloudinary-cloud-name"]?.secret ?? "") + "/usage", {
+    "Authorization": "Basic " + base64.encode(bytes((components["cloudinary-api-key"]?.secret ?? "") + ":" + finding["secret"])),
     "Accept": "application/json"
   }); r.status == 200 ? {
     "result": "valid"
@@ -2361,7 +2365,7 @@ description = "eBay client secret."
 regex = '''(?i:(?:ebay(?:[_. -]*(?:client|api))?[_. -]*(?:secret|key))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(PRD-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4,12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["ebay"]
 validate = '''
-let clientID = captures["ebay-client-id"];
+let clientID = (components["ebay-client-id"]?.secret ?? "");
 let r = http.post("https://api.ebay.com/identity/v1/oauth2/token/introspect", {
   "Authorization": "Basic " + base64.encode(bytes(clientID + ":" + finding["secret"])),
   "Content-Type": "application/x-www-form-urlencoded",
@@ -2472,7 +2476,7 @@ regex = '''\b(EXO[a-zA-Z0-9]{24,30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["exo"]
 validate = '''
 let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
-      bytes(captures["exoscale-api-secret"]),
+      bytes((components["exoscale-api-secret"]?.secret ?? "")),
       bytes("GET /v2/zone\n\n\n\n" + ts)
     ); (let r = http.get("https://api-ch-gva-2.exoscale.com/v2/zone", {
         "Authorization": "EXO2-HMAC-SHA256 credential=" + finding["secret"] + ",expires=" + ts + ",signature=" + base64.encode(sig)
@@ -4489,7 +4493,7 @@ entropy(finding["secret"]) <= 3.5
   `--mount=type=secret,`,
   `import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]`
 ])
-|| (matchesAny(get(attributes, "path", ""), [
+|| (matchesAny(attributes["path"], [
   `\.bb$`,
   `\.bbappend$`,
   `\.bbclass$`,
@@ -4606,7 +4610,7 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
-|| matchesAny((attributes["path"] ?? ""), [`(?:^|/)@octokit/auth-token/README\.md$`])
+|| matchesAny(attributes["path"], [`(?:^|/)@octokit/auth-token/README\.md$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4685,7 +4689,7 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
-|| matchesAny((attributes["path"] ?? ""), [`(?:^|/)@octokit/auth-token/README\.md$`])
+|| matchesAny(attributes["path"], [`(?:^|/)@octokit/auth-token/README\.md$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5680,7 +5684,7 @@ validate = '''
 let r = http.post("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
     "Content-Type": "application/json",
     "Accept": "application/json"
-  }, "{\"app_id\":" + json.string(captures["lark-app-id"]) + ",\"app_secret\":" + json.string(finding["secret"]) + "}");
+  }, "{\"app_id\":" + json.string((components["lark-app-id"]?.secret ?? "")) + ",\"app_secret\":" + json.string(finding["secret"]) + "}");
 let code = r.json?.code ?? -1;
 r.status == 200 && code == 0 ? {
     "result": "valid"
@@ -6160,7 +6164,7 @@ validate = '''
 let r = http.post("https://cloud.mongodb.com/api/oauth/token", {
     "Accept": "application/json",
     "Content-Type": "application/x-www-form-urlencoded",
-    "Authorization": "Basic " + base64.encode(bytes(captures["mongodb-atlas-service-account-id"] + ":" + finding["secret"]))
+    "Authorization": "Basic " + base64.encode(bytes((components["mongodb-atlas-service-account-id"]?.secret ?? "") + ":" + finding["secret"]))
   }, "grant_type=client_credentials"); r.status == 200 && (r.json?.access_token ?? "") != "" ? {
     "result": "valid"
   } : r.status == 401 ? {
@@ -6559,9 +6563,9 @@ description = "OVHcloud Application Secret - component of authenticated OVH API 
 regex = '''(?i)(?:app(?:lication)?[_.-]{0,1}secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["ovh"]
 validate = '''
-let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/details"; (let sig_payload = finding["secret"] + "+" + captures["ovh-consumer-key"] + "+GET+" + url + "++" + ts; (let sig = "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))); (let r = http.get(url, {
-            "X-Ovh-Application": captures["ovh-application-key"],
-            "X-Ovh-Consumer": captures["ovh-consumer-key"],
+let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/details"; (let sig_payload = finding["secret"] + "+" + (components["ovh-consumer-key"]?.secret ?? "") + "+GET+" + url + "++" + ts; (let sig = "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))); (let r = http.get(url, {
+            "X-Ovh-Application": (components["ovh-application-key"]?.secret ?? ""),
+            "X-Ovh-Consumer": (components["ovh-consumer-key"]?.secret ?? ""),
             "X-Ovh-Timestamp": ts,
             "X-Ovh-Signature": sig
           }); r.status == 200 ? {
@@ -6798,10 +6802,10 @@ keywords = ["pscale_tkn_"]
 validate = '''
 let r = http.get("https://api.planetscale.com/v1/organizations", {
     "Accept": "application/json",
-    "Authorization": captures["planetscale-id"] + ":" + finding["secret"]
+    "Authorization": (components["planetscale-id"]?.secret ?? "") + ":" + finding["secret"]
   }); r.status == 200 && (r.json?.type ?? "") == "list" ? {
     "result": "valid",
-    "organization": getPath(r.json, "data.0.name", "")
+    "organization": r.json?.data?.[0]?.name ?? ""
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -6876,7 +6880,7 @@ description = "Plivo Auth Token."
 regex = '''(?i:(?:plivo(?:[_. -]*(?:auth))?[_. -]*(?:secret|token|key))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["plivo"]
 validate = '''
-let authID = captures["plivo-auth-id"];
+let authID = (components["plivo-auth-id"]?.secret ?? "");
 let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
   "Authorization": "Basic " + base64.encode(bytes(authID + ":" + finding["secret"])),
   "Accept": "application/json"
@@ -6995,11 +6999,11 @@ regex = '''(?i:(?:poly.{0,20}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\
 keywords = ["poly"]
 validate = '''
 let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
-      base64.decode(captures["polymarket-api-secret"]),
+      base64.decode((components["polymarket-api-secret"]?.secret ?? "")),
       bytes(ts + "GET" + "/data/orders")
     ); (let r = http.get("https://clob.polymarket.com/data/orders", {
         "POLY_BUILDER_API_KEY": finding["secret"],
-        "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
+        "POLY_BUILDER_PASSPHRASE": (components["polymarket-passphrase"]?.secret ?? ""),
         "POLY_BUILDER_TIMESTAMP": ts,
         "POLY_BUILDER_SIGNATURE": replace(replace(base64.encode(sig), "+", "-"), "/", "_")
       }); r.status == 200 ? {
@@ -7244,7 +7248,7 @@ regex = '''\b(ramp_sec_[A-Za-z0-9]{48})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["ramp_sec_"]
 validate = '''
 let r = http.post("https://api.ramp.com/developer/v1/token", {
-    "Authorization": "Basic " + base64.encode(bytes(captures["ramp-client-id"] + ":" + finding["secret"])),
+    "Authorization": "Basic " + base64.encode(bytes((components["ramp-client-id"]?.secret ?? "") + ":" + finding["secret"])),
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
   }, "grant_type=client_credentials&scope=betterleaks%3Avalidate"); r.status == 200
@@ -7426,7 +7430,7 @@ description = "Salesforce access token."
 regex = '''\b(00[A-Za-z0-9]{13}![A-Za-z0-9._-]{80,260})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["salesforce.com"]
 validate = '''
-let r = http.get("https://" + captures["salesforce-instance-url.1"] + "/services/data/v67.0/limits", {
+let r = http.get("https://" + (components["salesforce-instance-url.1"]?.secret ?? "") + "/services/data/v67.0/limits", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }); r.status == 200 && (r.body contains "\"DailyApiRequests\"") ? {
@@ -7939,7 +7943,7 @@ keywords = [
     "sf_token",
 ]
 validate = '''
-let r = http.post("https://" + captures["snowflake-account-host.1"] + "/api/v2/statements", {
+let r = http.post("https://" + (components["snowflake-account-host.1"]?.secret ?? "") + "/api/v2/statements", {
     "Authorization": "Bearer " + finding["secret"],
     "X-Snowflake-Authorization-Token-Type": "PROGRAMMATIC_ACCESS_TOKEN",
     "Content-Type": "application/json",
@@ -8149,7 +8153,7 @@ description = "Detected a Supabase Project API Key, which may expose project dat
 regex = '''\b(sb_secret_[A-Za-z0-9_-]{31})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = ["sb_secret_"]
 validate = '''
-let r = http.get(captures["supabase-project-url"] + "/rest/v1/?select=*", {
+let r = http.get((components["supabase-project-url"]?.secret ?? "") + "/rest/v1/?select=*", {
     "Apikey": finding["secret"],
     "User-Agent": ""
   }); r.status == 200 && (r.body contains "\"host\":") ? {
@@ -8198,10 +8202,10 @@ description = "Tableau personal access token."
 regex = '''\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b'''
 keywords = ["tableau"]
 validate = '''
-let r = http.post("https://" + captures["tableau-server-host.1"] + "/api/3.26/auth/signin", {
+let r = http.post("https://" + (components["tableau-server-host.1"]?.secret ?? "") + "/api/3.26/auth/signin", {
     "Content-Type": "application/json",
     "Accept": "application/json"
-  }, "{\"credentials\":{\"personalAccessTokenName\":\"" + captures["tableau-personal-access-token-name.1"]
+  }, "{\"credentials\":{\"personalAccessTokenName\":\"" + (components["tableau-personal-access-token-name.1"]?.secret ?? "")
     + "\",\"personalAccessTokenSecret\":\"" + finding["secret"] + "\",\"site\":{}}}");
   r.status == 200 && (r.json?.credentials?.token ?? "") != "" ? {
     "result": "valid"

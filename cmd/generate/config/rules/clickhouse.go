@@ -20,7 +20,7 @@ func ClickHouseCloud() *config.Rule {
 			{RuleID: "clickhouse-cloud-key-id"},
 		},
 		ValidateExpr: `let r = http.get("https://api.clickhouse.cloud/v1/organizations", {
-    "Authorization": "Basic " + base64.encode(bytes(captures["clickhouse-cloud-key-id"] + ":" + finding["secret"]))
+    "Authorization": "Basic " + base64.encode(bytes((components["clickhouse-cloud-key-id"]?.secret ?? "") + ":" + finding["secret"]))
   }); r.status == 200 && (r.body contains "\"id\":") && (r.body contains "\"name\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {

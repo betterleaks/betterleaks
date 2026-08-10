@@ -16,7 +16,7 @@ func buildGenericAPIKeyFilter() string {
   ` + "`--mount=type=secret,`" + `,
   ` + "`import[ \\t]+{[ \\t\\w,]+}[ \\t]+from[ \\t]+['\"][^'\"]+['\"]`" + `
 ])
-|| (matchesAny(get(attributes, "path", ""), [
+|| (matchesAny(attributes["path"], [
   ` + "`\\.bb$`" + `,
   ` + "`\\.bbappend$`" + `,
   ` + "`\\.bbclass$`" + `,

@@ -36,12 +36,14 @@ compatibility, but new configs should use Expr syntax.
 - `prefilter` runs before regex matching and only has `attributes`.
 - `filter` runs after regex matching and has `attributes` and `finding`.
 - `validate` runs after filtering when validation is enabled and has
-  `attributes`, `finding`, and `captures`.
+  `attributes`, `finding`, and `components`.
 
-Safe map access uses `get`, and optional object access uses `?.` plus `??`:
+Use brackets to access map values. For nested data that may be absent, use `?.`
+and provide a fallback with `??`:
 
 ```expr
-get(attributes, "path", "")
+attributes["path"]
+components["account-id"]?.secret ?? ""
 r.json?.login ?? ""
 ```
 
@@ -50,8 +52,8 @@ r.json?.login ?? ""
 | Name | Scope | Description |
 | :--- | :--- | :--- |
 | `attributes` | prefilter, filter, validate | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, and `fs.symlink`. |
-| `finding` | filter, validate | Matched secret data. Common keys include `secret`, `match`, `line`, `rule_id`, and `description`. |
-| `captures` | validate | Named capture groups from the rule regex. |
+| `finding` | filter, validate | Matched secret data. Common keys include `secret`, `match`, `line`, `rule_id`, and `description`. In validation, `finding["captures"]` contains the primary rule's named regex groups. |
+| `components` | validate | Matched component findings, keyed by the referenced component rule ID. Each has `secret` and `captures` fields. |
 
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
@@ -105,13 +107,13 @@ Example:
 ```toml
 filter = '''
 (
-    filter.matchesAny(get(attributes, "git.author_name", ""), [`\[bot\]$`]) &&
-    filter.matchesAny(get(attributes, "path", ""), [`^tests/fixtures/`]) &&
+    filter.matchesAny(attributes["git.author_name"], [`\[bot\]$`]) &&
+    filter.matchesAny(attributes["path"], [`^tests/fixtures/`]) &&
     filter.containsAny(finding["secret"], ["_MOCK_", "_TEST_"])
 )
 ||
 (
-    filter.matchesAny(get(attributes, "path", ""), [`(?i)\.(?:md|txt|csv)$`]) &&
+    filter.matchesAny(attributes["path"], [`(?i)\.(?:md|txt|csv)$`]) &&
     (
         filter.containsAny(finding["line"], ["Example:", "Placeholder:", "Replace this with"]) ||
         finding["secret"] == "SUPER_SECRET_EXAMPLE_KEY_12345"
@@ -274,10 +276,23 @@ before and after, `100C` allows 100 characters on either side, and signs make a
 boundary directional (for example, `-2L,+4C`). When `within` is omitted, the
 component only needs to occur in the same fragment.
 
-Matched components are available to validation expressions by referenced rule
-ID, for example `captures["account-id"]`. An unmatched optional component is
-omitted from `captures`, so use a safe lookup such as
-`get(captures, "session-token", "")`.
+Validation receives primary captures and matched components in this canonical
+shape:
+
+```expr
+finding["captures"]                         // primary rule named capture groups
+components["account-id"]?.secret            // component's selected secret
+components["account-id"]?.captures?.id       // component named capture group
+```
+
+Use `?.` when a component or nested field may be absent, and `??` to select a
+fallback. An optional component that is not found has no entry in `components`:
+
+```expr
+let account = components["account-id"]?.secret ?? "";
+let session = components["session-token"]?.secret ?? "";
+let region = components["account-id"]?.captures?.region ?? "";
+```
 
 The older `[[rules.required]]` syntax is deprecated and treated as required
 components when `components` is absent. Its `withinLines` and `withinColumns`
@@ -366,7 +381,7 @@ let r = http.post(
     "]" +
   "}"
 );
-let content = getPath(r.json, "choices.0.message.content", "");
+let content = r.json?.choices?.[0]?.message?.content ?? "";
 r.status == 200 && r.body contains "VERDICT_SECRET" ? {
   "result": "needs_validation",
   "justification": content
@@ -383,8 +398,9 @@ Project-owned Expr functions use short lower-case namespaces with camelCase
 function names. Examples: `http.get`, `crypto.hmacSha256`,
 `filter.matchesAny`, `env.getOrDefault`, and `validate.unknown`.
 
-Data keys stay snake_case. This includes capture keys, attribute keys, finding
-keys, and response map keys such as `error_code`.
+Project-owned data keys stay snake_case. This includes attribute keys, finding
+keys, and response map keys such as `error_code`. Capture names and component
+rule IDs are user-defined and are preserved exactly as map keys.
 
 ## Adding an Expr binding
 

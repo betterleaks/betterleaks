@@ -45,7 +45,7 @@ func LarkAppSecret() *config.Rule {
 		ValidateExpr: `let r = http.post("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
     "Content-Type": "application/json",
     "Accept": "application/json"
-  }, "{\"app_id\":" + json.string(captures["lark-app-id"]) + ",\"app_secret\":" + json.string(finding["secret"]) + "}");
+  }, "{\"app_id\":" + json.string((components["lark-app-id"]?.secret ?? "")) + ",\"app_secret\":" + json.string(finding["secret"]) + "}");
 let code = r.json?.code ?? -1;
 r.status == 200 && code == 0 ? {
     "result": "valid"

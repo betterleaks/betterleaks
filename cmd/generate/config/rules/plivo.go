@@ -46,7 +46,7 @@ func PlivoAuthToken() *config.Rule {
 		Components: []*config.Component{
 			{RuleID: "plivo-auth-id"},
 		},
-		ValidateExpr: `let authID = captures["plivo-auth-id"];
+		ValidateExpr: `let authID = (components["plivo-auth-id"]?.secret ?? "");
 let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
   "Authorization": "Basic " + base64.encode(bytes(authID + ":" + finding["secret"])),
   "Accept": "application/json"

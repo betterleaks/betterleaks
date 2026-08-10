@@ -43,7 +43,7 @@ func SnowflakeProgrammaticAccessToken() *config.Rule {
 		Components: []*config.Component{
 			{RuleID: "snowflake-account-host.1", Within: "30L"},
 		},
-		ValidateExpr: `let r = http.post("https://" + captures["snowflake-account-host.1"] + "/api/v2/statements", {
+		ValidateExpr: `let r = http.post("https://" + (components["snowflake-account-host.1"]?.secret ?? "") + "/api/v2/statements", {
     "Authorization": "Bearer " + finding["secret"],
     "X-Snowflake-Authorization-Token-Type": "PROGRAMMATIC_ACCESS_TOKEN",
     "Content-Type": "application/json",

@@ -101,15 +101,16 @@ type ComponentSet struct {
 type ComponentFinding struct {
 	// contains a subset of the Finding fields
 	// only used for reporting
-	RuleID          string
-	Optional        bool
-	StartLine       int
-	EndLine         int
-	StartColumn     int
-	EndColumn       int
-	Line            string `json:"-"`
-	Match           string
-	Secret          string
+	RuleID      string
+	Optional    bool
+	StartLine   int
+	EndLine     int
+	StartColumn int
+	EndColumn   int
+	Line        string `json:"-"`
+	Match       string
+	Secret      string
+	// CaptureGroups holds named regex capture groups from the component match.
 	CaptureGroups   map[string]string `json:",omitempty"`
 	RuleSpecificity int               `json:"-"`
 }
@@ -193,7 +194,11 @@ func (f *Finding) Redact(percent uint) {
 			if percent >= 100 {
 				compSecret = "REDACTED"
 			}
+			comp.Line = strings.ReplaceAll(comp.Line, comp.Secret, compSecret)
 			comp.Match = strings.ReplaceAll(comp.Match, comp.Secret, compSecret)
+			for k, v := range comp.CaptureGroups {
+				comp.CaptureGroups[k] = strings.ReplaceAll(v, comp.Secret, compSecret)
+			}
 			comp.Secret = compSecret
 		}
 	}

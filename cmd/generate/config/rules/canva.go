@@ -40,7 +40,7 @@ func CanvaClientSecret() *config.Rule {
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
   },
-  "grant_type=authorization_code&client_id=" + captures["canva-client-id"] +
+  "grant_type=authorization_code&client_id=" + (components["canva-client-id"]?.secret ?? "") +
   "&client_secret=" + finding["secret"] +
   "&code_verifier=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~abcdefgh&code=invalid"); r.status == 400 && (r.body contains "\"invalid_grant\"") && !(r.body contains "\"invalid_client\"") ? {
     "result": "valid"

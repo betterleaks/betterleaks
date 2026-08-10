@@ -65,11 +65,11 @@ func PolymarketAPIKey() *config.Rule {
 			},
 		},
 		ValidateExpr: `let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
-      base64.decode(captures["polymarket-api-secret"]),
+      base64.decode((components["polymarket-api-secret"]?.secret ?? "")),
       bytes(ts + "GET" + "/data/orders")
     ); (let r = http.get("https://clob.polymarket.com/data/orders", {
         "POLY_BUILDER_API_KEY": finding["secret"],
-        "POLY_BUILDER_PASSPHRASE": captures["polymarket-passphrase"],
+        "POLY_BUILDER_PASSPHRASE": (components["polymarket-passphrase"]?.secret ?? ""),
         "POLY_BUILDER_TIMESTAMP": ts,
         "POLY_BUILDER_SIGNATURE": replace(replace(base64.encode(sig), "+", "-"), "/", "_")
       }); r.status == 200 ? {

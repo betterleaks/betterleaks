@@ -43,7 +43,7 @@ func SalesforceAccessToken() *config.Rule {
 		Components: []*config.Component{
 			{RuleID: "salesforce-instance-url.1", Within: "30L"},
 		},
-		ValidateExpr: `let r = http.get("https://" + captures["salesforce-instance-url.1"] + "/services/data/v67.0/limits", {
+		ValidateExpr: `let r = http.get("https://" + (components["salesforce-instance-url.1"]?.secret ?? "") + "/services/data/v67.0/limits", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }); r.status == 200 && (r.body contains "\"DailyApiRequests\"") ? {

@@ -55,7 +55,7 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 			{RuleID: "azure-tenant-id", Within: "8L"},
 			{RuleID: "azure-client-id", Within: "8L"},
 		},
-		ValidateExpr: `let r = azure.validateServicePrincipal(captures["azure-tenant-id"], captures["azure-client-id"], finding["secret"]); r.status == 200 ? {
+		ValidateExpr: `let r = azure.validateServicePrincipal((components["azure-tenant-id"]?.secret ?? ""), (components["azure-client-id"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
   "tenant_id": r.tenant_id,
   "client_id": r.client_id
@@ -123,7 +123,7 @@ func AzureStorageAccountKey() *config.Rule {
 		Components: []*config.Component{
 			{RuleID: "azure-storage-account-name", Within: "8L"},
 		},
-		ValidateExpr: `let r = azure.validateStorage(captures["azure-storage-account-name"], finding["secret"]); r.status == 200 ? {
+		ValidateExpr: `let r = azure.validateStorage((components["azure-storage-account-name"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
   "account": r.account,
   "containers": r.containers
@@ -145,7 +145,11 @@ func AzureAppConfigurationConnectionString() *config.Rule {
 		Regex:       regexp.MustCompile(`(?i)Endpoint=(?P<azure_appconfig_endpoint>https://[a-z0-9-]+\.azconfig\.io);Id=(?P<azure_appconfig_id>[^;\s'"]{4,80});Secret=([A-Za-z0-9+/]{36,100}={0,2})`),
 		SecretGroup: 3,
 		Keywords:    []string{"azconfig.io", "Endpoint=", "Secret="},
-		ValidateExpr: `let r = azure.validateAppConfig(captures["azure_appconfig_endpoint"], captures["azure_appconfig_id"], finding["secret"]); r.status == 200 ? {
+		ValidateExpr: `let r = azure.validateAppConfig(
+  finding["captures"]?.azure_appconfig_endpoint ?? "",
+  finding["captures"]?.azure_appconfig_id ?? "",
+  finding["secret"]
+); r.status == 200 ? {
   "result": "valid",
   "endpoint": r.endpoint,
   "id": r.id

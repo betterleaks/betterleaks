@@ -62,10 +62,10 @@ func PlanetScaleAPIToken() *config.Rule {
 		},
 		ValidateExpr: `let r = http.get("https://api.planetscale.com/v1/organizations", {
     "Accept": "application/json",
-    "Authorization": captures["planetscale-id"] + ":" + finding["secret"]
+    "Authorization": (components["planetscale-id"]?.secret ?? "") + ":" + finding["secret"]
   }); r.status == 200 && (r.json?.type ?? "") == "list" ? {
     "result": "valid",
-    "organization": getPath(r.json, "data.0.name", "")
+    "organization": r.json?.data?.[0]?.name ?? ""
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

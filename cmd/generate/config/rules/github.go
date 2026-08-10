@@ -20,7 +20,7 @@ const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "htt
       "reason": "Unauthorized"
     } : validate.unknown(r))`
 
-var githubPathFilter = "matchesAny((attributes[\"path\"] ?? \"\"), [`(?:^|/)@octokit/auth-token/README\\.md$`])"
+var githubPathFilter = "matchesAny(attributes[\"path\"], [`(?:^|/)@octokit/auth-token/README\\.md$`])"
 
 func GitHubPat() *config.Rule {
 	// define rule

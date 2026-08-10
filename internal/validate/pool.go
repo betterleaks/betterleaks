@@ -131,24 +131,33 @@ func (p *Pool) worker() {
 		for i := range f.ComponentSets {
 			set := &f.ComponentSets[i]
 
-			// Build merged captures from the set's components.
-			merged := make(map[string]string, len(job.captures)+len(set.Components)*2)
-			maps.Copy(merged, job.captures)
+			// Build the structured component binding for this combination. Primary
+			// named regex captures remain isolated in job.captures.
+			components := make(map[string]any, len(set.Components))
+			cacheComponents := make(map[string]cacheComponent, len(set.Components))
 			for _, comp := range set.Components {
-				merged[comp.RuleID] = comp.Secret
-				for name, val := range comp.CaptureGroups {
-					merged[comp.RuleID+":"+name] = val
+				captures := comp.CaptureGroups
+				if captures == nil {
+					captures = map[string]string{}
+				}
+				components[comp.RuleID] = map[string]any{
+					"secret":   comp.Secret,
+					"captures": captures,
+				}
+				cacheComponents[comp.RuleID] = cacheComponent{
+					Secret:   comp.Secret,
+					Captures: captures,
 				}
 			}
 
-			cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, merged)
+			cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, job.captures, cacheComponents)
 
 			var result *Result
 			if r, seen := setResults[cacheKey]; seen {
 				result = r
 			} else {
 				var err error
-				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ToExprMap(), merged, f.Attributes)
+				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ToExprMap(), job.captures, components, f.Attributes)
 				if err != nil {
 					result = &Result{Status: report.ValidationStatusError, Reason: err.Error(), Metadata: map[string]any{}}
 				}
@@ -200,22 +209,22 @@ func (p *Pool) worker() {
 // using the cache to avoid duplicate HTTP requests. The secret is used only
 // for cache keying; the program reads it from finding["secret"].
 func (p *Pool) evalWithCaptures(program exprruntime.Program, ruleID, secret string, finding, captures, attributes map[string]string) (*Result, error) {
-	cacheKey := CacheKey(ruleID, secret, captures)
-	return p.evalWithCacheKey(cacheKey, program, finding, captures, attributes)
+	cacheKey := CacheKey(ruleID, secret, captures, nil)
+	return p.evalWithCacheKey(cacheKey, program, finding, captures, nil, attributes)
 }
 
 // evalWithCacheKey runs the validation program using the given pre-computed cache key.
-func (p *Pool) evalWithCacheKey(cacheKey string, program exprruntime.Program, finding, captures, attributes map[string]string) (*Result, error) {
+func (p *Pool) evalWithCacheKey(cacheKey string, program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string) (*Result, error) {
 	if p.Debug {
-		return p.evalProgram(program, finding, captures, attributes)
+		return p.evalProgram(program, finding, captures, components, attributes)
 	}
 	return p.cache.GetOrDo(cacheKey, func() (*Result, error) {
-		return p.evalProgram(program, finding, captures, attributes)
+		return p.evalProgram(program, finding, captures, components, attributes)
 	})
 }
 
-func (p *Pool) evalProgram(program exprruntime.Program, finding, captures, attributes map[string]string) (*Result, error) {
-	result, evalErr := p.runtime.EvalValidation(p.ctx, program, finding, captures, attributes, exprruntime.EvalOptions{Debug: p.Debug})
+func (p *Pool) evalProgram(program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string) (*Result, error) {
+	result, evalErr := p.runtime.EvalValidationWithComponents(p.ctx, program, finding, captures, components, attributes, exprruntime.EvalOptions{Debug: p.Debug})
 	if result.RequestLimitHit != nil {
 		hit := result.RequestLimitHit
 		metadata := map[string]any{

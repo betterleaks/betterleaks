@@ -17,7 +17,7 @@ func ArtifactoryApiKey() *config.Rule {
 		Components: []*config.Component{
 			{RuleID: "artifactory-jfrog-url"},
 		},
-		ValidateExpr: `let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+		ValidateExpr: `let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/repositories", {
     "X-JFrog-Art-Api": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid"
@@ -53,7 +53,7 @@ func ArtifactoryReferenceToken() *config.Rule {
 		Components: []*config.Component{
 			{RuleID: "artifactory-jfrog-url"},
 		},
-		ValidateExpr: `let r = http.get("https://" + captures["artifactory-jfrog-url"] + "/artifactory/api/repositories", {
+		ValidateExpr: `let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/repositories", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid"
