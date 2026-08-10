@@ -111,6 +111,29 @@ func GitlabIncomingMailToken() *config.Rule {
 	return utils.Validate(r, tps, nil)
 }
 
+// GitlabIncomingMailAddressToken finds incoming-mail tokens embedded in GitLab
+// reply-by-email addresses. Prefer gitlab-incoming-mail-token (glimt- prefix)
+// when both match; this rule covers legacy tokens and arbitrary prefixes.
+func GitlabIncomingMailAddressToken() *config.Rule {
+	r := config.Rule{
+		RuleID:      "gitlab-incoming-mail-address-token",
+		Description: "Identified a GitLab incoming mail token embedded in an email address, risking manipulation of data sent by mail.",
+		Regex:       regexp.MustCompile(`incoming\+[A-Za-z0-9._-]+?-\d+-([A-Za-z0-9_][A-Za-z0-9._-]*)-(?:issue(?:-\d+)?|merge-request)@`),
+		Keywords:    []string{"incoming+"},
+		Specificity: 50,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
+	}
+	token := secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3)
+	glimtToken := "glimt-" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3)
+	tps := []string{
+		"incoming+gitlab-org-project-123-" + token + "-issue@example.com",
+		"incoming+my.group_path-456-" + token + "-merge-request@gitlab.example.com",
+		"incoming+project.path-789-" + token + "-issue-42@example.com",
+		"incoming+gitlab-org-gitlab-foss-20-" + glimtToken + "-issue@example.com",
+	}
+	return utils.Validate(r, tps, nil)
+}
+
 func GitlabKubernetesAgentToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-kubernetes-agent-token",
