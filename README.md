@@ -127,7 +127,7 @@ filter = '''
 validate = '''
 let r = http.get("https://api.github.com/user", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "token " + secret
+    "Authorization": "token " + finding["secret"]
   });
 r.status == 200 && (r.json?.login ?? "") != "" ? {
     "result": "valid",
@@ -140,6 +140,11 @@ r.status == 200 && (r.json?.login ?? "") != "" ? {
   } : validate.unknown(r)
 '''
 ```
+
+Multipart rules declare nearby component rules with `components` and read them
+through `components["rule-id"]?.secret ?? ""` or
+`components["rule-id"]?.captures?.group ?? ""`. Primary-rule named groups are
+available through `finding["captures"]`.
 
 Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config. If you're using Betterleaks in production, it is recommended you maintain your own config instead of extending the upstream default config directly. This keeps your rule set stable across Betterleaks upgrades and lets you review new upstream rules before adopting them.
 
