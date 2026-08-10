@@ -118,7 +118,7 @@ func GitlabIncomingMailAddressToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-incoming-mail-address-token",
 		Description: "Identified a GitLab incoming mail token embedded in an email address, risking manipulation of data sent by mail.",
-		Regex:       regexp.MustCompile(`incoming\+[A-Za-z0-9._-]+?-\d+-([A-Za-z0-9_][A-Za-z0-9._-]*)-(?:issue(?:-\d+)?|merge-request)@`),
+		Regex:       regexp.MustCompile(`incoming\+(?:[A-Za-z0-9._-]+-)?\d+-([A-Za-z0-9_-]+)-(?:issue(?:-\d+)?|merge-request)@`),
 		Keywords:    []string{"incoming+"},
 		Specificity: 50,
 		Filter:      `entropy(finding["secret"]) <= 3.0`,
