@@ -194,6 +194,7 @@ func (f *Finding) Redact(percent uint) {
 			if percent >= 100 {
 				compSecret = "REDACTED"
 			}
+			comp.Line = strings.ReplaceAll(comp.Line, comp.Secret, compSecret)
 			comp.Match = strings.ReplaceAll(comp.Match, comp.Secret, compSecret)
 			for k, v := range comp.CaptureGroups {
 				comp.CaptureGroups[k] = strings.ReplaceAll(v, comp.Secret, compSecret)
