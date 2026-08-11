@@ -283,11 +283,13 @@ func TestOptionalOnlyComponents(t *testing.T) {
 [[rules]]
 id = "primary"
 regex = '''primary=([a-z]+)'''
+specificity = 20
 components = [{ id = "optional-component", optional = true }]
 
 [[rules]]
 id = "optional-component"
 regex = '''optional=([a-z]+)'''
+specificity = 100
 skipReport = true
 `, "")
 	require.NoError(t, err)
@@ -302,6 +304,67 @@ skipReport = true
 	require.Len(t, findings[0].ComponentSets, 1)
 	require.Len(t, findings[0].ComponentSets[0].Components, 1)
 	assert.True(t, findings[0].ComponentSets[0].Components[0].Optional)
+
+	findings = detector.DetectString("primary=shared optional=shared")
+	require.Len(t, findings, 1, "a primary must not be suppressed by its own same-line, same-value component")
+	require.Len(t, findings[0].ComponentSets, 1)
+	assert.Equal(t, "shared", findings[0].ComponentSets[0].Components[0].Secret)
+}
+
+func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
+	detector, err := NewDetectorDefaultConfig()
+	require.NoError(t, err)
+
+	genericPasswordFindings := func(raw string) []report.Finding {
+		t.Helper()
+		var findings []report.Finding
+		for _, finding := range detector.DetectString(raw) {
+			if finding.RuleID == "generic-password" {
+				findings = append(findings, finding)
+			}
+		}
+		return findings
+	}
+
+	assert.Empty(t, genericPasswordFindings("password: hunter2"))
+	assert.Empty(t, genericPasswordFindings("password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"))
+	assert.Empty(t, genericPasswordFindings(`password: "username: alice"`))
+	assert.Empty(t, genericPasswordFindings(`password: "postgres://db.internal/app"`))
+	assert.Empty(t, genericPasswordFindings("username: alice\npassword: your_password"))
+	assert.Empty(t, genericPasswordFindings("database.host = db.internal\ndatabase_pw = undefined"))
+
+	paired := genericPasswordFindings("username: alice\npassword: hunter2")
+	require.Len(t, paired, 1)
+	require.Len(t, paired[0].ComponentSets, 1)
+	require.Len(t, paired[0].ComponentSets[0].Components, 1)
+	assert.Equal(t, "generic-username", paired[0].ComponentSets[0].Components[0].RuleID)
+	assert.Equal(t, "alice", paired[0].ComponentSets[0].Components[0].Secret)
+
+	dynamicUsername := genericPasswordFindings("username: process.env.USERNAME\npassword: hunter2")
+	require.Len(t, dynamicUsername, 1)
+	assert.Empty(t, dynamicUsername[0].ComponentSets, "a dynamic username is auth context but not an attachable component")
+
+	for name, raw := range map[string]string{
+		"underscore with database asset": "database.host = db.internal\ndatabase_pw = J8svR4qL7nT2xM6zK9",
+		"hyphen in connection call":      "service.connect(\n  service-pw: Qv7D0LXCM3EIMbgJpUNnkRtOfOueHznB\n)",
+		"dot with dsn":                   "dsn: postgres://db.internal/app\nclient.pw = m4FqK8zR2tV6xN9pC7",
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(raw)
+			require.Len(t, findings, 1)
+			assert.Empty(t, findings[0].ComponentSets)
+		})
+	}
+
+	weakAliasPair := genericPasswordFindings("username: alice\ndatabase_pw: hunter2")
+	require.Len(t, weakAliasPair, 1)
+	require.Len(t, weakAliasPair[0].ComponentSets, 1)
+
+	insideWindow := "login()\n" + strings.Repeat("context line\n", 5) + "password: hunter2"
+	require.Len(t, genericPasswordFindings(insideWindow), 1)
+
+	outsideWindow := "login()\n" + strings.Repeat("context line\n", 6) + "password: hunter2"
+	assert.Empty(t, genericPasswordFindings(outsideWindow))
 }
 
 func TestComponentProximity(t *testing.T) {

@@ -18,6 +18,80 @@ func TestSamePath(t *testing.T) {
 	assert.False(t, samePath("proj/sub/other.toml", cfg))
 }
 
+func TestFilterTracksComponentOwnership(t *testing.T) {
+	component := &report.ComponentFinding{
+		RuleID:          "generic-username",
+		StartLine:       170,
+		Secret:          "invalid",
+		RuleSpecificity: 100,
+	}
+
+	t.Run("preserves a primary matching its own component", func(t *testing.T) {
+		primary := report.Finding{
+			RuleID:          "generic-password",
+			StartLine:       170,
+			Match:           "password: 'invalid'",
+			Secret:          "invalid",
+			RuleSpecificity: 20,
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{component}},
+			},
+		}
+
+		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary}))
+	})
+
+	t.Run("suppresses a standalone finding owned by another primary", func(t *testing.T) {
+		primary := report.Finding{
+			RuleID:          "generic-password",
+			StartLine:       170,
+			Match:           "password: 'hunter2'",
+			Secret:          "hunter2",
+			RuleSpecificity: 20,
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{component}},
+			},
+		}
+		standaloneComponent := report.Finding{
+			RuleID:    "generic-username",
+			StartLine: 170,
+			Match:     "login: 'invalid'",
+			Secret:    "invalid",
+		}
+
+		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary, standaloneComponent}))
+	})
+
+	t.Run("allows another owner's component to take precedence", func(t *testing.T) {
+		ownedComponent := &report.ComponentFinding{
+			RuleID:          "specific-rule",
+			StartLine:       170,
+			Match:           "credential: 'prefix-invalid-suffix'",
+			Secret:          "prefix-invalid-suffix",
+			RuleSpecificity: 100,
+		}
+		primary := report.Finding{
+			RuleID:          "composite-rule",
+			StartLine:       169,
+			Match:           "composite: 'hunter2'",
+			Secret:          "hunter2",
+			RuleSpecificity: 50,
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{ownedComponent}},
+			},
+		}
+		standalone := report.Finding{
+			RuleID:          "generic-rule",
+			StartLine:       170,
+			Match:           "credential: 'invalid'",
+			Secret:          "invalid",
+			RuleSpecificity: 20,
+		}
+
+		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary, standalone}))
+	})
+}
+
 func Test_createScmLink(t *testing.T) {
 	tests := map[string]struct {
 		platform  string
