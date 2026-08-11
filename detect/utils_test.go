@@ -62,6 +62,45 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary, standaloneComponent}))
 	})
 
+	t.Run("preserves the same value at a different location", func(t *testing.T) {
+		primary := report.Finding{
+			RuleID:    "generic-password",
+			StartLine: 170,
+			Secret:    "hunter2",
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{{
+					RuleID:      "generic-username",
+					StartLine:   170,
+					EndLine:     170,
+					StartColumn: 10,
+					EndColumn:   16,
+					Secret:      "invalid",
+				}}},
+			},
+		}
+		ownedStandalone := report.Finding{
+			RuleID:      "generic-username",
+			StartLine:   170,
+			EndLine:     170,
+			StartColumn: 10,
+			EndColumn:   16,
+			Secret:      "invalid",
+		}
+		unownedStandalone := report.Finding{
+			RuleID:      "generic-username",
+			StartLine:   170,
+			EndLine:     170,
+			StartColumn: 30,
+			EndColumn:   36,
+			Secret:      "invalid",
+		}
+
+		assert.Equal(t,
+			[]report.Finding{primary, unownedStandalone},
+			filter([]report.Finding{primary, ownedStandalone, unownedStandalone}),
+		)
+	})
+
 	t.Run("allows another owner's component to take precedence", func(t *testing.T) {
 		ownedComponent := &report.ComponentFinding{
 			RuleID:          "specific-rule",

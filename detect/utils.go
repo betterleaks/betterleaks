@@ -149,7 +149,7 @@ func filter(findings []report.Finding) []report.Finding {
 	for _, f := range findings {
 		for _, set := range f.ComponentSets {
 			for _, comp := range set.Components {
-				componentSet[fmt.Sprintf("%s:%d:%s", comp.RuleID, comp.StartLine, comp.Secret)] = struct{}{}
+				componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", comp.RuleID, comp.StartLine, comp.StartColumn, comp.EndLine, comp.EndColumn, comp.Secret)] = struct{}{}
 			}
 		}
 	}
@@ -160,7 +160,7 @@ func filter(findings []report.Finding) []report.Finding {
 
 		// Skip findings already surfaced as the same rule's component of a
 		// composite finding in this batch.
-		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%s", f.RuleID, f.StartLine, f.Secret)]
+		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.StartLine, f.StartColumn, f.EndLine, f.EndColumn, f.Secret)]
 		if isComponent {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 			logging.Trace().Msgf("skipping %s finding (%s), already a component of another finding", f.RuleID, redactedMatch)
