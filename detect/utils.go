@@ -141,46 +141,31 @@ func shannonEntropy(data string) (entropy float64) {
 	return entropy
 }
 
-const noFindingOwner = -1
-
 // filter will dedupe and redact findings
 func filter(findings []report.Finding) []report.Finding {
-	type componentKey struct {
-		startLine int
-		secret    string
-	}
-
-	// Track which primary findings own each component so standalone duplicates
-	// can be suppressed without mistaking a primary for one of its own
-	// components when their line and secret happen to be identical.
-	componentOwners := make(map[componentKey]map[int]struct{})
-	for ownerIndex, f := range findings {
+	// Collect every component finding's (line, secret) so we can suppress
+	// standalone duplicates that are already surfaced as components.
+	componentSet := make(map[string]struct{})
+	for _, f := range findings {
 		for _, set := range f.ComponentSets {
 			for _, comp := range set.Components {
-				key := componentKey{startLine: comp.StartLine, secret: comp.Secret}
-				owners := componentOwners[key]
-				if owners == nil {
-					owners = make(map[int]struct{})
-					componentOwners[key] = owners
-				}
-				owners[ownerIndex] = struct{}{}
+				componentSet[fmt.Sprintf("%d:%s", comp.StartLine, comp.Secret)] = struct{}{}
 			}
 		}
 	}
 
 	var retFindings []report.Finding
-	for findingIndex, f := range findings {
+	for _, f := range findings {
 		include := true
 
-		// Skip findings that are already surfaced as a component
-		// of a different (composite) finding in this batch.
-		owners, isComponent := componentOwners[componentKey{startLine: f.StartLine, secret: f.Secret}]
-		_, ownsComponent := owners[findingIndex]
-		if isComponent && !ownsComponent {
+		// Skip standalone findings that are already surfaced as a component
+		// of a composite finding in this batch.
+		_, isComponent := componentSet[fmt.Sprintf("%d:%s", f.StartLine, f.Secret)]
+		if isComponent && len(f.ComponentSets) == 0 {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 			logging.Trace().Msgf("skipping %s finding (%s), already a component of another finding", f.RuleID, redactedMatch)
 			include = false
-		} else if isSuppressedByHigherSpecificityFinding(findingIndex, f, findings) {
+		} else if isSuppressedByHigherSpecificityFinding(f, findings) {
 			include = false
 		}
 
@@ -191,8 +176,8 @@ func filter(findings []report.Finding) []report.Finding {
 	return retFindings
 }
 
-func isSuppressedByHigherSpecificityFinding(findingIndex int, f report.Finding, findings []report.Finding) bool {
-	for ownerIndex, fPrime := range findings {
+func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.Finding) bool {
+	for _, fPrime := range findings {
 		if f.StartLine == fPrime.StartLine &&
 			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
 			f.RuleID != fPrime.RuleID &&
@@ -203,14 +188,10 @@ func isSuppressedByHigherSpecificityFinding(findingIndex int, f report.Finding, 
 			logging.Debug().Msgf("skipping %s finding (%s), %s rule takes precedence (%s)", f.RuleID, genericMatch, fPrime.RuleID, betterMatch)
 			return true
 		}
-		// Components compete with standalone findings, not with the primary
-		// finding that owns them.
-		if ownerIndex == findingIndex {
-			continue
-		}
 		for _, set := range fPrime.ComponentSets {
 			for _, comp := range set.Components {
-				if f.StartLine == comp.StartLine &&
+				if len(f.ComponentSets) == 0 &&
+					f.StartLine == comp.StartLine &&
 					f.RuleID != comp.RuleID &&
 					strings.Contains(comp.Secret, f.Secret) &&
 					comp.RuleSpecificity > f.RuleSpecificity {

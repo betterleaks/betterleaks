@@ -984,7 +984,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		if len(priorFindings) > 0 && isSuppressedByHigherSpecificityFinding(noFindingOwner, finding, priorFindings) {
+		if len(priorFindings) > 0 && isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
 			continue
 		}
 

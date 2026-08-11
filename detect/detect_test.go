@@ -333,14 +333,16 @@ func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
 	assert.Empty(t, genericPasswordFindings("username: alice\npassword: your_password"))
 	assert.Empty(t, genericPasswordFindings("database.host = db.internal\ndatabase_pw = undefined"))
 
-	paired := genericPasswordFindings("username: alice\npassword: hunter2")
+	assert.Empty(t, genericPasswordFindings("username: alice\npassword: hunter2"))
+
+	paired := genericPasswordFindings("credentials: {\nusername: alice\npassword: hunter2\n}")
 	require.Len(t, paired, 1)
 	require.Len(t, paired[0].ComponentSets, 1)
 	require.Len(t, paired[0].ComponentSets[0].Components, 1)
 	assert.Equal(t, "generic-username", paired[0].ComponentSets[0].Components[0].RuleID)
 	assert.Equal(t, "alice", paired[0].ComponentSets[0].Components[0].Secret)
 
-	dynamicUsername := genericPasswordFindings("username: process.env.USERNAME\npassword: hunter2")
+	dynamicUsername := genericPasswordFindings("credentials: {\nusername: process.env.USERNAME\npassword: hunter2\n}")
 	require.Len(t, dynamicUsername, 1)
 	assert.Empty(t, dynamicUsername[0].ComponentSets, "a dynamic username is auth context but not an attachable component")
 
@@ -356,7 +358,7 @@ func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
 		})
 	}
 
-	weakAliasPair := genericPasswordFindings("username: alice\ndatabase_pw: hunter2")
+	weakAliasPair := genericPasswordFindings("credentials: {\nusername: alice\ndatabase_pw: hunter2\n}")
 	require.Len(t, weakAliasPair, 1)
 	require.Len(t, weakAliasPair[0].ComponentSets, 1)
 
