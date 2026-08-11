@@ -239,6 +239,7 @@ func main() {
 		rules.GitlabFeatureFlagClientToken(),
 		rules.GitlabFeedToken(),
 		rules.GitlabIncomingMailToken(),
+		rules.GitlabIncomingMailAddressToken(),
 		rules.GitlabKubernetesAgentToken(),
 		rules.GitlabOauthAppSecret(),
 		rules.GitlabPat(),

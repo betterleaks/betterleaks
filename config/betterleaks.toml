@@ -4898,6 +4898,19 @@ entropy(finding["secret"]) <= 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# gitlab-incoming-mail-address-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "gitlab-incoming-mail-address-token"
+description = "Identified a GitLab incoming mail token embedded in an email address, risking manipulation of data sent by mail."
+regex = '''incoming\+(?:[A-Za-z0-9._-]+-)?\d+-([A-Za-z0-9_-]+)-(?:issue(?:-\d+)?|merge-request)@'''
+specificity = 50
+keywords = ["incoming+"]
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # gitlab-incoming-mail-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
