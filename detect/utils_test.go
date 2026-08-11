@@ -90,6 +90,32 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 
 		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary, standalone}))
 	})
+
+	t.Run("suppresses a composite surfaced inside another primary", func(t *testing.T) {
+		nestedComponent := &report.ComponentFinding{
+			RuleID:    "nested-composite",
+			StartLine: 170,
+			Secret:    "shared",
+		}
+		outerPrimary := report.Finding{
+			RuleID:    "outer-primary",
+			StartLine: 169,
+			Secret:    "outer",
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{nestedComponent}},
+			},
+		}
+		nestedPrimary := report.Finding{
+			RuleID:    "nested-composite",
+			StartLine: 170,
+			Secret:    "shared",
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{{RuleID: "leaf", StartLine: 171, Secret: "leaf"}}},
+			},
+		}
+
+		assert.Equal(t, []report.Finding{outerPrimary}, filter([]report.Finding{outerPrimary, nestedPrimary}))
+	})
 }
 
 func Test_createScmLink(t *testing.T) {

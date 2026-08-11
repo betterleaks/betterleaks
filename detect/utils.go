@@ -143,13 +143,13 @@ func shannonEntropy(data string) (entropy float64) {
 
 // filter will dedupe and redact findings
 func filter(findings []report.Finding) []report.Finding {
-	// Collect every component finding's (line, secret) so we can suppress
-	// standalone duplicates that are already surfaced as components.
+	// Collect every component finding's (rule, line, secret) identity so the
+	// corresponding top-level finding can be suppressed.
 	componentSet := make(map[string]struct{})
 	for _, f := range findings {
 		for _, set := range f.ComponentSets {
 			for _, comp := range set.Components {
-				componentSet[fmt.Sprintf("%d:%s", comp.StartLine, comp.Secret)] = struct{}{}
+				componentSet[fmt.Sprintf("%s:%d:%s", comp.RuleID, comp.StartLine, comp.Secret)] = struct{}{}
 			}
 		}
 	}
@@ -158,10 +158,10 @@ func filter(findings []report.Finding) []report.Finding {
 	for _, f := range findings {
 		include := true
 
-		// Skip standalone findings that are already surfaced as a component
-		// of a composite finding in this batch.
-		_, isComponent := componentSet[fmt.Sprintf("%d:%s", f.StartLine, f.Secret)]
-		if isComponent && len(f.ComponentSets) == 0 {
+		// Skip findings already surfaced as the same rule's component of a
+		// composite finding in this batch.
+		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%s", f.RuleID, f.StartLine, f.Secret)]
+		if isComponent {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 			logging.Trace().Msgf("skipping %s finding (%s), already a component of another finding", f.RuleID, redactedMatch)
 			include = false
@@ -190,7 +190,7 @@ func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.
 		}
 		for _, set := range fPrime.ComponentSets {
 			for _, comp := range set.Components {
-				if len(f.ComponentSets) == 0 &&
+				if f.RuleID != fPrime.RuleID &&
 					f.StartLine == comp.StartLine &&
 					f.RuleID != comp.RuleID &&
 					strings.Contains(comp.Secret, f.Secret) &&
