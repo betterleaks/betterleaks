@@ -6130,6 +6130,76 @@ entropy(finding["secret"]) <= 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# miro-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "miro-access-token"
+description = "Detected a Miro OAuth access token, which may allow unauthorized access to Miro users, teams, boards, and content."
+regex = '''\b(?i:miro)(?:.|[\n\r]){0,32}?(?i:(?:secret|private|access|key|token|auth))(?:.|[\n\r]){0,32}?\b(eyJtaXJv[A-Za-z0-9-]{10,64}_[A-Za-z0-9_-]{20,64})\b'''
+keywords = ["miro"]
+validate = '''
+let r = http.get("https://api.miro.com/v1/oauth-token", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": (r.json?.message ?? "Unauthorized")
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# miro-client-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "miro-client-id"
+description = "Detected a Miro OAuth client ID, used as a component of the miro-client-secret composite rule."
+regex = '''\b(?i:miro)(?:.|[\n\r]){0,40}?(?i:(?:client[_-]?id|app[_-]?id))(?:.|[\n\r]){0,20}?\b([0-9]{15,21})\b'''
+keywords = ["miro"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# miro-client-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "miro-client-secret"
+description = "Detected a Miro OAuth client secret, which may allow unauthorized OAuth client authentication when paired with a client ID."
+regex = '''\b(?i:miro)(?:.|[\n\r]){0,40}?(?i:(?:client[_-]?secret|app[_-]?secret))(?:.|[\n\r]){0,20}?\b([A-Za-z0-9]{32})\b'''
+keywords = ["miro"]
+validate = '''
+let r = http.post("https://api.miro.com/v1/oauth/token", {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json"
+  }, "grant_type=refresh_token" +
+  "&client_id=" + strings.urlQueryEscape((components["miro-client-id"]?.secret ?? "")) +
+  "&client_secret=" + strings.urlQueryEscape(finding["secret"]) +
+  "&refresh_token=invalid"); r.status == 401
+    && (r.json?.code ?? "") == "oauthError"
+    && (r.json?.message ?? "") == "Invalid refresh token" ? {
+    "result": "valid"
+  } : r.status == 401 && (
+    (r.json?.code ?? "") == "secretKeyNotFound" ||
+    ((r.json?.code ?? "") == "oauthError" && (r.json?.message ?? "") == "Unauthorized grant type")
+  ) ? {
+    "result": "invalid",
+    "reason": (r.json?.message ?? "Invalid client credentials")
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+components = [
+    { id = "miro-client-id" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # mistral-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]

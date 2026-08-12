@@ -1,0 +1,101 @@
+package rules
+
+import (
+	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/regexp"
+)
+
+func MiroAccessToken() *config.Rule {
+	r := config.Rule{
+		RuleID:      "miro-access-token",
+		Description: "Detected a Miro OAuth access token, which may allow unauthorized access to Miro users, teams, boards, and content.",
+		Regex:       regexp.MustCompile(`\b(?i:miro)(?:.|[\n\r]){0,32}?(?i:(?:secret|private|access|key|token|auth))(?:.|[\n\r]){0,32}?\b(eyJtaXJv[A-Za-z0-9-]{10,64}_[A-Za-z0-9_-]{20,64})\b`),
+		Keywords:    []string{"miro"},
+		ValidateExpr: `let r = http.get("https://api.miro.com/v1/oauth-token", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": (r.json?.message ?? "Unauthorized")
+  } : validate.unknown(r)`,
+		Filter: utils.MinEntropy(3.5),
+	}
+
+	token := "eyJtaXJv" +
+		secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{24}`, 3.5) + "_" +
+		secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{32}`, 3.5)
+	tps := utils.GenerateSampleSecrets("miro", token)
+	fps := []string{
+		`ACCESS_TOKEN=eyJtaXJvLm9yaWdpbiI6ImV1MDEifQ_o-P91OccaII0A63CDSK--x21xiI`,
+		`MIRO_TOKEN=eyJtaXJv_short`,
+	}
+	return utils.Validate(r, tps, fps)
+}
+
+func MiroClientID() *config.Rule {
+	r := config.Rule{
+		RuleID:      "miro-client-id",
+		Description: "Detected a Miro OAuth client ID, used as a component of the miro-client-secret composite rule.",
+		Regex:       regexp.MustCompile(`\b(?i:miro)(?:.|[\n\r]){0,40}?(?i:(?:client[_-]?id|app[_-]?id))(?:.|[\n\r]){0,20}?\b([0-9]{15,21})\b`),
+		Keywords:    []string{"miro"},
+		SkipReport:  true,
+		Filter:      utils.MinEntropy(2.5),
+	}
+
+	tps := utils.GenerateSampleSecrets(
+		"miroClientID",
+		secrets.NewSecretWithEntropy(`[0-9]{19}`, 2.5),
+	)
+	fps := []string{
+		`CLIENT_ID=3458764668142796369`,
+		`MIRO_CLIENT_ID=34587646681427`,
+	}
+	return utils.Validate(r, tps, fps)
+}
+
+func MiroClientSecret() *config.Rule {
+	// Miro validates client credentials before looking up a refresh token. A
+	// recognized client pair reaches the invalid-refresh-token response, while a
+	// mismatched client ID or secret is rejected as a client credential error.
+	r := config.Rule{
+		RuleID:      "miro-client-secret",
+		Description: "Detected a Miro OAuth client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
+		Regex:       regexp.MustCompile(`\b(?i:miro)(?:.|[\n\r]){0,40}?(?i:(?:client[_-]?secret|app[_-]?secret))(?:.|[\n\r]){0,20}?\b([A-Za-z0-9]{32})\b`),
+		Keywords:    []string{"miro"},
+		Components: []*config.Component{
+			{RuleID: "miro-client-id"},
+		},
+		ValidateExpr: `let r = http.post("https://api.miro.com/v1/oauth/token", {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json"
+  }, "grant_type=refresh_token" +
+  "&client_id=" + strings.urlQueryEscape((components["miro-client-id"]?.secret ?? "")) +
+  "&client_secret=" + strings.urlQueryEscape(finding["secret"]) +
+  "&refresh_token=invalid"); r.status == 401
+    && (r.json?.code ?? "") == "oauthError"
+    && (r.json?.message ?? "") == "Invalid refresh token" ? {
+    "result": "valid"
+  } : r.status == 401 && (
+    (r.json?.code ?? "") == "secretKeyNotFound" ||
+    ((r.json?.code ?? "") == "oauthError" && (r.json?.message ?? "") == "Unauthorized grant type")
+  ) ? {
+    "result": "invalid",
+    "reason": (r.json?.message ?? "Invalid client credentials")
+  } : validate.unknown(r)`,
+		Filter: utils.MinEntropy(3.5),
+	}
+
+	tps := utils.GenerateSampleSecrets(
+		"miroClientSecret",
+		secrets.NewSecretWithEntropy(`[A-Za-z0-9]{32}`, 3.5),
+	)
+	fps := []string{
+		`CLIENT_SECRET=5VEWim0jDbaytgKXN7ReM7MkfpQ8Rm3d`,
+		`MIRO_CLIENT_SECRET=5VEWim0jDbaytgKXN7ReM7MkfpQ8Rm3`,
+	}
+	return utils.Validate(r, tps, fps)
+}
