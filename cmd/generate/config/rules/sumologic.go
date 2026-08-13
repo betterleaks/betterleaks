@@ -17,7 +17,7 @@ func SumoLogicAccessID() *config.Rule {
 		Keywords: []string{
 			"sumo",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter: utils.MinEntropyAndTokenEfficiency,
 	}
 
 	// validate

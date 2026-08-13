@@ -18,11 +18,11 @@ func LinkedinClientID() *config.Rule {
 			"linked_in",
 			"linked-in",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter: utils.MinEntropyAndTokenEfficiency,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("14"), 2))
+	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("14"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -40,10 +40,10 @@ func LinkedinClientSecret() *config.Rule {
 			"linked_in",
 			"linked-in",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter: utils.MinEntropyAndTokenEfficiency,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 2))
+	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 3))
 	return utils.Validate(r, tps, nil)
 }

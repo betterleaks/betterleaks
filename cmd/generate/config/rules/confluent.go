@@ -30,6 +30,7 @@ func ConfluentAccessToken() *config.Rule {
 		Confidence:  "high",
 		Description: "Identified a Confluent Access Token, which could compromise access to streaming data platforms and sensitive data flow.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"confluent"}, utils.AlphaNumeric("16"), true),
+		Filter:      utils.MinEntropyAndTokenEfficiency,
 
 		Keywords: []string{
 			"confluent",

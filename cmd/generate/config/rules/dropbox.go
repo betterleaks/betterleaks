@@ -13,6 +13,7 @@ func DropBoxAPISecret() *config.Rule {
 		RuleID:      "dropbox-api-token",
 		Confidence:  "medium",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"dropbox"}, utils.AlphaNumeric("15"), true),
+		Filter:      utils.MinEntropyAndTokenEfficiency,
 
 		Keywords: []string{"dropbox"},
 	}

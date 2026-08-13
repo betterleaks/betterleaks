@@ -1738,6 +1738,9 @@ description = "Identified a Confluent Access Token, which could compromise acces
 regex = '''(?i)(?:confluent)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{16})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["confluent"]
+filter = '''
+filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # confluent-secret-key
@@ -2397,6 +2400,9 @@ description = "Identified a Dropbox API secret, which could lead to unauthorized
 regex = '''(?i)(?:dropbox)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{15})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "medium"
 keywords = ["dropbox"]
+filter = '''
+filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # dropbox-long-lived-api-token
@@ -6050,7 +6056,7 @@ keywords = [
     "linked-in",
 ]
 filter = '''
-entropy(finding["secret"]) <= 2.0
+filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6067,7 +6073,7 @@ keywords = [
     "linked-in",
 ]
 filter = '''
-entropy(finding["secret"]) <= 2.0
+filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8490,7 +8496,7 @@ regex = '''(?i:(?:(?-i:[Ss]umo|SUMO))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3
 confidence = "high"
 keywords = ["sumo"]
 filter = '''
-entropy(finding["secret"]) <= 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
