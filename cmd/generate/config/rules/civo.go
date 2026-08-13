@@ -9,6 +9,7 @@ import (
 func Civo() *config.Rule {
 	r := config.Rule{
 		RuleID:      "civo-api-key",
+		Confidence:  "high",
 		Description: "Detected a Civo Cloud API key, which may expose Kubernetes clusters and compute resources to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"civo"}, utils.AlphaNumeric("50"), true),
 		Keywords:    []string{"civo"},

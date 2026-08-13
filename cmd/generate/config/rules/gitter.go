@@ -10,6 +10,7 @@ func GitterAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "gitter-access-token",
+		Confidence:  "high",
 		Description: "Uncovered a Gitter Access Token, which may lead to unauthorized access to chat and communication services.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"gitter"},
 			utils.AlphaNumericExtendedShort("40"), true),

@@ -9,6 +9,7 @@ import (
 func XAI() *config.Rule {
 	r := config.Rule{
 		RuleID:      "xai-api-key",
+		Confidence:  "high",
 		Description: "Detected an xAI (Grok) API Key, which may expose Grok AI model access to unauthorized parties.",
 		Regex:       utils.GenerateUniqueTokenRegex(`xai-[A-Za-z0-9_-]{70,120}`, true),
 		Keywords:    []string{"xai-"},

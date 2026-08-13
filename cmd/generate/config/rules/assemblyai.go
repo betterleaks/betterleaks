@@ -9,6 +9,7 @@ import (
 func AssemblyAI() *config.Rule {
 	r := config.Rule{
 		RuleID:      "assemblyai-api-key",
+		Confidence:  "medium",
 		Description: "Detected an AssemblyAI API Key, which may expose speech-to-text services and associated audio data to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"assemblyai"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"assemblyai"},

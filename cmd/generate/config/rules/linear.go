@@ -11,6 +11,7 @@ func LinearAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "linear-api-key",
+		Confidence:  "high",
 		Description: "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
 		Regex:       regexp.MustCompile(`lin_api_(?i)[a-z0-9]{40}`),
 		Keywords:    []string{"lin_api_"},
@@ -37,6 +38,7 @@ func LinearClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "linear-client-secret",
+		Confidence:  "medium",
 		Description: "Identified a Linear Client Secret, which may compromise secure integrations and sensitive project management data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"linear"}, utils.Hex("32"), true),
 		Keywords:    []string{"linear"},

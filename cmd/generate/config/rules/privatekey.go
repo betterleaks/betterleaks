@@ -10,6 +10,7 @@ func PrivateKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "private-key",
+		Confidence:  "high",
 		Description: "Identified a Private Key, which may compromise cryptographic security and sensitive data encryption.",
 		Regex:       regexp.MustCompile(`(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]{64,}?KEY(?: BLOCK)?-----`),
 		Keywords:    []string{"-----BEGIN"},
@@ -43,6 +44,7 @@ func PrivateKeyPKCS12File() *config.Rule {
 	// https://en.wikipedia.org/wiki/PKCS_12
 	r := config.Rule{
 		RuleID:      "pkcs12-file",
+		Confidence:  "high",
 		Description: "Found a PKCS #12 file, which commonly contain bundled private keys.",
 		Path:        regexp.MustCompile(`(?i)(?:^|\/)[^\/]+\.p(?:12|fx)$`),
 	}

@@ -11,6 +11,7 @@ func LookerClientID() *config.Rule {
 	r := config.Rule{
 		Description: "Found a Looker Client ID, risking unauthorized access to a Looker account and exposing sensitive data.",
 		RuleID:      "looker-client-id",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"looker"}, utils.AlphaNumeric("20"), true),
 		Keywords:    []string{"looker"},
 	}
@@ -25,6 +26,7 @@ func LookerClientSecret() *config.Rule {
 	r := config.Rule{
 		Description: "Found a Looker Client Secret, risking unauthorized access to a Looker account and exposing sensitive data.",
 		RuleID:      "looker-client-secret",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"looker"}, utils.AlphaNumeric("24"), true),
 		Keywords:    []string{"looker"},
 	}

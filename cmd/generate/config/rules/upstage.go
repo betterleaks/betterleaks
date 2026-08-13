@@ -9,6 +9,7 @@ import (
 func Upstage() *config.Rule {
 	r := config.Rule{
 		RuleID:      "upstage-api-key",
+		Confidence:  "medium",
 		Description: "Detected an Upstage AI API key, which may expose Solar language models and document AI services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"upstage"}, `[A-Za-z0-9]{40,50}`, true),
 		Keywords:    []string{"upstage"},

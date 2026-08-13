@@ -10,6 +10,7 @@ func PlivoAuthID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "plivo-auth-id",
+		Confidence:  "high",
 		Description: "Plivo Auth ID, used as a component of the Plivo Auth Token composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`plivo(?:[_. -]*(?:auth|account))?[_. -]*(?:id|sid)`},
@@ -36,6 +37,7 @@ func PlivoAuthToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "plivo-auth-token",
+		Confidence:  "high",
 		Description: "Plivo Auth Token.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`plivo(?:[_. -]*(?:auth))?[_. -]*(?:secret|token|key)`},

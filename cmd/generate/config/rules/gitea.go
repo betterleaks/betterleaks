@@ -9,6 +9,7 @@ import (
 func GiteaAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitea-access-token",
+		Confidence:  "high",
 		Description: "Detected a Gitea Access Token, which may expose self-hosted Git repositories and associated code to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"gitea[_.-]?(?:token|key|secret|access)"}, utils.Hex("40"), true),
 		Keywords:    []string{"gitea"},

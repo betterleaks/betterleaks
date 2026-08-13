@@ -9,6 +9,7 @@ import (
 func MiniMaxAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "minimax-api-key",
+		Confidence:  "high",
 		Description: "Detected a MiniMax API key, which may expose AI model, speech, image, video, or file services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-api-[A-Za-z0-9_-]{119}`, true),
 		Keywords:    []string{"sk-api-", "minimax"},

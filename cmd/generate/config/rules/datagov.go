@@ -8,6 +8,7 @@ import (
 func DataGovAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "datagov-api-key",
+		Confidence:  "high",
 		Description: "Detected a Data.gov API key, which may expose usage of Data.gov-backed APIs.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`data\.gov`}, utils.AlphaNumeric("40"), true),
 		Keywords:    []string{"data.gov"},

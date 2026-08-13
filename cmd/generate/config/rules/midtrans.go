@@ -10,6 +10,7 @@ func MidtransProductionServerClientKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "midtrans-production-server-client-key",
+		Confidence:  "high",
 		Description: "Midtrans production server or client key.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`midtrans`, `mid[_-]?`},

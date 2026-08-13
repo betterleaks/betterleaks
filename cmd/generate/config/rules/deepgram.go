@@ -9,6 +9,7 @@ import (
 func Deepgram() *config.Rule {
 	r := config.Rule{
 		RuleID:      "deepgram-api-key",
+		Confidence:  "high",
 		Description: "Detected a Deepgram API Key, which may expose speech recognition services and audio data to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"deepgram"}, utils.Hex("40"), true),
 		Keywords:    []string{"deepgram"},

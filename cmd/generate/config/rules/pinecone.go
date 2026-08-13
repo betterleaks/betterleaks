@@ -24,6 +24,7 @@ func PineconeAPIKeyV1() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "pinecone-api-key.1",
+		Confidence:  "medium",
 		Description: "Pinecone API key version 1 (UUID format).",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`pinecone(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
@@ -50,6 +51,7 @@ func PineconeAPIKeyV2() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:       "pinecone-api-key.2",
+		Confidence:   "high",
 		Description:  "Pinecone API key version 2 (pcsk format).",
 		Regex:        utils.GenerateUniqueTokenRegex(`pcsk_[A-Za-z0-9]{5,6}_[A-Za-z0-9]{63}`, false),
 		Keywords:     []string{"pcsk_"},

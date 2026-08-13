@@ -8,6 +8,7 @@ import (
 func DisqusAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "disqus-api-key",
+		Confidence:  "high",
 		Description: "Detected a Disqus API key, which may expose Disqus thread and account data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"disqus"}, utils.AlphaNumeric("64"), true),
 		Keywords:    []string{"disqus"},

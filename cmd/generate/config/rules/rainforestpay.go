@@ -10,6 +10,7 @@ func RainforestPayProductionAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "rainforest-pay-production-api-key",
+		Confidence:  "high",
 		Description: "Rainforest Pay production API key.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`rainforest(?:[_. -]*pay)?(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},

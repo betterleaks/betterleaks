@@ -10,6 +10,7 @@ func SSLMateAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "sslmate-api-key.1",
+		Confidence:  "high",
 		Description: "SSLMate API key.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`sslmate(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},

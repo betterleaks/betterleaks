@@ -11,6 +11,7 @@ func Contentful() *config.Rule {
 	r := config.Rule{
 		Description: "Discovered a Contentful delivery API token, posing a risk to content management systems and data integrity.",
 		RuleID:      "contentful-delivery-api-token",
+		Confidence:  "medium",
 		Regex: utils.GenerateSemiGenericRegex([]string{"contentful"},
 			utils.AlphaNumericExtended("43"), true),
 		Keywords: []string{"contentful"},

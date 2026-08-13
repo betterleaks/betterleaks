@@ -10,6 +10,7 @@ func NytimesAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "nytimes-access-token",
+		Confidence:  "high",
 		Description: "Detected a Nytimes Access Token, risking unauthorized access to New York Times APIs and content services.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
 			"nytimes", "new-york-times", "newyorktimes"},

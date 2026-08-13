@@ -8,6 +8,7 @@ import (
 func GumroadAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gumroad-access-token",
+		Confidence:  "high",
 		Description: "Detected a Gumroad access token, which may expose Gumroad account and product data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"gumroad"}, `(?:[a-f0-9]{64}|[A-Za-z0-9-]{43})`, true),
 		Keywords:    []string{"gumroad"},

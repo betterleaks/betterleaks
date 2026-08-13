@@ -9,6 +9,7 @@ import (
 func WeightsAndBiases() *config.Rule {
 	r := config.Rule{
 		RuleID:      "weights-and-biases-api-key",
+		Confidence:  "medium",
 		Description: "Detected a Weights & Biases API Key, which may expose ML experiment tracking and model registry access to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wandb", "weightsandbiases"}, utils.Hex("40"), true),
 		Keywords:    []string{"wandb", "weightsandbiases"},
@@ -39,6 +40,7 @@ func WeightsAndBiases() *config.Rule {
 func WeightsAndBiasesV1() *config.Rule {
 	r := config.Rule{
 		RuleID:      "weights-and-biases-api-key-v1",
+		Confidence:  "high",
 		Description: "Detected a Weights & Biases v1 API Key (wandb_v1_), which may expose ML experiment tracking and artifact storage to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`wandb_v1_[A-Za-z0-9_]{77}`, true),
 		Keywords:    []string{"wandb_v1_"},

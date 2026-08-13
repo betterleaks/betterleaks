@@ -10,6 +10,7 @@ func CircleCIPersonalToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "circleci-personal-token",
+		Confidence:  "high",
 		Description: "CircleCI personal access token.",
 		Regex:       regexp.MustCompile(`\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})`),
 		Keywords:    []string{"CCIPAT_"},
@@ -38,6 +39,7 @@ func CircleCIProjectToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "circleci-project-token",
+		Confidence:  "high",
 		Description: "CircleCI project token.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"circleci"}, `[a-f0-9]{40}`, true),
 		Keywords:    []string{"circleci"},

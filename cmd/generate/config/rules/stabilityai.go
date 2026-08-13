@@ -9,6 +9,7 @@ import (
 func StabilityAI() *config.Rule {
 	r := config.Rule{
 		RuleID:      "stability-ai-api-key",
+		Confidence:  "medium",
 		Description: "Detected a Stability AI API Key, which may expose AI image generation services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"stability"}, `sk-[A-Za-z0-9]{48}`, true),
 		Keywords:    []string{"stability"},

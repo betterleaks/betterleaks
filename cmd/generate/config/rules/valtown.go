@@ -10,6 +10,7 @@ func ValTownAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "val-town-api-token.1",
+		Confidence:  "high",
 		Description: "Val Town API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vtwn_[A-Za-z0-9_-]{20,80}`, false),
 		Keywords:    []string{"vtwn_"},

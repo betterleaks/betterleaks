@@ -50,6 +50,7 @@ const (
 func GitlabCiCdJobToken() *config.Rule {
 	r := config.Rule{
 		RuleID:       "gitlab-cicd-job-token",
+		Confidence:   "high",
 		Description:  "Identified a GitLab CI/CD Job Token, potential access to projects and some APIs on behalf of a user while the CI job is running.",
 		Regex:        regexp.MustCompile(`glcbt-[0-9a-zA-Z]{1,5}_[0-9a-zA-Z_-]{20}`),
 		Keywords:     []string{"glcbt-"},
@@ -64,6 +65,7 @@ func GitlabDeployToken() *config.Rule {
 	r := config.Rule{
 		Description:  "Identified a GitLab Deploy Token, risking access to repositories, packages and containers with write access.",
 		RuleID:       "gitlab-deploy-token",
+		Confidence:   "high",
 		Regex:        regexp.MustCompile(`gldt-[0-9a-zA-Z_\-]{20}`),
 		Keywords:     []string{"gldt-"},
 		ValidateExpr: gitlabUserExpr,
@@ -78,6 +80,7 @@ func GitlabDeployToken() *config.Rule {
 func GitlabFeatureFlagClientToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-feature-flag-client-token",
+		Confidence:  "high",
 		Description: "Identified a GitLab feature flag client token, risks exposing user lists and features flags used by an application.",
 		Regex:       regexp.MustCompile(`glffct-[0-9a-zA-Z_\-]{20}`),
 		Keywords:    []string{"glffct-"},
@@ -90,6 +93,7 @@ func GitlabFeatureFlagClientToken() *config.Rule {
 func GitlabFeedToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-feed-token",
+		Confidence:  "high",
 		Description: "Identified a GitLab feed token, risking exposure of user data.",
 		Regex:       regexp.MustCompile(`glft-[0-9a-zA-Z_\-]{20}`),
 		Keywords:    []string{"glft-"},
@@ -102,6 +106,7 @@ func GitlabFeedToken() *config.Rule {
 func GitlabIncomingMailToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-incoming-mail-token",
+		Confidence:  "high",
 		Description: "Identified a GitLab incoming mail token, risking manipulation of data sent by mail.",
 		Regex:       regexp.MustCompile(`glimt-[0-9a-zA-Z_\-]{25}`),
 		Keywords:    []string{"glimt-"},
@@ -117,6 +122,7 @@ func GitlabIncomingMailToken() *config.Rule {
 func GitlabIncomingMailAddressToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-incoming-mail-address-token",
+		Confidence:  "high",
 		Description: "Identified a GitLab incoming mail token embedded in an email address, risking manipulation of data sent by mail.",
 		Regex:       regexp.MustCompile(`incoming\+(?:[A-Za-z0-9._-]+-)?\d+-([A-Za-z0-9_-]+)-(?:issue(?:-\d+)?|merge-request)@`),
 		Keywords:    []string{"incoming+"},
@@ -137,6 +143,7 @@ func GitlabIncomingMailAddressToken() *config.Rule {
 func GitlabKubernetesAgentToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-kubernetes-agent-token",
+		Confidence:  "high",
 		Description: "Identified a GitLab Kubernetes Agent token, risking access to repos and registry of projects connected via agent.",
 		Regex:       regexp.MustCompile(`glagent-[0-9a-zA-Z_\-]{50}`),
 		Keywords:    []string{"glagent-"},
@@ -149,6 +156,7 @@ func GitlabKubernetesAgentToken() *config.Rule {
 func GitlabOauthAppSecret() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-oauth-app-secret",
+		Confidence:  "high",
 		Description: "Identified a GitLab OIDC Application Secret, risking access to apps using GitLab as authentication provider.",
 		Regex:       regexp.MustCompile(`gloas-[0-9a-zA-Z_\-]{64}`),
 		Keywords:    []string{"gloas-"},
@@ -161,6 +169,7 @@ func GitlabOauthAppSecret() *config.Rule {
 func GitlabPat() *config.Rule {
 	r := config.Rule{
 		RuleID:       "gitlab-pat",
+		Confidence:   "high",
 		Description:  "Identified a GitLab Personal Access Token, risking unauthorized access to GitLab repositories and codebase exposure.",
 		Regex:        regexp.MustCompile(`glpat-[\w-]{20}`),
 		Keywords:     []string{"glpat-"},
@@ -179,6 +188,7 @@ func GitlabPat() *config.Rule {
 func GitlabPatRoutable() *config.Rule {
 	r := config.Rule{
 		RuleID:       "gitlab-pat-routable",
+		Confidence:   "high",
 		Description:  "Identified a GitLab Personal Access Token (routable), risking unauthorized access to GitLab repositories and codebase exposure.",
 		Regex:        regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`),
 		Keywords:     []string{"glpat-"},
@@ -197,6 +207,7 @@ func GitlabPatRoutable() *config.Rule {
 func GitlabPatRoutableVersioned() *config.Rule {
 	r := config.Rule{
 		RuleID:       "gitlab-pat-routable-versioned",
+		Confidence:   "high",
 		Description:  "Identified a GitLab Personal Access Token (routable, versioned), risking unauthorized access to GitLab repositories and codebase exposure.",
 		Regex:        regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}\.[0-9a-z]{9}\b`),
 		Keywords:     []string{"glpat-"},
@@ -219,6 +230,7 @@ func GitlabPatRoutableVersioned() *config.Rule {
 func GitlabPipelineTriggerToken() *config.Rule {
 	r := config.Rule{
 		RuleID:       "gitlab-ptt",
+		Confidence:   "high",
 		Description:  "Found a GitLab Pipeline Trigger Token, potentially compromising continuous integration workflows and project security.",
 		Regex:        regexp.MustCompile(`glptt-[0-9a-f]{40}`),
 		Keywords:     []string{"glptt-"},
@@ -237,6 +249,7 @@ func GitlabPipelineTriggerToken() *config.Rule {
 func GitlabRunnerRegistrationToken() *config.Rule {
 	r := config.Rule{
 		RuleID:       "gitlab-rrt",
+		Confidence:   "high",
 		Description:  "Discovered a GitLab Runner Registration Token, posing a risk to CI/CD pipeline integrity and unauthorized access.",
 		Regex:        regexp.MustCompile(`GR1348941[\w-]{20}`),
 		Keywords:     []string{"GR1348941"},
@@ -255,6 +268,7 @@ func GitlabRunnerRegistrationToken() *config.Rule {
 func GitlabRunnerAuthenticationToken() *config.Rule {
 	r := config.Rule{
 		RuleID:       "gitlab-runner-authentication-token",
+		Confidence:   "high",
 		Description:  "Discovered a GitLab Runner Authentication Token, posing a risk to CI/CD pipeline integrity and unauthorized access.",
 		Regex:        regexp.MustCompile(`glrt-[0-9a-zA-Z_\-]{20}`),
 		Keywords:     []string{"glrt-"},
@@ -269,6 +283,7 @@ func GitlabRunnerAuthenticationToken() *config.Rule {
 func GitlabRunnerAuthenticationTokenRoutable() *config.Rule {
 	r := config.Rule{
 		RuleID:       "gitlab-runner-authentication-token-routable",
+		Confidence:   "high",
 		Description:  "Discovered a GitLab Runner Authentication Token (Routable), posing a risk to CI/CD pipeline integrity and unauthorized access.",
 		Regex:        regexp.MustCompile(`\bglrt-t\d_[0-9a-zA-Z_\-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`),
 		Keywords:     []string{"glrt-"},
@@ -287,6 +302,7 @@ func GitlabRunnerAuthenticationTokenRoutable() *config.Rule {
 func GitlabScimToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-scim-token",
+		Confidence:  "high",
 		Description: "Discovered a GitLab SCIM Token, posing a risk to unauthorized access for a organization or instance.",
 		Regex:       regexp.MustCompile(`glsoat-[0-9a-zA-Z_\-]{20}`),
 		Keywords:    []string{"glsoat-"},
@@ -300,6 +316,7 @@ func GitlabScimToken() *config.Rule {
 func GitlabSessionCookie() *config.Rule {
 	r := config.Rule{
 		RuleID:      "gitlab-session-cookie",
+		Confidence:  "high",
 		Description: "Discovered a GitLab Session Cookie, posing a risk to unauthorized access to a user account.",
 		Regex:       regexp.MustCompile(`_gitlab_session=[0-9a-z]{32}`),
 		Keywords:    []string{"_gitlab_session="},

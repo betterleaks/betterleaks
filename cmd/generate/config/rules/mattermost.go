@@ -10,6 +10,7 @@ func MattermostAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "mattermost-access-token",
+		Confidence:  "medium",
 		Description: "Identified a Mattermost Access Token, which may compromise team communication channels and data privacy.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mattermost"}, utils.AlphaNumeric("26"), true),
 

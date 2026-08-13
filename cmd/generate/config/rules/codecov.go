@@ -8,6 +8,7 @@ import (
 func CodecovAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "codecov-access-token",
+		Confidence:  "high",
 		Description: "Found a pattern resembling a Codecov Access Token, posing a risk of unauthorized access to code coverage reports and sensitive data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"codecov"}, `[A-Z0-9-]{36}`, true),
 		Keywords:    []string{"codecov"},

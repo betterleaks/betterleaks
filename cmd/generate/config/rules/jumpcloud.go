@@ -8,6 +8,7 @@ import (
 func JumpCloudAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "jumpcloud-api-key",
+		Confidence:  "high",
 		Description: "Detected a JumpCloud API key, which may expose JumpCloud directory data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"jumpcloud"}, utils.AlphaNumeric("40"), true),
 		Keywords:    []string{"jumpcloud"},

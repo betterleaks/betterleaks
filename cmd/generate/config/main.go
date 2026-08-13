@@ -17,59 +17,6 @@ const (
 	templatePath = "rules/config.tmpl"
 )
 
-// Context-based rules with provider names likely to occur in ordinary source.
-// Distinctive token formats and uncommon provider names remain high confidence.
-var mediumConfidenceRules = map[string]struct{}{
-	"alibaba-secret-key":            {},
-	"alibaba-sts-access-key-secret": {},
-	"alibaba-sts-security-token":    {},
-	"amplitude-secret-key":          {},
-	"assemblyai-api-key":            {},
-	"aws-secret-access-key":         {},
-	"beamer-api-token":              {},
-	"box-api-access-token":          {},
-	"checkout-secret-key":           {},
-	"clerk-secret-key":              {},
-	"cohere-api-token":              {},
-	"coinbase-access-token":         {},
-	"contentful-delivery-api-token": {},
-	"coveralls-personal-api-token":  {},
-	"cursor-api-key":                {},
-	"discord-api-token":             {},
-	"discord-client-id":             {},
-	"discord-client-secret":         {},
-	"dropbox-api-token":             {},
-	"fullstory-api-key":             {},
-	"hashicorp-tf-password":         {},
-	"honeycomb-api-key":             {},
-	"intercom-api-key":              {},
-	"lighton-paradigm-api-key":      {},
-	"linear-client-secret":          {},
-	"mattermost-access-token":       {},
-	"openweather-api-key":           {},
-	"ovh-application-key":           {},
-	"ovh-application-secret":        {},
-	"ovh-consumer-key":              {},
-	"pinecone-api-key.1":            {},
-	"privateai-api-token":           {},
-	"sentry-access-token":           {},
-	"squarespace-access-token":      {},
-	"stability-ai-api-key":          {},
-	"upstage-api-key":               {},
-	"weatherstack-api-key.1":        {},
-	"weights-and-biases-api-key":    {},
-}
-
-func setRuleConfidence(rule *config.Rule) {
-	if rule.Confidence != "" {
-		return
-	}
-	rule.Confidence = "high"
-	if _, ok := mediumConfidenceRules[rule.RuleID]; ok {
-		rule.Confidence = "medium"
-	}
-}
-
 //go:generate go run $GOFILE ../../../config/betterleaks.toml
 
 // tomlKeyQuote quotes a TOML key if it contains characters that require quoting
@@ -550,7 +497,6 @@ func main() {
 	// ensure rules have unique ids
 	ruleLookUp := make(map[string]config.Rule, len(configRules))
 	for _, rule := range configRules {
-		setRuleConfidence(rule)
 		if err := rule.Validate(); err != nil {
 			logging.Fatal().Err(err).
 				Str("rule-id", rule.RuleID).

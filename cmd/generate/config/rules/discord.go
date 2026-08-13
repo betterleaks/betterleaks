@@ -10,6 +10,7 @@ func DiscordAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "discord-api-token",
+		Confidence:  "medium",
 		Description: "Detected a Discord API key, potentially compromising communication channels and user data privacy on Discord.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.Hex("64"), true),
 		Keywords:    []string{"discord"},
@@ -24,6 +25,7 @@ func DiscordClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "discord-client-id",
+		Confidence:  "medium",
 		Description: "Identified a Discord client ID, which may lead to unauthorized integrations and data exposure in Discord applications.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.Numeric("18"), true),
 		Keywords:    []string{"discord"},
@@ -43,6 +45,7 @@ func DiscordClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "discord-client-secret",
+		Confidence:  "medium",
 		Description: "Discovered a potential Discord client secret, risking compromised Discord bot integrations and data leaks.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.AlphaNumericExtended("32"), true),
 		Keywords:    []string{"discord"},

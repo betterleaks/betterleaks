@@ -10,6 +10,7 @@ func SendbirdAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "sendbird-access-token",
+		Confidence:  "high",
 		Description: "Uncovered a Sendbird Access Token, potentially risking unauthorized access to communication services and user data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"sendbird"}, utils.Hex("40"), true),
 
@@ -27,6 +28,7 @@ func SendbirdAccessID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "sendbird-access-id",
+		Confidence:  "high",
 		Description: "Discovered a Sendbird Access ID, which could compromise chat and messaging platform integrations.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"sendbird"}, utils.Hex8_4_4_4_12(), true),
 

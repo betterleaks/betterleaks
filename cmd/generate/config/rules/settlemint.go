@@ -11,6 +11,7 @@ func SettlemintPersonalAccessToken() *config.Rule {
 	r := config.Rule{
 		Description: "Found a Settlemint Personal Access Token.",
 		RuleID:      "settlemint-personal-access-token",
+		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`sm_pat_[a-zA-Z0-9]{16}`, false),
 		Keywords: []string{
 			"sm_pat",
@@ -32,6 +33,7 @@ func SettlemintApplicationAccessToken() *config.Rule {
 	r := config.Rule{
 		Description: "Found a Settlemint Application Access Token.",
 		RuleID:      "settlemint-application-access-token",
+		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`sm_aat_[a-zA-Z0-9]{16}`, false),
 		Keywords: []string{
 			"sm_aat",
@@ -53,6 +55,7 @@ func SettlemintServiceAccessToken() *config.Rule {
 	r := config.Rule{
 		Description: "Found a Settlemint Service Access Token.",
 		RuleID:      "settlemint-service-access-token",
+		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`sm_sat_[a-zA-Z0-9]{16}`, false),
 		Keywords: []string{
 			"sm_sat",

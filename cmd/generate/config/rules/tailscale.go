@@ -10,6 +10,7 @@ func TailscaleAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "tailscale-api-key.1",
+		Confidence:  "high",
 		Description: "Tailscale API access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`tskey-api-[A-Za-z0-9_-]{20,36}`, false),
 		Keywords:    []string{"tskey-api-"},

@@ -9,6 +9,7 @@ import (
 func VercelAPIToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "vercel-api-token",
+		Confidence:  "high",
 		Description: "Detected a Vercel API Token, which may expose deployment and serverless infrastructure to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"vercel"}, `[A-Z0-9]{24}`, true),
 		Keywords:    []string{"vercel"},
@@ -45,6 +46,7 @@ func VercelAPIToken() *config.Rule {
 func VercelPersonalAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "vercel-personal-access-token",
+		Confidence:  "high",
 		Description: "Detected a Vercel Personal Access Token (vcp_), which may expose full account and deployment management capabilities.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vcp_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vcp_"},
@@ -79,6 +81,7 @@ func VercelPersonalAccessToken() *config.Rule {
 func VercelIntegrationToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "vercel-integration-token",
+		Confidence:  "high",
 		Description: "Detected a Vercel Integration Token (vci_), which may allow third-party service integrations to act on behalf of users.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vci_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vci_"},
@@ -112,6 +115,7 @@ func VercelIntegrationToken() *config.Rule {
 func VercelAppAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "vercel-app-access-token",
+		Confidence:  "high",
 		Description: "Detected a Vercel App Access Token (vca_), which may allow Sign in with Vercel apps to access user resources.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vca_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vca_"},
@@ -144,6 +148,7 @@ func VercelAppAccessToken() *config.Rule {
 func VercelAppRefreshToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "vercel-app-refresh-token",
+		Confidence:  "high",
 		Description: "Detected a Vercel App Refresh Token (vcr_), which may allow persistent unauthorized access through token refresh flows.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vcr_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vcr_"},
@@ -177,6 +182,7 @@ func VercelAppRefreshToken() *config.Rule {
 func VercelAIGatewayKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "vercel-ai-gateway-key",
+		Confidence:  "high",
 		Description: "Detected a Vercel AI Gateway API Key (vck_), which may expose AI model routing and gateway access to unauthorized parties.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vck_[A-Za-z0-9_-]{56}`, true),
 		Keywords:    []string{"vck_"},

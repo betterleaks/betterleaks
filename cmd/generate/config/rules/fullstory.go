@@ -10,6 +10,7 @@ func FullStoryAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "fullstory-api-key",
+		Confidence:  "medium",
 		Description: "FullStory API key.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`(?:fullstory|fs_api|fullstory_api)`},

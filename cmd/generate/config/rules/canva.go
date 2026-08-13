@@ -9,6 +9,7 @@ import (
 func CanvaClientID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "canva-client-id",
+		Confidence:  "high",
 		Description: "Detected a Canva Connect API client ID, used as a component of the canva-client-secret composite rule.",
 		Regex:       regexp.MustCompile(`(?i)\b(?:canva|CANVA_CLIENT_ID)(?:.|[\n\r]){0,32}?(?:client[_\s-]*id|app[_\s-]*id)(?:.|[\n\r]){0,16}?\b(OC-[A-Za-z0-9_-]{8,16})\b`),
 		Keywords:    []string{"canva"},
@@ -30,6 +31,7 @@ func CanvaClientID() *config.Rule {
 func CanvaClientSecret() *config.Rule {
 	r := config.Rule{
 		RuleID:      "canva-client-secret",
+		Confidence:  "high",
 		Description: "Detected a Canva Connect API client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
 		Regex:       regexp.MustCompile(`\b(cnvca[a-zA-Z0-9_-]{51})\b`),
 		Keywords:    []string{"cnvca"},

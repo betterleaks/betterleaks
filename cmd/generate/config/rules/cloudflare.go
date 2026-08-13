@@ -29,6 +29,7 @@ func CloudflareGlobalAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "cloudflare-global-api-key",
+		Confidence:  "high",
 		Description: "Detected a Cloudflare Global API Key, potentially compromising cloud application deployments and operational security.",
 		Regex:       utils.GenerateSemiGenericRegex(identifiers, utils.Hex("37"), true),
 		Keywords:    identifiers,
@@ -47,6 +48,7 @@ func CloudflareAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "cloudflare-api-key",
+		Confidence:  "high",
 		Description: "Detected a Cloudflare API Key, potentially compromising cloud application deployments and operational security.",
 		Regex:       utils.GenerateSemiGenericRegex(identifiers, utils.AlphaNumericExtendedShort("40"), true),
 		Keywords:    identifiers,
@@ -67,6 +69,7 @@ func CloudflareOriginCAKey() *config.Rule {
 	r := config.Rule{
 		Description: "Detected a Cloudflare Origin CA Key, potentially compromising cloud application deployments and operational security.",
 		RuleID:      "cloudflare-origin-ca-key",
+		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`v1\.0-`+utils.Hex("24")+"-"+utils.Hex("146"), false),
 		Keywords:    ca_identifiers,
 		Filter:      `entropy(finding["secret"]) <= 2.0`,

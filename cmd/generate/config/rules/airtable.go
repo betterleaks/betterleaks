@@ -12,6 +12,7 @@ func AirtableApiKey() *config.Rule {
 	r := config.Rule{
 		Description: "Uncovered a possible Airtable API Key, potentially compromising database access and leading to data leakage or alteration.",
 		RuleID:      "airtable-api-key",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, utils.AlphaNumeric("17"), true),
 		Keywords:    []string{"airtable"},
 	}
@@ -26,6 +27,7 @@ func AirtablePersonalAccessToken() *config.Rule {
 	r := config.Rule{
 		Description: "Uncovered a possible Airtable Personal AccessToken, potentially compromising database access and leading to data leakage or alteration.",
 		RuleID:      "airtable-personnal-access-token",
+		Confidence:  "high",
 		Regex:       regexp.MustCompile(`\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b`),
 		Keywords:    []string{"airtable"},
 		ValidateExpr: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
@@ -48,6 +50,7 @@ func AirtableOAuthToken() *config.Rule {
 	r := config.Rule{
 		Description: "Detected an Airtable OAuth token, which may allow unauthorized access to Airtable resources granted to an OAuth integration.",
 		RuleID:      "airtable-oauth-token",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, `[A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+`, true),
 		Keywords:    []string{"airtable"},
 		ValidateExpr: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {

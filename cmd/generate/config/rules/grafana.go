@@ -10,6 +10,7 @@ func GrafanaApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "grafana-api-key",
+		Confidence:  "high",
 		Description: "Identified a Grafana API key, which could compromise monitoring dashboards and sensitive data analytics.",
 		Regex:       utils.GenerateUniqueTokenRegex(`eyJrIjoi[A-Za-z0-9+/]{40,380}={0,2}`, false),
 		Keywords:    []string{"eyJrIjoi"},
@@ -26,6 +27,7 @@ func GrafanaCloudApiToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:       "grafana-cloud-api-token",
+		Confidence:   "high",
 		Description:  "Found a Grafana cloud API token, risking unauthorized access to cloud-based monitoring services and data exposure.",
 		Regex:        utils.GenerateUniqueTokenRegex(`glc_[A-Za-z0-9+/]{40,150}={0,2}`, false),
 		Keywords:     []string{"glc_"},
@@ -64,6 +66,7 @@ func GrafanaServiceAccountToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "grafana-service-account-token",
+		Confidence:  "high",
 		Description: "Discovered a Grafana service account token, posing a risk of compromised monitoring services and data integrity.",
 		Regex:       utils.GenerateUniqueTokenRegex(`glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}`, false),
 		Keywords:    []string{"glsa_"},

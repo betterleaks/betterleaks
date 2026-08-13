@@ -10,6 +10,7 @@ func AlibabaAccessKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "alibaba-access-key-id",
+		Confidence:  "high",
 		Description: "Detected an Alibaba Cloud AccessKey ID, posing a risk of unauthorized cloud resource access and potential data compromise.",
 		Regex:       regexp.MustCompile(`\b(LTAI[A-Za-z0-9]{17,21})\b`),
 		Keywords:    []string{"LTAI"},
@@ -30,6 +31,7 @@ func AlibabaSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "alibaba-secret-key",
+		Confidence:  "medium",
 		Description: "Discovered a potential Alibaba Cloud Secret Key, potentially allowing unauthorized operations and data access within Alibaba Cloud.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"alibaba", "aliyun", "secret", "key"}, `[A-Za-z0-9]{30}`, true),
 		Keywords:    []string{"alibaba", "aliyun"},
@@ -53,6 +55,7 @@ func AlibabaSecretKey() *config.Rule {
 func AlibabaSTSAccessKeyID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "alibaba-sts-access-key-id",
+		Confidence:  "high",
 		Description: "Detected an Alibaba Cloud STS AccessKey ID, used as a component of the alibaba-sts-access-key-secret composite rule.",
 		Regex:       regexp.MustCompile(`\b(STS\.[A-Za-z0-9]{16,64})\b`),
 		Keywords:    []string{"sts."},
@@ -73,6 +76,7 @@ func AlibabaSTSAccessKeyID() *config.Rule {
 func AlibabaSTSSecurityToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "alibaba-sts-security-token",
+		Confidence:  "medium",
 		Description: "Detected an Alibaba Cloud STS security token, used as a component of the alibaba-sts-access-key-secret composite rule.",
 		// Regex:       regexp.MustCompile(`(?i)\b(?:security[\s_-]*token|sts[\s_-]*token|x[\s_-]*oss[\s_-]*security[\s_-]*token|alibaba[\s_-]*cloud[\s_-]*security[\s_-]*token|aliyun[\s_-]*security[\s_-]*token)(?:.|[\n\r]){0,16}?(?:=|:|["']\s*:\s*["'])\s*["']?(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})(?:["'\s,;}&\]]|$)`),
 		Regex:      utils.GenerateSemiGenericRegex([]string{"alibaba", "aliyun", "secret", "key"}, `CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24}`, true),
@@ -94,6 +98,7 @@ func AlibabaSTSSecurityToken() *config.Rule {
 func AlibabaSTSAccessKeySecret() *config.Rule {
 	r := config.Rule{
 		RuleID:      "alibaba-sts-access-key-secret",
+		Confidence:  "medium",
 		Description: "Detected an Alibaba Cloud STS AccessKey secret, which may allow temporary Alibaba Cloud API access when paired with an STS AccessKey ID and security token.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"alibaba", "aliyun", "secret", "key"}, `[A-Za-z0-9]{30,64}`, true),
 		Keywords:    []string{"alibaba", "aliyun"},

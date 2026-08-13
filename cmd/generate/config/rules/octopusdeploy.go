@@ -10,6 +10,7 @@ func OctopusDeployApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "octopus-deploy-api-key",
+		Confidence:  "high",
 		Description: "Discovered a potential Octopus Deploy API key, risking application deployments and operational security.",
 		Regex:       utils.GenerateUniqueTokenRegex(`API-[A-Z0-9]{26}`, false),
 		Keywords:    []string{"api-"},
