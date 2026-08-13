@@ -128,6 +128,33 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestGenericRuleConfidence(t *testing.T) {
+	cfg, err := Default()
+	require.NoError(t, err)
+	require.Equal(t, "low", cfg.Rules["generic-api-key"].Confidence)
+	require.Contains(t, cfg.Rules["generic-api-key"].Filter, `\b[a-z0-9]+[_.-]+token\b`)
+	require.Contains(t, cfg.Rules["generic-api-key"].Filter, `]) ? "medium" : "low";`)
+}
+
+func TestRuleConfidence(t *testing.T) {
+	cfg, err := ParseTOMLString(`
+[[rules]]
+id = "test"
+regex = "secret"
+confidence = "high"
+`, "")
+	require.NoError(t, err)
+	require.Equal(t, "high", cfg.Rules["test"].Confidence)
+
+	_, err = ParseTOMLString(`
+[[rules]]
+id = "test"
+regex = "secret"
+confidence = "certain"
+`, "")
+	require.ErrorContains(t, err, "invalid confidence")
+}
+
 func TestTranslateAllowlists(t *testing.T) {
 	tests := []translateCase{
 		// Global

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
@@ -164,6 +165,9 @@ func (d *Detector) AddFinding(finding report.Finding) {
 		logger.Debug().
 			Str("fingerprint", finding.Fingerprint).
 			Msgf("skipping finding: baseline")
+		return
+	}
+	if !confidence.Meets(finding.Attr(confidence.Attribute), d.MinConfidence) {
 		return
 	}
 
