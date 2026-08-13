@@ -54,7 +54,6 @@ func PlaidAccessToken() *config.Rule {
 		Keywords: []string{
 			"plaid",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 2.75`,
 	}
 
 	// validate

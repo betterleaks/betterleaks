@@ -19,7 +19,7 @@ func SentryAccessToken() *config.Rule {
 		Keywords: []string{
 			"sentry",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

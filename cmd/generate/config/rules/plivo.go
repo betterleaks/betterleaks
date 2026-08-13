@@ -19,7 +19,7 @@ func PlivoAuthID() *config.Rule {
 		),
 		Keywords:   []string{"plivo"},
 		SkipReport: true,
-		Filter:     `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:     `filter.entropy(finding["secret"]) < 2.8 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

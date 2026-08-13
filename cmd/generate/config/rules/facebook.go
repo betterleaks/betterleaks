@@ -16,7 +16,7 @@ func FacebookSecret() *config.Rule {
 		Description: "Discovered a Facebook Application secret, posing a risk of unauthorized access to Facebook accounts and personal data exposure.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"facebook"}, utils.Hex("32"), true),
 		Keywords:    []string{"facebook"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

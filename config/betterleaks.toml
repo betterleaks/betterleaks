@@ -2739,7 +2739,7 @@ regex = '''(?i)(?:facebook)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["facebook"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7200,9 +7200,6 @@ description = "Discovered a Plaid API Token, potentially compromising financial 
 regex = '''(?i)(?:plaid)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(access-(?:sandbox|development|production)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["plaid"]
-filter = '''
-filter.entropy(finding["secret"]) < 2.75
-'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # plaid-client-id
@@ -7312,7 +7309,7 @@ confidence = "high"
 keywords = ["plivo"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+filter.entropy(finding["secret"]) < 2.8 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8127,7 +8124,7 @@ regex = '''(?i)(?:sentry)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["sentry"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
