@@ -1,7 +1,7 @@
 # This file has been auto-generated. Do not edit manually.
 # If you would like to contribute new rules, please use
 # cmd/generate/config/main.go and follow the contributing guidelines
-# at https://github.com/betterleaks/betterleaks/blob/master/CONTRIBUTING.md
+# at https://github.com/betterleaks/betterleaks/blob/main/.github/CONTRIBUTING.md
 #
 # How the hell does secret scanning work? Read this:
 #   https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need
@@ -4523,7 +4523,8 @@ entropy(finding["secret"]) <= 3.5
   `^mob-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
   `^public-token-test-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
   `^public-token-live-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
-  `^pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}$`
+  `^pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}$`,
+  `^8c6803164dbc395fb7131c9d54843627$`
 ])
 || (matchesAny(finding["secret"], [`^pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && filter.containsAny(providerMatchContext, ["stripe", "woo", "wcm"]))
 || (matchesAny(finding["secret"], [`^rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && filter.containsAny(providerMatchContext, ["stripe"]))
