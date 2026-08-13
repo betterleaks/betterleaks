@@ -131,7 +131,12 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 func TestGenericRuleConfidence(t *testing.T) {
 	cfg, err := Default()
 	require.NoError(t, err)
+	for id, rule := range cfg.Rules {
+		require.NotEmptyf(t, rule.Confidence, "rule %q has no confidence", id)
+	}
 	require.Equal(t, "low", cfg.Rules["generic-api-key"].Confidence)
+	require.Equal(t, "medium", cfg.Rules["box-api-access-token"].Confidence)
+	require.Equal(t, "high", cfg.Rules["openai-api-key"].Confidence)
 	require.Contains(t, cfg.Rules["generic-api-key"].Filter, `\b[a-z0-9]+[_.-]+token\b`)
 	require.Contains(t, cfg.Rules["generic-api-key"].Filter, `]) ? "medium" : "low";`)
 }
