@@ -53,7 +53,7 @@ func SumoLogicAccessToken() *config.Rule {
 		Keywords: []string{
 			"sumo",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -13,7 +13,7 @@ func LightOn() *config.Rule {
 		Description: "Detected a LightOn Paradigm API key, which may expose enterprise LLM services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"lighton", "paradigm"}, `[A-Za-z0-9_\-]{40,80}`, true),
 		Keywords:    []string{"lighton", "paradigm"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://paradigm.lighton.ai/api/v2/models", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"object"') ? {

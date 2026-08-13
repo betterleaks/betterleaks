@@ -28,7 +28,7 @@ func SSLMateAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Bad credentials"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

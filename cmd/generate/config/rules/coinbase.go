@@ -17,7 +17,7 @@ func CoinbaseAccessToken() *config.Rule {
 		Keywords: []string{
 			"coinbase",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

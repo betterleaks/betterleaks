@@ -22,7 +22,7 @@ func InfluxDBAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 4.0 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter: `filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

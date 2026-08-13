@@ -21,7 +21,7 @@ func NewRelicUserID() *config.Rule {
 		Keywords: []string{
 			"NRAK",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -46,7 +46,7 @@ func NewRelicUserKey() *config.Rule {
 			"newrelic",
 			"new_relic",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -69,7 +69,7 @@ func NewRelicBrowserAPIKey() *config.Rule {
 		Keywords: []string{
 			"NRJS-",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -92,7 +92,7 @@ func NewRelicInsertKey() *config.Rule {
 		Keywords: []string{
 			"NRII-",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -14,7 +14,7 @@ func DiscordAPIToken() *config.Rule {
 		Description: "Detected a Discord API key, potentially compromising communication channels and user data privacy on Discord.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.Hex("64"), true),
 		Keywords:    []string{"discord"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.3`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -50,7 +50,7 @@ func DiscordClientSecret() *config.Rule {
 		Description: "Discovered a potential Discord client secret, risking compromised Discord bot integrations and data leaks.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.AlphaNumericExtended("32"), true),
 		Keywords:    []string{"discord"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

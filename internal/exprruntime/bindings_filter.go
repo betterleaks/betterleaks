@@ -26,6 +26,7 @@ func filterNamespace(rt *runtimeBindings) map[string]any {
 		"containsAny":          containsAny,
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
+		"tokenRatio":           rt.tokenRatio,
 	}
 }
 
@@ -141,26 +142,45 @@ func shannonEntropy(s string) float64 {
 
 var newlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 
-func (rt *runtimeBindings) failsTokenEfficiency(secret string) bool {
+func (rt *runtimeBindings) tokenizerInstance() *tiktoken.Tiktoken {
 	if rt.tokenizer == nil {
 		if rt.tokenizerProvider == nil {
-			return false
+			return nil
 		}
 		rt.tokenizer = rt.tokenizerProvider()
-		if rt.tokenizer == nil {
-			return false
-		}
 	}
-	return failsTokenEfficiency(rt.tokenizer, secret)
+	return rt.tokenizer
 }
 
-func failsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
+func (rt *runtimeBindings) failsTokenEfficiency(secret string) bool {
+	tke := rt.tokenizerInstance()
+	return tke != nil && failsTokenEfficiency(tke, secret)
+}
+
+func (rt *runtimeBindings) tokenRatio(secret string) float64 {
+	tke := rt.tokenizerInstance()
+	if tke == nil {
+		return 0
+	}
+	_, ratio, _ := calculateTokenRatio(tke, secret)
+	return ratio
+}
+
+func calculateTokenRatio(tke *tiktoken.Tiktoken, secret string) (string, float64, bool) {
 	analyzed := secret
 	if len(analyzed) < 20 && strings.ContainsAny(analyzed, "\n\r") {
 		analyzed = newlineReplacer.Replace(analyzed)
 	}
 	tokens := tke.Encode(analyzed, nil, nil)
 	if len(tokens) == 0 {
+		return analyzed, 0, false
+	}
+	return analyzed, float64(len(analyzed)) / float64(len(tokens)), true
+}
+
+func failsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
+	analyzed, ratio, ok := calculateTokenRatio(tke, secret)
+	if !ok {
 		return false
 	}
 	if len(words.HasMatchInList(analyzed, 5)) > 0 {
@@ -173,5 +193,5 @@ func failsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
 			threshold = 2.5
 		}
 	}
-	return float64(len(analyzed))/float64(len(tokens)) >= threshold
+	return ratio >= threshold
 }

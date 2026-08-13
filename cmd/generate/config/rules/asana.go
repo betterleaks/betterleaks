@@ -31,7 +31,7 @@ func AsanaClientSecret() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"asana"}, utils.AlphaNumeric("32"), true),
 
 		Keywords: []string{"asana"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

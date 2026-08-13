@@ -13,7 +13,7 @@ func GiteaAccessToken() *config.Rule {
 		Description: "Detected a Gitea Access Token, which may expose self-hosted Git repositories and associated code to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"gitea[_.-]?(?:token|key|secret|access)"}, utils.Hex("40"), true),
 		Keywords:    []string{"gitea"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gitea", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.5))

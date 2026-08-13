@@ -14,7 +14,7 @@ func TwitterAPIKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, utils.AlphaNumeric("25"), true),
 		Keywords:    []string{"twitter"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -30,7 +30,7 @@ func TwitterAPISecret() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, utils.AlphaNumeric("50"), true),
 		Keywords:    []string{"twitter"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -47,7 +47,7 @@ func TwitterBearerToken() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, "A{22}[a-zA-Z0-9%]{80,100}", true),
 
 		Keywords: []string{"twitter"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.0`,
+		Filter:   `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -63,7 +63,7 @@ func TwitterAccessToken() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, "[0-9]{15,25}-[a-zA-Z0-9]{20,40}", true),
 		Keywords:    []string{"twitter"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -79,7 +79,7 @@ func TwitterAccessSecret() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, utils.AlphaNumeric("45"), true),
 		Keywords:    []string{"twitter"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

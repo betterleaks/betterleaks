@@ -17,7 +17,7 @@ func FinnhubAccessToken() *config.Rule {
 		Keywords: []string{
 			"finnhub",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

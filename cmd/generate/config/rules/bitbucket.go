@@ -14,7 +14,7 @@ func BitBucketClientID() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bitbucket"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"bitbucket"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -31,7 +31,7 @@ func BitBucketClientSecret() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bitbucket"}, utils.AlphaNumericExtended("64"), true),
 
 		Keywords: []string{"bitbucket"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

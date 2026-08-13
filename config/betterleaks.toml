@@ -120,7 +120,7 @@ regex = '''(?i)(?:adafruit)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["adafruit"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ regex = '''(?i)(?:adobe)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\
 confidence = "high"
 keywords = ["adobe"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -212,7 +212,7 @@ regex = '''(?i)(?:airtable)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["airtable"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -235,7 +235,7 @@ let r = http.get("https://api.airtable.com/v0/meta/whoami", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -258,7 +258,7 @@ let r = http.get("https://api.airtable.com/v0/meta/whoami", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -282,7 +282,7 @@ let r = http.get("https://api.aiven.io/v1/project", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -312,7 +312,7 @@ let r = http.get("https://" + (components["algolia-application-id"]?.secret ?? "
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "algolia-application-id" },
@@ -329,7 +329,7 @@ confidence = "high"
 keywords = ["algolia"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 2.75 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 2.75 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -378,7 +378,7 @@ r.status == 200 && (r.body contains "\"Arn\"") ? {
 } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "alibaba-access-key-id", within = "5L" },
@@ -431,7 +431,7 @@ r.status == 200 && (r.body contains "\"Arn\"") ? {
 } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "alibaba-sts-access-key-id", within = "10L" },
@@ -453,7 +453,7 @@ keywords = [
 ]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -485,7 +485,7 @@ let r = http.post("https://api2.amplitude.com/2/httpapi", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -672,7 +672,7 @@ regex = '''(?i)(?:asana)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\
 confidence = "high"
 keywords = ["asana"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -685,7 +685,7 @@ regex = '''(?i)(?:assemblyai)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:
 confidence = "medium"
 keywords = ["assemblyai"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -703,7 +703,7 @@ keywords = [
     "atatt3",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1017,7 +1017,7 @@ regex = '''(?i)(?:bitbucket)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "high"
 keywords = ["bitbucket"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1030,7 +1030,7 @@ regex = '''(?i)(?:bitbucket)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "high"
 keywords = ["bitbucket"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1054,7 +1054,7 @@ let r = http.get("https://api-ssl.bitly.com/v4/user", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1078,7 +1078,7 @@ let r = http.get("https://api.bitrise.io/v0.1/apps", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1091,7 +1091,7 @@ regex = '''(?i)(?:bittrex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["bittrex"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1104,7 +1104,7 @@ regex = '''(?i)(?:bittrex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["bittrex"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1136,7 +1136,7 @@ r.status == 200 && ((r.body contains "\"id\"")) ? {
 
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1342,7 +1342,7 @@ let r = http.get("https://circleci.com/api/v2/me", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1366,7 +1366,7 @@ let r = http.get("https://circleci.com/api/v1.1/projects", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1390,7 +1390,7 @@ let r = http.get("https://api.meraki.com/api/v1/organizations", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1413,7 +1413,7 @@ let r = http.get("https://api.civo.com/v2/instances", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1529,7 +1529,7 @@ regex = '''(?i)(?:cloudflare)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:
 confidence = "high"
 keywords = ["cloudflare"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1542,7 +1542,7 @@ regex = '''(?i)(?:cloudflare)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:
 confidence = "high"
 keywords = ["cloudflare"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1558,7 +1558,7 @@ keywords = [
     "v1.0-",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1596,7 +1596,7 @@ let r = http.get("https://api.cloudinary.com/v1_1/" + (components["cloudinary-cl
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "cloudinary-api-key" },
@@ -1680,7 +1680,7 @@ let r = http.get("https://api.codecov.io/api/v2/github/", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1706,7 +1706,7 @@ let r = http.get("https://api.cohere.com/v1/connectors", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1719,7 +1719,7 @@ regex = '''(?i)(?:coinbase)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "medium"
 keywords = ["coinbase"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1778,7 +1778,7 @@ regex = '''(?i)(?:confluent)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "high"
 keywords = ["confluent"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1791,7 +1791,7 @@ regex = '''(?i)(?:confluent)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "high"
 keywords = ["confluent"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1804,7 +1804,7 @@ regex = '''(?i)(?:contentful)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:
 confidence = "medium"
 keywords = ["contentful"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1844,7 +1844,7 @@ regex = '''(?i)(?:coveralls)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "medium"
 keywords = ["coveralls"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2016,7 +2016,7 @@ let r = http.get("https://developer.nrel.gov/api/alt-fuel-stations/v1.json?limit
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2053,7 +2053,7 @@ regex = '''(?i)(?:deepgram)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["deepgram"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2312,7 +2312,7 @@ regex = '''(?i)(?:discord)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "medium"
 keywords = ["discord"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2338,7 +2338,7 @@ regex = '''(?i)(?:discord)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "medium"
 keywords = ["discord"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2361,7 +2361,7 @@ let r = http.get("https://disqus.com/api/3.0/threads/list.json?limit=1&api_secre
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2439,7 +2439,7 @@ regex = '''(?i)(?:droneci)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["droneci"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2452,7 +2452,7 @@ regex = '''(?i)(?:dropbox)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "medium"
 keywords = ["dropbox"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2465,7 +2465,7 @@ regex = '''(?i)(?:dropbox)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["dropbox"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2478,7 +2478,7 @@ regex = '''(?i)(?:dropbox)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["dropbox"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2710,7 +2710,7 @@ regex = '''(?i)\b(\d{15,16}(\||%)[0-9a-z\-_]{27,40})(?:\\?['"\x60]|[\s;]|\\[nr]|
 confidence = "high"
 keywords = ["facebook"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2726,7 +2726,7 @@ keywords = [
     "eaac",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2739,7 +2739,7 @@ regex = '''(?i)(?:facebook)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["facebook"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2765,7 +2765,7 @@ let r = http.get("https://api.fastly.com/current_user", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2831,7 +2831,7 @@ regex = '''(?i)(?:finicity)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["finicity"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2844,7 +2844,7 @@ regex = '''(?i)(?:finicity)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["finicity"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2857,7 +2857,7 @@ regex = '''(?i)(?:finnhub)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["finnhub"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2870,7 +2870,7 @@ regex = '''(?i)(?:flickr)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["flickr"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2996,7 +2996,7 @@ r.status == 200 && (true) ? {
 
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3278,7 +3278,7 @@ let _ = filter.setConfidence(level);
 
 // big ol expression to filter out FPs
 entropy(finding["secret"]) <= 3.5
-|| failsTokenEfficiency(finding["secret"])
+|| filter.failsTokenEfficiency(finding["secret"])
 || matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
 || (containsAny(finding["secret"], [
   "000000",
@@ -4819,7 +4819,7 @@ regex = '''(?i)(?:gitea[_.-]?(?:token|key|secret|access))(?:[ \t\w.-]{0,20})[\s'
 confidence = "high"
 keywords = ["gitea"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5288,7 +5288,7 @@ regex = '''(?i)(?:gitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["gitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5381,7 +5381,7 @@ regex = '''(?i)(?:greptile)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["greptile"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5427,7 +5427,7 @@ let r = http.get("https://api.gumroad.com/v2/user?access_token=" + finding["secr
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5556,7 +5556,7 @@ let r = http.get("https://api.honeycomb.io/1/auth", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5668,7 +5668,7 @@ let r = http.get("https://us-east-1-1.aws.cloud2.influxdata.com/api/v2/orgs", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5691,7 +5691,7 @@ let r = http.get("https://api.infomaniak.com/1/profile", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0
+filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5717,7 +5717,7 @@ regex = '''(?i)(?:intercom)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "medium"
 keywords = ["intercom"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5783,7 +5783,7 @@ let r = http.get("https://console.jumpcloud.com/api/systemusers?limit=1&skip=0",
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5897,7 +5897,7 @@ regex = '''(?i)(?:kraken)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["kraken"]
 filter = '''
-filter.entropy(finding["secret"]) < 4.0
+filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5925,7 +5925,7 @@ regex = '''(?i)(?:kucoin)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["kucoin"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5938,7 +5938,7 @@ regex = '''(?i)(?:kucoin)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["kucoin"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6000,7 +6000,7 @@ confidence = "high"
 keywords = ["cli_"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6026,7 +6026,7 @@ r.status == 200 && code == 0 ? {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "lark-app-id" },
@@ -6042,7 +6042,7 @@ regex = '''(?i)(?:launchdarkly)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\|
 confidence = "high"
 keywords = ["launchdarkly"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6093,7 +6093,7 @@ let r = http.get("https://paradigm.lighton.ai/api/v2/models", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6119,7 +6119,7 @@ let r = http.post("https://api.linear.app/graphql", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6132,7 +6132,7 @@ regex = '''(?i)(?:linear)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["linear"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6149,7 +6149,7 @@ keywords = [
     "linked-in",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6166,7 +6166,7 @@ keywords = [
     "linked-in",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6205,7 +6205,7 @@ regex = '''(?i)(?:looker)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["looker"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6218,7 +6218,7 @@ regex = '''(?i)(?:looker)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["looker"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6327,7 +6327,7 @@ regex = '''(?i)(?:mattermost)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:
 confidence = "medium"
 keywords = ["mattermost"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6405,7 +6405,7 @@ keywords = [
     "message_bird",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6422,7 +6422,7 @@ keywords = [
     "message_bird",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6516,7 +6516,7 @@ let r = http.get("https://api.mistral.ai/v1/models", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6617,7 +6617,7 @@ regex = '''(?i)(?:netlify)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["netlify"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6630,7 +6630,7 @@ regex = '''(?i)(?:new-relic|newrelic|new_relic)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:
 confidence = "high"
 keywords = ["nrjs-"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6643,7 +6643,7 @@ regex = '''(?i)(?:new-relic|newrelic|new_relic)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:
 confidence = "high"
 keywords = ["nrii-"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6660,7 +6660,7 @@ keywords = [
     "new_relic",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6673,7 +6673,7 @@ regex = '''(?i)(?:new-relic|newrelic|new_relic)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:
 confidence = "high"
 keywords = ["nrak"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6748,7 +6748,7 @@ keywords = [
     "newyorktimes",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6961,7 +6961,7 @@ let r = http.get("https://api.openweathermap.org/data/2.5/forecast?q=London&appi
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7214,7 +7214,7 @@ regex = '''(?i)(?:plaid)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\
 confidence = "high"
 keywords = ["plaid"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7227,7 +7227,7 @@ regex = '''(?i)(?:plaid)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\
 confidence = "high"
 keywords = ["plaid"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7312,7 +7312,7 @@ confidence = "high"
 keywords = ["plivo"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7340,7 +7340,7 @@ let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
 } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "plivo-auth-id" },
@@ -7605,7 +7605,7 @@ keywords = [
     "private-ai",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7744,7 +7744,7 @@ regex = '''(?i)(?:rapidapi)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["rapidapi"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8064,7 +8064,7 @@ regex = '''(?i)(?:sendbird)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["sendbird"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8077,7 +8077,7 @@ regex = '''(?i)(?:sendbird)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["sendbird"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8127,7 +8127,7 @@ regex = '''(?i)(?:sentry)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["sentry"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8140,7 +8140,7 @@ regex = '''\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl
 confidence = "high"
 keywords = ["sntrys_eyjpyxqio"]
 filter = '''
-filter.entropy(finding["secret"]) < 4.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 4.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8153,7 +8153,7 @@ regex = '''\b(sntryu_[a-f0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["sntryu_"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8476,7 +8476,7 @@ let r = http.post("https://" + (components["snowflake-account-host.1"]?.secret ?
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "snowflake-account-host.1", within = "30L" },
@@ -8576,7 +8576,7 @@ let r = http.get("https://sslmate.com/api/v2/certs/example.com", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8634,7 +8634,7 @@ regex = '''(?i:(?:(?-i:[Ss]umo|SUMO))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3
 confidence = "high"
 keywords = ["sumo"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8647,7 +8647,7 @@ regex = '''(?i)(?:(?-i:[Ss]umo|SUMO))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}
 confidence = "high"
 keywords = ["sumo"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8912,7 +8912,7 @@ regex = '''(?i)(?:travis)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["travis"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8938,7 +8938,7 @@ regex = '''(?i)(?:twitch)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["twitch"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8951,7 +8951,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8964,7 +8964,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8977,7 +8977,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8990,7 +8990,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9003,7 +9003,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9084,7 +9084,7 @@ let r = http.get("https://api.upstage.ai/v1/models", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9163,7 +9163,7 @@ let r = http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9189,7 +9189,7 @@ let r = http.get("https://api.vercel.com/v2/user", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9214,7 +9214,7 @@ let r = http.post("https://api.vercel.com/login/oauth/userinfo", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9240,7 +9240,7 @@ let r = http.post("https://api.vercel.com/login/oauth/token/introspect", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9266,7 +9266,7 @@ let r = http.get("https://api.vercel.com/v2/user", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9292,7 +9292,7 @@ let r = http.get("https://api.vercel.com/v2/user", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9367,7 +9367,7 @@ let r = http.get("https://api.weatherstack.com/current?access_key=" + finding["s
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9396,7 +9396,7 @@ let r = http.post("https://api.wandb.ai/graphql", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9422,7 +9422,7 @@ let r = http.post("https://api.wandb.ai/graphql", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9580,7 +9580,7 @@ regex = '''(?i)(?:zendesk)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["zendesk"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────

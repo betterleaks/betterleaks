@@ -14,7 +14,7 @@ func CircleCIPersonalToken() *config.Rule {
 		Description: "CircleCI personal access token.",
 		Regex:       regexp.MustCompile(`\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})`),
 		Keywords:    []string{"CCIPAT_"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://circleci.com/api/v2/me", {
     "Accept": "application/json",
     "Circle-Token": finding["secret"]
@@ -53,7 +53,7 @@ func CircleCIProjectToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

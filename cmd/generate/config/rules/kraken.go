@@ -18,7 +18,7 @@ func KrakenAccessToken() *config.Rule {
 		Keywords: []string{
 			"kraken",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 4.0`,
+		Filter: `filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

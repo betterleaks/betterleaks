@@ -15,7 +15,7 @@ func Intercom() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"intercom"}, utils.AlphaNumericExtended("60"), true),
 
 		Keywords: []string{"intercom"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

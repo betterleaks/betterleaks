@@ -18,7 +18,7 @@ func FreshbooksAccessToken() *config.Rule {
 			"freshbooks",
 		},
 		ValidateExpr: utils.BearerGetValidationExpr("https://api.freshbooks.com/auth/api/v1/users/me", "true"),
-		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:       `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

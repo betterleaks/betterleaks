@@ -14,7 +14,7 @@ func BittrexAccessKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"bittrex"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -31,7 +31,7 @@ func BittrexSecretKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 
 		Keywords: []string{"bittrex"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

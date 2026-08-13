@@ -18,7 +18,7 @@ func PrivateAIToken() *config.Rule {
 			"private_ai",
 			"private-ai",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

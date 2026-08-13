@@ -65,7 +65,7 @@ let _ = filter.setConfidence(level);
 
 // big ol expression to filter out FPs
 entropy(finding["secret"]) <= 3.5
-|| failsTokenEfficiency(finding["secret"])
+|| filter.failsTokenEfficiency(finding["secret"])
 || ` + genericAPIKeyFilter,
 	}
 

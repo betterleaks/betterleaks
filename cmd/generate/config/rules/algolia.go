@@ -14,7 +14,7 @@ func AlgoliaApplicationID() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{10}`, true),
 		Keywords:    []string{"algolia"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 2.75 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter:      `filter.entropy(finding["secret"]) < 2.75 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{
@@ -36,7 +36,7 @@ func AlgoliaApiKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{32}`, true),
 		Keywords:    []string{"algolia"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 		Components: []*config.Component{
 			{RuleID: "algolia-application-id"},
 		},

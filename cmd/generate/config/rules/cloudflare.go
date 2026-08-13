@@ -33,7 +33,7 @@ func CloudflareGlobalAPIKey() *config.Rule {
 		Description: "Detected a Cloudflare Global API Key, potentially compromising cloud application deployments and operational security.",
 		Regex:       utils.GenerateSemiGenericRegex(identifiers, utils.Hex("37"), true),
 		Keywords:    identifiers,
-		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -52,7 +52,7 @@ func CloudflareAPIKey() *config.Rule {
 		Description: "Detected a Cloudflare API Key, potentially compromising cloud application deployments and operational security.",
 		Regex:       utils.GenerateSemiGenericRegex(identifiers, utils.AlphaNumericExtendedShort("40"), true),
 		Keywords:    identifiers,
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -72,7 +72,7 @@ func CloudflareOriginCAKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`v1\.0-`+utils.Hex("24")+"-"+utils.Hex("146"), false),
 		Keywords:    ca_identifiers,
-		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
