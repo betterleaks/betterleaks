@@ -18,12 +18,12 @@ func PrivateAIToken() *config.Rule {
 			"private_ai",
 			"private-ai",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate
 	tps := []string{
-		utils.GenerateSampleSecret("privateai", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3)),
+		utils.GenerateSampleSecret("privateai", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5)),
 	}
 	fps := []string{
 		`const privateaiToken = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";`,

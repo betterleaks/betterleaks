@@ -23,7 +23,7 @@ func Meraki() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.3),
+		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate

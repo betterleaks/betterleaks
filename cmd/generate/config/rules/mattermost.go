@@ -17,9 +17,10 @@ func MattermostAccessToken() *config.Rule {
 		Keywords: []string{
 			"mattermost",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("mattermost", secrets.NewSecret(utils.AlphaNumeric("26")))
+	tps := utils.GenerateSampleSecrets("mattermost", secrets.NewSecretWithEntropy(utils.AlphaNumeric("26"), 3.0))
 	return utils.Validate(r, tps, nil)
 }

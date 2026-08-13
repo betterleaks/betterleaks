@@ -14,10 +14,11 @@ func TwitterAPIKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, utils.AlphaNumeric("25"), true),
 		Keywords:    []string{"twitter"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecret(utils.AlphaNumeric("25")))
+	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3.0))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -29,10 +30,11 @@ func TwitterAPISecret() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, utils.AlphaNumeric("50"), true),
 		Keywords:    []string{"twitter"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecret(utils.AlphaNumeric("50")))
+	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecretWithEntropy(utils.AlphaNumeric("50"), 3.5))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -45,10 +47,11 @@ func TwitterBearerToken() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, "A{22}[a-zA-Z0-9%]{80,100}", true),
 
 		Keywords: []string{"twitter"},
+		Filter:   `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecret("A{22}[a-zA-Z0-9%]{80,100}"))
+	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecretWithEntropy("A{22}[a-zA-Z0-9%]{80,100}", 3.0))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -60,10 +63,11 @@ func TwitterAccessToken() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, "[0-9]{15,25}-[a-zA-Z0-9]{20,40}", true),
 		Keywords:    []string{"twitter"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecret("[0-9]{15,25}-[a-zA-Z0-9]{20,40}"))
+	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecretWithEntropy("[0-9]{15,25}-[a-zA-Z0-9]{20,40}", 3.5))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -75,9 +79,10 @@ func TwitterAccessSecret() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, utils.AlphaNumeric("45"), true),
 		Keywords:    []string{"twitter"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecret(utils.AlphaNumeric("45")))
+	tps := utils.GenerateSampleSecrets("twitter", secrets.NewSecretWithEntropy(utils.AlphaNumeric("45"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

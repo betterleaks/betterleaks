@@ -13,7 +13,7 @@ func Upstage() *config.Rule {
 		Description: "Detected an Upstage AI API key, which may expose Solar language models and document AI services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"upstage"}, `[A-Za-z0-9]{40,50}`, true),
 		Keywords:    []string{"upstage"},
-		Entropy:     3.5,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 		ValidateExpr: `let r = http.get("https://api.upstage.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"data"') ? {

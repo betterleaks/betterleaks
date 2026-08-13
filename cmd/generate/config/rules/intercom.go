@@ -15,9 +15,10 @@ func Intercom() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"intercom"}, utils.AlphaNumericExtended("60"), true),
 
 		Keywords: []string{"intercom"},
+		Filter:   `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("intercom", secrets.NewSecret(utils.AlphaNumericExtended("60")))
+	tps := utils.GenerateSampleSecrets("intercom", secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("60"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

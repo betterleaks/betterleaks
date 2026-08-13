@@ -17,10 +17,11 @@ func SendbirdAccessToken() *config.Rule {
 		Keywords: []string{
 			"sendbird",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.3`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("sendbird", secrets.NewSecret(utils.Hex("40")))
+	tps := utils.GenerateSampleSecrets("sendbird", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -35,9 +36,10 @@ func SendbirdAccessID() *config.Rule {
 		Keywords: []string{
 			"sendbird",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.3`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("sendbird", secrets.NewSecret(utils.Hex8_4_4_4_12()))
+	tps := utils.GenerateSampleSecrets("sendbird", secrets.NewSecretWithEntropy(utils.Hex8_4_4_4_12(), 3.3))
 	return utils.Validate(r, tps, nil)
 }

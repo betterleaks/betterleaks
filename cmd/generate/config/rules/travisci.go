@@ -17,9 +17,10 @@ func TravisCIAccessToken() *config.Rule {
 		Keywords: []string{
 			"travis",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("travis", secrets.NewSecret(utils.AlphaNumeric("22")))
+	tps := utils.GenerateSampleSecrets("travis", secrets.NewSecretWithEntropy(utils.AlphaNumeric("22"), 3.0))
 	return utils.Validate(r, tps, nil)
 }

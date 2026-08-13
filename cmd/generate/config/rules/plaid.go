@@ -16,7 +16,7 @@ func PlaidAccessID() *config.Rule {
 		Keywords: []string{
 			"plaid",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate
@@ -34,7 +34,7 @@ func PlaidSecretKey() *config.Rule {
 		Keywords: []string{
 			"plaid",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate
@@ -54,6 +54,7 @@ func PlaidAccessToken() *config.Rule {
 		Keywords: []string{
 			"plaid",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 2.75`,
 	}
 
 	// validate

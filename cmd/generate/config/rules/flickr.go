@@ -17,9 +17,10 @@ func FlickrAccessToken() *config.Rule {
 		Keywords: []string{
 			"flickr",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("flickr", secrets.NewSecret(utils.AlphaNumeric("32")))
+	tps := utils.GenerateSampleSecrets("flickr", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

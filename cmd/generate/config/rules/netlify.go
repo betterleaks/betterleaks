@@ -18,9 +18,10 @@ func NetlifyAccessToken() *config.Rule {
 		Keywords: []string{
 			"netlify",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("netlify", secrets.NewSecret(utils.AlphaNumericExtended("40,46")))
+	tps := utils.GenerateSampleSecrets("netlify", secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("40,46"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

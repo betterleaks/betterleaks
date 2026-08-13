@@ -17,9 +17,10 @@ func FinnhubAccessToken() *config.Rule {
 		Keywords: []string{
 			"finnhub",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("finnhub", secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("finnhub", secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3.0))
 	return utils.Validate(r, tps, nil)
 }

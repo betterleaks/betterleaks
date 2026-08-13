@@ -17,10 +17,11 @@ func KucoinAccessToken() *config.Rule {
 		Keywords: []string{
 			"kucoin",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("kucoin", secrets.NewSecret(utils.Hex("24")))
+	tps := utils.GenerateSampleSecrets("kucoin", secrets.NewSecretWithEntropy(utils.Hex("24"), 3.0))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -35,9 +36,10 @@ func KucoinSecretKey() *config.Rule {
 		Keywords: []string{
 			"kucoin",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.3`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("kucoin", secrets.NewSecret(utils.Hex8_4_4_4_12()))
+	tps := utils.GenerateSampleSecrets("kucoin", secrets.NewSecretWithEntropy(utils.Hex8_4_4_4_12(), 3.3))
 	return utils.Validate(r, tps, nil)
 }

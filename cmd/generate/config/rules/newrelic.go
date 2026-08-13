@@ -21,10 +21,11 @@ func NewRelicUserID() *config.Rule {
 		Keywords: []string{
 			"NRAK",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("new-relic", "NRAK-"+secrets.NewSecret(utils.AlphaNumeric("27")))
+	tps := utils.GenerateSampleSecrets("new-relic", "NRAK-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("27"), 3.5))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -45,10 +46,11 @@ func NewRelicUserKey() *config.Rule {
 			"newrelic",
 			"new_relic",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("new-relic", secrets.NewSecret(utils.AlphaNumeric("64")))
+	tps := utils.GenerateSampleSecrets("new-relic", secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3.5))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -67,10 +69,11 @@ func NewRelicBrowserAPIKey() *config.Rule {
 		Keywords: []string{
 			"NRJS-",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("new-relic", "NRJS-"+secrets.NewSecret(utils.Hex("19")))
+	tps := utils.GenerateSampleSecrets("new-relic", "NRJS-"+secrets.NewSecretWithEntropy(utils.Hex("19"), 3.0))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -89,9 +92,10 @@ func NewRelicInsertKey() *config.Rule {
 		Keywords: []string{
 			"NRII-",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("new-relic", "NRII-"+secrets.NewSecret(utils.Hex("32")))
+	tps := utils.GenerateSampleSecrets("new-relic", "NRII-"+secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

@@ -19,12 +19,13 @@ func MessageBirdAPIToken() *config.Rule {
 			"message-bird",
 			"message_bird",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("messagebird", secrets.NewSecret(utils.AlphaNumeric("25")))
-	tps = append(tps, utils.GenerateSampleSecrets("message-bird", secrets.NewSecret(utils.AlphaNumeric("25")))...)
-	tps = append(tps, utils.GenerateSampleSecrets("message_bird", secrets.NewSecret(utils.AlphaNumeric("25")))...)
+	tps := utils.GenerateSampleSecrets("messagebird", secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3.0))
+	tps = append(tps, utils.GenerateSampleSecrets("message-bird", secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3.0))...)
+	tps = append(tps, utils.GenerateSampleSecrets("message_bird", secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3.0))...)
 	return utils.Validate(r, tps, nil)
 }
 
@@ -41,6 +42,7 @@ func MessageBirdClientID() *config.Rule {
 			"message-bird",
 			"message_bird",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate

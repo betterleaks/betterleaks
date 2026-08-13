@@ -13,7 +13,7 @@ func BoxAPIAccessToken() *config.Rule {
 		Regex:        utils.GenerateSemiGenericRegex([]string{"box"}, utils.AlphaNumeric("32"), true),
 		Keywords:     []string{"box_", "box-", "boxt", "boxk", "boxa"},
 		ValidateExpr: utils.BearerGetValidationExpr("https://api.box.com/2.0/users/me", `(r.body contains "\"id\"")`),
-		Filter:       utils.MinEntropy(3.5),
+		Filter:       `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	tps := []string{

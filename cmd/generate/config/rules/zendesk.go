@@ -16,9 +16,10 @@ func ZendeskSecretKey() *config.Rule {
 		Keywords: []string{
 			"zendesk",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("zendesk", secrets.NewSecret(utils.AlphaNumeric("40")))
+	tps := utils.GenerateSampleSecrets("zendesk", secrets.NewSecretWithEntropy(utils.AlphaNumeric("40"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

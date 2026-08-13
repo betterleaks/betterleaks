@@ -18,9 +18,10 @@ func RapidAPIAccessToken() *config.Rule {
 		Keywords: []string{
 			"rapidapi",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("rapidapi", secrets.NewSecret(utils.AlphaNumericExtendedShort("50")))
+	tps := utils.GenerateSampleSecrets("rapidapi", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("50"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

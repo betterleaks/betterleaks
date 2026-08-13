@@ -14,10 +14,11 @@ func BittrexAccessKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"bittrex"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("bittrex", secrets.NewSecret(utils.AlphaNumeric("32")))
+	tps := utils.GenerateSampleSecrets("bittrex", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -30,9 +31,10 @@ func BittrexSecretKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 
 		Keywords: []string{"bittrex"},
+		Filter:   `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("bittrex", secrets.NewSecret(utils.AlphaNumeric("32")))
+	tps := utils.GenerateSampleSecrets("bittrex", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

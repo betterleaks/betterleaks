@@ -18,9 +18,10 @@ func KrakenAccessToken() *config.Rule {
 		Keywords: []string{
 			"kraken",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 4.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("kraken", secrets.NewSecret(utils.AlphaNumericExtendedLong("80,90")))
+	tps := utils.GenerateSampleSecrets("kraken", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedLong("80,90"), 4.0))
 	return utils.Validate(r, tps, nil)
 }

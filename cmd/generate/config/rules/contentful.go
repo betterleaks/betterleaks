@@ -15,9 +15,10 @@ func Contentful() *config.Rule {
 		Regex: utils.GenerateSemiGenericRegex([]string{"contentful"},
 			utils.AlphaNumericExtended("43"), true),
 		Keywords: []string{"contentful"},
+		Filter:   `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("contentful", secrets.NewSecret(utils.AlphaNumeric("43")))
+	tps := utils.GenerateSampleSecrets("contentful", secrets.NewSecretWithEntropy(utils.AlphaNumeric("43"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

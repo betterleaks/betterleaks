@@ -18,10 +18,10 @@ func FreshbooksAccessToken() *config.Rule {
 			"freshbooks",
 		},
 		ValidateExpr: utils.BearerGetValidationExpr("https://api.freshbooks.com/auth/api/v1/users/me", "true"),
-		Filter:       utils.MinEntropy(3.5),
+		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("freshbooks", secrets.NewSecret(utils.AlphaNumeric("64")))
+	tps := utils.GenerateSampleSecrets("freshbooks", secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

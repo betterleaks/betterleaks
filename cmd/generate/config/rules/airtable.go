@@ -15,10 +15,11 @@ func AirtableApiKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, utils.AlphaNumeric("17"), true),
 		Keywords:    []string{"airtable"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("airtable", secrets.NewSecret(utils.AlphaNumeric("17")))
+	tps := utils.GenerateSampleSecrets("airtable", secrets.NewSecretWithEntropy(utils.AlphaNumeric("17"), 3.0))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -42,7 +43,7 @@ func AirtablePersonalAccessToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("airtable", "pat"+secrets.NewSecret(utils.AlphaNumeric("14")+"\\."+utils.Hex("64")))
+	tps := utils.GenerateSampleSecrets("airtable", "pat"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("14")+"\\."+utils.Hex("64"), 3.3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -61,7 +62,7 @@ func AirtableOAuthToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	tps := []string{

@@ -13,7 +13,7 @@ func Greptile() *config.Rule {
 		Description: "Detected a Greptile API Key, which may expose AI-powered code search and analysis services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"greptile"}, `[a-zA-Z0-9+/]{48}`, true),
 		Keywords:    []string{"greptile"},
-		Filter:      `entropy(finding["secret"]) <= 3.5`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	tps := []string{

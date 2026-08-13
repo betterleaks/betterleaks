@@ -18,9 +18,10 @@ func GitterAccessToken() *config.Rule {
 		Keywords: []string{
 			"gitter",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("gitter", secrets.NewSecret(utils.AlphaNumericExtendedShort("40")))
+	tps := utils.GenerateSampleSecrets("gitter", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("40"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

@@ -14,10 +14,11 @@ func LookerClientID() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"looker"}, utils.AlphaNumeric("20"), true),
 		Keywords:    []string{"looker"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("looker", secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("looker", secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3.0))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -29,9 +30,10 @@ func LookerClientSecret() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"looker"}, utils.AlphaNumeric("24"), true),
 		Keywords:    []string{"looker"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("looker", secrets.NewSecret(utils.AlphaNumeric("24")))
+	tps := utils.GenerateSampleSecrets("looker", secrets.NewSecretWithEntropy(utils.AlphaNumeric("24"), 3.0))
 	return utils.Validate(r, tps, nil)
 }

@@ -15,10 +15,11 @@ func FinicityClientSecret() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"finicity"}, utils.AlphaNumeric("20"), true),
 
 		Keywords: []string{"finicity"},
+		Filter:   `filter.entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("finicity", secrets.NewSecret(utils.AlphaNumeric("20")))
+	tps := utils.GenerateSampleSecrets("finicity", secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3.0))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -31,9 +32,10 @@ func FinicityAPIToken() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"finicity"}, utils.Hex("32"), true),
 
 		Keywords: []string{"finicity"},
+		Filter:   `filter.entropy(finding["secret"]) < 3.3`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("finicity", secrets.NewSecret(utils.Hex("32")))
+	tps := utils.GenerateSampleSecrets("finicity", secrets.NewSecretWithEntropy(utils.Hex("32"), 3.3))
 	return utils.Validate(r, tps, nil)
 }

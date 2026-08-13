@@ -53,11 +53,11 @@ func SumoLogicAccessToken() *config.Rule {
 		Keywords: []string{
 			"sumo",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("sumo", secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3))
+	tps := utils.GenerateSampleSecrets("sumo", secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3.5))
 	tps = append(tps,
 		`export SUMOLOGIC_ACCESSKEY="3HSa1hQfz6BYzlxf7Yb1WKG3Hyovm56LMFChV2y9LgkRipsXCujcLb5ej3oQUJlx"`, // gitleaks:allow
 		`SUMO_ACCESS_KEY: gxq3rJQkS6qovOg9UY2Q70iH1jFZx0WBrrsiAYv4XHodogAwTKyLzvFK4neRN8Dk`,             // gitleaks:allow

@@ -17,9 +17,10 @@ func CoinbaseAccessToken() *config.Rule {
 		Keywords: []string{
 			"coinbase",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("coinbase", secrets.NewSecret(utils.AlphaNumericExtendedShort("64")))
+	tps := utils.GenerateSampleSecrets("coinbase", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("64"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

@@ -17,9 +17,10 @@ func DroneciAccessToken() *config.Rule {
 		Keywords: []string{
 			"droneci",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("droneci", secrets.NewSecret(utils.AlphaNumeric("32")))
+	tps := utils.GenerateSampleSecrets("droneci", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

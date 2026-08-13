@@ -22,10 +22,10 @@ func Mistral() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
-	tps := utils.GenerateSampleSecrets("mistral", secrets.NewSecretWithEntropy(`[A-Z0-9]{32}`, 3.0))
+	tps := utils.GenerateSampleSecrets("mistral", secrets.NewSecretWithEntropy(`[A-Z0-9]{32}`, 3.5))
 	fps := []string{
 		// Too short
 		`mistral_token = 47cFZMzkoEo9DBapfvhrmMst3zfV`,

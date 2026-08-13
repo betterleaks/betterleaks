@@ -17,9 +17,10 @@ func LaunchDarklyAccessToken() *config.Rule {
 		Keywords: []string{
 			"launchdarkly",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("launchdarkly", secrets.NewSecret(utils.AlphaNumericExtended("40")))
+	tps := utils.GenerateSampleSecrets("launchdarkly", secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("40"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

@@ -22,7 +22,7 @@ func BitlyAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	tps := []string{

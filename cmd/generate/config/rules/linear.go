@@ -26,11 +26,11 @@ func LinearAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linear", "lin_api_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("40"), 2))
+	tps := utils.GenerateSampleSecrets("linear", "lin_api_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("40"), 3.5))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -42,10 +42,10 @@ func LinearClientSecret() *config.Rule {
 		Description: "Identified a Linear Client Secret, which may compromise secure integrations and sensitive project management data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"linear"}, utils.Hex("32"), true),
 		Keywords:    []string{"linear"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linear", secrets.NewSecretWithEntropy(utils.Hex("32"), 2))
+	tps := utils.GenerateSampleSecrets("linear", secrets.NewSecretWithEntropy(utils.Hex("32"), 3.3))
 	return utils.Validate(r, tps, nil)
 }

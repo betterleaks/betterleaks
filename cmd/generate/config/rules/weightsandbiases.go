@@ -24,7 +24,7 @@ func WeightsAndBiases() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	tps := utils.GenerateSampleSecrets("wandb_api_key", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.5))
@@ -55,7 +55,7 @@ func WeightsAndBiasesV1() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	tps := utils.GenerateSampleSecrets("wandb", "wandb_v1_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_]{77}`, 3.5))

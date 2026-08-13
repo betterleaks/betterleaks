@@ -14,9 +14,10 @@ func AdafruitAPIKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"adafruit"}, utils.AlphaNumericExtendedShort("32"), true),
 		Keywords:    []string{"adafruit"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("adafruit", secrets.NewSecret(utils.AlphaNumericExtendedShort("32")))
+	tps := utils.GenerateSampleSecrets("adafruit", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("32"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

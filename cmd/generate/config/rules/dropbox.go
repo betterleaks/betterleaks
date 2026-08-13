@@ -31,6 +31,7 @@ func DropBoxShortLivedAPIToken() *config.Rule {
 		Description: "Discovered a Dropbox short-lived API token, posing a risk of temporary but potentially harmful data access and manipulation.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"dropbox"}, `sl\.[a-z0-9\-=_]{135}`, true),
 		Keywords:    []string{"dropbox"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate TODO
@@ -45,6 +46,7 @@ func DropBoxLongLivedAPIToken() *config.Rule {
 		Description: "Found a Dropbox long-lived API token, risking prolonged unauthorized access to cloud storage and sensitive data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"dropbox"}, `[a-z0-9]{11}(AAAAAAAAAA)[a-z0-9\-_=]{43}`, true),
 		Keywords:    []string{"dropbox"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.failsTokenEfficiency(finding["secret"])`,
 	}
 
 	// validate TODO

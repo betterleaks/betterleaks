@@ -16,10 +16,11 @@ func ConfluentSecretKey() *config.Rule {
 		Keywords: []string{
 			"confluent",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("confluent", secrets.NewSecret(utils.AlphaNumeric("64")))
+	tps := utils.GenerateSampleSecrets("confluent", secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3.5))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -38,6 +39,6 @@ func ConfluentAccessToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("confluent", secrets.NewSecret(utils.AlphaNumeric("16")))
+	tps := utils.GenerateSampleSecrets("confluent", secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 3.0))
 	return utils.Validate(r, tps, nil)
 }

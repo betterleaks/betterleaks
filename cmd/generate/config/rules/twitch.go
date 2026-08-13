@@ -16,9 +16,10 @@ func TwitchAPIToken() *config.Rule {
 		Keywords: []string{
 			"twitch",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("twitch", secrets.NewSecret(utils.AlphaNumeric("30")))
+	tps := utils.GenerateSampleSecrets("twitch", secrets.NewSecretWithEntropy(utils.AlphaNumeric("30"), 3.5))
 	return utils.Validate(r, tps, nil)
 }
