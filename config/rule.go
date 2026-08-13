@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/regexp"
@@ -41,6 +42,9 @@ type Rule struct {
 	// Specificity controls precedence when overlapping findings compete.
 	// Higher specificity findings suppress lower specificity findings.
 	Specificity int
+
+	// Confidence estimates how likely a match is to be a real secret.
+	Confidence string
 
 	// Keywords are used for pre-regex check filtering. Rules that contain
 	// keywords will perform a quick string compare check to make sure the
@@ -118,6 +122,9 @@ func (r *Rule) Validate() error {
 	// Ensure the rule actually matches something.
 	if r.Regex == nil && r.Path == nil {
 		return errors.New(r.RuleID + ": both |regex| and |path| are empty, this rule will have no effect")
+	}
+	if r.Confidence != "" && !confidence.Valid(r.Confidence) {
+		return fmt.Errorf("%s: invalid confidence %q (expected low, medium, or high)", r.RuleID, r.Confidence)
 	}
 
 	// Ensure |secretGroup| works.

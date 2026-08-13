@@ -257,8 +257,17 @@ func (e *Runtime) EvalFilter(prg Program, finding map[string]any, attributes map
 	if finding == nil {
 		finding = emptyFilterFinding
 	}
+	if attributes == nil {
+		attributes = make(map[string]string)
+	}
 	b["finding"] = finding
-	b["attributes"] = nonNilStringMap(attributes)
+	b["attributes"] = attributes
+	if rt, ok := b["__runtime"].(*runtimeBindings); ok {
+		rt.attrs = attributes
+		filter := filterNamespace(rt)
+		filter["setConfidence"] = rt.setConfidence
+		b["filter"] = filter
+	}
 	return runBool(prg, b, "filter")
 }
 
@@ -493,7 +502,9 @@ func nonNilStringMap(m map[string]string) map[string]string {
 }
 
 func filterBindings(tokenizer *tiktoken.Tiktoken, finding map[string]any, attributes map[string]string) bindings {
-	b := baseBindings(&runtimeBindings{tokenizer: tokenizer, attrs: attributes})
+	rt := &runtimeBindings{tokenizer: tokenizer, attrs: attributes}
+	b := baseBindings(rt)
+	b["filter"].(map[string]any)["setConfidence"] = rt.setConfidence
 	b["finding"] = finding
 	return b
 }

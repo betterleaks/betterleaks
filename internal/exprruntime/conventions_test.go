@@ -35,7 +35,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			fns:  functionNames(filterBindings(nil, emptyFilterFinding, emptyStringMap)),
 			current: []string{
 				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.entropy",
-				"filter.failsTokenEfficiency",
+				"filter.failsTokenEfficiency", "filter.setConfidence",
 			},
 			deprecated: []string{"matchesAny", "containsAny", "entropy", "failsTokenEfficiency"},
 		},
@@ -96,6 +96,18 @@ func TestFilterEntropy(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	require.True(t, skip)
+}
+
+func TestFilterSetConfidence(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	prg, err := env.CompileFilter(`let _ = filter.setConfidence("high"); false`, nil)
+	require.NoError(t, err)
+
+	attributes := map[string]string{}
+	_, err = env.EvalFilter(prg, nil, attributes)
+	require.NoError(t, err)
+	require.Equal(t, "high", attributes["confidence"])
 }
 
 func TestFilterEvalUsesPerCallBindings(t *testing.T) {

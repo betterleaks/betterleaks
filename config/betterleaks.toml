@@ -1,7 +1,7 @@
 # This file has been auto-generated. Do not edit manually.
 # If you would like to contribute new rules, please use
 # cmd/generate/config/main.go and follow the contributing guidelines
-# at https://github.com/betterleaks/betterleaks/blob/master/CONTRIBUTING.md
+# at https://github.com/betterleaks/betterleaks/blob/main/.github/CONTRIBUTING.md
 #
 # How the hell does secret scanning work? Read this:
 #   https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need
@@ -3003,6 +3003,7 @@ id = "generic-api-key"
 description = "Detected a Generic API Key, potentially exposing access to various services and sensitive operations."
 regex = '''(?i)(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|passw(?:or)?d|secret|token)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 specificity = 0
+confidence = "low"
 keywords = [
     "access",
     "api",
@@ -3036,6 +3037,11 @@ let genericMatchPrefix = filter.findMatch(
 let genericMatchContext =
   genericMatchPrefix +
   finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+
+let level = filter.matchesAny(genericMatchContext, [
+  `(?i)\b[a-z0-9]+[_.-]+token\b`
+]) ? "medium" : "low";
+let _ = filter.setConfidence(level);
 
 // big ol expression to filter out FPs
 entropy(finding["secret"]) <= 3.5
@@ -6490,6 +6496,7 @@ entropy(finding["secret"]) < 3.5
 id = "openai-api-key"
 description = "Found an OpenAI API Key, posing a risk of unauthorized access to AI services and data manipulation."
 regex = '''\b(sk-(?:proj|svcacct|admin)-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})\b|sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
 keywords = ["t3blbkfj"]
 validate = '''
 let r = http.get("https://api.openai.com/v1/models", {

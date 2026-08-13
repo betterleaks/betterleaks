@@ -299,6 +299,7 @@ type ruleView struct {
 	Keywords    []string        `toml:"keywords,omitempty"`
 	Tags        []string        `toml:"tags,omitempty"`
 	Specificity int             `toml:"specificity,omitempty"`
+	Confidence  string          `toml:"confidence,omitempty"`
 	Components  []componentView `toml:"components,omitempty"`
 	Validate    string          `toml:"validate,omitempty"`
 	SkipReport  bool            `toml:"skipReport,omitempty"`
@@ -331,6 +332,7 @@ func renderConfig(cfg *configpkg.Config) configView {
 			Keywords:    rule.Keywords,
 			Tags:        rule.Tags,
 			Specificity: renderedSpecificity(rule.Specificity),
+			Confidence:  rule.Confidence,
 			Validate:    rule.ValidateExpr,
 			SkipReport:  rule.SkipReport,
 			Filter:      rule.Filter,
@@ -370,6 +372,7 @@ func renderConfigTOML(view configView) string {
 		writeStrings(&b, "keywords", rule.Keywords)
 		writeStrings(&b, "tags", rule.Tags)
 		writeInt(&b, "specificity", rule.Specificity)
+		writeString(&b, "confidence", rule.Confidence)
 		writeString(&b, "validate", rule.Validate)
 		writeBool(&b, "skipReport", rule.SkipReport)
 		writeString(&b, "filter", rule.Filter)

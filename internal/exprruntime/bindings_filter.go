@@ -1,11 +1,13 @@
 package exprruntime
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"strings"
 	"sync"
 
+	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/words"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
 	tiktoken "github.com/pkoukk/tiktoken-go"
@@ -25,6 +27,14 @@ func filterNamespace(rt *runtimeBindings) map[string]any {
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
 	}
+}
+
+func (rt *runtimeBindings) setConfidence(value string) (string, error) {
+	if !confidence.Valid(value) {
+		return "", fmt.Errorf("filter.setConfidence: invalid confidence %q (expected low, medium, or high)", value)
+	}
+	rt.attrs.(map[string]string)[confidence.Attribute] = value
+	return value, nil
 }
 
 func orderedKey(ss []string) string { return strings.Join(ss, "\x00") }

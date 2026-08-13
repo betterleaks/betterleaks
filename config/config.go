@@ -58,6 +58,7 @@ type rawRule struct {
 	Keywords    []string `toml:"keywords"`
 	Tags        []string `toml:"tags"`
 	Specificity *int     `toml:"specificity"`
+	Confidence  string   `toml:"confidence"`
 
 	// Deprecated: this is a shim for backwards-compatibility.
 	// TODO: Remove this in 9.x.
@@ -234,6 +235,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			Keywords:        vr.Keywords,
 			Tags:            vr.Tags,
 			Specificity:     specificity,
+			Confidence:      vr.Confidence,
 			SkipReport:      vr.SkipReport,
 			TokenEfficiency: vr.TokenEfficiency,
 		}
@@ -691,6 +693,9 @@ func (c *Config) extend(extensionConfig *Config) {
 			}
 			if currentRule.ValidateExpr != "" {
 				baseRule.ValidateExpr = currentRule.ValidateExpr
+			}
+			if currentRule.Confidence != "" {
+				baseRule.Confidence = currentRule.Confidence
 			}
 			// Current rule's Filter replaces the extending one if set.
 			if currentRule.Filter != "" {

@@ -41,6 +41,8 @@ specificity = 0
 {{- else if $rule.Specificity }}
 specificity = {{ $rule.Specificity }}
 {{- end -}}
+{{- with $rule.Confidence }}
+confidence = "{{ . }}"{{ end -}}
 {{- with $rule.Keywords }}
 {{- if gt (len .) 1}}
 keywords = [{{ range $j, $keyword := . }}

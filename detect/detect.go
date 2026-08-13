@@ -20,6 +20,7 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/internal/ahocorasick"
+	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
@@ -92,6 +93,9 @@ type Detector struct {
 	// ValidationStatusFilter, when non-empty, restricts which findings are
 	// printed in verbose mode. Parsed from --validation-status.
 	ValidationStatusFilter map[string]struct{}
+
+	// MinConfidence suppresses classified findings below this level.
+	MinConfidence string
 
 	// ValidationPool is the expression validation worker pool.
 	ValidationPool *validate.Pool
@@ -462,6 +466,9 @@ func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding
 		Attributes:      maps.Clone(fragment.Attributes),
 		RuleSpecificity: r.Specificity,
 	}
+	if r.Confidence != "" {
+		finding.SetAttr(confidence.Attribute, r.Confidence)
+	}
 	finding.SyncDeprecatedSourceFields()
 	return finding
 }
@@ -759,7 +766,11 @@ ScanLoop:
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)...)
+					for _, finding := range d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings) {
+						if confidence.Meets(finding.Attr(confidence.Attribute), d.MinConfidence) {
+							findings = append(findings, finding)
+						}
+					}
 				}
 			}
 			// Pool entries must be blank because later scans may run on any goroutine.
@@ -928,6 +939,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			Tags:            tags,
 			RuleSpecificity: r.Specificity,
 		}
+		if r.Confidence != "" {
+			finding.SetAttr(confidence.Attribute, r.Confidence)
+		}
 
 		// TODO eventually move this git specific bit into somewhere... better?
 		platform := finding.Attr(sources.AttrGitPlatform)
@@ -1010,6 +1024,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]any
 		if hasGlobalFilter || hasRuleFilter {
+			if finding.Attributes == nil {
+				finding.Attributes = make(map[string]string)
+			}
 			findingMap = make(map[string]any, 12)
 			for key, value := range finding.ToExprMap() {
 				findingMap[key] = value
@@ -1037,7 +1054,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		if prg, ok, err := d.globalFilterProgram(); err != nil {
 			logger.Warn().Err(err).Msg("global filter compile error")
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -1052,7 +1069,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
 			logger.Warn().Err(err).Msg("rule filter compile error")
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {
