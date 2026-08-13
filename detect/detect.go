@@ -562,9 +562,6 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					if d.ignore(finding) {
 						continue
 					}
-					if !confidence.Meets(finding.Attr(confidence.Attribute), d.MinConfidence) {
-						continue
-					}
 					if d.ValidationPool != nil {
 						if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
 							return err
@@ -769,7 +766,11 @@ ScanLoop:
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)...)
+					for _, finding := range d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings) {
+						if confidence.Meets(finding.Attr(confidence.Attribute), d.MinConfidence) {
+							findings = append(findings, finding)
+						}
+					}
 				}
 			}
 			// Pool entries must be blank because later scans may run on any goroutine.
