@@ -11,6 +11,7 @@ import (
 func BuildkiteUserAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "buildkite-user-access-token",
+		Confidence:  "high",
 		Description: "Detected a Buildkite user access token, which may expose pipelines, builds, and organization data.",
 		Regex:       regexp.MustCompile(`\b(bkua_(?:[a-z0-9]{40}|[a-z0-9]{53}))\b`),
 		Keywords:    []string{"bkua_"},
@@ -36,6 +37,7 @@ func BuildkiteUserAccessToken() *config.Rule {
 func BuildkiteServiceToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "buildkite-service-token",
+		Confidence:  "high",
 		Description: "Detected a Buildkite agent, package, or portal token, which may expose CI/CD workloads or packages.",
 		Regex: regexp.MustCompile(`\b(` +
 			`bkaa_[A-Za-z0-9_-]{75}|` +

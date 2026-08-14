@@ -10,12 +10,13 @@ func PlaidAccessID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "plaid-client-id",
+		Confidence:  "high",
 		Description: "Uncovered a Plaid Client ID, which could lead to unauthorized financial service integrations and data breaches.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"plaid"}, utils.AlphaNumeric("24"), true),
 		Keywords: []string{
 			"plaid",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -27,12 +28,13 @@ func PlaidSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "plaid-secret-key",
+		Confidence:  "high",
 		Description: "Detected a Plaid Secret key, risking unauthorized access to financial accounts and sensitive transaction data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"plaid"}, utils.AlphaNumeric("30"), true),
 		Keywords: []string{
 			"plaid",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -44,6 +46,7 @@ func PlaidAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "plaid-api-token",
+		Confidence:  "high",
 		Description: "Discovered a Plaid API Token, potentially compromising financial data aggregation and banking services.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"plaid"},
 			"access-(?:sandbox|development|production)-"+utils.Hex8_4_4_4_12(), true),

@@ -9,6 +9,7 @@ import (
 func Ollama() *config.Rule {
 	r := config.Rule{
 		RuleID:      "ollama-api-key",
+		Confidence:  "high",
 		Description: "Detected an Ollama API Key, which may expose local and hosted AI model serving to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"ollama"}, `[a-f0-9]{32}\.[a-zA-Z0-9_-]{24}`, true),
 		Keywords:    []string{"ollama"},

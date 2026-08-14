@@ -8,6 +8,7 @@ import (
 func ClerkSecretKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "clerk-secret-key",
+		Confidence:  "medium",
 		Description: "Detected a Clerk secret key, which may allow unauthorized access to Clerk backend APIs.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"clerk"}, `sk_(?:test|live)_[A-Za-z0-9]{32}`, true),
 		Keywords:    []string{"clerk"},

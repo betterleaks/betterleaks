@@ -10,15 +10,17 @@ func LaunchDarklyAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "launchdarkly-access-token",
+		Confidence:  "high",
 		Description: "Uncovered a Launchdarkly Access Token, potentially compromising feature flag management and application functionality.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"launchdarkly"}, utils.AlphaNumericExtended("40"), true),
 
 		Keywords: []string{
 			"launchdarkly",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("launchdarkly", secrets.NewSecret(utils.AlphaNumericExtended("40")))
+	tps := utils.GenerateSampleSecrets("launchdarkly", secrets.NewSecretWithEntropy(utils.AlphaNumericExtended("40"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

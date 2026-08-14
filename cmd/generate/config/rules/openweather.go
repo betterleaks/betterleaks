@@ -10,6 +10,7 @@ func OpenWeatherAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "openweather-api-key",
+		Confidence:  "medium",
 		Description: "OpenWeather API key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"openweather", "pyowm"}, `[a-z0-9]{32}`, false),
 		Keywords:    []string{"openweather", "pyowm"},
@@ -21,7 +22,7 @@ func OpenWeatherAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

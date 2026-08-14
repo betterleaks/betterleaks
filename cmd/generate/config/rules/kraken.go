@@ -10,6 +10,7 @@ func KrakenAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "kraken-access-token",
+		Confidence:  "high",
 		Description: "Identified a Kraken Access Token, potentially compromising cryptocurrency trading accounts and financial security.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"kraken"},
 			utils.AlphaNumericExtendedLong("80,90"), true),
@@ -17,9 +18,10 @@ func KrakenAccessToken() *config.Rule {
 		Keywords: []string{
 			"kraken",
 		},
+		Filter: `filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("kraken", secrets.NewSecret(utils.AlphaNumericExtendedLong("80,90")))
+	tps := utils.GenerateSampleSecrets("kraken", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedLong("80,90"), 4.0))
 	return utils.Validate(r, tps, nil)
 }

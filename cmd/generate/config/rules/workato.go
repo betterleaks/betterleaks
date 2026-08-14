@@ -9,6 +9,7 @@ func WorkatoDeveloperAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "workato-developer-api-token.1",
+		Confidence:  "high",
 		Description: "Workato Developer API token.",
 		Regex: utils.GenerateUniqueTokenRegex(
 			`wrka(?:[a-z]{2})?-eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{64,}`,

@@ -9,6 +9,7 @@ import (
 func AivenAuthToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "aiven-auth-token",
+		Confidence:  "high",
 		Description: "Detected an Aiven authentication token, which may expose Aiven projects and services.",
 		Regex:       regexp.MustCompile(`(?i:aiven)[\s\S]{0,32}?\b([A-Za-z0-9/+=]{372})(?:[^A-Za-z0-9/+=]|$)`),
 		Keywords:    []string{"aiven"},
@@ -21,7 +22,7 @@ func AivenAuthToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.3),
+		Filter: `filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	token := "MOLXG502hGM9DsUSyvKVf2cx8zXEdBesHZLSqXnMj4agm9jLx4gpC9R+z26CX4tKgrIpjvR9dgorE/DzVxxH79Pd+mspIHgxkf7fL4eLxuFvl4RrvX9CWS7nMnfB9uDiM80AtGykzHm8KKr76I7UY8Az/i3x2OG5gFhH0+2AT0Qr75T1JbNF0IiPSjI3MQ0A1+k1b2DW2dwdNnYKEewrNjhVHre8sYLzMUE5Y+FIs8OFdpAm4YNUb283iVJjEcxT8AtMhmOrziMkmWn0haxjhT2qdxgnafGJidF0Dl/NIN+4o1WokQSyhHH1glhNV5wZcG4Po/KP3aPSRnrFE0+GZ6322TrWo1btS5mv+FKkS6gKq0zEfA=="

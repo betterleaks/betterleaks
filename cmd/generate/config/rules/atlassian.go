@@ -11,6 +11,7 @@ func Atlassian() *config.Rule {
 	r := config.Rule{
 		Description: "Detected an Atlassian API token, posing a threat to project management and collaboration tool security and data confidentiality.",
 		RuleID:      "atlassian-api-token",
+		Confidence:  "high",
 		Regex: utils.MergeRegexps(
 			utils.GenerateSemiGenericRegex(
 				[]string{"(?-i:ATLASSIAN|[Aa]tlassian)", "(?-i:CONFLUENCE|[Cc]onfluence)", "(?-i:JIRA|[Jj]ira)"},
@@ -20,7 +21,7 @@ func Atlassian() *config.Rule {
 			utils.GenerateUniqueTokenRegex(`ATATT3[A-Za-z0-9_\-=]{186}`, false),
 		),
 		Keywords: []string{"atlassian", "confluence", "jira", "atatt3"},
-		Filter:   `entropy(finding["secret"]) <= 3.5`,
+		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

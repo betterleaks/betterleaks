@@ -10,6 +10,7 @@ func PaddleLiveAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "paddle-live-api-key",
+		Confidence:  "high",
 		Description: "Paddle live API key.",
 		Regex: utils.GenerateUniqueTokenRegex(
 			`pdl_live_apikey_[a-z0-9]{26}_[A-Za-z0-9]{22}_[A-Za-z0-9]{3}`,

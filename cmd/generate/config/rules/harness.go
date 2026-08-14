@@ -12,6 +12,7 @@ func HarnessApiKey() *config.Rule {
 	r := config.Rule{
 		Description: "Identified a Harness Access Token (PAT or SAT), risking unauthorized access to a Harness account.",
 		RuleID:      "harness-api-key",
+		Confidence:  "high",
 		Regex:       regexp.MustCompile(`(?:pat|sat)\.[a-zA-Z0-9_-]{22}\.[0-9a-f]{24}\.[a-zA-Z0-9]{20}`),
 		Keywords:    []string{"pat.", "sat."},
 		ValidateExpr: `let r = http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {

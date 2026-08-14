@@ -10,6 +10,7 @@ func PinterestAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "pinterest-access-token",
+		Confidence:  "high",
 		Description: "Pinterest access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pina_[A-Za-z0-9_-]{20,200}`, false),
 		Keywords:    []string{"pina_"},

@@ -11,6 +11,7 @@ func GenericCredential() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "generic-api-key",
+		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
 			"access",
@@ -36,7 +37,6 @@ func GenericCredential() *config.Rule {
 			"token",
 		},
 		Specificity: 0,
-		Confidence:  "low",
 		Filter: `// Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
   max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
@@ -65,7 +65,7 @@ let _ = filter.setConfidence(level);
 
 // big ol expression to filter out FPs
 entropy(finding["secret"]) <= 3.5
-|| failsTokenEfficiency(finding["secret"])
+|| filter.failsTokenEfficiency(finding["secret"])
 || ` + genericAPIKeyFilter,
 	}
 

@@ -9,6 +9,7 @@ import (
 func Replicate() *config.Rule {
 	r := config.Rule{
 		RuleID:      "replicate-api-token",
+		Confidence:  "high",
 		Description: "Detected a Replicate API Token, which may expose AI model hosting and inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`r8_[A-Za-z0-9]{37}`, true),
 		Keywords:    []string{"r8_"},

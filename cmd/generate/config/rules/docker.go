@@ -11,6 +11,7 @@ func DockerSwarmJoinToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "docker-swarm-join-token",
+		Confidence:  "high",
 		Description: "Docker Swarm join token.",
 		Regex:       regexp.MustCompile(`\b(SWMTKN-1-[a-z0-9]{50,60}-[a-z0-9]{24,30})`),
 		Keywords:    []string{"SWMTKN-1-"},
@@ -31,6 +32,7 @@ func DockerSwarmUnlockKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "docker-swarm-unlock-key",
+		Confidence:  "high",
 		Description: "Docker Swarm unlock key.",
 		Regex:       regexp.MustCompile(`\b(SWMKEY-1-[A-Za-z0-9+/]{40,50})`),
 		Keywords:    []string{"SWMKEY-1-"},

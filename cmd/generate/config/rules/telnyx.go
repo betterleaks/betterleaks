@@ -9,6 +9,7 @@ func TelnyxAPIV2Key() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "telnyx-api-v2-key.1",
+		Confidence:  "high",
 		Description: "Telnyx API v2 key.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`telnyx(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},

@@ -10,6 +10,7 @@ func SendInBlueAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "sendinblue-api-token",
+		Confidence:  "high",
 		Description: "Identified a Brevo (formerly Sendinblue) API token, which may compromise email marketing services and subscriber data privacy.",
 		Regex:       regexp.MustCompile(`\b(xkeysib-[a-fA-F0-9]{64}-[a-zA-Z0-9]{16})\b`),
 		Keywords: []string{

@@ -10,6 +10,7 @@ func SegmentPublicAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "segment-public-api-token.1",
+		Confidence:  "high",
 		Description: "Segment workspace bearer token for the Public API.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sgp_[A-Za-z0-9]{64}`, false),
 		Keywords:    []string{"sgp_"},

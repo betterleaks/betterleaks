@@ -11,6 +11,7 @@ func FlutterwavePublicKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "flutterwave-public-key",
+		Confidence:  "high",
 		Description: "Detected a Flutterwave Public Key, potentially exposing public cryptographic operations and integrations.",
 		Regex:       regexp.MustCompile(`FLWPUBK_TEST-(?i)[a-h0-9]{32}-X`),
 		Keywords:    []string{"FLWPUBK_TEST"},
@@ -26,6 +27,7 @@ func FlutterwaveSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "flutterwave-secret-key",
+		Confidence:  "high",
 		Description: "Identified a Flutterwave Secret Key, risking unauthorized financial transactions and data breaches.",
 		Regex:       regexp.MustCompile(`FLWSECK_TEST-(?i)[a-h0-9]{32}-X`),
 		Keywords:    []string{"FLWSECK_TEST"},
@@ -41,6 +43,7 @@ func FlutterwaveEncKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "flutterwave-encryption-key",
+		Confidence:  "high",
 		Description: "Uncovered a Flutterwave Encryption Key, which may compromise payment processing and sensitive financial information.",
 		Regex:       regexp.MustCompile(`FLWSECK_TEST-(?i)[a-h0-9]{12}`),
 		Keywords:    []string{"FLWSECK_TEST"},

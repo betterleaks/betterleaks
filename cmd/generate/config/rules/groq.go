@@ -9,6 +9,7 @@ import (
 func Groq() *config.Rule {
 	r := config.Rule{
 		RuleID:      "groq-api-key",
+		Confidence:  "high",
 		Description: "Identified a Groq API Key, which may expose high-speed AI inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`gsk_[A-Z0-9]{52}`, true),
 		Keywords:    []string{"gsk_"},

@@ -9,6 +9,7 @@ import (
 func NvidiaAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "nvidia-api-key",
+		Confidence:  "high",
 		Description: "Detected an NVIDIA NIM API Key, which may expose AI inference and GPU cloud services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`nvapi-[A-Z0-9_-]{60,70}`, true),
 		Keywords:    []string{"nvapi-"},

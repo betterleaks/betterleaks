@@ -9,6 +9,7 @@ import (
 func Mistral() *config.Rule {
 	r := config.Rule{
 		RuleID:      "mistral-api-key",
+		Confidence:  "high",
 		Description: "Detected a Mistral AI API Key, which may expose AI language model services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mistral"}, `[A-Z0-9]{32}`, true),
 		Keywords:    []string{"mistral"},
@@ -21,10 +22,10 @@ func Mistral() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
-	tps := utils.GenerateSampleSecrets("mistral", secrets.NewSecretWithEntropy(`[A-Z0-9]{32}`, 3.0))
+	tps := utils.GenerateSampleSecrets("mistral", secrets.NewSecretWithEntropy(`[A-Z0-9]{32}`, 3.5))
 	fps := []string{
 		// Too short
 		`mistral_token = 47cFZMzkoEo9DBapfvhrmMst3zfV`,

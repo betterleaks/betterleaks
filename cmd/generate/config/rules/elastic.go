@@ -9,6 +9,7 @@ import (
 func ElasticCloudAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "elastic-cloud-api-key",
+		Confidence:  "high",
 		Description: "Identified an Elastic Cloud Serverless API key, which may expose Elasticsearch and Kibana resources to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`essu_[A-Za-z0-9_\-]{60,200}={0,2}`, false),
 		Keywords:    []string{"essu_"},

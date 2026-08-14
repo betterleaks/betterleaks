@@ -9,6 +9,7 @@ import (
 func UpCloud() *config.Rule {
 	r := config.Rule{
 		RuleID:      "upcloud-api-token",
+		Confidence:  "high",
 		Description: "Identified an UpCloud API token, which may expose cloud infrastructure resources to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ucat_[0-9A-Za-z]{24,32}`, false),
 		Keywords:    []string{"ucat_"},

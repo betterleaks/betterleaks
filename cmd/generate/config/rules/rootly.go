@@ -10,6 +10,7 @@ func RootlyAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "rootly-api-key.1",
+		Confidence:  "high",
 		Description: "Rootly API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rootly_[a-f0-9]{64}`, false),
 		Keywords:    []string{"rootly_"},
