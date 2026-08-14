@@ -57,7 +57,7 @@ func OVHConsumerKey() *config.Rule {
 func OVHApplicationSecret() *config.Rule {
 	r := config.Rule{
 		RuleID:      "ovh-application-secret",
-		Confidence:  "medium",
+		Confidence:  "high",
 		Description: "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}secret"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},

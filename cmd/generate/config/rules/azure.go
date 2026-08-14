@@ -12,7 +12,7 @@ import (
 func AzureTenantID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "azure-tenant-id",
-		Confidence:  "high",
+		Confidence:  "medium",
 		Description: "Detected an Azure tenant ID, used as a component of Azure service principal validation.",
 		Regex:       regexp.MustCompile(`(?i)\b(?:tenant[_\s.-]*(?:id)?|AZURE_TENANT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`),
 		Keywords:    []string{"tenant"},
@@ -25,7 +25,7 @@ func AzureTenantID() *config.Rule {
 func AzureClientID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "azure-client-id",
-		Confidence:  "high",
+		Confidence:  "medium",
 		Description: "Detected an Azure client ID, used as a component of Azure service principal validation.",
 		Regex:       regexp.MustCompile(`(?i)\b(?:client[_\s.-]*id|AZURE_CLIENT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`),
 		Keywords:    []string{"client"},
@@ -103,7 +103,7 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 func AzureStorageAccountName() *config.Rule {
 	r := config.Rule{
 		RuleID:      "azure-storage-account-name",
-		Confidence:  "high",
+		Confidence:  "medium",
 		Description: "Detected an Azure Storage account name, used as a component of Azure Storage key validation.",
 		Regex:       regexp.MustCompile(`(?i)(?:\bAccountName\s*=\s*([a-z0-9]{3,24})\b|https://([a-z0-9]{3,24})\.blob\.core\.windows\.net\b|\b(?:azure[_\s.-]*storage[_\s.-]*(?:account[_\s.-]*)?name|storage[_\s.-]*account[_\s.-]*name)\b(?s:.{0,24}?)([a-z0-9]{3,24})\b)`),
 		Keywords:    []string{"AccountName", "blob.core.windows.net", "storage"},

@@ -9,7 +9,7 @@ import (
 func PolymarketAPISecret() *config.Rule {
 	r := config.Rule{
 		RuleID:      "polymarket-api-secret",
-		Confidence:  "high",
+		Confidence:  "medium",
 		Description: "Discovered a Polymarket API secret, which could be used to sign authenticated requests to the Polymarket L2 API.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}secret"}, `[a-zA-Z0-9+/]{40,}={0,2}`, false),
 		Keywords:    []string{"poly"},
@@ -25,7 +25,7 @@ func PolymarketAPISecret() *config.Rule {
 func PolymarketPassphrase() *config.Rule {
 	r := config.Rule{
 		RuleID:      "polymarket-passphrase",
-		Confidence:  "high",
+		Confidence:  "medium",
 		Description: "Found a Polymarket API passphrase, used as a component of authenticated Polymarket API requests.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}passphrase"}, `[a-zA-Z0-9_]{8,128}`, false),
 		Keywords:    []string{"poly"},
@@ -40,7 +40,7 @@ func PolymarketPassphrase() *config.Rule {
 func PolymarketAddress() *config.Rule {
 	r := config.Rule{
 		RuleID:      "polymarket-address",
-		Confidence:  "high",
+		Confidence:  "medium",
 		Description: "Found a Polymarket wallet address, used as a component of authenticated Polymarket API requests.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}address"}, `0x[a-fA-F0-9]{40}`, false),
 		Keywords:    []string{"poly"},
@@ -92,7 +92,7 @@ func PolymarketAPIKey() *config.Rule {
 func PolymarketPrivateKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "polymarket-private-key",
-		Confidence:  "high",
+		Confidence:  "medium",
 		Description: "Discovered a Polymarket private key, which could allow unauthorized trading and fund transfers.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}private.{0,20}key"}, `0x[a-fA-F0-9]{64}`, false),
 		Keywords:    []string{"poly"},

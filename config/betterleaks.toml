@@ -353,7 +353,7 @@ filter.entropy(finding["secret"]) < 3.0
 id = "alibaba-secret-key"
 description = "Discovered a potential Alibaba Cloud Secret Key, potentially allowing unauthorized operations and data access within Alibaba Cloud."
 regex = '''(?i)(?:alibaba|aliyun|secret|key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "medium"
+confidence = "high"
 keywords = [
     "alibaba",
     "aliyun",
@@ -405,7 +405,7 @@ filter.entropy(finding["secret"]) < 3.0
 id = "alibaba-sts-access-key-secret"
 description = "Detected an Alibaba Cloud STS AccessKey secret, which may allow temporary Alibaba Cloud API access when paired with an STS AccessKey ID and security token."
 regex = '''(?i)(?:alibaba|aliyun|secret|key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{30,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "medium"
+confidence = "high"
 keywords = [
     "alibaba",
     "aliyun",
@@ -445,7 +445,7 @@ components = [
 id = "alibaba-sts-security-token"
 description = "Detected an Alibaba Cloud STS security token, used as a component of the alibaba-sts-access-key-secret composite rule."
 regex = '''(?i)(?:alibaba|aliyun|secret|key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "medium"
+confidence = "high"
 keywords = [
     "alibaba",
     "aliyun",
@@ -898,7 +898,7 @@ entropy(finding["secret"]) <= 3.5
 id = "azure-client-id"
 description = "Detected an Azure client ID, used as a component of Azure service principal validation."
 regex = '''(?i)\b(?:client[_\s.-]*id|AZURE_CLIENT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
-confidence = "high"
+confidence = "medium"
 keywords = ["client"]
 skipReport = true
 filter = '''
@@ -972,7 +972,7 @@ components = [
 id = "azure-storage-account-name"
 description = "Detected an Azure Storage account name, used as a component of Azure Storage key validation."
 regex = '''(?i)(?:\bAccountName\s*=\s*([a-z0-9]{3,24})\b|https://([a-z0-9]{3,24})\.blob\.core\.windows\.net\b|\b(?:azure[_\s.-]*storage[_\s.-]*(?:account[_\s.-]*)?name|storage[_\s.-]*account[_\s.-]*name)\b(?s:.{0,24}?)([a-z0-9]{3,24})\b)'''
-confidence = "high"
+confidence = "medium"
 keywords = [
     "accountname",
     "blob.core.windows.net",
@@ -990,7 +990,7 @@ entropy(finding["secret"]) <= 1.5
 id = "azure-tenant-id"
 description = "Detected an Azure tenant ID, used as a component of Azure service principal validation."
 regex = '''(?i)\b(?:tenant[_\s.-]*(?:id)?|AZURE_TENANT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
-confidence = "high"
+confidence = "medium"
 keywords = ["tenant"]
 skipReport = true
 filter = '''
@@ -2970,7 +2970,7 @@ id = "freemius-secret-key"
 description = "Detected a Freemius secret key, potentially exposing sensitive information."
 regex = '''(?i)["']secret_key["']\s*=>\s*["'](sk_[\S]{29})["']'''
 path = '''(?i)\.php$'''
-confidence = "high"
+confidence = "medium"
 keywords = ["secret_key"]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5894,7 +5894,7 @@ entropy(finding["secret"]) < 3.5
 id = "kraken-access-token"
 description = "Identified a Kraken Access Token, potentially compromising cryptocurrency trading accounts and financial security."
 regex = '''(?i)(?:kraken)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9\/=_\+\-]{80,90})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["kraken"]
 filter = '''
 filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -6176,7 +6176,7 @@ filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) 
 id = "lob-api-key"
 description = "Uncovered a Lob API Key, which could lead to unauthorized access to mailing and address verification services."
 regex = '''(?i)(?:lob)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((live|test)_[a-f0-9]{35})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = [
     "test_",
     "live_",
@@ -6189,7 +6189,7 @@ keywords = [
 id = "lob-pub-api-key"
 description = "Detected a Lob Publishable API Key, posing a risk of exposing mail and print service integrations."
 regex = '''(?i)(?:lob)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((test|live)_pub_[a-f0-9]{31})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = [
     "test_pub_",
     "live_pub_",
@@ -6202,7 +6202,7 @@ keywords = [
 id = "looker-client-id"
 description = "Found a Looker Client ID, risking unauthorized access to a Looker account and exposing sensitive data."
 regex = '''(?i)(?:looker)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["looker"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -6215,7 +6215,7 @@ filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) 
 id = "looker-client-secret"
 description = "Found a Looker Client Secret, risking unauthorized access to a Looker account and exposing sensitive data."
 regex = '''(?i)(?:looker)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["looker"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -6502,7 +6502,7 @@ entropy(finding["secret"]) <= 3.5
 id = "mistral-api-key"
 description = "Detected a Mistral AI API Key, which may expose AI language model services to unauthorized access."
 regex = '''(?i)(?:mistral)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["mistral"]
 validate = '''
 let r = http.get("https://api.mistral.ai/v1/models", {
@@ -6758,7 +6758,7 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 id = "octopus-deploy-api-key"
 description = "Discovered a potential Octopus Deploy API key, risking application deployments and operational security."
 regex = '''\b(API-[A-Z0-9]{26})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["api-"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -6985,7 +6985,7 @@ entropy(finding["secret"]) <= 2.0
 id = "ovh-application-secret"
 description = "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys."
 regex = '''(?i)(?:app(?:lication)?[_.-]{0,1}secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "medium"
+confidence = "high"
 keywords = ["ovh"]
 validate = '''
 let ts = time.nowUnix(); (let url = "https://api.us.ovhcloud.com/1.0/auth/details"; (let sig_payload = finding["secret"] + "+" + (components["ovh-consumer-key"]?.secret ?? "") + "+GET+" + url + "++" + ts; (let sig = "$1$" + hex.encode(crypto.sha1(bytes(sig_payload))); (let r = http.get(url, {
@@ -7208,7 +7208,7 @@ keywords = ["plaid"]
 id = "plaid-client-id"
 description = "Uncovered a Plaid Client ID, which could lead to unauthorized financial service integrations and data breaches."
 regex = '''(?i)(?:plaid)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["plaid"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -7221,7 +7221,7 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 id = "plaid-secret-key"
 description = "Detected a Plaid Secret key, risking unauthorized access to financial accounts and sensitive transaction data."
 regex = '''(?i)(?:plaid)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["plaid"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -7431,7 +7431,7 @@ entropy(finding["secret"]) < 3.5
 id = "polymarket-address"
 description = "Found a Polymarket wallet address, used as a component of authenticated Polymarket API requests."
 regex = '''(?i:(?:poly.{0,20}address)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(0x[a-fA-F0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["poly"]
 skipReport = true
 
@@ -7475,7 +7475,7 @@ components = [
 id = "polymarket-api-secret"
 description = "Discovered a Polymarket API secret, which could be used to sign authenticated requests to the Polymarket L2 API."
 regex = '''(?i:(?:poly.{0,20}secret)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-zA-Z0-9+/]{40,}={0,2})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["poly"]
 skipReport = true
 filter = '''
@@ -7489,7 +7489,7 @@ entropy(finding["secret"]) <= 3.0
 id = "polymarket-passphrase"
 description = "Found a Polymarket API passphrase, used as a component of authenticated Polymarket API requests."
 regex = '''(?i:(?:poly.{0,20}passphrase)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-zA-Z0-9_]{8,128})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["poly"]
 skipReport = true
 
@@ -7500,7 +7500,7 @@ skipReport = true
 id = "polymarket-private-key"
 description = "Discovered a Polymarket private key, which could allow unauthorized trading and fund transfers."
 regex = '''(?i:(?:poly.{0,20}private.{0,20}key)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(0x[a-fA-F0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["poly"]
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -7664,7 +7664,7 @@ entropy(finding["secret"]) <= 3.0
 id = "rainforest-pay-production-api-key"
 description = "Rainforest Pay production API key."
 regex = '''(?i:(?:rainforest(?:[_. -]*pay)?(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(apikey_[a-f0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["rainforest"]
 validate = '''
 let r = http.get("https://api.rainforestpay.com/v1/merchants?limit=1", {
@@ -8628,7 +8628,7 @@ filter.matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
 id = "sumologic-access-id"
 description = "Discovered a SumoLogic Access ID, potentially compromising log management services and data analytics integrity."
 regex = '''(?i:(?:(?-i:[Ss]umo|SUMO))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(su[a-zA-Z0-9]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["sumo"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -8641,7 +8641,7 @@ filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) 
 id = "sumologic-access-token"
 description = "Uncovered a SumoLogic Access Token, which could lead to unauthorized access to log data and analytics insights."
 regex = '''(?i)(?:(?-i:[Ss]umo|SUMO))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["sumo"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -8906,7 +8906,7 @@ entropy(finding["secret"]) <= 3.0
 id = "travisci-access-token"
 description = "Identified a Travis CI Access Token, potentially compromising continuous integration services and codebase security."
 regex = '''(?i)(?:travis)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{22})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["travis"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -8932,7 +8932,7 @@ entropy(finding["secret"]) <= 3.0
 id = "twitch-api-token"
 description = "Discovered a Twitch API token, which could compromise streaming services and account integrations."
 regex = '''(?i)(?:twitch)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = ["twitch"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -9536,7 +9536,7 @@ keywords = ["yandex"]
 id = "zai-api-key"
 description = "Detected a Z.ai API key, which may expose GLM model access and usage to unauthorized parties."
 regex = '''(?i)(?:zai|z_ai|z\.ai|glm|zlm)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32}\.[a-z0-9]{16})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = [
     "zai",
     "z_ai",

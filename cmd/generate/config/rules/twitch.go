@@ -10,7 +10,7 @@ func TwitchAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "twitch-api-token",
-		Confidence:  "high",
+		Confidence:  "medium",
 		Description: "Discovered a Twitch API token, which could compromise streaming services and account integrations.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"twitch"}, utils.AlphaNumeric("30"), true),
 		Keywords: []string{
