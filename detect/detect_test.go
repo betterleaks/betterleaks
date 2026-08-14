@@ -337,10 +337,15 @@ func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
 
 	paired := genericPasswordFindings("credentials: {\nusername: alice\npassword: hunter2\n}")
 	require.Len(t, paired, 1)
+	assert.Equal(t, "low", paired[0].Attributes["confidence"])
 	require.Len(t, paired[0].ComponentSets, 1)
 	require.Len(t, paired[0].ComponentSets[0].Components, 1)
 	assert.Equal(t, "generic-username", paired[0].ComponentSets[0].Components[0].RuleID)
 	assert.Equal(t, "alice", paired[0].ComponentSets[0].Components[0].Secret)
+
+	promoted := genericPasswordFindings("credentials: {\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n}")
+	require.Len(t, promoted, 1)
+	assert.Equal(t, "medium", promoted[0].Attributes["confidence"])
 
 	dynamicUsername := genericPasswordFindings("credentials: {\nusername: process.env.USERNAME\npassword: hunter2\n}")
 	require.Len(t, dynamicUsername, 1)

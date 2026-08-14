@@ -9,6 +9,7 @@ import (
 func GenericPassword() *config.Rule {
 	r := config.Rule{
 		RuleID:      "generic-password",
+		Confidence:  "low",
 		Description: "Detected a password in authentication context, which may expose account credentials.",
 		Regex:       regexp.MustCompile(`(?i)(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`),
 		Keywords:    []string{"passw", "psw", "_pw", "-pw", ".pw"},
@@ -34,6 +35,12 @@ let authContext =
   join(beforeLines[max(len(beforeLines) - 7, 0):], "\n")
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
+
+let level = (
+  filter.entropy(finding["secret"]) > 3.5
+  && !filter.failsTokenEfficiency(finding["secret"])
+) ? "medium" : "low";
+let _ = filter.setConfidence(level);
 
 !filter.matchesAny(authContext, [
   // Authentication and connection calls.
@@ -97,6 +104,7 @@ let authContext =
 func GenericUsername() *config.Rule {
 	r := config.Rule{
 		RuleID:      "generic-username",
+		Confidence:  "low",
 		Description: "Detected a username-like value used as a component of the generic-password rule.",
 		Regex:       regexp.MustCompile(`(?m)(?:^|[^a-zA-Z0-9])(?i:username|user|login(?:[_.-]name)?|email(?:[_.-]address)?|uid|account(?:[_.-]name)?|client(?:[_.-](?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){3,250})"|'((?:\\.|[^'\\\r\n]){3,250})'|\x60((?:\\.|[^\x60\\\r\n]){3,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{2,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`),
 		Keywords: []string{
