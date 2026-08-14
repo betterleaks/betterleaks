@@ -6142,7 +6142,7 @@ filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) 
 id = "linkedin-client-id"
 description = "Found a LinkedIn Client ID, risking unauthorized access to LinkedIn integrations and professional data exposure."
 regex = '''(?i)(?:linked[_-]?in)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{14})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = [
     "linkedin",
     "linked_in",
@@ -6159,7 +6159,7 @@ filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) 
 id = "linkedin-client-secret"
 description = "Discovered a LinkedIn Client secret, potentially compromising LinkedIn application integrations and user data."
 regex = '''(?i)(?:linked[_-]?in)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{16})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-confidence = "high"
+confidence = "medium"
 keywords = [
     "linkedin",
     "linked_in",
