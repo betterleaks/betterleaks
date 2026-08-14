@@ -9,7 +9,7 @@ import (
 func Mistral() *config.Rule {
 	r := config.Rule{
 		RuleID:      "mistral-api-key",
-		Confidence:  "high",
+		Confidence:  "medium",
 		Description: "Detected a Mistral AI API Key, which may expose AI language model services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mistral"}, `[A-Z0-9]{32}`, true),
 		Keywords:    []string{"mistral"},
