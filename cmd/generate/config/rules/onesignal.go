@@ -10,6 +10,7 @@ func OneSignalRichAuthenticationToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "onesignal-rich-authentication-token",
+		Confidence:  "high",
 		Description: "OneSignal rich authentication token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`os_v2_(?:app|org)_[a-z2-7]{103}`, false),
 		Keywords:    []string{"os_v2_app_", "os_v2_org_"},

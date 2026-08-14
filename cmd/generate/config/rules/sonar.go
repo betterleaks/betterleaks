@@ -10,6 +10,7 @@ func Sonar() *config.Rule {
 	r := config.Rule{
 		Description: "Uncovered a Sonar API token, potentially compromising software vulnerability scanning and code security.",
 		RuleID:      "sonar-api-token",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"sonar[_.-]?(login|token)"}, "(?:squ_|sqp_|sqa_)?"+utils.AlphaNumericExtended("40"), true),
 		Keywords:    []string{"sonar"},
 		SecretGroup: 2,

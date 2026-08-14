@@ -9,6 +9,7 @@ import (
 func AsaasAPIToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "asaas-api-token",
+		Confidence:  "high",
 		Description: "Detected an Asaas API token, which may expose payment and customer data.",
 		Regex:       regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])(\$aact_(?:prod|hmlg)_[A-Za-z0-9_-]{20,100})(?:[^A-Za-z0-9_-]|$)`),
 		Keywords:    []string{"$aact_"},

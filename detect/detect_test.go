@@ -494,6 +494,24 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
 }
 
+func TestConfidenceAttributeAndFilter(t *testing.T) {
+	low := config.Rule{RuleID: "specific-low", Regex: regexp.MustCompile(`[A-Z0-9]{20}`), Specificity: 1, Confidence: "low"}
+	promoted := config.Rule{RuleID: "promoted", Regex: regexp.MustCompile(`[A-Z0-9]{20}`), Confidence: "medium", Filter: `let _ = filter.setConfidence("high"); false`}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{low.RuleID: low, promoted.RuleID: promoted},
+		NoKeywordRules: []string{low.RuleID, promoted.RuleID},
+		OrderedRules:   []string{low.RuleID, promoted.RuleID},
+	}
+	require.NoError(t, cfg.CompileFilters(nil))
+
+	detector := NewDetector(cfg)
+	detector.MinConfidence = "high"
+	findings := detector.DetectString("ABCDEFGHIJKLMNOPQRST")
+	require.Len(t, findings, 1)
+	require.Equal(t, "promoted", findings[0].RuleID)
+	require.Equal(t, "high", findings[0].Attributes["confidence"])
+}
+
 func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 	decoded := "provider decoded-secret-ABCDEFGHIJKLMNOPQRST"
 	raw := base64.StdEncoding.EncodeToString([]byte(decoded))

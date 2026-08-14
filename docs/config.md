@@ -21,6 +21,7 @@ Each `[[rules]]` entry can use:
 - `keywords`: strings used for fast pre-regex filtering.
 - `regex`: regular expression used to detect the secret.
 - `filter`: rule-specific Expr expression to discard false positives.
+- `confidence`: optional `low`, `medium`, or `high` likelihood classification.
 - `validate`: Expr expression to actively verify whether a secret is live.
 - `components`: required or optional component rules used to build multipart findings.
 
@@ -100,7 +101,18 @@ with Expr. If a filter expression evaluates to `true`, the item is skipped.
 | `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. |
 | `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
-| `filter.failsTokenEfficiency(string)` | Returns `true` if the string tokenizes too efficiently and looks like natural language rather than a random secret. |
+| `filter.tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
+| `filter.failsTokenEfficiency(string)` | Returns `true` when the generic-secret heuristic identifies readable text using token ratio, wordlist matches, and a length-sensitive threshold. |
+| `filter.setConfidence(level)` | Sets the current finding's `confidence` attribute. Use as `let _ = filter.setConfidence(level);`. |
+
+Use `filter.tokenRatio` when a rule needs an explicit threshold without the
+generic heuristic's wordlist check. For example, this skips low-entropy or
+readable-looking candidates:
+
+```expr
+filter.entropy(finding["secret"]) < 3.0 ||
+filter.tokenRatio(finding["secret"]) >= 2.5
+```
 
 Example:
 
@@ -126,6 +138,23 @@ filter = '''
 )
 '''
 ```
+
+Rules may set a default confidence and broad rules may refine it in their
+filter:
+
+```toml
+[[rules]]
+id = "generic-api-key"
+confidence = "low"
+filter = '''
+let level = filter.matchesAny(finding["line"], [`(?i)\b[a-z0-9]+[_.-]+token\b`]) ? "medium" : "low";
+let _ = filter.setConfidence(level);
+false
+'''
+```
+
+`--confidence low|medium|high` keeps findings at or above that level. Findings
+without a recognized confidence attribute remain included.
 
 ## Validation
 

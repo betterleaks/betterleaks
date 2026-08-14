@@ -10,6 +10,7 @@ func MergifyApplicationKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "mergify-application-key",
+		Confidence:  "high",
 		Description: "Mergify application API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mergify_application_key_[A-Za-z0-9_-]{40,200}`, false),
 		Keywords:    []string{"mergify_application_key_"},

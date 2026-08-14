@@ -11,6 +11,7 @@ func ShopifySharedSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "shopify-shared-secret",
+		Confidence:  "high",
 		Description: "Found a Shopify shared secret, posing a risk to application authentication and e-commerce platform security.",
 		Regex:       regexp.MustCompile(`shpss_[a-fA-F0-9]{32}`),
 		Keywords:    []string{"shpss_"},
@@ -26,6 +27,7 @@ func ShopifyAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "shopify-access-token",
+		Confidence:  "high",
 		Description: "Uncovered a Shopify access token, which could lead to unauthorized e-commerce platform access and data breaches.",
 		Regex:       regexp.MustCompile(`shpat_[a-fA-F0-9]{32}`),
 		Keywords:    []string{"shpat_"},
@@ -41,6 +43,7 @@ func ShopifyCustomAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "shopify-custom-access-token",
+		Confidence:  "high",
 		Description: "Detected a Shopify custom access token, potentially compromising custom app integrations and e-commerce data security.",
 		Regex:       regexp.MustCompile(`shpca_[a-fA-F0-9]{32}`),
 		Keywords:    []string{"shpca_"},
@@ -56,6 +59,7 @@ func ShopifyPrivateAppAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "shopify-private-app-access-token",
+		Confidence:  "high",
 		Description: "Identified a Shopify private app access token, risking unauthorized access to private app data and store operations.",
 		Regex:       regexp.MustCompile(`shppa_[a-fA-F0-9]{32}`),
 		Keywords:    []string{"shppa_"},

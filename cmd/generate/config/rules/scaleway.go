@@ -9,6 +9,7 @@ import (
 func ScalewaySecretKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "scaleway-secret-key",
+		Confidence:  "high",
 		Description: "Identified a standalone Scaleway Secret Key. This can be used to authenticate API requests.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`(?:scaleway|scw).{0,20}?(?:secret|token)`},

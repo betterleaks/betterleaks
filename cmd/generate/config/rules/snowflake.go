@@ -11,6 +11,7 @@ func SnowflakeAccountHost() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "snowflake-account-host.1",
+		Confidence:  "high",
 		Description: "Snowflake account host, used as a component of the programmatic access-token rule.",
 		Regex:       regexp.MustCompile(`(?i)\b([a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.snowflakecomputing\.com)\b`),
 		Keywords:    []string{"snowflakecomputing.com"},
@@ -33,6 +34,7 @@ func SnowflakeProgrammaticAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "snowflake-programmatic-access-token.1",
+		Confidence:  "high",
 		Description: "Snowflake programmatic access token.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`(?:snowflake[_. -]*(?:programmatic[_. -]*)?(?:access[_. -]*)?token|sf[_. -]*token)`},
@@ -55,7 +57,7 @@ func SnowflakeProgrammaticAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

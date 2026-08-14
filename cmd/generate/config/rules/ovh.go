@@ -9,6 +9,7 @@ import (
 func OVHApplicationKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "ovh-application-key",
+		Confidence:  "medium",
 		Description: "OVHcloud Application Key - component of authenticated OVH API requests.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}key"}, `[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"ovh"},
@@ -32,6 +33,7 @@ func OVHApplicationKey() *config.Rule {
 func OVHConsumerKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "ovh-consumer-key",
+		Confidence:  "medium",
 		Description: "OVHcloud Consumer Key - component of authenticated OVH API requests.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"consumer[_.-]{0,1}key"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},
@@ -55,6 +57,7 @@ func OVHConsumerKey() *config.Rule {
 func OVHApplicationSecret() *config.Rule {
 	r := config.Rule{
 		RuleID:      "ovh-application-secret",
+		Confidence:  "high",
 		Description: "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}secret"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},

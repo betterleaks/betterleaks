@@ -14,6 +14,7 @@ func SlackBotToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-bot-token",
+		Confidence:  "high",
 		Description: "Identified a Slack Bot token, which may compromise bot integrations and communication channel security.",
 		Regex:       regexp.MustCompile(`xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`),
 		Keywords: []string{
@@ -46,6 +47,7 @@ func SlackUserToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-user-token",
+		Confidence:  "high",
 		Description: "Found a Slack User token, posing a risk of unauthorized user impersonation and data access within Slack workspaces.",
 		// The last segment seems to be consistently 32 characters. I've made it 28-34 just in case.
 		Regex:    regexp.MustCompile(`xox[pe](?:-[0-9]{10,13}){3}-[a-zA-Z0-9-]{28,34}`),
@@ -86,6 +88,7 @@ func SlackAppLevelToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-app-token",
+		Confidence:  "high",
 		Description: "Detected a Slack App-level token, risking unauthorized access to Slack applications and workspace data.",
 		// This regex is based on a limited number of examples and may not be 100% accurate.
 		Regex:    regexp.MustCompile(`(?i)xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+`),
@@ -108,6 +111,7 @@ func SlackConfigurationToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-config-access-token",
+		Confidence:  "high",
 		Description: "Found a Slack Configuration access token, posing a risk to workspace configuration and sensitive data access.",
 		Regex:       regexp.MustCompile(`(?i)xoxe.xox[bp]-\d-[A-Z0-9]{163,166}`),
 		Keywords:    []string{"xoxe.xoxb-", "xoxe.xoxp-"},
@@ -133,6 +137,7 @@ func SlackConfigurationRefreshToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-config-refresh-token",
+		Confidence:  "high",
 		Description: "Discovered a Slack Configuration refresh token, potentially allowing prolonged unauthorized access to configuration settings.",
 		Regex:       regexp.MustCompile(`(?i)xoxe-\d-[A-Z0-9]{146}`),
 		Keywords:    []string{"xoxe-"},
@@ -153,6 +158,7 @@ func SlackConfigurationRefreshToken() *config.Rule {
 func SlackLegacyBotToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "slack-legacy-bot-token",
+		Confidence:  "high",
 		Description: "Uncovered a Slack Legacy bot token, which could lead to compromised legacy bot operations and data exposure.",
 		// This rule is based off the limited information I could find and may not be 100% accurate.
 		Regex: regexp.MustCompile(`xoxb-[0-9]{8,14}-[a-zA-Z0-9]{18,26}`),
@@ -197,6 +203,7 @@ func SlackLegacyBotToken() *config.Rule {
 func SlackLegacyWorkspaceToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "slack-legacy-workspace-token",
+		Confidence:  "high",
 		Description: "Identified a Slack Legacy Workspace token, potentially compromising access to workspace data and legacy features.",
 		// This is by far the least confident pattern.
 		Regex: regexp.MustCompile(`xox[ar]-(?:\d-)?[0-9a-zA-Z]{8,48}`),
@@ -233,6 +240,7 @@ func SlackLegacyToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-legacy-token",
+		Confidence:  "high",
 		Description: "Detected a Slack Legacy token, risking unauthorized access to older Slack integrations and user data.",
 		Regex:       regexp.MustCompile(`xox[os]-\d+-\d+-\d+-[a-fA-F\d]+`),
 		Keywords:    []string{"xoxo", "xoxs"},
@@ -265,6 +273,7 @@ func SlackWebHookUrl() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-webhook-url",
+		Confidence:  "high",
 		Description: "Discovered a Slack Webhook, which could lead to unauthorized message posting and data leakage in Slack channels.",
 		// If this generates too many false-positives we should define an allowlist (e.g., "xxxx", "00000").
 		Regex: regexp.MustCompile(
@@ -301,6 +310,7 @@ func SlackSessionCookie() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-session-cookie",
+		Confidence:  "high",
 		Description: "Detected a Slack session cookie (xoxd-), which authenticates browser and desktop sessions across all of a user's workspaces.",
 		Regex:       regexp.MustCompile(`(xoxd-[\w\/\\+-]{100,}={0,2})(?:[^\w\/+=-]|\z)`),
 		Keywords:    []string{"xoxd-"},
@@ -326,6 +336,7 @@ func SlackSessionToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-session-token",
+		Confidence:  "high",
 		Description: "Detected a Slack client session token (xoxc-), which provides full user-level API access when paired with a session cookie.",
 		Regex:       regexp.MustCompile(`xoxc-\d{9,15}-\d{9,15}-\d{9,15}-[a-f0-9]{64}\b`),
 		Keywords:    []string{"xoxc-"},

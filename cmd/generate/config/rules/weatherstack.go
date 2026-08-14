@@ -10,6 +10,7 @@ func WeatherstackAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "weatherstack-api-key.1",
+		Confidence:  "medium",
 		Description: "Weatherstack API key.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`weatherstack(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
@@ -25,12 +26,12 @@ func WeatherstackAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid access key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
 	tps := []string{
-		"WEATHERSTACK_API_KEY=" + secrets.NewSecretWithEntropy(`[0-9a-z]{32}`, 3.0),
+		"WEATHERSTACK_API_KEY=" + secrets.NewSecretWithEntropy(`[0-9a-z]{32}`, 3.3),
 	}
 	fps := []string{
 		`API_KEY=abcdef0123456789abcdef0123456789`,

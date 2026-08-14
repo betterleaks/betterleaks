@@ -8,6 +8,7 @@ import (
 func KlaviyoAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "klaviyo-api-key",
+		Confidence:  "high",
 		Description: "Detected a Klaviyo API key, which may expose Klaviyo account and marketing data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"klaviyo"}, `pk_`+utils.AlphaNumeric("34"), true),
 		Keywords:    []string{"klaviyo"},

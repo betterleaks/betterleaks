@@ -11,6 +11,7 @@ func GenericCredential() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "generic-api-key",
+		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
 			"access",
@@ -54,9 +55,14 @@ let genericMatchContext =
   genericMatchPrefix +
   finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
 
+let level = filter.matchesAny(genericMatchContext, [
+  ` + "`(?i)\\b[a-z0-9]+[_.-]+token\\b`" + `
+]) ? "medium" : "low";
+let _ = filter.setConfidence(level);
+
 // big ol expression to filter out FPs
 entropy(finding["secret"]) <= 3.5
-|| failsTokenEfficiency(finding["secret"])
+|| filter.failsTokenEfficiency(finding["secret"])
 || ` + genericAPIKeyFilter,
 	}
 

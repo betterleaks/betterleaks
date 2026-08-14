@@ -29,14 +29,15 @@ func CloudflareGlobalAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "cloudflare-global-api-key",
+		Confidence:  "high",
 		Description: "Detected a Cloudflare Global API Key, potentially compromising cloud application deployments and operational security.",
 		Regex:       utils.GenerateSemiGenericRegex(identifiers, utils.Hex("37"), true),
 		Keywords:    identifiers,
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecretWithEntropy(utils.Hex("37"), 2))
+	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecretWithEntropy(utils.Hex("37"), 3.3))
 	tps = append(tps, global_keys...)
 	fps := append(api_keys, origin_ca_keys...)
 
@@ -47,14 +48,15 @@ func CloudflareAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "cloudflare-api-key",
+		Confidence:  "high",
 		Description: "Detected a Cloudflare API Key, potentially compromising cloud application deployments and operational security.",
 		Regex:       utils.GenerateSemiGenericRegex(identifiers, utils.AlphaNumericExtendedShort("40"), true),
 		Keywords:    identifiers,
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("40"), 2))
+	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("40"), 3.5))
 	tps = append(tps, api_keys...)
 	fps := append(global_keys, origin_ca_keys...)
 
@@ -67,9 +69,10 @@ func CloudflareOriginCAKey() *config.Rule {
 	r := config.Rule{
 		Description: "Detected a Cloudflare Origin CA Key, potentially compromising cloud application deployments and operational security.",
 		RuleID:      "cloudflare-origin-ca-key",
+		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`v1\.0-`+utils.Hex("24")+"-"+utils.Hex("146"), false),
 		Keywords:    ca_identifiers,
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -37,6 +37,7 @@ func onfidoLiveAPIToken(ruleID, tokenRegex, keyword, endpoint string) *config.Ru
 	// define rule
 	r := config.Rule{
 		RuleID:      ruleID,
+		Confidence:  "high",
 		Description: "Onfido live API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(tokenRegex, false),
 		Keywords:    []string{keyword},

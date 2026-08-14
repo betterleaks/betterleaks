@@ -9,6 +9,7 @@ import (
 func ExoscaleAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "exoscale-api-key",
+		Confidence:  "high",
 		Description: "Identified an Exoscale API key paired with a secret, which together grant programmatic access to Exoscale cloud resources.",
 		Regex:       utils.GenerateUniqueTokenRegex(`EXO[a-zA-Z0-9]{24,30}`, false),
 		Keywords:    []string{"EXO"},
@@ -47,6 +48,7 @@ func ExoscaleAPIKey() *config.Rule {
 func ExoscaleAPISecret() *config.Rule {
 	r := config.Rule{
 		RuleID:      "exoscale-api-secret",
+		Confidence:  "high",
 		Description: "Identified an Exoscale API secret, used as a component of the exoscale-api-key composite rule.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"exoscale"}, `[A-Za-z0-9_\-]{40,60}`, true),
 		Keywords:    []string{"exoscale"},

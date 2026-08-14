@@ -9,10 +9,11 @@ import (
 func Infomaniak() *config.Rule {
 	r := config.Rule{
 		RuleID:      "infomaniak-api-token",
+		Confidence:  "high",
 		Description: "Detected an Infomaniak API token, which may expose hosting, mail, and cloud services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"infomaniak"}, `[A-Za-z0-9_\-]{60,100}`, true),
 		Keywords:    []string{"infomaniak"},
-		Entropy:     4.0,
+		Filter:      `filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://api.infomaniak.com/1/profile", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"result"') ? {

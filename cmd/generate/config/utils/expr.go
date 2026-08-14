@@ -6,6 +6,8 @@ func MinEntropy(threshold float64) string {
 	return fmt.Sprintf(`entropy(finding["secret"]) < %.1f`, threshold)
 }
 
+const MinEntropyAndTokenEfficiency = `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`
+
 func BearerGetValidationExpr(url string, successCheck string) string {
 	return `let r = http.get("` + url + `", {
     "Authorization": "Bearer " + finding["secret"],

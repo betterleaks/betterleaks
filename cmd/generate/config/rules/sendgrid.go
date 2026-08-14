@@ -10,6 +10,7 @@ func SendGridAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "sendgrid-api-token",
+		Confidence:  "high",
 		Description: "Detected a SendGrid API token, posing a risk of unauthorized email service operations and data exposure.",
 		Regex:       utils.GenerateUniqueTokenRegex(`SG\.(?i)[a-z0-9=_\-\.]{66}`, false),
 		Keywords: []string{

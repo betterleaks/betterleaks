@@ -15,6 +15,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
+	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
@@ -30,6 +31,10 @@ var banner = fmt.Sprintf(`
 
 `, version.Version)
 
+func confidenceFlag(cmd *cobra.Command) (string, error) {
+	return confidence.Parse(mustGetStringFlag(cmd, "confidence"))
+}
+
 const configDescription = `config file path
 order of precedence:
 1. --config/-c
@@ -44,6 +49,9 @@ var (
 		Short:   "Betterleaks scans code, past or present, for secrets",
 		Version: version.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := confidenceFlag(cmd); err != nil {
+				return err
+			}
 			// Set the timeout for all the commands
 			if timeout, err := cmd.Flags().GetInt("timeout"); err != nil {
 				return err
@@ -77,6 +85,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
 	rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
+	rootCmd.PersistentFlags().String("confidence", "", "minimum confidence to include (low, medium, high)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "show verbose output from scan")
 	rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color for verbose output")
@@ -381,6 +390,10 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
 
 	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
+	detector.MinConfidence, err = confidenceFlag(cmd)
+	if err != nil {
+		logging.Fatal().Err(err).Send()
+	}
 	if diagnosticsManager != nil && diagnosticsManager.RuleTimings != nil {
 		detector.RuleTimings = diagnosticsManager.RuleTimings
 	}

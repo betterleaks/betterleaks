@@ -12,12 +12,14 @@ func AirtableApiKey() *config.Rule {
 	r := config.Rule{
 		Description: "Uncovered a possible Airtable API Key, potentially compromising database access and leading to data leakage or alteration.",
 		RuleID:      "airtable-api-key",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, utils.AlphaNumeric("17"), true),
 		Keywords:    []string{"airtable"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("airtable", secrets.NewSecret(utils.AlphaNumeric("17")))
+	tps := utils.GenerateSampleSecrets("airtable", secrets.NewSecretWithEntropy(utils.AlphaNumeric("17"), 3.0))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -26,6 +28,7 @@ func AirtablePersonalAccessToken() *config.Rule {
 	r := config.Rule{
 		Description: "Uncovered a possible Airtable Personal AccessToken, potentially compromising database access and leading to data leakage or alteration.",
 		RuleID:      "airtable-personnal-access-token",
+		Confidence:  "high",
 		Regex:       regexp.MustCompile(`\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b`),
 		Keywords:    []string{"airtable"},
 		ValidateExpr: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
@@ -36,11 +39,11 @@ func AirtablePersonalAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3`,
+		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("airtable", "pat"+secrets.NewSecret(utils.AlphaNumeric("14")+"\\."+utils.Hex("64")))
+	tps := utils.GenerateSampleSecrets("airtable", "pat"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("14")+"\\."+utils.Hex("64"), 3.3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -48,6 +51,7 @@ func AirtableOAuthToken() *config.Rule {
 	r := config.Rule{
 		Description: "Detected an Airtable OAuth token, which may allow unauthorized access to Airtable resources granted to an OAuth integration.",
 		RuleID:      "airtable-oauth-token",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, `[A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+`, true),
 		Keywords:    []string{"airtable"},
 		ValidateExpr: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
@@ -58,7 +62,7 @@ func AirtableOAuthToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

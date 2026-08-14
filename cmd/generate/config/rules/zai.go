@@ -8,6 +8,7 @@ import (
 func ZAIAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "zai-api-key",
+		Confidence:  "medium",
 		Description: "Detected a Z.ai API key, which may expose GLM model access and usage to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"zai", "z_ai", `z\.ai`, "glm", "zlm"}, utils.Hex("32")+`\.`+utils.AlphaNumeric("16"), true),
 		Keywords:    []string{"zai", "z_ai", "z.ai", "glm", "zlm"},

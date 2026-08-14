@@ -11,6 +11,7 @@ func Twilio() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "twilio-api-key",
+		Confidence:  "high",
 		Description: "Found a Twilio API Key, posing a risk to communication services and sensitive customer interaction data.",
 		Regex:       regexp.MustCompile(`SK[0-9a-fA-F]{32}`),
 		Keywords:    []string{"twilio"},
