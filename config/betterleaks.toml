@@ -4813,8 +4813,8 @@ entropy(finding["secret"]) <= 3.5
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
 id = "generic-password"
-description = "Detected a password in authentication context, which may expose account credentials."
-regex = '''(?i)(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])'''
+description = "Detected a potential hardcoded password literal, which may expose account credentials."
+regex = '''(?i)(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])|\b(?:login|log[_.-]?in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60)[ \t]*\))'''
 specificity = 20
 confidence = "low"
 keywords = [
@@ -4823,6 +4823,10 @@ keywords = [
     "_pw",
     "-pw",
     ".pw",
+    "login",
+    "log_in",
+    "log-in",
+    "authenticate",
 ]
 filter = '''
 // Restrict nearby evidence to the password's line and the
@@ -4853,17 +4857,23 @@ let hasAuthContext = filter.matchesAny(nearbyContext, [
 let hasUsernameContext = filter.matchesAny(nearbyContext, [
   `(?im)(?:^|[^a-z0-9])(?:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)`
 ]);
+let isAuthArgument = filter.matchesAny(finding["match"], [
+  `(?i)\b(?:login|log[_.-]?in|authenticate)\b[ \t]*\(`
+]);
+let isCodeFile = filter.matchesAny(attributes["path"], [
+  `(?i)\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\.(?:example|sample|template))?$`
+]);
+let isUnquotedCodeValue = isCodeFile && filter.matchesAny(finding["match"], [
+  `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]`
+]);
 
 let level = (
-  hasAuthContext
-  && hasUsernameContext
-  && filter.entropy(finding["secret"]) > 3.5
-  && !filter.failsTokenEfficiency(finding["secret"])
+  isAuthArgument
+  || (hasAuthContext && hasUsernameContext)
 ) ? "medium" : "low";
 let _ = filter.setConfidence(level);
 
-(!hasAuthContext && !hasUsernameContext)
-|| filter.matchesAny(finding["secret"], [
+filter.matchesAny(finding["secret"], [
   `^\*+$`,
   `^\.+$`,
   `(?i)^x{4,}$`,
@@ -4874,16 +4884,19 @@ let _ = filter.setConfidence(level);
   `^#\{[^}\r\n]+}$`,
   `^\{\{[ \t]*.+[ \t]*}}$`,
   `^%\{[^}]+}$`,
+  `^\$[A-Za-z_][A-Za-z0-9_]*$`,
+  `(?i)^\$env:[A-Za-z_][A-Za-z0-9_]*$`,
+  `^%[A-Za-z_][A-Za-z0-9_]*%$`,
   `^<[^>]+>$`,
   `^<[^>\s]+$`,
   `^\{[^}]+}$`,
   `^(?:PASSWORD|PASSWD|YOUR_PASSWORD)$`,
   `(?i)^(?:your[_-]?password|example[_-]?password|placeholder|forbidden_value)$`,
-  `(?i)password`,
   `^\([A-Za-z_][A-Za-z0-9_.]*(?:[ \t]+[A-Za-z_][A-Za-z0-9_.]*)*\)$`,
   `^\$2[abxy]\$[0-9]{2}\$[./A-Za-z0-9]{7,}$`,
   `(?i)^\$pbkdf2[-_][^$]+\$.*$`
 ])
+|| isUnquotedCodeValue
 || filter.matchesAny(finding["match"], [
   `(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`,
   `(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^]\r\n]+\]|\([^,\r\n)]*\)?)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\]]*\\?(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`
@@ -4911,9 +4924,17 @@ keywords = [
 ]
 skipReport = true
 filter = '''
-// Plain identifiers such as currentUser are valid ambiguous scalars.
-// Discard only exact placeholders and values with explicit expression syntax.
-filter.matchesAny(finding["secret"], [
+// An unquoted value is an ambiguous scalar in configuration, but
+// not a string literal in the source languages recognized below.
+let isCodeFile = filter.matchesAny(attributes["path"], [
+  `(?i)\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\.(?:example|sample|template))?$`
+]);
+let isUnquotedCodeValue = isCodeFile && filter.matchesAny(finding["match"], [
+  `^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-](?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]`
+]);
+
+isUnquotedCodeValue
+|| filter.matchesAny(finding["secret"], [
   `^\*+$`,
   `^\.+$`,
   `(?i)^x{4,}$`,

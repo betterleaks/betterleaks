@@ -311,14 +311,21 @@ skipReport = true
 	assert.Equal(t, "shared", findings[0].ComponentSets[0].Components[0].Secret)
 }
 
-func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
+func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 	detector, err := NewDetectorDefaultConfig()
 	require.NoError(t, err)
 
-	genericPasswordFindings := func(raw string) []report.Finding {
+	genericPasswordFindings := func(raw string, path ...string) []report.Finding {
 		t.Helper()
+		detected := detector.DetectString(raw)
+		if len(path) > 0 {
+			detected = detector.Detect(sources.Fragment{
+				Raw:        raw,
+				Attributes: map[string]string{sources.AttrPath: path[0]},
+			})
+		}
 		var findings []report.Finding
-		for _, finding := range detector.DetectString(raw) {
+		for _, finding := range detected {
 			if finding.RuleID == "generic-password" {
 				findings = append(findings, finding)
 			}
@@ -326,12 +333,77 @@ func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
 		return findings
 	}
 
-	assert.Empty(t, genericPasswordFindings("password: hunter2"))
-	assert.Empty(t, genericPasswordFindings("password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"))
-	assert.Empty(t, genericPasswordFindings(`password: "username: alice"`))
-	assert.Empty(t, genericPasswordFindings(`password: "postgres://db.internal/app"`))
+	for name, raw := range map[string]string{
+		"weak standalone password":          "password: hunter2",
+		"random standalone password":        "password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB",
+		"password containing username text": `password: "username: alice"`,
+		"password containing a URI":         `password: "postgres://db.internal/app"`,
+		"password containing its key name":  `password: "MyPassword123!"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(raw)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
 	assert.Empty(t, genericPasswordFindings("username: alice\npassword: your_password"))
+	assert.Empty(t, genericPasswordFindings(`password = "${DB_PASSWORD}"`))
+	assert.Empty(t, genericPasswordFindings(`password = getPassword()`))
+	assert.Empty(t, genericPasswordFindings(`password = "[REDACTED]"`))
 	assert.Empty(t, genericPasswordFindings("database.host = db.internal\ndatabase_pw = undefined"))
+
+	rubyVariables := `def basic_auth
+  { username: username, password: password }
+end`
+	assert.Empty(t, genericPasswordFindings(rubyVariables, "auth.rb"))
+
+	for name, tc := range map[string]struct {
+		path string
+		raw  string
+	}{
+		"Ruby method chain": {
+			path: "app/helpers/profiles_helper.rb",
+			raw:  `confirm_with_password: current_user.confirm_deletion_with_password?.to_s,`,
+		},
+		"Go field selector": {
+			path: "internal/redis/redis_test.go",
+			raw:  `SentinelPassword: tc.inputSentinelPassword,`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Empty(t, genericPasswordFindings(tc.raw, tc.path))
+		})
+	}
+
+	rubyLiteralPassword := genericPasswordFindings(
+		`credentials = { username: username, password: "hunter2" }`,
+		"auth.rb",
+	)
+	require.Len(t, rubyLiteralPassword, 1)
+	assert.Equal(t, "hunter2", rubyLiteralPassword[0].Secret)
+	assert.Equal(t, "medium", rubyLiteralPassword[0].Attributes["confidence"])
+	assert.Empty(t, rubyLiteralPassword[0].ComponentSets, "a Ruby variable must not be attached as a literal username")
+
+	quotedExpressionText := genericPasswordFindings(
+		`credentials = { password: "current_user.confirm_deletion_with_password?.to_s" }`,
+		"auth.rb",
+	)
+	require.Len(t, quotedExpressionText, 1)
+	assert.Equal(t, "current_user.confirm_deletion_with_password?.to_s", quotedExpressionText[0].Secret)
+
+	rubyLiterals := genericPasswordFindings(
+		`credentials = { username: "alice", password: "hunter2" }`,
+		"auth.rb",
+	)
+	require.Len(t, rubyLiterals, 1)
+	require.Len(t, rubyLiterals[0].ComponentSets, 1)
+	assert.Equal(t, "alice", rubyLiterals[0].ComponentSets[0].Components[0].Secret)
+
+	yamlScalars := genericPasswordFindings("credentials:\n  username: alice\n  password: hunter2", "config.yml")
+	require.Len(t, yamlScalars, 1)
+	require.Len(t, yamlScalars[0].ComponentSets, 1)
+	assert.Equal(t, "alice", yamlScalars[0].ComponentSets[0].Components[0].Secret)
 
 	usernameOnly := genericPasswordFindings("USERNAME=alice@example.com\nPASSWORD=hunter2")
 	require.Len(t, usernameOnly, 1)
@@ -341,7 +413,7 @@ func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
 
 	paired := genericPasswordFindings("credentials: {\nusername: alice\npassword: hunter2\n}")
 	require.Len(t, paired, 1)
-	assert.Equal(t, "low", paired[0].Attributes["confidence"])
+	assert.Equal(t, "medium", paired[0].Attributes["confidence"])
 	require.Len(t, paired[0].ComponentSets, 1)
 	require.Len(t, paired[0].ComponentSets[0].Components, 1)
 	assert.Equal(t, "generic-username", paired[0].ComponentSets[0].Components[0].RuleID)
@@ -361,6 +433,7 @@ func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
 
 	dynamicUsername := genericPasswordFindings("credentials: {\nusername: process.env.USERNAME\npassword: hunter2\n}")
 	require.Len(t, dynamicUsername, 1)
+	assert.Equal(t, "medium", dynamicUsername[0].Attributes["confidence"])
 	assert.Empty(t, dynamicUsername[0].ComponentSets, "a dynamic username is auth context but not an attachable component")
 
 	for name, raw := range map[string]string{
@@ -371,19 +444,54 @@ func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			findings := genericPasswordFindings(raw)
 			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
 			assert.Empty(t, findings[0].ComponentSets)
 		})
 	}
 
 	weakAliasPair := genericPasswordFindings("credentials: {\nusername: alice\ndatabase_pw: hunter2\n}")
 	require.Len(t, weakAliasPair, 1)
+	assert.Equal(t, "medium", weakAliasPair[0].Attributes["confidence"])
 	require.Len(t, weakAliasPair[0].ComponentSets, 1)
 
-	insideWindow := "login()\n" + strings.Repeat("context line\n", 5) + "password: hunter2"
-	require.Len(t, genericPasswordFindings(insideWindow), 1)
+	insideWindow := "login()\n" + strings.Repeat("context line\n", 4) + "username: alice\npassword: hunter2"
+	insideWindowFindings := genericPasswordFindings(insideWindow)
+	require.Len(t, insideWindowFindings, 1)
+	assert.Equal(t, "medium", insideWindowFindings[0].Attributes["confidence"])
 
-	outsideWindow := "login()\n" + strings.Repeat("context line\n", 6) + "password: hunter2"
-	assert.Empty(t, genericPasswordFindings(outsideWindow))
+	outsideWindow := "login()\n" + strings.Repeat("context line\n", 5) + "username: alice\npassword: hunter2"
+	outsideWindowFindings := genericPasswordFindings(outsideWindow)
+	require.Len(t, outsideWindowFindings, 1)
+	assert.Equal(t, "low", outsideWindowFindings[0].Attributes["confidence"])
+
+	for name, tc := range map[string]struct {
+		raw    string
+		secret string
+	}{
+		"login": {
+			raw:    `smtp.login(username, "hunter2")`,
+			secret: "hunter2",
+		},
+		"authenticate": {
+			raw:    `client.authenticate(user, "password1")`,
+			secret: "password1",
+		},
+		"log in alias": {
+			raw:    `service.log_in(account, 'correct horse battery staple')`,
+			secret: "correct horse battery staple",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(tc.raw)
+			require.Len(t, findings, 1)
+			assert.Equal(t, tc.secret, findings[0].Secret)
+			assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+			assert.Empty(t, findings[0].ComponentSets)
+		})
+	}
+
+	assert.Empty(t, genericPasswordFindings(`postgres://user:hunter2@example.com/db`))
+	assert.Empty(t, genericPasswordFindings(`ldap.bind(user, "hunter2")`))
 }
 
 func TestComponentProximity(t *testing.T) {

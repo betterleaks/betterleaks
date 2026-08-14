@@ -7,12 +7,15 @@ import (
 )
 
 func GenericPassword() *config.Rule {
+	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`
+	authArgumentRegex := `\b(?:login|log[_.-]?in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60)[ \t]*\)`
+
 	r := config.Rule{
 		RuleID:      "generic-password",
 		Confidence:  "low",
-		Description: "Detected a password in authentication context, which may expose account credentials.",
-		Regex:       regexp.MustCompile(`(?i)(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`),
-		Keywords:    []string{"passw", "psw", "_pw", "-pw", ".pw"},
+		Description: "Detected a potential hardcoded password literal, which may expose account credentials.",
+		Regex:       regexp.MustCompile(`(?i)(?:` + passwordAssignmentRegex + `|` + authArgumentRegex + `)`),
+		Keywords:    []string{"passw", "psw", "_pw", "-pw", ".pw", "login", "log_in", "log-in", "authenticate"},
 		Specificity: 20,
 		Components: []*config.Component{
 			{
@@ -49,17 +52,23 @@ let hasAuthContext = filter.matchesAny(nearbyContext, [
 let hasUsernameContext = filter.matchesAny(nearbyContext, [
   ` + "`(?im)(?:^|[^a-z0-9])(?:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)`" + `
 ]);
+let isAuthArgument = filter.matchesAny(finding["match"], [
+  ` + "`(?i)\\b(?:login|log[_.-]?in|authenticate)\\b[ \\t]*\\(`" + `
+]);
+let isCodeFile = filter.matchesAny(attributes["path"], [
+  ` + "`(?i)\\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\\.(?:example|sample|template))?$`" + `
+]);
+let isUnquotedCodeValue = isCodeFile && filter.matchesAny(finding["match"], [
+  ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*[^\\x22\\x27\\x60 \\t\\r\\n]`" + `
+]);
 
 let level = (
-  hasAuthContext
-  && hasUsernameContext
-  && filter.entropy(finding["secret"]) > 3.5
-  && !filter.failsTokenEfficiency(finding["secret"])
+  isAuthArgument
+  || (hasAuthContext && hasUsernameContext)
 ) ? "medium" : "low";
 let _ = filter.setConfidence(level);
 
-(!hasAuthContext && !hasUsernameContext)
-|| filter.matchesAny(finding["secret"], [
+filter.matchesAny(finding["secret"], [
   ` + "`^\\*+$`" + `,
   ` + "`^\\.+$`" + `,
   ` + "`(?i)^x{4,}$`" + `,
@@ -70,16 +79,19 @@ let _ = filter.setConfidence(level);
   ` + "`^#\\{[^}\\r\\n]+}$`" + `,
   ` + "`^\\{\\{[ \\t]*.+[ \\t]*}}$`" + `,
   ` + "`^%\\{[^}]+}$`" + `,
+  ` + "`^\\$[A-Za-z_][A-Za-z0-9_]*$`" + `,
+  ` + "`(?i)^\\$env:[A-Za-z_][A-Za-z0-9_]*$`" + `,
+  ` + "`^%[A-Za-z_][A-Za-z0-9_]*%$`" + `,
   ` + "`^<[^>]+>$`" + `,
   ` + "`^<[^>\\s]+$`" + `,
   ` + "`^\\{[^}]+}$`" + `,
   ` + "`^(?:PASSWORD|PASSWD|YOUR_PASSWORD)$`" + `,
   ` + "`(?i)^(?:your[_-]?password|example[_-]?password|placeholder|forbidden_value)$`" + `,
-  ` + "`(?i)password`" + `,
   ` + "`^\\([A-Za-z_][A-Za-z0-9_.]*(?:[ \\t]+[A-Za-z_][A-Za-z0-9_.]*)*\\)$`" + `,
   ` + "`^\\$2[abxy]\\$[0-9]{2}\\$[./A-Za-z0-9]{7,}$`" + `,
   ` + "`(?i)^\\$pbkdf2[-_][^$]+\\$.*$`" + `
 ])
+|| isUnquotedCodeValue
 || filter.matchesAny(finding["match"], [
   ` + "`(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `,
   ` + "`(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*\\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\\]]*\\\\?(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `
@@ -87,6 +99,10 @@ let _ = filter.setConfidence(level);
 	}
 
 	tps := []string{
+		`password: hunter2`,
+		`password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB`,
+		`password = "the quick brown fox jumps over lazy dogs"`,
+		`password = "MyPassword123!"`,
 		"credentials: {\nusername: alice\npassword: hunter2\n}",
 		"USERNAME=alice@example.com\nPASSWORD=hunter2",
 		"login({\nusername = process.env.USERNAME\npasswd = \"g4F!mQ8#vZ2@rT6$xK9\"\n})",
@@ -95,15 +111,17 @@ let _ = filter.setConfidence(level);
 		"service.connect(\n  service-pw: Qv7D0LXCM3EIMbgJpUNnkRtOfOueHznB\n)",
 		"dsn: postgres://db.internal/app\nclient.pw = \"m4F!qK8#zR2@tV6$xN9\"",
 		"login({\n  \"password\": \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n})",
+		`smtp.login(username, "hunter2")`,
+		`client.authenticate(user, "password1")`,
+		`service.log_in(account, 'correct horse battery staple')`,
 	}
 	fps := []string{
 		`password: four`,
-		`password: hunter2`,
-		`password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB`,
-		`password = "the quick brown fox jumps over lazy dogs"`,
 		"username: alice\npassword = process.env.PASSWORD",
 		"database.host = db.internal\ndatabase_pw = undefined",
 		"username: alice\npassword = \"your_password\"",
+		`postgres://user:hunter2@example.com/db`,
+		`ldap.bind(user, "hunter2")`,
 	}
 	return utils.Validate(r, tps, fps)
 }
@@ -123,9 +141,17 @@ func GenericUsername() *config.Rule {
 			"client",
 		},
 		SkipReport: true,
-		Filter: `// Plain identifiers such as currentUser are valid ambiguous scalars.
-// Discard only exact placeholders and values with explicit expression syntax.
-filter.matchesAny(finding["secret"], [
+		Filter: `// An unquoted value is an ambiguous scalar in configuration, but
+// not a string literal in the source languages recognized below.
+let isCodeFile = filter.matchesAny(attributes["path"], [
+  ` + "`(?i)\\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\\.(?:example|sample|template))?$`" + `
+]);
+let isUnquotedCodeValue = isCodeFile && filter.matchesAny(finding["match"], [
+  ` + "`^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-](?:id|name))?)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*[^\\x22\\x27\\x60 \\t\\r\\n]`" + `
+]);
+
+isUnquotedCodeValue
+|| filter.matchesAny(finding["secret"], [
   ` + "`^\\*+$`" + `,
   ` + "`^\\.+$`" + `,
   ` + "`(?i)^x{4,}$`" + `,
