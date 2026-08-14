@@ -333,7 +333,11 @@ func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
 	assert.Empty(t, genericPasswordFindings("username: alice\npassword: your_password"))
 	assert.Empty(t, genericPasswordFindings("database.host = db.internal\ndatabase_pw = undefined"))
 
-	assert.Empty(t, genericPasswordFindings("username: alice\npassword: hunter2"))
+	usernameOnly := genericPasswordFindings("USERNAME=alice@example.com\nPASSWORD=hunter2")
+	require.Len(t, usernameOnly, 1)
+	assert.Equal(t, "low", usernameOnly[0].Attributes["confidence"])
+	require.Len(t, usernameOnly[0].ComponentSets, 1)
+	assert.Equal(t, "generic-username", usernameOnly[0].ComponentSets[0].Components[0].RuleID)
 
 	paired := genericPasswordFindings("credentials: {\nusername: alice\npassword: hunter2\n}")
 	require.Len(t, paired, 1)
@@ -343,9 +347,17 @@ func TestGenericPasswordRequiresAuthenticationContext(t *testing.T) {
 	assert.Equal(t, "generic-username", paired[0].ComponentSets[0].Components[0].RuleID)
 	assert.Equal(t, "alice", paired[0].ComponentSets[0].Components[0].Secret)
 
-	promoted := genericPasswordFindings("credentials: {\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n}")
+	promoted := genericPasswordFindings("credentials: {\nusername: alice@example.com\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n}")
 	require.Len(t, promoted, 1)
 	assert.Equal(t, "medium", promoted[0].Attributes["confidence"])
+
+	authOnly := genericPasswordFindings("credentials: {\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n}")
+	require.Len(t, authOnly, 1)
+	assert.Equal(t, "low", authOnly[0].Attributes["confidence"])
+
+	strongUsernameOnly := genericPasswordFindings("username: alice@example.com\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"")
+	require.Len(t, strongUsernameOnly, 1)
+	assert.Equal(t, "low", strongUsernameOnly[0].Attributes["confidence"])
 
 	dynamicUsername := genericPasswordFindings("credentials: {\nusername: process.env.USERNAME\npassword: hunter2\n}")
 	require.Len(t, dynamicUsername, 1)

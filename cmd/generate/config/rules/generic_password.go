@@ -21,7 +21,7 @@ func GenericPassword() *config.Rule {
 				Within:   "7L,200C",
 			},
 		},
-		Filter: `// Restrict authentication evidence to the password's line and the
+		Filter: `// Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
 // from the evidence patterns below.
 let raw = finding["fragment_raw"];
@@ -31,18 +31,12 @@ let beforeLines = split(raw[
 let afterLines = split(raw[
   finding["match_end_idx"]:min(finding["match_end_idx"] + 8192, len(raw))
 ], "\n");
-let authContext =
+let nearbyContext =
   join(beforeLines[max(len(beforeLines) - 7, 0):], "\n")
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 
-let level = (
-  filter.entropy(finding["secret"]) > 3.5
-  && !filter.failsTokenEfficiency(finding["secret"])
-) ? "medium" : "low";
-let _ = filter.setConfidence(level);
-
-!filter.matchesAny(authContext, [
+let hasAuthContext = filter.matchesAny(nearbyContext, [
   // Authentication and connection calls.
   ` + "`(?i)\\b(?:auth(?:enticate|entication)?|login|log[_.-]?in|sign[_.-]?in|connect(?:ion)?|open[_.-]?(?:connection|session)|create[_.-]?(?:connection|session)|bind)\\b[ \\t]*\\(`" + `,
   // Credential and connection configuration containers.
@@ -51,7 +45,20 @@ let _ = filter.setConfidence(level);
   ` + "`(?i)\\b(?:host(?:name)?|server|endpoint|database|db[_.-]?(?:name|host|url)|port|jdbc[_.-]?url|connection[_.-]?url)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]{0,5}(?:\"[^\"\\r\\n]+\"|'[^'\\r\\n]+'|\\x60[^\\x60\\r\\n]+\\x60|[^\\s,;)}\\]]+)`" + `,
   // Authentication-bearing connection strings.
   ` + "`(?i)\\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\\+srv)?|redis|amqps?|ldaps?|smtps?|ftps?|ssh)://`" + `
-])
+]);
+let hasUsernameContext = filter.matchesAny(nearbyContext, [
+  ` + "`(?im)(?:^|[^a-z0-9])(?:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)`" + `
+]);
+
+let level = (
+  hasAuthContext
+  && hasUsernameContext
+  && filter.entropy(finding["secret"]) > 3.5
+  && !filter.failsTokenEfficiency(finding["secret"])
+) ? "medium" : "low";
+let _ = filter.setConfidence(level);
+
+(!hasAuthContext && !hasUsernameContext)
 || filter.matchesAny(finding["secret"], [
   ` + "`^\\*+$`" + `,
   ` + "`^\\.+$`" + `,
@@ -81,6 +88,7 @@ let _ = filter.setConfidence(level);
 
 	tps := []string{
 		"credentials: {\nusername: alice\npassword: hunter2\n}",
+		"USERNAME=alice@example.com\nPASSWORD=hunter2",
 		"login({\nusername = process.env.USERNAME\npasswd = \"g4F!mQ8#vZ2@rT6$xK9\"\n})",
 		"auth_config: {\npsw: hunter2\n}",
 		"database.host = db.internal\ndatabase_pw = \"J8s!vR4#qL7@nT2$xM6\"",
@@ -93,7 +101,6 @@ let _ = filter.setConfidence(level);
 		`password: hunter2`,
 		`password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB`,
 		`password = "the quick brown fox jumps over lazy dogs"`,
-		"username: alice\npassword: hunter2",
 		"username: alice\npassword = process.env.PASSWORD",
 		"database.host = db.internal\ndatabase_pw = undefined",
 		"username: alice\npassword = \"your_password\"",
