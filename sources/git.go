@@ -551,7 +551,9 @@ func ResolveRemote(ctx context.Context, platform scm.Platform, source string) (s
 	return platform, remoteUrl.String()
 }
 
-var sshUrlpat = regexp.MustCompile(`^git@([a-zA-Z0-9.-]+):(?:\d{1,5}/)?([\w/.-]+?)(?:\.git)?$`)
+// scp-style SSH remotes are "user@host:path"; the user is not always "git"
+// (e.g. deploy keys like "org-1234@github.com" or a self-hosted "gitlab@host").
+var sshUrlpat = regexp.MustCompile(`^[\w.-]+@([a-zA-Z0-9.-]+):(?:\d{1,5}/)?([\w/.-]+?)(?:\.git)?$`)
 
 func getRemoteUrl(ctx context.Context, source string) (*url.URL, error) {
 	// This will return the first remote — typically, "origin".
