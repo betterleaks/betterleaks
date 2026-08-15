@@ -4845,14 +4845,15 @@ let nearbyContext =
   join(beforeLines[max(len(beforeLines) - 7, 0):], "\n")
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
+let linePrefix = beforeLines[len(beforeLines) - 1];
 
 let hasAuthContext = filter.matchesAny(nearbyContext, [
   // Authentication and connection calls.
-  `(?i)\b(?:auth(?:enticate|entication)?|login|log[_.-]?in|sign[_.-]?in|connect(?:ion)?|open[_.-]?(?:connection|session)|create[_.-]?(?:connection|session)|bind)\b[ \t]*\(`,
+  `(?i)(?:^|[^a-z0-9])(?:auth(?:enticate|entication)?|login|log[_.-]?in|sign[_.-]?in|connect(?:ion)?|open[_.-]?(?:connection|session)|create[_.-]?(?:connection|session)|bind)\b[ \t]*\(`,
   // Credential and connection configuration containers.
-  `(?i)\b(?:basic[_.-]?auth|auth(?:entication)?[_.-]?(?:config|options|params)|credentials?|login[_.-]?(?:config|options|params)|connection[_.-]?(?:string|config|options|params)|data[_.-]?source|dsn)\b[ \t'"\\]{0,3}(?:=>|:=|=|:|\{|\()`,
+  `(?i)(?:^|[^a-z0-9])(?:basic[_.-]?auth|auth(?:entication)?[_.-]?(?:config|options|params)|credentials?|login[_.-]?(?:config|options|params)|connection[_.-]?(?:string|config|options|params)|data[_.-]?source|dsn)\b[ \t'"\\]{0,3}(?:=>|:=|=|:|\{|\()`,
   // Assets commonly paired with credentials.
-  `(?i)\b(?:host(?:name)?|server|endpoint|database|db[_.-]?(?:name|host|url)|port|jdbc[_.-]?url|connection[_.-]?url)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"[^"\r\n]+"|'[^'\r\n]+'|\x60[^\x60\r\n]+\x60|[^\s,;)}\]]+)`,
+  `(?i)(?:^|[^a-z0-9])(?:host(?:name)?|server|endpoint|database|db[_.-]?(?:name|host|url)?|port|jdbc[_.-]?url|connection[_.-]?url)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"[^"\r\n]+"|'[^'\r\n]+'|\x60[^\x60\r\n]+\x60|[^\s,;)}\]]+)`,
   // Nearby connection URI or service context.
   `(?i)\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|amqps?|ldaps?|smtps?|ftps?|ssh)://`
 ]);
@@ -4863,16 +4864,38 @@ let isDirectAuthArgument = filter.matchesAny(finding["match"], [
   `(?i)^(?:login|log_in)\b[ \t]*\(`,
   `(?i)^authenticate\b[ \t]*\([ \t]*[^,\r\n]*(?:user(?:name)?|account|email|login|uid)[^,\r\n]*,`
 ]);
-let isCodeFile = filter.matchesAny(attributes["path"], [
-  `(?i)\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\.(?:example|sample|template))?$`
+let isCommented = filter.matchesAny(linePrefix, [
+  `(?:^[ \t]*(?:#|//|/\*|\*|--|;|<!--)|[ \t](?:#|//|/\*|--|<!--)[ \t]*)`
 ]);
-let isUnquotedCodeValue = isCodeFile && filter.matchesAny(finding["match"], [
+let isInstructionalPlaceholder = filter.matchesAny(finding["secret"], [
+  `^(?:PGPASSWORD|[A-Z][A-Z0-9_]*_(?:PASSWORD|PASSWD|PWD)(?:_[A-Z0-9]+)*|(?:PASSWORD|PASSWD|PWD)_[A-Z0-9_]+)$`,
+  `(?i)^(?:password|passwd|pwd)?[ _-]?(?:goes[ _-]?here|replace[ _-]?me|insert[ _-].*here|not[ _-]?set)$`
+]);
+let isCodeFile = filter.matchesAny(attributes["path"], [
+  `(?i)\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|gemspec|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rake|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\.(?:example|sample|template))?$`
+]);
+let isUnquotedAssignment = filter.matchesAny(finding["match"], [
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]`
+]);
+let isUnquotedCodeValue = isCodeFile && isUnquotedAssignment;
+let isUnquotedExpression = isUnquotedAssignment && filter.matchesAny(finding["secret"], [
+  `^[A-Za-z_][A-Za-z0-9_-]*:\[[^]\r\n]+\]$`,
+  `^[A-Za-z_][A-Za-z0-9_]*[)}\]]+(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?)*$`
+]);
+let isNonPlaintextPasswordField = filter.matchesAny(linePrefix + finding["match"], [
+  `(?i)(?:^|[^a-z0-9])(?:encrypted|hashed|encoded)[_.-]?password\b`
+]);
+let hasNestedUnquotedAssignment = filter.matchesAny(finding["match"], [
+  `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}[^"'\x60\r\n]*[.,][A-Za-z_][A-Za-z0-9_-]*=`
 ]);
 
 let level = (
-  isDirectAuthArgument
-  || (hasAuthContext && hasIdentityFieldContext)
+  (
+    isDirectAuthArgument
+    || (hasAuthContext && hasIdentityFieldContext)
+  )
+  && !isCommented
+  && !isInstructionalPlaceholder
 ) ? "medium" : "low";
 let _ = filter.setConfidence(level);
 
@@ -4895,10 +4918,20 @@ filter.matchesAny(finding["secret"], [
   `^\{[^}]+}$`,
   `(?i)^(?:your[_-]?password|example[_-]?password|placeholder|forbidden_value)$`,
   `^\([A-Za-z_][A-Za-z0-9_.]*(?:[ \t]+[A-Za-z_][A-Za-z0-9_.]*)*\)$`,
+  `^\$\(`,
+  `(?:\$\{|#\{|\{\{|%\{)`,
+  `%\([A-Za-z_][A-Za-z0-9_]*\)[#0 +\-]?[0-9.]*(?:[diouxXeEfFgGcrs%])`,
+  `(?i)^--?passw(?:or)?d$`,
   `^\$2[abxy]\$[0-9]{2}\$[./A-Za-z0-9]{7,}$`,
-  `(?i)^\$pbkdf2[-_][^$]+\$.*$`
+  `(?i)^\$pbkdf2[-_][^$]+\$.*$`,
+  `(?i)^(?:pbkdf2_(?:sha1|sha256)|bcrypt_sha256|argon2|scrypt|sha1|md5|crypt)\$`,
+  `(?i)^\{(?:SSHA(?:256|384|512)?|SHA(?:256|384|512)?|MD5|CRYPT|BCRYPT|PBKDF2)}`,
+  `(?i)^SCRAM-SHA-256\$`
 ])
 || isUnquotedCodeValue
+|| isUnquotedExpression
+|| isNonPlaintextPasswordField
+|| hasNestedUnquotedAssignment
 || filter.matchesAny(finding["match"], [
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`,
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^]\r\n]+\]|\([^,\r\n)]*\)?)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\]]*\\?(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`
@@ -4929,7 +4962,7 @@ filter = '''
 // An unquoted value is an ambiguous scalar in configuration, but
 // not a string literal in the source languages recognized below.
 let isCodeFile = filter.matchesAny(attributes["path"], [
-  `(?i)\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\.(?:example|sample|template))?$`
+  `(?i)\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|gemspec|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rake|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\.(?:example|sample|template))?$`
 ]);
 let isUnquotedCodeValue = isCodeFile && filter.matchesAny(finding["match"], [
   `^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]`
