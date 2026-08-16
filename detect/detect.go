@@ -145,9 +145,7 @@ type Detector struct {
 	validationRuntime  *exprruntime.Runtime
 	validationProgramM sync.Mutex
 	validationPrograms map[string]exprruntime.Program
-	globalFilter       exprruntime.Program
-	filterProgramM     sync.Mutex
-	filterPrograms     map[string]exprruntime.Program
+	filterSet          *FilterSet
 
 	// rulesBySpecificity contains every configured rule ID in descending
 	// specificity order. Its positions are the shared index space used by the
@@ -274,7 +272,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
 		validationPrograms:     make(map[string]exprruntime.Program),
-		filterPrograms:         make(map[string]exprruntime.Program),
+		filterSet:              NewFilterSet(cfg, exprRuntime),
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
@@ -364,23 +362,6 @@ func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
 	return d.tokenizer
 }
 
-func (d *Detector) globalFilterProgram() (exprruntime.Program, bool, error) {
-	if d.Config.Filter == "" {
-		return nil, false, nil
-	}
-	d.filterProgramM.Lock()
-	defer d.filterProgramM.Unlock()
-	if d.globalFilter != nil {
-		return d.globalFilter, true, nil
-	}
-	prg, err := d.exprRuntime.CompileFilter(d.Config.Filter, nil)
-	if err != nil {
-		return nil, false, fmt.Errorf("compiling global filter: %w", err)
-	}
-	d.globalFilter = prg
-	return prg, true, nil
-}
-
 func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, error) {
 	if d.validationRuntime == nil {
 		return nil, false, nil
@@ -400,37 +381,6 @@ func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, 
 		return nil, false, fmt.Errorf("compiling rule %s validation: %w", ruleID, err)
 	}
 	d.validationPrograms[ruleID] = prg
-	return prg, true, nil
-}
-
-func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, error) {
-	d.filterProgramM.Lock()
-	defer d.filterProgramM.Unlock()
-
-	rule := r
-	cacheable := false
-	if cfgRule, ok := d.Config.Rules[r.RuleID]; ok {
-		rule = cfgRule
-		cacheable = true
-	}
-	if rule.Filter == "" {
-		return nil, false, nil
-	}
-	if cacheable {
-		if prg := d.filterPrograms[rule.RuleID]; prg != nil {
-			return prg, true, nil
-		}
-	}
-	if prg := rule.FilterProgram(); prg != nil {
-		return prg, true, nil
-	}
-	prg, err := d.exprRuntime.CompileFilter(rule.Filter, nil)
-	if err != nil {
-		return nil, false, fmt.Errorf("compiling rule %s filter: %w", rule.RuleID, err)
-	}
-	if cacheable {
-		d.filterPrograms[rule.RuleID] = prg
-	}
 	return prg, true, nil
 }
 
@@ -1065,7 +1015,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 		// Global filter: Expr path (attributes + finding).
-		if prg, ok, err := d.globalFilterProgram(); err != nil {
+		if prg, ok, err := d.filterSet.Global(); err != nil {
 			logger.Warn().Err(err).Msg("global filter compile error")
 		} else if ok {
 			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
@@ -1080,7 +1030,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		// Rule filter: Expr path (includes entropy, regex/stopword allowlists, tokenEfficiency).
-		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
+		if prg, ok, err := d.filterSet.ForRule(r); err != nil {
 			logger.Warn().Err(err).Msg("rule filter compile error")
 		} else if ok {
 			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
