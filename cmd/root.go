@@ -83,6 +83,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("report-path", "r", "", "report file (use \"-\" for stdout)")
 	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
 	rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
+	rootCmd.PersistentFlags().Bool("report-include-line", false, "include matched line text in JSON reports (enables `betterleaks report replay` to evaluate filters referencing finding.line)")
 	rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
 	rootCmd.PersistentFlags().String("confidence", "", "minimum confidence to include (low, medium, high)")
@@ -421,6 +422,9 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		logging.Fatal().Err(err).Send()
 	}
 	if detector.LegacyPrint, err = cmd.Flags().GetBool("legacy-print"); err != nil {
+		logging.Fatal().Err(err).Send()
+	}
+	if detector.PersistLine, err = cmd.Flags().GetBool("report-include-line"); err != nil {
 		logging.Fatal().Err(err).Send()
 	}
 	if detector.MaxTargetMegaBytes, err = cmd.Flags().GetInt("max-target-megabytes"); err != nil {

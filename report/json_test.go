@@ -83,3 +83,41 @@ func TestWriteJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestJSONLineField(t *testing.T) {
+	reporter := JsonReporter{}
+
+	t.Run("omitted when empty", func(t *testing.T) {
+		f := simpleFinding // Line is zero-value ""
+		tmp, err := os.Create(filepath.Join(t.TempDir(), "out.json"))
+		require.NoError(t, err)
+		defer tmp.Close()
+
+		require.NoError(t, reporter.Write(tmp, []Finding{f}))
+		data, err := os.ReadFile(tmp.Name())
+		require.NoError(t, err)
+
+		var findings []map[string]any
+		require.NoError(t, json.Unmarshal(data, &findings))
+		require.Len(t, findings, 1)
+		_, hasLine := findings[0]["Line"]
+		assert.False(t, hasLine, "Line should be absent when empty")
+	})
+
+	t.Run("round-trips when set", func(t *testing.T) {
+		f := simpleFinding
+		f.Line = "secret=hunter2"
+		tmp, err := os.Create(filepath.Join(t.TempDir(), "out.json"))
+		require.NoError(t, err)
+		defer tmp.Close()
+
+		require.NoError(t, reporter.Write(tmp, []Finding{f}))
+		data, err := os.ReadFile(tmp.Name())
+		require.NoError(t, err)
+
+		var findings []Finding
+		require.NoError(t, json.Unmarshal(data, &findings))
+		require.Len(t, findings, 1)
+		assert.Equal(t, "secret=hunter2", findings[0].Line)
+	})
+}

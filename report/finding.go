@@ -31,7 +31,7 @@ type Finding struct {
 	// MatchContext contains surrounding lines around the match
 	MatchContext string `json:",omitempty"`
 
-	Line string `json:"-"`
+	Line string `json:",omitempty"`
 
 	// CaptureGroups holds named regex capture groups from the match.
 	CaptureGroups map[string]string `json:",omitempty"`

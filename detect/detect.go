@@ -109,6 +109,10 @@ type Detector struct {
 	// are included in validation output.
 	ValidationExtractEmpty bool
 
+	// PersistLine, when true, preserves the matched Line field in emitted findings.
+	// Required for `betterleaks report replay` to evaluate filters referencing finding.line.
+	PersistLine bool
+
 	// IgnoreGitleaksAllow is a flag to ignore gitleaks:allow comments.
 	IgnoreGitleaksAllow bool
 
@@ -620,6 +624,10 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					} else if _, ok := d.ValidationStatusFilter["none"]; !ok {
 						continue
 					}
+				}
+
+				if !d.PersistLine {
+					res.Finding.Line = ""
 				}
 
 				if !d.SkipFindingAppend {
