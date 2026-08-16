@@ -482,67 +482,81 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	}
 
 	// Validate report settings.
-	reportPath := mustGetStringFlag(cmd, "report-path")
+	reporter, reportPath, err := buildReporter(cmd, cfg)
+	if err != nil {
+		logging.Fatal().Err(err).Send()
+	}
 	if reportPath != "" {
-		if reportPath != report.StdoutReportPath {
-			// Ensure the path is writable.
-			if f, err := os.Create(reportPath); err != nil {
-				logging.Fatal().Err(err).Msgf("Report path is not writable: %s", reportPath)
-			} else {
-				_ = f.Close()
-				_ = os.Remove(reportPath)
-			}
-		}
-
-		// Build report writer.
-		var (
-			reporter       report.Reporter
-			reportFormat   = mustGetStringFlag(cmd, "report-format")
-			reportTemplate = mustGetStringFlag(cmd, "report-template")
-		)
-		if reportFormat == "" {
-			ext := strings.ToLower(filepath.Ext(reportPath))
-			switch ext {
-			case ".csv":
-				reportFormat = "csv"
-			case ".json":
-				reportFormat = "json"
-			case ".sarif":
-				reportFormat = "sarif"
-			default:
-				logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
-			}
-			logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
-		}
-		switch strings.TrimSpace(strings.ToLower(reportFormat)) {
-		case "csv":
-			reporter = &report.CsvReporter{}
-		case "json":
-			reporter = &report.JsonReporter{}
-		case "junit":
-			reporter = &report.JunitReporter{}
-		case "sarif":
-			reporter = &report.SarifReporter{
-				OrderedRules: cfg.GetOrderedRules(),
-			}
-		case "template":
-			if reporter, err = report.NewTemplateReporter(reportTemplate); err != nil {
-				logging.Fatal().Err(err).Msg("Invalid report template")
-			}
-		default:
-			logging.Fatal().Msgf("unknown report format %s", reportFormat)
-		}
-
-		// Sanity check.
-		if reportTemplate != "" && reportFormat != "template" {
-			logging.Fatal().Msgf("Report format must be 'template' if --report-template is specified")
-		}
-
 		detector.ReportPath = reportPath
 		detector.Reporter = reporter
 	}
 
 	return detector
+}
+
+// buildReporter constructs a report.Reporter from the standard
+// --report-format / --report-path / --report-template flags.
+// reportPath is returned so callers can also open the destination file.
+// Returns a nil reporter and empty path when --report-path is not set.
+func buildReporter(cmd *cobra.Command, cfg *config.Config) (report.Reporter, string, error) {
+	reportPath := mustGetStringFlag(cmd, "report-path")
+	if reportPath == "" {
+		return nil, "", nil
+	}
+
+	if reportPath != report.StdoutReportPath {
+		if f, err := os.Create(reportPath); err != nil {
+			return nil, "", fmt.Errorf("report path is not writable: %w", err)
+		} else {
+			_ = f.Close()
+			_ = os.Remove(reportPath)
+		}
+	}
+
+	reportFormat := mustGetStringFlag(cmd, "report-format")
+	reportTemplate := mustGetStringFlag(cmd, "report-template")
+
+	if reportTemplate != "" && reportFormat != "" && reportFormat != "template" {
+		return nil, "", fmt.Errorf("report format must be 'template' if --report-template is specified")
+	}
+
+	if reportFormat == "" {
+		ext := strings.ToLower(filepath.Ext(reportPath))
+		switch ext {
+		case ".csv":
+			reportFormat = "csv"
+		case ".json":
+			reportFormat = "json"
+		case ".sarif":
+			reportFormat = "sarif"
+		default:
+			return nil, "", fmt.Errorf("unknown report format for path %q (use --report-format)", reportPath)
+		}
+		logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
+	}
+
+	var reporter report.Reporter
+	switch strings.TrimSpace(strings.ToLower(reportFormat)) {
+	case "csv":
+		reporter = &report.CsvReporter{}
+	case "json":
+		reporter = &report.JsonReporter{}
+	case "junit":
+		reporter = &report.JunitReporter{}
+	case "sarif":
+		reporter = &report.SarifReporter{
+			OrderedRules: cfg.GetOrderedRules(),
+		}
+	case "template":
+		var err error
+		if reporter, err = report.NewTemplateReporter(reportTemplate); err != nil {
+			return nil, "", fmt.Errorf("invalid report template: %w", err)
+		}
+	default:
+		return nil, "", fmt.Errorf("unknown report format %q", reportFormat)
+	}
+
+	return reporter, reportPath, nil
 }
 
 func bytesConvert(bytes uint64) string {
