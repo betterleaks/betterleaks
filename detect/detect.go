@@ -1,13 +1,11 @@
 package detect
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"iter"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -121,13 +119,10 @@ type Detector struct {
 	prefilter *ahocorasick.Matcher
 
 	// a list of known findings that should be ignored
-	baseline []report.Finding
+	suppression *Suppression
 
 	// path to baseline
 	baselinePath string
-
-	// gitleaksIgnore
-	gitleaksIgnore map[string]struct{}
 
 	TotalBytes atomic.Uint64
 
@@ -263,7 +258,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 
 	keywords := maps.Keys(cfg.Keywords)
 	d := &Detector{
-		gitleaksIgnore:         make(map[string]struct{}),
+		suppression:            NewSuppression(),
 		findings:               make([]report.Finding, 0),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
@@ -593,74 +588,19 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 	}
 }
 
-// ignore compares a finding against a baseline report or betterleaksignore
-// file entries.
+// ignore compares a finding against the ignore file and baseline.
 func (d *Detector) ignore(finding report.Finding) bool {
-	logger := logging.With().Str("finding", finding.Secret).Logger()
-	path := finding.Attributes[sources.AttrPath]
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, finding.RuleID, finding.StartLine)
-
-	if _, ok := d.gitleaksIgnore[globalFingerprint]; ok {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msg("skipping finding: global fingerprint")
-		return true
-	}
-
-	if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msg("skipping finding: fingerprint")
-		return true
-	}
-
-	if d.baseline != nil && !IsNew(finding, d.Redact, d.baseline) {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msgf("skipping finding: baseline")
-		return true
-	}
-	return false
+	d.suppression.Redact = d.Redact
+	return d.suppression.Suppressed(finding)
 }
 
-func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
-	logging.Debug().Str("path", gitleaksIgnorePath).Msgf("found .gitleaksignore file")
-	file, err := os.Open(gitleaksIgnorePath)
+func (d *Detector) AddGitleaksIgnore(path string) error {
+	entries, err := LoadIgnoreFile(path)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		// https://github.com/securego/gosec/issues/512
-		if err := file.Close(); err != nil {
-			logging.Warn().Err(err).Msgf("Error closing .gitleaksignore file")
-		}
-	}()
-
-	scanner := bufio.NewScanner(file)
-	replacer := strings.NewReplacer("\\", "/")
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip lines that start with a comment
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Normalize the path.
-		// TODO: Make this a breaking change in v9.
-		s := strings.Split(line, ":")
-		switch len(s) {
-		case 3:
-			// Global fingerprint.
-			// `file:rule-id:start-line`
-			s[0] = replacer.Replace(s[0])
-		case 4:
-			// Commit fingerprint.
-			// `commit:file:rule-id:start-line`
-			s[1] = replacer.Replace(s[1])
-		default:
-			logging.Warn().Str("fingerprint", line).Msg("Invalid .gitleaksignore entry")
-		}
-		d.gitleaksIgnore[strings.Join(s, ":")] = struct{}{}
+	for k := range entries {
+		d.suppression.Ignore[k] = struct{}{}
 	}
 	return nil
 }

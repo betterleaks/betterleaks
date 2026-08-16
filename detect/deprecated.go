@@ -146,14 +146,14 @@ func (d *Detector) AddFinding(finding report.Finding) {
 
 	// check if we should ignore this finding
 	logger := logging.With().Str("finding", finding.Secret).Logger()
-	if _, ok := d.gitleaksIgnore[globalFingerprint]; ok {
+	if _, ok := d.suppression.Ignore[globalFingerprint]; ok {
 		logger.Debug().
 			Str("fingerprint", globalFingerprint).
 			Msg("skipping finding: global fingerprint")
 		return
 	} else if finding.Commit != "" {
 		// Awkward nested if because I'm not sure how to chain these two conditions.
-		if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
+		if _, ok := d.suppression.Ignore[finding.Fingerprint]; ok {
 			logger.Debug().
 				Str("fingerprint", finding.Fingerprint).
 				Msgf("skipping finding: fingerprint")
@@ -161,7 +161,7 @@ func (d *Detector) AddFinding(finding report.Finding) {
 		}
 	}
 
-	if d.baseline != nil && !IsNew(finding, d.Redact, d.baseline) {
+	if d.suppression.Baseline != nil && !IsNew(finding, d.Redact, d.suppression.Baseline) {
 		logger.Debug().
 			Str("fingerprint", finding.Fingerprint).
 			Msgf("skipping finding: baseline")

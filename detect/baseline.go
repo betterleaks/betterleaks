@@ -71,7 +71,7 @@ func (d *Detector) AddBaseline(baselinePath string, source string) error {
 			return err
 		}
 
-		d.baseline = baseline
+		d.suppression.Baseline = baseline
 		baselinePath = relativeBaseline
 
 	}
