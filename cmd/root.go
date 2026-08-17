@@ -95,6 +95,8 @@ func init() {
 	rootCmd.Flag("redact").NoOptDefVal = "100"
 	rootCmd.PersistentFlags().Bool("no-banner", false, "suppress banner")
 	rootCmd.PersistentFlags().StringSlice("enable-rule", []string{}, "only enable specific rules by id")
+	rootCmd.PersistentFlags().StringSlice("disable-rule", nil, "disable specific rules by id (repeatable; shorthand: -dr)")
+	rootCmd.PersistentFlags().StringSlice("isolate-rule", nil, "only enable specific rules by id (repeatable; shorthand: -ir)")
 	rootCmd.PersistentFlags().StringP("gitleaks-ignore-path", "i", ".", "path to .betterleaksignore or .gitleaksignore file or folder containing one")
 	rootCmd.PersistentFlags().String("match-context", "", "context around match: L (lines), C (columns/characters). e.g. 10L, 100C, -2C,+4C")
 	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
@@ -316,6 +318,9 @@ func initDiagnostics() {
 }
 
 func Execute() {
+	// pflag only supports single-character shorthands. Expand the requested
+	// multi-character aliases before Cobra parses the command line.
+	rootCmd.SetArgs(expandRuleFlagShorthands(os.Args[1:]))
 	if err := rootCmd.Execute(); err != nil {
 		if strings.Contains(err.Error(), "unknown flag") {
 			// exit code 126: Command invoked cannot execute
@@ -340,18 +345,8 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 
 	// Apply rule overrides BEFORE constructing the detector so that
 	// NewDetectorContext compiles expression filters for the final rule set.
-	rules, _ := cmd.Flags().GetStringSlice("enable-rule")
-	if len(rules) > 0 {
-		logging.Info().Msg("Overriding enabled rules: " + strings.Join(rules, ", "))
-		ruleOverride := make(map[string]config.Rule)
-		for _, ruleName := range rules {
-			if r, ok := cfg.Rules[ruleName]; ok {
-				ruleOverride[ruleName] = r
-			} else {
-				logging.Fatal().Msgf("Requested rule %s not found in rules", ruleName)
-			}
-		}
-		cfg.Rules = ruleOverride
+	if err := applyRuleSelection(cmd, cfg); err != nil {
+		logging.Fatal().Err(err).Msg("unable to apply rule selection")
 	}
 
 	// Setup common detector. NewDetectorContext compiles all expression programs
