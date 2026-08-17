@@ -834,6 +834,21 @@ func TestGenericCredentialURI(t *testing.T) {
 		})
 	}
 
+	for name, raw := range map[string]string{
+		"reserved invalid TLD":   `ssh://alice:hunter2@host.invalid/repository`,
+		"reserved test TLD":      `https://alice:s3cr3t@service.test/v1`,
+		"localhost":              `https://alice:s3cr3t@localhost/v1`,
+		"localhost subdomain":    `redis://:s3cr3t@cache.localhost:6379/0`,
+		"localhost trailing dot": `redis://:s3cr3t@cache.localhost.:6379/0`,
+		"documentation and test": `postgresql://alice:hunter2@example.com,service.test/app`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
 	for name, path := range map[string]string{
 		"test directory":          `test/integration/client.go`,
 		"spec filename":           `app/services/client_spec.rb`,
@@ -889,13 +904,8 @@ func TestGenericCredentialURI(t *testing.T) {
 		"example.com underscore host":  `http://user:pass:word@old_configurator.example.com)`,
 		"example.net host":             `postgres://alice:hunter2@db.example.net/app`,
 		"reserved example TLD":         `redis://:s3cr3t@cache.example/0`,
-		"reserved invalid TLD":         `ssh://alice:hunter2@host.invalid/repository`,
-		"reserved test TLD":            `https://alice:s3cr3t@service.test/v1`,
-		"localhost":                    `https://alice:s3cr3t@localhost/v1`,
-		"localhost subdomain":          `redis://:s3cr3t@cache.localhost:6379/0`,
 		"example.com trailing dot":     `https://alice:s3cr3t@example.com./v1`,
 		"example.com query":            `https://alice:s3cr3t@example.com?mode=test`,
-		"localhost trailing dot":       `redis://:s3cr3t@cache.localhost.:6379/0`,
 		"all reserved hosts":           `postgresql://alice:hunter2@example.com,db.example.net/app`,
 		"instructional Redis password": `redis://:redis-password-goes-here@gitlab-redis/`,
 		"masked Redis password":        `redis://:xxxx@gitlab-redis/`,
@@ -936,8 +946,10 @@ func TestGenericCredentialURI(t *testing.T) {
 	assert.Equal(t, "medium", nonReservedLocalhostPrefix[0].Attributes["confidence"])
 
 	for name, raw := range map[string]string{
-		"reserved host first": `postgresql://alice:hunter2@example.com,db.internal/app`,
-		"reserved host last":  `postgresql://alice:hunter2@db.internal,example.com/app`,
+		"reserved host first":  `postgresql://alice:hunter2@example.com,db.internal/app`,
+		"reserved host last":   `postgresql://alice:hunter2@db.internal,example.com/app`,
+		"localhost host first": `postgresql://alice:hunter2@localhost,db.internal/app`,
+		"test host last":       `postgresql://alice:hunter2@db.internal,service.test/app`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			findings := findingsForRule(raw, "generic-credential-uri")

@@ -4860,12 +4860,16 @@ let isTestOrDocumentationSource = filter.matchesAny(attributes["path"], [
   `(?i)\.(?:md|mdx|rst|adoc|asciidoc)$`
 ]);
 let hasIgnoredHost = filter.matchesAny(finding["match"], [
+  `(?i)^[a-z][a-z0-9+.-]*://[^@\s]+@(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?\.?(?::[0-9]{1,5})?(?:,(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?\.?(?::[0-9]{1,5})?)*(?:[/?\s'"\x60#<>{}\[\];)]|,?$)`
+]);
+let hasLowConfidenceHost = filter.matchesAny(finding["match"], [
   `(?i)^[a-z][a-z0-9+.-]*://[^@\s]+@(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))\.?(?::[0-9]{1,5})?(?:,(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))\.?(?::[0-9]{1,5})?)*(?:[/?\s'"\x60#<>{}\[\];)]|,?$)`
 ]);
 let level = (
   isExampleValue
   || isSyntheticCredentialTuple
   || isTestOrDocumentationSource
+  || hasLowConfidenceHost
 ) ? "low" : "medium";
 let _ = filter.setConfidence(level);
 

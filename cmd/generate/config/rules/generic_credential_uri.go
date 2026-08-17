@@ -7,8 +7,13 @@ import (
 )
 
 func GenericCredentialURI() *config.Rule {
-	reservedHostPattern := `(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))\.?`
-	ignoredHostsPattern := `(?i)^[a-z][a-z0-9+.-]*://[^@\s]+@` + reservedHostPattern + `(?::[0-9]{1,5})?(?:,` + reservedHostPattern + `(?::[0-9]{1,5})?)*(?:[/?\s'"\x60#<>{}\[\];)]|,?$)`
+	documentationHostPattern := `(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?\.?`
+	localOrReservedHostPattern := `(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))\.?`
+	onlyHostListPattern := func(hostPattern string) string {
+		return `(?i)^[a-z][a-z0-9+.-]*://[^@\s]+@` + hostPattern + `(?::[0-9]{1,5})?(?:,` + hostPattern + `(?::[0-9]{1,5})?)*(?:[/?\s'"\x60#<>{}\[\];)]|,?$)`
+	}
+	ignoredHostsPattern := onlyHostListPattern(documentationHostPattern)
+	lowConfidenceHostsPattern := onlyHostListPattern(localOrReservedHostPattern)
 
 	// Capture the password as the reported secret while retaining the URI's
 	// credential-bearing structure as named captures. Every supported scheme
@@ -65,10 +70,14 @@ let isTestOrDocumentationSource = filter.matchesAny(attributes["path"], [
 let hasIgnoredHost = filter.matchesAny(finding["match"], [
   ` + "`" + ignoredHostsPattern + "`" + `
 ]);
+let hasLowConfidenceHost = filter.matchesAny(finding["match"], [
+  ` + "`" + lowConfidenceHostsPattern + "`" + `
+]);
 let level = (
   isExampleValue
   || isSyntheticCredentialTuple
   || isTestOrDocumentationSource
+  || hasLowConfidenceHost
 ) ? "low" : "medium";
 let _ = filter.setConfidence(level);
 
@@ -112,6 +121,10 @@ isInstructionalPlaceholder
 		`SSH_URL=ssh://foo:bar@gitlab.internal/repository`,
 		`DATABASE_URL=postgresql://alice:hunter2@example.com,db.internal/app`,
 		`SERVICE_URL=https://username:password@gitlab.company.com/api`,
+		`SSH_URL=ssh://alice:hunter2@host.invalid/repository`,
+		`SERVICE_URL=https://alice:s3cr3t@service.test/v1`,
+		`SERVICE_URL=https://alice:s3cr3t@localhost/v1`,
+		`REDIS_URL=redis://:s3cr3t@cache.localhost:6379/0`,
 	}
 	fps := []string{
 		`DATABASE_URL=postgres://alice@db.internal/app`,
@@ -127,14 +140,9 @@ isInstructionalPlaceholder
 		`SERVICE_URL=https://alice:s3cr3t@api.example.com/v1`,
 		`DATABASE_URL=postgres://alice:hunter2@db.example.net/app`,
 		`REDIS_URL=redis://:s3cr3t@cache.example/0`,
-		`SSH_URL=ssh://alice:hunter2@host.invalid/repository`,
-		`SERVICE_URL=https://alice:s3cr3t@service.test/v1`,
 		`SERVICE_URL=http://user:pass:word@old_configurator.example.com)`,
-		`SERVICE_URL=https://alice:s3cr3t@localhost/v1`,
-		`REDIS_URL=redis://:s3cr3t@cache.localhost:6379/0`,
 		`SERVICE_URL=https://alice:s3cr3t@example.com./v1`,
 		`SERVICE_URL=https://alice:s3cr3t@example.com?mode=test`,
-		`REDIS_URL=redis://:s3cr3t@cache.localhost.:6379/0`,
 		`DATABASE_URL=postgresql://alice:hunter2@example.com,db.example.net/app`,
 		`SERVICE_URL=http://username:password@example.com,https://test:test@example.org:9200`,
 		`DATABASE_URL=postgres://alice:replace_me@db.internal/app`,
