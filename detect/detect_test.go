@@ -526,6 +526,22 @@ end`
 			path: "config/database.yml",
 			raw:  "credentials: {\nusername: alice\npassword: PGPASSWORD\n}",
 		},
+		"example value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: example\n}",
+		},
+		"numbered example value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: example123!\n}",
+		},
+		"example password value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: example_password\n}",
+		},
+		"reversed example value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: PasswordExample!\n}",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			findings := genericPasswordFindings(tc.raw, tc.path)

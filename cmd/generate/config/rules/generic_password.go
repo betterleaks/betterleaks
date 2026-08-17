@@ -67,6 +67,7 @@ let isCommented = filter.matchesAny(linePrefix, [
 ]);
 let isInstructionalPlaceholder = filter.matchesAny(finding["secret"], [
   ` + "`^(?:PGPASSWORD|[A-Z][A-Z0-9_]*_(?:PASSWORD|PASSWD|PWD)(?:_[A-Z0-9]+)*|(?:PASSWORD|PASSWD|PWD)_[A-Z0-9_]+)$`" + `,
+  ` + "`(?i)^(?:(?:(?:an?|my)[ _.-]*)?example(?:[ _.-]*(?:password|passwd|pwd))?|(?:password|passwd|pwd)[ _.-]*example)(?:[ _.-]*[0-9]{1,4})?[!?.]*$`" + `,
   ` + "`(?i)^(?:password|passwd|pwd)?[ _-]?(?:goes[ _-]?here|replace[ _-]?me|insert[ _-].*here|not[ _-]?set)$`" + `
 ]);
 let isCodeFile = filter.matchesAny(attributes["path"], [
@@ -114,7 +115,7 @@ filter.matchesAny(finding["secret"], [
   ` + "`^<[^>]+>$`" + `,
   ` + "`^<[^>\\s]+$`" + `,
   ` + "`^\\{[^}]+}$`" + `,
-  ` + "`(?i)^(?:your[_-]?password|example[_-]?password|placeholder|forbidden_value)$`" + `,
+  ` + "`(?i)^(?:your[_-]?password|placeholder|forbidden_value)$`" + `,
   ` + "`^\\([A-Za-z_][A-Za-z0-9_.]*(?:[ \\t]+[A-Za-z_][A-Za-z0-9_.]*)*\\)$`" + `,
   ` + "`^\\$\\(`" + `,
   ` + "`(?:\\$\\{|#\\{|\\{\\{|%\\{)`" + `,
