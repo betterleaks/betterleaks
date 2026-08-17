@@ -101,7 +101,8 @@ entropy(finding["secret"]) <= 3.5
 		// Token
 		` utils.GetEnvOrDefault("api_token", "dafa7817-e246-48f3-91a7-e87653d587b8")`,
 		`"env": {
-		"API_TOKEN": "Lj2^5O%xi214"`,
+		"API_TOKEN": "dafa7817-e246-48f3-91a7-e87653d587b8"`,
+
 	)
 	fps := []string{
 		// Access
