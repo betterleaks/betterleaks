@@ -291,6 +291,25 @@ func findIgnoreFile(dir string) string {
 	return ""
 }
 
+// loadIgnoreFilesFrom calls addFn for ignore files found at the standard three locations:
+// flagPath directly (if a file), the flagPath directory, and searchDir.
+func loadIgnoreFilesFrom(addFn func(string) error, flagPath, searchDir string) {
+	try := func(path string) {
+		if err := addFn(path); err != nil {
+			logging.Warn().Err(err).Str("path", path).Msg("could not load ignore file")
+		}
+	}
+	if fileExists(flagPath) {
+		try(flagPath)
+	}
+	if f := findIgnoreFile(flagPath); f != "" {
+		try(f)
+	}
+	if f := findIgnoreFile(searchDir); f != "" {
+		try(f)
+	}
+}
+
 func initDiagnostics() {
 	// Initialize diagnostics manager
 	diagnosticsFlag, err := rootCmd.PersistentFlags().GetString("diagnostics")
@@ -450,27 +469,7 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	if err != nil {
 		logging.Fatal().Err(err).Msg("could not get ignore path")
 	}
-
-	// If the flag points directly to an ignore file, use it
-	if fileExists(ignorePath) {
-		if err = detector.AddGitleaksIgnore(ignorePath); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// Check for ignore file in the flag directory (.betterleaksignore first, then .gitleaksignore)
-	if ignoreFile := findIgnoreFile(ignorePath); ignoreFile != "" {
-		if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// Check for ignore file in the source directory (.betterleaksignore first, then .gitleaksignore)
-	if ignoreFile := findIgnoreFile(source); ignoreFile != "" {
-		if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
+	loadIgnoreFilesFrom(detector.AddGitleaksIgnore, ignorePath, source)
 
 	// ignore findings from the baseline (an existing report in json format generated earlier)
 	baselinePath, _ := cmd.Flags().GetString("baseline-path")

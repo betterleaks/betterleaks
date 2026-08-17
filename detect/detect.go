@@ -595,14 +595,7 @@ func (d *Detector) ignore(finding report.Finding) bool {
 }
 
 func (d *Detector) AddGitleaksIgnore(path string) error {
-	entries, err := LoadIgnoreFile(path)
-	if err != nil {
-		return err
-	}
-	for k := range entries {
-		d.suppression.Ignore[k] = struct{}{}
-	}
-	return nil
+	return d.suppression.AddIgnoreFile(path)
 }
 
 // DetectString scans the given string and returns a list of findings

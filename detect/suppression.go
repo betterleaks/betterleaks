@@ -24,6 +24,18 @@ func NewSuppression() *Suppression {
 	return &Suppression{Ignore: make(map[string]struct{})}
 }
 
+// AddIgnoreFile loads a .betterleaksignore / .gitleaksignore file and merges its entries.
+func (s *Suppression) AddIgnoreFile(path string) error {
+	entries, err := LoadIgnoreFile(path)
+	if err != nil {
+		return err
+	}
+	for k := range entries {
+		s.Ignore[k] = struct{}{}
+	}
+	return nil
+}
+
 // LoadIgnoreFile parses .betterleaksignore / .gitleaksignore entries into a fingerprint set.
 func LoadIgnoreFile(path string) (map[string]struct{}, error) {
 	logging.Debug().Str("path", path).Msgf("found .gitleaksignore file")
