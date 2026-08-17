@@ -715,6 +715,128 @@ end`
 	assert.Empty(t, genericPasswordFindings(`log-in(user, "hunter2")`))
 }
 
+func TestGenericCredentialURI(t *testing.T) {
+	detector, err := NewDetectorDefaultConfig()
+	require.NoError(t, err)
+
+	findingsForRule := func(raw, ruleID string) []report.Finding {
+		t.Helper()
+		var findings []report.Finding
+		for _, finding := range detector.DetectString(raw) {
+			if finding.RuleID == ruleID {
+				findings = append(findings, finding)
+			}
+		}
+		return findings
+	}
+
+	for name, tc := range map[string]struct {
+		raw      string
+		secret   string
+		scheme   string
+		username string
+		host     string
+	}{
+		"PostgreSQL": {
+			raw:      `DATABASE_URL="postgresql://alice:hunter2@db.example.com/app"`,
+			secret:   "hunter2",
+			scheme:   "postgresql",
+			username: "alice",
+			host:     "db.example.com",
+		},
+		"password-only Redis": {
+			raw:    `REDIS_URL=redis://:s3cr3t@cache.internal:6379/0`,
+			secret: "s3cr3t",
+			scheme: "redis",
+			host:   "cache.internal",
+		},
+		"percent-encoded AMQP": {
+			raw:      `AMQP_URL='amqps://service:p%40ssword@rabbitmq.example.com/vhost'`,
+			secret:   "p%40ssword",
+			scheme:   "amqps",
+			username: "service",
+			host:     "rabbitmq.example.com",
+		},
+		"short weak password": {
+			raw:      `SSH_URL=ssh://root:root@192.0.2.10:22/`,
+			secret:   "root",
+			scheme:   "ssh",
+			username: "root",
+			host:     "192.0.2.10",
+		},
+		"IPv6 host and fragment": {
+			raw:      `MYSQL_URL=mysql://service:p%2Fss@[2001:db8::1]:3306#primary`,
+			secret:   "p%2Fss",
+			scheme:   "mysql",
+			username: "service",
+			host:     "[2001:db8::1]",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(tc.raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			finding := findings[0]
+			assert.Equal(t, tc.secret, finding.Secret)
+			assert.Equal(t, "medium", finding.Attributes["confidence"])
+			assert.Equal(t, tc.scheme, finding.CaptureGroups["scheme"])
+			assert.Equal(t, tc.username, finding.CaptureGroups["username"])
+			assert.Equal(t, tc.secret, finding.CaptureGroups["password"])
+			assert.Equal(t, tc.host, finding.CaptureGroups["host"])
+			assert.Contains(t, finding.CaptureGroups["uri"], tc.secret)
+		})
+	}
+
+	for name, password := range map[string]string{
+		"example":          "example",
+		"numbered example": "example123!",
+		"example password": "example_password",
+		"reversed example": "PasswordExample!",
+		"encoded example":  "example%5Fpassword",
+		"instructional":    "replace_me",
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule("postgres://alice:"+password+"@db.example.com/app", "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, password, findings[0].Secret)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	// Weak and common default passwords are still credentials when embedded in
+	// a URI; their strength must not be confused with detection confidence.
+	for _, password := range []string{"changeme", "password", "guest"} {
+		findings := findingsForRule("postgres://alice:"+password+"@localhost/app", "generic-credential-uri")
+		require.Len(t, findings, 1)
+		assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+	}
+
+	for name, raw := range map[string]string{
+		"missing password":     `postgres://alice@db.example.com/app`,
+		"empty password":       `postgres://alice:@db.example.com/app`,
+		"braced variable":      `postgres://alice:${DB_PASSWORD}@db.example.com/app`,
+		"shell variable":       `postgres://alice:$DB_PASSWORD@db.example.com/app`,
+		"template expressions": `postgres://{{ db_user }}:{{ db_password }}@db.example.com/app`,
+		"angle placeholders":   `postgres://<username>:<password>@db.example.com/app`,
+		"ordinary HTTPS URL":   `https://alice:hunter2@example.com/api`,
+		"email-like text":      `alice:hunter2@example.com`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Empty(t, findingsForRule(raw, "generic-credential-uri"))
+		})
+	}
+
+	// Provider-specific rules should suppress this generic fallback when they
+	// accept the same credential.
+	mongodb := detector.DetectString(`MONGO_URL="mongodb://svc-reader:q9V7nB2K4xL8@mongo.example.com:27017/app"`)
+	var mongodbRules []string
+	for _, finding := range mongodb {
+		if finding.RuleID == "mongodb-connection-string" || finding.RuleID == "generic-credential-uri" {
+			mongodbRules = append(mongodbRules, finding.RuleID)
+		}
+	}
+	assert.Equal(t, []string{"mongodb-connection-string"}, mongodbRules)
+}
+
 func TestComponentProximity(t *testing.T) {
 	tests := []struct {
 		name              string

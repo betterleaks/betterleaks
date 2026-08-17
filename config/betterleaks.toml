@@ -4809,6 +4809,64 @@ entropy(finding["secret"]) <= 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# generic-credential-uri
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "generic-credential-uri"
+description = "Detected a password embedded in a service connection URI, which may expose direct access to the referenced service."
+regex = '''(?i)\b(?P<uri>(?P<scheme>postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|ldaps?|smtps?|ftps?|ssh)://(?P<username>[^:/@\s'"\x60]{0,128}):(?P<password>[^/@\s'"\x60]{1,256})@(?P<host>(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252}))(?::[0-9]{1,5})?(?:,(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252})(?::[0-9]{1,5})?)*(?:[/?][a-z0-9._~!$&(*+,;=:@%/?-]*)?)(?:[\s'"\x60#<>{}\[\],;)]|\\[nr]|$)'''
+secretGroup = 4
+specificity = 30
+confidence = "medium"
+keywords = [
+    "postgres://",
+    "postgresql://",
+    "mysql://",
+    "mariadb://",
+    "mongodb://",
+    "mongodb+srv://",
+    "redis://",
+    "rediss://",
+    "amqp://",
+    "amqps://",
+    "ldap://",
+    "ldaps://",
+    "smtp://",
+    "smtps://",
+    "ftp://",
+    "ftps://",
+    "ssh://",
+]
+filter = '''
+let isExampleValue = filter.matchesAny(finding["secret"], [
+  `(?i)^(?:(?:(?:an?|my)(?:[ _.-]|%(?:20|2d|5f))*)?example(?:(?:[ _.-]|%(?:20|2d|5f))*(?:password|passwd|pwd))?|(?:password|passwd|pwd)(?:[ _.-]|%(?:20|2d|5f))*example)(?:(?:[ _.-]|%(?:20|2d|5f))*[0-9]{1,4})?[!?.]*$`,
+  `(?i)^(?:your[_-]?(?:password|passwd|pwd)|replace[_-]?me|password[_-]?goes[_-]?here|insert[_-].*[_-]here|placeholder)$`
+]);
+let level = isExampleValue ? "low" : "medium";
+let _ = filter.setConfidence(level);
+
+// Discard mechanically non-literal credentials. Weak and default passwords
+// remain reportable because the URI establishes their credential role.
+filter.matchesAny(finding["secret"], [
+  `^\*+$`,
+  `^\.+$`,
+  `^•+$`,
+  `(?i)^\[?(?:redacted|masked|filtered)\]?$`,
+  `^\$\{.*}$`,
+  `^\$\([^\r\n]+\)$`,
+  `^#\{[^}\r\n]+}$`,
+  `^\{\{[ \t]*.+[ \t]*}}$`,
+  `^%\{[^}]+}$`,
+  `^\$[A-Za-z_][A-Za-z0-9_]*$`,
+  `(?i)^\$env:[A-Za-z_][A-Za-z0-9_]*$`,
+  `^%[A-Za-z_][A-Za-z0-9_]*%$`,
+  `^<[^>]+>$`,
+  `^\[[A-Za-z_][A-Za-z0-9_.-]*]$`,
+  `(?:\$\{|#\{|\{\{|%\{)`
+])
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # generic-password
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
