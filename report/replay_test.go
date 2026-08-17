@@ -36,167 +36,177 @@ type mockSuppressor struct {
 
 func (m *mockSuppressor) Suppressed(f Finding) bool { return m.fn(f) }
 
-// replayRT returns a fresh exprruntime.Runtime for replay tests.
-func replayRT(t *testing.T) *exprruntime.Runtime {
-	t.Helper()
+func TestReplay(t *testing.T) {
 	rt, err := exprruntime.New(nil)
 	require.NoError(t, err)
-	return rt
+
+	compile := func(expr string) exprruntime.Program {
+		prg, err := rt.CompileFilter(expr, nil)
+		require.NoError(t, err)
+		return prg
+	}
+
+	tests := []struct {
+		name      string
+		cfg       *config.Config
+		filters   FilterProvider
+		suppress  SuppressionProvider
+		findings  []Finding
+		wantCount int
+		check     func(*testing.T, []Finding)
+	}{
+		{
+			name: "prefilter drops by path",
+			cfg: &config.Config{
+				Prefilter: `attributes["path"] == "skip.env"`,
+				Rules:     map[string]config.Rule{"r": {RuleID: "r"}},
+			},
+			findings: []Finding{
+				{RuleID: "r", Secret: "kept", Attributes: map[string]string{"path": "main.go"}},
+				{RuleID: "r", Secret: "dropped", Attributes: map[string]string{"path": "skip.env"}},
+			},
+			wantCount: 1,
+			check: func(t *testing.T, got []Finding) {
+				assert.Equal(t, "kept", got[0].Secret)
+			},
+		},
+		{
+			name: "global filter drops by secret",
+			cfg: &config.Config{
+				Filter: `finding["secret"] == "bad"`,
+				Rules:  map[string]config.Rule{"r": {RuleID: "r"}},
+			},
+			filters: &mockFilterProvider{global: compile(`finding["secret"] == "bad"`)},
+			findings: []Finding{
+				{RuleID: "r", Secret: "bad"},
+				{RuleID: "r", Secret: "good"},
+			},
+			wantCount: 1,
+			check: func(t *testing.T, got []Finding) {
+				assert.Equal(t, "good", got[0].Secret)
+			},
+		},
+		{
+			name: "per-rule filter drops by entropy",
+			cfg: &config.Config{
+				// entropy() computes Shannon entropy; "aaaaaa" is very low.
+				Rules: map[string]config.Rule{"r": {RuleID: "r", Filter: `entropy(finding["secret"]) < 1.0`}},
+			},
+			filters: &mockFilterProvider{
+				perRule: map[string]exprruntime.Program{"r": compile(`entropy(finding["secret"]) < 1.0`)},
+			},
+			findings: []Finding{
+				{RuleID: "r", Secret: "aaaaaa"},   // entropy ≈ 0 — dropped
+				{RuleID: "r", Secret: "aB3!xZ@9"}, // high entropy — kept
+			},
+			wantCount: 1,
+			check: func(t *testing.T, got []Finding) {
+				assert.Equal(t, "aB3!xZ@9", got[0].Secret)
+			},
+		},
+		{
+			name: "per-rule filter drops by line when Line is set",
+			cfg: &config.Config{
+				Rules: map[string]config.Rule{"r": {RuleID: "r", Filter: `finding["line"].contains("PRIVATE")`}},
+			},
+			filters: &mockFilterProvider{
+				perRule: map[string]exprruntime.Program{"r": compile(`finding["line"].contains("PRIVATE")`)},
+			},
+			findings: []Finding{
+				{RuleID: "r", Secret: "s", Line: "PRIVATE KEY abc"},
+				{RuleID: "r", Secret: "s", Line: "public_key = abc"},
+			},
+			wantCount: 1,
+			check: func(t *testing.T, got []Finding) {
+				assert.Equal(t, "public_key = abc", got[0].Line)
+			},
+		},
+		{
+			// Regression: filter references finding.line but Line was not persisted at scan time.
+			// The finding must be kept, not dropped, because finding["line"] == "".
+			name: "per-rule filter sees empty line when Line not persisted",
+			cfg: &config.Config{
+				Rules: map[string]config.Rule{"r": {RuleID: "r", Filter: `finding["line"].contains("PRIVATE")`}},
+			},
+			filters: &mockFilterProvider{
+				perRule: map[string]exprruntime.Program{"r": compile(`finding["line"].contains("PRIVATE")`)},
+			},
+			findings:  []Finding{{RuleID: "r", Secret: "s", Line: ""}},
+			wantCount: 1,
+		},
+		{
+			name:      "finding with unknown rule ID is kept",
+			cfg:       &config.Config{Rules: map[string]config.Rule{"known": {RuleID: "known"}}},
+			filters:   &mockFilterProvider{},
+			findings:  []Finding{{RuleID: "unknown-rule", Secret: "s"}},
+			wantCount: 1,
+		},
+		{
+			name: "suppressed fingerprint is dropped",
+			cfg:  &config.Config{Rules: map[string]config.Rule{"r": {RuleID: "r"}}},
+			suppress: &mockSuppressor{fn: func(f Finding) bool {
+				return f.Fingerprint == "fp-drop"
+			}},
+			findings: []Finding{
+				{RuleID: "r", Secret: "kept", Fingerprint: "fp-keep"},
+				{RuleID: "r", Secret: "dropped", Fingerprint: "fp-drop"},
+			},
+			wantCount: 1,
+			check: func(t *testing.T, got []Finding) {
+				assert.Equal(t, "kept", got[0].Secret)
+			},
+		},
+		{
+			name: "baseline suppression drops matching finding",
+			cfg:  &config.Config{Rules: map[string]config.Rule{"r": {RuleID: "r"}}},
+			suppress: &mockSuppressor{fn: func(f Finding) bool {
+				return f.Secret == "baseline-secret"
+			}},
+			findings: []Finding{
+				{RuleID: "r", Secret: "new-secret"},
+				{RuleID: "r", Secret: "baseline-secret"},
+			},
+			wantCount: 1,
+			check: func(t *testing.T, got []Finding) {
+				assert.Equal(t, "new-secret", got[0].Secret)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, tt.cfg.CompileFilters(nil))
+			got, err := Replay(tt.findings, ReplayOptions{
+				Config:      tt.cfg,
+				ExprRuntime: rt,
+				FilterSet:   tt.filters,
+				Suppression: tt.suppress,
+			})
+			require.NoError(t, err)
+			require.Len(t, got, tt.wantCount)
+			if tt.wantCount > 0 && tt.check != nil {
+				tt.check(t, got)
+			}
+		})
+	}
 }
 
-// compile compiles a filter expression using the given runtime.
-func compile(t *testing.T, rt *exprruntime.Runtime, expr string) exprruntime.Program {
-	t.Helper()
-	prg, err := rt.CompileFilter(expr, nil)
-	require.NoError(t, err)
-	return prg
-}
-
-func TestReplayPrefilter(t *testing.T) {
-	rt := replayRT(t)
-	cfg := &config.Config{
-		Prefilter: `attributes["path"] == "skip.env"`,
-		Rules:     map[string]config.Rule{"r": {RuleID: "r"}},
-	}
-	require.NoError(t, cfg.CompileFilters(nil))
-
-	findings := []Finding{
-		{RuleID: "r", Secret: "kept", Attributes: map[string]string{"path": "main.go"}},
-		{RuleID: "r", Secret: "dropped", Attributes: map[string]string{"path": "skip.env"}},
-	}
-	got, err := Replay(findings, ReplayOptions{Config: cfg, ExprRuntime: rt})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "kept", got[0].Secret)
-}
-
-func TestReplayGlobalFilter(t *testing.T) {
-	rt := replayRT(t)
-	cfg := &config.Config{
-		Filter: `finding["secret"] == "bad"`,
-		Rules:  map[string]config.Rule{"r": {RuleID: "r"}},
-	}
-	filters := &mockFilterProvider{global: compile(t, rt, cfg.Filter)}
-
-	findings := []Finding{
-		{RuleID: "r", Secret: "bad"},
-		{RuleID: "r", Secret: "good"},
-	}
-	got, err := Replay(findings, ReplayOptions{Config: cfg, ExprRuntime: rt, FilterSet: filters})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "good", got[0].Secret)
-}
-
-func TestReplayRuleFilterByEntropy(t *testing.T) {
-	rt := replayRT(t)
-	// entropy() computes Shannon entropy of the secret string; "aaaaaa" is very low.
-	expr := `entropy(finding["secret"]) < 1.0`
-	cfg := &config.Config{
-		Rules: map[string]config.Rule{"r": {RuleID: "r", Filter: expr}},
-	}
-	filters := &mockFilterProvider{
-		perRule: map[string]exprruntime.Program{"r": compile(t, rt, expr)},
-	}
-
-	findings := []Finding{
-		{RuleID: "r", Secret: "aaaaaa"},   // entropy ≈ 0 — dropped
-		{RuleID: "r", Secret: "aB3!xZ@9"}, // high entropy — kept
-	}
-	got, err := Replay(findings, ReplayOptions{Config: cfg, ExprRuntime: rt, FilterSet: filters})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "aB3!xZ@9", got[0].Secret)
-}
-
-func TestReplayRuleFilterByLine(t *testing.T) {
-	rt := replayRT(t)
-	expr := `finding["line"].contains("PRIVATE")`
-	cfg := &config.Config{
-		Rules: map[string]config.Rule{"r": {RuleID: "r", Filter: expr}},
-	}
-	filters := &mockFilterProvider{
-		perRule: map[string]exprruntime.Program{"r": compile(t, rt, expr)},
-	}
-
-	findings := []Finding{
-		{RuleID: "r", Secret: "s", Line: "PRIVATE KEY abc"},
-		{RuleID: "r", Secret: "s", Line: "public_key = abc"},
-	}
-	got, err := Replay(findings, ReplayOptions{Config: cfg, ExprRuntime: rt, FilterSet: filters})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "public_key = abc", got[0].Line)
-}
-
-func TestReplayRuleFilterLineEmptyWhenNotPersisted(t *testing.T) {
-	rt := replayRT(t)
-	// This filter would drop a finding whose line contains "PRIVATE",
-	// but the finding has Line == "" (not persisted at scan time).
-	expr := `finding["line"].contains("PRIVATE")`
-	cfg := &config.Config{
-		Rules: map[string]config.Rule{"r": {RuleID: "r", Filter: expr}},
-	}
-	filters := &mockFilterProvider{
-		perRule: map[string]exprruntime.Program{"r": compile(t, rt, expr)},
-	}
-
-	// Line is empty: filter cannot match it, so the finding is kept.
-	findings := []Finding{{RuleID: "r", Secret: "s", Line: ""}}
-	got, err := Replay(findings, ReplayOptions{Config: cfg, ExprRuntime: rt, FilterSet: filters})
-	require.NoError(t, err)
-	assert.Len(t, got, 1, "finding with empty Line should be kept when filter references finding[\"line\"]")
-}
-
-func TestReplayUnknownRuleKept(t *testing.T) {
-	rt := replayRT(t)
-	cfg := &config.Config{Rules: map[string]config.Rule{"known": {RuleID: "known"}}}
-	filters := &mockFilterProvider{}
-
-	findings := []Finding{
-		{RuleID: "unknown-rule", Secret: "s"},
-	}
-	got, err := Replay(findings, ReplayOptions{Config: cfg, ExprRuntime: rt, FilterSet: filters})
-	require.NoError(t, err)
-	assert.Len(t, got, 1, "finding with unknown rule ID should be kept")
-}
-
-func TestReplaySuppression(t *testing.T) {
-	rt := replayRT(t)
-	cfg := &config.Config{Rules: map[string]config.Rule{"r": {RuleID: "r"}}}
-
-	kept := Finding{RuleID: "r", Secret: "kept", Fingerprint: "fp-kept"}
-	dropped := Finding{RuleID: "r", Secret: "dropped", Fingerprint: "fp-drop"}
-
-	suppress := &mockSuppressor{fn: func(f Finding) bool {
-		return f.Fingerprint == "fp-drop"
-	}}
-
-	got, err := Replay([]Finding{kept, dropped}, ReplayOptions{
-		Config:      cfg,
-		ExprRuntime: rt,
-		Suppression: suppress,
-	})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "kept", got[0].Secret)
-}
-
+// TestReplaySuppressionBeforeFilterEval is kept standalone because it verifies
+// ordering via a stateful mock: the suppressor must fire before the filter runs.
 func TestReplaySuppressionBeforeFilterEval(t *testing.T) {
-	rt := replayRT(t)
-	// The filter expression is deliberately invalid to produce an eval error.
-	// The suppressed finding should be dropped before the filter ever runs.
-	expr := `finding["secret"] == "x"` // valid expression, but we want to prove order
+	rt, err := exprruntime.New(nil)
+	require.NoError(t, err)
+
+	expr := `finding["secret"] == "x"`
 	cfg := &config.Config{
 		Filter: expr,
 		Rules:  map[string]config.Rule{"r": {RuleID: "r"}},
 	}
+	require.NoError(t, cfg.CompileFilters(nil))
 
-	// Override: this filter always panics if called (to prove suppression runs first).
-	panickingFilter := &mockFilterProvider{
-		global: compile(t, rt, expr),
-	}
-	// Wrap it so Global() returns normally but we verify suppression fired first.
+	prg, err := rt.CompileFilter(expr, nil)
+	require.NoError(t, err)
+
 	suppressed := false
 	suppress := &mockSuppressor{fn: func(f Finding) bool {
 		if f.Secret == "should-be-suppressed" {
@@ -206,16 +216,16 @@ func TestReplaySuppressionBeforeFilterEval(t *testing.T) {
 		return false
 	}}
 
-	findings := []Finding{
-		{RuleID: "r", Secret: "should-be-suppressed"},
-	}
-	got, err := Replay(findings, ReplayOptions{
-		Config:      cfg,
-		ExprRuntime: rt,
-		FilterSet:   panickingFilter,
-		Suppression: suppress,
-	})
+	got, err := Replay(
+		[]Finding{{RuleID: "r", Secret: "should-be-suppressed"}},
+		ReplayOptions{
+			Config:      cfg,
+			ExprRuntime: rt,
+			FilterSet:   &mockFilterProvider{global: prg},
+			Suppression: suppress,
+		},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, got)
-	assert.True(t, suppressed, "suppression should have been applied")
+	assert.True(t, suppressed, "suppression must fire before filter evaluation")
 }
