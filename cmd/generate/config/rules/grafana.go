@@ -42,9 +42,9 @@ func GrafanaCloudApiToken() *config.Rule {
 			"glc_"+
 				secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{40}`, 3.5)),
 		`loki_key: glc_eyJvIjoiNzQ0NTg3IiwibiI7InN0YWlrLTQ3NTgzMC1obC13cml0ZS1oYW5kc29uJG9raSIsImsiOiI4M2w3cmdYUlBoMTUyMW1lMU023nl5UDUiLCJtIjp7IOIiOiJ1cyJ9fQ==`,
-		// TODO:
-		//`  loki:
-		//endpoint: https://322137:glc_eyJvIjoiNzQ0NTg3IiwibiI7InN0YWlrLTQ3NTgzMC1obC13cml0ZS1oYW5kc29uJG9raSIsImsiOiI4M2w3cmdYUlBoMTUyMW1lMU023nl5UDUiLCJtIjp7IOIiOiJ1cyJ9fQ==@logs-prod4.grafana.net/loki/api/v1/push`,
+		// URL format.
+		`  loki:
+		endpoint: https://322137:glc_eyJvIjoiNzQ0NTg3IiwibiI7InN0YWlrLTQ3NTgzMC1obC13cml0ZS1oYW5kc29uJG9raSIsImsiOiI4M2w3cmdYUlBoMTUyMW1lMU023nl5UDUiLCJtIjp7IOIiOiJ1cyJ9fQ==@logs-prod4.grafana.net/loki/api/v1/push`,
 	)
 	fps := []string{
 		// Low entropy.

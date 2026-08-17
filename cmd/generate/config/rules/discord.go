@@ -58,8 +58,8 @@ func DiscordClientSecret() *config.Rule {
 	fps := []string{
 		// Low entropy
 		`discord=00000000000000000000000000000000`,
-		// TODO:
-		//`discord=01234567890123456789012345678901`,
+		// Sequential
+		`discord=01234567890123456789012345678901`,
 	}
 	return utils.Validate(r, tps, fps)
 }

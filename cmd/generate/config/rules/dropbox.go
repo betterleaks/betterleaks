@@ -34,8 +34,8 @@ func DropBoxShortLivedAPIToken() *config.Rule {
 		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
-	// validate TODO
-	return &r
+	tps := utils.GenerateSampleSecrets("dropbox", "sl."+secrets.NewSecretWithEntropy(`[a-z0-9\-_=]{135}`, 3.5))
+	return utils.Validate(r, tps, nil)
 }
 
 func DropBoxLongLivedAPIToken() *config.Rule {
@@ -49,6 +49,6 @@ func DropBoxLongLivedAPIToken() *config.Rule {
 		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
-	// validate TODO
-	return &r
+	tps := utils.GenerateSampleSecrets("dropbox", secrets.NewSecretWithEntropy(`[a-z0-9]{11}AAAAAAAAAA[a-z0-9\-_=]{43}`, 3.5))
+	return utils.Validate(r, tps, nil)
 }

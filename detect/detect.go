@@ -583,6 +583,11 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				return nil
 			})
 
+			// Collect any errors from goroutines spawned by the source.
+			if waitErr := d.Sema.Wait(); waitErr != nil && err == nil {
+				err = waitErr
+			}
+
 			if d.ValidationPool != nil {
 				d.ValidationPool.Close()
 

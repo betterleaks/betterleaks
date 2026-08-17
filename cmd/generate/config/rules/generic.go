@@ -91,7 +91,7 @@ entropy(finding["secret"]) <= 3.5
 
 		// Password
 		`passwd = `+newPlausibleSecret(`[a-zA-Z0-9\-_.=]{30}`),
-		// TODO: `ID=dbuser;password=` + newPlausibleSecret(`[a-zA-Z0-9+/]{30}={0,3}`) + `;"`,
+		`ID=dbuser;password=` + newPlausibleSecret(`[a-zA-Z0-9+/]{30}={0,3}`) + `;"`,
 
 		// Secret
 		`"client_secret" : "6da89121079f83b2eb6acccf8219ea982c3d79bccc3e9c6a85856480661f8fde",`,
@@ -100,8 +100,8 @@ entropy(finding["secret"]) <= 3.5
 
 		// Token
 		` utils.GetEnvOrDefault("api_token", "dafa7817-e246-48f3-91a7-e87653d587b8")`,
-		//	`"env": {
-		//"API_TOKEN": "Lj2^5O%xi214"`,
+		`"env": {
+		"API_TOKEN": "Lj2^5O%xi214"`,
 	)
 	fps := []string{
 		// Access
@@ -211,7 +211,7 @@ R5: Regulatory--21`,
 		`<SourceFile SourceLocation="F:\Extracts\" TokenFile="RTL_INST_CODE.cer">`,
 		`notes            = "Maven - io.jsonwebtoken:jjwt-jackson-0.11.2"`,
 		`csrf-token=Mj2qykJO5rELyHgezQ69nzUX0i3OH67V7+V4eUrLfpuyOuxmiW9rhROG/Whikle15syazJOkrjJa3U2AbhIvUw==`,
-		// TODO: `TOKEN_AUDIENCE = "25872395-ed3a-4703-b647-22ec53f3683c"`,
+		`TOKEN_AUDIENCE = "25872395-ed3a-4703-b647-22ec53f3683c"`,
 
 		// General
 		`clientId = "73082700-1f09-405b-80d0-3131bfd6272d"`,

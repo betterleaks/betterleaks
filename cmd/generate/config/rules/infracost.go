@@ -12,7 +12,7 @@ func InfracostAPIToken() *config.Rule {
 		RuleID:      "infracost-api-token",
 		Confidence:  "high",
 		Description: "Detected an Infracost API Token, risking unauthorized access to cloud cost estimation tools and financial data.",
-		Regex:       utils.GenerateUniqueTokenRegex(`ico-[a-zA-Z0-9]{32}`, false),
+		Regex:       utils.GenerateUniqueTokenRegex(`ico-[a-zA-Z0-9]{32,43}`, false),
 		Keywords:    []string{"ico-"},
 		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
@@ -25,11 +25,11 @@ func InfracostAPIToken() *config.Rule {
     secret_value = "ico-mlCr1Mn3SRcRiZMObUZOTHLcgtH2Lpgt"
     is_secret = true
   }`,
-		// TODO: New format with longer keys?
-		//	`    headers = {
-		//'X-Api-Key': 'ico-EeDdSfctrmjD14f45f45te5gJ7l6lw4o6M36sXT62a6',
-		//'Content-Type': 'application/json',
-		//}`,
+		// Longer key format.
+		`    headers = {
+		'X-Api-Key': 'ico-EeDdSfctrmjD14f45f45te5gJ7l6lw4o6M36sXT62a6',
+		'Content-Type': 'application/json',
+		}`,
 	)
 	fps := []string{
 		// Low entropy

@@ -16,7 +16,7 @@ func FlyIOAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "flyio-access-token",
 		Confidence:  "high",
-		Description: "Uncovered a Fly.io API key", // TODO
+		Description: "Uncovered a Fly.io API key",
 		Regex:       utils.GenerateUniqueTokenRegex(`FlyV1\s[A-Za-z0-9=_\-,/+]{100,}`, false),
 		Keywords:    []string{"flyv1"},
 		ValidateExpr: `let r = http.post("https://api.fly.io/graphql", {

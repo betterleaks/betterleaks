@@ -36,7 +36,7 @@ func TelegramBotToken() *config.Rule {
 		// URL containing token TODO add another url based rule
 		// GenerateSampleSecret("url", "https://api.telegram.org/bot"+validToken+"/sendMessage"),
 		// object constructor
-		//TODO: `const bot = new Telegraf("`+validToken+`")`,
+		`const bot = new Telegraf("`+validToken+`")`,
 		// .env
 		`TELEGRAM_API_TOKEN = `+validToken,
 		// YAML
