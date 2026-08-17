@@ -4849,10 +4849,24 @@ let isInstructionalPlaceholder = filter.matchesAny(finding["secret"], [
 let isSyntheticExampleURI = filter.matchesAny(finding["match"], [
   `(?i)^[a-z][a-z0-9+.-]*://(?:foo|user(?:name)?|example(?:[_.-]?user)?):(?:bar|pass(?:word)?|passwd|pwd|example(?:[_.-]?(?:password|passwd|pwd))?)@(?:(?:example|test)\.(?:com|org|net)|example\.invalid)(?::[0-9]{1,5})?(?:[/\s'"\x60#]|$)`
 ]);
-let hasIgnoredHost = filter.matchesAny(finding["match"], [
-  `(?i)^[a-z][a-z0-9+.-]*://[^@\s]+@(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))(?::[0-9]{1,5})?(?:[/\s'"\x60#<>{}\[\],;)]|$)`
+let isSyntheticCredentialTuple = filter.matchesAny(finding["match"], [
+  `(?i)^[a-z][a-z0-9+.-]*://(?:foo|test|user(?:name)?|example(?:[_.-]?user)?)[0-9]{0,4}:(?:bar|test|pass(?:word)?|passwd|pwd|token|secret)[0-9]{0,4}[!?.]?@`
 ]);
-let level = isExampleValue ? "low" : "medium";
+let isTestOrDocumentationSource = filter.matchesAny(attributes["path"], [
+  `(?i)(?:^|[/\\])(?:__tests__|tests?|testdata|specs?|fixtures?|mocks?|examples?|samples?|demos?|tutorials?|templates?|qa|e2e|documentation|docs?(?:[-_][a-z0-9-]+)?)(?:[/\\]|$)`,
+  `(?i)(?:^|[/\\])readme(?:\.[^/\\]+)?$`,
+  `(?i)(?:^|[/\\])[^/\\]*(?:[_.-](?:test|spec)|(?:test|spec)[_.-])[^/\\]*\.[^/\\]+$`,
+  `(?i)\.(?:example|sample|template)(?:\.[^/\\]+)?$`,
+  `(?i)\.(?:md|mdx|rst|adoc|asciidoc)$`
+]);
+let hasIgnoredHost = filter.matchesAny(finding["match"], [
+  `(?i)^[a-z][a-z0-9+.-]*://[^@\s]+@(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))\.?(?::[0-9]{1,5})?(?:,(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))\.?(?::[0-9]{1,5})?)*(?:[/?\s'"\x60#<>{}\[\];)]|,?$)`
+]);
+let level = (
+  isExampleValue
+  || isSyntheticCredentialTuple
+  || isTestOrDocumentationSource
+) ? "low" : "medium";
 let _ = filter.setConfidence(level);
 
 // Discard mechanically non-literal credentials. Weak and default passwords

@@ -719,10 +719,17 @@ func TestGenericCredentialURI(t *testing.T) {
 	detector, err := NewDetectorDefaultConfig()
 	require.NoError(t, err)
 
-	findingsForRule := func(raw, ruleID string) []report.Finding {
+	findingsForRule := func(raw, ruleID string, path ...string) []report.Finding {
 		t.Helper()
+		detected := detector.DetectString(raw)
+		if len(path) > 0 {
+			detected = detector.Detect(sources.Fragment{
+				Raw:        raw,
+				Attributes: map[string]string{sources.AttrPath: path[0]},
+			})
+		}
 		var findings []report.Finding
-		for _, finding := range detector.DetectString(raw) {
+		for _, finding := range detected {
 			if finding.RuleID == ruleID {
 				findings = append(findings, finding)
 			}
@@ -815,6 +822,50 @@ func TestGenericCredentialURI(t *testing.T) {
 		})
 	}
 
+	for name, raw := range map[string]string{
+		"generic username and password": `https://username:password@gitlab.company.com/api`,
+		"foo and bar":                   `https://foo:bar@demo.host/api`,
+		"numbered test tuple":           `https://test123:test123!@anotherhost/api`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, path := range map[string]string{
+		"test directory":          `test/integration/client.go`,
+		"spec filename":           `app/services/client_spec.rb`,
+		"fixture directory":       `config/fixtures/database.yml`,
+		"testdata directory":      `internal/client/testdata/config.yml`,
+		"example filename":        `config/database.example.yml`,
+		"template directory":      `ci/templates/database.yml`,
+		"QA directory":            `qa/runtime/config.rb`,
+		"documentation directory": `doc-locale/ja-jp/setup.md`,
+		"documentation extension": `guides/setup.rst`,
+		"readme":                  `config/README.md`,
+		"Windows test path":       `test\fixtures\database.yml`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(
+				`postgresql://alice:hunter2@db.internal/app`,
+				"generic-credential-uri",
+				path,
+			)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	productionSource := findingsForRule(
+		`postgresql://alice:hunter2@db.internal/app`,
+		"generic-credential-uri",
+		`config/production.yml`,
+	)
+	require.Len(t, productionSource, 1)
+	assert.Equal(t, "medium", productionSource[0].Attributes["confidence"])
+
 	// Weak and common default passwords are still credentials when embedded in
 	// a URI; their strength must not be confused with detection confidence.
 	for _, password := range []string{"changeme", "password", "guest"} {
@@ -842,6 +893,10 @@ func TestGenericCredentialURI(t *testing.T) {
 		"reserved test TLD":            `https://alice:s3cr3t@service.test/v1`,
 		"localhost":                    `https://alice:s3cr3t@localhost/v1`,
 		"localhost subdomain":          `redis://:s3cr3t@cache.localhost:6379/0`,
+		"example.com trailing dot":     `https://alice:s3cr3t@example.com./v1`,
+		"example.com query":            `https://alice:s3cr3t@example.com?mode=test`,
+		"localhost trailing dot":       `redis://:s3cr3t@cache.localhost.:6379/0`,
+		"all reserved hosts":           `postgresql://alice:hunter2@example.com,db.example.net/app`,
 		"instructional Redis password": `redis://:redis-password-goes-here@gitlab-redis/`,
 		"masked Redis password":        `redis://:xxxx@gitlab-redis/`,
 		"braced HTTP placeholder":      `http://user:{password}@service.internal/`,
@@ -854,12 +909,17 @@ func TestGenericCredentialURI(t *testing.T) {
 		})
 	}
 
+	assert.Empty(t, findingsForRule(
+		`http://username:password@example.com,https://test:test@example.org:9200`,
+		"generic-credential-uri",
+	))
+
 	placeholderShapedInternalURI := findingsForRule(
 		`ssh://foo:bar@gitlab.internal/repository`,
 		"generic-credential-uri",
 	)
 	require.Len(t, placeholderShapedInternalURI, 1)
-	assert.Equal(t, "medium", placeholderShapedInternalURI[0].Attributes["confidence"])
+	assert.Equal(t, "low", placeholderShapedInternalURI[0].Attributes["confidence"])
 
 	nonReservedExamplePrefix := findingsForRule(
 		`https://alice:s3cr3t@example.company.internal/v1`,
@@ -874,6 +934,17 @@ func TestGenericCredentialURI(t *testing.T) {
 	)
 	require.Len(t, nonReservedLocalhostPrefix, 1)
 	assert.Equal(t, "medium", nonReservedLocalhostPrefix[0].Attributes["confidence"])
+
+	for name, raw := range map[string]string{
+		"reserved host first": `postgresql://alice:hunter2@example.com,db.internal/app`,
+		"reserved host last":  `postgresql://alice:hunter2@db.internal,example.com/app`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+		})
+	}
 
 	// Provider-specific rules should suppress this generic fallback when they
 	// accept the same credential.
