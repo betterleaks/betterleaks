@@ -738,11 +738,25 @@ func TestGenericCredentialURI(t *testing.T) {
 		host     string
 	}{
 		"PostgreSQL": {
-			raw:      `DATABASE_URL="postgresql://alice:hunter2@db.example.com/app"`,
+			raw:      `DATABASE_URL="postgresql://alice:hunter2@db.internal/app"`,
 			secret:   "hunter2",
 			scheme:   "postgresql",
 			username: "alice",
-			host:     "db.example.com",
+			host:     "db.internal",
+		},
+		"HTTPS basic auth": {
+			raw:      `SERVICE_URL="https://alice:s3cr3t@service.internal/api"`,
+			secret:   "s3cr3t",
+			scheme:   "https",
+			username: "alice",
+			host:     "service.internal",
+		},
+		"HTTP percent-encoded password": {
+			raw:      `PROXY_URL=http://api-user:p%40ssword@proxy.internal:8080/v1`,
+			secret:   "p%40ssword",
+			scheme:   "http",
+			username: "api-user",
+			host:     "proxy.internal",
 		},
 		"password-only Redis": {
 			raw:    `REDIS_URL=redis://:s3cr3t@cache.internal:6379/0`,
@@ -751,11 +765,11 @@ func TestGenericCredentialURI(t *testing.T) {
 			host:   "cache.internal",
 		},
 		"percent-encoded AMQP": {
-			raw:      `AMQP_URL='amqps://service:p%40ssword@rabbitmq.example.com/vhost'`,
+			raw:      `AMQP_URL='amqps://service:p%40ssword@rabbitmq.internal/vhost'`,
 			secret:   "p%40ssword",
 			scheme:   "amqps",
 			username: "service",
-			host:     "rabbitmq.example.com",
+			host:     "rabbitmq.internal",
 		},
 		"short weak password": {
 			raw:      `SSH_URL=ssh://root:root@192.0.2.10:22/`,
@@ -792,10 +806,9 @@ func TestGenericCredentialURI(t *testing.T) {
 		"example password": "example_password",
 		"reversed example": "PasswordExample!",
 		"encoded example":  "example%5Fpassword",
-		"instructional":    "replace_me",
 	} {
 		t.Run(name, func(t *testing.T) {
-			findings := findingsForRule("postgres://alice:"+password+"@db.example.com/app", "generic-credential-uri")
+			findings := findingsForRule("postgres://alice:"+password+"@db.internal/app", "generic-credential-uri")
 			require.Len(t, findings, 1)
 			assert.Equal(t, password, findings[0].Secret)
 			assert.Equal(t, "low", findings[0].Attributes["confidence"])
@@ -805,29 +818,66 @@ func TestGenericCredentialURI(t *testing.T) {
 	// Weak and common default passwords are still credentials when embedded in
 	// a URI; their strength must not be confused with detection confidence.
 	for _, password := range []string{"changeme", "password", "guest"} {
-		findings := findingsForRule("postgres://alice:"+password+"@localhost/app", "generic-credential-uri")
+		findings := findingsForRule("postgres://alice:"+password+"@db.internal/app", "generic-credential-uri")
 		require.Len(t, findings, 1)
 		assert.Equal(t, "medium", findings[0].Attributes["confidence"])
 	}
 
 	for name, raw := range map[string]string{
-		"missing password":     `postgres://alice@db.example.com/app`,
-		"empty password":       `postgres://alice:@db.example.com/app`,
-		"braced variable":      `postgres://alice:${DB_PASSWORD}@db.example.com/app`,
-		"shell variable":       `postgres://alice:$DB_PASSWORD@db.example.com/app`,
-		"template expressions": `postgres://{{ db_user }}:{{ db_password }}@db.example.com/app`,
-		"angle placeholders":   `postgres://<username>:<password>@db.example.com/app`,
-		"ordinary HTTPS URL":   `https://alice:hunter2@example.com/api`,
-		"email-like text":      `alice:hunter2@example.com`,
+		"missing password":             `postgres://alice@db.internal/app`,
+		"empty password":               `postgres://alice:@db.internal/app`,
+		"braced variable":              `postgres://alice:${DB_PASSWORD}@db.internal/app`,
+		"shell variable":               `postgres://alice:$DB_PASSWORD@db.internal/app`,
+		"template expressions":         `postgres://{{ db_user }}:{{ db_password }}@db.internal/app`,
+		"angle placeholders":           `postgres://<username>:<password>@db.internal/app`,
+		"synthetic SSH URI":            `ssh://foo:bar@example.com`,
+		"synthetic database URI":       `postgres://username:password@example.org/app`,
+		"synthetic FTP URI":            `ftp://foo:bar@test.com/repository`,
+		"example.com host":             `https://alice:s3cr3t@example.com/api`,
+		"example.com subdomain":        `https://alice:s3cr3t@api.example.com/v1`,
+		"example.com underscore host":  `http://user:pass:word@old_configurator.example.com)`,
+		"example.net host":             `postgres://alice:hunter2@db.example.net/app`,
+		"reserved example TLD":         `redis://:s3cr3t@cache.example/0`,
+		"reserved invalid TLD":         `ssh://alice:hunter2@host.invalid/repository`,
+		"reserved test TLD":            `https://alice:s3cr3t@service.test/v1`,
+		"localhost":                    `https://alice:s3cr3t@localhost/v1`,
+		"localhost subdomain":          `redis://:s3cr3t@cache.localhost:6379/0`,
+		"instructional Redis password": `redis://:redis-password-goes-here@gitlab-redis/`,
+		"masked Redis password":        `redis://:xxxx@gitlab-redis/`,
+		"braced HTTP placeholder":      `http://user:{password}@service.internal/`,
+		"replace-me password":          `postgres://alice:replace_me@db.internal/app`,
+		"HTTPS URL without userinfo":   `https://example.com/api`,
+		"email-like text":              `alice:hunter2@example.com`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			assert.Empty(t, findingsForRule(raw, "generic-credential-uri"))
 		})
 	}
 
+	placeholderShapedInternalURI := findingsForRule(
+		`ssh://foo:bar@gitlab.internal/repository`,
+		"generic-credential-uri",
+	)
+	require.Len(t, placeholderShapedInternalURI, 1)
+	assert.Equal(t, "medium", placeholderShapedInternalURI[0].Attributes["confidence"])
+
+	nonReservedExamplePrefix := findingsForRule(
+		`https://alice:s3cr3t@example.company.internal/v1`,
+		"generic-credential-uri",
+	)
+	require.Len(t, nonReservedExamplePrefix, 1)
+	assert.Equal(t, "medium", nonReservedExamplePrefix[0].Attributes["confidence"])
+
+	nonReservedLocalhostPrefix := findingsForRule(
+		`https://alice:s3cr3t@localhost.internal/v1`,
+		"generic-credential-uri",
+	)
+	require.Len(t, nonReservedLocalhostPrefix, 1)
+	assert.Equal(t, "medium", nonReservedLocalhostPrefix[0].Attributes["confidence"])
+
 	// Provider-specific rules should suppress this generic fallback when they
 	// accept the same credential.
-	mongodb := detector.DetectString(`MONGO_URL="mongodb://svc-reader:q9V7nB2K4xL8@mongo.example.com:27017/app"`)
+	mongodb := detector.DetectString(`MONGO_URL="mongodb://svc-reader:q9V7nB2K4xL8@mongo.internal:27017/app"`)
 	var mongodbRules []string
 	for _, finding := range mongodb {
 		if finding.RuleID == "mongodb-connection-string" || finding.RuleID == "generic-credential-uri" {

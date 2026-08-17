@@ -4814,11 +4814,13 @@ entropy(finding["secret"]) <= 3.5
 [[rules]]
 id = "generic-credential-uri"
 description = "Detected a password embedded in a service connection URI, which may expose direct access to the referenced service."
-regex = '''(?i)\b(?P<uri>(?P<scheme>postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|ldaps?|smtps?|ftps?|ssh)://(?P<username>[^:/@\s'"\x60]{0,128}):(?P<password>[^/@\s'"\x60]{1,256})@(?P<host>(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252}))(?::[0-9]{1,5})?(?:,(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252})(?::[0-9]{1,5})?)*(?:[/?][a-z0-9._~!$&(*+,;=:@%/?-]*)?)(?:[\s'"\x60#<>{}\[\],;)]|\\[nr]|$)'''
+regex = '''(?i)\b(?P<uri>(?P<scheme>https?|postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|ldaps?|smtps?|ftps?|ssh)://(?P<username>[^:/@\s'"\x60]{0,128}):(?P<password>[^/@\s'"\x60]{1,256})@(?P<host>(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252}))(?::[0-9]{1,5})?(?:,(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252})(?::[0-9]{1,5})?)*(?:[/?][a-z0-9._~!$&(*+,;=:@%/?-]*)?)(?:[\s'"\x60#<>{}\[\],;)]|\\[nr]|$)'''
 secretGroup = 4
 specificity = 30
 confidence = "medium"
 keywords = [
+    "http://",
+    "https://",
     "postgres://",
     "postgresql://",
     "mysql://",
@@ -4839,17 +4841,29 @@ keywords = [
 ]
 filter = '''
 let isExampleValue = filter.matchesAny(finding["secret"], [
-  `(?i)^(?:(?:(?:an?|my)(?:[ _.-]|%(?:20|2d|5f))*)?example(?:(?:[ _.-]|%(?:20|2d|5f))*(?:password|passwd|pwd))?|(?:password|passwd|pwd)(?:[ _.-]|%(?:20|2d|5f))*example)(?:(?:[ _.-]|%(?:20|2d|5f))*[0-9]{1,4})?[!?.]*$`,
-  `(?i)^(?:your[_-]?(?:password|passwd|pwd)|replace[_-]?me|password[_-]?goes[_-]?here|insert[_-].*[_-]here|placeholder)$`
+  `(?i)^(?:(?:(?:an?|my)(?:[ _.-]|%(?:20|2d|5f))*)?example(?:(?:[ _.-]|%(?:20|2d|5f))*(?:password|passwd|pwd))?|(?:password|passwd|pwd)(?:[ _.-]|%(?:20|2d|5f))*example)(?:(?:[ _.-]|%(?:20|2d|5f))*[0-9]{1,4})?[!?.]*$`
+]);
+let isInstructionalPlaceholder = filter.matchesAny(finding["secret"], [
+  `(?i)^(?:[a-z0-9]+[_.-])?(?:your[_.-]?(?:password|passwd|pwd)|(?:password|passwd|pwd)[_.-]goes[_.-]?here|replace[_.-]?me|insert[_.-].*[_.-]here|placeholder)$`
+]);
+let isSyntheticExampleURI = filter.matchesAny(finding["match"], [
+  `(?i)^[a-z][a-z0-9+.-]*://(?:foo|user(?:name)?|example(?:[_.-]?user)?):(?:bar|pass(?:word)?|passwd|pwd|example(?:[_.-]?(?:password|passwd|pwd))?)@(?:(?:example|test)\.(?:com|org|net)|example\.invalid)(?::[0-9]{1,5})?(?:[/\s'"\x60#]|$)`
+]);
+let hasIgnoredHost = filter.matchesAny(finding["match"], [
+  `(?i)^[a-z][a-z0-9+.-]*://[^@\s]+@(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))(?::[0-9]{1,5})?(?:[/\s'"\x60#<>{}\[\],;)]|$)`
 ]);
 let level = isExampleValue ? "low" : "medium";
 let _ = filter.setConfidence(level);
 
 // Discard mechanically non-literal credentials. Weak and default passwords
 // remain reportable because the URI establishes their credential role.
-filter.matchesAny(finding["secret"], [
+isInstructionalPlaceholder
+|| isSyntheticExampleURI
+|| hasIgnoredHost
+|| filter.matchesAny(finding["secret"], [
   `^\*+$`,
   `^\.+$`,
+  `(?i)^x{4,}$`,
   `^•+$`,
   `(?i)^\[?(?:redacted|masked|filtered)\]?$`,
   `^\$\{.*}$`,
@@ -4862,6 +4876,7 @@ filter.matchesAny(finding["secret"], [
   `^%[A-Za-z_][A-Za-z0-9_]*%$`,
   `^<[^>]+>$`,
   `^\[[A-Za-z_][A-Za-z0-9_.-]*]$`,
+  `^\{[^}]+}$`,
   `(?:\$\{|#\{|\{\{|%\{)`
 ])
 '''
