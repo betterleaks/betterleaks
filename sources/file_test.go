@@ -1,6 +1,9 @@
 package sources
 
 import (
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"strings"
@@ -8,6 +11,8 @@ import (
 
 	"github.com/mholt/archives"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
 // panicReader panics on the first Read, emulating a decompressor that blows up
@@ -88,6 +93,107 @@ func TestFile_extractorFragments_recoversPanic(t *testing.T) {
 			strings.NewReader("irrelevant"),
 			func(Fragment, error) error { return nil },
 		)
+	})
+}
+
+// encodeWithBOM transcodes text to the given UTF-16 byte order with a
+// leading BOM, mirroring what Windows tools commonly write.
+func encodeWithBOM(t *testing.T, text string, order unicode.Endianness) []byte {
+	t.Helper()
+	encoded, _, err := transform.String(unicode.UTF16(order, unicode.UseBOM).NewEncoder(), text)
+	require.NoError(t, err)
+	return []byte(encoded)
+}
+
+// collectFragments runs Fragments and concatenates every fragment's raw text.
+func collectFragments(t *testing.T, s *File) string {
+	t.Helper()
+	var out strings.Builder
+	require.NoError(t, s.Fragments(t.Context(), func(f Fragment, err error) error {
+		require.NoError(t, err)
+		out.WriteString(f.Raw)
+		return nil
+	}))
+	return out.String()
+}
+
+func TestFile_Fragments_decodesUTF16(t *testing.T) {
+	const secret = "BSA111222333444555666777888999000111"
+	text := "api_key = " + secret + "\n"
+
+	t.Run("UTF-16 LE with BOM", func(t *testing.T) {
+		content := encodeWithBOM(t, text, unicode.LittleEndian)
+		s := &File{Content: strings.NewReader(string(content)), Path: "secret.txt"}
+		require.Contains(t, collectFragments(t, s), secret)
+	})
+
+	t.Run("UTF-16 BE with BOM", func(t *testing.T) {
+		content := encodeWithBOM(t, text, unicode.BigEndian)
+		s := &File{Content: strings.NewReader(string(content)), Path: "secret.txt"}
+		require.Contains(t, collectFragments(t, s), secret)
+	})
+
+	t.Run("plain UTF-8 with no BOM is unchanged", func(t *testing.T) {
+		s := &File{Content: strings.NewReader(text), Path: "secret.txt"}
+		require.Equal(t, text, collectFragments(t, s))
+	})
+
+	t.Run("UTF-8 with BOM has BOM stripped and still matches", func(t *testing.T) {
+		content := "\xEF\xBB\xBF" + text
+		s := &File{Content: strings.NewReader(content), Path: "secret.txt"}
+		require.Contains(t, collectFragments(t, s), secret)
+	})
+
+	t.Run("empty content produces no fragments", func(t *testing.T) {
+		s := &File{Content: strings.NewReader(""), Path: "empty.txt"}
+		require.Empty(t, collectFragments(t, s))
+	})
+
+	t.Run("UTF-16 inside a gzip-compressed file decodes correctly", func(t *testing.T) {
+		content := encodeWithBOM(t, text, unicode.LittleEndian)
+
+		var gz bytes.Buffer
+		w := gzip.NewWriter(&gz)
+		_, err := w.Write(content)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+
+		s := &File{Content: bytes.NewReader(gz.Bytes()), Path: "secret.txt.gz", MaxArchiveDepth: 1}
+		require.Contains(t, collectFragments(t, s), secret)
+	})
+
+	t.Run("UTF-16 inside a zip archive member decodes correctly", func(t *testing.T) {
+		content := encodeWithBOM(t, text, unicode.LittleEndian)
+
+		var zipBuf bytes.Buffer
+		zw := zip.NewWriter(&zipBuf)
+		f, err := zw.Create("secret.txt")
+		require.NoError(t, err)
+		_, err = f.Write(content)
+		require.NoError(t, err)
+		require.NoError(t, zw.Close())
+
+		s := &File{Content: bytes.NewReader(zipBuf.Bytes()), Path: "archive.zip", MaxArchiveDepth: 1}
+		require.Contains(t, collectFragments(t, s), secret)
+	})
+
+	t.Run("content shorter than a BOM is not mistaken for one", func(t *testing.T) {
+		s := &File{Content: strings.NewReader("\xFF"), Path: "short.txt"}
+		require.Equal(t, "\xFF", collectFragments(t, s))
+	})
+
+	t.Run("UTF-16 content spanning multiple buffer reads decodes correctly", func(t *testing.T) {
+		var sb strings.Builder
+		for i := 0; i < 5000; i++ {
+			sb.WriteString("filler line of text\n")
+		}
+		sb.WriteString("api_key = " + secret + "\n")
+		large := sb.String()
+		require.Greater(t, len(large), defaultBufferSize, "test content must span multiple internal buffer reads")
+
+		content := encodeWithBOM(t, large, unicode.LittleEndian)
+		s := &File{Content: strings.NewReader(string(content)), Path: "large.txt"}
+		require.Contains(t, collectFragments(t, s), secret)
 	})
 }
 

@@ -14,6 +14,8 @@ import (
 	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
 	"github.com/rs/zerolog"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 
 	"github.com/betterleaks/betterleaks/logging"
 )
@@ -54,6 +56,32 @@ func getReader(r io.Reader) *bufio.Reader {
 func putReader(br *bufio.Reader) {
 	br.Reset(nil)
 	readerPool.Put(br)
+}
+
+var (
+	bomUTF8    = []byte{0xEF, 0xBB, 0xBF}
+	bomUTF16LE = []byte{0xFF, 0xFE}
+	bomUTF16BE = []byte{0xFE, 0xFF}
+)
+
+// finalizeReader peeks the leading bytes of br for a UTF-8/UTF-16 BOM and,
+// if found, wraps it in a reader that transcodes the (BOM-stripped) content
+// to plain UTF-8 so byte/ASCII-oriented rule regexes can match it. The
+// overwhelming majority of files carry no BOM, so br is returned unchanged
+// in that case -- callers pay no extra allocation or copy on the hot path.
+//
+// ponytail: BOM sniffing only recognizes UTF-8/UTF-16 signatures (not
+// UTF-32, and not BOM-less UTF-16); a binary file that coincidentally starts
+// with a UTF-16 BOM would be misdecoded. Upgrade to content-based charset
+// detection if that proves to matter in practice.
+func finalizeReader(br *bufio.Reader) *bufio.Reader {
+	peek, _ := br.Peek(3)
+	switch {
+	case bytes.HasPrefix(peek, bomUTF8), bytes.HasPrefix(peek, bomUTF16LE), bytes.HasPrefix(peek, bomUTF16BE):
+		return bufio.NewReader(transform.NewReader(br, unicode.BOMOverride(transform.Nop)))
+	default:
+		return br
+	}
 }
 
 type seekReaderAt interface {
@@ -138,7 +166,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	br := getReader(stream)
 	defer putReader(br)
 	isArchiveContent := s.archiveDepth > 0
-	return s.fileFragments(ctx, br, isArchiveContent, yield)
+	return s.fileFragments(ctx, finalizeReader(br), isArchiveContent, yield)
 }
 
 // extractorFragments recursively crawls archives and yields fragments
@@ -243,7 +271,7 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 
 	br := getReader(innerReader)
 	defer putReader(br)
-	if err := s.fileFragments(ctx, br, true, yield); err != nil {
+	if err := s.fileFragments(ctx, finalizeReader(br), true, yield); err != nil {
 		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("error reading compressed file")
 	}
 }
