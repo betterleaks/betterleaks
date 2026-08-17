@@ -20,7 +20,6 @@ func GenericCredential() *config.Rule {
 			"credential",
 			"creds",
 			"key",
-			"passw(?:or)?d",
 			"secret",
 			"token",
 		}, `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`, true),
@@ -31,8 +30,6 @@ func GenericCredential() *config.Rule {
 			"key",
 			"credential",
 			"creds",
-			"passwd",
-			"password",
 			"secret",
 			"token",
 		},
@@ -88,10 +85,6 @@ entropy(finding["secret"]) <= 3.5
 
 		// Key
 		`private-key: `+newPlausibleSecret(`[a-zA-Z0-9\-_.=]{100}`),
-
-		// Password
-		`passwd = `+newPlausibleSecret(`[a-zA-Z0-9\-_.=]{30}`),
-		// TODO: `ID=dbuser;password=` + newPlausibleSecret(`[a-zA-Z0-9+/]{30}={0,3}`) + `;"`,
 
 		// Secret
 		`"client_secret" : "6da89121079f83b2eb6acccf8219ea982c3d79bccc3e9c6a85856480661f8fde",`,

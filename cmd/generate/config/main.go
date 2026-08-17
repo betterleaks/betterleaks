@@ -490,6 +490,8 @@ func main() {
 		rules.ZAIAPIKey(),
 		rules.ZendeskSecretKey(),
 		rules.ZuploConsumerAPIKey(),
+		rules.GenericUsername(),
+		rules.GenericPassword(),
 		rules.GenericCredential(),
 		rules.InfracostAPIToken(),
 	}
