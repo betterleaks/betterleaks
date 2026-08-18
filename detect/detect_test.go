@@ -728,6 +728,261 @@ end`
 	assert.Empty(t, genericPasswordFindings(`log-in(user, "hunter2")`))
 }
 
+func TestGenericCredentialURI(t *testing.T) {
+	detector, err := NewDetectorDefaultConfig()
+	require.NoError(t, err)
+
+	findingsForRule := func(raw, ruleID string, path ...string) []report.Finding {
+		t.Helper()
+		detected := detector.DetectString(raw)
+		if len(path) > 0 {
+			detected = detector.Detect(sources.Fragment{
+				Raw:        raw,
+				Attributes: map[string]string{sources.AttrPath: path[0]},
+			})
+		}
+		var findings []report.Finding
+		for _, finding := range detected {
+			if finding.RuleID == ruleID {
+				findings = append(findings, finding)
+			}
+		}
+		return findings
+	}
+
+	for name, tc := range map[string]struct {
+		raw      string
+		secret   string
+		scheme   string
+		username string
+		host     string
+	}{
+		"PostgreSQL": {
+			raw:      `DATABASE_URL="postgresql://alice:hunter2@db.internal/app"`,
+			secret:   "hunter2",
+			scheme:   "postgresql",
+			username: "alice",
+			host:     "db.internal",
+		},
+		"HTTPS basic auth": {
+			raw:      `SERVICE_URL="https://alice:s3cr3t@service.internal/api"`,
+			secret:   "s3cr3t",
+			scheme:   "https",
+			username: "alice",
+			host:     "service.internal",
+		},
+		"HTTP percent-encoded password": {
+			raw:      `PROXY_URL=http://api-user:p%40ssword@proxy.internal:8080/v1`,
+			secret:   "p%40ssword",
+			scheme:   "http",
+			username: "api-user",
+			host:     "proxy.internal",
+		},
+		"password-only Redis": {
+			raw:    `REDIS_URL=redis://:s3cr3t@cache.internal:6379/0`,
+			secret: "s3cr3t",
+			scheme: "redis",
+			host:   "cache.internal",
+		},
+		"percent-encoded AMQP": {
+			raw:      `AMQP_URL='amqps://service:p%40ssword@rabbitmq.internal/vhost'`,
+			secret:   "p%40ssword",
+			scheme:   "amqps",
+			username: "service",
+			host:     "rabbitmq.internal",
+		},
+		"short weak password": {
+			raw:      `SSH_URL=ssh://root:root@192.0.2.10:22/`,
+			secret:   "root",
+			scheme:   "ssh",
+			username: "root",
+			host:     "192.0.2.10",
+		},
+		"IPv6 host and fragment": {
+			raw:      `MYSQL_URL=mysql://service:p%2Fss@[2001:db8::1]:3306#primary`,
+			secret:   "p%2Fss",
+			scheme:   "mysql",
+			username: "service",
+			host:     "[2001:db8::1]",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(tc.raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			finding := findings[0]
+			assert.Equal(t, tc.secret, finding.Secret)
+			assert.Equal(t, "medium", finding.Attributes["confidence"])
+			assert.Equal(t, tc.scheme, finding.CaptureGroups["scheme"])
+			assert.Equal(t, tc.username, finding.CaptureGroups["username"])
+			assert.Equal(t, tc.secret, finding.CaptureGroups["password"])
+			assert.Equal(t, tc.host, finding.CaptureGroups["host"])
+			assert.Contains(t, finding.CaptureGroups["uri"], tc.secret)
+		})
+	}
+
+	for name, password := range map[string]string{
+		"example":          "example",
+		"numbered example": "example123!",
+		"example password": "example_password",
+		"reversed example": "PasswordExample!",
+		"encoded example":  "example%5Fpassword",
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule("postgres://alice:"+password+"@db.internal/app", "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, password, findings[0].Secret)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, raw := range map[string]string{
+		"generic username and password": `https://username:password@gitlab.company.com/api`,
+		"foo and bar":                   `https://foo:bar@demo.host/api`,
+		"numbered test tuple":           `https://test123:test123!@anotherhost/api`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, raw := range map[string]string{
+		"reserved invalid TLD":   `ssh://alice:hunter2@host.invalid/repository`,
+		"reserved test TLD":      `https://alice:s3cr3t@service.test/v1`,
+		"localhost":              `https://alice:s3cr3t@localhost/v1`,
+		"localhost subdomain":    `redis://:s3cr3t@cache.localhost:6379/0`,
+		"localhost trailing dot": `redis://:s3cr3t@cache.localhost.:6379/0`,
+		"documentation and test": `postgresql://alice:hunter2@example.com,service.test/app`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, path := range map[string]string{
+		"test directory":          `test/integration/client.go`,
+		"spec filename":           `app/services/client_spec.rb`,
+		"fixture directory":       `config/fixtures/database.yml`,
+		"testdata directory":      `internal/client/testdata/config.yml`,
+		"example filename":        `config/database.example.yml`,
+		"template directory":      `ci/templates/database.yml`,
+		"QA directory":            `qa/runtime/config.rb`,
+		"documentation directory": `doc-locale/ja-jp/setup.md`,
+		"documentation extension": `guides/setup.rst`,
+		"readme":                  `config/README.md`,
+		"Windows test path":       `test\fixtures\database.yml`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(
+				`postgresql://alice:hunter2@db.internal/app`,
+				"generic-credential-uri",
+				path,
+			)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	productionSource := findingsForRule(
+		`postgresql://alice:hunter2@db.internal/app`,
+		"generic-credential-uri",
+		`config/production.yml`,
+	)
+	require.Len(t, productionSource, 1)
+	assert.Equal(t, "medium", productionSource[0].Attributes["confidence"])
+
+	// Weak and common default passwords are still credentials when embedded in
+	// a URI; their strength must not be confused with detection confidence.
+	for _, password := range []string{"changeme", "password", "guest"} {
+		findings := findingsForRule("postgres://alice:"+password+"@db.internal/app", "generic-credential-uri")
+		require.Len(t, findings, 1)
+		assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+	}
+
+	for name, raw := range map[string]string{
+		"missing password":             `postgres://alice@db.internal/app`,
+		"empty password":               `postgres://alice:@db.internal/app`,
+		"braced variable":              `postgres://alice:${DB_PASSWORD}@db.internal/app`,
+		"shell variable":               `postgres://alice:$DB_PASSWORD@db.internal/app`,
+		"template expressions":         `postgres://{{ db_user }}:{{ db_password }}@db.internal/app`,
+		"angle placeholders":           `postgres://<username>:<password>@db.internal/app`,
+		"synthetic SSH URI":            `ssh://foo:bar@example.com`,
+		"synthetic database URI":       `postgres://username:password@example.org/app`,
+		"synthetic FTP URI":            `ftp://foo:bar@test.com/repository`,
+		"example.com host":             `https://alice:s3cr3t@example.com/api`,
+		"example.com subdomain":        `https://alice:s3cr3t@api.example.com/v1`,
+		"example.com underscore host":  `http://user:pass:word@old_configurator.example.com)`,
+		"example.net host":             `postgres://alice:hunter2@db.example.net/app`,
+		"reserved example TLD":         `redis://:s3cr3t@cache.example/0`,
+		"example.com trailing dot":     `https://alice:s3cr3t@example.com./v1`,
+		"example.com query":            `https://alice:s3cr3t@example.com?mode=test`,
+		"all reserved hosts":           `postgresql://alice:hunter2@example.com,db.example.net/app`,
+		"instructional Redis password": `redis://:redis-password-goes-here@gitlab-redis/`,
+		"masked Redis password":        `redis://:xxxx@gitlab-redis/`,
+		"braced HTTP placeholder":      `http://user:{password}@service.internal/`,
+		"replace-me password":          `postgres://alice:replace_me@db.internal/app`,
+		"HTTPS URL without userinfo":   `https://example.com/api`,
+		"email-like text":              `alice:hunter2@example.com`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Empty(t, findingsForRule(raw, "generic-credential-uri"))
+		})
+	}
+
+	assert.Empty(t, findingsForRule(
+		`http://username:password@example.com,https://test:test@example.org:9200`,
+		"generic-credential-uri",
+	))
+
+	placeholderShapedInternalURI := findingsForRule(
+		`ssh://foo:bar@gitlab.internal/repository`,
+		"generic-credential-uri",
+	)
+	require.Len(t, placeholderShapedInternalURI, 1)
+	assert.Equal(t, "low", placeholderShapedInternalURI[0].Attributes["confidence"])
+
+	nonReservedExamplePrefix := findingsForRule(
+		`https://alice:s3cr3t@example.company.internal/v1`,
+		"generic-credential-uri",
+	)
+	require.Len(t, nonReservedExamplePrefix, 1)
+	assert.Equal(t, "medium", nonReservedExamplePrefix[0].Attributes["confidence"])
+
+	nonReservedLocalhostPrefix := findingsForRule(
+		`https://alice:s3cr3t@localhost.internal/v1`,
+		"generic-credential-uri",
+	)
+	require.Len(t, nonReservedLocalhostPrefix, 1)
+	assert.Equal(t, "medium", nonReservedLocalhostPrefix[0].Attributes["confidence"])
+
+	for name, raw := range map[string]string{
+		"reserved host first":  `postgresql://alice:hunter2@example.com,db.internal/app`,
+		"reserved host last":   `postgresql://alice:hunter2@db.internal,example.com/app`,
+		"localhost host first": `postgresql://alice:hunter2@localhost,db.internal/app`,
+		"test host last":       `postgresql://alice:hunter2@db.internal,service.test/app`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+		})
+	}
+
+	// Provider-specific rules should suppress this generic fallback when they
+	// accept the same credential.
+	mongodb := detector.DetectString(`MONGO_URL="mongodb://svc-reader:q9V7nB2K4xL8@mongo.internal:27017/app"`)
+	var mongodbRules []string
+	for _, finding := range mongodb {
+		if finding.RuleID == "mongodb-connection-string" || finding.RuleID == "generic-credential-uri" {
+			mongodbRules = append(mongodbRules, finding.RuleID)
+		}
+	}
+	assert.Equal(t, []string{"mongodb-connection-string"}, mongodbRules)
+}
+
 func TestComponentProximity(t *testing.T) {
 	tests := []struct {
 		name              string
