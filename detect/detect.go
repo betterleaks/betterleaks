@@ -715,6 +715,9 @@ func (d *Detector) DetectString(content string) []report.Finding {
 }
 
 func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	// Ensure default fields are properly set
+	fragment.SetDefaults()
+
 	// Skip the config file and baseline file to prevent self-scanning.
 	if path := fragment.Attr(sources.AttrPath); path != "" {
 		if samePath(path, d.Config.Path) || (d.baselinePath != "" && samePath(path, d.baselinePath)) {
@@ -849,6 +852,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
+	// Ensure default fields are properly set
+	fragment.SetDefaults()
+
 	if r.Path != nil {
 		if r.Regex == nil && len(encodedSegments) == 0 {
 			if rulePathMatchesFragment(r.Path, fragment) {
@@ -874,9 +880,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	// Lazily compute newline indices — only when we actually need location info.
-	var newlineIndices [][]int
-	newlineComputed := false
+	// Lazily compute line offsets — only when we actually need location info.
+	var lineOffsets []int
+	lineOffsetsComputed := false
 
 	// Reuse the matches slice from above instead of calling FindAllStringIndex again.
 	for _, matchIndex := range matches {
@@ -910,26 +916,24 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// in the finding will be the line/column numbers of the _match_
 		// not the _secret_, which will be different if the secretGroup
 		// value is set for this rule
-		if !newlineComputed {
-			newlineIndices = findNewlineIndices(fragment.Raw)
-			newlineComputed = true
+		if !lineOffsetsComputed {
+			lineOffsets = computeLineOffsets(fragment.Raw)
+			lineOffsetsComputed = true
 		}
-		loc := location(newlineIndices, fragment.Raw, matchIndex)
 
-		if matchIndex[1] > loc.endLineIndex {
-			loc.endLineIndex = matchIndex[1]
-		}
+		loc := location(lineOffsets, fragment.Raw, matchIndex)
 
 		tags := r.Tags
 		if len(metaTags) > 0 {
 			tags = append(append([]string(nil), r.Tags...), metaTags...)
 		}
 
+		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
 			RuleID:          r.RuleID,
 			Description:     r.Description,
-			StartLine:       fragment.StartLine + loc.startLine,
-			EndLine:         fragment.StartLine + loc.endLine,
+			StartLine:       prevFragmentEndLine + loc.startLine,
+			EndLine:         prevFragmentEndLine + loc.endLine,
 			StartColumn:     loc.startColumn,
 			EndColumn:       loc.endColumn,
 			Line:            fragment.Raw[loc.startLineIndex:loc.endLineIndex],

@@ -1,5 +1,10 @@
 package detect
 
+import (
+	"slices"
+	"strings"
+)
+
 // Location represents a location in a file
 type Location struct {
 	startLine      int
@@ -10,71 +15,56 @@ type Location struct {
 	endLineIndex   int
 }
 
-func location(newlineIndices [][]int, raw string, matchIndex []int) Location {
-	var (
-		prevNewLine int
-		location    Location
-		lineSet     bool
-		_lineNum    int
-	)
+// computeLineOffsets returns a list of offsets for the beginning of
+// each line in a file. It should always return at least []int{0}.
+func computeLineOffsets(s string) []int {
+	n := len(s)
+	// init size to 1 so offsets[0] == 0
+	offsets := make([]int, 1, max(1, n/128))
+	offset := 0
 
-	start := matchIndex[0]
-	end := matchIndex[1]
-
-	// default startLineIndex to 0
-	location.startLineIndex = 0
-
-	// Fixes: https://github.com/zricethezav/gitleaks/issues/1037
-	// When a fragment does NOT have any newlines, a default "newline"
-	// will be counted to make the subsequent location calculation logic work
-	// for fragments will no newlines.
-	if len(newlineIndices) == 0 {
-		newlineIndices = [][]int{
-			{len(raw), len(raw) + 1},
+	for offset < n {
+		i := strings.IndexByte(s[offset:], '\n')
+		offset += i + 1
+		if i == -1 || offset == n {
+			break
 		}
+		offsets = append(offsets, offset)
 	}
 
-	for lineNum, pair := range newlineIndices {
-		_lineNum = lineNum
-		newLineByteIndex := pair[0]
-		if prevNewLine <= start && start < newLineByteIndex {
-			lineSet = true
-			location.startLine = lineNum
-			location.endLine = lineNum
-			location.startColumn = (start - prevNewLine) + 1 // +1 because counting starts at 1
-			location.startLineIndex = prevNewLine
-			location.endLineIndex = newLineByteIndex
-		}
-		if prevNewLine < end && end <= newLineByteIndex {
-			location.endLine = lineNum
-			location.endColumn = (end - prevNewLine)
-			location.endLineIndex = newLineByteIndex
-		}
+	return offsets
+}
 
-		prevNewLine = pair[0]
+// offsetToLineNumber returns the line number of an offset
+func offsetToLineNumber(lineOffsets []int, offset int) int {
+	index, found := slices.BinarySearch(lineOffsets, offset)
+	if found || index == 0 {
+		return index + 1
+	} else {
+		// Since it wasn't found, the index == the line number.
+		return index
+	}
+}
+
+func location(lineOffsets []int, raw string, matchIndex []int) Location {
+	startIndex := matchIndex[0]
+	startLine := offsetToLineNumber(lineOffsets, startIndex)
+	endIndex := matchIndex[1]
+	endLine := offsetToLineNumber(lineOffsets, endIndex)
+	endLineIndex := len(raw)
+
+	if endLine < len(lineOffsets) {
+		// Since counting starts at 1 and indexing starts at 0, the index for
+		// the next line is endLine.
+		endLineIndex = lineOffsets[endLine]
 	}
 
-	if !lineSet {
-		// if lines never get set then that means the secret is most likely
-		// on the last line of the diff output and the diff output does not have
-		// a newline
-		location.startColumn = (start - prevNewLine) + 1 // +1 because counting starts at 1
-		location.endColumn = (end - prevNewLine)
-		location.startLine = _lineNum + 1
-		location.endLine = _lineNum + 1
-
-		// search for new line byte index
-		i := 0
-		for end+i < len(raw) {
-			if raw[end+i] == '\n' {
-				break
-			}
-			if raw[end+i] == '\r' {
-				break
-			}
-			i++
-		}
-		location.endLineIndex = end + i
+	return Location{
+		startColumn:    startIndex - lineOffsets[startLine-1] + 1,
+		startLine:      startLine,
+		startLineIndex: lineOffsets[startLine-1],
+		endColumn:      endIndex - lineOffsets[endLine-1],
+		endLine:        endLine,
+		endLineIndex:   endLineIndex,
 	}
-	return location
 }
