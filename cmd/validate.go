@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/expr-lang/expr/ast"
+	exprparser "github.com/expr-lang/expr/parser"
 	"github.com/spf13/cobra"
 
 	configpkg "github.com/betterleaks/betterleaks/config"
@@ -46,6 +48,13 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	format, err := credentialReportFormat(cmd)
 	if err != nil {
 		return err
+	}
+	debug, err := cmd.Flags().GetBool("validation-debug")
+	if err != nil {
+		return err
+	}
+	if debug {
+		return errors.New("--validation-debug is not supported by validate because debug request and response bodies may contain credentials")
 	}
 	simple, err := cmd.Flags().GetBool("simple")
 	if err != nil {
@@ -95,6 +104,9 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	if strings.TrimSpace(rule.ValidateExpr) == "" {
 		return fmt.Errorf("rule %q does not define validation", ruleID)
 	}
+	if err := validateRequiredCaptures(rule, input.Captures); err != nil {
+		return err
+	}
 
 	rt, err := resolved.cfg.CompileValidation()
 	if err != nil {
@@ -117,11 +129,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	debug, err := cmd.Flags().GetBool("validation-debug")
-	if err != nil {
-		return err
-	}
-	validated, err := evaluateCredential(cmd.Context(), rt, program, finding, debug)
+	validated, err := evaluateCredential(cmd.Context(), rt, program, finding)
 	if err != nil {
 		return err
 	}
@@ -219,6 +227,7 @@ func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 		summary := report.CredentialRuleSummary{
 			RuleID:      rule.RuleID,
 			Description: rule.Description,
+			Captures:    requiredValidationCaptures(rule),
 		}
 		for _, component := range rule.Components {
 			summary.Components = append(summary.Components, report.CredentialComponentReport{
@@ -232,6 +241,94 @@ func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 		result.Rules = append(result.Rules, summary)
 	}
 	return result
+}
+
+func requiredValidationCaptures(rule configpkg.Rule) []string {
+	if rule.Regex == nil {
+		return nil
+	}
+	referenced := referencedValidationCaptures(rule.ValidateExpr)
+	names := rule.Regex.SubexpNames()
+	required := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for index, name := range names {
+		if name == "" || index == rule.SecretGroup {
+			continue
+		}
+		if _, ok := referenced[name]; !ok {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		required = append(required, name)
+	}
+	sort.Strings(required)
+	return required
+}
+
+type validationCaptureCollector map[string]struct{}
+
+func (c validationCaptureCollector) Visit(node *ast.Node) {
+	member, ok := (*node).(*ast.MemberNode)
+	if !ok || !isValidationCaptureObject(member.Node) {
+		return
+	}
+	property, ok := member.Property.(*ast.StringNode)
+	if ok && property.Value != "" {
+		c[property.Value] = struct{}{}
+	}
+}
+
+func referencedValidationCaptures(expression string) map[string]struct{} {
+	captures := validationCaptureCollector{}
+	tree, err := exprparser.Parse(expression)
+	if err != nil {
+		return captures
+	}
+	ast.Walk(&tree.Node, captures)
+	return captures
+}
+
+func isValidationCaptureObject(node ast.Node) bool {
+	for {
+		chain, ok := node.(*ast.ChainNode)
+		if !ok {
+			break
+		}
+		node = chain.Node
+	}
+	if identifier, ok := node.(*ast.IdentifierNode); ok {
+		return identifier.Value == "captures"
+	}
+	member, ok := node.(*ast.MemberNode)
+	if !ok {
+		return false
+	}
+	property, ok := member.Property.(*ast.StringNode)
+	if !ok || property.Value != "captures" {
+		return false
+	}
+	base, ok := member.Node.(*ast.IdentifierNode)
+	return ok && base.Value == "finding"
+}
+
+func validateRequiredCaptures(rule configpkg.Rule, supplied map[string]string) error {
+	var missing []string
+	for _, name := range requiredValidationCaptures(rule) {
+		if supplied[name] == "" {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"missing required capture(s) for rule %q: %s (use --capture name=value)",
+		rule.RuleID,
+		strings.Join(missing, ", "),
+	)
 }
 
 type validateCredentialInput struct {
@@ -401,7 +498,6 @@ func evaluateCredential(
 	rt *exprruntime.Runtime,
 	program exprruntime.Program,
 	finding report.Finding,
-	debug bool,
 ) (report.Finding, error) {
 	if err := ctx.Err(); err != nil {
 		return report.Finding{}, err
@@ -412,7 +508,6 @@ func evaluateCredential(
 		emitted bool
 	)
 	pool := validatepkg.NewPoolContext(ctx, 1, rt)
-	pool.Debug = debug
 	pool.Emit = func(f report.Finding) {
 		result = f
 		emitted = true
@@ -463,9 +558,12 @@ func buildValidateFinding(rule configpkg.Rule, input validateCredentialInput) (r
 	}
 	finding.SetFingerprint()
 
-	suppliedSecrets := make([]string, 0, len(componentSecrets)+1)
+	suppliedSecrets := make([]string, 0, len(componentSecrets)+len(input.Captures)+1)
 	suppliedSecrets = append(suppliedSecrets, input.Secret)
 	suppliedSecrets = append(suppliedSecrets, componentSecrets...)
+	for _, capture := range input.Captures {
+		suppliedSecrets = append(suppliedSecrets, capture)
+	}
 	return finding, suppliedSecrets, nil
 }
 

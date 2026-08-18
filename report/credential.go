@@ -54,6 +54,7 @@ type CredentialRuleSummary struct {
 	RuleID      string                      `json:"rule_id"`
 	Description string                      `json:"description,omitempty"`
 	Components  []CredentialComponentReport `json:"components,omitempty"`
+	Captures    []string                    `json:"captures,omitempty"`
 }
 
 // NewCredentialReport builds a redacted report from a validated finding.
@@ -327,11 +328,11 @@ func formatCredentialStatusIcon(status ValidationStatus, noColor bool) string {
 
 func writeCredentialRuleListText(w io.Writer, result CredentialRuleList) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "RULE ID\tCOMPONENTS"); err != nil {
+	if _, err := fmt.Fprintln(tw, "RULE ID\tCOMPONENTS\tCAPTURES"); err != nil {
 		return err
 	}
 	for _, rule := range result.Rules {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\n", rule.RuleID, formatCredentialComponents(rule.Components)); err != nil {
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n", rule.RuleID, formatCredentialComponents(rule.Components), strings.Join(rule.Captures, ", ")); err != nil {
 			return err
 		}
 	}

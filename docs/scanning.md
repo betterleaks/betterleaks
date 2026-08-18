@@ -544,6 +544,10 @@ betterleaks validate --list
 betterleaks validate --list --report-format jsonl
 ```
 
+The list includes required components and named captures. Supply every listed
+capture with `--capture name=value`; validation stops with an input error when
+one is missing rather than reporting the credential as invalid.
+
 Pass a credential on stdin when possible so it is not stored in shell history
 or exposed in the process argument list:
 
@@ -579,6 +583,8 @@ declared with `optional = true` may be omitted. Repeat `--component` when a rule
 needs more than one component. Use `--capture name=value` when a validation
 expression needs a named regex capture that cannot be reconstructed from the
 credential. A component capture uses `--capture rule-id:name=value`.
+Supplied capture values are treated as sensitive and redacted from validation
+reasons and metadata just like primary and component secrets.
 
 The default output is concise text. Use `--simple` when only the uppercase
 status is needed:
@@ -644,15 +650,19 @@ printf '%s\n' "$GITHUB_TOKEN" |
 ```
 
 `validate` always writes results to stdout and does not support `--report-path`
-or `--report-template`. Output never includes the supplied primary or component
-credentials. If a validator returns one in its reason, metadata, debug URL, or
-debug request body, the matching value is replaced with `[redacted]`.
-Attributes are sanitized the same way. Validation metadata may still contain
-sensitive identity or account information.
+or `--report-template`. Output never includes the supplied primary, component,
+or capture values. If a validator returns one in its reason or metadata, the
+matching value is replaced with `[redacted]`. Attributes are sanitized the same
+way. Validation metadata may still contain sensitive identity or account
+information.
 
-`validate` honors the same outbound request controls as scan-time validation:
+`--validation-debug` is not supported by `validate` because raw debug request
+and response bodies can contain transformed credentials or newly issued
+tokens.
+
+`validate` honors the remaining outbound request controls from scan-time validation:
 `--validation-timeout`, `--validation-max-requests`, `--validation-rps`,
-`--validation-rps-rule`, `--validation-env-vars`, `--validation-debug`, and
+`--validation-rps-rule`, `--validation-env-vars`, and
 `--validation-extract-empty`. A completed validation—including `invalid`,
 `revoked`, `unknown`, or `error`—is a successful command result represented by
 the reported status; input, configuration, I/O, and cancellation failures

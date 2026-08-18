@@ -36,8 +36,10 @@ finding["secret"] == %q &&
 captures["tenant"] == "acme" &&
 attributes["path"] == "betterleaks://validate" ? {
   "result": "valid",
+  "reason": "tenant=" + captures["tenant"],
   "owner": "alice",
   "echo": "credential=" + finding["secret"],
+  "capture_echo": {"tenant": captures["tenant"]},
   "empty": ""
 } : {
   "result": "invalid"
@@ -80,11 +82,18 @@ attributes["path"] == "betterleaks://validate" ? {
 	if got.Validation.Status != report.ValidationStatusValid {
 		t.Fatalf("status = %q", got.Validation.Status)
 	}
+	if got.Validation.Reason != "tenant=[redacted]" {
+		t.Fatalf("sanitized reason = %q", got.Validation.Reason)
+	}
 	if got.Validation.Metadata["owner"] != "alice" {
 		t.Fatalf("owner metadata = %#v", got.Validation.Metadata["owner"])
 	}
 	if got.Validation.Metadata["echo"] != "credential=[redacted]" {
 		t.Fatalf("sanitized metadata = %#v", got.Validation.Metadata["echo"])
+	}
+	captureEcho, ok := got.Validation.Metadata["capture_echo"].(map[string]any)
+	if !ok || captureEcho["tenant"] != "[redacted]" {
+		t.Fatalf("sanitized capture metadata = %#v", got.Validation.Metadata["capture_echo"])
 	}
 	if _, ok := got.Validation.Metadata["empty"]; ok {
 		t.Fatalf("empty metadata was not removed: %#v", got.Validation.Metadata)
@@ -408,6 +417,50 @@ finding["secret"] == %q ? {"result": "valid"} : {"result": "invalid"}
 	}
 }
 
+func TestValidateCommandRequiresReferencedNamedCaptures(t *testing.T) {
+	configPath := writeValidateTestConfig(t, `
+[[rules]]
+id = "capture-dependent"
+regex = '''(?P<tenant>[a-z]+)-(?P<id>[a-z]+)-(?P<credential>secret-[a-z]+)'''
+secretGroup = 3
+validate = '''
+(finding["captures"]?.tenant ?? "") == "acme" ? {"result": "valid"} : {"result": "invalid"}
+'''
+`)
+
+	root, stdout := newValidateTestRoot(t)
+	root.SetArgs([]string{
+		"validate",
+		"--config", configPath,
+		"--rule-id", "capture-dependent",
+		"secret-value",
+	})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "missing required capture(s)") || !strings.Contains(err.Error(), "tenant") {
+		t.Fatalf("error = %v, want missing tenant capture", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+
+	root, stdout = newValidateTestRoot(t)
+	root.SetArgs([]string{
+		"validate",
+		"--config", configPath,
+		"--rule-id", "capture-dependent",
+		"--capture", "tenant=acme",
+		"--simple",
+		"--no-color",
+		"secret-value",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("validate command with required capture: %v", err)
+	}
+	if got, want := stdout.String(), "VALID\n"; got != want {
+		t.Fatalf("simple output = %q, want %q", got, want)
+	}
+}
+
 func TestValidateCommandHonorsRequestLimit(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -500,8 +553,9 @@ skipReport = true
 [[rules]]
 id = "validated"
 description = "Validated rule"
-regex = '''(validated)'''
-validate = '''{"result": "valid"}'''
+regex = '''(?P<context>context)-(validated)'''
+secretGroup = 2
+validate = '''(finding["captures"]?.context ?? "") != "" ? {"result": "valid"} : {"result": "invalid"}'''
 
 components = [
   { id = "component" },
@@ -542,6 +596,9 @@ regex = '''(unvalidated)'''
 	}
 	if got.Rules[0].Components[1].RuleID != "optional-component" || !got.Rules[0].Components[1].Optional {
 		t.Fatalf("optional component = %#v", got.Rules[0].Components[1])
+	}
+	if len(got.Rules[0].Captures) != 1 || got.Rules[0].Captures[0] != "context" {
+		t.Fatalf("required captures = %#v", got.Rules[0].Captures)
 	}
 }
 
@@ -594,6 +651,11 @@ validate = '''{"result": "valid"}'''
 			want: "--simple cannot be combined",
 		},
 		{
+			name: "validation debug",
+			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--validation-debug", "secret"},
+			want: "--validation-debug is not supported by validate",
+		},
+		{
 			name: "list with rule",
 			args: []string{"validate", "--config", configPath, "--list", "--rule-id", "simple"},
 			want: "cannot be combined",
@@ -620,7 +682,7 @@ validate = '''{"result": "valid"}'''
 func TestEvaluateCredentialHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := evaluateCredential(ctx, nil, nil, report.Finding{}, false)
+	_, err := evaluateCredential(ctx, nil, nil, report.Finding{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}

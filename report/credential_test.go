@@ -105,7 +105,8 @@ func TestCredentialReporterWritesComponentList(t *testing.T) {
 	result := CredentialRuleList{
 		SchemaVersion: CredentialReportSchemaVersion,
 		Rules: []CredentialRuleSummary{{
-			RuleID: "multipart-rule",
+			RuleID:   "multipart-rule",
+			Captures: []string{"account", "tenant"},
 			Components: []CredentialComponentReport{
 				{RuleID: "account-id"},
 				{RuleID: "region", Optional: true},
@@ -118,8 +119,8 @@ func TestCredentialReporterWritesComponentList(t *testing.T) {
 	if err := reporter.WriteRuleList(&output, result); err != nil {
 		t.Fatalf("write rule list: %v", err)
 	}
-	want := "RULE ID         COMPONENTS\n" +
-		"multipart-rule  account-id, region (optional)\n"
+	want := "RULE ID         COMPONENTS                     CAPTURES\n" +
+		"multipart-rule  account-id, region (optional)  account, tenant\n"
 	if output.String() != want {
 		t.Fatalf("rule list output = %q, want %q", output.String(), want)
 	}
