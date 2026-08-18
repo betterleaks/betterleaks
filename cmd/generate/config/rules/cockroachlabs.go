@@ -9,6 +9,7 @@ import (
 func CockroachLabsCloudAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "cockroachlabs-cloud-api-key",
+		Confidence:  "high",
 		Description: "Detected a CockroachDB Cloud service account API key, which may allow unauthorized access to CockroachDB Cloud resources.",
 		Regex:       regexp.MustCompile(`\b(CCDB1_[A-Za-z0-9]{22}_[A-Za-z0-9]{40})\b`),
 		Keywords:    []string{"CCDB1_"},

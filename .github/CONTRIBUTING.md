@@ -87,37 +87,40 @@ If you want to add a new rule to the [default configuration](config/betterleaks.
    validation part. You can use `generateSampleSecret` to create a secret for the
    true positives (`tps` in the example above) used in `validate`.
 
-2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, you can set `filters`. For more information, check out the [config doc](/docs/config.md)
+2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, set the rule's `Filter` field. For more information, check out the [config doc](/docs/config.md)
 Example simple `filter`:
 ```
 filter = '''
-    entropy(finding["secret"]) <= 3.5 ||
-    failsTokenEfficiency(finding["secret"])
+    filter.entropy(finding["secret"]) <= 3.5 ||
+    filter.failsTokenEfficiency(finding["secret"])
 '''
 ```
 
-3. Betterleaks supports secrets validation, or liveliness checking, so we expect new rules to have validation logic. Since CEL powers the validation engine, you can pretty much express any validation check. All you have to do is set the `validate` field. For more information, check out the [config doc](/docs/config.md)
+3. Betterleaks supports secrets validation, or liveliness checking, so we expect new rules to have validation logic. Expr powers the validation engine. Set the rule's `ValidateExpr` field. For more information, check out the [config doc](/docs/config.md)
 Example `validate`:
 ```toml
 validate = '''
-cel.bind(r,
-  http.get("https://api.github.com/app", {
+let r = http.get("https://api.github.com/app", {
     "Accept": "application/vnd.github+json",
     "Authorization": "Bearer " + finding["secret"]
-  }),
-  r.status == 200 && r.json.?slug.orValue("") != "" ? {
+  });
+r.status == 200 && (r.json?.slug ?? "") != "" ? {
     "result": "valid",
-    "slug": r.json.?slug.orValue(""),
-    "name": r.json.?name.orValue(""),
-    "html_url": r.json.?html_url.orValue(""),
-	"external_url": r.json.?external_url.orValue("")
+    "slug": r.json?.slug ?? "",
+    "name": r.json?.name ?? "",
+    "html_url": r.json?.html_url ?? "",
+    "external_url": r.json?.external_url ?? ""
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
-)
+  } : validate.unknown(r)
 '''
 ```
+
+   Multipart rules set `Components` on `config.Rule`. Validation expressions
+   read the primary rule's named groups from `finding["captures"]`, component
+   secrets from `components["rule-id"]?.secret ?? ""`, and component named
+   groups from `components["rule-id"]?.captures?.group ?? ""`.
 
 4. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
    the `rules.Beamer(),` in `main()`. Try and keep

@@ -11,6 +11,7 @@ func Heroku() *config.Rule {
 	r := config.Rule{
 		Description: "Detected a Heroku API Key, potentially compromising cloud application deployments and operational security.",
 		RuleID:      "heroku-api-key",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"heroku"}, utils.Hex8_4_4_4_12(), true),
 
 		Keywords: []string{"heroku"},
@@ -30,6 +31,7 @@ func HerokuV2() *config.Rule {
 	r := config.Rule{
 		Description: "Detected a Heroku API Key, potentially compromising cloud application deployments and operational security.",
 		RuleID:      "heroku-api-key-v2",
+		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`(HRKU-AA[0-9a-zA-Z_-]{58})`, false),
 		Keywords:    []string{"HRKU-AA"},
 		Filter:      `entropy(finding["secret"]) <= 4.0`,

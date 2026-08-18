@@ -20,6 +20,7 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/internal/ahocorasick"
+	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
@@ -92,6 +93,9 @@ type Detector struct {
 	// ValidationStatusFilter, when non-empty, restricts which findings are
 	// printed in verbose mode. Parsed from --validation-status.
 	ValidationStatusFilter map[string]struct{}
+
+	// MinConfidence suppresses classified findings below this level.
+	MinConfidence string
 
 	// ValidationPool is the expression validation worker pool.
 	ValidationPool *validate.Pool
@@ -462,6 +466,9 @@ func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding
 		Attributes:      maps.Clone(fragment.Attributes),
 		RuleSpecificity: r.Specificity,
 	}
+	if r.Confidence != "" {
+		finding.SetAttr(confidence.Attribute, r.Confidence)
+	}
 	finding.SyncDeprecatedSourceFields()
 	return finding
 }
@@ -708,6 +715,9 @@ func (d *Detector) DetectString(content string) []report.Finding {
 }
 
 func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	// Ensure default fields are properly set
+	fragment.SetDefaults()
+
 	// Skip the config file and baseline file to prevent self-scanning.
 	if path := fragment.Attr(sources.AttrPath); path != "" {
 		if samePath(path, d.Config.Path) || (d.baselinePath != "" && samePath(path, d.baselinePath)) {
@@ -759,7 +769,11 @@ ScanLoop:
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					findings = append(findings, d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings)...)
+					for _, finding := range d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings) {
+						if confidence.Meets(finding.Attr(confidence.Attribute), d.MinConfidence) {
+							findings = append(findings, finding)
+						}
+					}
 				}
 			}
 			// Pool entries must be blank because later scans may run on any goroutine.
@@ -838,6 +852,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
+	// Ensure default fields are properly set
+	fragment.SetDefaults()
+
 	if r.Path != nil {
 		if r.Regex == nil && len(encodedSegments) == 0 {
 			if rulePathMatchesFragment(r.Path, fragment) {
@@ -863,9 +880,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	// Lazily compute newline indices — only when we actually need location info.
-	var newlineIndices [][]int
-	newlineComputed := false
+	// Lazily compute line offsets — only when we actually need location info.
+	var lineOffsets []int
+	lineOffsetsComputed := false
 
 	// Reuse the matches slice from above instead of calling FindAllStringIndex again.
 	for _, matchIndex := range matches {
@@ -899,26 +916,24 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// in the finding will be the line/column numbers of the _match_
 		// not the _secret_, which will be different if the secretGroup
 		// value is set for this rule
-		if !newlineComputed {
-			newlineIndices = findNewlineIndices(fragment.Raw)
-			newlineComputed = true
+		if !lineOffsetsComputed {
+			lineOffsets = computeLineOffsets(fragment.Raw)
+			lineOffsetsComputed = true
 		}
-		loc := location(newlineIndices, fragment.Raw, matchIndex)
 
-		if matchIndex[1] > loc.endLineIndex {
-			loc.endLineIndex = matchIndex[1]
-		}
+		loc := location(lineOffsets, fragment.Raw, matchIndex)
 
 		tags := r.Tags
 		if len(metaTags) > 0 {
 			tags = append(append([]string(nil), r.Tags...), metaTags...)
 		}
 
+		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
 			RuleID:          r.RuleID,
 			Description:     r.Description,
-			StartLine:       fragment.StartLine + loc.startLine,
-			EndLine:         fragment.StartLine + loc.endLine,
+			StartLine:       prevFragmentEndLine + loc.startLine,
+			EndLine:         prevFragmentEndLine + loc.endLine,
 			StartColumn:     loc.startColumn,
 			EndColumn:       loc.endColumn,
 			Line:            fragment.Raw[loc.startLineIndex:loc.endLineIndex],
@@ -927,6 +942,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			Attributes:      maps.Clone(fragment.Attributes),
 			Tags:            tags,
 			RuleSpecificity: r.Specificity,
+		}
+		if r.Confidence != "" {
+			finding.SetAttr(confidence.Attribute, r.Confidence)
 		}
 
 		// TODO eventually move this git specific bit into somewhere... better?
@@ -1010,6 +1028,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]any
 		if hasGlobalFilter || hasRuleFilter {
+			if finding.Attributes == nil {
+				finding.Attributes = make(map[string]string)
+			}
 			findingMap = make(map[string]any, 12)
 			for key, value := range finding.ToExprMap() {
 				findingMap[key] = value
@@ -1037,7 +1058,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		if prg, ok, err := d.globalFilterProgram(); err != nil {
 			logger.Warn().Err(err).Msg("global filter compile error")
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -1052,7 +1073,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
 			logger.Warn().Err(err).Msg("rule filter compile error")
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, fragment.Attributes)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {

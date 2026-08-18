@@ -244,7 +244,7 @@ func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken
 	case modePrefilter:
 		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
 	default:
-		b := e.validationBindings(context.Background(), nil, nil, nil, nil)
+		b := e.validationBindings(context.Background(), nil, nil, nil, nil, nil)
 		setCompileMaps(b)
 		return b, []expr.Option{expr.WithContext("ctx")}
 	}
@@ -257,8 +257,17 @@ func (e *Runtime) EvalFilter(prg Program, finding map[string]any, attributes map
 	if finding == nil {
 		finding = emptyFilterFinding
 	}
+	if attributes == nil {
+		attributes = make(map[string]string)
+	}
 	b["finding"] = finding
-	b["attributes"] = nonNilStringMap(attributes)
+	b["attributes"] = attributes
+	if rt, ok := b["__runtime"].(*runtimeBindings); ok {
+		rt.attrs = attributes
+		filter := filterNamespace(rt)
+		filter["setConfidence"] = rt.setConfidence
+		b["filter"] = filter
+	}
 	return runBool(prg, b, "filter")
 }
 
@@ -309,6 +318,13 @@ func (e *Runtime) Eval(prg Program, finding, captures map[string]string) (any, e
 	return e.EvalWithContext(context.Background(), prg, finding, captures, nil)
 }
 
+// EvalWithComponents evaluates a validation program with primary named regex
+// captures and structured component findings.
+func (e *Runtime) EvalWithComponents(prg Program, finding, captures map[string]string, components map[string]any) (any, error) {
+	result, err := e.EvalValidationWithComponents(context.Background(), prg, finding, captures, components, nil, EvalOptions{})
+	return result.Value, err
+}
+
 func (e *Runtime) EvalWithAttributes(prg Program, finding, captures, attributes map[string]string) (any, error) {
 	return e.EvalWithContext(context.Background(), prg, finding, captures, attributes)
 }
@@ -319,6 +335,12 @@ func (e *Runtime) EvalWithContext(ctx context.Context, prg Program, finding, cap
 }
 
 func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, captures, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
+	return e.EvalValidationWithComponents(ctx, prg, finding, captures, nil, attributes, opts)
+}
+
+// EvalValidationWithComponents evaluates a validation program with structured
+// component findings isolated from the primary rule's named capture groups.
+func (e *Runtime) EvalValidationWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -327,7 +349,7 @@ func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, capt
 		ruleID: lookupString(finding, "rule_id"),
 		state:  state,
 	})
-	b := e.validationBindings(ctx, finding, captures, attributes, state)
+	b := e.validationBindings(ctx, finding, captures, components, attributes, state)
 	val, err := expr.Run(prg.vm, b)
 	return EvalResult{
 		Value:           val,
@@ -336,29 +358,40 @@ func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, capt
 	}, err
 }
 
-func (e *Runtime) validationBindings(ctx context.Context, finding, captures, attributes map[string]string, state *evalState) bindings {
+func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[string]string, components map[string]any, attributes map[string]string, state *evalState) bindings {
 	if finding == nil {
 		finding = emptyStringMap
 	}
 	if captures == nil {
 		captures = emptyStringMap
 	}
+	if components == nil {
+		components = map[string]any{}
+	}
 	if attributes == nil {
 		attributes = emptyStringMap
 	}
+	findingWithCaptures := make(map[string]any, len(finding)+1)
+	for key, value := range finding {
+		findingWithCaptures[key] = value
+	}
+	findingWithCaptures["captures"] = captures
+	legacyCaptures := legacyValidationCaptures(captures, components)
 	rt := &runtimeBindings{
 		validation: e,
 		ctx:        ctx,
 		tokenizer:  nil,
-		finding:    finding,
+		finding:    findingWithCaptures,
 		attrs:      attributes,
-		captures:   captures,
+		captures:   legacyCaptures,
+		components: components,
 		debug:      state,
 	}
 	b := baseBindings(rt)
 	b["ctx"] = rt.ctx
 	b["finding"] = rt.finding
 	b["captures"] = rt.captures
+	b["components"] = rt.components
 	b["secret"] = lookupString(rt.finding, "secret")
 	b["bytes"] = func(s string) []byte { return []byte(s) }
 	b["size"] = size
@@ -383,6 +416,43 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures, att
 	return b
 }
 
+// legacyValidationCaptures preserves the v1 composite-validation contract at
+// the top-level captures binding. New expressions should use finding["captures"]
+// for primary named groups and components for component data. The overloaded
+// binding can be removed in a future breaking release.
+func legacyValidationCaptures(primary map[string]string, components map[string]any) map[string]string {
+	if len(components) == 0 {
+		return primary
+	}
+
+	legacy := make(map[string]string, len(primary)+len(components)*2)
+	for name, value := range primary {
+		legacy[name] = value
+	}
+	for ruleID, raw := range components {
+		component, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if secret, ok := component["secret"].(string); ok {
+			legacy[ruleID] = secret
+		}
+		switch captures := component["captures"].(type) {
+		case map[string]string:
+			for name, value := range captures {
+				legacy[ruleID+":"+name] = value
+			}
+		case map[string]any:
+			for name, rawValue := range captures {
+				if value, ok := rawValue.(string); ok {
+					legacy[ruleID+":"+name] = value
+				}
+			}
+		}
+	}
+	return legacy
+}
+
 type runtimeBindings struct {
 	validation        *Runtime
 	ctx               context.Context
@@ -391,6 +461,7 @@ type runtimeBindings struct {
 	finding           any
 	attrs             any
 	captures          any
+	components        any
 	debug             *evalState
 }
 
@@ -405,7 +476,6 @@ func baseBindings(rt *runtimeBindings) bindings {
 	rtb := bindings{
 		"attributes":           rt.attrs,
 		"get":                  getDefault,
-		"getPath":              getPathDefault,
 		"filter":               filterNamespace(rt),
 		"matchesAny":           matchesAny,
 		"containsAny":          containsAny,
@@ -417,9 +487,10 @@ func baseBindings(rt *runtimeBindings) bindings {
 }
 
 func setCompileMaps(b bindings) {
-	b["finding"] = map[string]any{}
+	b["finding"] = map[string]any{"captures": map[string]any{}}
 	b["attributes"] = map[string]any{}
 	b["captures"] = map[string]any{}
+	b["components"] = map[string]any{}
 	b["secret"] = ""
 }
 
@@ -431,7 +502,9 @@ func nonNilStringMap(m map[string]string) map[string]string {
 }
 
 func filterBindings(tokenizer *tiktoken.Tiktoken, finding map[string]any, attributes map[string]string) bindings {
-	b := baseBindings(&runtimeBindings{tokenizer: tokenizer, attrs: attributes})
+	rt := &runtimeBindings{tokenizer: tokenizer, attrs: attributes}
+	b := baseBindings(rt)
+	b["filter"].(map[string]any)["setConfidence"] = rt.setConfidence
 	b["finding"] = finding
 	return b
 }
@@ -484,18 +557,6 @@ func getDefault(container any, key string, fallback any) any {
 		return v
 	}
 	return fallback
-}
-
-func getPathDefault(container any, path string, fallback any) any {
-	cur := container
-	for part := range strings.SplitSeq(path, ".") {
-		next, ok := lookup(cur, part)
-		if !ok || next == nil {
-			return fallback
-		}
-		cur = next
-	}
-	return cur
 }
 
 func lookup(container any, key string) (any, bool) {

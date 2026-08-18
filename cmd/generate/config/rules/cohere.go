@@ -10,6 +10,7 @@ func CohereAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "cohere-api-token",
+		Confidence:  "medium",
 		Description: "Identified a Cohere Token, posing a risk of unauthorized access to AI services and data manipulation.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"cohere", "CO_API_KEY"}, `[a-zA-Z0-9]{40}`, false),
 		Keywords: []string{
@@ -24,7 +25,7 @@ func CohereAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		Filter: `filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

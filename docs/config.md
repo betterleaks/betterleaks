@@ -21,6 +21,7 @@ Each `[[rules]]` entry can use:
 - `keywords`: strings used for fast pre-regex filtering.
 - `regex`: regular expression used to detect the secret.
 - `filter`: rule-specific Expr expression to discard false positives.
+- `confidence`: optional `low`, `medium`, or `high` likelihood classification.
 - `validate`: Expr expression to actively verify whether a secret is live.
 - `components`: required or optional component rules used to build multipart findings.
 
@@ -36,12 +37,14 @@ compatibility, but new configs should use Expr syntax.
 - `prefilter` runs before regex matching and only has `attributes`.
 - `filter` runs after regex matching and has `attributes` and `finding`.
 - `validate` runs after filtering when validation is enabled and has
-  `attributes`, `finding`, and `captures`.
+  `attributes`, `finding`, and `components`.
 
-Safe map access uses `get`, and optional object access uses `?.` plus `??`:
+Use brackets to access map values. For nested data that may be absent, use `?.`
+and provide a fallback with `??`:
 
 ```expr
-get(attributes, "path", "")
+attributes["path"]
+components["account-id"]?.secret ?? ""
 r.json?.login ?? ""
 ```
 
@@ -50,8 +53,8 @@ r.json?.login ?? ""
 | Name | Scope | Description |
 | :--- | :--- | :--- |
 | `attributes` | prefilter, filter, validate | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, and `fs.symlink`. |
-| `finding` | filter, validate | Matched secret data. Common keys include `secret`, `match`, `line`, `rule_id`, and `description`. |
-| `captures` | validate | Named capture groups from the rule regex. |
+| `finding` | filter, validate | Matched secret data. Common keys include `secret`, `match`, `line`, `rule_id`, and `description`. In validation, `finding["captures"]` contains the primary rule's named regex groups. |
+| `components` | validate | Matched component findings, keyed by the referenced component rule ID. Each has `secret` and `captures` fields. |
 
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
@@ -98,20 +101,31 @@ with Expr. If a filter expression evaluates to `true`, the item is skipped.
 | `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. |
 | `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
-| `filter.failsTokenEfficiency(string)` | Returns `true` if the string tokenizes too efficiently and looks like natural language rather than a random secret. |
+| `filter.tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
+| `filter.failsTokenEfficiency(string)` | Returns `true` when the generic-secret heuristic identifies readable text using token ratio, wordlist matches, and a length-sensitive threshold. |
+| `filter.setConfidence(level)` | Sets the current finding's `confidence` attribute. Use as `let _ = filter.setConfidence(level);`. |
+
+Use `filter.tokenRatio` when a rule needs an explicit threshold without the
+generic heuristic's wordlist check. For example, this skips low-entropy or
+readable-looking candidates:
+
+```expr
+filter.entropy(finding["secret"]) < 3.0 ||
+filter.tokenRatio(finding["secret"]) >= 2.5
+```
 
 Example:
 
 ```toml
 filter = '''
 (
-    filter.matchesAny(get(attributes, "git.author_name", ""), [`\[bot\]$`]) &&
-    filter.matchesAny(get(attributes, "path", ""), [`^tests/fixtures/`]) &&
+    filter.matchesAny(attributes["git.author_name"], [`\[bot\]$`]) &&
+    filter.matchesAny(attributes["path"], [`^tests/fixtures/`]) &&
     filter.containsAny(finding["secret"], ["_MOCK_", "_TEST_"])
 )
 ||
 (
-    filter.matchesAny(get(attributes, "path", ""), [`(?i)\.(?:md|txt|csv)$`]) &&
+    filter.matchesAny(attributes["path"], [`(?i)\.(?:md|txt|csv)$`]) &&
     (
         filter.containsAny(finding["line"], ["Example:", "Placeholder:", "Replace this with"]) ||
         finding["secret"] == "SUPER_SECRET_EXAMPLE_KEY_12345"
@@ -124,6 +138,23 @@ filter = '''
 )
 '''
 ```
+
+Rules may set a default confidence and broad rules may refine it in their
+filter:
+
+```toml
+[[rules]]
+id = "generic-api-key"
+confidence = "low"
+filter = '''
+let level = filter.matchesAny(finding["line"], [`(?i)\b[a-z0-9]+[_.-]+token\b`]) ? "medium" : "low";
+let _ = filter.setConfidence(level);
+false
+'''
+```
+
+`--confidence low|medium|high` keeps findings at or above that level. Findings
+without a recognized confidence attribute remain included.
 
 ## Validation
 
@@ -279,10 +310,23 @@ before and after, `100C` allows 100 characters on either side, and signs make a
 boundary directional (for example, `-2L,+4C`). When `within` is omitted, the
 component only needs to occur in the same fragment.
 
-Matched components are available to validation expressions by referenced rule
-ID, for example `captures["account-id"]`. An unmatched optional component is
-omitted from `captures`, so use a safe lookup such as
-`get(captures, "session-token", "")`.
+Validation receives primary captures and matched components in this canonical
+shape:
+
+```expr
+finding["captures"]                         // primary rule named capture groups
+components["account-id"]?.secret            // component's selected secret
+components["account-id"]?.captures?.id       // component named capture group
+```
+
+Use `?.` when a component or nested field may be absent, and `??` to select a
+fallback. An optional component that is not found has no entry in `components`:
+
+```expr
+let account = components["account-id"]?.secret ?? "";
+let session = components["session-token"]?.secret ?? "";
+let region = components["account-id"]?.captures?.region ?? "";
+```
 
 The older `[[rules.required]]` syntax is deprecated and treated as required
 components when `components` is absent. Its `withinLines` and `withinColumns`
@@ -371,7 +415,7 @@ let r = http.post(
     "]" +
   "}"
 );
-let content = getPath(r.json, "choices.0.message.content", "");
+let content = r.json?.choices?.[0]?.message?.content ?? "";
 r.status == 200 && r.body contains "VERDICT_SECRET" ? {
   "result": "needs_validation",
   "justification": content
@@ -388,8 +432,9 @@ Project-owned Expr functions use short lower-case namespaces with camelCase
 function names. Examples: `http.get`, `crypto.hmacSha256`,
 `filter.matchesAny`, `env.getOrDefault`, and `validate.unknown`.
 
-Data keys stay snake_case. This includes capture keys, attribute keys, finding
-keys, and response map keys such as `error_code`.
+Project-owned data keys stay snake_case. This includes attribute keys, finding
+keys, and response map keys such as `error_code`. Capture names and component
+rule IDs are user-defined and are preserved exactly as map keys.
 
 ## Adding an Expr binding
 

@@ -10,6 +10,7 @@ func AnthropicApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "anthropic-api-key",
+		Confidence:  "high",
 		Description: "Identified an Anthropic API Key, which may compromise AI assistant integrations and expose sensitive data to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-ant-api03-[a-zA-Z0-9_\-]{93}AA`, false),
 		Keywords: []string{
@@ -50,6 +51,7 @@ func AnthropicAdminApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "anthropic-admin-api-key",
+		Confidence:  "high",
 		Description: "Detected an Anthropic Admin API Key, risking unauthorized access to administrative functions and sensitive AI model configurations.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-ant-admin01-[a-zA-Z0-9_\-]{93}AA`, false),
 		Keywords: []string{

@@ -9,6 +9,7 @@ import (
 func Cerebras() *config.Rule {
 	r := config.Rule{
 		RuleID:      "cerebras-api-key",
+		Confidence:  "high",
 		Description: "Identified a Cerebras AI API Key, which may expose AI inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`csk-[a-z0-9]{48}`, true),
 		Keywords:    []string{"csk-"},

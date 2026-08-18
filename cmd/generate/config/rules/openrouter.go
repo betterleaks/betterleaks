@@ -9,6 +9,7 @@ import (
 func OpenRouter() *config.Rule {
 	r := config.Rule{
 		RuleID:      "openrouter-api-key",
+		Confidence:  "high",
 		Description: "Detected an OpenRouter API Key, which may expose access to multiple AI models through the OpenRouter gateway.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-or-v1-[0-9a-f]{64}`, true),
 		Keywords:    []string{"sk-or-v1-"},

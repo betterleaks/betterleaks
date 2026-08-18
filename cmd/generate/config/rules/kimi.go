@@ -9,6 +9,7 @@ import (
 func KimiAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "kimi-api-key",
+		Confidence:  "high",
 		Description: "Detected a Kimi API key, which may expose Moonshot AI model access and usage to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"kimi", "moonshot"}, `sk-[A-Za-z0-9_-]{48}`, true),
 		Keywords:    []string{"kimi", "moonshot"},

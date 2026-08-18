@@ -22,6 +22,7 @@ func KubernetesSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "kubernetes-secret-yaml",
+		Confidence:  "high",
 		Description: "Possible Kubernetes Secret detected, posing a risk of leaking credentials/tokens from your deployments",
 		Regex: regexp.MustCompile(fmt.Sprintf(
 			//language=regexp

@@ -32,7 +32,7 @@ func TestAzureValidateStorageExprBindingValid(t *testing.T) {
 	}
 	env.AzureStorageEndpoint = ts.URL + "/?comp=list"
 
-	prg, err := env.CompileValidation(`let r = azure.validateStorage(captures["account"], finding["secret"]); r.status == 200 ? {
+	prg, err := env.CompileValidation(`let r = azure.validateStorage((components["account"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
   "account": r.account,
   "containers": r.containers
@@ -40,7 +40,9 @@ func TestAzureValidateStorageExprBindingValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	got, err := env.Eval(prg, map[string]string{"secret": testAzureKey}, map[string]string{"account": "acct"})
+	got, err := env.EvalWithComponents(prg, map[string]string{"secret": testAzureKey}, nil, map[string]any{
+		"account": map[string]any{"secret": "acct"},
+	})
 	if err != nil {
 		t.Fatalf("eval: %v", err)
 	}
@@ -75,14 +77,17 @@ func TestAzureValidateServicePrincipalInvalid(t *testing.T) {
 	}
 	env.AzureTokenEndpoint = ts.URL
 
-	prg, err := env.CompileValidation(`let r = azure.validateServicePrincipal(captures["tenant"], captures["client"], finding["secret"]); r.status in [400, 401, 403] ? {
+	prg, err := env.CompileValidation(`let r = azure.validateServicePrincipal((components["tenant"]?.secret ?? ""), (components["client"]?.secret ?? ""), finding["secret"]); r.status in [400, 401, 403] ? {
   "result": "invalid",
   "error_code": r.error_code
 } : validate.unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	got, err := env.Eval(prg, map[string]string{"secret": "client-secret"}, map[string]string{"tenant": "tenant.example", "client": "client-id"})
+	got, err := env.EvalWithComponents(prg, map[string]string{"secret": "client-secret"}, nil, map[string]any{
+		"tenant": map[string]any{"secret": "tenant.example"},
+		"client": map[string]any{"secret": "client-id"},
+	})
 	if err != nil {
 		t.Fatalf("eval: %v", err)
 	}
@@ -115,7 +120,11 @@ func TestAzureValidateAppConfigValid(t *testing.T) {
 	}
 	env.AzureAppConfigEndpoint = ts.URL + "/custom-kv?api-version=test"
 
-	prg, err := env.CompileValidation(`let r = azure.validateAppConfig(captures["endpoint"], captures["id"], finding["secret"]); r.status == 200 ? {
+	prg, err := env.CompileValidation(`let r = azure.validateAppConfig(
+  finding["captures"]?.endpoint ?? "",
+  finding["captures"]?.id ?? "",
+  finding["secret"]
+); r.status == 200 ? {
   "result": "valid",
   "id": r.id
 } : validate.unknown(r)`)

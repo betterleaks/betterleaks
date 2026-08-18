@@ -42,6 +42,16 @@ func TestCELCompatEval(t *testing.T) {
 			want: "zed",
 		},
 		{
+			name: "optional array access",
+			expr: `cel.bind(r, {"json": {"data": [{"name": "zed"}]}}, r.json.?data[0].?name.orValue(""))`,
+			want: "zed",
+		},
+		{
+			name: "optional array fallback",
+			expr: `cel.bind(r, {"json": {}}, r.json.?data[0].?name.orValue("missing"))`,
+			want: "missing",
+		},
+		{
 			name:     "hmac with decoded capture",
 			expr:     `size(crypto.hmac_sha256(base64.decode(captures["secret"]), bytes("msg")))`,
 			captures: map[string]string{"secret": "a2V5"},

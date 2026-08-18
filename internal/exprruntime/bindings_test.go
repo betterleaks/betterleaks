@@ -246,3 +246,32 @@ func TestEvalValidationDebugMetadata(t *testing.T) {
 		t.Fatalf("resp_body = %#v", withDebug.Debug["resp_body"])
 	}
 }
+
+func TestOptionalComponentAccess(t *testing.T) {
+	runtime, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	program, err := runtime.CompileValidation(`components["tenant-id"]?.secret ?? "missing"`)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	got, err := runtime.EvalWithComponents(program, nil, nil, map[string]any{
+		"tenant-id": map[string]any{"secret": "tenant-secret"},
+	})
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	if got != "tenant-secret" {
+		t.Fatalf("component secret = %#v, want tenant-secret", got)
+	}
+
+	got, err = runtime.EvalWithComponents(program, nil, nil, map[string]any{})
+	if err != nil {
+		t.Fatalf("eval missing component: %v", err)
+	}
+	if got != "missing" {
+		t.Fatalf("missing component secret = %#v, want missing", got)
+	}
+}

@@ -29,7 +29,7 @@ func RewriteCELCompat(input string) (string, error) {
 	}
 
 	out = celRawStringRe.ReplaceAllString(out, "`$1`")
-	out = celOptArrayRe.ReplaceAllString(out, `getPath($1, "$2.$3.$4", $5)`)
+	out = celOptArrayRe.ReplaceAllString(out, `($1?.$2?.[$3]?.$4 ?? $5)`)
 	out = celOptIndexRe.ReplaceAllString(out, `["$1"]`)
 	out = celOptionalRe.ReplaceAllString(out, `?.$1`)
 	for {

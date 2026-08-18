@@ -143,13 +143,13 @@ func shannonEntropy(data string) (entropy float64) {
 
 // filter will dedupe and redact findings
 func filter(findings []report.Finding) []report.Finding {
-	// Collect every component finding's (line, secret) so we can suppress
-	// standalone duplicates that are already surfaced as components.
+	// Collect every component finding's (rule, line, secret) identity so the
+	// corresponding top-level finding can be suppressed.
 	componentSet := make(map[string]struct{})
 	for _, f := range findings {
 		for _, set := range f.ComponentSets {
 			for _, comp := range set.Components {
-				componentSet[fmt.Sprintf("%d:%s", comp.StartLine, comp.Secret)] = struct{}{}
+				componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", comp.RuleID, comp.StartLine, comp.StartColumn, comp.EndLine, comp.EndColumn, comp.Secret)] = struct{}{}
 			}
 		}
 	}
@@ -158,9 +158,10 @@ func filter(findings []report.Finding) []report.Finding {
 	for _, f := range findings {
 		include := true
 
-		// Skip findings that are already surfaced as a component
-		// of another (composite) finding in this batch.
-		if _, isComponent := componentSet[fmt.Sprintf("%d:%s", f.StartLine, f.Secret)]; isComponent {
+		// Skip findings already surfaced as the same rule's component of a
+		// composite finding in this batch.
+		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.StartLine, f.StartColumn, f.EndLine, f.EndColumn, f.Secret)]
+		if isComponent {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 			logging.Trace().Msgf("skipping %s finding (%s), already a component of another finding", f.RuleID, redactedMatch)
 			include = false
@@ -189,7 +190,8 @@ func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.
 		}
 		for _, set := range fPrime.ComponentSets {
 			for _, comp := range set.Components {
-				if f.StartLine == comp.StartLine &&
+				if f.RuleID != fPrime.RuleID &&
+					f.StartLine == comp.StartLine &&
 					f.RuleID != comp.RuleID &&
 					strings.Contains(comp.Secret, f.Secret) &&
 					comp.RuleSpecificity > f.RuleSpecificity {
@@ -228,24 +230,6 @@ func stripEmptyMeta(m map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-// findNewlineIndices returns the start indices of all newlines in s.
-// This replaces the previous regex-based approach which was expensive
-// when using go-re2 (WASM overhead for a literal \n search).
-func findNewlineIndices(s string) [][]int {
-	indices := make([][]int, 0, strings.Count(s, "\n"))
-	offset := 0
-	for {
-		i := strings.IndexByte(s[offset:], '\n')
-		if i == -1 {
-			break
-		}
-		idx := offset + i
-		indices = append(indices, []int{idx, idx + 1})
-		offset = idx + 1
-	}
-	return indices
 }
 
 // containsAllowSignature checks if the line contains any of the allow signatures

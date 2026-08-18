@@ -10,6 +10,7 @@ func LinkedinClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "linkedin-client-id",
+		Confidence:  "medium",
 		Description: "Found a LinkedIn Client ID, risking unauthorized access to LinkedIn integrations and professional data exposure.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"linked[_-]?in"}, utils.AlphaNumeric("14"), true),
 		Keywords: []string{
@@ -17,11 +18,11 @@ func LinkedinClientID() *config.Rule {
 			"linked_in",
 			"linked-in",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter: utils.MinEntropyAndTokenEfficiency,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("14"), 2))
+	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("14"), 3))
 	return utils.Validate(r, tps, nil)
 }
 
@@ -29,6 +30,7 @@ func LinkedinClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "linkedin-client-secret",
+		Confidence:  "medium",
 		Description: "Discovered a LinkedIn Client secret, potentially compromising LinkedIn application integrations and user data.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
 			"linked[_-]?in",
@@ -38,10 +40,10 @@ func LinkedinClientSecret() *config.Rule {
 			"linked_in",
 			"linked-in",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter: utils.MinEntropyAndTokenEfficiency,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 2))
+	tps := utils.GenerateSampleSecrets("linkedin", secrets.NewSecretWithEntropy(utils.AlphaNumeric("16"), 3))
 	return utils.Validate(r, tps, nil)
 }

@@ -10,6 +10,7 @@ func PlivoAuthID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "plivo-auth-id",
+		Confidence:  "high",
 		Description: "Plivo Auth ID, used as a component of the Plivo Auth Token composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`plivo(?:[_. -]*(?:auth|account))?[_. -]*(?:id|sid)`},
@@ -18,7 +19,7 @@ func PlivoAuthID() *config.Rule {
 		),
 		Keywords:   []string{"plivo"},
 		SkipReport: true,
-		Filter:     utils.MinEntropy(2.8),
+		Filter:     `filter.entropy(finding["secret"]) < 2.8 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -36,6 +37,7 @@ func PlivoAuthToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "plivo-auth-token",
+		Confidence:  "high",
 		Description: "Plivo Auth Token.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`plivo(?:[_. -]*(?:auth))?[_. -]*(?:secret|token|key)`},
@@ -46,7 +48,7 @@ func PlivoAuthToken() *config.Rule {
 		Components: []*config.Component{
 			{RuleID: "plivo-auth-id"},
 		},
-		ValidateExpr: `let authID = captures["plivo-auth-id"];
+		ValidateExpr: `let authID = (components["plivo-auth-id"]?.secret ?? "");
 let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
   "Authorization": "Basic " + base64.encode(bytes(authID + ":" + finding["secret"])),
   "Accept": "application/json"
@@ -59,7 +61,7 @@ let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
   "result": "invalid",
   "reason": "Unauthorized"
 } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

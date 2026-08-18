@@ -9,10 +9,11 @@ import (
 func Civo() *config.Rule {
 	r := config.Rule{
 		RuleID:      "civo-api-key",
+		Confidence:  "high",
 		Description: "Detected a Civo Cloud API key, which may expose Kubernetes clusters and compute resources to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"civo"}, utils.AlphaNumeric("50"), true),
 		Keywords:    []string{"civo"},
-		Entropy:     3.5,
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://api.civo.com/v2/instances", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {

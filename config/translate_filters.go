@@ -104,12 +104,12 @@ func translateAllowlist(a *Allowlist) (prefilterParts, filterParts []string) {
 		}
 		list := exprRegexList(patterns)
 		pathParts = append(pathParts,
-			fmt.Sprintf(`matchesAny(get(attributes, "path", ""), %s)`, list))
+			fmt.Sprintf(`matchesAny(attributes["path"], %s)`, list))
 	}
 
 	// Collect commit expressions (prefilter-level).
 	if len(a.Commits) > 0 {
-		commitParts = append(commitParts, fmt.Sprintf(`get(attributes, "git.sha", "") in %s`, exprStringList(a.Commits)))
+		commitParts = append(commitParts, fmt.Sprintf(`attributes["git.sha"] in %s`, exprStringList(a.Commits)))
 	}
 
 	// Collect regex expressions (filter-level).

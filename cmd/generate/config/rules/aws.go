@@ -11,6 +11,7 @@ func AWS() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "aws-access-token",
+		Confidence:  "high",
 		Description: "Identified an AWS access key ID paired with a secret access key, which together can provide full access to AWS services.",
 		Regex:       regexp.MustCompile(`\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b`),
 		Keywords: []string{
@@ -27,7 +28,7 @@ func AWS() *config.Rule {
 				Within: "5L",
 			},
 		},
-		ValidateExpr: `let r = aws.validate(finding["secret"], captures["aws-secret-access-key"]); r.status == 200 ? {
+		ValidateExpr: `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
     "result": "valid",
     "arn": r.arn,
     "account": r.account,
@@ -65,6 +66,7 @@ func AWS() *config.Rule {
 func AWSSecretAccessKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "aws-secret-access-key",
+		Confidence:  "medium",
 		Description: "Identified an AWS secret access key, used as a component of the aws-access-token composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{"secret", "access", "key", "token"},
@@ -88,6 +90,7 @@ func AmazonBedrockAPIKeyLongLived() *config.Rule {
 	// https://medium.com/@adan.alvarez/api-keys-for-bedrock-a-brief-security-overview-2133ed9a2b3f
 	r := config.Rule{
 		RuleID:      "aws-amazon-bedrock-api-key-long-lived",
+		Confidence:  "high",
 		Description: "Identified a pattern that may indicate long-lived Amazon Bedrock API keys, risking unauthorized Amazon Bedrock usage",
 		Regex:       utils.GenerateUniqueTokenRegex(`ABSK[A-Za-z0-9+/]{109,269}={0,2}`, false),
 		Keywords: []string{
@@ -122,6 +125,7 @@ func AmazonBedrockAPIKeyShortLived() *config.Rule {
 	// https://github.com/aws/aws-bedrock-token-generator-js/blob/86277e1489354192c64ffc8f995601daacc1f715/src/token.ts#L21
 	r := config.Rule{
 		RuleID:      "aws-amazon-bedrock-api-key-short-lived",
+		Confidence:  "high",
 		Description: "Identified a pattern that may indicate short-lived Amazon Bedrock API keys, risking unauthorized Amazon Bedrock usage",
 		Regex:       regexp.MustCompile(`bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t`),
 		Keywords: []string{

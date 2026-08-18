@@ -40,7 +40,10 @@ func TestRedact_ComponentSets(t *testing.T) {
 		ComponentSets: []ComponentSet{
 			{
 				Components: []*ComponentFinding{
-					{RuleID: "rule-a", Secret: "comp-secret-1", Match: "match comp-secret-1 here"},
+					{
+						RuleID: "rule-a", Secret: "comp-secret-1", Line: "line comp-secret-1 here", Match: "match comp-secret-1 here",
+						CaptureGroups: map[string]string{"token": "comp-secret-1", "label": "safe"},
+					},
 					{RuleID: "rule-b", Secret: "comp-secret-2", Match: "match comp-secret-2 here"},
 				},
 			},
@@ -49,7 +52,10 @@ func TestRedact_ComponentSets(t *testing.T) {
 	f.Redact(100)
 	assert.Equal(t, "REDACTED", f.Secret)
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[0].Secret)
+	assert.Equal(t, "line REDACTED here", f.ComponentSets[0].Components[0].Line)
 	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[0].Match)
+	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[0].CaptureGroups["token"])
+	assert.Equal(t, "safe", f.ComponentSets[0].Components[0].CaptureGroups["label"])
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[1].Secret)
 	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[1].Match)
 }
@@ -57,7 +63,10 @@ func TestRedact_ComponentSets(t *testing.T) {
 func TestRedact_SharedPointerDedup(t *testing.T) {
 	// When the same ComponentFinding pointer appears in multiple sets (Cartesian product),
 	// partial redaction (percent < 100) must only mask the secret once.
-	shared := &ComponentFinding{RuleID: "rule-a", Secret: "abcdefghij", Match: "found abcdefghij here"}
+	shared := &ComponentFinding{
+		RuleID: "rule-a", Secret: "abcdefghij", Line: "line abcdefghij here", Match: "found abcdefghij here",
+		CaptureGroups: map[string]string{"token": "abcdefghij"},
+	}
 	f := Finding{
 		Match:  "primary",
 		Secret: "primary",
@@ -69,7 +78,9 @@ func TestRedact_SharedPointerDedup(t *testing.T) {
 	f.Redact(75)
 	// 75% mask on 10-char secret: RoundToEven(10 * 25/100) = 2 chars kept → "ab..."
 	assert.Equal(t, "ab...", shared.Secret)
+	assert.Equal(t, "line ab... here", shared.Line)
 	assert.Equal(t, "found ab... here", shared.Match)
+	assert.Equal(t, "ab...", shared.CaptureGroups["token"])
 }
 
 func TestMask(t *testing.T) {

@@ -1,7 +1,7 @@
 # This file has been auto-generated. Do not edit manually.
 # If you would like to contribute new rules, please use
 # cmd/generate/config/main.go and follow the contributing guidelines
-# at https://github.com/betterleaks/betterleaks/blob/master/CONTRIBUTING.md
+# at https://github.com/betterleaks/betterleaks/blob/main/.github/CONTRIBUTING.md
 #
 # How the hell does secret scanning work? Read this:
 #   https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need
@@ -17,7 +17,7 @@ title = "{{.Title}}"
 # betterleaksMinVersion indicates the minimum betterleaks version required.
 # If the running version is older, a warning will be logged.
 minVersion = "v8.25.0"
-betterleaksMinVersion = "v1.7.0"
+betterleaksMinVersion = "v1.8.0"
 
 {{ with .Prefilter }}
 prefilter = {{ tomlExpr . }}
@@ -37,7 +37,12 @@ path = '''{{ . }}'''{{ end -}}
 {{- with $rule.SecretGroup }}
 secretGroup = {{ . }}{{ end -}}
 {{- if eq $rule.RuleID "generic-api-key" }}
-specificity = 0{{ end -}}
+specificity = 0
+{{- else if $rule.Specificity }}
+specificity = {{ $rule.Specificity }}
+{{- end -}}
+{{- with $rule.Confidence }}
+confidence = "{{ . }}"{{ end -}}
 {{- with $rule.Keywords }}
 {{- if gt (len .) 1}}
 keywords = [{{ range $j, $keyword := . }}

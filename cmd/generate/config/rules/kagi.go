@@ -8,6 +8,7 @@ import (
 func KagiAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "kagi-api-key",
+		Confidence:  "high",
 		Description: "Detected a Kagi API key, which may expose Kagi API usage.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"kagi"}, utils.AlphaNumericExtendedShort("11")+`\.`+utils.AlphaNumericExtendedShort("43"), true),
 		Keywords:    []string{"kagi"},

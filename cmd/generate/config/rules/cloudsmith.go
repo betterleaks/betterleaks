@@ -8,6 +8,7 @@ import (
 func CloudsmithAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "cloudsmith-api-key",
+		Confidence:  "high",
 		Description: "Detected a Cloudsmith API key, which may expose package repositories and artifact management operations to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`csa_[a-f0-9]{30}[A-Za-z0-9]{6}`, false),
 		Keywords:    []string{"csa_"},

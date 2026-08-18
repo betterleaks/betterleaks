@@ -11,6 +11,7 @@ func TableauPersonalAccessTokenName() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "tableau-personal-access-token-name.1",
+		Confidence:  "high",
 		Description: "Tableau personal access-token name, used as a component of the token rule.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{`tableau(?:[_. -]*(?:personal[_. -]*access|pat))?[_. -]*(?:token[_. -]*)?name`},
@@ -37,6 +38,7 @@ func TableauServerHost() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "tableau-server-host.1",
+		Confidence:  "high",
 		Description: "Tableau Online server host, used as a component of the personal access-token rule.",
 		Regex:       regexp.MustCompile(`(?i)\b([a-z0-9-]+\.online\.tableau\.com)\b`),
 		Keywords:    []string{"online.tableau.com"},
@@ -58,6 +60,7 @@ func TableauPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "tableau-personal-access-token.1",
+		Confidence:  "high",
 		Description: "Tableau personal access token.",
 		Regex:       regexp.MustCompile(`\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`),
 		Keywords:    []string{"tableau"},
@@ -65,10 +68,10 @@ func TableauPersonalAccessToken() *config.Rule {
 			{RuleID: "tableau-personal-access-token-name.1", Within: "20L"},
 			{RuleID: "tableau-server-host.1", Within: "20L"},
 		},
-		ValidateExpr: `let r = http.post("https://" + captures["tableau-server-host.1"] + "/api/3.26/auth/signin", {
+		ValidateExpr: `let r = http.post("https://" + (components["tableau-server-host.1"]?.secret ?? "") + "/api/3.26/auth/signin", {
     "Content-Type": "application/json",
     "Accept": "application/json"
-  }, "{\"credentials\":{\"personalAccessTokenName\":\"" + captures["tableau-personal-access-token-name.1"]
+  }, "{\"credentials\":{\"personalAccessTokenName\":\"" + (components["tableau-personal-access-token-name.1"]?.secret ?? "")
     + "\",\"personalAccessTokenSecret\":\"" + finding["secret"] + "\",\"site\":{}}}");
   r.status == 200 && (r.json?.credentials?.token ?? "") != "" ? {
     "result": "valid"

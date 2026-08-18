@@ -239,6 +239,7 @@ func main() {
 		rules.GitlabFeatureFlagClientToken(),
 		rules.GitlabFeedToken(),
 		rules.GitlabIncomingMailToken(),
+		rules.GitlabIncomingMailAddressToken(),
 		rules.GitlabKubernetesAgentToken(),
 		rules.GitlabOauthAppSecret(),
 		rules.GitlabPat(),
@@ -489,6 +490,9 @@ func main() {
 		rules.ZAIAPIKey(),
 		rules.ZendeskSecretKey(),
 		rules.ZuploConsumerAPIKey(),
+		rules.GenericCredentialURI(),
+		rules.GenericUsername(),
+		rules.GenericPassword(),
 		rules.GenericCredential(),
 		rules.InfracostAPIToken(),
 	}

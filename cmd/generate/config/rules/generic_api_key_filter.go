@@ -16,7 +16,7 @@ func buildGenericAPIKeyFilter() string {
   ` + "`--mount=type=secret,`" + `,
   ` + "`import[ \\t]+{[ \\t\\w,]+}[ \\t]+from[ \\t]+['\"][^'\"]+['\"]`" + `
 ])
-|| (matchesAny(get(attributes, "path", ""), [
+|| (matchesAny(attributes["path"], [
   ` + "`\\.bb$`" + `,
   ` + "`\\.bbappend$`" + `,
   ` + "`\\.bbclass$`" + `,
@@ -61,6 +61,7 @@ var testAndPublicAPIFilters = []testAndPublicAPIFilter{
 	{regex: `public-token-test-` + uuidHex},                             // Stytch Public Test Token
 	{regex: `public-token-live-` + uuidHex},                             // Stytch Public Live Token
 	{regex: `pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}`}, // Paddle Sandbox API Key
+	{regex: `8c6803164dbc395fb7131c9d54843627`},                         // Flickr API key in Dojo Toolkit (deactivated)
 	// Regex + Keyword
 	{`pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe", "woo", "wcm"}}, // Stripe and WooCommerce Sandbox Publishable Key
 	{`rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe"}},               // Stripe Sandbox Restricted Key

@@ -12,6 +12,7 @@ import (
 func AzureTenantID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "azure-tenant-id",
+		Confidence:  "medium",
 		Description: "Detected an Azure tenant ID, used as a component of Azure service principal validation.",
 		Regex:       regexp.MustCompile(`(?i)\b(?:tenant[_\s.-]*(?:id)?|AZURE_TENANT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`),
 		Keywords:    []string{"tenant"},
@@ -24,6 +25,7 @@ func AzureTenantID() *config.Rule {
 func AzureClientID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "azure-client-id",
+		Confidence:  "medium",
 		Description: "Detected an Azure client ID, used as a component of Azure service principal validation.",
 		Regex:       regexp.MustCompile(`(?i)\b(?:client[_\s.-]*id|AZURE_CLIENT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`),
 		Keywords:    []string{"client"},
@@ -40,6 +42,7 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "azure-ad-client-secret",
+		Confidence:  "high",
 		Description: "Azure AD Client Secret",
 		// After inspecting dozens of secrets, I'm fairly confident that they start with `xxx\dQ~`.
 		// However, this may not be (entirely) true, and this rule might need to be further refined in the future.
@@ -55,7 +58,7 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 			{RuleID: "azure-tenant-id", Within: "8L"},
 			{RuleID: "azure-client-id", Within: "8L"},
 		},
-		ValidateExpr: `let r = azure.validateServicePrincipal(captures["azure-tenant-id"], captures["azure-client-id"], finding["secret"]); r.status == 200 ? {
+		ValidateExpr: `let r = azure.validateServicePrincipal((components["azure-tenant-id"]?.secret ?? ""), (components["azure-client-id"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
   "tenant_id": r.tenant_id,
   "client_id": r.client_id
@@ -100,6 +103,7 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 func AzureStorageAccountName() *config.Rule {
 	r := config.Rule{
 		RuleID:      "azure-storage-account-name",
+		Confidence:  "medium",
 		Description: "Detected an Azure Storage account name, used as a component of Azure Storage key validation.",
 		Regex:       regexp.MustCompile(`(?i)(?:\bAccountName\s*=\s*([a-z0-9]{3,24})\b|https://([a-z0-9]{3,24})\.blob\.core\.windows\.net\b|\b(?:azure[_\s.-]*storage[_\s.-]*(?:account[_\s.-]*)?name|storage[_\s.-]*account[_\s.-]*name)\b(?s:.{0,24}?)([a-z0-9]{3,24})\b)`),
 		Keywords:    []string{"AccountName", "blob.core.windows.net", "storage"},
@@ -117,13 +121,14 @@ func AzureStorageAccountName() *config.Rule {
 func AzureStorageAccountKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "azure-storage-account-key",
+		Confidence:  "high",
 		Description: "Detected an Azure Storage account key.",
 		Regex:       regexp.MustCompile(`(?i)\b(?:AccountKey|(?:azure[_\s.-]*)?(?:storage[_\s.-]*)?(?:account[_\s.-]*)?(?:access[_\s.-]*)?key)\b(?s:.{0,24}?)([A-Za-z0-9+/]{86}==)`),
 		Keywords:    []string{"AccountKey", "storage", "key"},
 		Components: []*config.Component{
 			{RuleID: "azure-storage-account-name", Within: "8L"},
 		},
-		ValidateExpr: `let r = azure.validateStorage(captures["azure-storage-account-name"], finding["secret"]); r.status == 200 ? {
+		ValidateExpr: `let r = azure.validateStorage((components["azure-storage-account-name"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
   "account": r.account,
   "containers": r.containers
@@ -141,11 +146,16 @@ func AzureStorageAccountKey() *config.Rule {
 func AzureAppConfigurationConnectionString() *config.Rule {
 	r := config.Rule{
 		RuleID:      "azure-app-configuration-connection-string",
+		Confidence:  "high",
 		Description: "Detected an Azure App Configuration connection string.",
 		Regex:       regexp.MustCompile(`(?i)Endpoint=(?P<azure_appconfig_endpoint>https://[a-z0-9-]+\.azconfig\.io);Id=(?P<azure_appconfig_id>[^;\s'"]{4,80});Secret=([A-Za-z0-9+/]{36,100}={0,2})`),
 		SecretGroup: 3,
 		Keywords:    []string{"azconfig.io", "Endpoint=", "Secret="},
-		ValidateExpr: `let r = azure.validateAppConfig(captures["azure_appconfig_endpoint"], captures["azure_appconfig_id"], finding["secret"]); r.status == 200 ? {
+		ValidateExpr: `let r = azure.validateAppConfig(
+  finding["captures"]?.azure_appconfig_endpoint ?? "",
+  finding["captures"]?.azure_appconfig_id ?? "",
+  finding["secret"]
+); r.status == 200 ? {
   "result": "valid",
   "endpoint": r.endpoint,
   "id": r.id
@@ -165,6 +175,7 @@ func AzureAppConfigurationConnectionString() *config.Rule {
 func AzureServiceBusConnectionString() *config.Rule {
 	r := config.Rule{
 		RuleID:      "azure-servicebus-connection-string",
+		Confidence:  "high",
 		Description: "Detected an Azure Service Bus or Event Hub shared access connection string.",
 		Regex:       regexp.MustCompile(`(?i)(Endpoint=sb://[a-z0-9-]+\.servicebus\.windows\.net/;SharedAccessKeyName=[^;=\s'"]{1,128};SharedAccessKey=[A-Za-z0-9+/]{32,100}={0,2}(?:;EntityPath=[^;\s'"]{1,128})?)`),
 		Keywords:    []string{"Endpoint=sb://", "SharedAccessKey"},

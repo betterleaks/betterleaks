@@ -11,6 +11,7 @@ func Authress() *config.Rule {
 	// (Note: When changes are made to this, rerun `go generate ./...` and commit the config/gitleaks.toml file
 	r := config.Rule{
 		RuleID:      "authress-service-client-access-key",
+		Confidence:  "high",
 		Description: "Uncovered a possible Authress Service Client Access Key, which may compromise access control services and sensitive data.",
 		Regex:       regexp.MustCompile(`(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b`),
 		// The `.acc_`/`.acc-` segment is required by the regex and is far

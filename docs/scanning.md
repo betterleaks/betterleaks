@@ -687,7 +687,10 @@ some-command | betterleaks stdin --report-path - --report-format json
 betterleaks dir . --config .betterleaks.toml
 
 # only run selected rules
-betterleaks git . --enable-rule github-pat --enable-rule aws-access-key
+betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-key
+
+# disable selected rules
+betterleaks git . --disable-rule generic-api-key
 
 # use a baseline
 betterleaks git . --baseline-path findings.json
