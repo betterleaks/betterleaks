@@ -13,6 +13,7 @@ Use `--help` for full flag descriptions. This page is for patterns.
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
 | S3 (and S3-compatible: R2, MinIO, etc.) | `betterleaks s3 <url>` |
+| A known credential and rule | `betterleaks validate --rule-id <rule-id>` |
 | Piped content | `betterleaks stdin` |
 
 ---
@@ -525,6 +526,147 @@ betterleaks s3 --workers=4 https://my-bucket.s3.us-east-1.amazonaws.com/
 ```
 
 Objects in `GLACIER`, `GLACIER_IR`, and `DEEP_ARCHIVE` storage classes are skipped before fetching, as are empty objects and directory markers (`key/`).
+
+---
+
+## `validate`
+
+Use `validate` when you already know the credential and the rule that owns it.
+The command evaluates that rule's `validate` expression directly; it does not
+run the rule's regex, filters, or source scanning. This is useful when the
+original source is unavailable or a standalone credential no longer has the
+provider context its detection regex expects.
+
+List the rules in the selected config that support direct validation:
+
+```sh
+betterleaks validate --list
+betterleaks validate --list --report-format jsonl
+```
+
+The list includes required components and named captures. Supply every listed
+capture with `--capture name=value`; validation stops with an input error when
+one is missing rather than reporting the credential as invalid.
+
+Pass a credential on stdin when possible so it is not stored in shell history
+or exposed in the process argument list:
+
+```sh
+printf '%s\n' "$GITHUB_TOKEN" |
+	betterleaks validate --rule-id github-pat
+```
+
+A positional credential is also accepted for interactive use:
+
+```sh
+betterleaks validate --rule-id github-pat 'ghp_...'
+```
+
+When there is no positional credential, `validate` reads piped or redirected
+stdin automatically. The input is always the primary secret and is never
+decoded as a command envelope. This means a JSON credential, such as a GCP
+service account or application-default credential, is passed to its validator
+unchanged.
+
+Multipart credentials must supply each component explicitly with the repeatable
+`--component rule-id=secret` option:
+
+```sh
+printf '%s\n' "$AWS_ACCESS_KEY_ID" |
+	betterleaks validate \
+	--rule-id aws-access-token \
+	--component "aws-secret-access-key=$AWS_SECRET_ACCESS_KEY"
+```
+
+Every non-optional component declared by the rule is required; components
+declared with `optional = true` may be omitted. Repeat `--component` when a rule
+needs more than one component. Use `--capture name=value` when a validation
+expression needs a named regex capture that cannot be reconstructed from the
+credential. A component capture uses `--capture rule-id:name=value`.
+Supplied capture values are treated as sensitive and redacted from validation
+reasons and metadata just like primary and component secrets.
+
+The default output is concise text. Use `--simple` when only the uppercase
+status is needed:
+
+```sh
+printf '%s\n' "$GITHUB_TOKEN" |
+	betterleaks validate --rule-id github-pat --simple
+# VALID
+```
+
+`--simple` can be combined with `--no-color` for machine-readable output and
+cannot be combined with JSONL.
+
+JSONL output uses a versioned credential-report shape. Each invocation emits
+one compact object followed by a newline. Finding attributes are top-level,
+while validation has its own namespace so a future `analysis` object can be
+added alongside it:
+
+```json
+{
+  "schema_version": 1,
+  "rule_id": "github-pat",
+  "attributes": {
+    "path": "betterleaks://validate"
+  },
+  "validation": {
+    "status": "valid",
+    "metadata": {
+      "username": "octocat"
+    }
+  }
+}
+```
+
+Multipart JSONL records use the same component terminology as rule
+configuration and identify optional components explicitly:
+
+```json
+{
+  "schema_version": 1,
+  "rule_id": "example-credential",
+  "validation": {
+    "status": "valid",
+    "component_sets": [
+      {
+        "status": "valid",
+        "components": [
+          {"rule_id": "account-id"},
+          {"rule_id": "region", "optional": true}
+        ]
+      }
+    ]
+  }
+}
+```
+
+```sh
+# JSONL on stdout
+printf '%s\n' "$GITHUB_TOKEN" |
+	betterleaks validate \
+	--rule-id github-pat \
+	--report-format jsonl
+```
+
+`validate` always writes results to stdout and does not support `--report-path`
+or `--report-template`. Output never includes the supplied primary, component,
+or capture values. If a validator returns one in its reason or metadata, the
+matching value is replaced with `[redacted]`. Attributes are sanitized the same
+way. Validation metadata may still contain sensitive identity or account
+information.
+
+`--validation-debug` is not supported by `validate` because raw debug request
+and response bodies can contain transformed credentials or newly issued
+tokens.
+
+`validate` honors the remaining outbound request controls from scan-time validation:
+`--validation-timeout`, `--validation-max-requests`, `--validation-rps`,
+`--validation-rps-rule`, `--validation-env-vars`, and
+`--validation-extract-empty`. A completed validation—including `invalid`,
+`revoked`, `unknown`, or `error`—is a successful command result represented by
+the reported status; input, configuration, I/O, and cancellation failures
+return command errors.
 
 ---
 
