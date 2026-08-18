@@ -887,7 +887,9 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	// Reuse the matches slice from above instead of calling FindAllStringIndex again.
 	for _, matchIndex := range matches {
 		// Extract secret from match
-		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
+		// Clone to release the fragment.Raw string; substring would keep the
+		// whole fragment alive, which uses much more memory.
+		secret := strings.Clone(strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n"))
 		filterMatchStartIdx, filterMatchEndIdx := matchIndex[0], matchIndex[1]
 
 		// For any meta data from decoding
@@ -936,7 +938,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			EndLine:         prevFragmentEndLine + loc.endLine,
 			StartColumn:     loc.startColumn,
 			EndColumn:       loc.endColumn,
-			Line:            fragment.Raw[loc.startLineIndex:loc.endLineIndex],
+			Line:            strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
 			Match:           secret,
 			Secret:          secret,
 			Attributes:      maps.Clone(fragment.Attributes),
@@ -994,7 +996,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			captures := make(map[string]string)
 			for i, name := range names {
 				if i > 0 && name != "" && i < len(groups) && groups[i] != "" {
-					captures[name] = groups[i]
+					captures[name] = strings.Clone(groups[i])
 				}
 			}
 			if len(captures) > 0 {
@@ -1085,7 +1087,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		if !d.MatchContext.IsZero() {
-			finding.MatchContext = contextwindow.Extract(fragment.Raw, matchIndex, d.MatchContext)
+			finding.MatchContext = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, d.MatchContext))
 		}
 		findings = append(findings, finding)
 	}
