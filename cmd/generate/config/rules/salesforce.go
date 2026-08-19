@@ -11,6 +11,7 @@ func SalesforceInstanceURL() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "salesforce-instance-url.1",
+		Confidence:  "high",
 		Description: "Salesforce instance host, used as a component of the Salesforce access-token rule.",
 		Regex: regexp.MustCompile(
 			`(?i)(?:^|[^a-z0-9.-])(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){0,4}\.my\.salesforce\.com|[a-z]{2,8}[0-9]{1,4}\.salesforce\.com))(?:[^a-z0-9.-]|$)`,
@@ -37,6 +38,7 @@ func SalesforceAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "salesforce-access-token.1",
+		Confidence:  "high",
 		Description: "Salesforce access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`00[A-Za-z0-9]{13}![A-Za-z0-9._-]{80,260}`, false),
 		Keywords:    []string{"salesforce.com"},

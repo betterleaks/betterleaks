@@ -9,6 +9,7 @@ import (
 func PostHogProjectAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "posthog-project-api-key",
+		Confidence:  "high",
 		Description: "Detected a PostHog Project API Key, a public write-only token used to send events to a PostHog project.",
 		// "phc_" + a random token. The encoding has changed over time, so the body
 		// length varies across keys still in the wild:
@@ -40,6 +41,7 @@ func PostHogProjectAPIKey() *config.Rule {
 func PostHogPersonalAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "posthog-personal-api-key",
+		Confidence:  "high",
 		Description: "Detected a PostHog Personal API Key, which may expose administrative access to PostHog analytics projects.",
 		// "phx_" + a random token. The encoding has changed over time, so the body
 		// length varies across keys still in the wild:

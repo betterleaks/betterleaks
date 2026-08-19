@@ -10,6 +10,7 @@ func PrivateAIToken() *config.Rule {
 	// https://docs.private-ai.com/reference/latest/operation/metrics_metrics_get/
 	r := config.Rule{
 		RuleID:      "privateai-api-token",
+		Confidence:  "medium",
 		Description: "Identified a PrivateAI Token, posing a risk of unauthorized access to AI services and data manipulation.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"private[_-]?ai"}, `[a-z0-9]{32}`, false),
 		Keywords: []string{
@@ -17,12 +18,12 @@ func PrivateAIToken() *config.Rule {
 			"private_ai",
 			"private-ai",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
 	tps := []string{
-		utils.GenerateSampleSecret("privateai", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3)),
+		utils.GenerateSampleSecret("privateai", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5)),
 	}
 	fps := []string{
 		`const privateaiToken = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";`,

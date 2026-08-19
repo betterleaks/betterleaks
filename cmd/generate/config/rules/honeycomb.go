@@ -8,6 +8,7 @@ import (
 func HoneycombAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "honeycomb-api-key",
+		Confidence:  "medium",
 		Description: "Detected a Honeycomb API key, which may expose Honeycomb telemetry and environment data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"honeycomb"}, `(?:`+utils.Hex("32")+`|`+utils.AlphaNumeric("22")+`)`, true),
 		Keywords:    []string{"honeycomb"},
@@ -20,7 +21,7 @@ func HoneycombAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

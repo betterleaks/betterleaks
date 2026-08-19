@@ -10,6 +10,7 @@ func ProofFullAccessAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "proof-full-access-api-key",
+		Confidence:  "high",
 		Description: "Proof production full-access API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`prf_(?:cli_)?[A-Za-z0-9_-]{20,80}`, false),
 		Keywords:    []string{"prf_"},

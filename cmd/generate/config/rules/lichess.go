@@ -10,6 +10,7 @@ func LichessPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "lichess-personal-access-token",
+		Confidence:  "high",
 		Description: "Lichess personal access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`lip_[A-Za-z0-9_]{16,60}`, false),
 		Keywords:    []string{"lip_"},

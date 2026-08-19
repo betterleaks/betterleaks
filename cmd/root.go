@@ -15,6 +15,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
+	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
@@ -30,6 +31,10 @@ var banner = fmt.Sprintf(`
 
 `, version.Version)
 
+func confidenceFlag(cmd *cobra.Command) (string, error) {
+	return confidence.Parse(mustGetStringFlag(cmd, "confidence"))
+}
+
 const configDescription = `config file path
 order of precedence:
 1. --config/-c
@@ -44,6 +49,9 @@ var (
 		Short:   "Betterleaks scans code, past or present, for secrets",
 		Version: version.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := confidenceFlag(cmd); err != nil {
+				return err
+			}
 			// Set the timeout for all the commands
 			if timeout, err := cmd.Flags().GetInt("timeout"); err != nil {
 				return err
@@ -73,19 +81,22 @@ func init() {
 	rootCmd.PersistentFlags().StringP("config", "c", "", configDescription)
 	rootCmd.PersistentFlags().Int("exit-code", 1, "exit code when leaks have been encountered")
 	rootCmd.PersistentFlags().StringP("report-path", "r", "", "report file (use \"-\" for stdout)")
-	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template)")
+	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
 	rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
 	rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
+	rootCmd.PersistentFlags().String("confidence", "", "minimum confidence to include (low, medium, high)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "show verbose output from scan")
 	rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
-	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color for verbose output")
+	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color in terminal output")
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
 	rootCmd.PersistentFlags().BoolP("ignore-gitleaks-allow", "", false, "ignore gitleaks:allow and betterleaks:allow comments")
 	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
 	rootCmd.Flag("redact").NoOptDefVal = "100"
 	rootCmd.PersistentFlags().Bool("no-banner", false, "suppress banner")
 	rootCmd.PersistentFlags().StringSlice("enable-rule", []string{}, "only enable specific rules by id")
+	rootCmd.PersistentFlags().StringSlice("disable-rule", nil, "disable specific rules by id (repeatable; shorthand: -dr)")
+	rootCmd.PersistentFlags().StringSlice("isolate-rule", nil, "only enable specific rules by id (repeatable; shorthand: -ir)")
 	rootCmd.PersistentFlags().StringP("gitleaks-ignore-path", "i", ".", "path to .betterleaksignore or .gitleaksignore file or folder containing one")
 	rootCmd.PersistentFlags().String("match-context", "", "context around match: L (lines), C (columns/characters). e.g. 10L, 100C, -2C,+4C")
 	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
@@ -307,6 +318,9 @@ func initDiagnostics() {
 }
 
 func Execute() {
+	// pflag only supports single-character shorthands. Expand the requested
+	// multi-character aliases before Cobra parses the command line.
+	rootCmd.SetArgs(expandRuleFlagShorthands(os.Args[1:]))
 	if err := rootCmd.Execute(); err != nil {
 		if strings.Contains(err.Error(), "unknown flag") {
 			// exit code 126: Command invoked cannot execute
@@ -331,18 +345,8 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 
 	// Apply rule overrides BEFORE constructing the detector so that
 	// NewDetectorContext compiles expression filters for the final rule set.
-	rules, _ := cmd.Flags().GetStringSlice("enable-rule")
-	if len(rules) > 0 {
-		logging.Info().Msg("Overriding enabled rules: " + strings.Join(rules, ", "))
-		ruleOverride := make(map[string]config.Rule)
-		for _, ruleName := range rules {
-			if r, ok := cfg.Rules[ruleName]; ok {
-				ruleOverride[ruleName] = r
-			} else {
-				logging.Fatal().Msgf("Requested rule %s not found in rules", ruleName)
-			}
-		}
-		cfg.Rules = ruleOverride
+	if err := applyRuleSelection(cmd, cfg); err != nil {
+		logging.Fatal().Err(err).Msg("unable to apply rule selection")
 	}
 
 	// Setup common detector. NewDetectorContext compiles all expression programs
@@ -381,6 +385,10 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
 
 	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
+	detector.MinConfidence, err = confidenceFlag(cmd)
+	if err != nil {
+		logging.Fatal().Err(err).Send()
+	}
 	if diagnosticsManager != nil && diagnosticsManager.RuleTimings != nil {
 		detector.RuleTimings = diagnosticsManager.RuleTimings
 	}

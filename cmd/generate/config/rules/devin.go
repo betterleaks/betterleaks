@@ -8,6 +8,7 @@ import (
 func DevinPersonalAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:       "devin-personal-api-key",
+		Confidence:   "high",
 		Description:  "Detected a Cognition Devin personal API key, which may expose Devin sessions and user data.",
 		Regex:        utils.GenerateUniqueTokenRegex(`apk_user_[A-Za-z0-9+/]{120,180}={0,2}`, false),
 		Keywords:     []string{"apk_user_"},
@@ -25,6 +26,7 @@ func DevinPersonalAPIKey() *config.Rule {
 func DevinServiceAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:       "devin-service-api-key",
+		Confidence:   "high",
 		Description:  "Detected a Cognition Devin service API key, which may expose Devin sessions and organization access.",
 		Regex:        utils.GenerateUniqueTokenRegex(`apk_[A-Za-z0-9+/]{80,100}={0,2}`, false),
 		Keywords:     []string{"apk_"},
@@ -45,6 +47,7 @@ func DevinServiceAPIKey() *config.Rule {
 func DevinServiceUserToken() *config.Rule {
 	r := config.Rule{
 		RuleID:       "devin-service-user-token",
+		Confidence:   "high",
 		Description:  "Detected a Cognition Devin service user token, which may expose Devin service user access.",
 		Regex:        utils.GenerateUniqueTokenRegex(`cog_[a-z2-7]{52}`, false),
 		Keywords:     []string{"cog_"},

@@ -10,6 +10,7 @@ func MailChimp() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "mailchimp-api-key",
+		Confidence:  "high",
 		Description: "Identified a Mailchimp API key, potentially compromising email marketing campaigns and subscriber data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"MailchimpSDK.initialize", "mailchimp"}, utils.Hex("32")+`-us\d\d`, true),
 

@@ -11,6 +11,7 @@ func GenericCredential() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "generic-api-key",
+		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
 			"access",
@@ -19,7 +20,6 @@ func GenericCredential() *config.Rule {
 			"credential",
 			"creds",
 			"key",
-			"passw(?:or)?d",
 			"secret",
 			"token",
 		}, `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`, true),
@@ -30,8 +30,6 @@ func GenericCredential() *config.Rule {
 			"key",
 			"credential",
 			"creds",
-			"passwd",
-			"password",
 			"secret",
 			"token",
 		},
@@ -57,9 +55,14 @@ let genericMatchContext =
   genericMatchPrefix +
   finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
 
+let level = filter.matchesAny(genericMatchContext, [
+  ` + "`(?i)\\b[a-z0-9]+[_.-]+token\\b`" + `
+]) ? "medium" : "low";
+let _ = filter.setConfidence(level);
+
 // big ol expression to filter out FPs
 entropy(finding["secret"]) <= 3.5
-|| failsTokenEfficiency(finding["secret"])
+|| filter.failsTokenEfficiency(finding["secret"])
 || ` + genericAPIKeyFilter,
 	}
 
@@ -82,10 +85,6 @@ entropy(finding["secret"]) <= 3.5
 
 		// Key
 		`private-key: `+newPlausibleSecret(`[a-zA-Z0-9\-_.=]{100}`),
-
-		// Password
-		`passwd = `+newPlausibleSecret(`[a-zA-Z0-9\-_.=]{30}`),
-		// TODO: `ID=dbuser;password=` + newPlausibleSecret(`[a-zA-Z0-9+/]{30}={0,3}`) + `;"`,
 
 		// Secret
 		`"client_secret" : "6da89121079f83b2eb6acccf8219ea982c3d79bccc3e9c6a85856480661f8fde",`,

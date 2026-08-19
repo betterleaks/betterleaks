@@ -8,6 +8,7 @@ import (
 func IBMCloudUserAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "ibm-cloud-user-api-key",
+		Confidence:  "high",
 		Description: "Detected an IBM Cloud user API key, which may expose IBM Cloud account resources.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"ibm(?:cloud)?", "bx"}, utils.AlphaNumericExtendedShort("42,44"), true),
 		Keywords:    []string{"ibm"},

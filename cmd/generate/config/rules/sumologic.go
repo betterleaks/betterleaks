@@ -10,13 +10,14 @@ func SumoLogicAccessID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "sumologic-access-id",
+		Confidence:  "medium",
 		Description: "Discovered a SumoLogic Access ID, potentially compromising log management services and data analytics integrity.",
 		// TODO: Make 'su' case-sensitive.
 		Regex: utils.GenerateSemiGenericRegex([]string{"(?-i:[Ss]umo|SUMO)"}, "su[a-zA-Z0-9]{12}", false),
 		Keywords: []string{
 			"sumo",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter: utils.MinEntropyAndTokenEfficiency,
 	}
 
 	// validate
@@ -46,16 +47,17 @@ func SumoLogicAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "sumologic-access-token",
+		Confidence:  "medium",
 		Description: "Uncovered a SumoLogic Access Token, which could lead to unauthorized access to log data and analytics insights.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"(?-i:[Ss]umo|SUMO)"}, utils.AlphaNumeric("64"), true),
 		Keywords: []string{
 			"sumo",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("sumo", secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3))
+	tps := utils.GenerateSampleSecrets("sumo", secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3.5))
 	tps = append(tps,
 		`export SUMOLOGIC_ACCESSKEY="3HSa1hQfz6BYzlxf7Yb1WKG3Hyovm56LMFChV2y9LgkRipsXCujcLb5ej3oQUJlx"`, // gitleaks:allow
 		`SUMO_ACCESS_KEY: gxq3rJQkS6qovOg9UY2Q70iH1jFZx0WBrrsiAYv4XHodogAwTKyLzvFK4neRN8Dk`,             // gitleaks:allow

@@ -11,6 +11,7 @@ func ArtifactoryApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "artifactory-api-key",
+		Confidence:  "high",
 		Description: "Detected an Artifactory api key, posing a risk unauthorized access to the central repository.",
 		Regex:       regexp.MustCompile(`\bAKCp[A-Za-z0-9]{68,70}\b`),
 		Keywords:    []string{"AKCp"},
@@ -47,6 +48,7 @@ func ArtifactoryReferenceToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "artifactory-reference-token",
+		Confidence:  "high",
 		Description: "Detected an Artifactory reference token, posing a risk of impersonation and unauthorized access to the central repository.",
 		Regex:       regexp.MustCompile(`\bcmVmd[A-Za-z0-9]{59}\b`),
 		Keywords:    []string{"cmVmd"},
@@ -82,6 +84,7 @@ func ArtifactoryReferenceToken() *config.Rule {
 func ArtifactoryJFrogURL() *config.Rule {
 	r := config.Rule{
 		RuleID:      "artifactory-jfrog-url",
+		Confidence:  "high",
 		Description: "Detected a JFrog Artifactory host, used as a component of Artifactory token validation.",
 		Regex:       regexp.MustCompile(`(?i)(?:^|[^a-z0-9-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.jfrog\.io)(?:$|[^a-z0-9-])`),
 		Keywords:    []string{"jfrog.io"},

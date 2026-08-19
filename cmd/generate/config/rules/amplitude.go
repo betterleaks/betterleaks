@@ -9,6 +9,7 @@ import (
 func AmplitudeSecretKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "amplitude-secret-key",
+		Confidence:  "medium",
 		Description: "Detected an Amplitude secret key, which may allow unauthorized event ingestion or access to Amplitude API functionality.",
 		Regex:       regexp.MustCompile(`(?i)\bamplitude(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN|AUTHORIZATION)(?:.|[\n\r]){0,16}?\b([a-f0-9]{32})\b`),
 		Keywords:    []string{"amplitude"},
@@ -29,7 +30,7 @@ func AmplitudeSecretKey() *config.Rule {
     "result": "invalid",
     "reason": (r.json?.error ?? "Unauthorized")
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3`,
+		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{
