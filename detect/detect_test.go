@@ -394,6 +394,34 @@ func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 		path string
 		raw  string
 	}{
+		"encrypted password field with opaque literal": {
+			path: "services/settings.json",
+			raw:  `"encryptedPassword": "MDoEEPgAAAAAAAAAAAAAAAAAAAAAAAEwFAYIKoZIhvcNAwcEC",`,
+		},
+		"encrypted password field with plaintext literal": {
+			path: "config/database.yml",
+			raw:  `encrypted_password: "hunter2"`,
+		},
+		"encrypted password field with dictionary cipher name": {
+			path: "config/database.yml",
+			raw:  `encrypted_password: "Blowfish"`,
+		},
+		"vault password field with plaintext literal": {
+			path: "config/vault.yml",
+			raw:  `vault_password: "hunter2"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(tc.raw, tc.path)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, tc := range map[string]struct {
+		path string
+		raw  string
+	}{
 		"shell command substitution": {
 			path: "config/setup.sh",
 			raw:  `keystore_password=$(curl --silent https://example.invalid/password)`,
@@ -421,10 +449,6 @@ func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 		"nested unquoted assignment": {
 			path: "Documentation/admin-guide/kernel-parameters.txt",
 			raw:  `password=mypassword.domain=mydom`,
-		},
-		"encrypted password field": {
-			path: "services/settings.json",
-			raw:  `"encryptedPassword": "MDoEEPgAAAAAAAAAAAAAAAAAAAAAAAEwFAYIKoZIhvcNAwcEC",`,
 		},
 		"Django PBKDF2 verifier": {
 			path: "fixtures/users.json",

@@ -126,6 +126,11 @@ let isCryptographicAlgorithm = filter.matchesAny(finding["secret"], [
   ` + "`(?i)^TLS_(?:(?:AES_(?:128|256)_GCM|CHACHA20_POLY1305)_SHA(?:256|384)|[A-Z0-9]+(?:_[A-Z0-9]+)*_WITH_[A-Z0-9]+(?:_[A-Z0-9]+)*)$`" + `,
   ` + "`(?i)^(?:AES(?:128|192|256)-(?:CBC|CTR|GCM)|CHACHA20-POLY1305)@OPENSSH\\.COM$`" + `
 ]);
+let isContextualAlgorithmName = hasNonPlaintextPasswordContext && filter.matchesAny(finding["secret"], [
+  // A field name can disambiguate an exact algorithm name, but cannot by
+  // itself prove that an arbitrary value is encrypted or hashed.
+  ` + "`(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA|CHACHA20|XCHACHA20|SALSA20|XSALSA20|DES|DESEDE|3DES|TRIPLE[-_]?DES|TWOFISH|SERPENT|CAST(?:5|128|256)|IDEA|SEED|SM4|RC[2456]|ARCFOUR|RSA|ECIES|ELGAMAL|SM2|MD5|SHA[-_]?(?:1|224|256|384|512)|SHA3[-_]?(?:224|256|384|512)|BLAKE2[BS](?:[-_]?(?:256|512))?|BLAKE3|RIPEMD[-_]?(?:128|160|256|320)|WHIRLPOOL|SM3|PBKDF2|SCRYPT|BCRYPT|ARGON2(?:D|I|ID)?|HKDF|YESCRYPT)$`" + `
+]);
 let level = (
   (
     isDirectAuthArgument
@@ -171,9 +176,9 @@ filter.matchesAny(finding["secret"], [
 ])
 || isEncryptedValue
 || isCryptographicAlgorithm
+|| isContextualAlgorithmName
 || isUnquotedCodeValue
 || isUnquotedExpression
-|| hasNonPlaintextPasswordContext
 || hasNestedUnquotedAssignment
 || filter.matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `,
@@ -189,6 +194,10 @@ filter.matchesAny(finding["secret"], [
 		`password = "myAES256_GCMpassword"`,
 		`password = "rsa-admin-2026"`,
 		`password = "sha256-is-not-my-password"`,
+		`encrypted_password: "hunter2"`,
+		`enc_password: "hunter2"`,
+		`vault_password: "hunter2"`,
+		`encrypted_password: "Blowfish"`,
 		`password = "hunter2" # development password`,
 		`password = "hunter2" // TODO: move to vault`,
 		`password: "hunter2" -- local database`,
@@ -217,7 +226,6 @@ filter.matchesAny(finding["secret"], [
 		`ldap.bind(user, "hunter2")`,
 		`log.in(user, "hunter2")`,
 		`log-in(user, "hunter2")`,
-		`encrypted_password: "Blowfish"`,
 		`enc_sssd_sa_password: ENC[AES256_GCM,data:XYZ,iv:ABC,tag:DEF,type:str]`,
 		`password: "AES-256-GCM"`,
 		`password: "AES_256_CBC_HMAC_SHA_256"`,
