@@ -1,0 +1,5 @@
+--- a/api/api.go
++++ b/api/api.go
+@@ -0,0 +4,2 @@
++// a comment
++awsToken := "AKIALALEMEL33243OLIA"

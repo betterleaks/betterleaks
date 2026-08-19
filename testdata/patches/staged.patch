@@ -1,0 +1,6 @@
+diff --git a/api/api.go b/api/api.go
+index 1234567..89abcde 100644
+--- a/api/api.go
++++ b/api/api.go
+@@ -6,0 +7,1 @@ func main() {
++	aws_token2 := "AKIALALEMEL33243OLIA" // this one is not

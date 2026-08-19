@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -261,6 +263,168 @@ func NewGitDiffCmdContext(ctx context.Context, source string, staged bool) (*Git
 	}, nil
 }
 
+// patchSentinelPathPrefix prefixes the path of the synthetic file appended to
+// every patch, so that the patch can be shown to have been parsed all the way
+// to its end.
+const patchSentinelPathPrefix = ".betterleaks/patch-end-sentinel-"
+
+// newPatchSentinel returns the path of a synthetic file and a minimal,
+// well-formed patch entry creating it. The path carries a random suffix so that
+// an entry in the patch being scanned cannot pass itself off as the sentinel,
+// which would both hide that entry from the scan and vouch for a patch that was
+// never parsed to its end.
+func newPatchSentinel() (path, entry string, err error) {
+	var suffix [16]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return "", "", fmt.Errorf("could not generate a patch sentinel: %w", err)
+	}
+
+	path = patchSentinelPathPrefix + hex.EncodeToString(suffix[:])
+	entry = "diff --git a/" + path + " b/" + path + "\n" +
+		"new file mode 100644\n" +
+		"--- /dev/null\n" +
+		"+++ b/" + path + "\n" +
+		"@@ -0,0 +1,1 @@\n" +
+		"+betterleaks\n"
+
+	return path, entry, nil
+}
+
+// GitPatchOptions configures how a pre-computed patch is interpreted.
+type GitPatchOptions struct {
+	// StripComponents removes this many leading path components from the paths
+	// reported for the patch, the way `patch -p` and `git apply -p` do.
+	//
+	// A patch whose entries carry a `diff --git a/… b/…` header — the output of
+	// any git command, and what a well-behaved diff producer emits — needs no
+	// stripping: the a/ and b/ prefixes are recognised and removed while
+	// parsing. Set this to 1 for a bare unified diff that has only `--- a/…`
+	// and `+++ b/…` lines, where those prefixes are indistinguishable from real
+	// directories named a and b and so cannot be removed automatically.
+	StripComponents int
+}
+
+// NewGitPatchCmd returns a `*GitCmd` that reads a pre-computed patch — the
+// output of `git log -p -U0` or `git diff -U0` — from r instead of executing
+// git. No repository is involved, so blobs cannot be fetched.
+//
+// Caller should read everything from the channels until receiving a signal
+// about their closure.
+func NewGitPatchCmd(r io.Reader, opts GitPatchOptions) (*GitCmd, error) {
+	// The parser abandons the rest of a patch on a malformed hunk and discards
+	// the error, which would silently turn an unreadable patch into a clean
+	// zero-finding scan. Appending an entry we know to be valid turns that into
+	// something observable: if the sentinel comes back, everything before it
+	// parsed; if it does not, the patch is broken.
+	sentinelPath, sentinelEntry, err := newPatchSentinel()
+	if err != nil {
+		return nil, err
+	}
+
+	patch := io.MultiReader(newlineTerminated(r), strings.NewReader(sentinelEntry))
+
+	gitdiffFiles, err := gitdiff.Parse(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		filesCh = make(chan *gitdiff.File)
+		errCh   = make(chan error, 1)
+	)
+
+	go func() {
+		defer close(filesCh)
+		defer close(errCh)
+
+		sawSentinel := false
+		for file := range gitdiffFiles {
+			if file.NewName == sentinelPath {
+				sawSentinel = true
+				continue
+			}
+
+			stripPatchFileNames(file, opts.StripComponents)
+			filesCh <- file
+		}
+
+		if !sawSentinel {
+			errCh <- errors.New("malformed patch: could not be parsed to the end")
+		}
+	}()
+
+	return &GitCmd{
+		diffFilesCh: filesCh,
+		errCh:       errCh,
+	}, nil
+}
+
+// stripPatchFileNames removes n leading path components from a patched file's
+// names.
+func stripPatchFileNames(file *gitdiff.File, n int) {
+	if n <= 0 {
+		return
+	}
+	file.OldName = stripPathComponents(file.OldName, n)
+	file.NewName = stripPathComponents(file.NewName, n)
+}
+
+// stripPathComponents removes n leading components from a slash-separated path.
+// A path with no components left to remove is returned unchanged, so a finding
+// is never reported against an empty path.
+func stripPathComponents(path string, n int) string {
+	stripped := path
+	for range n {
+		_, rest, found := strings.Cut(stripped, "/")
+		if !found || rest == "" {
+			return stripped
+		}
+		stripped = rest
+	}
+	return stripped
+}
+
+// newlineTerminated returns a reader over r that is guaranteed to end with a
+// newline, so that content appended after it begins on a line of its own.
+func newlineTerminated(r io.Reader) io.Reader {
+	return &newlineTerminatingReader{r: r}
+}
+
+type newlineTerminatingReader struct {
+	r        io.Reader
+	lastByte byte
+	appended bool
+}
+
+func (t *newlineTerminatingReader) Read(p []byte) (int, error) {
+	if t.appended {
+		return 0, io.EOF
+	}
+
+	if len(p) > 0 {
+		n, err := t.r.Read(p)
+		if n > 0 {
+			t.lastByte = p[n-1]
+		}
+		if !errors.Is(err, io.EOF) {
+			return n, err
+		}
+		if n > 0 {
+			// Report the data now and settle the newline on the next call, so
+			// that the byte we may need to append always has room.
+			return n, nil
+		}
+	}
+
+	t.appended = true
+	if t.lastByte == '\n' || t.lastByte == 0 {
+		return 0, io.EOF
+	}
+
+	p[0] = '\n'
+	return 1, nil
+}
+
 // DiffFilesCh returns a channel with *gitdiff.File.
 func (c *GitCmd) DiffFilesCh() <-chan *gitdiff.File {
 	return c.diffFilesCh
@@ -276,12 +440,24 @@ func (c *GitCmd) ErrCh() <-chan error {
 //
 // Wait also closes underlying stdout and stderr.
 func (c *GitCmd) Wait() error {
+	if c.cmd == nil {
+		return nil
+	}
 	return c.cmd.Wait()
 }
 
 // String displays the command used for GitCmd
 func (c *GitCmd) String() string {
+	if c.cmd == nil {
+		return "patch"
+	}
 	return c.cmd.String()
+}
+
+// CanReadBlobs reports whether there is a git repository behind this GitCmd
+// that blobs can be read from.
+func (c *GitCmd) CanReadBlobs() bool {
+	return c.cmd != nil && c.repoPath != ""
 }
 
 // NewBlobReader returns an io.ReadCloser that can be used to read a blob
@@ -363,6 +539,59 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 	}
 }
 
+// addedRun is a run of consecutive added lines, together with the line number
+// the run starts on in the post-image of the file.
+type addedRun struct {
+	raw       string
+	startLine int
+}
+
+// addedLineRuns splits a text fragment into the runs of consecutive added lines
+// it contains. Deleted lines do not exist in the post-image and so do not
+// advance the line counter, while a context line ends the current run — which
+// keeps every run addressable to the real line numbers of the new file even
+// when the patch carries context lines.
+//
+// For a zero-context patch (`-U0`, what git is always asked for here) a hunk
+// holds exactly one run and this yields the whole hunk, unchanged.
+func addedLineRuns(tf *gitdiff.TextFragment) []addedRun {
+	var (
+		runs    []addedRun
+		builder strings.Builder
+		// Line numbers in a hunk header are 1-based, and NewPosition points at
+		// the first line of the post-image the hunk covers.
+		line      = int(tf.NewPosition)
+		startLine int
+	)
+
+	flush := func() {
+		if builder.Len() == 0 {
+			return
+		}
+		runs = append(runs, addedRun{raw: builder.String(), startLine: startLine})
+		builder.Reset()
+	}
+
+	for _, l := range tf.Lines {
+		switch l.Op {
+		case gitdiff.OpAdd:
+			if builder.Len() == 0 {
+				startLine = line
+			}
+			builder.WriteString(l.Line)
+			line++
+		case gitdiff.OpDelete:
+			// Not present in the post-image; does not consume a line number.
+		case gitdiff.OpContext:
+			flush()
+			line++
+		}
+	}
+	flush()
+
+	return runs
+}
+
 // Git is a source for yielding fragments from a git repo
 type Git struct {
 	Cmd             *GitCmd
@@ -402,10 +631,16 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				continue
 			}
 
-			// skip non-archive binary files
+			// skip non-archive binary files, and archives that cannot be fetched
 			yieldAsArchive := false
 			if gitdiffFile.IsBinary {
 				if !isArchive(ctx, gitdiffFile.NewName) {
+					continue
+				}
+				if !s.Cmd.CanReadBlobs() {
+					logging.Debug().
+						Str("path", gitdiffFile.NewName).
+						Msg("skipping binary archive: no repository to read the blob from")
 					continue
 				}
 				yieldAsArchive = true
@@ -481,17 +716,22 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 				for _, textFragment := range gitdiffFile.TextFragments {
 					if textFragment == nil {
-						return nil
+						continue
 					}
-					fragment := Fragment{
-						Raw:        textFragment.Raw(gitdiff.OpAdd),
-						StartLine:  int(textFragment.NewPosition),
-						Attributes: commitAttrs,
-					}
-					fragment.SetAttr(AttrPath, gitdiffFile.NewName)
 
-					if err := yield(fragment, nil); err != nil {
-						return err
+					for _, run := range addedLineRuns(textFragment) {
+						attrs := maps.Clone(commitAttrs)
+						attrs[AttrPath] = gitdiffFile.NewName
+
+						fragment := Fragment{
+							Raw:        run.raw,
+							StartLine:  run.startLine,
+							Attributes: attrs,
+						}
+
+						if err := yield(fragment, nil); err != nil {
+							return err
+						}
 					}
 				}
 
@@ -502,6 +742,18 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				errCh = nil
 				break
 			}
+
+			// Let the fragments already in flight finish before handing the
+			// error back, so that nothing is still yielding once this returns.
+			// Whatever is left unread is drained meanwhile, so that the
+			// producer cannot block on a send that will never be received.
+			if diffFilesCh != nil {
+				go func(remaining <-chan *gitdiff.File) {
+					for range remaining { //nolint:revive // draining
+					}
+				}(diffFilesCh)
+			}
+			wg.Wait()
 
 			return yield(Fragment{}, err)
 		}

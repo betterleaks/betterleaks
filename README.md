@@ -51,6 +51,10 @@ betterleaks git /path/to/repo -v --git-workers=16
 # Scan local filesystem
 betterleaks dir /path/to/file/or/dir -v
 
+# Scan a diff produced elsewhere, when there is no repo to scan
+betterleaks diff changes.patch -v
+git diff -U0 --staged | betterleaks diff
+
 # Scan GitHub org
 betterleaks github https://github.com/betterleaks
 # Scan GitHub user

@@ -1,0 +1,23 @@
+commit 32
+Author: Dev Eloper <dev@example.com>
+Date: Mon Jul 24 08:18:05 2023 +0000
+
+    add a token and a deploy key
+
+diff --git a/firstfile b/firstfile
+index xxxxxx..xxxxxx 100644
+--- a/firstfile
++++ b/firstfile
+@@ -3,1 +3,2 @@
+-old line
++// a comment
++awsToken := "AKIALALEMEL33243OLIA"
+
+diff --git a/config/deploy.key b/config/deploy.key
+index xxxxxx..xxxxxx 100644
+--- a/config/deploy.key
++++ b/config/deploy.key
+@@ -0,0 +1,3 @@
++-----BEGIN RSA PRIVATE KEY-----
++MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu
++-----END RSA PRIVATE KEY-----
