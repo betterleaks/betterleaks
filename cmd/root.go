@@ -81,7 +81,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("config", "c", "", configDescription)
 	rootCmd.PersistentFlags().Int("exit-code", 1, "exit code when leaks have been encountered")
 	rootCmd.PersistentFlags().StringP("report-path", "r", "", "report file (use \"-\" for stdout)")
-	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
+	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, jsonl, csv, junit, sarif, template; validate supports pretty or jsonl)")
 	rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
 	rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
@@ -503,6 +503,8 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 				reportFormat = "csv"
 			case ".json":
 				reportFormat = "json"
+			case ".jsonl", ".ndjson":
+				reportFormat = "jsonl"
 			case ".sarif":
 				reportFormat = "sarif"
 			default:
@@ -515,6 +517,8 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 			reporter = &report.CsvReporter{}
 		case "json":
 			reporter = &report.JsonReporter{}
+		case "jsonl", "ndjson":
+			reporter = &report.JsonlReporter{}
 		case "junit":
 			reporter = &report.JunitReporter{}
 		case "sarif":
