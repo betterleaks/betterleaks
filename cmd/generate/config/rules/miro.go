@@ -10,7 +10,7 @@ func MiroAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "miro-access-token",
 		Description: "Detected a Miro OAuth access token, which may allow unauthorized access to Miro users, teams, boards, and content.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"miro"}, `eyJtaXJv[A-Za-z0-9-]{10,64}_[A-Za-z0-9_-]{20,64}`, false),
+		Regex:       utils.GenerateUniqueTokenRegex(`eyJtaXJv[A-Za-z0-9-]{10,64}_[A-Za-z0-9_-]{20,64}`, false),
 		Keywords:    []string{"miro"},
 		ValidateExpr: `let r = http.get("https://api.miro.com/v1/oauth-token", {
     "Authorization": "Bearer " + finding["secret"],
@@ -28,6 +28,7 @@ func MiroAccessToken() *config.Rule {
 		secrets.NewSecretWithEntropy(`[A-Za-z0-9-]{24}`, 3.5) + "_" +
 		secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{32}`, 3.5)
 	tps := utils.GenerateSampleSecrets("miro", token)
+	tps = append(tps, `Miro Authorization: Bearer `+token)
 	fps := []string{
 		`ACCESS_TOKEN=eyJtaXJvLm9yaWdpbiI6ImV1MDEifQ_o-P91OccaII0A63CDSK--x21xiI`,
 		`MIRO_TOKEN=eyJtaXJv_short`,
@@ -39,18 +40,19 @@ func MiroClientID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "miro-client-id",
 		Description: "Detected a Miro OAuth client ID, used as a component of the miro-client-secret composite rule.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"miro"}, utils.Numeric("15,21"), true),
+		Regex:       utils.GenerateSemiGenericRegex([]string{`miro[_. -]*client[_. -]*id`}, utils.Numeric("15,21"), true),
 		Keywords:    []string{"miro"},
 		SkipReport:  true,
 		Filter:      utils.MinEntropy(2.5),
 	}
 
 	clientID := secrets.NewSecretWithEntropy(`[0-9]{19}`, 2.5)
-	tps := utils.GenerateSampleSecrets("miro", clientID)
+	tps := utils.GenerateSampleSecrets("miro_client_id", clientID)
 	tps = append(tps, `MIRO_CLIENT_ID=`+clientID)
 	fps := []string{
 		`CLIENT_ID=3458764668142796369`,
 		`MIRO_CLIENT_ID=34587646681427`,
+		`MIRO_TEAM_ID=3458764668142796369`,
 	}
 	return utils.Validate(r, tps, fps)
 }
@@ -65,7 +67,7 @@ func MiroClientSecret() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"miro"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"miro"},
 		Components: []*config.Component{
-			{RuleID: "miro-client-id"},
+			{RuleID: "miro-client-id", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.post("https://api.miro.com/v1/oauth/token", {
     "Content-Type": "application/x-www-form-urlencoded",
