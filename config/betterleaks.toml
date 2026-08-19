@@ -558,6 +558,34 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# apollo-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "apollo-api-key.1"
+description = "Apollo.io API key, which may allow access to sales intelligence and engagement data."
+regex = '''(?i:(?:apollo)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_-]{22})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["apollo"]
+validate = '''
+let r = http.post("https://api.apollo.io/api/v1/mixed_people/api_search", {
+    "X-Api-Key": finding["secret"],
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  }, "{\"page\":1,\"per_page\":1}"); r.status == 200 && (r.body contains "\"total_entries\"") ? {
+    "result": "valid"
+  } : r.status == 403 && (r.body contains "API_INACCESSIBLE") ? {
+    "result": "valid",
+    "reason": "Authenticated but this API is unavailable to the account"
+  } : r.status == 401 && (r.body contains "Invalid API key") ? {
+    "result": "invalid",
+    "reason": "Invalid API key"
+  } : validate.unknown(r)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # artifactory-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -1277,6 +1305,31 @@ filter.entropy(finding["secret"]) < 3.5
 components = [
     { id = "canva-client-id" },
 ]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# cartesia-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cartesia-api-key.1"
+description = "Cartesia API key, which grants server-side access to Cartesia voice APIs."
+regex = '''\b(sk_car_[A-Za-z0-9_]{20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["sk_car_"]
+validate = '''
+let r = http.get("https://api.cartesia.ai/voices?limit=1", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Cartesia-Version": "2025-04-16",
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # cerebras-api-key
@@ -2740,6 +2793,30 @@ confidence = "high"
 keywords = ["facebook"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# fal-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "fal-api-key.1"
+description = "Fal.ai API key, which may allow access to model execution, billing, and platform APIs."
+regex = '''(?i:(?:fal)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}:[a-f0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["fal"]
+validate = '''
+let r = http.get("https://api.fal.ai/v1/models/pricing?endpoint_id=fal-ai%2Fflux%2Fdev", {
+    "Authorization": "Key " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"prices\"") ? {
+    "result": "valid"
+  } : r.status == 401 && (r.json?.error?.type ?? "") == "authorization_error" ? {
+    "result": "invalid",
+    "reason": (r.json?.error?.message ?? "Invalid API key")
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5948,6 +6025,30 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# hunter-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "hunter-api-key.1"
+description = "Hunter API key, which may allow access to account and email intelligence data."
+regex = '''(?i:(?:hunter)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["hunter"]
+validate = '''
+let r = http.get("https://api.hunter.io/v2/account", {
+    "X-API-KEY": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"data\"") ? {
+    "result": "valid"
+  } : r.status == 401 && (r.body contains "authentication_failed") ? {
+    "result": "invalid",
+    "reason": "No user found for the API key"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # ibm-cloud-user-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -6029,6 +6130,33 @@ confidence = "high"
 keywords = ["ico-"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# instantly-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "instantly-api-key.1"
+description = "Instantly API key, which may allow access to campaigns, accounts, leads, and analytics."
+regex = '''(?i:(?:instantly)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9+/]{66}==)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["instantly"]
+validate = '''
+let r = http.get("https://api.instantly.ai/api/v2/accounts?limit=1", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 402 ? {
+    "result": "valid",
+    "reason": "Authenticated but the workspace does not have an active paid plan"
+  } : r.status == 401 && (r.body contains "Invalid authorization header or API key") ? {
+    "result": "invalid",
+    "reason": "Invalid API key"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.3
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6314,6 +6442,44 @@ entropy(finding["secret"]) < 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# langfuse-public-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "langfuse-public-key.1"
+description = "Langfuse public key, used as a component of the Langfuse secret-key composite rule."
+regex = '''\b(pk-lf-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["pk-lf-"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# langfuse-secret-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "langfuse-secret-key.1"
+description = "Langfuse secret key, which authenticates project API access when paired with its public key."
+regex = '''\b(sk-lf-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["sk-lf-"]
+validate = '''
+let r = http.get("https://cloud.langfuse.com/api/public/projects", {
+    "Authorization": "Basic " + base64.encode(bytes((components["langfuse-public-key.1"]?.secret ?? "") + ":" + finding["secret"])),
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+components = [
+    { id = "langfuse-public-key.1", within = "5L" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # lark-app-id
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -6494,6 +6660,27 @@ filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# llama-cloud-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "llama-cloud-api-key.1"
+description = "LlamaCloud API key, which may allow access to managed parsing, ingestion, and retrieval projects."
+regex = '''\b(llx-[A-Za-z0-9]{44,52})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["llx-"]
+validate = '''
+let r = http.get("https://api.cloud.llamaindex.ai/api/v1/projects", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # lob-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -6665,6 +6852,31 @@ confidence = "high"
 keywords = ["_mmk"]
 filter = '''
 entropy(finding["secret"]) <= 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mem0-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mem0-api-key.1"
+description = "Mem0 API key, which may allow access to stored application memories."
+regex = '''(?i:(?:mem0)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(m0-[A-Za-z0-9]{24,44})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["mem0"]
+validate = '''
+let r = http.post("https://api.mem0.ai/v3/memories/?page=1&page_size=1", {
+    "Authorization": "Token " + finding["secret"],
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  }, "{\"filters\":{\"user_id\":\"betterleaks-validation\"}}"); r.status == 200 && (r.body contains "\"results\"") ? {
+    "result": "valid"
+  } : r.status == 401 && (r.body contains "Invalid API key") ? {
+    "result": "invalid",
+    "reason": "Invalid API key"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7443,6 +7655,69 @@ let r = http.get("https://api.paddle.com/event-types", {
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# pagerduty-authorization-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "pagerduty-authorization-token.1"
+description = "PagerDuty authorization token, which may allow access to PagerDuty account and incident data."
+regex = '''(?i:(?:pagerduty)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(u\+[A-Za-z0-9_+-]{18})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["pagerduty"]
+validate = '''
+let r = http.get("https://api.pagerduty.com/users?limit=1", {
+    "Authorization": "Token token=" + finding["secret"],
+    "Accept": "application/vnd.pagerduty+json;version=2"
+  }); r.status == 200 && (r.body contains "\"users\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# paypal-client-id.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "paypal-client-id.1"
+description = "PayPal OAuth client ID, used as a component of the PayPal client-secret composite rule."
+regex = '''(?i:(?:paypal[_.-]?(?:client[_.-]?)?(?:id|user))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(A[A-Za-z0-9_-]{78,99})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["paypal"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# paypal-client-secret.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "paypal-client-secret.1"
+description = "PayPal OAuth client secret, which may allow access to PayPal REST APIs when paired with its client ID."
+regex = '''(?i:(?:paypal[_.-]?(?:client[_.-]?)?(?:secret|private|access|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_.-]{78,120})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["paypal"]
+validate = '''
+let r = http.post("https://api-m.paypal.com/v1/oauth2/token", {
+    "Authorization": "Basic " + base64.encode(bytes((components["paypal-client-id.1"]?.secret ?? "") + ":" + finding["secret"])),
+    "Accept": "application/json",
+    "Content-Type": "application/x-www-form-urlencoded"
+  }, "grant_type=client_credentials"); r.status == 200 && (r.json?.access_token ?? "") != "" ? {
+    "result": "valid"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+components = [
+    { id = "paypal-client-id.1", within = "5L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # perplexity-api-key
@@ -8226,6 +8501,30 @@ let r = http.get("https://api.replicate.com/v1/account", {
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# retell-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "retell-api-key.1"
+description = "Retell AI API key, which may allow access to agents, calls, and account configuration."
+regex = '''(?i:(?:retell)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(key_[a-f0-9]{28})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["retell"]
+validate = '''
+let r = http.get("https://api.retellai.com/get-concurrency", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"current_concurrency\"") && (r.body contains "\"concurrency_limit\"") ? {
+    "result": "valid"
+  } : r.status == 401 && (r.body contains "Invalid API Key") ? {
+    "result": "invalid",
+    "reason": "Invalid API key"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9482,6 +9781,45 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# upstash-redis-rest-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "upstash-redis-rest-token.1"
+description = "Upstash Redis REST token, which may grant read-only or full access to an Upstash database."
+regex = '''(?i:(?:upstash)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:[A-Za-z0-9]{32,48}|AYNgAS[A-Za-z0-9+/_-]{26,90}={0,2}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["upstash"]
+validate = '''
+let endpoint = (components["upstash-redis-rest-url.1"]?.secret ?? "");
+let r = http.get(endpoint + "/ping", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+}); r.status == 200 && (r.body contains "PONG") ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+components = [
+    { id = "upstash-redis-rest-url.1", within = "5L" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# upstash-redis-rest-url.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "upstash-redis-rest-url.1"
+description = "Upstash Redis REST URL, used as a component of the Upstash REST-token composite rule."
+regex = '''(?i)\b(https://[a-z0-9][a-z0-9-]{2,63}\.upstash\.io)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["upstash.io"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
 # val-town-api-token.1
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -9690,6 +10028,30 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# vultr-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "vultr-api-key.1"
+description = "Vultr API key, which may allow management of cloud account resources."
+regex = '''(?i)(?:vultr)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{36})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["vultr"]
+validate = '''
+let r = http.get("https://api.vultr.com/v2/account", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"account\"") ? {
+    "result": "valid"
+  } : r.status == 401 && (r.body contains "Invalid API token") ? {
+    "result": "invalid",
+    "reason": "Invalid API token"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.4
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # wakatime-api-key.1
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -9820,6 +10182,69 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# wiz-client-id.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "wiz-client-id.1"
+description = "Wiz OAuth client ID, used as a component of the Wiz client-secret composite rule."
+regex = '''(?i:(?:wiz)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{53,56})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["wiz"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# wiz-client-secret.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "wiz-client-secret.1"
+description = "Wiz OAuth client secret, which may allow access to the Wiz API when paired with its client ID."
+regex = '''(?i:(?:wiz)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["wiz"]
+validate = '''
+let r = http.post("https://auth.app.wiz.io/oauth/token", {
+    "Accept": "application/json",
+    "Content-Type": "application/x-www-form-urlencoded"
+  }, "grant_type=client_credentials" +
+    "&audience=wiz-api" +
+    "&client_id=" + strings.urlQueryEscape((components["wiz-client-id.1"]?.secret ?? "")) +
+    "&client_secret=" + strings.urlQueryEscape(finding["secret"]));
+  r.status == 200 && (r.json?.access_token ?? "") != "" ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 4.0
+'''
+components = [
+    { id = "wiz-client-id.1", within = "5L" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# woocommerce-consumer-secret.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "woocommerce-consumer-secret.1"
+description = "WooCommerce REST API consumer secret, which may allow read or write access to a store with the associated consumer key."
+regex = '''(?i)(?:woo)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(cs_[a-f0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = [
+    "wooc",
+    "woo-",
+    "woo_",
+    "cs_",
+]
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # workato-developer-api-token.1
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -9894,6 +10319,30 @@ confidence = "high"
 keywords = ["xai-"]
 filter = '''
 entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# xendit-production-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "xendit-production-api-key.1"
+description = "Xendit production API key, which may allow access to payment and balance APIs."
+regex = '''\b(xnd_production_[A-Za-z0-9]{56,72})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["xnd_production_"]
+validate = '''
+let r = http.get("https://api.xendit.co/balance", {
+    "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":")),
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"balance\"") ? {
+    "result": "valid"
+  } : r.status == 401 && (r.json?.error_code ?? "") == "INVALID_API_KEY" ? {
+    "result": "invalid",
+    "reason": "Invalid API key"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9975,6 +10424,83 @@ confidence = "high"
 keywords = ["zendesk"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# zoho-client-id.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zoho-client-id.1"
+description = "Zoho OAuth client ID, used as a component of the zoho-client-secret.1 composite rule."
+regex = '''(?i)(?:zoho)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(1000\.[a-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["zoho"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# zoho-client-secret.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zoho-client-secret.1"
+description = "Zoho OAuth client secret, which may allow OAuth client authentication when paired with the associated client ID."
+regex = '''(?i)(?:zoho)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{42})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["zoho"]
+validate = '''
+let r = http.post("https://accounts.zoho.com/oauth/v2/token", {
+    "Accept": "application/json",
+    "Content-Type": "application/x-www-form-urlencoded"
+  }, "client_id=" + strings.urlQueryEscape((components["zoho-client-id.1"]?.secret ?? "")) +
+  "&client_secret=" + strings.urlQueryEscape(finding["secret"]) +
+  "&grant_type=authorization_code" +
+  "&code=betterleaks_invalid_code" +
+  "&redirect_uri=https%3A%2F%2Fexample.com%2Fbetterleaks");
+  r.status == 200 && (r.json?.error ?? "") == "invalid_code" ? {
+    "result": "valid"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+components = [
+    { id = "zoho-client-id.1", within = "5L" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# zoho-oauth-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zoho-oauth-token.1"
+description = "Zoho OAuth access or refresh token, which may allow access to Zoho APIs or minting of new access tokens."
+regex = '''(?i)(?:zoho)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(1000\.[a-f0-9]{32}\.[a-f0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["zoho"]
+validate = '''
+let r = http.get("https://www.zohoapis.com/crm/v8/users?type=CurrentUser", {
+    "Authorization": "Zoho-oauthtoken " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"users\"") ? {
+    "result": "valid"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# zoho-zapi-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zoho-zapi-key.1"
+description = "Zoho ZAPI key, which may authorize CRM functions, extensions, webhooks, or other Zoho APIs."
+regex = '''(?i)(?:zoho)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:1001\.[a-f0-9]{32}\.[a-f0-9]{32}(?:-d)?|1003\.[a-f0-9]{32,64}))(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["zoho"]
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
