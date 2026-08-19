@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/internal/gitdiff"
 	"github.com/fatih/semgroup"
-	"github.com/gitleaks/go-gitdiff/gitdiff"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/logging"
