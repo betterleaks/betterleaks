@@ -9,6 +9,7 @@ import (
 func MiroAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "miro-access-token",
+		Confidence:  "high",
 		Description: "Detected a Miro OAuth access token, which may allow unauthorized access to Miro users, teams, boards, and content.",
 		Regex:       utils.GenerateUniqueTokenRegex(`eyJtaXJv[A-Za-z0-9-]{10,64}_[A-Za-z0-9_-]{20,64}`, false),
 		Keywords:    []string{"miro"},
@@ -39,6 +40,7 @@ func MiroAccessToken() *config.Rule {
 func MiroClientID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "miro-client-id",
+		Confidence:  "medium",
 		Description: "Detected a Miro OAuth client ID, used as a component of the miro-client-secret composite rule.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`miro[_. -]*client[_. -]*id`}, utils.Numeric("15,21"), true),
 		Keywords:    []string{"miro"},
@@ -63,6 +65,7 @@ func MiroClientSecret() *config.Rule {
 	// mismatched client ID or secret is rejected as a client credential error.
 	r := config.Rule{
 		RuleID:      "miro-client-secret",
+		Confidence:  "high",
 		Description: "Detected a Miro OAuth client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"miro"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"miro"},

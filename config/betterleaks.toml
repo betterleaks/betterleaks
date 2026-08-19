@@ -6826,6 +6826,7 @@ entropy(finding["secret"]) <= 3.5
 id = "miro-access-token"
 description = "Detected a Miro OAuth access token, which may allow unauthorized access to Miro users, teams, boards, and content."
 regex = '''\b(eyJtaXJv[A-Za-z0-9-]{10,64}_[A-Za-z0-9_-]{20,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
 keywords = ["miro"]
 validate = '''
 let r = http.get("https://api.miro.com/v1/oauth-token", {
@@ -6849,6 +6850,7 @@ entropy(finding["secret"]) < 3.5
 id = "miro-client-id"
 description = "Detected a Miro OAuth client ID, used as a component of the miro-client-secret composite rule."
 regex = '''(?i)(?:miro[_. -]*client[_. -]*id)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9]{15,21})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
 keywords = ["miro"]
 skipReport = true
 filter = '''
@@ -6862,6 +6864,7 @@ entropy(finding["secret"]) < 2.5
 id = "miro-client-secret"
 description = "Detected a Miro OAuth client secret, which may allow unauthorized OAuth client authentication when paired with a client ID."
 regex = '''(?i)(?:miro)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
 keywords = ["miro"]
 validate = '''
 let r = http.post("https://api.miro.com/v1/oauth/token", {
