@@ -81,13 +81,56 @@ let isUnquotedExpression = isUnquotedAssignment && filter.matchesAny(finding["se
   ` + "`^[A-Za-z_][A-Za-z0-9_-]*:\\[[^]\\r\\n]+\\]$`" + `,
   ` + "`^[A-Za-z_][A-Za-z0-9_]*[)}\\]]+(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*(?:\\([^)]*\\))?)*$`" + `
 ]);
-let isNonPlaintextPasswordField = filter.matchesAny(linePrefix + finding["match"], [
-  ` + "`(?i)(?:^|[^a-z0-9])(?:encrypted|hashed|encoded)[_.-]?password\\b`" + `
+let hasNonPlaintextPasswordContext = filter.matchesAny(linePrefix + finding["match"], [
+  ` + "`(?i)(?:^|[^a-z0-9])(?:enc|encrypt(?:ed|ion)?|hash(?:ed)?|encod(?:e|ed|ing)|cipher(?:text)?|seal(?:ed)?|vault(?:ed)?)(?:[_.-][a-z0-9]+){0,5}[_.-]?password\\b`" + `,
+  ` + "`(?i)(?:^|[^a-z0-9])password[_.-]?(?:cipher(?:text)?|hash|digest|algorithm|scheme|encoding|format)\\b`" + `
 ]);
 let hasNestedUnquotedAssignment = filter.matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]{0,5}[^\"'\\x60\\r\\n]*[.,][A-Za-z_][A-Za-z0-9_-]*=`" + `
 ]);
-
+let isEncryptedValue = filter.matchesAny(finding["secret"], [
+  // Serialized encryption envelopes and armored ciphertext.
+  ` + "`(?i)^ENC\\[[A-Z0-9][A-Z0-9_.+/-]*(?:,|\\]|$)`" + `,
+  ` + "`(?i)^ENC\\([A-Z0-9+/=_:.,-]{8,}\\)$`" + `,
+  ` + "`(?i)^\\{cipher\\}.{4,}$`" + `,
+  ` + "`^\\$ANSIBLE_VAULT(?:;|$)`" + `,
+  ` + "`(?i)^!vault$`" + `,
+  ` + "`^age-encryption\\.org/v[0-9]+$`" + `,
+  ` + "`^-----BEGIN (?:AGE ENCRYPTED FILE|PGP MESSAGE|ENCRYPTED PRIVATE KEY)-----$`" + `,
+  // OpenSSL salted output, HashiCorp Vault transit ciphertext, and Fernet.
+  ` + "`^U2FsdGVkX1[A-Za-z0-9+/=]{8,}$`" + `,
+  ` + "`^vault:v[0-9]+:[A-Za-z0-9+/=_-]{8,}$`" + `,
+  ` + "`^gAAAAA[A-Za-z0-9_-]{70,}={0,2}$`" + `,
+  // Compact JWE and encrypted PASETO (local-purpose) tokens.
+  ` + "`^[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}$`" + `,
+  ` + "`^v[124]\\.local\\.[A-Za-z0-9_-]{32,}(?:\\.[A-Za-z0-9_-]+)?$`" + `,
+  // Windows DPAPI blobs in Base64 or exported SecureString hex form.
+  ` + "`^AQAAANCMnd8BFdERjHoAwE/Cl\\+sBA[A-Za-z0-9+/=]{16,}$`" + `,
+  ` + "`(?i)^01000000d08c9ddf0115d1118c7a00c04fc297eb01[0-9a-f]{16,}$`" + `
+]);
+let isCryptographicAlgorithm = filter.matchesAny(finding["secret"], [
+  // Common block ciphers with key sizes and/or modes.
+  ` + "`(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA)[-_/]?(?:128|192|256)(?:[-_/](?:ECB|CBC(?:[-_/]HMAC[-_/]SHA[-_]?(?:256|384|512))?|PCBC|CFB(?:8|64|128)?|OFB(?:8|64|128)?|CTR|CTS|CCM|GCM|GMAC|EAX|OCB|SIV|GCM[-_]?SIV|XTS|KW|KWP))?$`" + `,
+  ` + "`(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA)[-_/]?(?:ECB|CBC|PCBC|CFB(?:8|64|128)?|OFB(?:8|64|128)?|CTR|CTS|CCM|GCM|GMAC|EAX|OCB|SIV|GCM[-_]?SIV|XTS|KW|KWP)$`" + `,
+  ` + "`(?i)^(?:(?:RIJNDAEL|ARIA|CAMELLIA|DES(?:[-_]?(?:EDE3?|3|X))?|DESEDE|3DES|TRIPLE[-_]?DES|BLOWFISH|BF|TWOFISH|SERPENT|CAST(?:5|128|256)?|IDEA|SEED|SM4|RC[2456]|ARCFOUR)[-_/](?:ECB|CBC|PCBC|CFB(?:8|64|128)?|OFB(?:8|64|128)?|CTR|CTS|CCM|GCM|GMAC|EAX|OCB|SIV|GCM[-_]?SIV|XTS|KW|KWP)|X?(?:CHACHA20|SALSA20)[-_/]POLY1305|AESWRAP(?:[-_]?(?:128|192|256))?|DESEDEWRAP)$`" + `,
+  // Java Cryptography Architecture transformations and PBE names.
+  ` + "`(?i)^(?:AES(?:[-_]?(?:128|192|256))?|ARIA(?:[-_]?(?:128|192|256))?|CAMELLIA(?:[-_]?(?:128|192|256))?|BLOWFISH|DES|DESEDE|RC2|RSA)/(?:ECB|CBC|PCBC|CFB(?:8|64|128)?|OFB(?:8|64|128)?|CTR|CTS|CCM|GCM)/(?:NO|PKCS[157]|ISO10126|OAEPWITH(?:MD5|SHA[-_]?(?:1|224|256|384|512))ANDMGF1)PADDING$`" + `,
+  ` + "`(?i)^PBEWITH(?:HMAC)?(?:MD5|SHA(?:1|224|256|384|512))AND(?:AES(?:[-_]?(?:128|256))?|DES(?:EDE)?|TRIPLEDES|RC[24](?:[-_]?(?:40|128))?)$`" + `,
+  // JOSE/JWE key-management and content-encryption identifiers.
+  ` + "`(?i)^(?:RSA1_5|RSA-OAEP(?:-(?:256|384|512))?|ECDH-ES(?:\\+A(?:128|192|256)(?:GCM)?KW)?|A(?:128|192|256)(?:KW|GCMKW|GCM|CBC-HS(?:256|384|512))|PBES2-HS(?:256|384|512)\\+A(?:128|192|256)KW)$`" + `,
+  // Other explicit asymmetric encryption and key-wrapping descriptors.
+  ` + "`(?i)^(?:RSA(?:ES)?[-_/](?:OAEP(?:[-_/](?:MD5|SHA[-_]?(?:1|224|256|384|512)))?|PKCS1(?:[-_]?V?1[_.]5)?|NO[-_]?PADDING)|ECIES(?:[-_/](?:P(?:256|384|521)|SECP(?:256K1|256R1|384R1|521R1)))?|ELGAMAL[-_/](?:ECB|OAEP|PKCS1)|SM2[-_/](?:C1C2C3|C1C3C2))$`" + `,
+  // Composite hash, MAC, signature, and password-derivation identifiers.
+  ` + "`(?i)^(?:HMAC[-_]?(?:MD5|SHA[-_]?(?:1|224|256|384|512)|SHA3[-_]?(?:224|256|384|512))|PBKDF2[-_/](?:HMAC[-_]?)?(?:SHA[-_]?(?:1|224|256|384|512))|HKDF[-_/]SHA[-_]?(?:1|224|256|384|512)|(?:RSA|DSA|ECDSA|ED25519)[-_/](?:MD5|SHA[-_]?(?:1|224|256|384|512)|SHA3[-_]?(?:224|256|384|512))|(?:MD5|SHA[-_]?(?:1|224|256|384|512)|SHA3[-_]?(?:224|256|384|512))[-_/](?:RSA|DSA|ECDSA|ED25519))$`" + `,
+  // TLS and OpenSSH cipher-suite identifiers.
+  ` + "`(?i)^TLS_(?:(?:AES_(?:128|256)_GCM|CHACHA20_POLY1305)_SHA(?:256|384)|[A-Z0-9]+(?:_[A-Z0-9]+)*_WITH_[A-Z0-9]+(?:_[A-Z0-9]+)*)$`" + `,
+  ` + "`(?i)^(?:AES(?:128|192|256)-(?:CBC|CTR|GCM)|CHACHA20-POLY1305)@OPENSSH\\.COM$`" + `
+]);
+let isContextualAlgorithmName = hasNonPlaintextPasswordContext && filter.matchesAny(finding["secret"], [
+  // A field name can disambiguate an exact algorithm name, but cannot by
+  // itself prove that an arbitrary value is encrypted or hashed.
+  ` + "`(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA|CHACHA20|XCHACHA20|SALSA20|XSALSA20|DES|DESEDE|3DES|TRIPLE[-_]?DES|TWOFISH|SERPENT|CAST(?:5|128|256)|IDEA|SEED|SM4|RC[2456]|ARCFOUR|RSA|ECIES|ELGAMAL|SM2|MD5|SHA[-_]?(?:1|224|256|384|512)|SHA3[-_]?(?:224|256|384|512)|BLAKE2[BS](?:[-_]?(?:256|512))?|BLAKE3|RIPEMD[-_]?(?:128|160|256|320)|WHIRLPOOL|SM3|PBKDF2|SCRYPT|BCRYPT|ARGON2(?:D|I|ID)?|HKDF|YESCRYPT)$`" + `
+]);
 let level = (
   (
     isDirectAuthArgument
@@ -124,12 +167,18 @@ filter.matchesAny(finding["secret"], [
   ` + "`^\\$2[abxy]\\$[0-9]{2}\\$[./A-Za-z0-9]{7,}$`" + `,
   ` + "`(?i)^\\$pbkdf2[-_][^$]+\\$.*$`" + `,
   ` + "`(?i)^(?:pbkdf2_(?:sha1|sha256)|bcrypt_sha256|argon2|scrypt|sha1|md5|crypt)\\$`" + `,
+  ` + "`(?i)^\\$(?:1|5|6|7|y|gy|argon2(?:d|i|id)|scrypt|pbkdf2(?:[-_]sha(?:1|224|256|384|512))?|apr1)\\$`" + `,
+  ` + "`^\\$[PH]\\$[./A-Za-z0-9]{20,}$`" + `,
   ` + "`(?i)^\\{(?:SSHA(?:256|384|512)?|SHA(?:256|384|512)?|MD5|CRYPT|BCRYPT|PBKDF2)}`" + `,
-  ` + "`(?i)^SCRAM-SHA-256\\$`" + `
+  ` + "`(?i)^SCRAM-SHA-(?:1|256|512)\\$`" + `,
+  ` + "`(?i)^md5[0-9a-f]{32}$`" + `,
+  ` + "`^\\*[0-9A-F]{40}$`" + `
 ])
+|| isEncryptedValue
+|| isCryptographicAlgorithm
+|| isContextualAlgorithmName
 || isUnquotedCodeValue
 || isUnquotedExpression
-|| isNonPlaintextPasswordField
 || hasNestedUnquotedAssignment
 || filter.matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `,
@@ -142,6 +191,13 @@ filter.matchesAny(finding["secret"], [
 		`password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB`,
 		`password = "the quick brown fox jumps over lazy dogs"`,
 		`password = "MyPassword123!"`,
+		`password = "myAES256_GCMpassword"`,
+		`password = "rsa-admin-2026"`,
+		`password = "sha256-is-not-my-password"`,
+		`encrypted_password: "hunter2"`,
+		`enc_password: "hunter2"`,
+		`vault_password: "hunter2"`,
+		`encrypted_password: "Blowfish"`,
 		`password = "hunter2" # development password`,
 		`password = "hunter2" // TODO: move to vault`,
 		`password: "hunter2" -- local database`,
@@ -170,6 +226,27 @@ filter.matchesAny(finding["secret"], [
 		`ldap.bind(user, "hunter2")`,
 		`log.in(user, "hunter2")`,
 		`log-in(user, "hunter2")`,
+		`enc_sssd_sa_password: ENC[AES256_GCM,data:XYZ,iv:ABC,tag:DEF,type:str]`,
+		`password: "AES-256-GCM"`,
+		`password: "AES_256_CBC_HMAC_SHA_256"`,
+		`password: "AES/GCM"`,
+		`password: "AESWrap_256"`,
+		`password: "CAMELLIA-256-CBC"`,
+		`password: "ARIA_192_GCM"`,
+		`password: "CHACHA20-POLY1305"`,
+		`password: "XSALSA20-POLY1305"`,
+		`password: "DES-EDE3-CBC"`,
+		`password: "SM4-CTR"`,
+		`password: "RSA/ECB/OAEPWithSHA-256AndMGF1Padding"`,
+		`password: "PBEWithHmacSHA256AndAES_256"`,
+		`password: "PBES2-HS256+A128KW"`,
+		`password: "$ANSIBLE_VAULT;1.2;AES256;dev"`,
+		`password: "{cipher}AQB4aLongEncryptedValue"`,
+		`password: "ENC(VeryLongEncryptedPayload123==)"`,
+		`password: "U2FsdGVkX19hbG90b2ZjaXBoZXJ0ZXh0"`,
+		`password: "vault:v1:AbCdEfGhIjKlMnOpQrStUvWxYz012345"`,
+		`password: "$argon2id$v=19$m=65536,t=3,p=4$YWJj$ZGVm"`,
+		`password: "SCRAM-SHA-512$4096:c2FsdA==$c3RvcmVkOnNlcnZlcg=="`,
 	}
 	return utils.Validate(r, tps, fps)
 }
