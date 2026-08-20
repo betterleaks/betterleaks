@@ -13,7 +13,7 @@ func IonicPersonalAccessToken() *config.Rule {
 		Confidence:  "high",
 		Description: "Ionic personal access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ion_[A-Za-z0-9]{42}`, false),
-		Keywords:    []string{"ion_"},
+		Keywords:    []string{"ionic"},
 		ValidateExpr: `let r = http.post("https://api.ionic.io/graphql", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json",
