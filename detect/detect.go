@@ -1018,13 +1018,13 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
 		// Validation/filter expressions need context text in the finding map.
 		if r.ValidateExpr != "" || r.ValidationProgram() != nil || hasGlobalFilter || hasRuleFilter {
-			finding.SetExprContext(contextwindow.Extract(fragment.Raw, matchIndex, contextwindow.Spec{
+			finding.SetExprContext(strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, contextwindow.Spec{
 				Mode:        contextwindow.ModeBox,
 				LinesBefore: 20,
 				LinesAfter:  20,
 				ColsBefore:  350,
 				ColsAfter:   350,
-			}))
+			})))
 		}
 
 		// Build finding map once, only when at least one filter program is compiled.
