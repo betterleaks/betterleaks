@@ -111,6 +111,30 @@ entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# abuseipdb-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "abuseipdb-api-key.1"
+description = "AbuseIPDB API key, which may allow access to IP reputation data and abuse-reporting APIs."
+regex = '''(?i)(?:abuseipdb)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{80})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["abuseipdb"]
+validate = '''
+let r = http.get("https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8&maxAgeInDays=1", {
+    "Key": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"ipAddress\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # adafruit-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -735,6 +759,67 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# auth0-client-id.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "auth0-client-id.1"
+description = "Auth0 client ID, used as a component of the Auth0 client-secret composite rule."
+regex = '''(?i:(?:auth0[_.-]?(?:client[_.-]?)?(?:id|identifier))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_-]{32,60})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["auth0"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# auth0-client-secret.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "auth0-client-secret.1"
+description = "Auth0 client secret, which may allow an application to impersonate its OAuth client."
+regex = '''(?i:(?:auth0[_.-]?(?:client[_.-]?)?(?:secret|private|key|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_-]{64,128})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["auth0"]
+validate = '''
+let domain = (components["auth0-domain.1"]?.secret ?? "");
+let clientID = (components["auth0-client-id.1"]?.secret ?? "");
+let r = http.post("https://" + domain + "/oauth/token", {
+  "Accept": "application/json",
+  "Content-Type": "application/x-www-form-urlencoded"
+}, "grant_type=authorization_code" +
+  "&client_id=" + strings.urlQueryEscape(clientID) +
+  "&client_secret=" + strings.urlQueryEscape(finding["secret"]) +
+  "&code=betterleaks_invalid_code" +
+  "&redirect_uri=https%3A%2F%2Fexample.com%2Fbetterleaks");
+let oauthError = (r.json?.error ?? "");
+oauthError == "invalid_grant" ? {
+  "result": "valid"
+} : oauthError == "invalid_client" ? {
+  "result": "invalid",
+  "reason": "Invalid Auth0 client credentials"
+} : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+components = [
+    { id = "auth0-client-id.1", within = "10L" },
+    { id = "auth0-domain.1", within = "10L" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# auth0-domain.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "auth0-domain.1"
+description = "Auth0 tenant domain, used as a component of the Auth0 client-secret composite rule."
+regex = '''(?i)\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+auth0\.com)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["auth0.com"]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
 # authress-service-client-access-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -1189,6 +1274,49 @@ let r = http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&c
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.2
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# browserstack-access-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "browserstack-access-key.1"
+description = "BrowserStack access key, which may allow access to automated browser and device testing when paired with its username."
+regex = '''(?i:(?:browserstack[_.-]?(?:access[_.-]?)?(?:key|secret|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["browserstack"]
+validate = '''
+let r = http.get("https://api.browserstack.com/automate/plan.json", {
+    "Authorization": "Basic " + base64.encode(bytes((components["browserstack-username.1"]?.secret ?? "") + ":" + finding["secret"])),
+    "Accept": "application/json",
+    "User-Agent": "betterleaks-secret-validation/1"
+  }); r.status == 200 && (r.body contains "\"automate_plan\"") ? {
+    "result": "valid"
+  } : r.status == 403 && ((r.body contains "blocked") || (r.body contains "Blocked")) ?
+    validate.unknown(r) : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Authentication failed"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+components = [
+    { id = "browserstack-username.1", within = "5L" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# browserstack-username.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "browserstack-username.1"
+description = "BrowserStack username, used as a component of the BrowserStack access-key composite rule."
+regex = '''(?i:(?:browserstack[_.-]?(?:username|user))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9][A-Za-z0-9._-]{2,39})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["browserstack"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6197,7 +6325,7 @@ id = "ionic-personal-access-token"
 description = "Ionic personal access token."
 regex = '''\b(ion_[A-Za-z0-9]{42})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
-keywords = ["ion_"]
+keywords = ["ionic"]
 validate = '''
 let r = http.post("https://api.ionic.io/graphql", {
     "Authorization": "Bearer " + finding["secret"],
@@ -7129,6 +7257,34 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# monday-api-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "monday-api-token.1"
+description = "monday.com API token, which may grant the same workspace access as its associated user or application."
+regex = '''(?i:(?:monday)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(eyJ[A-Za-z0-9_-]{10,200}\.eyJ[A-Za-z0-9_-]{50,1000}\.[A-Za-z0-9_-]{20,500})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+specificity = 110
+confidence = "high"
+keywords = ["monday"]
+validate = '''
+let r = http.post("https://api.monday.com/v2", {
+    "Authorization": finding["secret"],
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"query\":\"query { me { id name } }\"}"); r.status == 200
+    && (r.body contains "\"data\"") && (r.body contains "\"me\"")
+    && (r.body contains "\"id\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # mongodb-atlas-service-account-id
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -7190,6 +7346,50 @@ entropy(finding["secret"]) <= 4.0
   `(?i)\bmongodb(?:\+srv)?:\/\/[^\s'"\x60]*(?:\$\{\{[^}]+}}|\$\{[^}]+}|\$[A-Za-z_][A-Za-z0-9_]*|{{[^}]+}}|<[^>]+>|\[[^]]+])[^\s'"\x60]*`
 ])
 '''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mux-access-token-id.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mux-access-token-id.1"
+description = "Mux access-token ID, used as a component of the Mux access-token-secret composite rule."
+regex = '''(?i)(?:mux[_.-]?(?:access[_.-]?)?token[_.-]?(?:id|identifier))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["mux"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mux-access-token-secret.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mux-access-token-secret.1"
+description = "Mux access-token secret, which may grant access to video, data, or system APIs when paired with its token ID."
+regex = '''(?i:(?:mux[_.-]?(?:access[_.-]?)?token[_.-]?(?:secret|private|key))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9+/]{75})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["mux"]
+validate = '''
+let r = http.get("https://api.mux.com/video/v1/assets?limit=1", {
+    "Authorization": "Basic " + base64.encode(bytes((components["mux-access-token-id.1"]?.secret ?? "") + ":" + finding["secret"])),
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "Authenticated Mux token without Video read permission"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+components = [
+    { id = "mux-access-token-id.1", within = "5L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # neon-api-key
@@ -7286,6 +7486,34 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# ngrok-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "ngrok-api-key.1"
+description = "ngrok API key or agent authtoken, which may allow tunnel access or account administration."
+regex = '''(?i:(?:ngrok[_. -]*(?:(?:api|agent)[_. -]*)?(?:secret|key|token|authtoken))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(2[A-Za-z0-9]{26}_[0-9][A-Za-z0-9]{20})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["ngrok"]
+validate = '''
+let r = http.get("https://api.ngrok.com/agent_ingresses", {
+    "Authorization": "Bearer " + finding["secret"],
+    "ngrok-version": "2",
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 400 && (r.body contains "ERR_NGROK_206") ? {
+    "result": "valid",
+    "reason": "Live ngrok agent authtoken"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Authentication failed"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # notion-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -7341,6 +7569,37 @@ confidence = "high"
 keywords = ["nvapi-"]
 filter = '''
 entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# nylas-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "nylas-api-key.1"
+description = "Nylas API key, which may allow application-level access to connected email, calendar, and contact data."
+regex = '''\b(nyk_[A-Za-z0-9]{67})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["nyk_"]
+validate = '''
+let us = http.get("https://api.us.nylas.com/v3/webhooks?limit=1", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); us.status in [200, 403] ? {
+    "result": "valid",
+    "region": "us"
+  } : (let eu = http.get("https://api.eu.nylas.com/v3/webhooks?limit=1", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); eu.status in [200, 403] ? {
+    "result": "valid",
+    "region": "eu"
+  } : us.status == 401 && eu.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(eu))
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7571,6 +7830,37 @@ let r = http.get("https://api.openweathermap.org/data/2.5/forecast?q=London&appi
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# opsgenie-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "opsgenie-api-key.1"
+description = "Opsgenie API key, which may allow access to alerts, incidents, and account configuration."
+regex = '''(?i)(?:opsgenie)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["opsgenie"]
+validate = '''
+let us = http.get("https://api.opsgenie.com/v2/account", {
+    "Authorization": "GenieKey " + finding["secret"],
+    "Accept": "application/json"
+  }); us.status in [200, 403] ? {
+    "result": "valid",
+    "region": "us"
+  } : (let eu = http.get("https://api.eu.opsgenie.com/v2/account", {
+    "Authorization": "GenieKey " + finding["secret"],
+    "Accept": "application/json"
+  }); eu.status in [200, 403] ? {
+    "result": "valid",
+    "region": "eu"
+  } : us.status == 401 && eu.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(eu))
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8238,6 +8528,37 @@ entropy(finding["secret"]) <= 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# postmark-api-token.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "postmark-api-token.1"
+description = "Postmark server or account API token, which may allow access to email delivery and account configuration."
+regex = '''(?i)(?:postmark)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["postmark"]
+validate = '''
+let server = http.get("https://api.postmarkapp.com/server", {
+    "X-Postmark-Server-Token": finding["secret"],
+    "Accept": "application/json"
+  }); server.status == 200 && (server.body contains "\"ID\"") ? {
+    "result": "valid",
+    "type": "server"
+  } : (let account = http.get("https://api.postmarkapp.com/domains?count=1&offset=0", {
+    "X-Postmark-Account-Token": finding["secret"],
+    "Accept": "application/json"
+  }); account.status == 200 ? {
+    "result": "valid",
+    "type": "account"
+  } : server.status == 401 && account.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(account))
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # prefect-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -8417,6 +8738,50 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# razorpay-key-id.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "razorpay-key-id.1"
+description = "Razorpay key ID, used as a component of the Razorpay key-secret composite rule."
+regex = '''\b(rzp_(?:live|test)_[A-Za-z0-9]{14})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = [
+    "rzp_live_",
+    "rzp_test_",
+]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# razorpay-key-secret.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "razorpay-key-secret.1"
+description = "Razorpay key secret, which may authorize payment APIs when paired with its key ID."
+regex = '''(?i:(?:razorpay[_.-]?(?:(?:api|key)[_.-]?)?(?:secret|private|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["razorpay"]
+validate = '''
+let r = http.get("https://api.razorpay.com/v1/items?count=1", {
+    "Authorization": "Basic " + base64.encode(bytes((components["razorpay-key-id.1"]?.secret ?? "") + ":" + finding["secret"])),
+    "Accept": "application/json"
+  }); r.status == 200 && (r.body contains "\"items\"") ? {
+    "result": "valid"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Invalid Razorpay key ID or secret"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+components = [
+    { id = "razorpay-key-id.1", within = "5L" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # readme-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -8501,6 +8866,34 @@ let r = http.get("https://api.replicate.com/v1/account", {
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# resend-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "resend-api-key.1"
+description = "Resend API key, which may allow sending email or managing account resources."
+regex = '''\b(re_[1-9A-HJ-NP-Za-km-z]{8}_[1-9A-HJ-NP-Za-km-z]{24})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["resend"]
+validate = '''
+let r = http.get("https://api.resend.com/domains", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json",
+    "User-Agent": "betterleaks-secret-validation/1"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 401 && (r.body contains "restricted_api_key") ? {
+    "result": "valid",
+    "reason": "Authenticated sending-only API key"
+  } : r.status == 403 && (r.body contains "invalid_api_key") ? {
+    "result": "invalid",
+    "reason": "Invalid API key"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10025,6 +10418,37 @@ let r = http.get("https://api.vercel.com/v2/user", {
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# virustotal-api-key.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "virustotal-api-key.1"
+description = "VirusTotal API key, which may expose private submissions, intelligence, or account API access."
+regex = '''(?i)(?:virustotal)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["virustotal"]
+validate = '''
+let r = http.get("https://www.virustotal.com/api/v3/domains/google.com", {
+    "x-apikey": finding["secret"],
+    "Accept": "application/json"
+  }); let errorCode = (r.json?.error?.code ?? "");
+r.status == 200 && (r.body contains "\"data\"") ? {
+  "result": "valid"
+} : r.status == 403 && errorCode == "ForbiddenError" ? {
+  "result": "valid",
+  "reason": "Authenticated but operation is forbidden"
+} : r.status == 401 && errorCode == "UserNotActiveError" ? {
+  "result": "valid",
+  "reason": "Authenticated inactive VirusTotal account"
+} : r.status == 401 && errorCode == "WrongCredentialsError" ? {
+  "result": "invalid",
+  "reason": "Wrong credentials"
+} : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
