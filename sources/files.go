@@ -10,7 +10,6 @@ import (
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/charlievieth/fastwalk"
-	"github.com/fatih/semgroup"
 )
 
 // TODO: remove this in v9 and have scanTargets yield file sources
@@ -25,7 +24,6 @@ type Files struct {
 	FollowSymlinks  bool
 	MaxFileSize     int
 	Path            string
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
 }
 
@@ -153,15 +151,18 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	var wg sync.WaitGroup
+	ctx = ensureSourceWorkers(ctx)
+	tasks := newSourceTaskGroup(ctx)
 
 	err := s.scanTargets(ctx, func(scanTarget ScanTarget, err error) error {
+		if err != nil {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			wg.Add(1)
-			s.Sema.Go(func() error {
+			return tasks.Go(func(taskCtx context.Context) error {
 				logger := logging.With().Str("path", scanTarget.Path).Logger()
 				logger.Trace().Msg("scanning path")
 
@@ -170,7 +171,6 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					if os.IsPermission(err) {
 						logger.Warn().Msg("skipping file: permission denied")
 					}
-					wg.Done()
 					return nil
 				}
 
@@ -183,22 +183,13 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					MaxArchiveDepth: s.MaxArchiveDepth,
 				}
 
-				err = file.Fragments(ctx, yield)
+				err = file.Fragments(taskCtx, yield)
 				// Avoiding a defer in a hot loop
 				_ = f.Close()
-				wg.Done()
 				return err
 			})
-
-			return nil
 		}
 	})
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		wg.Wait()
-		return err
-	}
+	return tasks.Wait(err)
 }

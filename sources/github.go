@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"github.com/google/go-github/v72/github"
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/sync/errgroup"
@@ -57,11 +56,10 @@ type GitHub struct {
 	// or set directly by callers who want programmatic control.
 	Resources GitHubResourceSet
 
-	// Scan config (passed through to Git/ParallelGit per repo)
+	// Scan config (passed through to Git per repo)
 	ShouldSkip      SkipFunc
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
-	Workers         int // git workers per repo (0 = single process)
+	Workers         int // Git-log workers per repo; 0 inherits explicit source workers, then one.
 	LogOpts         string
 
 	// GitHub API
@@ -231,6 +229,7 @@ func (s *GitHub) Validate() error {
 
 // Fragments enumerates GitHub repos and scans each one.
 func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	ctx = ensureSourceWorkers(ctx)
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -258,7 +257,7 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(100)
+	scanGroup.SetLimit(sourceWorkerCount(ctx, 100))
 
 	if target.Resource == "user" && s.Resources.Has(GitHubResourceTypeGists) {
 		scanGroup.Go(func() error {
@@ -617,24 +616,15 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 // scanRepoGit clones and scans a repo's git history.
 func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
 	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		var src Source
-		if s.Workers > 0 {
-			src = &ParallelGit{
-				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
-				Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts: s.LogOpts, Workers: s.Workers,
-			}
-		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
-			if err != nil {
-				return err
-			}
-			src = &Git{
-				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
-				Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-			}
+		src := &Git{
+			Cmd:             nil,
+			RepoPath:        repoPath,
+			LogOpts:         s.LogOpts,
+			Workers:         s.Workers,
+			ShouldSkip:      s.ShouldSkip,
+			Platform:        scm.GitHubPlatform,
+			RemoteURL:       repo.GetHTMLURL(),
+			MaxArchiveDepth: s.MaxArchiveDepth,
 		}
 		return src.Fragments(ctx, yield)
 	})

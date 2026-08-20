@@ -15,12 +15,11 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
-	"github.com/fatih/semgroup"
 	"github.com/gitleaks/go-gitdiff/gitdiff"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
@@ -105,24 +104,82 @@ func NewGitLogCmd(source string, logOpts string) (*GitCmd, error) {
 // NewGitLogCmdContext is the same as NewGitLogCmd but supports passing in a
 // context to use for timeouts
 func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*GitCmd, error) {
-	sourceClean := filepath.Clean(source)
-	var cmd *exec.Cmd
-	if logOpts != "" {
-		args := []string{"-C", sourceClean, "log", "-p", "-U0"}
+	return newGitLogCmd(ctx, source, logOpts)
+}
 
+// newGitLogCmd constructs a full git log -p command.
+func newGitLogCmd(ctx context.Context, source string, logOpts string) (*GitCmd, error) {
+	sourceClean := filepath.Clean(source)
+	args := []string{"-C", sourceClean, "log", "-p", "-U0"}
+
+	if logOpts != "" {
 		userArgs, err := splitGitLogOpts(logOpts)
 		if err != nil {
 			return nil, fmt.Errorf("invalid --log-opts: %w", err)
 		}
-
 		args = append(args, userArgs...)
-		cmd = exec.CommandContext(ctx, "git", args...)
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
-			"--full-history", "--all", "--diff-filter=tuxdb")
+		args = append(args, "--full-history", "--all", "--diff-filter=tuxdb")
 	}
-	cmd.Env = gitConfigIsolationEnv()
 
+	return startGitLogCmd(ctx, sourceClean, args)
+}
+
+// newGitLogCommitsCmd constructs a git log -p command that processes a
+// specific set of commits via --no-walk --stdin.
+func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (*GitCmd, error) {
+	sourceClean := filepath.Clean(source)
+	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = gitConfigIsolationEnv()
+	logging.Debug().Msgf("executing: %s (%d commits via stdin)", cmd.String(), len(commits))
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+
+	go func() {
+		defer stdin.Close()
+		for _, sha := range commits {
+			if _, err := fmt.Fprintln(stdin, sha); err != nil {
+				return
+			}
+		}
+	}()
+
+	errCh := make(chan error)
+	go listenForStdErr(stderr, errCh)
+
+	gitdiffFiles, err := gitdiff.Parse(stdout)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GitCmd{
+		cmd:         cmd,
+		diffFilesCh: gitdiffFiles,
+		errCh:       errCh,
+		repoPath:    sourceClean,
+	}, nil
+}
+
+// startGitLogCmd starts a git log process and wires its output into GitCmd.
+func startGitLogCmd(ctx context.Context, repoPath string, args []string) (*GitCmd, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = gitConfigIsolationEnv()
 	logging.Debug().Msgf("executing: %s", cmd.String())
 
 	stdout, err := cmd.StdoutPipe()
@@ -149,8 +206,38 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 		cmd:         cmd,
 		diffFilesCh: gitdiffFiles,
 		errCh:       errCh,
-		repoPath:    sourceClean,
+		repoPath:    repoPath,
 	}, nil
+}
+
+// listCommits returns all commit SHAs matching the given log options in a
+// deterministic order for partitioning across Git-log workers.
+func listCommits(ctx context.Context, source string, logOpts string) ([]string, error) {
+	sourceClean := filepath.Clean(source)
+	args := []string{"-C", sourceClean, "rev-list"}
+
+	if logOpts != "" {
+		userArgs, err := splitGitLogOpts(logOpts)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --log-opts: %w", err)
+		}
+		args = append(args, userArgs...)
+	} else {
+		args = append(args, "--all")
+	}
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = gitConfigIsolationEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git rev-list: %w", err)
+	}
+
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return nil, nil
+	}
+	return strings.Split(text, "\n"), nil
 }
 
 // splitGitLogOpts parses user-provided --log-opts with a small shell-inspired
@@ -366,32 +453,107 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 // Git is a source for yielding fragments from a git repo
 type Git struct {
 	Cmd             *GitCmd
+	RepoPath        string
+	LogOpts         string
+	Workers         int // Git-log workers; 0 falls back to explicit source workers, then one.
 	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
 }
 
 // Fragments yields fragments from a git repo
 func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	ctx = ensureSourceWorkers(ctx)
+	if s.Cmd != nil {
+		return s.fragmentsFromCmd(ctx, s.Cmd, yield)
+	}
+	if s.RepoPath == "" {
+		return errors.New("git source requires RepoPath or Cmd")
+	}
+
+	workers := s.workerCount(ctx)
+	if workers <= 1 {
+		cmd, err := newGitLogCmd(ctx, s.RepoPath, s.LogOpts)
+		if err != nil {
+			return err
+		}
+		return s.fragmentsFromCmd(ctx, cmd, yield)
+	}
+
+	return s.fragmentsFromHistory(ctx, workers, yield)
+}
+
+func (s *Git) workerCount(ctx context.Context) int {
+	if s.Workers > 0 {
+		return s.Workers
+	}
+	if workers := sourceWorkerOverride(ctx); workers > 0 {
+		return workers
+	}
+	return 1
+}
+
+func (s *Git) fragmentsFromHistory(ctx context.Context, workers int, yield FragmentsFunc) error {
+	commits, err := listCommits(ctx, s.RepoPath, s.LogOpts)
+	if err != nil {
+		return fmt.Errorf("list commits: %w", err)
+	}
+	if len(commits) == 0 {
+		return nil
+	}
+	workers = min(workers, len(commits))
+	if workers <= 1 {
+		cmd, err := newGitLogCmd(ctx, s.RepoPath, s.LogOpts)
+		if err != nil {
+			return err
+		}
+		return s.fragmentsFromCmd(ctx, cmd, yield)
+	}
+
+	chunkSize := (len(commits) + workers - 1) / workers
+	logging.Info().
+		Int("commits", len(commits)).
+		Int("workers", workers).
+		Int("chunk_size", chunkSize).
+		Msg("parallel git scan")
+
+	g, gctx := errgroup.WithContext(ctx)
+	for start := 0; start < len(commits); start += chunkSize {
+		end := min(start+chunkSize, len(commits))
+		chunk := commits[start:end]
+		g.Go(func() error {
+			cmd, err := newGitLogCommitsCmd(gctx, s.RepoPath, chunk)
+			if err != nil {
+				return err
+			}
+			return s.fragmentsFromCmd(gctx, cmd, yield)
+		})
+	}
+	return g.Wait()
+}
+
+func (s *Git) fragmentsFromCmd(ctx context.Context, cmd *GitCmd, yield FragmentsFunc) error {
 	defer func() {
-		if err := s.Cmd.Wait(); err != nil {
-			logging.Debug().Err(err).Str("cmd", s.Cmd.String()).Msg("command aborted")
+		if err := cmd.Wait(); err != nil {
+			logging.Debug().Err(err).Str("cmd", cmd.String()).Msg("command aborted")
 		}
 	}()
 
 	var (
-		diffFilesCh = s.Cmd.DiffFilesCh()
-		errCh       = s.Cmd.ErrCh()
-		wg          sync.WaitGroup
+		diffFilesCh = cmd.DiffFilesCh()
+		errCh       = cmd.ErrCh()
+		producerErr error
 	)
+	tasks := newSourceTaskGroup(ctx)
 
 	// loop to range over both DiffFiles (stdout) and ErrCh (stderr)
+scan:
 	for diffFilesCh != nil || errCh != nil {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			producerErr = ctx.Err()
+			break scan
 		case gitdiffFile, open := <-diffFilesCh:
 			if !open {
 				diffFilesCh = nil
@@ -442,12 +604,9 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				}
 			}
 
-			wg.Add(1)
-			s.Sema.Go(func() error {
-				defer wg.Done()
-
+			if err := tasks.Go(func(taskCtx context.Context) error {
 				if yieldAsArchive {
-					blob, err := s.Cmd.NewBlobReaderContext(ctx, commitSHA, gitdiffFile.NewName)
+					blob, err := cmd.NewBlobReaderContext(taskCtx, commitSHA, gitdiffFile.NewName)
 					if err != nil {
 						logging.Error().Err(err).Msg("could not read archive blob")
 						return nil
@@ -461,7 +620,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					}
 
 					// enrich and yield fragments
-					err = file.Fragments(ctx, func(fragment Fragment, err error) error {
+					err = file.Fragments(taskCtx, func(fragment Fragment, err error) error {
 						// create base attributes of the commit
 						attrs := maps.Clone(commitAttrs)
 						// add fragment-specific attributes (in case attributes have been enriched by the file source)
@@ -496,24 +655,22 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				}
 
 				return nil
-			})
+			}); err != nil {
+				producerErr = err
+				break scan
+			}
 		case err, open := <-errCh:
 			if !open {
 				errCh = nil
 				break
 			}
 
-			return yield(Fragment{}, err)
+			producerErr = yield(Fragment{}, err) //nolint:exhaustruct
+			break scan
 		}
 	}
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		wg.Wait()
-		return nil
-	}
+	return tasks.Wait(producerErr)
 }
 
 // ResolveRemote resolves the SCM platform and remote URL for the given source.

@@ -29,7 +29,6 @@ import (
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 
-	"github.com/fatih/semgroup"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
 )
@@ -129,6 +128,13 @@ type Detector struct {
 
 	// RuleTimings records per-rule diagnostic timings when diagnostics are enabled.
 	RuleTimings *RuleTimingCollector
+
+	// SourceWorkers limits concurrent source tasks. Zero uses the source's
+	// default.
+	SourceWorkers int
+
+	// DetectWorkers limits concurrent fragment detection. Zero uses GOMAXPROCS.
+	DetectWorkers int
 
 	tokenizer     *tiktoken.Tiktoken
 	tokenizerOnce sync.Once
@@ -230,10 +236,6 @@ type Detector struct {
 	// This is only used for logging purposes and git scans.
 	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
 	commitMap map[string]bool
-
-	// Sema (https://github.com/fatih/semgroup) controls the concurrency
-	// Deprecated: this is only used for git log workers and can be removed when the legacy git scan is removed in v2.
-	Sema *semgroup.Group
 }
 
 // NewDetectorContext creates a new Detector.
@@ -266,7 +268,6 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
 		prefilter:              ahocorasick.Compile(keywords, true),
-		Sema:                   semgroup.NewGroup(ctx, 40),
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
 		validationPrograms:     make(map[string]exprruntime.Program),
@@ -534,54 +535,36 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		go func() {
 			defer close(resultsCh)
 
-			err := source.Fragments(runCtx, func(fragment sources.Fragment, err error) error {
-				if err != nil {
+			err := d.runDetectionWorkers(
+				runCtx,
+				source,
+				func(_ sources.Fragment, err error) error {
 					return emit(Result{Err: err})
-				}
-
-				logger := fragment.Logger()
-				if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
-					logger.Trace().Msg("skipping empty fragment")
-					return nil
-				}
-
-				var timer *time.Timer
-				if logger.GetLevel() <= zerolog.DebugLevel {
-					timer = time.AfterFunc(SlowWarningThreshold, func() {
-						logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
-					})
-				}
-				defer func() {
-					if timer != nil {
-						timer.Stop()
-					}
-				}()
-
-				findings := d.detectFragment(runCtx, fragment)
-				for _, finding := range findings {
-					if d.ignore(finding) {
-						continue
-					}
-					if d.ValidationPool != nil {
-						if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
-							return err
-						} else if ok {
-							if err := d.ValidationPool.SubmitContext(runCtx,
-								finding,
-								prg); err != nil {
-								if errors.Is(err, context.Canceled) {
-									return errStopIteration
-								}
-								return err
-							}
-							continue
+				},
+				func(workerCtx context.Context, job fragmentJob) error {
+					return d.inspectFragment(workerCtx, job, func(finding report.Finding) error {
+						if d.ignore(finding) {
+							return nil
 						}
-					}
-					emit(Result{Finding: finding})
-				}
-
-				return nil
-			})
+						if d.ValidationPool != nil {
+							if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
+								return err
+							} else if ok {
+								if err := d.ValidationPool.SubmitContext(workerCtx,
+									finding,
+									prg); err != nil {
+									if errors.Is(err, context.Canceled) {
+										return errStopIteration
+									}
+									return err
+								}
+								return nil
+							}
+						}
+						return emit(Result{Finding: finding, Err: nil})
+					})
+				},
+			)
 
 			if d.ValidationPool != nil {
 				d.ValidationPool.Close()
@@ -715,6 +698,14 @@ func (d *Detector) DetectString(content string) []report.Finding {
 }
 
 func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	byteCount := len(fragment.Raw)
+	if fragment.Bytes != nil {
+		byteCount = len(fragment.Bytes)
+	}
+	return d.detectFragmentSized(ctx, fragment, byteCount)
+}
+
+func (d *Detector) detectFragmentSized(ctx context.Context, fragment sources.Fragment, byteCount int) []report.Finding {
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
@@ -725,10 +716,7 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 		}
 	}
 
-	if fragment.Bytes == nil {
-		d.TotalBytes.Add(uint64(len(fragment.Raw)))
-	}
-	d.TotalBytes.Add(uint64(len(fragment.Bytes)))
+	d.TotalBytes.Add(uint64(byteCount))
 
 	findings := []report.Finding{}
 

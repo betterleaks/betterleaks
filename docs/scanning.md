@@ -18,6 +18,36 @@ Use `--help` for full flag descriptions. This page is for patterns.
 
 ---
 
+## Concurrency
+
+Scanning has separate controls for source I/O, detection, and live validation:
+
+```sh
+betterleaks dir . \
+  --source-workers 16 \
+  --detect-workers 8 \
+  --validation-workers 10
+```
+
+- `--source-workers` sets the source's top-level file, object, or repository
+  worker limit. `0` keeps that source's existing default.
+- `--detect-workers` sets the number of workers consuming the bounded fragment
+  queue. `0` uses `GOMAXPROCS`.
+- `--validation-workers` controls concurrent live validation evaluations and
+  defaults to `10`.
+
+For full-history Git scans, a positive `--git-workers` controls how a
+repository's history is partitioned and takes precedence over
+`--source-workers`. When `--git-workers` is `0`, a positive
+`--source-workers` value is also used as the Git-log worker count; leaving both
+at `0` uses one Git log. Staged and pre-commit scans continue to use one
+`git diff` process.
+
+For S3, the source-specific `--workers` flag takes precedence over
+`--source-workers` when explicitly supplied.
+
+---
+
 ## `dir`
 
 Use `dir` for current filesystem state.

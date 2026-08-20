@@ -56,6 +56,14 @@ var s3Cmd = &cobra.Command{
 	Run:  runS3,
 }
 
+func resolveS3Workers(cmd *cobra.Command, sourceWorkers int) int {
+	workers := mustGetIntFlag(cmd, "workers")
+	if !cmd.Flags().Changed("workers") {
+		return sourceWorkers
+	}
+	return workers
+}
+
 func runS3(cmd *cobra.Command, args []string) {
 	start := time.Now()
 
@@ -73,7 +81,7 @@ func runS3(cmd *cobra.Command, args []string) {
 		SecretKey:       mustGetStringFlag(cmd, "secret-key"),
 		SessionToken:    mustGetStringFlag(cmd, "session-token"),
 		MaxObjectSize:   mustGetInt64Flag(cmd, "max-object-size"),
-		Workers:         mustGetIntFlag(cmd, "workers"),
+		Workers:         resolveS3Workers(cmd, detector.SourceWorkers),
 		ShouldSkip:      detector.SkipFunc(),
 		MaxArchiveDepth: detector.MaxArchiveDepth,
 	}
