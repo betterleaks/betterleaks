@@ -72,6 +72,7 @@ func runGitLab(cmd *cobra.Command, args []string) {
 	include, _ := cmd.Flags().GetStringSlice("include")
 	exclude, _ := cmd.Flags().GetStringSlice("exclude")
 	excludeRepos, _ := cmd.Flags().GetStringSlice("exclude-repo")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 
 	var since, until time.Time
 	var err error
@@ -98,8 +99,7 @@ func runGitLab(cmd *cobra.Command, args []string) {
 		AllGroups:        mustGetBoolFlag(cmd, "all-groups"),
 		IncludeSubgroups: mustGetBoolFlag(cmd, "include-subgroups"),
 		ShouldSkip:       detector.SkipFunc(),
-		Sema:             detector.Sema,
-		MaxArchiveDepth:  detector.MaxArchiveDepth,
+		MaxArchiveDepth:  maxArchiveDepth,
 		Workers:          mustGetIntFlag(cmd, "git-workers"),
 		LogOpts:          mustGetStringFlag(cmd, "log-opts"),
 		DateRangeOpts: sources.DateRangeOptions{
@@ -116,8 +116,8 @@ func runGitLab(cmd *cobra.Command, args []string) {
 	noColor := mustGetBoolFlag(cmd, "no-color")
 	redact := mustGetUIntFlag(cmd, "redact")
 	verbose := mustGetBoolFlag(cmd, "verbose")
+	legacyPrint := mustGetBoolFlag(cmd, "legacy-print")
 
-	detector.SkipFindingAppend = true
 	var findings []report.Finding
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
@@ -128,7 +128,7 @@ func runGitLab(cmd *cobra.Command, args []string) {
 		}
 		findings = append(findings, result.Finding)
 		if verbose {
-			if detector.LegacyPrint {
+			if legacyPrint {
 				result.Finding.PrintLegacy(noColor, redact)
 			} else {
 				result.Finding.Print(noColor, redact)
@@ -143,5 +143,5 @@ func runGitLab(cmd *cobra.Command, args []string) {
 			errs: scanErrs,
 		}
 	}
-	findingSummaryAndExit(detector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, scanErr)
 }

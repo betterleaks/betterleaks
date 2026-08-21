@@ -69,6 +69,8 @@ func runGit(cmd *cobra.Command, args []string) {
 	noColor := mustGetBoolFlag(cmd, "no-color")
 	redact := mustGetUIntFlag(cmd, "redact")
 	verbose := mustGetBoolFlag(cmd, "verbose")
+	legacyPrint := mustGetBoolFlag(cmd, "legacy-print")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 
 	var (
 		findings    []report.Finding
@@ -78,7 +80,7 @@ func runGit(cmd *cobra.Command, args []string) {
 	)
 
 	if preCommit || staged {
-		gitCmd, cmdErr := sources.NewGitDiffCmdContext(cmd.Context(), source, staged)
+		gitCmd, cmdErr := sources.NewGitDiffCmd(cmd.Context(), source, staged)
 		if cmdErr != nil {
 			logging.Fatal().Err(cmdErr).Msg("could not create Git diff cmd")
 		}
@@ -87,8 +89,7 @@ func runGit(cmd *cobra.Command, args []string) {
 			Cmd:             gitCmd,
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        scm.NoPlatform,
-			Sema:            detector.Sema,
-			MaxArchiveDepth: detector.MaxArchiveDepth,
+			MaxArchiveDepth: maxArchiveDepth,
 		}
 	} else {
 		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
@@ -102,13 +103,12 @@ func runGit(cmd *cobra.Command, args []string) {
 				ShouldSkip:      detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
+				MaxArchiveDepth: maxArchiveDepth,
 				LogOpts:         logOpts,
 				Workers:         gitWorkers,
 			}
 		} else {
-			gitCmd, cmdErr := sources.NewGitLogCmdContext(cmd.Context(), source, logOpts)
+			gitCmd, cmdErr := sources.NewGitLogCmd(cmd.Context(), source, logOpts)
 			if cmdErr != nil {
 				logging.Fatal().Err(cmdErr).Msg("could not create Git log cmd")
 			}
@@ -117,13 +117,11 @@ func runGit(cmd *cobra.Command, args []string) {
 				ShouldSkip:      detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
+				MaxArchiveDepth: maxArchiveDepth,
 			}
 		}
 	}
 
-	detector.SkipFindingAppend = true
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
 		if result.Err != nil {
@@ -135,7 +133,7 @@ func runGit(cmd *cobra.Command, args []string) {
 
 		findings = append(findings, result.Finding)
 		if verbose {
-			if detector.LegacyPrint {
+			if legacyPrint {
 				result.Finding.PrintLegacy(noColor, redact)
 			} else {
 				result.Finding.Print(noColor, redact)
@@ -150,5 +148,5 @@ func runGit(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findingSummaryAndExit(detector, findings, exitCode, start, err)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, err)
 }

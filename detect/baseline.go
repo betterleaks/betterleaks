@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/betterleaks/betterleaks/report"
 )
@@ -47,35 +46,4 @@ func LoadBaseline(baselinePath string) ([]report.Finding, error) {
 	}
 
 	return previousFindings, nil
-}
-
-func (d *Detector) AddBaseline(baselinePath string, source string) error {
-	if baselinePath != "" {
-		absoluteSource, err := filepath.Abs(source)
-		if err != nil {
-			return err
-		}
-
-		absoluteBaseline, err := filepath.Abs(baselinePath)
-		if err != nil {
-			return err
-		}
-
-		relativeBaseline, err := filepath.Rel(absoluteSource, absoluteBaseline)
-		if err != nil {
-			return err
-		}
-
-		baseline, err := LoadBaseline(baselinePath)
-		if err != nil {
-			return err
-		}
-
-		d.baseline = baseline
-		baselinePath = relativeBaseline
-
-	}
-
-	d.baselinePath = baselinePath
-	return nil
 }

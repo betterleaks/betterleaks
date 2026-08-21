@@ -43,6 +43,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	noColor := mustGetBoolFlag(cmd, "no-color")
 	redact := mustGetUIntFlag(cmd, "redact")
 	verbose := mustGetBoolFlag(cmd, "verbose")
+	legacyPrint := mustGetBoolFlag(cmd, "legacy-print")
 	exitCode := mustGetIntFlag(cmd, "exit-code")
 
 	var (
@@ -57,7 +58,6 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		initConfig(source)
 		cfg := Config(cmd)
 		detector := Detector(cmd, cfg, source)
-		detector.SkipFindingAppend = true
 		lastDetector = detector
 
 		s := &sources.Files{
@@ -66,7 +66,6 @@ func runDirectory(cmd *cobra.Command, args []string) {
 			FollowSymlinks:  followSymlinks,
 			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
 			Path:            source,
-			Sema:            detector.Sema,
 			Workers:         20,
 			MaxArchiveDepth: maxArchiveDepth,
 		}
@@ -81,7 +80,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 
 			findings = append(findings, result.Finding)
 			if verbose {
-				if detector.LegacyPrint {
+				if legacyPrint {
 					result.Finding.PrintLegacy(noColor, uint(redact))
 				} else {
 					result.Finding.Print(noColor, uint(redact))
@@ -103,7 +102,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findingSummaryAndExit(lastDetector, allFindings, exitCode, start, scanErr)
+	findingSummaryAndExit(cmd, lastDetector, allFindings, exitCode, start, scanErr)
 }
 
 // removeNestedPaths filters out paths that are children of other paths in the

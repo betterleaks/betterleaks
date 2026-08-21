@@ -5,6 +5,7 @@
 package utils
 
 import (
+	"context"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
@@ -49,7 +50,7 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 				sources.AttrPath: path,
 			},
 		}
-		if len(d.Detect(f)) != 1 {
+		if len(d.DetectFragment(context.Background(), f)) != 1 {
 			logging.Fatal().
 				Str("rule", r.RuleID).
 				Str("value", tp).
@@ -65,7 +66,7 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 				sources.AttrPath: path,
 			},
 		}
-		if len(d.Detect(f)) != 0 {
+		if len(d.DetectFragment(context.Background(), f)) != 0 {
 			logging.Fatal().
 				Str("rule", r.RuleID).
 				Str("value", fp).
@@ -114,5 +115,9 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 		}
 	}
 
-	return detect.NewDetector(cfg)
+	detector, err := detect.NewDetector(context.Background(), cfg, detect.ValidationOptions{})
+	if err != nil {
+		logging.Fatal().Err(err).Msg("Failed to create rule validation detector.")
+	}
+	return detector
 }

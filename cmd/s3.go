@@ -64,6 +64,7 @@ func runS3(cmd *cobra.Command, args []string) {
 
 	cfg := Config(cmd)
 	detector := Detector(cmd, cfg, ".")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 
 	src := &sources.S3{
 		URL:             args[0],
@@ -75,7 +76,7 @@ func runS3(cmd *cobra.Command, args []string) {
 		MaxObjectSize:   mustGetInt64Flag(cmd, "max-object-size"),
 		Workers:         mustGetIntFlag(cmd, "workers"),
 		ShouldSkip:      detector.SkipFunc(),
-		MaxArchiveDepth: detector.MaxArchiveDepth,
+		MaxArchiveDepth: maxArchiveDepth,
 	}
 
 	if err := src.Validate(); err != nil {
@@ -86,8 +87,8 @@ func runS3(cmd *cobra.Command, args []string) {
 	noColor := mustGetBoolFlag(cmd, "no-color")
 	redact := mustGetUIntFlag(cmd, "redact")
 	verbose := mustGetBoolFlag(cmd, "verbose")
+	legacyPrint := mustGetBoolFlag(cmd, "legacy-print")
 
-	detector.SkipFindingAppend = true
 	var findings []report.Finding
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
@@ -98,7 +99,7 @@ func runS3(cmd *cobra.Command, args []string) {
 		}
 		findings = append(findings, result.Finding)
 		if verbose {
-			if detector.LegacyPrint {
+			if legacyPrint {
 				result.Finding.PrintLegacy(noColor, redact)
 			} else {
 				result.Finding.Print(noColor, redact)
@@ -113,5 +114,5 @@ func runS3(cmd *cobra.Command, args []string) {
 			errs: scanErrs,
 		}
 	}
-	findingSummaryAndExit(detector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, scanErr)
 }

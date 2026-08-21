@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"github.com/google/go-github/v72/github"
 	"github.com/stretchr/testify/require"
 
@@ -33,7 +32,7 @@ func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes[?"resource"].orValue("") == "github.repository" && attributes[?"github.repo"].orValue("") == "repo"`)
 
-	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4), Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
+	src := &GitHub{ShouldSkip: skip, Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []*Fragment
@@ -52,7 +51,7 @@ func TestGitHub_scanRepo_prefilterUsesMergedRepoAttrsOnFragments(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes[?"github.repo"].orValue("") == "repo" && attributes[?"path"].orValue("") != ""`)
 
-	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4), Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
+	src := &GitHub{ShouldSkip: skip, Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []*Fragment
@@ -71,7 +70,7 @@ func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `containsAny(attributes[?"path"].orValue(""), ["does-not-match"])`)
 
-	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4), Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
+	src := &GitHub{ShouldSkip: skip, Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []*Fragment
@@ -93,7 +92,6 @@ func TestGitHub_scanRepo_skipRepoGitDoesNotCloneOrScanHistory(t *testing.T) {
 
 	src := &GitHub{
 		Resources: GitHubResourceSet{}, // repos not in set = skip git
-		Sema:      semgroup.NewGroup(t.Context(), 4),
 	}
 	repo := newTestGitHubRepo(filepath.Join(t.TempDir(), "does-not-exist"))
 
@@ -780,8 +778,7 @@ func buildGitHubTestZip(t *testing.T, files map[string]string) []byte {
 
 // TestFragments_A2_schedulesAllReposAboveConcurrencyLimit verifies that when
 // more than 8 repos are present, every repo is eventually scanned.
-// Before A2 the fix (TryGo→Go), repos beyond the semgroup limit were silently
-// dropped.
+// This guards against dropping repos when the scan concurrency limit is full.
 func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 	t.Parallel()
 

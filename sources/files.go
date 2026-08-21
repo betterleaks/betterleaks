@@ -10,7 +10,6 @@ import (
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/charlievieth/fastwalk"
-	"github.com/fatih/semgroup"
 )
 
 // TODO: remove this in v9 and have scanTargets yield file sources
@@ -27,8 +26,6 @@ type Files struct {
 	FollowSymlinks bool
 	MaxFileSize    int
 	Path           string
-	// Deprecated: ignored. Use Workers or sources.WithSourceWorkers.
-	Sema *semgroup.Group
 	// Workers controls the fixed file worker pool. A context override takes
 	// precedence; zero uses the source default.
 	Workers         int

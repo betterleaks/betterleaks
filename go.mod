@@ -7,7 +7,6 @@ toolchain go1.25.12
 require (
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/expr-lang/expr v1.17.8
-	github.com/fatih/semgroup v1.2.0
 	github.com/gitleaks/go-gitdiff v0.9.1
 	github.com/go-sprout/sprout v1.0.3
 	github.com/google/go-cmp v0.7.0

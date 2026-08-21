@@ -2,6 +2,7 @@ package detect
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -15,6 +16,12 @@ type runTrackingSource struct {
 	fragments []*sources.Fragment
 }
 
+type runSourceFunc func(context.Context, sources.FragmentsFunc) error
+
+func (f runSourceFunc) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
+	return f(ctx, yield)
+}
+
 func (s *runTrackingSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
 	return s.inner.Fragments(ctx, func(fragment *sources.Fragment, err error) error {
 		if fragment != nil {
@@ -25,7 +32,7 @@ func (s *runTrackingSource) Fragments(ctx context.Context, yield sources.Fragmen
 }
 
 func TestRunEarlyStopWaitsForFragmentRelease(t *testing.T) {
-	detector, _ := allocationDetector()
+	detector, _ := allocationDetector(t)
 	detector.DetectWorkers = 1
 	source := &runTrackingSource{inner: &sources.File{
 		Content: strings.NewReader(
@@ -50,4 +57,58 @@ func TestRunEarlyStopWaitsForFragmentRelease(t *testing.T) {
 		require.Nil(t, fragment.Raw)
 		require.Nil(t, fragment.Attributes)
 	}
+}
+
+func TestRunReleasesFragmentLeasesOnCompletion(t *testing.T) {
+	detector, _ := allocationDetector(t)
+	source := &runTrackingSource{inner: &sources.File{
+		Content: strings.NewReader("ordinary content"),
+		Path:    "lease.txt",
+	}}
+
+	for result := range detector.Run(t.Context(), source) {
+		require.NoError(t, result.Err)
+	}
+
+	require.Len(t, source.fragments, 1)
+	require.Nil(t, source.fragments[0].Raw)
+	require.Nil(t, source.fragments[0].Attributes)
+}
+
+func TestRunSourceDrainsFragmentLeasesAfterWorkerError(t *testing.T) {
+	detector, _ := allocationDetector(t)
+	detector.DetectWorkers = 1
+	source := &runTrackingSource{inner: &sources.File{
+		Content: strings.NewReader(
+			"candidate_ABCDEFGHIJKLMNOPQRST\n" + strings.Repeat("ordinary content\n", 20_000),
+		),
+		Path: "large.txt",
+	}}
+	wantErr := errors.New("stop detection")
+
+	err := detector.runSource(t.Context(), source, func(Result) error {
+		return wantErr
+	})
+
+	require.ErrorIs(t, err, wantErr)
+	require.NotEmpty(t, source.fragments)
+	for _, fragment := range source.fragments {
+		require.Nil(t, fragment.Raw)
+		require.Nil(t, fragment.Attributes)
+	}
+}
+
+func TestRunSourceReturnsExternalCancellation(t *testing.T) {
+	detector, _ := allocationDetector(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	source := runSourceFunc(func(_ context.Context, yield sources.FragmentsFunc) error {
+		if err := yield(&sources.Fragment{Raw: []byte("ordinary content")}, nil); err != nil {
+			return err
+		}
+		cancel()
+		return nil
+	})
+
+	err := detector.runSource(ctx, source, func(Result) error { return nil })
+	require.ErrorIs(t, err, context.Canceled)
 }

@@ -91,7 +91,7 @@ func TestCandidateBitmap(t *testing.T) {
 		KeywordToRules: map[string][]string{"shared": {"high", "low"}, "alias": {"high"}, "cancel": {"cancel"}, "stale": {"missing"}},
 		NoKeywordRules: []string{"always", "missing"},
 	}
-	d := NewDetector(cfg)
+	d := newTestDetector(t, cfg)
 	require.Empty(t, d.DetectString("stale HIGHSECRET"))
 
 	// Cancellation after candidates are marked must not leak them into the next scan.
@@ -263,7 +263,7 @@ regex = '''optional=([a-z]+)'''
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := NewDetector(cfg)
+	detector := newTestDetector(t, cfg)
 
 	t.Run("required component gates finding", func(t *testing.T) {
 		assert.Empty(t, detector.DetectString("primary=secret\noptional=session"))
@@ -306,7 +306,7 @@ specificity = 100
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := NewDetector(cfg)
+	detector := newTestDetector(t, cfg)
 
 	findings := detector.DetectString("primary=secret")
 	require.Len(t, findings, 1)
@@ -332,7 +332,7 @@ func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 		t.Helper()
 		detected := detector.DetectString(raw)
 		if len(path) > 0 {
-			detected = detector.Detect(sources.Fragment{
+			detected = detector.DetectFragment(t.Context(), sources.Fragment{
 				Raw:        []byte(raw),
 				Attributes: map[string]string{sources.AttrPath: path[0]},
 			})
@@ -760,7 +760,7 @@ func TestGenericCredentialURI(t *testing.T) {
 		t.Helper()
 		detected := detector.DetectString(raw)
 		if len(path) > 0 {
-			detected = detector.Detect(sources.Fragment{
+			detected = detector.DetectFragment(t.Context(), sources.Fragment{
 				Raw:        []byte(raw),
 				Attributes: map[string]string{sources.AttrPath: path[0]},
 			})
@@ -1101,7 +1101,7 @@ regex = '''optional=([a-z]+)'''
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := NewDetector(cfg)
+	detector := newTestDetector(t, cfg)
 
 	findings := detector.DetectString("optional=session\nprimary=secret")
 	require.Len(t, findings, 1)
@@ -1125,8 +1125,8 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	}
 	require.NoError(t, cfg.CompileFilters(nil))
 
-	d := NewDetector(cfg)
-	findings := d.Detect(sources.Fragment{Raw: []byte("red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST")})
+	d := newTestDetector(t, cfg)
+	findings := d.DetectFragment(t.Context(), sources.Fragment{Raw: []byte("red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST")})
 
 	require.Len(t, findings, 1)
 	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
@@ -1142,7 +1142,7 @@ func TestConfidenceAttributeAndFilter(t *testing.T) {
 	}
 	require.NoError(t, cfg.CompileFilters(nil))
 
-	detector := NewDetector(cfg)
+	detector := newTestDetector(t, cfg)
 	detector.MinConfidence = "high"
 	findings := detector.DetectString("ABCDEFGHIJKLMNOPQRST")
 	require.Len(t, findings, 1)
@@ -1173,10 +1173,10 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 				NoKeywordRules: []string{rule.RuleID},
 				OrderedRules:   []string{rule.RuleID},
 			}
-			d := NewDetector(cfg)
+			d := newTestDetector(t, cfg)
 			d.MaxDecodeDepth = 1
 
-			require.Len(t, d.Detect(sources.Fragment{Raw: []byte(raw)}), tc.findings)
+			require.Len(t, d.DetectFragment(t.Context(), sources.Fragment{Raw: []byte(raw)}), tc.findings)
 		})
 	}
 }
@@ -1193,7 +1193,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 		OrderedRules:   []string{rule.RuleID},
 	}
 
-	require.Empty(t, NewDetector(cfg).Detect(sources.Fragment{Raw: []byte("prefix\nSECRET")}))
+	require.Empty(t, newTestDetector(t, cfg).DetectFragment(t.Context(), sources.Fragment{Raw: []byte("prefix\nSECRET")}))
 }
 
 func TestFilterContextCanStayOnMatchLine(t *testing.T) {
@@ -1208,7 +1208,7 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 		OrderedRules:   []string{rule.RuleID},
 	}
 
-	require.Len(t, NewDetector(cfg).Detect(sources.Fragment{Raw: []byte("other-line\nSECRET\nother-line")}), 1)
+	require.Len(t, newTestDetector(t, cfg).DetectFragment(t.Context(), sources.Fragment{Raw: []byte("other-line\nSECRET\nother-line")}), 1)
 }
 
 func TestDetect(t *testing.T) {
@@ -1958,11 +1958,11 @@ const token = "mockSecret";
 			cfg := loadTestConfig(t, tt.cfgName)
 			cfg.Path = filepath.Join(configPath, tt.cfgName+".toml")
 			assert.Nil(t, tt.wantError)
-			d := NewDetector(cfg)
+			d := newTestDetector(t, cfg)
 			d.MaxDecodeDepth = maxDecodeDepth
 			d.baselinePath = tt.baselinePath
 
-			findings := d.Detect(tt.fragment)
+			findings := d.DetectFragment(t.Context(), tt.fragment)
 
 			compare(t, findings, tt.expectedFindings)
 
@@ -2446,8 +2446,7 @@ func TestFromGit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(strings.Join([]string{tt.cfgName, tt.source, tt.logOpts}, "/"), func(t *testing.T) {
 			cfg := loadTestConfig(t, "simple")
-			detector := NewDetector(cfg)
-			detector.MaxArchiveDepth = 8
+			detector := newTestDetector(t, cfg)
 
 			var ignorePath string
 			info, err := os.Stat(tt.source)
@@ -2461,18 +2460,18 @@ func TestFromGit(t *testing.T) {
 			err = detector.AddGitleaksIgnore(ignorePath)
 			require.NoError(t, err)
 
-			gitCmd, err := sources.NewGitLogCmd(tt.source, tt.logOpts)
+			gitCmd, err := sources.NewGitLogCmd(t.Context(), tt.source, tt.logOpts)
 			require.NoError(t, err)
 			platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
-			findings, err := detector.DetectSource(
+			findings, err := collectTestRun(
 				t.Context(),
+				detector,
 				&sources.Git{
 					Cmd:             gitCmd,
 					ShouldSkip:      detector.SkipFunc(),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
-					Sema:            detector.Sema,
-					MaxArchiveDepth: detector.MaxArchiveDepth,
+					MaxArchiveDepth: 8,
 				},
 			)
 			require.NoError(t, err)
@@ -2529,21 +2528,20 @@ func TestFromGitStaged(t *testing.T) {
 	defer moveDotGit(t, ".git", "dotGit")
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
-		detector := NewDetector(cfg)
+		detector := newTestDetector(t, cfg)
 		err := detector.AddGitleaksIgnore(filepath.Join(tt.source, ".gitleaksignore"))
 		require.NoError(t, err)
-		gitCmd, err := sources.NewGitDiffCmd(tt.source, true)
+		gitCmd, err := sources.NewGitDiffCmd(t.Context(), tt.source, true)
 		require.NoError(t, err)
 		platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
-		findings, err := detector.DetectSource(
+		findings, err := collectTestRun(
 			t.Context(),
+			detector,
 			&sources.Git{
-				Cmd:             gitCmd,
-				ShouldSkip:      detector.SkipFunc(),
-				Platform:        platform,
-				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
+				Cmd:        gitCmd,
+				ShouldSkip: detector.SkipFunc(),
+				Platform:   platform,
+				RemoteURL:  remoteURL,
 			},
 		)
 		require.NoError(t, err)
@@ -2636,7 +2634,7 @@ func TestFromFiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
 			cfg := loadTestConfig(t, tt.cfgName)
-			detector := NewDetector(cfg)
+			detector := newTestDetector(t, cfg)
 
 			info, err := os.Stat(tt.source)
 			require.NoError(t, err)
@@ -2650,16 +2648,13 @@ func TestFromFiles(t *testing.T) {
 			err = detector.AddGitleaksIgnore(ignorePath)
 			require.NoError(t, err)
 
-			detector.FollowSymlinks = true
-			findings, err := detector.DetectSource(
+			findings, err := collectTestRun(
 				t.Context(),
+				detector,
 				&sources.Files{
-					ShouldSkip:      detector.SkipFunc(),
-					FollowSymlinks:  detector.FollowSymlinks,
-					MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
-					Path:            tt.source,
-					Sema:            detector.Sema,
-					MaxArchiveDepth: detector.MaxArchiveDepth,
+					ShouldSkip:     detector.SkipFunc(),
+					FollowSymlinks: true,
+					Path:           tt.source,
 				},
 			)
 			require.NoError(t, err)
@@ -3221,20 +3216,20 @@ func TestDetectWithArchives(t *testing.T) {
 			}
 
 			cfg := loadTestConfig(t, tt.cfgName)
-			detector := NewDetectorContext(ctx, cfg, ValidationOptions{})
-			detector.MaxArchiveDepth = 8
+			detector, err := NewDetector(ctx, cfg, ValidationOptions{})
+			require.NoError(t, err)
 
-			findings, err := detector.DetectSource(
-				ctx, &sources.Files{
+			findings, err := collectTestRun(
+				ctx, detector, &sources.Files{
 					Path:            tt.source,
-					Sema:            detector.Sema,
 					ShouldSkip:      detector.SkipFunc(),
-					MaxArchiveDepth: detector.MaxArchiveDepth,
+					MaxArchiveDepth: 8,
 				},
 			)
 
 			if tt.expireContext {
-				require.EqualError(t, err, "context canceled")
+				require.ErrorIs(t, ctx.Err(), context.Canceled)
+				require.NoError(t, err, "Run treats caller cancellation as clean termination")
 			} else {
 				cancel()
 				require.NoError(t, err)
@@ -3285,17 +3280,14 @@ func TestDetectWithSymlinks(t *testing.T) {
 
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
-		detector := NewDetector(cfg)
-		detector.FollowSymlinks = true
-		findings, err := detector.DetectSource(
+		detector := newTestDetector(t, cfg)
+		findings, err := collectTestRun(
 			t.Context(),
+			detector,
 			&sources.Files{
-				ShouldSkip:      detector.SkipFunc(),
-				FollowSymlinks:  detector.FollowSymlinks,
-				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
-				Path:            tt.source,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
+				ShouldSkip:     detector.SkipFunc(),
+				FollowSymlinks: true,
+				Path:           tt.source,
 			},
 		)
 		require.NoError(t, err)

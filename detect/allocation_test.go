@@ -15,7 +15,8 @@ var (
 	allocationMatches  [][]int
 )
 
-func allocationDetector() (*Detector, *blregexp.Regexp) {
+func allocationDetector(t testing.TB) (*Detector, *blregexp.Regexp) {
+	t.Helper()
 	re := blregexp.MustCompile(`candidate_[A-Z]{20}`)
 	rule := config.Rule{
 		RuleID:   "allocation-test",
@@ -28,11 +29,11 @@ func allocationDetector() (*Detector, *blregexp.Regexp) {
 		KeywordToRules: map[string][]string{"candidate_": {rule.RuleID}},
 		OrderedRules:   []string{rule.RuleID},
 	}
-	return NewDetector(cfg), re
+	return newTestDetector(t, cfg), re
 }
 
 func TestDetectPrefilterMissAllocations(t *testing.T) {
-	detector, _ := allocationDetector()
+	detector, _ := allocationDetector(t)
 	fragment := sources.Fragment{Raw: []byte("ordinary source text")}
 	ctx := context.Background()
 	allocationFindings = detector.detectFragment(ctx, fragment) // warm pools
@@ -46,7 +47,7 @@ func TestDetectPrefilterMissAllocations(t *testing.T) {
 }
 
 func TestDetectStringPrefilterMissAllocations(t *testing.T) {
-	detector, _ := allocationDetector()
+	detector, _ := allocationDetector(t)
 	const content = "ordinary source text"
 	allocationFindings = detector.DetectString(content) // warm pools
 
@@ -59,7 +60,7 @@ func TestDetectStringPrefilterMissAllocations(t *testing.T) {
 }
 
 func TestDetectRejectedCandidateStaysAtRegexAllocationFloor(t *testing.T) {
-	detector, re := allocationDetector()
+	detector, re := allocationDetector(t)
 	fragment := sources.Fragment{Raw: []byte("candidate_without_a_matching_secret")}
 	ctx := context.Background()
 	allocationFindings = detector.detectFragment(ctx, fragment)
@@ -77,7 +78,7 @@ func TestDetectRejectedCandidateStaysAtRegexAllocationFloor(t *testing.T) {
 }
 
 func TestDetectAcceptedCandidateAllocationBudget(t *testing.T) {
-	detector, re := allocationDetector()
+	detector, re := allocationDetector(t)
 	fragment := sources.Fragment{Raw: []byte("candidate_ABCDEFGHIJKLMNOPQRST")}
 	ctx := context.Background()
 	allocationFindings = detector.detectFragment(ctx, fragment)

@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"github.com/google/go-github/v72/github"
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/sync/errgroup"
@@ -59,7 +58,6 @@ type GitHub struct {
 
 	// Scan config (passed through to Git/ParallelGit per repo)
 	ShouldSkip      SkipFunc
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
 	Workers         int // git workers per repo (0 = single process)
 	LogOpts         string
@@ -623,18 +621,18 @@ func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield
 			src = &ParallelGit{
 				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 				Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts: s.LogOpts, Workers: s.Workers,
+				MaxArchiveDepth: s.MaxArchiveDepth,
+				LogOpts:         s.LogOpts, Workers: s.Workers,
 			}
 		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
+			gitCmd, err := NewGitLogCmd(ctx, repoPath, s.LogOpts)
 			if err != nil {
 				return err
 			}
 			src = &Git{
 				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
 				Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
+				MaxArchiveDepth: s.MaxArchiveDepth,
 			}
 		}
 		return src.Fragments(ctx, yield)

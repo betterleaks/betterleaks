@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -364,14 +365,14 @@ func Config(cmd *cobra.Command) *config.Config {
 func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Detector {
 	var err error
 
-	// Apply rule overrides BEFORE constructing the detector so that
-	// NewDetectorContext compiles expression filters for the final rule set.
+	// Apply rule overrides before constructing the detector so expression
+	// filters compile against the final rule set.
 	if err := applyRuleSelection(cmd, cfg); err != nil {
 		logging.Fatal().Err(err).Msg("unable to apply rule selection")
 	}
 
-	// Setup common detector. NewDetectorContext compiles all expression programs
-	// and sets up the validation pool, so the cfg must be fully prepared.
+	// Setup common detector. NewDetector compiles global expression programs and
+	// sets up the validation pool, so the cfg must be fully prepared.
 	validationEnvVars, err := cmd.Flags().GetStringSlice("validation-env-vars")
 	if err != nil {
 		logging.Fatal().Err(err).Msg("validation-env-vars flag")
@@ -405,7 +406,10 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	}
 	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
 
-	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
+	detector, err := detect.NewDetector(cmd.Context(), cfg, valOpts)
+	if err != nil {
+		logging.Fatal().Err(err).Msg("could not create detector")
+	}
 	detector.SourceWorkers = mustGetIntFlag(cmd, "source-workers")
 	detector.DetectWorkers = mustGetIntFlag(cmd, "detect-workers")
 	detector.MinConfidence, err = confidenceFlag(cmd)
@@ -420,33 +424,20 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		logging.Fatal().Err(err).Send()
 	}
 
-	if detector.MaxArchiveDepth, err = cmd.Flags().GetInt("max-archive-depth"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-
 	// set color flag at first
-	if detector.NoColor, err = cmd.Flags().GetBool("no-color"); err != nil {
+	noColor, err := cmd.Flags().GetBool("no-color")
+	if err != nil {
 		logging.Fatal().Err(err).Send()
 	}
 	// also init logger again without color
-	if detector.NoColor {
+	if noColor {
 		logging.Logger = log.Output(zerolog.ConsoleWriter{
 			Out:     os.Stderr,
-			NoColor: detector.NoColor,
+			NoColor: noColor,
 		}).Level(logLevel)
-	}
-	// set verbose flag
-	if detector.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
-		logging.Fatal().Err(err).Send()
 	}
 	// set redact flag
 	if detector.Redact, err = cmd.Flags().GetUint("redact"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	if detector.LegacyPrint, err = cmd.Flags().GetBool("legacy-print"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	if detector.MaxTargetMegaBytes, err = cmd.Flags().GetInt("max-target-megabytes"); err != nil {
 		logging.Fatal().Err(err).Send()
 	}
 	// set ignore gitleaks:allow / betterleaks:allow flag
@@ -500,67 +491,6 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		}
 	}
 
-	// Validate report settings.
-	reportPath := mustGetStringFlag(cmd, "report-path")
-	if reportPath != "" {
-		if reportPath != report.StdoutReportPath {
-			// Ensure the path is writable.
-			if f, err := os.Create(reportPath); err != nil {
-				logging.Fatal().Err(err).Msgf("Report path is not writable: %s", reportPath)
-			} else {
-				_ = f.Close()
-				_ = os.Remove(reportPath)
-			}
-		}
-
-		// Build report writer.
-		var (
-			reporter       report.Reporter
-			reportFormat   = mustGetStringFlag(cmd, "report-format")
-			reportTemplate = mustGetStringFlag(cmd, "report-template")
-		)
-		if reportFormat == "" {
-			ext := strings.ToLower(filepath.Ext(reportPath))
-			switch ext {
-			case ".csv":
-				reportFormat = "csv"
-			case ".json":
-				reportFormat = "json"
-			case ".sarif":
-				reportFormat = "sarif"
-			default:
-				logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
-			}
-			logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
-		}
-		switch strings.TrimSpace(strings.ToLower(reportFormat)) {
-		case "csv":
-			reporter = &report.CsvReporter{}
-		case "json":
-			reporter = &report.JsonReporter{}
-		case "junit":
-			reporter = &report.JunitReporter{}
-		case "sarif":
-			reporter = &report.SarifReporter{
-				OrderedRules: cfg.GetOrderedRules(),
-			}
-		case "template":
-			if reporter, err = report.NewTemplateReporter(reportTemplate); err != nil {
-				logging.Fatal().Err(err).Msg("Invalid report template")
-			}
-		default:
-			logging.Fatal().Msgf("unknown report format %s", reportFormat)
-		}
-
-		// Sanity check.
-		if reportTemplate != "" && reportFormat != "template" {
-			logging.Fatal().Msgf("Report format must be 'template' if --report-template is specified")
-		}
-
-		detector.ReportPath = reportPath
-		detector.Reporter = reporter
-	}
-
 	return detector
 }
 
@@ -591,7 +521,7 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding, exitCode int, start time.Time, err error) {
+func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findings []report.Finding, exitCode int, start time.Time, err error) {
 	if diagnosticsManager.Enabled {
 		logging.Debug().Msg("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()
@@ -608,7 +538,6 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 			Msg("validation complete")
 	}
 
-	findings = detector.FilterByStatus(findings)
 	detect.RedactFindings(findings, detector.Redact)
 
 	totalBytes := detector.TotalBytes.Load()
@@ -630,34 +559,8 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 		}
 	}
 
-	// write report if desired
-	if detector.Reporter != nil {
-		var (
-			file      io.WriteCloser
-			reportErr error
-		)
-
-		if detector.ReportPath == report.StdoutReportPath {
-			file = os.Stdout
-		} else {
-			// Open the file.
-			if file, reportErr = os.Create(detector.ReportPath); reportErr != nil {
-				goto ReportEnd
-			}
-			defer func() {
-				_ = file.Close()
-			}()
-		}
-
-		// Write to the file.
-		if reportErr = detector.Reporter.Write(file, findings); reportErr != nil {
-			goto ReportEnd
-		}
-
-	ReportEnd:
-		if reportErr != nil {
-			logging.Fatal().Err(reportErr).Msg("failed to write report")
-		}
+	if reportErr := writeFindingsReport(cmd, detector.Config, findings); reportErr != nil {
+		logging.Fatal().Err(reportErr).Msg("failed to write report")
 	}
 
 	if err != nil {
@@ -667,6 +570,71 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 	if len(findings) != 0 {
 		os.Exit(exitCode)
 	}
+}
+
+func writeFindingsReport(cmd *cobra.Command, cfg *config.Config, findings []report.Finding) error {
+	reportPath := mustGetStringFlag(cmd, "report-path")
+	if reportPath == "" {
+		return nil
+	}
+
+	reportFormat := strings.TrimSpace(strings.ToLower(mustGetStringFlag(cmd, "report-format")))
+	reportTemplate := mustGetStringFlag(cmd, "report-template")
+	if reportTemplate != "" && reportFormat == "" {
+		reportFormat = "template"
+	} else if reportTemplate != "" && reportFormat != "template" {
+		return errors.New("report format must be 'template' if --report-template is specified")
+	}
+	if reportFormat == "" {
+		ext := strings.ToLower(filepath.Ext(reportPath))
+		switch ext {
+		case ".csv":
+			reportFormat = "csv"
+		case ".json":
+			reportFormat = "json"
+		case ".sarif":
+			reportFormat = "sarif"
+		default:
+			return fmt.Errorf("unknown report format for %q", reportPath)
+		}
+		logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
+	}
+
+	var reporter report.Reporter
+	switch reportFormat {
+	case "csv":
+		reporter = &report.CsvReporter{}
+	case "json":
+		reporter = &report.JsonReporter{}
+	case "junit":
+		reporter = &report.JunitReporter{}
+	case "sarif":
+		reporter = &report.SarifReporter{OrderedRules: cfg.GetOrderedRules()}
+	case "template":
+		var err error
+		reporter, err = report.NewTemplateReporter(reportTemplate)
+		if err != nil {
+			return fmt.Errorf("invalid report template: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown report format %q", reportFormat)
+	}
+
+	var output io.WriteCloser
+	if reportPath == report.StdoutReportPath {
+		output = os.Stdout
+	} else {
+		file, err := os.Create(reportPath)
+		if err != nil {
+			return fmt.Errorf("create report %q: %w", reportPath, err)
+		}
+		defer func() { _ = file.Close() }()
+		output = file
+	}
+	if err := reporter.Write(output, findings); err != nil {
+		return fmt.Errorf("write %s report: %w", reportFormat, err)
+	}
+	return nil
 }
 
 func fileExists(fileName string) bool {

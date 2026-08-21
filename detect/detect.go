@@ -8,6 +8,8 @@ import (
 	"iter"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,7 +24,6 @@ import (
 	"github.com/betterleaks/betterleaks/internal/ahocorasick"
 	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
-	orchestrate "github.com/betterleaks/betterleaks/internal/detect"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
@@ -30,7 +31,6 @@ import (
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 
-	"github.com/fatih/semgroup"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
 )
@@ -140,7 +140,7 @@ type Detector struct {
 	ValidationPool *validate.Pool
 
 	// ValidationCounts tracks how many findings were returned for each
-	// ValidationStatus value. Populated by the Run/DetectSource consumer;
+	// ValidationStatus value. Populated by the Run consumer;
 	// safe to read after the scan returns.
 	ValidationCounts map[report.ValidationStatus]int
 
@@ -217,109 +217,40 @@ type Detector struct {
 	candidateAttributesPool sync.Pool
 	filterFindingMapPool    sync.Pool
 
-	// TODO remove this in v2
-	// SkipFindingAppend skips populating the deprecated detector-level findings
-	// slice while consuming results from Run.
-	//
-	// This keeps Run callers from retaining a second compatibility copy of the
-	// same findings when they are already consuming results directly.
-	//
-	// DetectSource intentionally ignores this flag to preserve its historical
-	// return contract.
-	SkipFindingAppend bool
-
-	// ----------------------------------------------------------------
-	// DEPRECATED fields below, to be removed in the next major version
-	//
-	//
-	// report-related settings.
-	// Deprecated: detect should not handle reporting
-	ReportPath string
-	// Deprecated: detect should not handle reporting
-	Reporter report.Reporter
-	// findings is a slice of report.Findings. This is the result
-	// of the detector's scan which can then be used to generate a
-	// report.
-	// Deprecated: findings are now emitted via the channel returned by Run.
-	// This slice is retained only for compatibility with deprecated callers and
-	// optional accumulation during Run when SkipFindingAppend is false.
-	findings []report.Finding
-
-	// findingsCh is created by DetectSource and carries all ready-to-display
-	// findings. A single consumer goroutine reads from it.
-	// Deprecated: findings are now emitted via the channel returned by Run;
-	// this field is only used for the legacy DetectSource method and will be removed in v2.
-	findingsCh chan report.Finding
-
-	// Redact is a flag to redact findings. This is exported
-	// so users using gitleaks as a library can set this flag
-	// without calling `detector.Start(cmd *cobra.Command)`
+	// Redact controls baseline comparison against redacted reports. Presentation
+	// redaction belongs to the caller and is not performed by Detector.Run.
 	Redact uint
-
-	// verbose is a flag to print findings
-	Verbose bool
-
-	// MaxArchiveDepth limits how deep the sources will explore nested archives
-	MaxArchiveDepth int
-
-	// files larger than this will be skipped
-	MaxTargetMegaBytes int
-
-	// followSymlinks is a flag to enable scanning symlink files
-	FollowSymlinks bool
-
-	// NoColor is a flag to disable color output
-	NoColor bool
-
-	// LegacyPrint uses the legacy key/value verbose format (typically with Verbose=true).
-	LegacyPrint bool
-
-	// commitMutex is to prevent concurrent access to the
-	// commit map when adding commits
-	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
-	commitMutex *sync.Mutex
-
-	// commitMap is used to keep track of commits that have been scanned.
-	// This is only used for logging purposes and git scans.
-	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
-	commitMap map[string]bool
-
-	// Sema (https://github.com/fatih/semgroup) controls the concurrency
-	// Deprecated: this is only used for git log workers and can be removed when the legacy git scan is removed in v2.
-	Sema *semgroup.Group
 }
 
-// NewDetectorContext creates a new Detector.
+// NewDetector creates a new Detector.
 // It compiles global expressions and, when valOpts.Enabled is true, creates the
 // validation worker pool. Per-rule expressions compile lazily on first use.
-func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) *Detector {
+func NewDetector(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) (*Detector, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if cfg == nil {
-		// TODO in v2 use NewDetector(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) (*Detector, error)
-		// Could be logging.Error?
-		logging.Fatal().Msg("config is required to create detector")
-		return nil
+		return nil, errors.New("detect: config is required")
 	}
 	// Compile validation programs (no-op if no rules have ValidateExpr).
 	validationRuntime, validationErr := cfg.CompileValidation()
 	if validationErr != nil {
-		logging.Fatal().Err(validationErr).Msg("failed to compile validation expressions")
+		return nil, fmt.Errorf("detect: compile validation expressions: %w", validationErr)
 	}
 	if validationRuntime != nil {
 		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
 	}
 	exprRuntime, exprErr := exprruntime.New(nil)
 	if exprErr != nil {
-		logging.Fatal().Err(exprErr).Msg("failed to create expr runtime")
+		return nil, fmt.Errorf("detect: create expression runtime: %w", exprErr)
 	}
 
 	keywords := maps.Keys(cfg.Keywords)
 	d := &Detector{
 		gitleaksIgnore:         make(map[string]struct{}),
-		findings:               make([]report.Finding, 0),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
 		prefilter:              ahocorasick.Compile(keywords, true),
-		Sema:                   semgroup.NewGroup(ctx, 40),
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
 		validationPrograms:     make(map[string]exprruntime.Program),
@@ -358,7 +289,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	// Compile only global prefilter programs so they are available before scanning.
 	// Global finding filters and per-rule filters compile lazily on first candidate.
 	if compileErr := cfg.CompileFilters(nil); compileErr != nil {
-		logging.Fatal().Err(compileErr).Msg("failed to compile filters")
+		return nil, fmt.Errorf("detect: compile filters: %w", compileErr)
 	}
 
 	// Set up validation pool when enabled.
@@ -371,7 +302,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 			RequestsPerSecond:       valOpts.RequestsPerSecond,
 			RequestsPerSecondByRule: valOpts.RequestsPerSecondByRule,
 		}); err != nil {
-			logging.Fatal().Err(err).Msg("invalid validation request limits")
+			return nil, fmt.Errorf("detect: configure validation request limits: %w", err)
 		}
 		workers := valOpts.Workers
 		if workers <= 0 {
@@ -394,7 +325,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Warn().Msg("validation enabled but no rules have validation expressions")
 	}
 
-	return d
+	return d, nil
 }
 
 // Tokenizer returns the BPE tokenizer used for token efficiency filtering.
@@ -578,8 +509,7 @@ func NewDetectorDefaultConfig() (*Detector, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := NewDetector(cfg)
-	return d, nil
+	return NewDetector(context.Background(), cfg, ValidationOptions{})
 }
 
 // Run executes the pipeline on the given source and yields results as they are found.
@@ -636,57 +566,7 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		go func() {
 			defer close(resultsCh)
 
-			err := orchestrate.RunWorkers(
-				runCtx,
-				source,
-				orchestrate.Options{
-					SourceWorkers: d.SourceWorkers,
-					DetectWorkers: d.DetectWorkers,
-				},
-				func(_ *sources.Fragment, err error) error {
-					return emit(Result{Err: err})
-				},
-				func() orchestrate.ConsumeFunc {
-					workspace := d.newScanWorkspace()
-					return func(workerCtx context.Context, fragment *sources.Fragment) error {
-						var timer *time.Timer
-						if logging.Logger.GetLevel() <= zerolog.DebugLevel {
-							logger := fragment.Logger()
-							timer = time.AfterFunc(SlowWarningThreshold, func() {
-								logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
-							})
-						}
-						defer func() {
-							if timer != nil {
-								timer.Stop()
-							}
-						}()
-
-						for _, finding := range d.detectFragmentWithWorkspace(workerCtx, *fragment, workspace) {
-							if d.ignore(finding) {
-								continue
-							}
-							if d.ValidationPool != nil {
-								if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
-									return err
-								} else if ok {
-									if err := d.ValidationPool.SubmitContext(workerCtx, finding, prg); err != nil {
-										if errors.Is(err, context.Canceled) {
-											return errStopIteration
-										}
-										return err
-									}
-									continue
-								}
-							}
-							if err := emit(Result{Finding: finding}); err != nil {
-								return err
-							}
-						}
-						return nil
-					}
-				},
-			)
+			err := d.runSource(runCtx, source, emit)
 
 			if d.ValidationPool != nil {
 				d.ValidationPool.Close()
@@ -715,8 +595,7 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					d.ValidationCounts[res.Finding.ValidationStatus]++
 				}
 
-				// Check validation status and if we should filter or not
-				// Check validation status and if we should filter or not
+				// Check validation status and if we should filter or not.
 				if len(d.ValidationStatusFilter) > 0 {
 					if res.Finding.ValidationStatus != "" {
 						if _, ok := d.ValidationStatusFilter[string(res.Finding.ValidationStatus)]; !ok {
@@ -726,15 +605,11 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 						continue
 					}
 				}
-
-				if !d.SkipFindingAppend {
-					d.findings = append(d.findings, res.Finding)
-				}
 			}
 
 			if !yield(res) {
 				cancel()
-				// RunWorkers drains and releases every accepted fragment after
+				// The workers drain and release every accepted fragment after
 				// cancellation. Wait for its result channel to close so iterator
 				// consumers never inherit background source work or live leases.
 				for range resultsCh {
@@ -743,6 +618,151 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 			}
 		}
 	}
+}
+
+// runSource connects source production to the detector's bounded worker pool.
+// Each worker owns its scan workspace, and every accepted fragment is released
+// exactly once after it is processed or drained during cancellation.
+func (d *Detector) runSource(
+	ctx context.Context,
+	source sources.Source,
+	emit func(Result) error,
+) error {
+	if source == nil {
+		return errors.New("detect: nil source")
+	}
+	if emit == nil {
+		return errors.New("detect: nil result handler")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	runCtx = sources.WithSourceWorkers(runCtx, d.SourceWorkers)
+
+	workerCount := d.DetectWorkers
+	if workerCount <= 0 {
+		workerCount = max(runtime.GOMAXPROCS(0), 1)
+	}
+
+	// One queued fragment per worker overlaps source I/O with detection while
+	// tightly bounding leased file buffers.
+	jobs := make(chan *sources.Fragment, workerCount)
+
+	var (
+		workers   sync.WaitGroup
+		workerErr error
+		errOnce   sync.Once
+	)
+	recordWorkerError := func(err error) {
+		if err == nil {
+			return
+		}
+		errOnce.Do(func() {
+			workerErr = err
+			cancel()
+		})
+	}
+
+	workers.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		workspace := d.newScanWorkspace()
+		go func(workspace *scanWorkspace) {
+			defer workers.Done()
+			for fragment := range jobs {
+				if runCtx.Err() == nil {
+					recordWorkerError(d.scanSourceFragment(runCtx, fragment, workspace, emit))
+				}
+				fragment.Release()
+			}
+		}(workspace)
+	}
+
+	sourceErr := source.Fragments(runCtx, func(fragment *sources.Fragment, err error) error {
+		if err != nil {
+			if fragment != nil {
+				defer fragment.Release()
+			}
+			if emitErr := emit(Result{Err: err}); emitErr != nil {
+				recordWorkerError(emitErr)
+				return emitErr
+			}
+			return nil
+		}
+		if fragment == nil {
+			return nil
+		}
+		if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
+			fragment.Release()
+			return nil
+		}
+
+		select {
+		case jobs <- fragment:
+			return nil
+		case <-runCtx.Done():
+			fragment.Release()
+			return runCtx.Err()
+		}
+	})
+	close(jobs)
+	workers.Wait()
+
+	if workerErr != nil {
+		if sourceErr != nil && !errors.Is(sourceErr, context.Canceled) {
+			return errors.Join(workerErr, sourceErr)
+		}
+		return workerErr
+	}
+	if sourceErr == nil {
+		return ctx.Err()
+	}
+	return sourceErr
+}
+
+func (d *Detector) scanSourceFragment(
+	ctx context.Context,
+	fragment *sources.Fragment,
+	workspace *scanWorkspace,
+	emit func(Result) error,
+) error {
+	var timer *time.Timer
+	if logging.Logger.GetLevel() <= zerolog.DebugLevel {
+		logger := fragment.Logger()
+		timer = time.AfterFunc(SlowWarningThreshold, func() {
+			logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
+		})
+	}
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+
+	for _, finding := range d.detectFragmentWithWorkspace(ctx, *fragment, workspace) {
+		if d.ignore(finding) {
+			continue
+		}
+		if d.ValidationPool != nil {
+			if program, ok, err := d.validationProgram(finding.RuleID); err != nil {
+				return err
+			} else if ok {
+				if err := d.ValidationPool.SubmitContext(ctx, finding, program); err != nil {
+					if errors.Is(err, context.Canceled) {
+						return errStopIteration
+					}
+					return err
+				}
+				continue
+			}
+		}
+		if err := emit(Result{Finding: finding}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ignore compares a finding against a baseline report or betterleaksignore
@@ -773,6 +793,36 @@ func (d *Detector) ignore(finding report.Finding) bool {
 		return true
 	}
 	return false
+}
+
+func (d *Detector) AddBaseline(baselinePath string, source string) error {
+	if baselinePath != "" {
+		absoluteSource, err := filepath.Abs(source)
+		if err != nil {
+			return err
+		}
+
+		absoluteBaseline, err := filepath.Abs(baselinePath)
+		if err != nil {
+			return err
+		}
+
+		relativeBaseline, err := filepath.Rel(absoluteSource, absoluteBaseline)
+		if err != nil {
+			return err
+		}
+
+		baseline, err := LoadBaseline(baselinePath)
+		if err != nil {
+			return err
+		}
+
+		d.baseline = baseline
+		baselinePath = relativeBaseline
+	}
+
+	d.baselinePath = baselinePath
+	return nil
 }
 
 func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
@@ -831,7 +881,16 @@ func (d *Detector) DetectString(content string) []report.Finding {
 
 // DetectBytes scans byte content without materializing a duplicate string.
 func (d *Detector) DetectBytes(content []byte) []report.Finding {
-	return d.Detect(sources.Fragment{Raw: content})
+	return d.DetectFragment(context.Background(), sources.Fragment{Raw: content})
+}
+
+// DetectFragment scans one fragment directly. Use Run when scanning a Source;
+// Run additionally applies ignores, baselines, validation, and concurrency.
+func (d *Detector) DetectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return d.detectFragment(ctx, fragment)
 }
 
 func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {

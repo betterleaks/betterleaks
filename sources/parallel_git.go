@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fatih/semgroup"
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 	"golang.org/x/sync/errgroup"
 
@@ -27,7 +26,6 @@ type ParallelGit struct {
 	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
 	LogOpts         string
 	Workers         int // 0 means auto (min(NumCPU, 4))
@@ -94,7 +92,6 @@ func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) 
 		ShouldSkip:      s.ShouldSkip,
 		Platform:        s.Platform,
 		RemoteURL:       s.RemoteURL,
-		Sema:            s.Sema,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 	}
 
@@ -114,7 +111,6 @@ func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield FragmentsFunc,
 		ShouldSkip:      s.ShouldSkip,
 		Platform:        s.Platform,
 		RemoteURL:       s.RemoteURL,
-		Sema:            s.Sema,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 	}
 

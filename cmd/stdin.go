@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -39,23 +40,43 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 
 	// parse flag(s)
 	exitCode := mustGetIntFlag(cmd, "exit-code")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
+	noColor := mustGetBoolFlag(cmd, "no-color")
+	redact := mustGetUIntFlag(cmd, "redact")
+	verbose := mustGetBoolFlag(cmd, "verbose")
+	legacyPrint := mustGetBoolFlag(cmd, "legacy-print")
 	attrs, err := parseSetAttrFlag(cmd)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("invalid --set-attr value")
 	}
 
-	findings, err := detector.DetectSource(
-		cmd.Context(),
-		newStdinSource(os.Stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth),
-	)
-
-	if err != nil {
-		// log fatal to exit, no need to continue since a report will not be
-		// generated when scanning from a pipe...for now
-		logging.Fatal().Err(err).Msg("failed scan input from stdin")
+	var findings []report.Finding
+	var scanErrs []error
+	source := newStdinSource(os.Stdin, attrs, detector.SkipFunc(), maxArchiveDepth)
+	for result := range detector.Run(cmd.Context(), source) {
+		if result.Err != nil {
+			scanErrs = append(scanErrs, result.Err)
+			logging.Error().Err(result.Err).Msg("failed to scan input from stdin")
+			continue
+		}
+		findings = append(findings, result.Finding)
+		if verbose {
+			if legacyPrint {
+				result.Finding.PrintLegacy(noColor, redact)
+			} else {
+				result.Finding.Print(noColor, redact)
+			}
+		}
 	}
 
-	findingSummaryAndExit(detector, findings, exitCode, start, err)
+	var scanErr error
+	if n := len(scanErrs); n > 0 {
+		scanErr = &multipleErrors{
+			msg:  fmt.Sprintf("%d error(s) encountered during stdin scan", n),
+			errs: scanErrs,
+		}
+	}
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, scanErr)
 }
 
 func newStdinSource(content io.Reader, attrs map[string]string, shouldSkip sources.SkipFunc, maxArchiveDepth int) sources.Source {

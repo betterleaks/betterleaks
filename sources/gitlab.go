@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/internal/httpclient"
@@ -62,7 +61,6 @@ type GitLab struct {
 
 	// Scan config (passed through to Git/ParallelGit per project)
 	ShouldSkip      SkipFunc
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
 	Workers         int
 	LogOpts         string
@@ -991,18 +989,18 @@ func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, yield 
 			src = &ParallelGit{
 				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 				Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts: s.LogOpts, Workers: s.Workers,
+				MaxArchiveDepth: s.MaxArchiveDepth,
+				LogOpts:         s.LogOpts, Workers: s.Workers,
 			}
 		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
+			gitCmd, err := NewGitLogCmd(ctx, repoPath, s.LogOpts)
 			if err != nil {
 				return err
 			}
 			src = &Git{
 				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
 				Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
+				MaxArchiveDepth: s.MaxArchiveDepth,
 			}
 		}
 		return src.Fragments(ctx, yield)

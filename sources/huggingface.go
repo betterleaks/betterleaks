@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/internal/httpclient"
@@ -46,7 +45,6 @@ type HuggingFace struct {
 	Resources    HuggingFaceResourceSet
 
 	ShouldSkip      SkipFunc
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
 	Workers         int
 	LogOpts         string
@@ -693,18 +691,18 @@ func (s *HuggingFace) scanRepoGit(ctx context.Context, repo huggingFaceRepo, yie
 			src = &ParallelGit{
 				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 				Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts: s.LogOpts, Workers: s.Workers,
+				MaxArchiveDepth: s.MaxArchiveDepth,
+				LogOpts:         s.LogOpts, Workers: s.Workers,
 			}
 		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
+			gitCmd, err := NewGitLogCmd(ctx, repoPath, s.LogOpts)
 			if err != nil {
 				return err
 			}
 			src = &Git{
 				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
 				Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
+				MaxArchiveDepth: s.MaxArchiveDepth,
 			}
 		}
 		return src.Fragments(ctx, yield)
