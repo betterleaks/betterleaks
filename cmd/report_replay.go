@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -18,7 +17,7 @@ import (
 
 func init() {
 	reportCmd.AddCommand(replayCmd)
-	replayCmd.Flags().String("input", "", `path to JSON report to replay ("-" for stdin)`)
+	replayCmd.Flags().String("input", "", `path to JSON or JSONL report to replay ("-" for stdin)`)
 	_ = replayCmd.MarkFlagRequired("input")
 }
 
@@ -64,7 +63,7 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 	legacyPrint := mustGetBoolFlag(cmd, "legacy-print")
 
 	// Load input findings.
-	findings, err := loadReplayInput(inputPath)
+	findings, err := report.LoadFindings(inputPath)
 	if err != nil {
 		return fmt.Errorf("--input: %w", err)
 	}
@@ -138,26 +137,6 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 		os.Exit(exitCode)
 	}
 	return nil
-}
-
-// loadReplayInput decodes a JSON findings report from path or stdin ("-").
-func loadReplayInput(path string) ([]report.Finding, error) {
-	var r io.Reader
-	if path == "-" {
-		r = os.Stdin
-	} else {
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer func() { _ = f.Close() }()
-		r = f
-	}
-	var findings []report.Finding
-	if err := json.NewDecoder(r).Decode(&findings); err != nil {
-		return nil, fmt.Errorf("decoding JSON: %w", err)
-	}
-	return findings, nil
 }
 
 // loadReplaySuppression builds a Suppression from the standard ignore/baseline flags.

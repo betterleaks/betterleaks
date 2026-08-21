@@ -21,11 +21,11 @@ func init() {
 var convertCmd = &cobra.Command{
 	Use:   "convert",
 	Short: "convert a JSON report to another format",
-	Long: `Reads a JSON report and writes it in the requested output format.
+	Long: `Reads a JSON or JSONL report and writes it in the requested output format.
 
 No filtering or suppression is applied; all input findings appear in the output.
 Use --report-path and --report-format (or --report-template) to select the output.
-Use --verbose to print findings to stdout in addition to writing the report file.`,
+Use --verbose to print verbose findings to stdout.`,
 	RunE: runConvert,
 }
 
@@ -47,7 +47,7 @@ func runConvert(cmd *cobra.Command, _ []string) error {
 	verbose := mustGetBoolFlag(cmd, "verbose")
 	legacyPrint := mustGetBoolFlag(cmd, "legacy-print")
 
-	findings, err := loadReplayInput(inputPath)
+	findings, err := report.LoadFindings(inputPath)
 	if err != nil {
 		return fmt.Errorf("--input: %w", err)
 	}

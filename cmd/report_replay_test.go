@@ -24,14 +24,14 @@ func writeFixtureReport(t *testing.T, dir string, findings []report.Finding) str
 	return path
 }
 
-func TestLoadReplayInput(t *testing.T) {
+func TestLoadFindings(t *testing.T) {
 	fixture := []report.Finding{
 		{RuleID: "rule-a", Secret: "s3cr3t", Fingerprint: "fp1"},
 		{RuleID: "rule-b", Secret: "another", Fingerprint: "fp2"},
 	}
 	path := writeFixtureReport(t, t.TempDir(), fixture)
 
-	got, err := loadReplayInput(path)
+	got, err := report.LoadFindings(path)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, "rule-a", got[0].RuleID)
@@ -39,20 +39,43 @@ func TestLoadReplayInput(t *testing.T) {
 	assert.Equal(t, "rule-b", got[1].RuleID)
 }
 
-func TestLoadReplayInputInvalidJSON(t *testing.T) {
+func TestLoadFindingsJSONL(t *testing.T) {
+	fixture := []report.Finding{
+		{RuleID: "rule-a", Secret: "s3cr3t", Fingerprint: "fp1"},
+		{RuleID: "rule-b", Secret: "another", Fingerprint: "fp2"},
+	}
+	var lines []byte
+	for _, f := range fixture {
+		b, err := json.Marshal(f)
+		require.NoError(t, err)
+		lines = append(lines, b...)
+		lines = append(lines, '\n')
+	}
+	path := filepath.Join(t.TempDir(), "input.jsonl")
+	require.NoError(t, os.WriteFile(path, lines, 0600))
+
+	got, err := report.LoadFindings(path)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "rule-a", got[0].RuleID)
+	assert.Equal(t, "s3cr3t", got[0].Secret)
+	assert.Equal(t, "rule-b", got[1].RuleID)
+}
+
+func TestLoadFindingsInvalidJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad.json")
 	require.NoError(t, os.WriteFile(path, []byte("not json"), 0600))
 
-	_, err := loadReplayInput(path)
+	_, err := report.LoadFindings(path)
 	assert.Error(t, err)
 }
 
-func TestLoadReplayInputMissingFile(t *testing.T) {
-	_, err := loadReplayInput(filepath.Join(t.TempDir(), "nonexistent.json"))
+func TestLoadFindingsMissingFile(t *testing.T) {
+	_, err := report.LoadFindings(filepath.Join(t.TempDir(), "nonexistent.json"))
 	assert.Error(t, err)
 }
 
-// TestReplayCmdPipeline exercises the full path from JSON file → loadReplayInput →
+// TestReplayCmdPipeline exercises the full path from JSON file → report.LoadFindings →
 // report.Replay → result, simulating what runReplay does without invoking cobra.
 func TestReplayCmdPipeline(t *testing.T) {
 	fixture := []report.Finding{
@@ -61,7 +84,7 @@ func TestReplayCmdPipeline(t *testing.T) {
 	}
 	path := writeFixtureReport(t, t.TempDir(), fixture)
 
-	findings, err := loadReplayInput(path)
+	findings, err := report.LoadFindings(path)
 	require.NoError(t, err)
 
 	filterExpr := `finding["secret"] == "drop-me"`
