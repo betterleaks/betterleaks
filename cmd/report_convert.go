@@ -14,12 +14,11 @@ import (
 
 func init() {
 	reportCmd.AddCommand(convertCmd)
-	convertCmd.Flags().String("input", "", `path to JSON report to convert ("-" for stdin)`)
-	_ = convertCmd.MarkFlagRequired("input")
 }
 
 var convertCmd = &cobra.Command{
-	Use:   "convert",
+	Use:   "convert [report.json]",
+	Args:  cobra.MaximumNArgs(1),
 	Short: "convert a JSON report to another format",
 	Long: `Reads a JSON or JSONL report and writes it in the requested output format.
 
@@ -29,8 +28,11 @@ Use --verbose to print verbose findings to stdout.`,
 	RunE: runConvert,
 }
 
-func runConvert(cmd *cobra.Command, _ []string) error {
-	inputPath := mustGetStringFlag(cmd, "input")
+func runConvert(cmd *cobra.Command, args []string) error {
+	inputPath := "-"
+	if len(args) > 0 {
+		inputPath = args[0]
+	}
 
 	// Config is only needed for SARIF rule ordering; use the input file's
 	// directory for discovery, falling back to "." for stdin.
@@ -49,7 +51,7 @@ func runConvert(cmd *cobra.Command, _ []string) error {
 
 	findings, err := report.LoadFindings(inputPath)
 	if err != nil {
-		return fmt.Errorf("--input: %w", err)
+		return fmt.Errorf("reading input: %w", err)
 	}
 
 	// Verbose output (Print handles its own redaction on a value copy).

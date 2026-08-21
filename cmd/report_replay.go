@@ -17,12 +17,11 @@ import (
 
 func init() {
 	reportCmd.AddCommand(replayCmd)
-	replayCmd.Flags().String("input", "", `path to JSON or JSONL report to replay ("-" for stdin)`)
-	_ = replayCmd.MarkFlagRequired("input")
 }
 
 var replayCmd = &cobra.Command{
-	Use:   "replay",
+	Use:   "replay [report.json]",
+	Args:  cobra.MaximumNArgs(1),
 	Short: "re-evaluate filters and suppression rules against a saved report",
 	Long: `Reads a previously generated JSON report and re-evaluates the current
 config's prefilter, filters, and ignore/baseline suppression against every
@@ -39,10 +38,13 @@ ValidationMeta are copied verbatim from the input report.`,
 	RunE: runReplay,
 }
 
-func runReplay(cmd *cobra.Command, _ []string) error {
+func runReplay(cmd *cobra.Command, args []string) error {
 	start := time.Now()
 
-	inputPath := mustGetStringFlag(cmd, "input")
+	inputPath := "-"
+	if len(args) > 0 {
+		inputPath = args[0]
+	}
 
 	// Use the input file's directory for config + ignore-file discovery.
 	// Falls back to "." when reading from stdin.
@@ -65,7 +67,7 @@ func runReplay(cmd *cobra.Command, _ []string) error {
 	// Load input findings.
 	findings, err := report.LoadFindings(inputPath)
 	if err != nil {
-		return fmt.Errorf("--input: %w", err)
+		return fmt.Errorf("reading input: %w", err)
 	}
 
 	// Build expr runtime and compile prefilter.
