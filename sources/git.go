@@ -461,13 +461,14 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					}
 
 					// enrich and yield fragments
-					err = file.Fragments(ctx, func(fragment Fragment, err error) error {
-						// create base attributes of the commit
-						attrs := maps.Clone(commitAttrs)
-						// add fragment-specific attributes (in case attributes have been enriched by the file source)
-						maps.Copy(attrs, fragment.Attributes)
-						// set the merged attributes back to the fragment that will be yielded
-						fragment.Attributes = attrs
+					err = file.Fragments(ctx, func(fragment *Fragment, err error) error {
+						// Enrich the leased map in place so Release can return it to
+						// the file source's metadata pool.
+						for key, value := range commitAttrs {
+							if fragment.Attr(key) == "" {
+								fragment.SetAttr(key, value)
+							}
+						}
 						return yield(fragment, err)
 					})
 
@@ -484,13 +485,13 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 						return nil
 					}
 					fragment := Fragment{
-						Raw:        textFragment.Raw(gitdiff.OpAdd),
+						Raw:        []byte(textFragment.Raw(gitdiff.OpAdd)),
 						StartLine:  int(textFragment.NewPosition),
-						Attributes: commitAttrs,
+						Attributes: maps.Clone(commitAttrs),
 					}
 					fragment.SetAttr(AttrPath, gitdiffFile.NewName)
 
-					if err := yield(fragment, nil); err != nil {
+					if err := yield(&fragment, nil); err != nil {
 						return err
 					}
 				}
@@ -503,7 +504,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				break
 			}
 
-			return yield(Fragment{}, err)
+			return yield(&Fragment{}, err)
 		}
 	}
 

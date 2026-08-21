@@ -13,6 +13,9 @@ gitleaks
 betterleaks
 build
 profile
+.benchmark/
+__pycache__/
+*.py[cod]
 
 # configs
 .gitleaks.toml

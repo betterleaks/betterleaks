@@ -3,10 +3,7 @@
 // (MIT); see LICENSE.
 package ahocorasick
 
-import (
-	"unicode"
-	"unicode/utf8"
-)
+import "unicode/utf8"
 
 // Matcher is a flat Aho-Corasick DFA. Pattern IDs are their input indexes.
 // A compiled Matcher is read-only and safe to use from concurrent scans.
@@ -141,15 +138,121 @@ func (m *Matcher) Visit(text string, fn func(patternID, start, end int) bool) {
 	}
 }
 
-// foldRuneASCII reports the ASCII member of a rune's Unicode simple-fold set.
+// VisitBytes is the byte-slice form of Visit. It preserves byte offsets and
+// Unicode simple-fold behavior without materializing an immutable string.
+func (m *Matcher) VisitBytes(text []byte, fn func(patternID, start, end int) bool) {
+	state := uint32(0)
+	var localStarts [128]int
+	starts := localStarts[:]
+	if m.maxLength > len(starts) {
+		starts = make([]int, m.maxLength)
+	}
+	position := 0
+
+	for i := 0; i < len(text); {
+		b := text[i]
+		size := 1
+		if m.foldASCII && b >= utf8.RuneSelf {
+			r, runeSize := utf8.DecodeRune(text[i:])
+			folded, ok := foldRuneASCII(r)
+			if !ok {
+				state = 0
+				i += runeSize
+				continue
+			}
+			b, size = folded, runeSize
+		} else {
+			b = fold(b, m.foldASCII)
+		}
+
+		starts[position%len(starts)] = i
+		state = m.transitions[int(state)*256+int(b)]
+		for _, id := range m.outputs[state] {
+			end := i + size
+			start := end
+			if length := m.lengths[id]; length > 0 {
+				start = starts[(position+1-length)%len(starts)]
+			}
+			if !fn(int(id), start, end) {
+				return
+			}
+		}
+		position++
+		i += size
+	}
+}
+
+// VisitIDs calls fn with the ID of every matched pattern. It omits source
+// offset bookkeeping for prefilters that only need to select candidate rules.
+func (m *Matcher) VisitIDs(text string, fn func(patternID int) bool) {
+	state := uint32(0)
+	for i := 0; i < len(text); {
+		b := text[i]
+		size := 1
+		if m.foldASCII && b >= utf8.RuneSelf {
+			r, runeSize := utf8.DecodeRuneInString(text[i:])
+			folded, ok := foldRuneASCII(r)
+			if !ok {
+				state = 0
+				i += runeSize
+				continue
+			}
+			b, size = folded, runeSize
+		} else {
+			b = fold(b, m.foldASCII)
+		}
+
+		state = m.transitions[int(state)*256+int(b)]
+		for _, id := range m.outputs[state] {
+			if !fn(int(id)) {
+				return
+			}
+		}
+		i += size
+	}
+}
+
+// VisitIDsBytes is the byte-slice form of VisitIDs.
+func (m *Matcher) VisitIDsBytes(text []byte, fn func(patternID int) bool) {
+	state := uint32(0)
+	for i := 0; i < len(text); {
+		b := text[i]
+		size := 1
+		if m.foldASCII && b >= utf8.RuneSelf {
+			r, runeSize := utf8.DecodeRune(text[i:])
+			folded, ok := foldRuneASCII(r)
+			if !ok {
+				state = 0
+				i += runeSize
+				continue
+			}
+			b, size = folded, runeSize
+		} else {
+			b = fold(b, m.foldASCII)
+		}
+
+		state = m.transitions[int(state)*256+int(b)]
+		for _, id := range m.outputs[state] {
+			if !fn(int(id)) {
+				return
+			}
+		}
+		i += size
+	}
+}
+
+// foldRuneASCII reports the ASCII member of a non-ASCII rune's Unicode
+// simple-fold set. Unicode has exactly two such compatibility folds: long s
+// and Kelvin sign. Keeping them explicit avoids consulting the Unicode case
+// tables for every ordinary non-ASCII source rune.
 func foldRuneASCII(r rune) (byte, bool) {
-	for next := r; ; next = unicode.SimpleFold(next) {
-		if next < utf8.RuneSelf {
-			return fold(byte(next), true), true
-		}
-		if folded := unicode.SimpleFold(next); folded == r {
-			return 0, false
-		}
+	switch r {
+	case '\u017f': // long s: S, s, ſ
+		return 's', true
+	case '\u212a': // Kelvin sign: K, k, K
+		return 'k', true
+	default:
+		return 0, false
 	}
 }
 

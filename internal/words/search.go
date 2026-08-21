@@ -15,6 +15,62 @@ type Match struct {
 	Len  int
 }
 
+// HasAnyMatchInList reports whether word contains at least one dictionary word
+// of minLen bytes. It is the allocation-free boolean form used by hot-path
+// heuristics that do not need match details.
+func HasAnyMatchInList(word string, minLen int) bool {
+	wordsOnce.Do(loadWords)
+
+	if len(word) < minLen {
+		return false
+	}
+	if isASCII(word) {
+		var local [256]byte
+		var lower []byte
+		if len(word) <= len(local) {
+			lower = local[:len(word)]
+		} else {
+			lower = make([]byte, len(word))
+		}
+		for i := range word {
+			b := word[i]
+			if b >= 'A' && b <= 'Z' {
+				b += 'a' - 'A'
+			}
+			lower[i] = b
+		}
+		for start := 0; start <= len(lower)-minLen; start++ {
+			for length := minLen; start+length <= len(lower); length++ {
+				// A temporary []byte-to-string conversion used only for a map
+				// lookup does not escape, so Go can avoid allocating it.
+				if _, exists := nltkWords[string(lower[start:start+length])]; exists {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	word = strings.ToLower(word)
+	for start := 0; start <= len(word)-minLen; start++ {
+		for length := minLen; start+length <= len(word); length++ {
+			if _, exists := nltkWords[word[start:start+length]]; exists {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isASCII(word string) bool {
+	for i := range word {
+		if word[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
 // HasMatchInList finds all dictionary words that appear as substrings of word,
 // matching Aho-Corasick–style behavior by walking the word: at each starting
 // position we check every substring length >= minLen. Returns one Result

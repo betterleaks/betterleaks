@@ -35,17 +35,20 @@ func GenericCredential() *config.Rule {
 		},
 		Specificity: 0,
 		Filter: `// Provider checks use a fixed window around the match, clamped to its line.
-let providerMatchContext = finding["fragment_raw"][
-  max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
-  min(finding["match_end_idx"] + 50, finding["match_line_end_idx"])
+let localLine = finding["local_line"];
+let localMatchStart = finding["local_line_match_start_idx"];
+let localMatchEnd = finding["local_line_match_end_idx"];
+let providerMatchContext = localLine[
+  max(localMatchStart - 150, 0):
+  min(localMatchEnd + 50, len(localLine))
 ];
 
 // Recreate the generic rule's former [\w.-]{0,50} preamble. Only the
 // contiguous word, dot, and hyphen suffix immediately before the match counts.
 let genericMatchPrefix = filter.findMatch(
-  finding["fragment_raw"][
-    max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
-    finding["match_start_idx"]
+  localLine[
+    max(localMatchStart - 50, 0):
+    localMatchStart
   ],
   ` + "`[\\w.-]{0,50}$`" + `
 );
@@ -53,7 +56,7 @@ let genericMatchPrefix = filter.findMatch(
 // Recreate the generic rule's former regex which includes the [\w.-]{0,50} preamble.
 let genericMatchContext =
   genericMatchPrefix +
-  finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+  localLine[localMatchStart:localMatchEnd];
 
 let level = filter.matchesAny(genericMatchContext, [
   ` + "`(?i)\\b[a-z0-9]+[_.-]+token\\b`" + `

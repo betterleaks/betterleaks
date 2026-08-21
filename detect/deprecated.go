@@ -17,6 +17,8 @@ import (
 // DetectSource scans the given source and returns a list of findings
 // Deprecated: use Run instead for more flexible and efficient processing of findings.
 func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]report.Finding, error) {
+	ctx = sources.WithSourceWorkers(ctx, d.SourceWorkers)
+
 	// Initialize deprecated fields used only by this code path.
 	if d.commitMap == nil {
 		d.commitMap = make(map[string]bool)
@@ -54,7 +56,14 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 		}
 	}()
 
-	err := source.Fragments(ctx, func(fragment sources.Fragment, err error) error {
+	err := source.Fragments(ctx, func(fragment *sources.Fragment, err error) error {
+		if fragment == nil {
+			if err != nil {
+				logging.Error().Err(err).Send()
+			}
+			return nil
+		}
+		defer fragment.Release()
 		logger := fragment.Logger()
 
 		commitSHA := fragment.Attr(sources.AttrGitSHA)
@@ -83,7 +92,7 @@ func (d *Detector) DetectSource(ctx context.Context, source sources.Source) ([]r
 			})
 		}
 
-		for _, finding := range d.DetectContext(ctx, fragment) {
+		for _, finding := range d.DetectContext(ctx, *fragment) {
 			d.AddFinding(finding)
 		}
 

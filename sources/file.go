@@ -23,26 +23,75 @@ const InnerPathSeparator = "!"
 
 var bufferPool = sync.Pool{
 	New: func() any {
-		buf := make([]byte, defaultBufferSize)
+		// fileFragments may read up to maxPeekSize beyond the normal chunk while
+		// looking for a safe boundary. Reserve that space once so bytes.Buffer
+		// does not have to grow and copy every full-sized chunk.
+		buf := make([]byte, defaultBufferSize, defaultBufferSize+maxPeekSize)
 		return &buf
 	},
 }
 
-func getBuffer() []byte {
-	return *bufferPool.Get().(*[]byte)
+func getBuffer() *[]byte {
+	buffer := bufferPool.Get().(*[]byte)
+	*buffer = (*buffer)[:defaultBufferSize]
+	return buffer
 }
 
-func putBuffer(buf []byte) {
-	buf = buf[:cap(buf)]
-	bufferPool.Put(&buf)
+func putBuffer(buffer *[]byte) {
+	if buffer == nil {
+		return
+	}
+	// Keep the read size stable even though pooled buffers have spare capacity
+	// for readUntilSafeBoundary.
+	*buffer = (*buffer)[:defaultBufferSize]
+	bufferPool.Put(buffer)
 }
 
 var readerPool = sync.Pool{
 	New: func() any {
-		// Use the same default size as bufio.NewReader (4096) to preserve
-		// chunk boundary behavior in readUntilSafeBoundary.
-		return bufio.NewReader(nil)
+		// readUntilSafeBoundary examines at most maxPeekSize bytes. Holding that
+		// window lets it scan one buffered span instead of issuing thousands of
+		// ReadByte calls and several small underlying reads per large fragment.
+		return bufio.NewReaderSize(nil, maxPeekSize)
 	},
+}
+
+var ephemeralFragmentAttributesPool = sync.Pool{
+	New: func() any {
+		return make(map[string]string, 3)
+	},
+}
+
+var fileFragmentPool = sync.Pool{
+	New: func() any { return new(Fragment) },
+}
+
+func newFileFragment(path string) *Fragment {
+	fragment := fileFragmentPool.Get().(*Fragment)
+	attrs := ephemeralFragmentAttributesPool.Get().(map[string]string)
+	attrs[AttrPath] = path
+	attrs[AttrResource] = ResourceFileContent
+	fragment.Attributes = attrs
+	fragment.attributesLease = attrs
+	fragment.release = releaseFileFragment
+	return fragment
+}
+
+func releaseFileFragment(fragment *Fragment) {
+	if fragment == nil {
+		return
+	}
+	bufferLease := fragment.bufferLease
+	attrs := fragment.attributesLease
+	*fragment = Fragment{}
+	if bufferLease != nil {
+		putBuffer(bufferLease)
+	}
+	if attrs != nil {
+		clear(attrs)
+		ephemeralFragmentAttributesPool.Put(attrs)
+	}
+	fileFragmentPool.Put(fragment)
 }
 
 func getReader(r io.Reader) *bufio.Reader {
@@ -69,8 +118,9 @@ type File struct {
 	Path string
 	// Symlink represents a symlink to the file if that's how it was discovered
 	Symlink string
-	// Buffer is used for reading the content in chunks
-	Buffer []byte
+	// Size is the snapshot size of a regular file discovered by Files. A zero
+	// value means unknown and keeps stream-style EOF probing.
+	Size int64
 	// ShouldSkip is a callback that decides whether to skip a file based on its
 	// attributes (e.g. path). If nil, no skipping is performed.
 	ShouldSkip SkipFunc
@@ -85,6 +135,10 @@ type File struct {
 
 // Fragments yields fragments for the this source
 func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	return s.fragments(ctx, yield)
+}
+
+func (s *File) fragments(ctx context.Context, yield FragmentsFunc) error {
 	var err error
 	var format archives.Format
 	stream := s.Content
@@ -210,7 +264,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			archiveDepth:    s.archiveDepth + 1,
 		}
 
-		return file.Fragments(ctx, yield)
+		return file.fragments(ctx, yield)
 	})
 
 	if err != nil {
@@ -249,61 +303,59 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 
 // fileFragments reads the file into fragments to yield.
 func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiveContent bool, yield FragmentsFunc) error {
-	// Use a pooled buffer if the caller hasn't provided one.
-	if s.Buffer == nil {
-		s.Buffer = getBuffer()
-		defer func() {
-			putBuffer(s.Buffer)
-			s.Buffer = nil
-		}()
-	}
-
 	prevFragmentEndLine := 0
+	bytesConsumed := int64(0)
+	knownSize := s.Size > 0 && !isArchiveContent
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			// Compute the final normalized path upfront (isWindows is a compile-time constant).
-			fullPath := s.FullPath()
-			fragPath := fullPath
-			if isWindows {
-				fragPath = filepath.ToSlash(fullPath)
-			}
-			attr := map[string]string{
-				AttrPath:     fragPath,
-				AttrResource: ResourceFileContent,
-			}
-			fragment := Fragment{
-				Attributes: attr,
-			}
-
-			n, err := reader.Read(s.Buffer)
+			bufferLease := getBuffer()
+			buffer := *bufferLease
+			n, err := reader.Read(buffer)
 			if n == 0 {
+				putBuffer(bufferLease)
 				if err != nil && err != io.EOF {
+					fullPath := s.FullPath()
 					if isArchiveContent {
 						logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content")
 						return nil
 					}
+					fragPath := fullPath
+					if isWindows {
+						fragPath = filepath.ToSlash(fullPath)
+					}
+					fragment := newFileFragment(fragPath)
 					return yield(fragment, fmt.Errorf("could not read file: %w", err))
 				}
 
 				return nil
 			}
+			bytesConsumed += int64(n)
 
+			// Build fragment metadata only after reading content. Every file has a
+			// final zero-byte EOF probe, which should not allocate an unused map.
+			fullPath := s.FullPath()
+			fragPath := fullPath
+			if isWindows {
+				fragPath = filepath.ToSlash(fullPath)
+			}
 			// Only check the filetype at the start of file.
 			if prevFragmentEndLine == 0 {
 				// TODO: could other optimizations be introduced here?
-				if mimetype, err := filetype.Match(s.Buffer[:n]); err != nil {
+				if mimetype, err := filetype.Match(buffer[:n]); err != nil {
+					putBuffer(bufferLease)
 					if isArchiveContent {
 						logging.Warn().Err(err).Str("path", fullPath).Msg("could not determine archive content type")
 						return nil
 					}
 					return yield(
-						fragment,
+						newFileFragment(fragPath),
 						fmt.Errorf("could not read file: could not determine type: %w", err),
 					)
 				} else if mimetype.MIME.Type == "application" {
+					putBuffer(bufferLease)
 					logging.Debug().
 						Str("mime_type", mimetype.MIME.Value).
 						Str("path", fullPath).
@@ -312,29 +364,42 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 					return nil
 				}
 			}
+			fragment := newFileFragment(fragPath)
 
 			// Try to split chunks across large areas of whitespace, if possible.
-			peekBuf := bytes.NewBuffer(s.Buffer[:n])
+			peekBuf := bytes.NewBuffer(buffer[:n])
 			stopAfterYield := false
-			if err := readUntilSafeBoundary(reader, n, maxPeekSize, peekBuf); err != nil {
-				if isArchiveContent {
-					logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content until safe boundary")
-					stopAfterYield = true
-				} else {
-					return yield(
-						fragment,
-						fmt.Errorf("could not read file: could not read until safe boundary: %w", err),
-					)
+			peekSize := maxPeekSize
+			if knownSize {
+				peekSize = min(peekSize, max(int(s.Size-bytesConsumed), 0))
+			}
+			if peekSize > 0 {
+				if err := readUntilSafeBoundary(reader, n, peekSize, peekBuf); err != nil {
+					if isArchiveContent {
+						logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content until safe boundary")
+						stopAfterYield = true
+					} else {
+						fragment.Raw = peekBuf.Bytes()
+						fragment.bufferLease = bufferLease
+						return yield(
+							fragment,
+							fmt.Errorf("could not read file: could not read until safe boundary: %w", err),
+						)
+					}
 				}
 			}
+			bytesConsumed += int64(peekBuf.Len() - n)
+			if knownSize && bytesConsumed >= s.Size {
+				stopAfterYield = true
+			}
 
-			fragment.Raw = peekBuf.String()
-			fragment.Bytes = peekBuf.Bytes()
+			fragment.Raw = peekBuf.Bytes()
+			fragment.bufferLease = bufferLease
 			fragment.StartLine = prevFragmentEndLine + 1
 
 			// Count the number of newlines in this chunk to determine the end
 			// line for this fragment.
-			prevFragmentEndLine += strings.Count(fragment.Raw, "\n")
+			prevFragmentEndLine += bytes.Count(fragment.Raw, []byte{'\n'})
 
 			if s.Symlink != "" {
 				symlink := s.Symlink

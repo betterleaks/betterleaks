@@ -17,15 +17,21 @@ import (
 type ScanTarget struct {
 	Path    string
 	Symlink string
+	Size    int64
 }
 
 // Files is a source for yielding fragments from a collection of files
 type Files struct {
-	ShouldSkip      SkipFunc
-	FollowSymlinks  bool
-	MaxFileSize     int
-	Path            string
-	Sema            *semgroup.Group
+	ShouldSkip     SkipFunc
+	ShouldSkipPath PathSkipFunc
+	FollowSymlinks bool
+	MaxFileSize    int
+	Path           string
+	// Deprecated: ignored. Use Workers or sources.WithSourceWorkers.
+	Sema *semgroup.Group
+	// Workers controls the fixed file worker pool. A context override takes
+	// precedence; zero uses the source default.
+	Workers         int
 	MaxArchiveDepth int
 }
 
@@ -35,11 +41,10 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 	// symlink handling when the requested root is a single file or symlink.
 	rootInfo, err := os.Lstat(s.Path)
 	if err != nil {
-		logger := logging.With().Str("path", s.Path).Logger()
 		if os.IsPermission(err) {
-			logger.Warn().Err(errors.New("permission denied")).Msg("skipping directory")
+			logging.Warn().Err(errors.New("permission denied")).Str("path", s.Path).Msg("skipping directory")
 		} else {
-			logger.Warn().Err(err).Msg("skipping")
+			logging.Warn().Err(err).Str("path", s.Path).Msg("skipping")
 		}
 		return nil
 	}
@@ -52,77 +57,78 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			return err
 		}
 		scanTarget := ScanTarget{Path: path}
-		logger := logging.With().Str("path", path).Logger()
 
 		if err != nil {
 			if os.IsPermission(err) {
 				// This seems to only fail on directories at this stage.
-				logger.Warn().Err(errors.New("permission denied")).Msg("skipping directory")
+				logging.Warn().Err(errors.New("permission denied")).Str("path", path).Msg("skipping directory")
 				return filepath.SkipDir
 			}
-			logger.Warn().Err(err).Msg("skipping")
+			logging.Warn().Err(err).Str("path", path).Msg("skipping")
+			return nil
+		}
+
+		// DirEntry already carries the directory type. Avoid an lstat for every
+		// directory; file metadata is only needed for size checks below.
+		if d.IsDir() {
+			if shouldSkipFilePath(s.ShouldSkipPath, s.ShouldSkip, path) {
+				logging.Debug().Str("path", path).Msg("skipping directory: global allowlist")
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
 		info, err := d.Info()
 		if err != nil {
-			if d.IsDir() {
-				logger.Error().Err(err).Msg("skipping directory: could not get info")
-				return filepath.SkipDir
-			}
-			logger.Error().Err(err).Msg("skipping file: could not get info")
+			logging.Error().Err(err).Str("path", path).Msg("skipping file: could not get info")
 			return nil
 		}
 
-		if !d.IsDir() {
-			// Empty; nothing to do here.
-			if info.Size() == 0 {
-				logger.Debug().Msg("skipping empty file")
-				return nil
-			}
-
-			// Too large; nothing to do here.
-			if s.MaxFileSize > 0 && info.Size() > int64(s.MaxFileSize) {
-				logger.Warn().Msgf(
-					"skipping file: too large max_size=%dMB, size=%dMB",
-					s.MaxFileSize/1_000_000, info.Size()/1_000_000,
-				)
-				return nil
-			}
+		// Empty; nothing to do here.
+		if info.Size() == 0 {
+			logging.Debug().Str("path", path).Msg("skipping empty file")
+			return nil
 		}
+
+		// Too large; nothing to do here.
+		if s.MaxFileSize > 0 && info.Size() > int64(s.MaxFileSize) {
+			logging.Warn().Str("path", path).Msgf(
+				"skipping file: too large max_size=%dMB, size=%dMB",
+				s.MaxFileSize/1_000_000, info.Size()/1_000_000,
+			)
+			return nil
+		}
+		scanTarget.Size = info.Size()
 
 		// set the initial scan target values
 		if d.Type() == fs.ModeSymlink {
 			if !s.FollowSymlinks {
-				logger.Debug().Msg("skipping symlink: follow symlinks disabled")
+				logging.Debug().Str("path", path).Msg("skipping symlink: follow symlinks disabled")
 				return nil
 			}
 			realPath, err := filepath.EvalSymlinks(path)
 			if err != nil {
-				logger.Error().Err(err).Msg("skipping symlink: could not evaluate")
+				logging.Error().Err(err).Str("path", path).Msg("skipping symlink: could not evaluate")
 				return nil
 			}
-			if realPathFileInfo, _ := os.Stat(realPath); realPathFileInfo.IsDir() {
-				logger.Debug().Str("target", realPath).Msgf("skipping symlink: target is directory")
+			realPathFileInfo, err := os.Stat(realPath)
+			if err != nil {
+				logging.Error().Err(err).Str("path", path).Str("target", realPath).Msg("skipping symlink: could not get target info")
+				return nil
+			}
+			if realPathFileInfo.IsDir() {
+				logging.Debug().Str("path", path).Str("target", realPath).Msgf("skipping symlink: target is directory")
 				return nil
 			}
 			scanTarget = ScanTarget{
 				Path:    realPath,
 				Symlink: path,
+				Size:    realPathFileInfo.Size(),
 			}
 		}
 
-		// handle dir cases (mainly just see if it should be skipped
-		if info.IsDir() {
-			if shouldSkipPath(s.ShouldSkip, path) {
-				logger.Debug().Msg("skipping directory: global allowlist")
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if shouldSkipPath(s.ShouldSkip, path) {
-			logger.Debug().Msg("skipping file: global allowlist")
+		if shouldSkipFilePath(s.ShouldSkipPath, s.ShouldSkip, path) {
+			logging.Debug().Str("path", path).Msg("skipping file: global allowlist")
 			return nil
 		}
 
@@ -153,52 +159,78 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	var wg sync.WaitGroup
+	ctx = ensureSourceWorkers(ctx)
+	workers := s.Workers
+	if override := sourceWorkerOverride(ctx); override > 0 {
+		workers = override
+	}
+	if workers <= 0 {
+		workers = sourceWorkerCount(ctx, defaultSourceWorkers)
+	}
+	return s.fragmentsWithWorkers(ctx, yield, workers)
+}
 
-	err := s.scanTargets(ctx, func(scanTarget ScanTarget, err error) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			wg.Add(1)
-			s.Sema.Go(func() error {
-				logger := logging.With().Str("path", scanTarget.Path).Logger()
-				logger.Trace().Msg("scanning path")
+func (s *Files) fragmentsWithWorkers(ctx context.Context, yield FragmentsFunc, workerCount int) error {
+	jobs := make(chan ScanTarget, workerCount)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
 
-				f, err := os.Open(scanTarget.Path)
-				if err != nil {
-					if os.IsPermission(err) {
-						logger.Warn().Msg("skipping file: permission denied")
-					}
-					wg.Done()
-					return nil
-				}
+	var scanErr error
+	var scanErrMu sync.Mutex
+	recordError := func(err error) {
+		if err == nil {
+			return
+		}
+		scanErrMu.Lock()
+		scanErr = errors.Join(scanErr, err)
+		scanErrMu.Unlock()
+	}
 
-				// Convert this to a file source
-				file := File{
-					Content:         f,
-					Path:            scanTarget.Path,
-					Symlink:         scanTarget.Symlink,
-					ShouldSkip:      s.ShouldSkip,
-					MaxArchiveDepth: s.MaxArchiveDepth,
-				}
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for target := range jobs {
+				recordError(s.scanFile(ctx, target, yield))
+			}
+		}()
+	}
 
-				err = file.Fragments(ctx, yield)
-				// Avoiding a defer in a hot loop
-				_ = f.Close()
-				wg.Done()
-				return err
-			})
-
+	walkErr := s.scanTargets(ctx, func(scanTarget ScanTarget, err error) error {
+		if err != nil {
+			recordError(err)
 			return nil
 		}
+		select {
+		case jobs <- scanTarget:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	})
+	close(jobs)
+	workers.Wait()
+	return errors.Join(walkErr, scanErr)
+}
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		wg.Wait()
-		return err
+func (s *Files) scanFile(ctx context.Context, scanTarget ScanTarget, yield FragmentsFunc) error {
+	logging.Trace().Str("path", scanTarget.Path).Msg("scanning path")
+	f, err := os.Open(scanTarget.Path)
+	if err != nil {
+		if os.IsPermission(err) {
+			logging.Warn().Str("path", scanTarget.Path).Msg("skipping file: permission denied")
+		}
+		return nil
 	}
+
+	file := File{
+		Content:         f,
+		Path:            scanTarget.Path,
+		Symlink:         scanTarget.Symlink,
+		Size:            scanTarget.Size,
+		ShouldSkip:      s.ShouldSkip,
+		MaxArchiveDepth: s.MaxArchiveDepth,
+	}
+	err = file.Fragments(ctx, yield)
+	_ = f.Close()
+	return err
 }

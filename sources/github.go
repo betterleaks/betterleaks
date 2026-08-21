@@ -477,7 +477,7 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 // applies ShouldSkip, and serializes calls through a mutex.
 func (s *GitHub) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) FragmentsFunc {
 	var mu sync.Mutex
-	return func(fragment Fragment, err error) error {
+	return func(fragment *Fragment, err error) error {
 		if err == nil {
 			for k, v := range attrs {
 				if v == "" || fragment.Attr(k) != "" {
@@ -486,6 +486,7 @@ func (s *GitHub) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc
 				fragment.SetAttr(k, v)
 			}
 			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+				fragment.Release()
 				return nil
 			}
 		}
@@ -1166,11 +1167,11 @@ type itemEmit struct {
 // Returns true if comments were processed (commentsRes enabled).
 func (s *GitHub) emitItemAndComments(it itemEmit, count *int, yield FragmentsFunc) (bool, error) {
 	if s.Resources.Has(it.bodyRes) && (it.title != "" || it.body != "") {
-		frag := Fragment{Raw: strings.TrimSpace(it.title + "\n" + it.body)}
+		frag := Fragment{Raw: []byte(strings.TrimSpace(it.title + "\n" + it.body))}
 		frag.SetAttr(AttrURL, it.url)
 		frag.SetAttr(AttrResource, it.resource)
 		frag.SetAttr(it.numAttr, it.numVal)
-		if err := yield(frag, nil); err != nil {
+		if err := yield(&frag, nil); err != nil {
 			return false, err
 		}
 	}
@@ -1304,7 +1305,7 @@ func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueN
 		}
 		(*count)++
 
-		frag := Fragment{Raw: c.Body}
+		frag := Fragment{Raw: []byte(c.Body)}
 		u := c.Url
 		if u == "" {
 			u = parentURL
@@ -1318,7 +1319,7 @@ func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueN
 		if issueNum != "" {
 			frag.SetAttr(AttrGitHubIssueNumber, issueNum)
 		}
-		if err := yield(frag, nil); err != nil {
+		if err := yield(&frag, nil); err != nil {
 			return err
 		}
 	}
@@ -1368,11 +1369,11 @@ func (s *GitHub) emitRelease(ctx context.Context, client *github.Client, httpCli
 	title := rel.GetName()
 	body := rel.GetBody()
 	if title != "" || body != "" {
-		frag := Fragment{Raw: strings.TrimSpace(title + "\n" + body)}
+		frag := Fragment{Raw: []byte(strings.TrimSpace(title + "\n" + body))}
 		frag.SetAttr(AttrURL, rel.GetHTMLURL())
 		frag.SetAttr(AttrResource, ResourceGitHubRelease)
 		frag.SetAttr(AttrGitHubReleaseTag, tag)
-		if err := yield(frag, nil); err != nil {
+		if err := yield(&frag, nil); err != nil {
 			return err
 		}
 	}
@@ -1501,14 +1502,14 @@ func (s *GitHub) emitGist(ctx context.Context, client *github.Client, gistID, ow
 		if content == "" {
 			continue
 		}
-		frag := Fragment{Raw: content}
+		frag := Fragment{Raw: []byte(content)}
 		frag.SetAttr(AttrURL, htmlURL)
 		frag.SetAttr(AttrResource, ResourceGitHubGist)
 		frag.SetAttr(AttrGitHubGistID, gistID)
 		frag.SetAttr(AttrGitHubGistOwner, owner)
 		frag.SetAttr(AttrGitHubGistFilename, string(filename))
 		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
-			if err := yield(frag, nil); err != nil {
+			if err := yield(&frag, nil); err != nil {
 				return err
 			}
 		}
@@ -1623,11 +1624,11 @@ func (s *GitHub) emitDiscussion(ctx context.Context, owner, name string, d ghDis
 	numStr := strconv.Itoa(d.Number)
 
 	if d.Title != "" || d.Body != "" {
-		frag := Fragment{Raw: strings.TrimSpace(d.Title + "\n" + d.Body)}
+		frag := Fragment{Raw: []byte(strings.TrimSpace(d.Title + "\n" + d.Body))}
 		frag.SetAttr(AttrURL, d.Url)
 		frag.SetAttr(AttrResource, ResourceGitHubDiscussion)
 		frag.SetAttr(AttrGitHubDiscussionNumber, numStr)
-		if err := yield(frag, nil); err != nil {
+		if err := yield(&frag, nil); err != nil {
 			return err
 		}
 	}
@@ -1671,7 +1672,7 @@ func (s *GitHub) emitDiscussionReply(r ghDiscussionCommentReply, discussionURL, 
 	if ok, _ := s.inDateRange(r.CreatedAt); !ok {
 		return nil
 	}
-	frag := Fragment{Raw: r.Body}
+	frag := Fragment{Raw: []byte(r.Body)}
 	u := r.Url
 	if u == "" {
 		u = discussionURL
@@ -1680,7 +1681,7 @@ func (s *GitHub) emitDiscussionReply(r ghDiscussionCommentReply, discussionURL, 
 	frag.SetAttr(AttrResource, ResourceGitHubComment)
 	frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(r.DatabaseId, 10))
 	frag.SetAttr(AttrGitHubDiscussionNumber, discussionNum)
-	if err := yield(frag, nil); err != nil {
+	if err := yield(&frag, nil); err != nil {
 		return err
 	}
 	(*count)++

@@ -57,6 +57,12 @@ func TestCompileIsLazy(t *testing.T) {
 		t.Fatalf("compiles = %d, want 1", engine.compiles)
 	}
 	_ = re.FindString("foobar")
+	if !re.Match([]byte("foobar")) {
+		t.Fatal("Match returned false")
+	}
+	if got := re.FindAllIndex([]byte("foobar foo"), -1); len(got) != 2 {
+		t.Fatalf("FindAllIndex returned %v", got)
+	}
 	if engine.compiles != 1 {
 		t.Fatalf("regex compiled more than once")
 	}
@@ -83,6 +89,12 @@ func TestLazyCompileFailureDoesNotPanic(t *testing.T) {
 	}
 	if got := re.FindAllStringIndex("foo", -1); got != nil {
 		t.Fatalf("FindAllStringIndex = %#v, want nil", got)
+	}
+	if re.Match([]byte("foo")) {
+		t.Fatal("Match returned true after compile failure")
+	}
+	if got := re.FindAllIndex([]byte("foo"), -1); got != nil {
+		t.Fatalf("FindAllIndex = %#v, want nil", got)
 	}
 	if got := re.ReplaceAllString("foo", "bar"); got != "foo" {
 		t.Fatalf("ReplaceAllString = %q, want original", got)

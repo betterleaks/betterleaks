@@ -154,6 +154,9 @@ L19|tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
 			if got != tt.want {
 				t.Errorf("Extract()\ngot:  %q\nwant: %q", got, tt.want)
 			}
+			if gotBytes := string(ExtractBytes([]byte(rawContent), matchIdx, tt.spec)); gotBytes != tt.want {
+				t.Errorf("ExtractBytes()\ngot:  %q\nwant: %q", gotBytes, tt.want)
+			}
 		})
 	}
 }
@@ -185,6 +188,9 @@ func TestExtractContextMultiLineMatch(t *testing.T) {
 			got := Extract(raw, matchIdx, tt.spec)
 			if got != tt.want {
 				t.Errorf("Extract()\ngot:  %q\nwant: %q", got, tt.want)
+			}
+			if gotBytes := string(ExtractBytes([]byte(raw), matchIdx, tt.spec)); gotBytes != tt.want {
+				t.Errorf("ExtractBytes()\ngot:  %q\nwant: %q", gotBytes, tt.want)
 			}
 		})
 	}
@@ -271,6 +277,35 @@ L19|tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
 			got := Extract(rawContent, matchIdx, tt.spec)
 			if got != tt.want {
 				t.Errorf("Extract()\ngot:  %q\nwant: %q", got, tt.want)
+			}
+			if gotBytes := string(ExtractBytes([]byte(rawContent), matchIdx, tt.spec)); gotBytes != tt.want {
+				t.Errorf("ExtractBytes()\ngot:  %q\nwant: %q", gotBytes, tt.want)
+			}
+		})
+	}
+}
+
+func TestClipLines(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		clipStart int
+		clipEnd   int
+		want      string
+	}{
+		{name: "unchanged", text: "one\ntwo", clipStart: 0, clipEnd: 10, want: "one\ntwo"},
+		{name: "trailing newline", text: "abcdef\nxy\n", clipStart: 2, clipEnd: 5, want: "cde\nxy\n"},
+		{name: "short lines stay whole", text: "a\nabcdef\nbb", clipStart: 2, clipEnd: 5, want: "a\ncde\nbb"},
+		{name: "empty", text: "", clipStart: 0, clipEnd: 1, want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := clipLines(tt.text, tt.clipStart, tt.clipEnd); got != tt.want {
+				t.Fatalf("clipLines() = %q, want %q", got, tt.want)
+			}
+			if got := string(clipLinesBytes([]byte(tt.text), tt.clipStart, tt.clipEnd)); got != tt.want {
+				t.Fatalf("clipLinesBytes() = %q, want %q", got, tt.want)
 			}
 		})
 	}

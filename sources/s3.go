@@ -402,7 +402,7 @@ func (s *S3) scanObject(ctx context.Context, client *http.Client, target s3Targe
 // through a mutex. Mirrors the GitHub source.
 func (s *S3) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) FragmentsFunc {
 	var mu sync.Mutex
-	return func(fragment Fragment, err error) error {
+	return func(fragment *Fragment, err error) error {
 		if err == nil {
 			for k, v := range attrs {
 				if v == "" {
@@ -415,6 +415,7 @@ func (s *S3) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) Fr
 				}
 			}
 			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+				fragment.Release()
 				return nil
 			}
 		}

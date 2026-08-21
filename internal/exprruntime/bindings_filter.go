@@ -3,7 +3,6 @@ package exprruntime
 import (
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 	"sync"
 
@@ -11,13 +10,128 @@ import (
 	"github.com/betterleaks/betterleaks/internal/words"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
 	tiktoken "github.com/pkoukk/tiktoken-go"
-	ahocorasick "github.com/rrethy/ahocorasick"
 )
 
 var (
-	regexCache  sync.Map // string -> *blregexp.Regexp
-	acTrieCache sync.Map // string -> *ahocorasick.Matcher
+	regexCache    sync.Map // uint64 -> *regexCacheBucket
+	containsCache sync.Map // uint64 -> *containsCacheBucket
 )
+
+type patternList struct {
+	strings []string
+	values  []any
+}
+
+func newPatternList(value any) (patternList, bool) {
+	switch patterns := value.(type) {
+	case []string:
+		return patternList{strings: patterns}, true
+	case []any:
+		for _, pattern := range patterns {
+			if _, ok := pattern.(string); !ok {
+				return patternList{}, false
+			}
+		}
+		return patternList{values: patterns}, true
+	default:
+		return patternList{}, false
+	}
+}
+
+func (p patternList) len() int {
+	if p.strings != nil {
+		return len(p.strings)
+	}
+	return len(p.values)
+}
+
+func (p patternList) at(index int) string {
+	if p.strings != nil {
+		return p.strings[index]
+	}
+	return p.values[index].(string)
+}
+
+func (p patternList) clone() []string {
+	patterns := make([]string, p.len())
+	for i := range patterns {
+		patterns[i] = p.at(i)
+	}
+	return patterns
+}
+
+// hash returns a non-cryptographic content hash. Cache hits are always checked
+// against the original strings, so collisions affect performance, not results.
+func (p patternList) hash() uint64 {
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	hash := uint64(offset64)
+	for i := 0; i < p.len(); i++ {
+		pattern := p.at(i)
+		hash ^= uint64(len(pattern))
+		hash *= prime64
+		for j := 0; j < len(pattern); j++ {
+			hash ^= uint64(pattern[j])
+			hash *= prime64
+		}
+	}
+	hash ^= uint64(p.len())
+	return hash * prime64
+}
+
+type compiledRegex struct {
+	patterns []string
+	regexp   *blregexp.Regexp
+}
+
+// regexCacheBucket keeps the overwhelmingly common first hash entry immutable
+// and lock-free. The mutex is used only for the extremely unlikely hash-
+// collision path, where string comparison still guarantees correct results.
+type regexCacheBucket struct {
+	primary compiledRegex
+	mu      sync.RWMutex
+	extra   []compiledRegex
+}
+
+func samePatterns(cached []string, patterns patternList) bool {
+	if len(cached) != patterns.len() {
+		return false
+	}
+	for i, pattern := range cached {
+		if pattern != patterns.at(i) {
+			return false
+		}
+	}
+	return true
+}
+
+func (b *regexCacheBucket) load(patterns patternList) (*blregexp.Regexp, bool) {
+	if samePatterns(b.primary.patterns, patterns) {
+		return b.primary.regexp, true
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	for _, cached := range b.extra {
+		if samePatterns(cached.patterns, patterns) {
+			return cached.regexp, true
+		}
+	}
+	return nil, false
+}
+
+func (b *regexCacheBucket) storeExtra(compiled compiledRegex) *blregexp.Regexp {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, cached := range b.extra {
+		if samePatterns(cached.patterns, patternList{strings: compiled.patterns}) {
+			return cached.regexp
+		}
+	}
+	b.extra = append(b.extra, compiled)
+	return compiled.regexp
+}
 
 func filterNamespace(rt *runtimeBindings) map[string]any {
 	return map[string]any{
@@ -38,54 +152,118 @@ func (rt *runtimeBindings) setConfidence(value string) (string, error) {
 	return value, nil
 }
 
-func orderedKey(ss []string) string { return strings.Join(ss, "\x00") }
-
-func sortedKey(ss []string) string {
-	cp := make([]string, len(ss))
-	copy(cp, ss)
-	sort.Strings(cp)
-	return strings.Join(cp, "\x00")
-}
-
-func getOrCompileJoinedRegex(patterns []string) *blregexp.Regexp {
-	if len(patterns) == 0 {
+func getOrCompileJoinedRegex(value any) *blregexp.Regexp {
+	patterns, ok := newPatternList(value)
+	if !ok || patterns.len() == 0 {
 		return nil
 	}
-	key := orderedKey(patterns)
-	if v, ok := regexCache.Load(key); ok {
-		return v.(*blregexp.Regexp)
+	key := patterns.hash()
+	if cached, ok := regexCache.Load(key); ok {
+		if re, found := cached.(*regexCacheBucket).load(patterns); found {
+			return re
+		}
 	}
-	parts := make([]string, len(patterns))
-	for i, p := range patterns {
-		parts[i] = "(?:" + p + ")"
-	}
-	re, err := blregexp.Compile(strings.Join(parts, "|"))
+
+	stablePatterns := patterns.clone()
+	re, err := blregexp.Compile(joinRegexPatterns(stablePatterns))
 	if err != nil {
 		return nil
 	}
-	regexCache.Store(key, re)
-	return re
+	compiled := compiledRegex{patterns: stablePatterns, regexp: re}
+	bucket := &regexCacheBucket{primary: compiled}
+	actual, loaded := regexCache.LoadOrStore(key, bucket)
+	if !loaded {
+		return re
+	}
+	existing := actual.(*regexCacheBucket)
+	if cached, found := existing.load(patterns); found {
+		return cached
+	}
+	return existing.storeExtra(compiled)
 }
 
-func getOrBuildTrie(terms []string) *ahocorasick.Matcher {
-	if len(terms) == 0 {
+func joinRegexPatterns(patterns []string) string {
+	var builder strings.Builder
+	for i, pattern := range patterns {
+		if i > 0 {
+			_ = builder.WriteByte('|')
+		}
+		builder.WriteString("(?:")
+		builder.WriteString(pattern)
+		_ = builder.WriteByte(')')
+	}
+	return builder.String()
+}
+
+type compiledContains struct {
+	patterns   []string
+	normalized []string
+}
+
+type containsCacheBucket struct {
+	primary compiledContains
+	mu      sync.RWMutex
+	extra   []compiledContains
+}
+
+func (b *containsCacheBucket) load(patterns patternList) (*compiledContains, bool) {
+	if samePatterns(b.primary.patterns, patterns) {
+		return &b.primary, true
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	for i := range b.extra {
+		if samePatterns(b.extra[i].patterns, patterns) {
+			return &b.extra[i], true
+		}
+	}
+	return nil, false
+}
+
+func (b *containsCacheBucket) storeExtra(compiled compiledContains) *compiledContains {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i := range b.extra {
+		if samePatterns(b.extra[i].patterns, patternList{strings: compiled.patterns}) {
+			return &b.extra[i]
+		}
+	}
+	b.extra = append(b.extra, compiled)
+	return &b.extra[len(b.extra)-1]
+}
+
+func getOrCompileContains(value any) *compiledContains {
+	patterns, ok := newPatternList(value)
+	if !ok || patterns.len() == 0 {
 		return nil
 	}
-	normalized := make([]string, len(terms))
-	for i, term := range terms {
-		normalized[i] = strings.ToLower(term)
+	key := patterns.hash()
+	if cached, ok := containsCache.Load(key); ok {
+		if compiled, found := cached.(*containsCacheBucket).load(patterns); found {
+			return compiled
+		}
 	}
-	key := sortedKey(normalized)
-	if v, ok := acTrieCache.Load(key); ok {
-		return v.(*ahocorasick.Matcher)
+
+	stablePatterns := patterns.clone()
+	normalized := make([]string, len(stablePatterns))
+	for i, pattern := range stablePatterns {
+		normalized[i] = strings.ToLower(pattern)
 	}
-	trie := ahocorasick.CompileStrings(normalized)
-	acTrieCache.Store(key, trie)
-	return trie
+	compiled := compiledContains{patterns: stablePatterns, normalized: normalized}
+	bucket := &containsCacheBucket{primary: compiled}
+	actual, loaded := containsCache.LoadOrStore(key, bucket)
+	if !loaded {
+		return &bucket.primary
+	}
+	existing := actual.(*containsCacheBucket)
+	if cached, found := existing.load(patterns); found {
+		return cached
+	}
+	return existing.storeExtra(compiled)
 }
 
 func matchesAny(s string, patterns any) bool {
-	re := getOrCompileJoinedRegex(toStringSlice(patterns))
+	re := getOrCompileJoinedRegex(patterns)
 	return re != nil && re.MatchString(s)
 }
 
@@ -98,27 +276,64 @@ func findMatch(s, pattern string) string {
 }
 
 func containsAny(s string, terms any) bool {
-	trie := getOrBuildTrie(toStringSlice(terms))
-	return trie != nil && len(trie.FindAllString(strings.ToLower(s))) > 0
+	compiled := getOrCompileContains(terms)
+	return compiled != nil && compiled.matches(s)
 }
 
-func toStringSlice(v any) []string {
-	switch ss := v.(type) {
-	case []string:
-		return ss
-	case []any:
-		out := make([]string, 0, len(ss))
-		for _, elem := range ss {
-			s, ok := elem.(string)
-			if !ok {
-				return nil
+func (compiled *compiledContains) matches(s string) bool {
+	if isASCII(s) {
+		for _, pattern := range compiled.normalized {
+			if containsFoldASCII(s, pattern) {
+				return true
 			}
-			out = append(out, s)
 		}
-		return out
-	default:
-		return nil
+		return false
 	}
+
+	lower := strings.ToLower(s)
+	for _, pattern := range compiled.normalized {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// containsFoldASCII is strings.Contains(strings.ToLower(s), lowerPattern)
+// without allocating the lowercase copy for the common all-ASCII case.
+func containsFoldASCII(s, lowerPattern string) bool {
+	if len(lowerPattern) == 0 {
+		return true
+	}
+	if len(lowerPattern) > len(s) {
+		return false
+	}
+	for start := 0; start <= len(s)-len(lowerPattern); start++ {
+		matched := true
+		for i := 0; i < len(lowerPattern); i++ {
+			b := s[start+i]
+			if b >= 'A' && b <= 'Z' {
+				b += 'a' - 'A'
+			}
+			if b != lowerPattern[i] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }
 
 func shannonEntropy(s string) float64 {
@@ -167,29 +382,49 @@ func (rt *runtimeBindings) tokenRatio(secret string) float64 {
 }
 
 func calculateTokenRatio(tke *tiktoken.Tiktoken, secret string) (string, float64, bool) {
-	analyzed := secret
-	if len(analyzed) < 20 && strings.ContainsAny(analyzed, "\n\r") {
-		analyzed = newlineReplacer.Replace(analyzed)
+	analyzed := tokenAnalysisText(secret)
+	ratio, ok := tokenRatioForText(tke, analyzed)
+	return analyzed, ratio, ok
+}
+
+func tokenAnalysisText(secret string) string {
+	if len(secret) < 20 && strings.ContainsAny(secret, "\n\r") {
+		return newlineReplacer.Replace(secret)
 	}
-	tokens := tke.Encode(analyzed, nil, nil)
+	return secret
+}
+
+func tokenRatioForText(tke *tiktoken.Tiktoken, analyzed string) (float64, bool) {
+	// Filters never allow or reject special-token sentinels, so EncodeOrdinary
+	// has the same tokenization semantics as Encode with two empty allowlists.
+	// It skips the special-token regex pass, which is particularly expensive for
+	// the many short candidates evaluated by repository scans.
+	tokens := tke.EncodeOrdinary(analyzed)
 	if len(tokens) == 0 {
-		return analyzed, 0, false
+		return 0, false
 	}
-	return analyzed, float64(len(analyzed)) / float64(len(tokens)), true
+	return float64(len(analyzed)) / float64(len(tokens)), true
 }
 
 func failsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
-	analyzed, ratio, ok := calculateTokenRatio(tke, secret)
-	if !ok {
+	analyzed := tokenAnalysisText(secret)
+	if len(analyzed) == 0 {
 		return false
 	}
-	if len(words.HasMatchInList(analyzed, 5)) > 0 {
+	// Dictionary matches are an unconditional rejection in the original
+	// heuristic. Check them before tokenization so common readable placeholders
+	// avoid the regex and token-slice allocations in tiktoken entirely.
+	if words.HasAnyMatchInList(analyzed, 5) {
 		return true
+	}
+	ratio, ok := tokenRatioForText(tke, analyzed)
+	if !ok {
+		return false
 	}
 	threshold := 2.5
 	if len(analyzed) < 12 {
 		threshold = 2.1
-		if len(words.HasMatchInList(analyzed, 4)) == 0 {
+		if !words.HasAnyMatchInList(analyzed, 4) {
 			threshold = 2.5
 		}
 	}

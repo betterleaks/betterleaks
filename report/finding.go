@@ -1,10 +1,10 @@
 package report
 
 import (
-	"fmt"
 	"maps"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/sources"
@@ -339,12 +339,24 @@ func (f *Finding) SetFingerprint() {
 	path := f.Attributes[sources.AttrPath]
 	commit := f.Attributes[sources.AttrGitSHA]
 
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, f.RuleID, f.StartLine)
+	var digits [20]byte
+	line := strconv.AppendInt(digits[:0], int64(f.StartLine), 10)
+	capacity := len(path) + len(f.RuleID) + len(line) + 2
 	if commit != "" {
-		f.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", commit, path, f.RuleID, f.StartLine)
-	} else {
-		f.Fingerprint = globalFingerprint
+		capacity += len(commit) + 1
 	}
+	var fingerprint strings.Builder
+	fingerprint.Grow(capacity)
+	if commit != "" {
+		fingerprint.WriteString(commit)
+		fingerprint.WriteByte(':')
+	}
+	fingerprint.WriteString(path)
+	fingerprint.WriteByte(':')
+	fingerprint.WriteString(f.RuleID)
+	fingerprint.WriteByte(':')
+	_, _ = fingerprint.Write(line)
+	f.Fingerprint = fingerprint.String()
 }
 
 // ToExprMap returns the fixed-shape map[string]string used as the `finding`

@@ -27,6 +27,10 @@ func (r *Regexp) MatchString(s string) bool {
 	e, ok := r.compiled()
 	return ok && e.MatchString(s)
 }
+func (r *Regexp) Match(b []byte) bool {
+	e, ok := r.compiled()
+	return ok && e.Match(b)
+}
 func (r *Regexp) FindString(s string) string {
 	if e, ok := r.compiled(); ok {
 		return e.FindString(s)
@@ -42,6 +46,12 @@ func (r *Regexp) FindStringSubmatch(s string) []string {
 func (r *Regexp) FindAllStringIndex(s string, n int) [][]int {
 	if e, ok := r.compiled(); ok {
 		return e.FindAllStringIndex(s, n)
+	}
+	return nil
+}
+func (r *Regexp) FindAllIndex(b []byte, n int) [][]int {
+	if e, ok := r.compiled(); ok {
+		return e.FindAllIndex(b, n)
 	}
 	return nil
 }

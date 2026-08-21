@@ -62,10 +62,12 @@ func runDirectory(cmd *cobra.Command, args []string) {
 
 		s := &sources.Files{
 			ShouldSkip:      detector.SkipFunc(),
+			ShouldSkipPath:  detector.PathSkipFunc(),
 			FollowSymlinks:  followSymlinks,
 			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
 			Path:            source,
 			Sema:            detector.Sema,
+			Workers:         20,
 			MaxArchiveDepth: maxArchiveDepth,
 		}
 

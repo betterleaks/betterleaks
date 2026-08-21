@@ -35,6 +35,22 @@ func confidenceFlag(cmd *cobra.Command) (string, error) {
 	return confidence.Parse(mustGetStringFlag(cmd, "confidence"))
 }
 
+func validateConcurrencyFlags(cmd *cobra.Command) error {
+	for _, name := range []string{"source-workers", "detect-workers", "git-workers"} {
+		if cmd.Flags().Lookup(name) == nil {
+			continue
+		}
+		workers, err := cmd.Flags().GetInt(name)
+		if err != nil {
+			return err
+		}
+		if workers < 0 {
+			return fmt.Errorf("--%s must be non-negative", name)
+		}
+	}
+	return nil
+}
+
 const configDescription = `config file path
 order of precedence:
 1. --config/-c
@@ -50,6 +66,9 @@ var (
 		Version: version.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if _, err := confidenceFlag(cmd); err != nil {
+				return err
+			}
+			if err := validateConcurrencyFlags(cmd); err != nil {
 				return err
 			}
 			// Set the timeout for all the commands
@@ -107,6 +126,8 @@ func init() {
 	_ = rootCmd.PersistentFlags().MarkHidden("regexp-engine")
 
 	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable")
+	rootCmd.PersistentFlags().Int("source-workers", 0, "number of concurrent source tasks (0 = source default)")
+	rootCmd.PersistentFlags().Int("detect-workers", 0, "number of concurrent detection workers (0 = GOMAXPROCS)")
 
 	// Validation flags
 	rootCmd.PersistentFlags().Bool("validation", false, "enable validation of findings against live APIs")
@@ -123,7 +144,7 @@ func init() {
 	rootCmd.PersistentFlags().StringSlice("validation-env-vars", nil, "comma-separated env var names the validation env(...) binding may read (repeat flag to add more); unset means env() is disabled")
 
 	// Add diagnostics flags
-	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace,rules,rules-csv). cpu=CPU prof, mem=memory prof, trace=exec tracing, rules=rule timings text, rules-csv=rule timings CSV, http=serve via net/http/pprof")
+	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace,rules,rules-csv). cpu=CPU prof, mem=memory prof/stats, trace=exec tracing, rules=rule timings text, rules-csv=rule timings CSV, http=serve via net/http/pprof")
 	rootCmd.PersistentFlags().String("diagnostics-dir", "", "directory to store diagnostics output files when not using http mode (defaults to ./diagnostics)")
 
 }
@@ -385,6 +406,8 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
 
 	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
+	detector.SourceWorkers = mustGetIntFlag(cmd, "source-workers")
+	detector.DetectWorkers = mustGetIntFlag(cmd, "detect-workers")
 	detector.MinConfidence, err = confidenceFlag(cmd)
 	if err != nil {
 		logging.Fatal().Err(err).Send()

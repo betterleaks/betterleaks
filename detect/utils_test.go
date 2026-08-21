@@ -18,6 +18,13 @@ func TestSamePath(t *testing.T) {
 	assert.False(t, samePath("proj/sub/other.toml", cfg))
 }
 
+func TestShannonEntropyASCIIPathMatchesRuneReference(t *testing.T) {
+	for _, value := range []string{"a", "abcabc", "secret-token_123", "こんにちはsecret"} {
+		assert.InDelta(t, shannonEntropyRunes(value), shannonEntropy(value), 1e-12)
+	}
+	assert.Zero(t, shannonEntropy(""))
+}
+
 func TestFilterTracksComponentOwnership(t *testing.T) {
 	component := &report.ComponentFinding{
 		RuleID:          "generic-username",

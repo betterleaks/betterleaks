@@ -300,7 +300,7 @@ func TestS3_listsAndScans_endToEnd(t *testing.T) {
 	var mu sync.Mutex
 	var keys []string
 	attrsByKey := map[string]map[string]string{}
-	err := s.Fragments(context.Background(), func(f Fragment, err error) error {
+	err := s.Fragments(context.Background(), func(f *Fragment, err error) error {
 		require.NoError(t, err)
 		mu.Lock()
 		defer mu.Unlock()
@@ -338,7 +338,7 @@ func TestS3_prefilterSkipsBucket(t *testing.T) {
 		},
 	}
 	require.NoError(t, s.Validate())
-	require.NoError(t, s.Fragments(context.Background(), func(Fragment, error) error {
+	require.NoError(t, s.Fragments(context.Background(), func(*Fragment, error) error {
 		t.Fatal("yield called for skipped bucket")
 		return nil
 	}))
@@ -498,7 +498,7 @@ func TestS3_enumerateMatchesGlob(t *testing.T) {
 
 	var seenKeys []string
 	var mu sync.Mutex
-	require.NoError(t, s.Fragments(context.Background(), func(f Fragment, err error) error {
+	require.NoError(t, s.Fragments(context.Background(), func(f *Fragment, err error) error {
 		require.NoError(t, err)
 		mu.Lock()
 		defer mu.Unlock()
@@ -535,7 +535,7 @@ func TestS3_skipsBeforeFetch(t *testing.T) {
 		AccessKey: "ak", SecretKey: "sk",
 	}
 	require.NoError(t, s.Validate())
-	require.NoError(t, s.Fragments(context.Background(), func(Fragment, error) error {
+	require.NoError(t, s.Fragments(context.Background(), func(*Fragment, error) error {
 		t.Fatal("no objects should be yielded")
 		return nil
 	}))

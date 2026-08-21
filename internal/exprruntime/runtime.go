@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/expr-lang/expr"
+	"github.com/expr-lang/expr/ast"
+	"github.com/expr-lang/expr/parser"
 	"github.com/expr-lang/expr/vm"
 	tiktoken "github.com/pkoukk/tiktoken-go"
 )
@@ -29,27 +31,42 @@ const (
 )
 
 type compiledProgram struct {
-	vm                *vm.Program
-	mode              compileMode
-	tokenizer         *tiktoken.Tiktoken
-	tokenizerProvider func() *tiktoken.Tiktoken
-	bindings          bindings
+	vm                 *vm.Program
+	mode               compileMode
+	tokenizer          *tiktoken.Tiktoken
+	tokenizerProvider  func() *tiktoken.Tiktoken
+	bindings           bindings
+	evalPool           sync.Pool
+	needsFragmentRaw   bool
+	needsContext       bool
+	needsLine          bool
+	needsLocalLine     bool
+	needsMatchWindow   bool
+	needsNearbyContext bool
+	findingUsage       findingUsage
 }
 
 var emptyStringMap = map[string]string{}
 var emptyFilterFinding = map[string]any{
-	"secret":               "",
-	"match":                "",
-	"line":                 "",
-	"rule_id":              "",
-	"description":          "",
-	"context":              "",
-	"entropy":              "",
-	"fragment_raw":         "",
-	"match_start_idx":      0,
-	"match_end_idx":        0,
-	"match_line_start_idx": 0,
-	"match_line_end_idx":   0,
+	"secret":                     "",
+	"match":                      "",
+	"line":                       "",
+	"rule_id":                    "",
+	"description":                "",
+	"context":                    "",
+	"entropy":                    "",
+	"fragment_raw":               "",
+	"match_start_idx":            0,
+	"match_end_idx":              0,
+	"match_line_start_idx":       0,
+	"match_line_end_idx":         0,
+	"local_line":                 "",
+	"local_line_match_start_idx": 0,
+	"local_line_match_end_idx":   0,
+	"match_prefix":               "",
+	"match_suffix":               "",
+	"nearby_context":             "",
+	"line_prefix":                "",
 }
 
 type EvalOptions struct {
@@ -131,6 +148,17 @@ type Runtime struct {
 
 type bindings = map[string]any
 
+// evaluationBindings owns the mutable environment for one expression run.
+// Programs are evaluated concurrently, so each active run needs isolated maps
+// and runtime state. Inactive environments are pooled to avoid rebuilding the
+// same maps and bound-method values for every file and rule candidate.
+type evaluationBindings struct {
+	values            bindings
+	runtime           *runtimeBindings
+	scratchAttributes map[string]string
+	machine           vm.VM
+}
+
 // DefaultHTTPClient returns an HTTP client with reasonable timeouts.
 func DefaultHTTPClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
@@ -206,18 +234,141 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 		}
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
+	inspectionTree, inspectionErr := parser.Parse(exprText)
+	var inspectionNode ast.Node
+	if inspectionErr == nil {
+		inspectionNode = inspectionTree.Node
+	}
+	usage := inspectFindingUsageNode(inspectionNode)
 	prg := &compiledProgram{
 		vm:                vmPrg,
 		mode:              mode,
 		tokenizer:         tokenizer,
 		tokenizerProvider: e.tokenizerProvider,
 		bindings:          programBindings(mode, b),
+		needsFragmentRaw:  mode == modeFilter && usage.needs("fragment_raw"),
+		needsContext:      mode == modeFilter && usage.needs("context"),
+		needsLine:         mode == modeFilter && usage.needs("line"),
+		needsLocalLine: mode == modeFilter && (usage.needs("local_line") ||
+			usage.needs("local_line_match_start_idx") || usage.needs("local_line_match_end_idx")),
+		needsMatchWindow:   mode == modeFilter && (usage.needs("match_prefix") || usage.needs("match_suffix")),
+		needsNearbyContext: mode == modeFilter && (usage.needs("nearby_context") || usage.needs("line_prefix")),
+		findingUsage:       usage,
 	}
-
 	e.mu.Lock()
 	e.cache[cacheKey] = prg
 	e.mu.Unlock()
 	return prg, nil
+}
+
+// NeedsFragmentRaw reports whether a filter expression references the complete
+// fragment text. Byte-oriented scans use this to avoid materializing a string
+// for the overwhelmingly common filters that only inspect finding fields.
+func (prg Program) NeedsFragmentRaw() bool {
+	return prg != nil && prg.needsFragmentRaw
+}
+
+// NeedsContext reports whether a filter expression references the bounded
+// finding context. Detectors use this to avoid building context for candidates
+// whose filters only inspect the match, secret, line, or attributes.
+func (prg Program) NeedsContext() bool {
+	return prg != nil && prg.needsContext
+}
+
+// NeedsLine reports whether a filter reads finding["line"].
+func (prg Program) NeedsLine() bool {
+	return prg != nil && prg.needsLine
+}
+
+// NeedsLocalLine reports whether a filter uses the current match line and its
+// line-relative byte offsets.
+func (prg Program) NeedsLocalLine() bool {
+	return prg != nil && prg.needsLocalLine
+}
+
+// NeedsMatchWindow reports whether a filter uses the bounded 8 KiB prefix or
+// suffix adjacent to the current match.
+func (prg Program) NeedsMatchWindow() bool {
+	return prg != nil && prg.needsMatchWindow
+}
+
+// NeedsNearbyContext reports whether a filter uses the match-excluded nearby
+// line context or the prefix of the current line.
+func (prg Program) NeedsNearbyContext() bool {
+	return prg != nil && prg.needsNearbyContext
+}
+
+// NeedsFinding reports whether a filter reads a particular finding field.
+// Detectors use it to avoid boxing and inserting unused values into the Expr
+// map for every candidate. Dynamic access conservatively reports every field.
+func (prg Program) NeedsFinding(field string) bool {
+	return prg != nil && prg.mode == modeFilter && prg.findingUsage.needs(field)
+}
+
+type findingUsage struct {
+	fields map[string]struct{}
+	all    bool
+}
+
+func (u findingUsage) needs(field string) bool {
+	if u.all {
+		return true
+	}
+	_, ok := u.fields[field]
+	return ok
+}
+
+type findingUsageVisitor struct {
+	fields         map[string]struct{}
+	identifierUses int
+	directBases    int
+	dynamic        bool
+}
+
+func (v *findingUsageVisitor) Visit(node *ast.Node) {
+	switch n := (*node).(type) {
+	case *ast.IdentifierNode:
+		if n.Value == "finding" {
+			v.identifierUses++
+		}
+	case *ast.MemberNode:
+		base, ok := n.Node.(*ast.IdentifierNode)
+		if !ok || base.Value != "finding" {
+			return
+		}
+		v.directBases++
+		property, ok := n.Property.(*ast.StringNode)
+		if !ok {
+			v.dynamic = true
+			return
+		}
+		v.fields[property.Value] = struct{}{}
+	}
+}
+
+// inspectFindingUsage analyzes real member accesses instead of searching raw
+// expression text, where comments and identifiers such as matchContext cause
+// false positives. If the finding map escapes or is indexed dynamically, all
+// expensive fields are conservatively enabled to preserve custom-filter
+// behavior.
+func inspectFindingUsage(expression string) findingUsage {
+	tree, err := parser.Parse(expression)
+	if err != nil {
+		return inspectFindingUsageNode(nil)
+	}
+	return inspectFindingUsageNode(tree.Node)
+}
+
+func inspectFindingUsageNode(node ast.Node) findingUsage {
+	usage := findingUsage{fields: make(map[string]struct{})}
+	if node == nil {
+		usage.all = true
+		return usage
+	}
+	visitor := &findingUsageVisitor{fields: usage.fields}
+	ast.Walk(&node, visitor)
+	usage.all = visitor.dynamic || visitor.identifierUses != visitor.directBases
+	return usage
 }
 
 func compileCacheKey(mode compileMode, exprText string, tokenizer *tiktoken.Tiktoken) string {
@@ -253,45 +404,99 @@ func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken
 // Compile and runtime bindings expose the same names. Dynamic values are layered
 // onto a shallow copy so compiled programs can share static function bindings.
 func (e *Runtime) EvalFilter(prg Program, finding map[string]any, attributes map[string]string) (bool, error) {
-	b := prg.evalBindings()
 	if finding == nil {
 		finding = emptyFilterFinding
 	}
+	eval := prg.acquireBindings()
+	b := eval.values
 	if attributes == nil {
-		attributes = make(map[string]string)
+		attributes = eval.scratchAttributes
 	}
 	b["finding"] = finding
 	b["attributes"] = attributes
-	if rt, ok := b["__runtime"].(*runtimeBindings); ok {
-		rt.attrs = attributes
-		filter := filterNamespace(rt)
-		filter["setConfidence"] = rt.setConfidence
-		b["filter"] = filter
+	if eval.runtime != nil {
+		eval.runtime.attrs = attributes
 	}
-	return runBool(prg, b, "filter")
+	result, err := runBool(prg, b, "filter", &eval.machine)
+	prg.releaseBindings(eval)
+	return result, err
 }
 
 func (e *Runtime) EvalPrefilter(prg Program, attributes map[string]string) (bool, error) {
-	b := prg.evalBindings()
+	eval := prg.acquireBindings()
+	b := eval.values
 	b["attributes"] = nonNilStringMap(attributes)
-	return runBool(prg, b, "prefilter")
+	result, err := runBool(prg, b, "prefilter", &eval.machine)
+	prg.releaseBindings(eval)
+	return result, err
 }
 
-func (prg Program) evalBindings() bindings {
-	if prg.bindings != nil {
-		b := cloneBindings(prg.bindings)
-		if rt, ok := b["__runtime"].(*runtimeBindings); ok {
-			rtCopy := *rt
-			rt = &rtCopy
-			rt.tokenizer = prg.tokenizer
-			rt.tokenizerProvider = prg.tokenizerProvider
-			b["__runtime"] = rt
-			b["filter"] = filterNamespace(rt)
-			b["failsTokenEfficiency"] = rt.failsTokenEfficiency
-		}
-		return b
+// EvalPathPrefilter evaluates a filesystem path without allocating a temporary
+// one-entry attributes map for every visited path.
+func (e *Runtime) EvalPathPrefilter(prg Program, path string) (bool, error) {
+	eval := prg.acquireBindings()
+	eval.scratchAttributes["path"] = path
+	eval.values["attributes"] = eval.scratchAttributes
+	result, err := runBool(prg, eval.values, "prefilter", &eval.machine)
+	prg.releaseBindings(eval)
+	return result, err
+}
+
+func (prg Program) acquireBindings() *evaluationBindings {
+	if pooled := prg.evalPool.Get(); pooled != nil {
+		return pooled.(*evaluationBindings)
 	}
-	return bindings{}
+
+	b := cloneBindings(prg.bindings)
+	eval := &evaluationBindings{
+		values:            b,
+		scratchAttributes: make(map[string]string),
+	}
+	if rt, ok := b["__runtime"].(*runtimeBindings); ok {
+		rtCopy := *rt
+		eval.runtime = &rtCopy
+		eval.runtime.tokenizer = prg.tokenizer
+		eval.runtime.tokenizerProvider = prg.tokenizerProvider
+		b["__runtime"] = eval.runtime
+		filter := filterNamespace(eval.runtime)
+		if prg.mode == modeFilter {
+			filter["setConfidence"] = eval.runtime.setConfidence
+		}
+		b["filter"] = filter
+		b["failsTokenEfficiency"] = eval.runtime.failsTokenEfficiency
+	}
+	return eval
+}
+
+func (prg Program) releaseBindings(eval *evaluationBindings) {
+	// Do not let the pool retain caller-owned finding or attribute maps. The
+	// scratch map is private to this environment and can safely be reused.
+	if prg.mode == modeFilter {
+		eval.values["finding"] = emptyFilterFinding
+	}
+	eval.values["attributes"] = emptyStringMap
+	if eval.runtime != nil {
+		eval.runtime.attrs = emptyStringMap
+	}
+	clear(eval.scratchAttributes)
+	// expr's reusable VM clears its operand stack on the next Run, but local
+	// variables otherwise retain values while this environment sits in our
+	// pool. Clear them at the ownership boundary. Programs that created scopes
+	// may also leave caller data in expr's private scope pool; dropping that VM
+	// is the only safe reset available without changing the dependency.
+	// Run commonly leaves Stack at length zero after popping its result, while
+	// the backing array still contains that result. Clear the full capacities,
+	// not just the visible lengths, so a pooled VM cannot pin caller data.
+	if cap(eval.machine.Stack) > 0 {
+		clear(eval.machine.Stack[:cap(eval.machine.Stack)])
+	}
+	if cap(eval.machine.Variables) > 0 {
+		clear(eval.machine.Variables[:cap(eval.machine.Variables)])
+	}
+	if cap(eval.machine.Scopes) > 0 {
+		eval.machine = vm.VM{}
+	}
+	prg.evalPool.Put(eval)
 }
 
 func cloneBindings(src bindings) bindings {
@@ -302,8 +507,8 @@ func cloneBindings(src bindings) bindings {
 	return dst
 }
 
-func runBool(prg Program, b bindings, name string) (bool, error) {
-	val, err := expr.Run(prg.vm, b)
+func runBool(prg Program, b bindings, name string, machine *vm.VM) (bool, error) {
+	val, err := machine.Run(prg.vm, b)
 	if err != nil {
 		return false, err
 	}

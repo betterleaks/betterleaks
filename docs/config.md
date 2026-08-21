@@ -59,14 +59,23 @@ r.json?.login ?? ""
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
 
-Filter expressions also receive `finding["fragment_raw"]` and the byte offsets
-`match_start_idx`, `match_end_idx`, `match_line_start_idx`, and
-`match_line_end_idx`. These can be combined with Expr string slicing:
+Filter expressions receive byte-oriented bounded views for context-sensitive
+checks without copying an entire source fragment:
+
+- `local_line`, with the line-relative byte offsets
+  `local_line_match_start_idx` and `local_line_match_end_idx`;
+- `match_prefix` and `match_suffix`, containing at most 8192 bytes immediately
+  before and after the match;
+- `nearby_context`, containing the match-excluded current line plus up to six
+  lines on each side (also bounded to 8192 bytes per direction), and
+  `line_prefix`, containing the part of the current line before the match.
+
+For example, a provider check can stay on the current line:
 
 ```expr
-let providerMatchContext = finding["fragment_raw"][
-    max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
-    min(finding["match_end_idx"] + 50, finding["match_line_end_idx"])
+let providerMatchContext = finding["local_line"][
+    max(finding["local_line_match_start_idx"] - 150, 0):
+    min(finding["local_line_match_end_idx"] + 50, len(finding["local_line"]))
 ];
 filter.containsAny(providerMatchContext, ["provider"])
 ```
@@ -77,16 +86,25 @@ hyphen suffix immediately before the match:
 
 ```expr
 let genericMatchPrefix = filter.findMatch(
-    finding["fragment_raw"][
-        max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
-        finding["match_start_idx"]
+    finding["local_line"][
+        max(finding["local_line_match_start_idx"] - 50, 0):
+        finding["local_line_match_start_idx"]
     ],
     `[\w.-]{0,50}$`
 );
 let genericMatchContext =
     genericMatchPrefix +
-    finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+    finding["local_line"][
+        finding["local_line_match_start_idx"]:
+        finding["local_line_match_end_idx"]
+    ];
 ```
+
+`fragment_raw` and the absolute byte offsets `match_start_idx`,
+`match_end_idx`, `match_line_start_idx`, and `match_line_end_idx` remain
+available for filters that truly need arbitrary fragment access. On byte-backed
+directory scans, requesting `fragment_raw` materializes an owned string for the
+whole fragment, so bounded views are preferable when they express the check.
 
 ## Filtering
 

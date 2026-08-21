@@ -38,6 +38,13 @@ func decodeUnicode(encodedValue string) string {
 	return encodedValue
 }
 
+func decodeUnicodeBytes(encodedValue []byte) string {
+	// Unicode-looking matches are rare and already passed the byte scanner's
+	// structural checks. Reuse the established decoder rather than duplicating
+	// the more complex escape handling.
+	return decodeUnicode(string(encodedValue))
+}
+
 // decodeUnicodeCodePoints decodes U+XXXX sequences with byte scanning.
 func decodeUnicodeCodePoints(s string) string {
 	n := len(s)

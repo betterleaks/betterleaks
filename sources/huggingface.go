@@ -666,7 +666,7 @@ func (s *HuggingFace) repoAttributes(repo huggingFaceRepo, resource string) map[
 
 func (s *HuggingFace) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) FragmentsFunc {
 	var mu sync.Mutex
-	return func(fragment Fragment, err error) error {
+	return func(fragment *Fragment, err error) error {
 		if err == nil {
 			for k, v := range attrs {
 				if v == "" || fragment.Attr(k) != "" {
@@ -675,6 +675,7 @@ func (s *HuggingFace) wrapYieldWithAttrs(attrs map[string]string, yield Fragment
 				fragment.SetAttr(k, v)
 			}
 			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+				fragment.Release()
 				return nil
 			}
 		}
@@ -992,7 +993,7 @@ func (s *HuggingFace) emitDiscussionEvents(ctx context.Context, repo huggingFace
 			attrs[AttrURL] = fmt.Sprintf("%s/discussions/%d", strings.TrimRight(repo.WebURL(s.baseURL), "/"), detail.Num)
 		}
 		attrs[AttrHuggingFaceCommunityResource] = resource
-		fragment := Fragment{Raw: raw, Attributes: attrs}
+		fragment := Fragment{Raw: []byte(raw), Attributes: attrs}
 		if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
 			continue
 		}
@@ -1000,7 +1001,7 @@ func (s *HuggingFace) emitDiscussionEvents(ctx context.Context, repo huggingFace
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			if err := yield(fragment, nil); err != nil {
+			if err := yield(&fragment, nil); err != nil {
 				return err
 			}
 		}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,7 +17,23 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 )
 
-const defaultDiagnosticsDir = "diagnostics"
+const (
+	defaultDiagnosticsDir = "diagnostics"
+	memoryStatsFilename   = "heap-stats.json"
+)
+
+type memoryStats struct {
+	CapturedAfterGC   bool   `json:"captured_after_gc"`
+	HeapAllocBytes    uint64 `json:"heap_alloc_bytes"`
+	HeapInuseBytes    uint64 `json:"heap_inuse_bytes"`
+	HeapIdleBytes     uint64 `json:"heap_idle_bytes"`
+	HeapReleasedBytes uint64 `json:"heap_released_bytes"`
+	HeapObjects       uint64 `json:"heap_objects"`
+	StackInuseBytes   uint64 `json:"stack_inuse_bytes"`
+	SysBytes          uint64 `json:"sys_bytes"`
+	TotalAllocBytes   uint64 `json:"total_alloc_bytes"`
+	NumGC             uint32 `json:"num_gc"`
+}
 
 // DiagnosticsManager manages various types of diagnostics
 type DiagnosticsManager struct {
@@ -210,14 +227,27 @@ func (dm *DiagnosticsManager) WriteMemoryProfile() {
 		return
 	}
 
+	// Capture both the heap profile and machine-readable memory counters after
+	// two forced collections. The second collection clears sync.Pool victim
+	// caches left by the first, so the retained-heap metric represents durable
+	// reachability rather than reusable scan scratch.
+	runtime.GC()
+	runtime.GC()
+	var runtimeStats runtime.MemStats
+	runtime.ReadMemStats(&runtimeStats)
+	statsPath := filepath.Join(dm.OutputDir, memoryStatsFilename)
+	if err := writeMemoryStats(statsPath, runtimeStats); err != nil {
+		logging.Error().Err(err).Msgf("Could not write memory stats at %s", statsPath)
+	} else {
+		logging.Info().Msgf("Memory stats written to: %s", statsPath)
+	}
+
 	f, err := os.Create(dm.memProfile)
 	if err != nil {
 		logging.Error().Err(err).Msgf("Could not create memory profile at %s", dm.memProfile)
 		return
 	}
 
-	// Get memory profile
-	runtime.GC() // Run GC before taking the memory profile
 	if err := pprof.WriteHeapProfile(f); err != nil {
 		logging.Error().Err(err).Msg("Could not write memory profile")
 	} else {
@@ -229,6 +259,33 @@ func (dm *DiagnosticsManager) WriteMemoryProfile() {
 	}
 
 	dm.memProfile = ""
+}
+
+func writeMemoryStats(path string, stats runtime.MemStats) (err error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := f.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+
+	encoder := json.NewEncoder(f)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(memoryStats{
+		CapturedAfterGC:   true,
+		HeapAllocBytes:    stats.HeapAlloc,
+		HeapInuseBytes:    stats.HeapInuse,
+		HeapIdleBytes:     stats.HeapIdle,
+		HeapReleasedBytes: stats.HeapReleased,
+		HeapObjects:       stats.HeapObjects,
+		StackInuseBytes:   stats.StackInuse,
+		SysBytes:          stats.Sys,
+		TotalAllocBytes:   stats.TotalAlloc,
+		NumGC:             stats.NumGC,
+	})
 }
 
 // StartTraceProfile starts execution tracing

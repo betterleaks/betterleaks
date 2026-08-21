@@ -201,16 +201,23 @@ func validateConfig(cfg *configpkg.Config) error {
 func fakeFinding() map[string]any {
 	raw := "betterleaks-check-line"
 	return map[string]any{
-		"secret":               "betterleaks-check-secret",
-		"match":                "betterleaks-check-match",
-		"line":                 raw,
-		"ruleID":               "betterleaks-check-rule",
-		"description":          "betterleaks check rule",
-		"fragment_raw":         raw,
-		"match_start_idx":      0,
-		"match_end_idx":        len(raw),
-		"match_line_start_idx": 0,
-		"match_line_end_idx":   len(raw),
+		"secret":                     "betterleaks-check-secret",
+		"match":                      "betterleaks-check-match",
+		"line":                       raw,
+		"ruleID":                     "betterleaks-check-rule",
+		"description":                "betterleaks check rule",
+		"fragment_raw":               raw,
+		"match_start_idx":            0,
+		"match_end_idx":              len(raw),
+		"match_line_start_idx":       0,
+		"match_line_end_idx":         len(raw),
+		"local_line":                 raw,
+		"local_line_match_start_idx": 0,
+		"local_line_match_end_idx":   len(raw),
+		"match_prefix":               "",
+		"match_suffix":               "",
+		"nearby_context":             "",
+		"line_prefix":                "",
 	}
 }
 

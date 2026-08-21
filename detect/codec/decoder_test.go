@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecode(t *testing.T) {
@@ -118,11 +119,24 @@ func TestDecode(t *testing.T) {
 			}
 		}
 	}
+	fullDecodeBytes := func(data string) string {
+		decoder := NewDecoder()
+		defer decoder.Release()
+		current := []byte(data)
+		segments := []*EncodedSegment{}
+		for {
+			current, segments = decoder.DecodeBytes(current, segments)
+			if len(segments) == 0 {
+				return string(current)
+			}
+		}
+	}
 
 	// Test value decoding
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, fullDecode(tt.chunk))
+			assert.Equal(t, tt.expected, fullDecodeBytes(tt.chunk))
 		})
 	}
 
@@ -131,6 +145,7 @@ func TestDecode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			encodedChunk := url.PathEscape(tt.chunk)
 			assert.Equal(t, tt.expected, fullDecode(encodedChunk))
+			assert.Equal(t, tt.expected, fullDecodeBytes(encodedChunk))
 		})
 	}
 
@@ -139,6 +154,92 @@ func TestDecode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			encodedChunk := hex.EncodeToString([]byte(tt.chunk))
 			assert.Equal(t, tt.expected, fullDecode(encodedChunk))
+			assert.Equal(t, tt.expected, fullDecodeBytes(encodedChunk))
 		})
 	}
+}
+
+func TestEncodingMatchFilterPreservesNeighborPrecedence(t *testing.T) {
+	match := func(encodingIndex, start, end int) encodingMatch {
+		return encodingMatch{
+			encoding: encodings[encodingIndex],
+			startEnd: startEnd{start: start, end: end},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		matches []encodingMatch
+		want    []encodingKind
+	}{
+		{
+			name:    "higher-precedence previous suppresses touching next",
+			matches: []encodingMatch{match(0, 0, 3), match(3, 3, 6)},
+			want:    []encodingKind{percentKind},
+		},
+		{
+			name:    "higher-precedence next suppresses touching previous",
+			matches: []encodingMatch{match(3, 0, 3), match(0, 3, 6)},
+			want:    []encodingKind{percentKind},
+		},
+		{
+			name:    "equal precedence retains both",
+			matches: []encodingMatch{match(3, 0, 3), match(3, 3, 6)},
+			want:    []encodingKind{base64Kind, base64Kind},
+		},
+		{
+			name:    "non-overlapping neighbors retain both",
+			matches: []encodingMatch{match(0, 0, 2), match(3, 3, 6)},
+			want:    []encodingKind{percentKind, base64Kind},
+		},
+		{
+			name:    "middle match can suppress both neighbors",
+			matches: []encodingMatch{match(3, 0, 3), match(2, 3, 6), match(3, 6, 9)},
+			want:    []encodingKind{hexKind},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []encodingKind
+			var filter encodingMatchFilter
+			for _, match := range tt.matches {
+				if ready, ok := filter.add(match); ok {
+					got = append(got, ready.encoding.kind)
+				}
+			}
+			if ready, ok := filter.finish(); ok {
+				got = append(got, ready.encoding.kind)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestDecoderReleaseClearsStringCache(t *testing.T) {
+	decoder := NewDecoder()
+	decoded, segments := decoder.Decode("c21hbGwtc2VjcmV0", nil)
+	require.Equal(t, "small-secret", decoded)
+	require.NotEmpty(t, segments)
+	require.NotEmpty(t, decoder.decodedMap)
+
+	decoder.Release()
+	require.Empty(t, decoder.decodedMap)
+	require.Nil(t, decoder.byteResult)
+	require.Nil(t, decoder.ownedSegments)
+}
+
+func TestDecoderStartingNewChainReleasesPriorScratch(t *testing.T) {
+	decoder := NewDecoder()
+	defer decoder.Release()
+
+	_, first := decoder.Decode("c21hbGwtc2VjcmV0", nil)
+	require.Len(t, first, 1)
+	require.Len(t, *decoder.ownedSegments, 1)
+
+	_, second := decoder.Decode("YW5vdGhlci1zZWNyZXQ=", nil)
+	require.Len(t, second, 1)
+	// A new top-level call replaces the prior chain instead of accumulating its
+	// segment metadata until the caller remembers to invoke Release.
+	require.Len(t, *decoder.ownedSegments, 1)
 }

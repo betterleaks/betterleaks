@@ -5,12 +5,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Fragment represents a fragment of a source with its meta data
+// Fragment represents a fragment of a source with its metadata. A Fragment
+// received from Source.Fragments is a lease: ownership passes to the callback,
+// which may retain it after the callback returns and must eventually call
+// Release. Leased Fragments must not be copied because ownership belongs to the
+// original pointer.
 type Fragment struct {
 	// Raw is the raw content of the fragment
-	Raw string
-
-	Bytes []byte
+	Raw []byte
 
 	// Indicates if this fragment is inherited from a finding
 	InheritedFromFinding bool
@@ -20,6 +22,25 @@ type Fragment struct {
 
 	// Attributes holds all source-specific metadata
 	Attributes map[string]string
+
+	// release returns source-owned storage. It is deliberately unexported so
+	// only the source that created a lease can install its recycler.
+	release         func(*Fragment)
+	bufferLease     *[]byte
+	attributesLease map[string]string
+}
+
+// Release gives source-owned content and metadata back to their pools. Callers
+// must invoke it exactly once when they no longer need the fragment and must
+// not use the pointer afterward. Fragments constructed by library users have
+// no recycler, so Release is a cheap no-op for them.
+func (f *Fragment) Release() {
+	if f == nil || f.release == nil {
+		return
+	}
+	release := f.release
+	f.release = nil
+	release(f)
 }
 
 func (f *Fragment) SetAttr(key, value string) {

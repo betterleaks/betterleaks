@@ -97,6 +97,32 @@ func CurrentLine(segments []*EncodedSegment, currentRaw string) string {
 	return currentRaw[start:end]
 }
 
+// CurrentLineBytes is the byte-oriented form of CurrentLine.
+func CurrentLineBytes(segments []*EncodedSegment, currentRaw []byte) []byte {
+	if len(segments) == 0 {
+		return currentRaw
+	}
+	start := 0
+	end := len(currentRaw)
+	decoded := segments[0].decoded
+	for i := 1; i < len(segments); i++ {
+		decoded = decoded.merge(segments[i].decoded)
+	}
+	for i := decoded.start; i > -1; i-- {
+		if currentRaw[i] == '\n' {
+			start = i
+			break
+		}
+	}
+	for i := decoded.end; i < end; i++ {
+		if currentRaw[i] == '\n' {
+			end = i
+			break
+		}
+	}
+	return currentRaw[start:end]
+}
+
 // AdjustMatchIndex maps a match index from the current decode pass back to
 // its location in the original text
 func AdjustMatchIndex(segments []*EncodedSegment, matchIndex []int) []int {

@@ -190,7 +190,7 @@ func TestGitLab_scanProject_L1Skip(t *testing.T) {
 	proj := &gitlabProject{ID: 1, PathWithNamespace: "g/p", WebURL: "https://gitlab.com/g/p"}
 
 	yielded := 0
-	yield := func(f Fragment, err error) error { yielded++; return nil }
+	yield := func(f *Fragment, err error) error { yielded++; return nil }
 	if err := s.scanProject(context.Background(), proj, yield); err != nil {
 		t.Fatalf("scanProject: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestGitLab_scanProject_PropagatesRepoScanError(t *testing.T) {
 		HTTPURLToRepo:     "://bad-url",
 	}
 
-	err := s.scanProject(context.Background(), proj, func(Fragment, error) error { return nil })
+	err := s.scanProject(context.Background(), proj, func(*Fragment, error) error { return nil })
 	if err == nil {
 		t.Fatal("expected repo scan error")
 	}
@@ -262,7 +262,7 @@ func TestGitLab_scanIssues_L2Skip(t *testing.T) {
 
 	var got []string
 	var mu sync.Mutex
-	yield := func(f Fragment, err error) error {
+	yield := func(f *Fragment, err error) error {
 		if err != nil {
 			return err
 		}
@@ -304,7 +304,7 @@ func TestGitLab_scanItemNotes_StampsCommentURL(t *testing.T) {
 		Token:   "t",
 	}
 	var gotURL string
-	err := s.scanItemNotes(context.Background(), 1, "merge_requests", 7, parentURL, AttrGitLabMRIID, "7", func(f Fragment, err error) error {
+	err := s.scanItemNotes(context.Background(), 1, "merge_requests", 7, parentURL, AttrGitLabMRIID, "7", func(f *Fragment, err error) error {
 		if err != nil {
 			return err
 		}
@@ -351,7 +351,7 @@ func TestGitLab_scanSingleRelease_ScansSourceArchives(t *testing.T) {
 		Token:     "t",
 		Resources: GitLabResourceSet{GitLabResourceTypeReleases: true, GitLabResourceTypeReleaseAssets: true},
 	}
-	err := s.scanSingleRelease(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, "v1.0", func(Fragment, error) error { return nil })
+	err := s.scanSingleRelease(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, "v1.0", func(*Fragment, error) error { return nil })
 	if err != nil {
 		t.Fatalf("scanSingleRelease: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestGitLab_wrapGitLabYield_stampsAndSkips(t *testing.T) {
 		AttrGitLabProjectPath: "g/p",
 	}
 	var got []map[string]string
-	yield := func(f Fragment, err error) error {
+	yield := func(f *Fragment, err error) error {
 		got = append(got, f.Attributes)
 		return nil
 	}
@@ -384,11 +384,11 @@ func TestGitLab_wrapGitLabYield_stampsAndSkips(t *testing.T) {
 	wrapped := wrapGitLabYield(skip, projectAttrs, yield)
 
 	// 1) Fragment with no overlap → both attrs stamped, not skipped.
-	_ = wrapped(Fragment{Attributes: map[string]string{AttrGitSHA: "cafe"}}, nil)
+	_ = wrapped(&Fragment{Attributes: map[string]string{AttrGitSHA: "cafe"}}, nil)
 	// 2) Fragment matching skip predicate → dropped.
-	_ = wrapped(Fragment{Attributes: map[string]string{AttrGitSHA: "deadbeef"}}, nil)
+	_ = wrapped(&Fragment{Attributes: map[string]string{AttrGitSHA: "deadbeef"}}, nil)
 	// 3) Fragment with overlapping attr → existing value preserved.
-	_ = wrapped(Fragment{Attributes: map[string]string{AttrGitLabProjectID: "999"}}, nil)
+	_ = wrapped(&Fragment{Attributes: map[string]string{AttrGitLabProjectID: "999"}}, nil)
 
 	if len(got) != 2 {
 		t.Fatalf("yielded %d fragments, want 2", len(got))
@@ -509,7 +509,7 @@ func TestGitLab_downloadAndScan_UsesRetryTransport(t *testing.T) {
 			},
 		},
 	}
-	if err := s.downloadAndScan(context.Background(), server.URL+"/raw", "raw.txt", map[string]string{AttrResource: ResourceGitLabSnippet}, func(Fragment, error) error {
+	if err := s.downloadAndScan(context.Background(), server.URL+"/raw", "raw.txt", map[string]string{AttrResource: ResourceGitLabSnippet}, func(*Fragment, error) error {
 		return nil
 	}); err != nil {
 		t.Fatalf("downloadAndScan: %v", err)
@@ -537,7 +537,7 @@ func TestGitLab_downloadAndScan_DoesNotSendTokenToExternalURL(t *testing.T) {
 
 	s := &GitLab{URL: api.URL + "/g/p/-/releases/v1", BaseURL: api.URL + "/", Token: "secret"}
 	externalURL := strings.Replace(external.URL, "127.0.0.1", "localhost", 1)
-	if err := s.downloadAndScan(context.Background(), externalURL+"/asset.zip", "asset.txt", map[string]string{AttrResource: ResourceGitLabReleaseAsset}, func(Fragment, error) error {
+	if err := s.downloadAndScan(context.Background(), externalURL+"/asset.zip", "asset.txt", map[string]string{AttrResource: ResourceGitLabReleaseAsset}, func(*Fragment, error) error {
 		return nil
 	}); err != nil {
 		t.Fatalf("downloadAndScan: %v", err)
@@ -556,7 +556,7 @@ func TestGitLab_downloadAndScan_SendsTokenToGitLabHost(t *testing.T) {
 	defer api.Close()
 
 	s := &GitLab{URL: api.URL + "/g/p/-/snippets/1", BaseURL: api.URL + "/", Token: "secret"}
-	if err := s.downloadAndScan(context.Background(), api.URL+"/api/v4/projects/1/snippets/1/raw", "snippet.txt", map[string]string{AttrResource: ResourceGitLabSnippet}, func(Fragment, error) error {
+	if err := s.downloadAndScan(context.Background(), api.URL+"/api/v4/projects/1/snippets/1/raw", "snippet.txt", map[string]string{AttrResource: ResourceGitLabSnippet}, func(*Fragment, error) error {
 		return nil
 	}); err != nil {
 		t.Fatalf("downloadAndScan: %v", err)
@@ -590,7 +590,7 @@ func TestGitLab_scanDirectJob_ScansOnlyRequestedJob(t *testing.T) {
 		Resources: GitLabResourceSet{GitLabResourceTypeCIJobs: true, GitLabResourceTypeCIArtifacts: true},
 	}
 	target := &gitlabTarget{Kind: "job", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedGitLabURL{ID: "9001"}}
-	if err := s.scanDirect(context.Background(), target, func(Fragment, error) error { return nil }); err != nil {
+	if err := s.scanDirect(context.Background(), target, func(*Fragment, error) error { return nil }); err != nil {
 		t.Fatalf("scanDirect: %v", err)
 	}
 	for _, p := range requested {
@@ -627,7 +627,7 @@ func TestGitLab_scanDirectPipeline_UsesPipelineJobsEndpoint(t *testing.T) {
 		Resources: GitLabResourceSet{GitLabResourceTypeCIJobs: true},
 	}
 	target := &gitlabTarget{Kind: "pipeline", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedGitLabURL{ID: "8001"}}
-	if err := s.scanDirect(context.Background(), target, func(Fragment, error) error { return nil }); err != nil {
+	if err := s.scanDirect(context.Background(), target, func(*Fragment, error) error { return nil }); err != nil {
 		t.Fatalf("scanDirect: %v", err)
 	}
 	for _, p := range requested {
@@ -661,7 +661,7 @@ func TestGitLab_scanCIJobs_StopsAtSinceBoundary(t *testing.T) {
 		Resources:     GitLabResourceSet{GitLabResourceTypeCIJobs: true},
 		DateRangeOpts: DateRangeOptions{Since: since},
 	}
-	if err := s.scanCIJobs(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, func(Fragment, error) error { return nil }); err != nil {
+	if err := s.scanCIJobs(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, func(*Fragment, error) error { return nil }); err != nil {
 		t.Fatalf("scanCIJobs: %v", err)
 	}
 	if got := fmt.Sprint(pages); got != "[1]" {

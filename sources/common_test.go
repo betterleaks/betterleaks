@@ -70,3 +70,25 @@ func Test_readUntilSafeBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestReadUntilSafeBoundaryConsumesOnlyThroughBoundary(t *testing.T) {
+	reader := bufio.NewReaderSize(strings.NewReader("\n  \nremaining"), 20)
+	peekBuf := bytes.NewBufferString("initial")
+
+	require.NoError(t, readUntilSafeBoundary(reader, peekBuf.Len(), 20, peekBuf))
+	require.Equal(t, "initial\n  \n", peekBuf.String())
+	remainder, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.Equal(t, "remaining", string(remainder))
+}
+
+func TestReadUntilSafeBoundaryHonorsExactReadLimit(t *testing.T) {
+	reader := bufio.NewReaderSize(strings.NewReader("abcdefremaining"), 20)
+	peekBuf := bytes.NewBufferString("initial")
+
+	require.NoError(t, readUntilSafeBoundary(reader, peekBuf.Len(), 6, peekBuf))
+	require.Equal(t, "initialabcdef", peekBuf.String())
+	remainder, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.Equal(t, "remaining", string(remainder))
+}

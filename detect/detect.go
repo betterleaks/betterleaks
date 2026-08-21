@@ -22,6 +22,7 @@ import (
 	"github.com/betterleaks/betterleaks/internal/ahocorasick"
 	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
+	orchestrate "github.com/betterleaks/betterleaks/internal/detect"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
@@ -76,7 +77,45 @@ type Result struct {
 type ruleCandidates struct {
 	// Indexes match rulesBySpecificity, preserving rule order without building
 	// a map and sorted slice for every fragment and decode pass.
-	marked []bool
+	marked  []bool
+	decoder codec.Decoder
+}
+
+// scanWorkspace is owned by one long-lived detection worker. Keeping the rule
+// bitmap and decoder here removes shared-pool traffic from the fragment hot
+// path while preserving a pooled compatibility path for direct Detect calls.
+type scanWorkspace struct {
+	candidates ruleCandidates
+}
+
+func (d *Detector) newScanWorkspace() *scanWorkspace {
+	return &scanWorkspace{
+		candidates: ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))},
+	}
+}
+
+func getStringMap(pool *sync.Pool, capacity int) map[string]string {
+	if pooled := pool.Get(); pooled != nil {
+		return pooled.(map[string]string)
+	}
+	return make(map[string]string, capacity)
+}
+
+func putStringMap(pool *sync.Pool, values map[string]string) {
+	clear(values)
+	pool.Put(values)
+}
+
+func getAnyMap(pool *sync.Pool, capacity int) map[string]any {
+	if pooled := pool.Get(); pooled != nil {
+		return pooled.(map[string]any)
+	}
+	return make(map[string]any, capacity)
+}
+
+func putAnyMap(pool *sync.Pool, values map[string]any) {
+	clear(values)
+	pool.Put(values)
 }
 
 // Detector is the main detector struct
@@ -130,6 +169,12 @@ type Detector struct {
 	// RuleTimings records per-rule diagnostic timings when diagnostics are enabled.
 	RuleTimings *RuleTimingCollector
 
+	// SourceWorkers limits concurrent source tasks. Zero uses the source default.
+	SourceWorkers int
+
+	// DetectWorkers limits concurrent fragment detection. Zero uses GOMAXPROCS.
+	DetectWorkers int
+
 	tokenizer     *tiktoken.Tiktoken
 	tokenizerOnce sync.Once
 
@@ -141,9 +186,11 @@ type Detector struct {
 	validationRuntime  *exprruntime.Runtime
 	validationProgramM sync.Mutex
 	validationPrograms map[string]exprruntime.Program
+	globalFilterOnce   sync.Once
 	globalFilter       exprruntime.Program
+	globalFilterErr    error
 	filterProgramM     sync.Mutex
-	filterPrograms     map[string]exprruntime.Program
+	filterPrograms     sync.Map // rule ID -> filterProgramResult
 
 	// rulesBySpecificity contains every configured rule ID in descending
 	// specificity order. Its positions are the shared index space used by the
@@ -163,6 +210,12 @@ type Detector struct {
 	// the same rulesBySpecificity position should run. Bitmaps must be cleared
 	// before they are returned because the pool is shared by concurrent scans.
 	candidatePool sync.Pool
+
+	// Candidate attributes and Expr finding maps are callback-scoped scratch.
+	// Rejected matches return them immediately; accepted findings retain their
+	// private attributes map.
+	candidateAttributesPool sync.Pool
+	filterFindingMapPool    sync.Pool
 
 	// TODO remove this in v2
 	// SkipFindingAppend skips populating the deprecated detector-level findings
@@ -270,7 +323,6 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
 		validationPrograms:     make(map[string]exprruntime.Program),
-		filterPrograms:         make(map[string]exprruntime.Program),
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
@@ -361,20 +413,23 @@ func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
 }
 
 func (d *Detector) globalFilterProgram() (exprruntime.Program, bool, error) {
-	if d.Config.Filter == "" {
+	configured := d.Config.FilterProgram()
+	if d.Config.Filter == "" && configured == nil {
 		return nil, false, nil
 	}
-	d.filterProgramM.Lock()
-	defer d.filterProgramM.Unlock()
-	if d.globalFilter != nil {
-		return d.globalFilter, true, nil
-	}
-	prg, err := d.exprRuntime.CompileFilter(d.Config.Filter, nil)
-	if err != nil {
-		return nil, false, fmt.Errorf("compiling global filter: %w", err)
-	}
-	d.globalFilter = prg
-	return prg, true, nil
+	d.globalFilterOnce.Do(func() {
+		if configured != nil {
+			d.globalFilter = configured
+			return
+		}
+		prg, err := d.exprRuntime.CompileFilter(d.Config.Filter, nil)
+		if err != nil {
+			d.globalFilterErr = fmt.Errorf("compiling global filter: %w", err)
+			return
+		}
+		d.globalFilter = prg
+	})
+	return d.globalFilter, d.globalFilter != nil, d.globalFilterErr
 }
 
 func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, error) {
@@ -399,35 +454,51 @@ func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, 
 	return prg, true, nil
 }
 
-func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, error) {
-	d.filterProgramM.Lock()
-	defer d.filterProgramM.Unlock()
+type filterProgramResult struct {
+	program exprruntime.Program
+	err     error
+}
 
+func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, error) {
 	rule := r
 	cacheable := false
 	if cfgRule, ok := d.Config.Rules[r.RuleID]; ok {
 		rule = cfgRule
 		cacheable = true
 	}
-	if rule.Filter == "" {
+	configured := rule.FilterProgram()
+	if rule.Filter == "" && configured == nil {
 		return nil, false, nil
 	}
+	if configured != nil {
+		return configured, true, nil
+	}
 	if cacheable {
-		if prg := d.filterPrograms[rule.RuleID]; prg != nil {
-			return prg, true, nil
+		if cached, ok := d.filterPrograms.Load(rule.RuleID); ok {
+			result := cached.(filterProgramResult)
+			return result.program, result.program != nil, result.err
 		}
 	}
-	if prg := rule.FilterProgram(); prg != nil {
-		return prg, true, nil
+
+	// Compilation is cold-path work. Serialize misses so concurrent workers do
+	// not compile the same expression, while successful hot-path lookups above
+	// remain lock-free.
+	d.filterProgramM.Lock()
+	defer d.filterProgramM.Unlock()
+	if cacheable {
+		if cached, ok := d.filterPrograms.Load(rule.RuleID); ok {
+			result := cached.(filterProgramResult)
+			return result.program, result.program != nil, result.err
+		}
 	}
 	prg, err := d.exprRuntime.CompileFilter(rule.Filter, nil)
 	if err != nil {
-		return nil, false, fmt.Errorf("compiling rule %s filter: %w", rule.RuleID, err)
+		err = fmt.Errorf("compiling rule %s filter: %w", rule.RuleID, err)
 	}
 	if cacheable {
-		d.filterPrograms[rule.RuleID] = prg
+		d.filterPrograms.Store(rule.RuleID, filterProgramResult{program: prg, err: err})
 	}
-	return prg, true, nil
+	return prg, prg != nil, err
 }
 
 // SkipFunc returns a sources.SkipFunc callback that evaluates the config's
@@ -451,9 +522,37 @@ func (d *Detector) SkipFunc() sources.SkipFunc {
 	}
 }
 
+// PathSkipFunc returns the path-only prefilter callback used by Files. It
+// shares the compiled program with SkipFunc but reuses an expression-owned map.
+func (d *Detector) PathSkipFunc() sources.PathSkipFunc {
+	if d.Config == nil {
+		return nil
+	}
+	prg := d.Config.PrefilterProgram()
+	if prg == nil {
+		return nil
+	}
+	return func(path string) bool {
+		skip, err := d.exprRuntime.EvalPathPrefilter(prg, path)
+		if err != nil {
+			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
+			return false
+		}
+		return skip
+	}
+}
+
 func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragment) bool {
 	path := fragment.Attr(sources.AttrPath)
 	return path != "" && pathRule != nil && pathRule.MatchString(path)
+}
+
+func fragmentRuleEvent(fragment sources.Fragment, ruleID string, event *zerolog.Event) *zerolog.Event {
+	event.Str("path", fragment.Attr(sources.AttrPath))
+	if sha := fragment.Attr(sources.AttrGitSHA); sha != "" {
+		event.Str("commit", sha)
+	}
+	return event.Str("rule_id", ruleID)
 }
 
 func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding {
@@ -500,6 +599,9 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 			_ = yield(Result{Err: fmt.Errorf("pipeline: nil source")})
 			return
 		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
 
 		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
@@ -534,54 +636,57 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		go func() {
 			defer close(resultsCh)
 
-			err := source.Fragments(runCtx, func(fragment sources.Fragment, err error) error {
-				if err != nil {
+			err := orchestrate.RunWorkers(
+				runCtx,
+				source,
+				orchestrate.Options{
+					SourceWorkers: d.SourceWorkers,
+					DetectWorkers: d.DetectWorkers,
+				},
+				func(_ *sources.Fragment, err error) error {
 					return emit(Result{Err: err})
-				}
+				},
+				func() orchestrate.ConsumeFunc {
+					workspace := d.newScanWorkspace()
+					return func(workerCtx context.Context, fragment *sources.Fragment) error {
+						var timer *time.Timer
+						if logging.Logger.GetLevel() <= zerolog.DebugLevel {
+							logger := fragment.Logger()
+							timer = time.AfterFunc(SlowWarningThreshold, func() {
+								logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
+							})
+						}
+						defer func() {
+							if timer != nil {
+								timer.Stop()
+							}
+						}()
 
-				logger := fragment.Logger()
-				if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
-					logger.Trace().Msg("skipping empty fragment")
-					return nil
-				}
-
-				var timer *time.Timer
-				if logger.GetLevel() <= zerolog.DebugLevel {
-					timer = time.AfterFunc(SlowWarningThreshold, func() {
-						logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
-					})
-				}
-				defer func() {
-					if timer != nil {
-						timer.Stop()
-					}
-				}()
-
-				findings := d.detectFragment(runCtx, fragment)
-				for _, finding := range findings {
-					if d.ignore(finding) {
-						continue
-					}
-					if d.ValidationPool != nil {
-						if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
-							return err
-						} else if ok {
-							if err := d.ValidationPool.SubmitContext(runCtx,
-								finding,
-								prg); err != nil {
-								if errors.Is(err, context.Canceled) {
-									return errStopIteration
+						for _, finding := range d.detectFragmentWithWorkspace(workerCtx, *fragment, workspace) {
+							if d.ignore(finding) {
+								continue
+							}
+							if d.ValidationPool != nil {
+								if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
+									return err
+								} else if ok {
+									if err := d.ValidationPool.SubmitContext(workerCtx, finding, prg); err != nil {
+										if errors.Is(err, context.Canceled) {
+											return errStopIteration
+										}
+										return err
+									}
+									continue
 								}
+							}
+							if err := emit(Result{Finding: finding}); err != nil {
 								return err
 							}
-							continue
 						}
+						return nil
 					}
-					emit(Result{Finding: finding})
-				}
-
-				return nil
-			})
+				},
+			)
 
 			if d.ValidationPool != nil {
 				d.ValidationPool.Close()
@@ -629,6 +734,11 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 
 			if !yield(res) {
 				cancel()
+				// RunWorkers drains and releases every accepted fragment after
+				// cancellation. Wait for its result channel to close so iterator
+				// consumers never inherit background source work or live leases.
+				for range resultsCh {
+				}
 				return
 			}
 		}
@@ -709,12 +819,31 @@ func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
 
 // DetectString scans the given string and returns a list of findings
 func (d *Detector) DetectString(content string) []report.Finding {
-	return d.Detect(sources.Fragment{
-		Raw: content,
-	})
+	// Keep the convenience API string-backed so callers do not pay for a full
+	// string-to-byte copy. Source fragments remain canonically byte-backed.
+	return d.detectFragmentContent(
+		context.Background(),
+		sources.Fragment{},
+		stringScanContent(content),
+		nil,
+	)
+}
+
+// DetectBytes scans byte content without materializing a duplicate string.
+func (d *Detector) DetectBytes(content []byte) []report.Finding {
+	return d.Detect(sources.Fragment{Raw: content})
 }
 
 func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	return d.detectFragmentWithWorkspace(ctx, fragment, nil)
+}
+
+func (d *Detector) detectFragmentWithWorkspace(ctx context.Context, fragment sources.Fragment, workspace *scanWorkspace) []report.Finding {
+	content := byteScanContent(fragment.Raw)
+	return d.detectFragmentContent(ctx, fragment, content, workspace)
+}
+
+func (d *Detector) detectFragmentContent(ctx context.Context, fragment sources.Fragment, original scanContent, workspace *scanWorkspace) []report.Finding {
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
@@ -725,18 +854,35 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 		}
 	}
 
-	if fragment.Bytes == nil {
-		d.TotalBytes.Add(uint64(len(fragment.Raw)))
-	}
-	d.TotalBytes.Add(uint64(len(fragment.Bytes)))
+	d.TotalBytes.Add(uint64(original.len()))
 
-	findings := []report.Finding{}
+	var findings []report.Finding
 
 	// setup variables to handle different decoding passes
-	currentRaw := fragment.Raw
-	encodedSegments := []*codec.EncodedSegment{}
+	current := original
+	var encodedSegments []*codec.EncodedSegment
 	currentDecodeDepth := 0
-	decoder := codec.NewDecoder()
+	var (
+		candidates       *ruleCandidates
+		pooledCandidates bool
+	)
+	if workspace != nil {
+		candidates = &workspace.candidates
+	} else {
+		candidates = d.candidatePool.Get().(*ruleCandidates)
+		pooledCandidates = true
+	}
+	decoder := &candidates.decoder
+	defer func() {
+		clear(candidates.marked)
+		// Reset all decoder-owned state before publishing the workspace back to
+		// the shared pool. Putting it first lets another scan acquire and mutate
+		// the decoder concurrently with Release.
+		decoder.Release()
+		if pooledCandidates {
+			d.candidatePool.Put(candidates)
+		}
+	}()
 
 ScanLoop:
 	for {
@@ -744,10 +890,9 @@ ScanLoop:
 		case <-ctx.Done():
 			break ScanLoop
 		default:
-			candidates := d.candidatePool.Get().(*ruleCandidates)
 			// A rule is a candidate when any of its keywords matched. The bitmap
 			// deduplicates rules referenced by multiple matching keywords.
-			d.prefilter.Visit(currentRaw, func(patternID, _, _ int) bool {
+			current.visit(d.prefilter, func(patternID int) bool {
 				for _, ruleIndex := range d.keywordRuleIndexes[patternID] {
 					candidates.marked[ruleIndex] = true
 				}
@@ -764,21 +909,18 @@ ScanLoop:
 				}
 				select {
 				case <-ctx.Done():
-					clear(candidates.marked)
-					d.candidatePool.Put(candidates)
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
-					for _, finding := range d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings) {
+					for _, finding := range d.detectContentWithRuleTimed(fragment, &original, &current, rule, encodedSegments, findings) {
 						if confidence.Meets(finding.Attr(confidence.Attribute), d.MinConfidence) {
 							findings = append(findings, finding)
 						}
 					}
 				}
 			}
-			// Pool entries must be blank because later scans may run on any goroutine.
+			// Blank the worker-local bitmap before a recursive decode pass.
 			clear(candidates.marked)
-			d.candidatePool.Put(candidates)
 
 			// increment the depth by 1 as we start our decoding pass
 			currentDecodeDepth++
@@ -789,7 +931,7 @@ ScanLoop:
 			}
 
 			// decode the currentRaw for the next pass
-			currentRaw, encodedSegments = decoder.Decode(currentRaw, encodedSegments)
+			current, encodedSegments = current.decode(decoder, encodedSegments)
 
 			// stop the loop when there's nothing else to decode
 			if len(encodedSegments) == 0 {
@@ -800,17 +942,17 @@ ScanLoop:
 	return filter(findings)
 }
 
-func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,
-	currentRaw string,
+func (d *Detector) detectContentWithRuleTimed(fragment sources.Fragment,
+	original, current *scanContent,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings []report.Finding) []report.Finding {
 	if d.RuleTimings == nil {
-		return d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
+		return d.detectContentWithRule(fragment, original, current, r, encodedSegments, priorFindings)
 	}
 
 	start := time.Now()
-	findings := d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
+	findings := d.detectContentWithRule(fragment, original, current, r, encodedSegments, priorFindings)
 	d.RuleTimings.Record(r.RuleID, time.Since(start))
 	return findings
 }
@@ -843,10 +985,17 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings []report.Finding) []report.Finding {
-	var (
-		findings []report.Finding
-		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
-	)
+	original := byteScanContent(fragment.Raw)
+	current := stringScanContent(currentRaw)
+	return d.detectContentWithRule(fragment, &original, &current, r, encodedSegments, priorFindings)
+}
+
+func (d *Detector) detectContentWithRule(fragment sources.Fragment,
+	original, current *scanContent,
+	r config.Rule,
+	encodedSegments []*codec.EncodedSegment,
+	priorFindings []report.Finding) []report.Finding {
+	var findings []report.Finding
 
 	if r.SkipReport && !fragment.InheritedFromFinding {
 		return findings
@@ -875,39 +1024,83 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	matches := r.Regex.FindAllStringIndex(currentRaw, -1)
+	hasSubexpressions := r.Regex.NumSubexp() > 0
+	matches := current.findAllIndex(r.Regex)
 	if len(matches) == 0 {
 		return findings
 	}
 
+	hasGlobalFilter := d.Config.Filter != "" || d.Config.FilterProgram() != nil
+	hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
+	globalPrg, globalOK, globalErr := d.globalFilterProgram()
+	rulePrg, ruleOK, ruleErr := d.ruleFilterProgram(r)
+	needsContext := (globalOK && globalPrg.NeedsContext()) || (ruleOK && rulePrg.NeedsContext())
+	needsLine := (globalOK && globalPrg.NeedsLine()) || (ruleOK && rulePrg.NeedsLine())
+	needsFragmentRaw := (globalOK && globalPrg.NeedsFragmentRaw()) || (ruleOK && rulePrg.NeedsFragmentRaw())
+	needsLocalLine := (globalOK && globalPrg.NeedsLocalLine()) || (ruleOK && rulePrg.NeedsLocalLine())
+	needsMatchWindow := (globalOK && globalPrg.NeedsMatchWindow()) || (ruleOK && rulePrg.NeedsMatchWindow())
+	needsNearbyContext := (globalOK && globalPrg.NeedsNearbyContext()) || (ruleOK && rulePrg.NeedsNearbyContext())
+	needsFinding := func(field string) bool {
+		return (globalOK && globalPrg.NeedsFinding(field)) || (ruleOK && rulePrg.NeedsFinding(field))
+	}
+	needsSecret := needsFinding("secret")
+	needsMatch := needsFinding("match")
+	needsRuleID := needsFinding("rule_id")
+	needsDescription := needsFinding("description")
+	needsEntropyField := needsFinding("entropy")
+	needsMatchStart := needsFinding("match_start_idx")
+	needsMatchEnd := needsFinding("match_end_idx")
+	needsMatchLineStart := needsFinding("match_line_start_idx")
+	needsMatchLineEnd := needsFinding("match_line_end_idx")
+	needsLocalLineValue := needsFinding("local_line")
+	needsLocalLineStart := needsFinding("local_line_match_start_idx")
+	needsLocalLineEnd := needsFinding("local_line_match_end_idx")
+	needsMatchPrefix := needsFinding("match_prefix")
+	needsMatchSuffix := needsFinding("match_suffix")
+	needsNearbyContextValue := needsFinding("nearby_context")
+	needsLinePrefix := needsFinding("line_prefix")
+
+	// Capacity is fixed for this rule/filter pair. Count it once per fragment,
+	// rather than populating and boxing the complete compatibility map for every
+	// candidate when expressions read only a handful of fields.
+	findingMapCapacity := 0
+	for _, needed := range [...]bool{
+		needsSecret, needsMatch, needsLine, needsRuleID, needsDescription,
+		needsContext, needsEntropyField, needsFragmentRaw, needsMatchStart,
+		needsMatchEnd, needsMatchLineStart, needsMatchLineEnd,
+		needsLocalLineValue, needsLocalLineStart, needsLocalLineEnd,
+		needsMatchPrefix, needsMatchSuffix, needsNearbyContextValue, needsLinePrefix,
+	} {
+		if needed {
+			findingMapCapacity++
+		}
+	}
+
 	// Lazily compute line offsets — only when we actually need location info.
-	var lineOffsets []int
-	lineOffsetsComputed := false
+	var lineOffsetBuf *lineOffsetBuffer
 
 	// Reuse the matches slice from above instead of calling FindAllStringIndex again.
 	for _, matchIndex := range matches {
-		// Extract secret from match
-		// Clone to release the fragment.Raw string; substring would keep the
-		// whole fragment alive, which uses much more memory.
-		secret := strings.Clone(strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n"))
+		// Keep candidate text as views into the fragment while filters run. Text
+		// for accepted findings is cloned at the retention boundary below.
+		secret := current.trimmedMatch(matchIndex[0], matchIndex[1])
 		filterMatchStartIdx, filterMatchEndIdx := matchIndex[0], matchIndex[1]
 
 		// For any meta data from decoding
 		var metaTags []string
-		currentLine := ""
+		var matchedSegments []*codec.EncodedSegment
 
 		// Check if the decoded portions of the segment overlap with the match
 		// to see if its potentially a new match
 		if len(encodedSegments) > 0 {
-			segments := codec.SegmentsWithDecodedOverlap(encodedSegments, matchIndex[0], matchIndex[1])
-			if len(segments) == 0 {
+			matchedSegments = codec.SegmentsWithDecodedOverlap(encodedSegments, matchIndex[0], matchIndex[1])
+			if len(matchedSegments) == 0 {
 				// This item has already been added to a finding
 				continue
 			}
 
-			matchIndex = codec.AdjustMatchIndex(segments, matchIndex)
-			metaTags = append(metaTags, codec.Tags(segments)...)
-			currentLine = codec.CurrentLine(segments, currentRaw)
+			matchIndex = codec.AdjustMatchIndex(matchedSegments, matchIndex)
+			metaTags = append(metaTags, codec.Tags(matchedSegments)...)
 		} else {
 			// Fixes: https://github.com/gitleaks/gitleaks/issues/1352
 			// removes the incorrectly following line that was detected by regex expression '\n'
@@ -918,12 +1111,11 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		// in the finding will be the line/column numbers of the _match_
 		// not the _secret_, which will be different if the secretGroup
 		// value is set for this rule
-		if !lineOffsetsComputed {
-			lineOffsets = computeLineOffsets(fragment.Raw)
-			lineOffsetsComputed = true
+		if lineOffsetBuf == nil {
+			lineOffsetBuf = original.lineOffsets()
 		}
 
-		loc := location(lineOffsets, fragment.Raw, matchIndex)
+		loc := locationForLength(lineOffsetBuf.offsets, original.len(), matchIndex)
 
 		tags := r.Tags
 		if len(metaTags) > 0 {
@@ -932,18 +1124,84 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
-			RuleID:          r.RuleID,
-			Description:     r.Description,
-			StartLine:       prevFragmentEndLine + loc.startLine,
-			EndLine:         prevFragmentEndLine + loc.endLine,
-			StartColumn:     loc.startColumn,
-			EndColumn:       loc.endColumn,
-			Line:            strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
-			Match:           secret,
-			Secret:          secret,
-			Attributes:      maps.Clone(fragment.Attributes),
+			RuleID:      r.RuleID,
+			Description: r.Description,
+			StartLine:   prevFragmentEndLine + loc.startLine,
+			EndLine:     prevFragmentEndLine + loc.endLine,
+			StartColumn: loc.startColumn,
+			EndColumn:   loc.endColumn,
+			Match:       secret,
+			Secret:      secret,
+			// Use the fragment's read-only attributes while cheap rejection checks
+			// run. A private copy is made before filters can mutate confidence and
+			// before an accepted finding can outlive the fragment.
+			Attributes:      fragment.Attributes,
 			Tags:            tags,
 			RuleSpecificity: r.Specificity,
+		}
+
+		// move to filter?
+		hasAllowSignature := false
+		if !d.IgnoreGitleaksAllow {
+			for _, signature := range allowSignatures {
+				if original.contains(loc.startLineIndex, loc.endLineIndex, signature) {
+					hasAllowSignature = true
+					break
+				}
+			}
+		}
+		if hasAllowSignature {
+			fragmentRuleEvent(fragment, r.RuleID, logging.Trace()).
+				Str("finding", finding.Secret).
+				Msg("skipping finding: allow signature found")
+			continue
+		}
+		// Set the value of |secret|, if the pattern contains at least one capture group.
+		// (The first element is the full match, hence we check >= 2.)
+		if hasSubexpressions {
+			groups := r.Regex.FindStringSubmatch(finding.Secret)
+			if len(groups) >= 2 {
+				if r.SecretGroup > 0 {
+					if len(groups) <= r.SecretGroup {
+						// Config validation should prevent this
+						continue
+					}
+					finding.Secret = groups[r.SecretGroup]
+				} else {
+					// If |secretGroup| is not set, we will use the first suitable capture group.
+					for _, captured := range groups[1:] {
+						if captured != "" {
+							finding.Secret = captured
+							break
+						}
+					}
+				}
+
+				// Extract named capture groups for use as template variables.
+				var captures map[string]string
+				for group, name := range r.Regex.SubexpNames() {
+					if group == 0 || group >= len(groups) || name == "" || groups[group] == "" {
+						continue
+					}
+					if captures == nil {
+						captures = make(map[string]string)
+					}
+					captures[name] = groups[group]
+				}
+				finding.CaptureGroups = captures
+			}
+		}
+
+		if len(priorFindings) > 0 && isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
+			continue
+		}
+
+		pooledAttributes := hasGlobalFilter || hasRuleFilter
+		if pooledAttributes {
+			finding.Attributes = getStringMap(&d.candidateAttributesPool, len(fragment.Attributes)+1)
+			maps.Copy(finding.Attributes, fragment.Attributes)
+		} else {
+			finding.Attributes = maps.Clone(fragment.Attributes)
 		}
 		if r.Confidence != "" {
 			finding.SetAttr(confidence.Attribute, r.Confidence)
@@ -957,56 +1215,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 				finding.SetAttr(sources.AttrURL, link)
 			}
 		}
-
-		// move to filter?
-		if !d.IgnoreGitleaksAllow && containsAllowSignature(finding.Line) {
-			logger.Trace().
-				Str("finding", finding.Secret).
-				Msg("skipping finding: allow signature found")
-			continue
-		}
 		finding.SyncDeprecatedSourceFields()
-
-		if currentLine == "" {
-			currentLine = finding.Line
-		}
-
-		// Set the value of |secret|, if the pattern contains at least one capture group.
-		// (The first element is the full match, hence we check >= 2.)
-		groups := r.Regex.FindStringSubmatch(finding.Secret)
-		if len(groups) >= 2 {
-			if r.SecretGroup > 0 {
-				if len(groups) <= r.SecretGroup {
-					// Config validation should prevent this
-					continue
-				}
-				finding.Secret = groups[r.SecretGroup]
-			} else {
-				// If |secretGroup| is not set, we will use the first suitable capture group.
-				for _, s := range groups[1:] {
-					if len(s) > 0 {
-						finding.Secret = s
-						break
-					}
-				}
-			}
-
-			// Extract named capture groups for use as template variables.
-			names := r.Regex.SubexpNames()
-			captures := make(map[string]string)
-			for i, name := range names {
-				if i > 0 && name != "" && i < len(groups) && groups[i] != "" {
-					captures[name] = strings.Clone(groups[i])
-				}
-			}
-			if len(captures) > 0 {
-				finding.CaptureGroups = captures
-			}
-		}
-
-		if len(priorFindings) > 0 && isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
-			continue
-		}
 
 		// Entropy is always computed — needed for report output regardless of filter path.
 		entropy := shannonEntropy(finding.Secret)
@@ -1014,82 +1223,189 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		finding.SetFingerprint()
 
-		hasGlobalFilter := d.Config.Filter != "" || d.Config.FilterProgram() != nil
-		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
-		// Validation/filter expressions need context text in the finding map.
-		if r.ValidateExpr != "" || r.ValidationProgram() != nil || hasGlobalFilter || hasRuleFilter {
-			finding.SetExprContext(strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, contextwindow.Spec{
+		// Context construction clips and copies multiple surrounding lines. Most
+		// filters never reference it, so only build it before filtering when a
+		// compiled filter explicitly needs the field. Validation-only context is
+		// delayed until the candidate has survived both filters below.
+		var exprContext string
+		hasExprContext := false
+		if needsContext {
+			exprContext = original.extractContext(matchIndex, contextwindow.Spec{
 				Mode:        contextwindow.ModeBox,
 				LinesBefore: 20,
 				LinesAfter:  20,
 				ColsBefore:  350,
 				ColsAfter:   350,
-			})))
+			})
+			finding.SetExprContext(exprContext)
+			hasExprContext = true
 		}
-
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]any
 		if hasGlobalFilter || hasRuleFilter {
 			if finding.Attributes == nil {
 				finding.Attributes = make(map[string]string)
 			}
-			findingMap = make(map[string]any, 12)
-			for key, value := range finding.ToExprMap() {
-				findingMap[key] = value
+			findingMap = getAnyMap(&d.filterFindingMapPool, findingMapCapacity)
+			if needsSecret {
+				findingMap["secret"] = finding.Secret
 			}
-			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
-			findingMap["fragment_raw"] = currentRaw
-			findingMap["match_start_idx"] = filterMatchStartIdx
-			findingMap["match_end_idx"] = filterMatchEndIdx
-			findingMap["match_line_start_idx"] = 0
-			findingMap["match_line_end_idx"] = len(currentRaw)
-			if newline := strings.LastIndexAny(currentRaw[:filterMatchStartIdx], "\r\n"); newline >= 0 {
-				findingMap["match_line_start_idx"] = newline + 1
+			if needsMatch {
+				findingMap["match"] = finding.Match
 			}
-			if newline := strings.IndexAny(currentRaw[filterMatchEndIdx:], "\r\n"); newline >= 0 {
-				findingMap["match_line_end_idx"] = filterMatchEndIdx + newline
+			if needsLine {
+				if finding.Line == "" {
+					finding.Line = original.sliceString(loc.startLineIndex, loc.endLineIndex)
+				}
+				filterLine := finding.Line
+				if len(matchedSegments) > 0 {
+					filterLine = current.currentLine(matchedSegments)
+				}
+				findingMap["line"] = filterLine
 			}
-			// For decoded segments, currentLine carries the decoded line text
-			// (via codec.CurrentLine). The old checkFindingAllowed used this for
-			// regexTarget="line". Preserve that behaviour in the Expr path.
-			if currentLine != "" {
-				findingMap["line"] = currentLine
+			if needsRuleID {
+				findingMap["rule_id"] = finding.RuleID
+			}
+			if needsDescription {
+				findingMap["description"] = finding.Description
+			}
+			if needsContext {
+				findingMap["context"] = exprContext
+			}
+			if needsEntropyField {
+				findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
+			}
+			if needsFragmentRaw {
+				findingMap["fragment_raw"] = current.fullText()
+			}
+			if needsMatchStart {
+				findingMap["match_start_idx"] = filterMatchStartIdx
+			}
+			if needsMatchEnd {
+				findingMap["match_end_idx"] = filterMatchEndIdx
+			}
+			if needsLocalLine || needsMatchLineStart || needsMatchLineEnd {
+				matchLineStartIdx := 0
+				matchLineEndIdx := current.len()
+				if newline := current.lastIndexAnyBefore(filterMatchStartIdx, "\r\n"); newline >= 0 {
+					matchLineStartIdx = newline + 1
+				}
+				if newline := current.indexAnyAfter(filterMatchEndIdx, "\r\n"); newline >= 0 {
+					matchLineEndIdx = filterMatchEndIdx + newline
+				}
+				if needsMatchLineStart {
+					findingMap["match_line_start_idx"] = matchLineStartIdx
+				}
+				if needsMatchLineEnd {
+					findingMap["match_line_end_idx"] = matchLineEndIdx
+				}
+				if needsLocalLine {
+					localLine := ""
+					if len(matchedSegments) == 0 && matchLineEndIdx-matchLineStartIdx == loc.endLineIndex-loc.startLineIndex {
+						if finding.Line == "" {
+							finding.Line = original.sliceString(loc.startLineIndex, loc.endLineIndex)
+						}
+						localLine = finding.Line
+					} else {
+						localLine = current.sliceString(matchLineStartIdx, matchLineEndIdx)
+					}
+					if needsLocalLineValue {
+						findingMap["local_line"] = localLine
+					}
+					if needsLocalLineStart {
+						findingMap["local_line_match_start_idx"] = filterMatchStartIdx - matchLineStartIdx
+					}
+					if needsLocalLineEnd {
+						findingMap["local_line_match_end_idx"] = filterMatchEndIdx - matchLineStartIdx
+					}
+				}
+			}
+			if needsMatchWindow {
+				const windowBytes = 8192
+				if needsMatchPrefix {
+					findingMap["match_prefix"] = current.sliceString(max(filterMatchStartIdx-windowBytes, 0), filterMatchStartIdx)
+				}
+				if needsMatchSuffix {
+					findingMap["match_suffix"] = current.sliceString(filterMatchEndIdx, min(filterMatchEndIdx+windowBytes, current.len()))
+				}
+			}
+			if needsNearbyContext {
+				nearbyContext, linePrefix := current.matchSurroundings(filterMatchStartIdx, filterMatchEndIdx, 8192, 6)
+				if needsNearbyContextValue {
+					findingMap["nearby_context"] = nearbyContext
+				}
+				if needsLinePrefix {
+					findingMap["line_prefix"] = linePrefix
+				}
 			}
 		}
 		// Global filter: Expr path (attributes + finding).
-		if prg, ok, err := d.globalFilterProgram(); err != nil {
-			logger.Warn().Err(err).Msg("global filter compile error")
-		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
+		if globalErr != nil {
+			fragmentRuleEvent(fragment, r.RuleID, logging.Warn()).Err(globalErr).Msg("global filter compile error")
+		} else if globalOK {
+			skip, err := d.exprRuntime.EvalFilter(globalPrg, findingMap, finding.Attributes)
 			if err != nil {
-				logger.Warn().Err(err).Msg("global filter eval error")
+				fragmentRuleEvent(fragment, r.RuleID, logging.Warn()).Err(err).Msg("global filter eval error")
 			} else if skip {
-				logger.Trace().
+				fragmentRuleEvent(fragment, r.RuleID, logging.Trace()).
 					Str("finding", finding.Secret).
 					Msg("skipping finding: global filter")
+				putAnyMap(&d.filterFindingMapPool, findingMap)
+				if pooledAttributes {
+					putStringMap(&d.candidateAttributesPool, finding.Attributes)
+				}
 				continue
 			}
 		}
 
 		// Rule filter: Expr path (includes entropy, regex/stopword allowlists, tokenEfficiency).
-		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
-			logger.Warn().Err(err).Msg("rule filter compile error")
-		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
+		if ruleErr != nil {
+			fragmentRuleEvent(fragment, r.RuleID, logging.Warn()).Err(ruleErr).Msg("rule filter compile error")
+		} else if ruleOK {
+			skip, err := d.exprRuntime.EvalFilter(rulePrg, findingMap, finding.Attributes)
 			if err != nil {
-				logger.Warn().Err(err).Msg("rule filter eval error")
+				fragmentRuleEvent(fragment, r.RuleID, logging.Warn()).Err(err).Msg("rule filter eval error")
 			} else if skip {
-				logger.Trace().
+				fragmentRuleEvent(fragment, r.RuleID, logging.Trace()).
 					Str("finding", finding.Secret).
 					Msg("skipping finding: rule filter")
+				putAnyMap(&d.filterFindingMapPool, findingMap)
+				if pooledAttributes {
+					putStringMap(&d.candidateAttributesPool, finding.Attributes)
+				}
 				continue
 			}
 		}
+		if findingMap != nil {
+			putAnyMap(&d.filterFindingMapPool, findingMap)
+		}
+		if finding.Line == "" {
+			finding.Line = original.sliceString(loc.startLineIndex, loc.endLineIndex)
+		}
+
+		// Validation expressions run only for accepted findings. Preserve their
+		// bounded context without paying for it on candidates rejected above.
+		if !hasExprContext && (r.ValidateExpr != "" || r.ValidationProgram() != nil) {
+			exprContext = original.extractContext(matchIndex, contextwindow.Spec{
+				Mode:        contextwindow.ModeBox,
+				LinesBefore: 20,
+				LinesAfter:  20,
+				ColsBefore:  350,
+				ColsAfter:   350,
+			})
+			finding.SetExprContext(exprContext)
+		}
 
 		if !d.MatchContext.IsZero() {
-			finding.MatchContext = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, d.MatchContext))
+			finding.MatchContext = original.extractContext(matchIndex, d.MatchContext)
+		}
+		if !original.byteBacked {
+			cloneRetainedFindingText(&finding, exprContext)
 		}
 		findings = append(findings, finding)
+	}
+	if lineOffsetBuf != nil {
+		putLineOffsets(lineOffsetBuf)
 	}
 
 	// Handle component rules (multi-part rules).
@@ -1097,13 +1413,39 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	return d.processComponents(fragment, currentRaw, r, encodedSegments, findings, logger)
+	return d.processContentComponents(fragment, original, current, r, encodedSegments, findings)
+}
+
+// cloneRetainedFindingText detaches accepted findings from the fragment-sized
+// backing string. Candidate views are safe during synchronous filtering, but a
+// returned finding can outlive the pooled source buffer that produced it.
+func cloneRetainedFindingText(finding *report.Finding, exprContext string) {
+	match := finding.Match
+	secret := finding.Secret
+	finding.Match = strings.Clone(match)
+	if secret == match {
+		finding.Secret = finding.Match
+	} else {
+		finding.Secret = strings.Clone(secret)
+	}
+	finding.Line = strings.Clone(finding.Line)
+	finding.MatchContext = strings.Clone(finding.MatchContext)
+	for name, capture := range finding.CaptureGroups {
+		finding.CaptureGroups[name] = strings.Clone(capture)
+	}
+	finding.SetExprContext(strings.Clone(exprContext))
 }
 
 // processComponents attaches nearby component matches and enforces required components.
-func (d *Detector) processComponents(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
+func (d *Detector) processComponents(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding) []report.Finding {
+	original := byteScanContent(fragment.Raw)
+	current := stringScanContent(currentRaw)
+	return d.processContentComponents(fragment, &original, &current, r, encodedSegments, primaryFindings)
+}
+
+func (d *Detector) processContentComponents(fragment sources.Fragment, original, current *scanContent, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding) []report.Finding {
 	if len(primaryFindings) == 0 {
-		logger.Debug().Msg("no primary findings to process for components")
+		fragmentRuleEvent(fragment, r.RuleID, logging.Debug()).Msg("no primary findings to process for components")
 		return primaryFindings
 	}
 
@@ -1114,14 +1456,14 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 	for _, component := range r.Components {
 		window, err := contextwindow.Parse(component.Within)
 		if err != nil {
-			logger.Error().Err(err).Str("rule-id", component.RuleID).Str("within", component.Within).Msg("invalid component within value")
+			fragmentRuleEvent(fragment, r.RuleID, logging.Error()).Err(err).Str("rule-id", component.RuleID).Str("within", component.Within).Msg("invalid component within value")
 			continue
 		}
 		componentWindows[component.RuleID] = window
 
 		rule, ok := d.Config.Rules[component.RuleID]
 		if !ok {
-			logger.Error().Str("rule-id", component.RuleID).Msg("component rule not found in config")
+			fragmentRuleEvent(fragment, r.RuleID, logging.Error()).Str("rule-id", component.RuleID).Msg("component rule not found in config")
 			continue
 		}
 
@@ -1129,10 +1471,10 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 		inheritedFragment := fragment
 		inheritedFragment.InheritedFromFinding = true
 
-		componentFindings := d.detectFragmentWithRuleTimed(inheritedFragment, currentRaw, rule, encodedSegments, nil)
+		componentFindings := d.detectContentWithRuleTimed(inheritedFragment, original, current, rule, encodedSegments, nil)
 		allComponentFindings[component.RuleID] = componentFindings
 
-		logger.Debug().
+		fragmentRuleEvent(fragment, r.RuleID, logging.Debug()).
 			Str("rule-id", component.RuleID).
 			Int("findings", len(componentFindings)).
 			Msg("collected component rule findings")
@@ -1152,7 +1494,7 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 			window := componentWindows[component.RuleID]
 
 			for _, found := range foundComponentFindings {
-				if withinProximity(fragment.Raw, fragment.StartLine, primaryFinding, found, window) {
+				if withinProximityContent(original, fragment.StartLine, primaryFinding, found, window) {
 					componentFindings = append(componentFindings, &report.ComponentFinding{
 						RuleID:          found.RuleID,
 						Optional:        component.Optional,
@@ -1175,7 +1517,7 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 			newFinding.BuildComponentSets(componentFindings, maxComponentSets)
 			finalFindings = append(finalFindings, newFinding)
 
-			logger.Debug().
+			fragmentRuleEvent(fragment, r.RuleID, logging.Debug()).
 				Str("primary-rule", r.RuleID).
 				Int("primary-line", primaryFinding.StartLine).
 				Int("component-count", len(componentFindings)).
@@ -1203,13 +1545,18 @@ func (d *Detector) hasAllRequiredComponents(componentFindings []*report.Componen
 }
 
 func withinProximity(raw string, fragmentStartLine int, primary, component report.Finding, window contextwindow.Spec) bool {
+	content := stringScanContent(raw)
+	return withinProximityContent(&content, fragmentStartLine, primary, component, window)
+}
+
+func withinProximityContent(raw *scanContent, fragmentStartLine int, primary, component report.Finding, window contextwindow.Spec) bool {
 	if window.IsZero() {
 		return true
 	}
 
 	switch window.Mode {
 	case contextwindow.ModeCols:
-		lineStarts := rawLineStarts(raw)
+		lineStarts := raw.rawLineStarts()
 		primaryStart, ok := findingStartOffset(lineStarts, fragmentStartLine, primary)
 		if !ok {
 			return false
@@ -1223,7 +1570,7 @@ func withinProximity(raw string, fragmentStartLine int, primary, component repor
 			return false
 		}
 		return componentStart >= max(primaryStart-window.ColsBefore, 0) &&
-			componentStart < min(primaryEnd+window.ColsAfter, len(raw))
+			componentStart < min(primaryEnd+window.ColsAfter, raw.len())
 
 	case contextwindow.ModeBox:
 		if component.StartLine < primary.StartLine-window.LinesBefore ||

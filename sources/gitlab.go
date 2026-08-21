@@ -890,7 +890,7 @@ func (s *GitLab) projectAttributes(proj *gitlabProject, resource string) map[str
 // the returned yield in place of the original.
 func wrapGitLabYield(skip SkipFunc, attrs map[string]string, yield FragmentsFunc) FragmentsFunc {
 	var mu sync.Mutex
-	return func(fragment Fragment, err error) error {
+	return func(fragment *Fragment, err error) error {
 		if err == nil {
 			for k, v := range attrs {
 				if v == "" || fragment.Attr(k) != "" {
@@ -899,6 +899,7 @@ func wrapGitLabYield(skip SkipFunc, attrs map[string]string, yield FragmentsFunc
 				fragment.SetAttr(k, v)
 			}
 			if skip != nil && skip(fragment.Attributes) {
+				fragment.Release()
 				return nil
 			}
 		}
@@ -1051,8 +1052,8 @@ func (s *GitLab) scanIssues(ctx context.Context, proj *gitlabProject, yield Frag
 				continue
 			}
 			if s.Resources.Has(GitLabResourceTypeIssues) {
-				frag := Fragment{Raw: strings.TrimSpace(issue.Title + "\n" + issue.Description), Attributes: cloneAttrs(attrs)}
-				if err := yield(frag, nil); err != nil {
+				frag := Fragment{Raw: []byte(strings.TrimSpace(issue.Title + "\n" + issue.Description)), Attributes: cloneAttrs(attrs)}
+				if err := yield(&frag, nil); err != nil {
 					return false, err
 				}
 			}
@@ -1094,8 +1095,8 @@ func (s *GitLab) scanMRs(ctx context.Context, proj *gitlabProject, yield Fragmen
 				continue
 			}
 			if s.Resources.Has(GitLabResourceTypeMRs) {
-				frag := Fragment{Raw: strings.TrimSpace(mr.Title + "\n" + mr.Description), Attributes: cloneAttrs(attrs)}
-				if err := yield(frag, nil); err != nil {
+				frag := Fragment{Raw: []byte(strings.TrimSpace(mr.Title + "\n" + mr.Description)), Attributes: cloneAttrs(attrs)}
+				if err := yield(&frag, nil); err != nil {
 					return false, err
 				}
 			}
@@ -1136,8 +1137,8 @@ func (s *GitLab) scanItemNotes(ctx context.Context, projectID int, itemKind stri
 			if shouldSkipAttrs(s.ShouldSkip, attrs) {
 				continue
 			}
-			frag := Fragment{Raw: note.Body, Attributes: cloneAttrs(attrs)}
-			if err := yield(frag, nil); err != nil {
+			frag := Fragment{Raw: []byte(note.Body), Attributes: cloneAttrs(attrs)}
+			if err := yield(&frag, nil); err != nil {
 				return false, err
 			}
 		}
@@ -1202,8 +1203,8 @@ func (s *GitLab) scanReleases(ctx context.Context, proj *gitlabProject, yield Fr
 				continue
 			}
 			if rel.Description != "" {
-				frag := Fragment{Raw: rel.Description, Attributes: cloneAttrs(attrs)}
-				if err := yield(frag, nil); err != nil {
+				frag := Fragment{Raw: []byte(rel.Description), Attributes: cloneAttrs(attrs)}
+				if err := yield(&frag, nil); err != nil {
 					return false, err
 				}
 			}
@@ -1376,8 +1377,8 @@ func (s *GitLab) scanSingleIssue(ctx context.Context, proj *gitlabProject, iid i
 		return nil
 	}
 	if s.Resources.Has(GitLabResourceTypeIssues) {
-		frag := Fragment{Raw: strings.TrimSpace(issue.Title + "\n" + issue.Description), Attributes: cloneAttrs(attrs)}
-		if err := yield(frag, nil); err != nil {
+		frag := Fragment{Raw: []byte(strings.TrimSpace(issue.Title + "\n" + issue.Description)), Attributes: cloneAttrs(attrs)}
+		if err := yield(&frag, nil); err != nil {
 			return err
 		}
 	}
@@ -1405,8 +1406,8 @@ func (s *GitLab) scanSingleMR(ctx context.Context, proj *gitlabProject, iid int,
 		return nil
 	}
 	if s.Resources.Has(GitLabResourceTypeMRs) {
-		frag := Fragment{Raw: strings.TrimSpace(mr.Title + "\n" + mr.Description), Attributes: cloneAttrs(attrs)}
-		if err := yield(frag, nil); err != nil {
+		frag := Fragment{Raw: []byte(strings.TrimSpace(mr.Title + "\n" + mr.Description)), Attributes: cloneAttrs(attrs)}
+		if err := yield(&frag, nil); err != nil {
 			return err
 		}
 	}
@@ -1459,8 +1460,8 @@ func (s *GitLab) scanSingleRelease(ctx context.Context, proj *gitlabProject, tag
 		return nil
 	}
 	if rel.Description != "" && s.Resources.Has(GitLabResourceTypeReleases) {
-		frag := Fragment{Raw: rel.Description, Attributes: cloneAttrs(attrs)}
-		if err := yield(frag, nil); err != nil {
+		frag := Fragment{Raw: []byte(rel.Description), Attributes: cloneAttrs(attrs)}
+		if err := yield(&frag, nil); err != nil {
 			return err
 		}
 	}

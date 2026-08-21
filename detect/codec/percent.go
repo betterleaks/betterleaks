@@ -2,6 +2,14 @@ package codec
 
 // decodePercent decodes percent encoded strings
 func decodePercent(encodedValue string) string {
+	return decodePercentValue(encodedValue)
+}
+
+func decodePercentBytes(encodedValue []byte) string {
+	return decodePercentValue(encodedValue)
+}
+
+func decodePercentValue[T string | []byte](encodedValue T) string {
 	encLen := len(encodedValue)
 	decodedValue := make([]byte, encLen)
 	decIndex := 0

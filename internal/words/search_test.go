@@ -73,6 +73,9 @@ func TestHasMatchInList(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := HasMatchInList(tt.word, tt.minLen)
+			if gotAny := HasAnyMatchInList(tt.word, tt.minLen); gotAny != (got != nil) {
+				t.Errorf("HasAnyMatchInList() = %v, detailed match present = %v", gotAny, got != nil)
+			}
 			if tt.wantNil {
 				if got != nil {
 					t.Errorf("HasMatchInList() = %v, want nil", got)
@@ -101,5 +104,17 @@ func TestHasMatchInList(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHasAnyMatchInListDoesNotAllocateForASCIIInput(t *testing.T) {
+	_ = HasAnyMatchInList("xyzabc", 3) // load the dictionary before measuring
+	for _, input := range []string{"xyzabc", "XyZaBc", "PASSWORD"} {
+		allocs := testing.AllocsPerRun(100, func() {
+			_ = HasAnyMatchInList(input, 3)
+		})
+		if allocs != 0 {
+			t.Fatalf("HasAnyMatchInList(%q) allocations = %v, want 0", input, allocs)
+		}
 	}
 }

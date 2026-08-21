@@ -32,18 +32,8 @@ func GenericPassword() *config.Rule {
 		Filter: `// Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
 // from the evidence patterns below.
-let raw = finding["fragment_raw"];
-let beforeLines = split(raw[
-  max(finding["match_start_idx"] - 8192, 0):finding["match_start_idx"]
-], "\n");
-let afterLines = split(raw[
-  finding["match_end_idx"]:min(finding["match_end_idx"] + 8192, len(raw))
-], "\n");
-let nearbyContext =
-  join(beforeLines[max(len(beforeLines) - 7, 0):], "\n")
-  + "\n"
-  + join(afterLines[:min(len(afterLines), 7)], "\n");
-let linePrefix = beforeLines[len(beforeLines) - 1];
+let nearbyContext = finding["nearby_context"];
+let linePrefix = finding["line_prefix"];
 
 let hasAuthContext = filter.matchesAny(nearbyContext, [
   // Authentication and connection calls.

@@ -11,6 +11,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBufferPoolReservesReadAheadCapacity(t *testing.T) {
+	buf := getBuffer()
+	require.Len(t, *buf, defaultBufferSize)
+	require.GreaterOrEqual(t, cap(*buf), defaultBufferSize+maxPeekSize)
+	putBuffer(buf)
+
+	buf = getBuffer()
+	require.Len(t, *buf, defaultBufferSize)
+	putBuffer(buf)
+}
+
+func TestFileFragmentsYieldsCanonicalBytes(t *testing.T) {
+	source := &File{
+		Content: strings.NewReader("first\nsecond\n"),
+		Path:    "example.txt",
+	}
+	var got string
+	require.NoError(t, source.Fragments(t.Context(), func(fragment *Fragment, err error) error {
+		defer fragment.Release()
+		require.NoError(t, err)
+		got += string(fragment.Raw)
+		return nil
+	}))
+	require.Equal(t, "first\nsecond\n", got)
+}
+
 // panicReader panics on the first Read, emulating a decompressor that blows up
 // on malformed content after OpenReader already succeeded.
 type panicReader struct {
@@ -59,7 +85,7 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 				t.Context(),
 				&panicDecompressor{reader: pr},
 				strings.NewReader("irrelevant"),
-				func(Fragment, error) error { return nil },
+				func(*Fragment, error) error { return nil },
 			)
 		})
 
@@ -74,7 +100,7 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 				t.Context(),
 				&panicDecompressor{panicOnOpen: true},
 				strings.NewReader("irrelevant"),
-				func(Fragment, error) error { return nil },
+				func(*Fragment, error) error { return nil },
 			)
 		})
 	})
@@ -92,7 +118,7 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 					openErr: errors.New("invalid header"),
 				},
 				strings.NewReader("irrelevant"),
-				func(Fragment, error) error {
+				func(*Fragment, error) error {
 					yielded = true
 					return nil
 				},
@@ -112,7 +138,7 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 					reader: &closePanicReader{Reader: strings.NewReader("")},
 				},
 				strings.NewReader("irrelevant"),
-				func(Fragment, error) error { return nil },
+				func(*Fragment, error) error { return nil },
 			)
 		})
 	})
@@ -134,7 +160,7 @@ func TestFile_extractorFragments_recoversPanic(t *testing.T) {
 			t.Context(),
 			panicExtractor{},
 			strings.NewReader("irrelevant"),
-			func(Fragment, error) error { return nil },
+			func(*Fragment, error) error { return nil },
 		)
 	})
 }
@@ -153,7 +179,7 @@ func TestFile_Fragments_malformedRarDoesNotPanic(t *testing.T) {
 	}
 
 	require.NotPanics(t, func() {
-		err := s.Fragments(t.Context(), func(Fragment, error) error { return nil })
+		err := s.Fragments(t.Context(), func(*Fragment, error) error { return nil })
 		require.NoError(t, err)
 	})
 }
@@ -171,7 +197,7 @@ func TestFile_Fragments_malformedGzipDoesNotPanic(t *testing.T) {
 	}
 
 	require.NotPanics(t, func() {
-		err := s.Fragments(t.Context(), func(Fragment, error) error {
+		err := s.Fragments(t.Context(), func(*Fragment, error) error {
 			yielded = true
 			return nil
 		})

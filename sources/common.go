@@ -69,6 +69,22 @@ func shouldSkipPath(skip SkipFunc, path string) bool {
 	return false
 }
 
+// shouldSkipFilePath prefers the specialized path callback when available and
+// falls back to the general attribute callback for API compatibility.
+func shouldSkipFilePath(pathSkip PathSkipFunc, skip SkipFunc, path string) bool {
+	if pathSkip == nil {
+		return shouldSkipPath(skip, path)
+	}
+	if pathSkip(path) {
+		return true
+	}
+	// TODO: Remove this Windows workaround in v9 (gitleaks/gitleaks#1641).
+	if isWindows {
+		return pathSkip(filepath.ToSlash(path))
+	}
+	return false
+}
+
 // readUntilSafeBoundary consumes |f| until it finds two consecutive `\n` characters, up to |maxPeekSize|.
 // This hopefully avoids splitting. (https://github.com/gitleaks/gitleaks/issues/1651)
 func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *bytes.Buffer) error {
@@ -102,40 +118,59 @@ func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *byt
 		}
 	}
 
-	// If not, read ahead until we (hopefully) find some.
+	// If not, read ahead until we (hopefully) find some. Preserve the old
+	// cross-boundary behavior: only a newline at the very end of the initial
+	// chunk contributes to the forward scan's count.
 	newlineCount = 0
-	for {
-		data = peekBuf.Bytes()
-		// Check if the last character is a newline.
-		lastChar = data[len(data)-1]
-		if lastChar == '\n' {
-			newlineCount++
+	if data[len(data)-1] == '\n' {
+		newlineCount = 1
+	}
+	remaining := maxPeekSize - (peekBuf.Len() - n)
+	for remaining > 0 {
+		want := min(remaining, r.Size())
+		window, peekErr := r.Peek(want)
+		if len(window) == 0 {
+			if peekErr == nil || peekErr == io.EOF {
+				return nil
+			}
+			return peekErr
+		}
 
-			// Stop if two consecutive newlines are found
-			if newlineCount >= 2 {
+		consume := len(window)
+		foundBoundary := false
+		for i, char := range window {
+			switch {
+			case char == '\n':
+				newlineCount++
+				if newlineCount >= 2 {
+					consume = i + 1
+					foundBoundary = true
+				}
+			case isWhitespace[char]:
+				// Other whitespace does not reset the newline count.
+			default:
+				newlineCount = 0
+			}
+			if foundBoundary {
 				break
 			}
-		} else if isWhitespace[lastChar] {
-			// The presence of other whitespace characters (`\r`, ` `, `\t`) shouldn't reset the count.
-			// (Intentionally do nothing.)
-		} else {
-			newlineCount = 0 // Reset if a non-newline character is found
 		}
 
-		// Stop growing the buffer if it reaches maxSize
-		if (peekBuf.Len() - n) >= maxPeekSize {
-			break
+		_, _ = peekBuf.Write(window[:consume]) // bytes.Buffer.Write never errors.
+		discarded, discardErr := r.Discard(consume)
+		if discardErr != nil {
+			return discardErr
 		}
-
-		// Read additional data into a temporary buffer
-		b, err := r.ReadByte()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return err
+		if discarded != consume {
+			return io.ErrUnexpectedEOF
 		}
-		peekBuf.WriteByte(b)
+		remaining -= consume
+		if foundBoundary || peekErr == io.EOF {
+			return nil
+		}
+		if peekErr != nil && peekErr != bufio.ErrBufferFull {
+			return peekErr
+		}
 	}
 	return nil
 }
@@ -209,7 +244,7 @@ func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yiel
 		MaxArchiveDepth: max(1, opts.MaxArchiveDepth),
 		ShouldSkip:      opts.ShouldSkip,
 	}
-	err = file.Fragments(ctx, func(fragment Fragment, err error) error {
+	err = file.Fragments(ctx, func(fragment *Fragment, err error) error {
 		if err == nil {
 			for k, v := range opts.Attrs {
 				if k == AttrResource || fragment.Attr(k) == "" {

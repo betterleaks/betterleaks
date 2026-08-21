@@ -77,10 +77,12 @@ func runDetect(cmd *cobra.Command, args []string) {
 		findings, err = detector.DetectSource(
 			cmd.Context(), &sources.Files{
 				ShouldSkip:      detector.SkipFunc(),
+				ShouldSkipPath:  detector.PathSkipFunc(),
 				FollowSymlinks:  detector.FollowSymlinks,
 				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 				Path:            sourcePath,
 				Sema:            detector.Sema,
+				Workers:         20,
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 			},
 		)

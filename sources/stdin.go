@@ -22,7 +22,7 @@ func (s *Stdin) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		MaxArchiveDepth: s.MaxArchiveDepth,
 	}
 
-	return file.Fragments(ctx, func(fragment Fragment, err error) error {
+	return file.Fragments(ctx, func(fragment *Fragment, err error) error {
 		if len(s.Attributes) > 0 {
 			if fragment.Attributes == nil {
 				fragment.Attributes = make(map[string]string, len(s.Attributes))
@@ -31,6 +31,7 @@ func (s *Stdin) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 
 		if err == nil && s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+			fragment.Release()
 			return nil
 		}
 

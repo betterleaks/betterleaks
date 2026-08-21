@@ -18,6 +18,25 @@ Use `--help` for full flag descriptions. This page is for patterns.
 
 ---
 
+## Concurrency
+
+Source I/O and detection use separate fixed-size worker pools connected by a
+bounded queue:
+
+```sh
+betterleaks dir . --source-workers 16 --detect-workers 8
+```
+
+- `--source-workers` limits file-source tasks. `0` keeps the source's default.
+- `--detect-workers` limits workers scanning leased fragments. `0` uses
+  `GOMAXPROCS`.
+- `--validation-workers` independently controls live validation.
+
+Separating the stages bounds the number of fragment buffers retained at once
+and lets source I/O overlap detection without creating a goroutine per file.
+
+---
+
 ## `dir`
 
 Use `dir` for current filesystem state.

@@ -95,7 +95,7 @@ func TestCandidateBitmap(t *testing.T) {
 	require.Empty(t, d.DetectString("stale HIGHSECRET"))
 
 	// Cancellation after candidates are marked must not leak them into the next scan.
-	require.Empty(t, d.detectFragment(newCancelOnSecondCheck(), sources.Fragment{Raw: "cancel ALWAYSSECRET"}))
+	require.Empty(t, d.detectFragment(newCancelOnSecondCheck(), sources.Fragment{Raw: []byte("cancel ALWAYSSECRET")}))
 	require.Equal(t, []string{"always"}, findingRuleIDs(d.DetectString("ALWAYSSECRET")))
 
 	// One keyword selects multiple rules, multiple keywords select one rule,
@@ -333,7 +333,7 @@ func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 		detected := detector.DetectString(raw)
 		if len(path) > 0 {
 			detected = detector.Detect(sources.Fragment{
-				Raw:        raw,
+				Raw:        []byte(raw),
 				Attributes: map[string]string{sources.AttrPath: path[0]},
 			})
 		}
@@ -761,7 +761,7 @@ func TestGenericCredentialURI(t *testing.T) {
 		detected := detector.DetectString(raw)
 		if len(path) > 0 {
 			detected = detector.Detect(sources.Fragment{
-				Raw:        raw,
+				Raw:        []byte(raw),
 				Attributes: map[string]string{sources.AttrPath: path[0]},
 			})
 		}
@@ -1126,7 +1126,7 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	require.NoError(t, cfg.CompileFilters(nil))
 
 	d := NewDetector(cfg)
-	findings := d.Detect(sources.Fragment{Raw: "red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST"})
+	findings := d.Detect(sources.Fragment{Raw: []byte("red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST")})
 
 	require.Len(t, findings, 1)
 	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
@@ -1176,7 +1176,7 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 			d := NewDetector(cfg)
 			d.MaxDecodeDepth = 1
 
-			require.Len(t, d.Detect(sources.Fragment{Raw: raw}), tc.findings)
+			require.Len(t, d.Detect(sources.Fragment{Raw: []byte(raw)}), tc.findings)
 		})
 	}
 }
@@ -1193,7 +1193,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 		OrderedRules:   []string{rule.RuleID},
 	}
 
-	require.Empty(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "prefix\nSECRET"}))
+	require.Empty(t, NewDetector(cfg).Detect(sources.Fragment{Raw: []byte("prefix\nSECRET")}))
 }
 
 func TestFilterContextCanStayOnMatchLine(t *testing.T) {
@@ -1208,7 +1208,7 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 		OrderedRules:   []string{rule.RuleID},
 	}
 
-	require.Len(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
+	require.Len(t, NewDetector(cfg).Detect(sources.Fragment{Raw: []byte("other-line\nSECRET\nother-line")}), 1)
 }
 
 func TestDetect(t *testing.T) {
@@ -1233,7 +1233,7 @@ func TestDetect(t *testing.T) {
 		"valid allow comment (1)": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \"AKIALALEMEL33243OKIA\ // gitleaks:allow"`,
+				Raw: []byte(`awsToken := \"AKIALALEMEL33243OKIA\ // gitleaks:allow"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1242,11 +1242,11 @@ func TestDetect(t *testing.T) {
 		"valid allow comment (2)": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \
+				Raw: []byte(`awsToken := \
 
 		        \"AKIALALEMEL33243OKIA\ // gitleaks:allow"
 
-		        `,
+		        `),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1255,11 +1255,11 @@ func TestDetect(t *testing.T) {
 		"invalid allow comment": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \"AKIALALEMEL33243OKIA\"
+				Raw: []byte(`awsToken := \"AKIALALEMEL33243OKIA\"
 
 		                // gitleaks:allow"
 
-		                `,
+		                `),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1284,7 +1284,7 @@ func TestDetect(t *testing.T) {
 		"detect finding - aws": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \"AKIALALEMEL33843OLIA\"`,
+				Raw: []byte(`awsToken := \"AKIALALEMEL33843OLIA\"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1311,7 +1311,7 @@ func TestDetect(t *testing.T) {
 		"detect finding - duplicate secret on same line": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `#ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij...ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij`,
+				Raw: []byte(`#ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij...ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1351,7 +1351,7 @@ func TestDetect(t *testing.T) {
 		"detect finding - sidekiq env var": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `export BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;`,
+				Raw: []byte(`export BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.sh",
 				},
@@ -1376,7 +1376,7 @@ func TestDetect(t *testing.T) {
 		"detect finding - sidekiq env var, semicolon": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `echo hello1; export BUNDLE_ENTERPRISE__CONTRIBSYS__COM="cafebabe:deadbeef" && echo hello2`,
+				Raw: []byte(`echo hello1; export BUNDLE_ENTERPRISE__CONTRIBSYS__COM="cafebabe:deadbeef" && echo hello2`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.sh",
 				},
@@ -1401,7 +1401,7 @@ func TestDetect(t *testing.T) {
 		"detect finding - sidekiq url": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `url = "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:80/path?param1=true&param2=false#heading1"`,
+				Raw: []byte(`url = "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:80/path?param1=true&param2=false#heading1"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.sh",
 				},
@@ -1426,14 +1426,14 @@ func TestDetect(t *testing.T) {
 		"ignore finding - our config file": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw:        `awsToken := \"AKIALALEMEL33243OLIA\"`,
+				Raw:        []byte(`awsToken := \"AKIALALEMEL33243OLIA\"`),
 				Attributes: map[string]string{sources.AttrPath: filepath.Join(configPath, "simple.toml")},
 			},
 		},
 		"ignore finding - doesn't match path": {
 			cfgName: "generic_with_py_path",
 			fragment: sources.Fragment{
-				Raw: `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
+				Raw: []byte(`const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1442,7 +1442,7 @@ func TestDetect(t *testing.T) {
 		"detect finding - matches path,regex,entropy": {
 			cfgName: "generic_with_py_path",
 			fragment: sources.Fragment{
-				Raw: `const Discord_Public_Key = "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
+				Raw: []byte(`const Discord_Public_Key = "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.py",
 				},
@@ -1467,7 +1467,7 @@ func TestDetect(t *testing.T) {
 		"ignore finding - allowlist regex": {
 			cfgName: "generic_with_py_path",
 			fragment: sources.Fragment{
-				Raw: `const Discord_Public_Key = "load2523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
+				Raw: []byte(`const Discord_Public_Key = "load2523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.py",
 				},
@@ -1479,7 +1479,7 @@ func TestDetect(t *testing.T) {
 			cfgName:      "valid/rule_path_only",
 			baselinePath: ".baseline.json",
 			fragment: sources.Fragment{
-				Raw: `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
+				Raw: []byte(`const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`),
 				Attributes: map[string]string{
 					sources.AttrPath: ".baseline.json",
 				},
@@ -1488,7 +1488,7 @@ func TestDetect(t *testing.T) {
 		"rule - detect path ": {
 			cfgName: "valid/rule_path_only",
 			fragment: sources.Fragment{
-				Raw: `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
+				Raw: []byte(`const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.py",
 				},
@@ -1506,9 +1506,9 @@ func TestDetect(t *testing.T) {
 		"rule - match based on entropy": {
 			cfgName: "valid/rule_entropy_group",
 			fragment: sources.Fragment{
-				Raw: `const Discord_Public_Key = "e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"
+				Raw: []byte(`const Discord_Public_Key = "e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"
 //const Discord_Public_Key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-`,
+`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1535,7 +1535,7 @@ func TestDetect(t *testing.T) {
 		"global allowlist - ignore regex": {
 			cfgName: "valid/allowlist_global_regex",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \"AKIALALEMEL33243OLIA\"`,
+				Raw: []byte(`awsToken := \"AKIALALEMEL33243OLIA\"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1544,9 +1544,9 @@ func TestDetect(t *testing.T) {
 		"global allowlist - detect, doesn't match all conditions": {
 			cfgName: "valid/allowlist_global_multiple",
 			fragment: sources.Fragment{
-				Raw: `
+				Raw: []byte(`
 const token = "mockSecret";
-// const token = "changeit";`,
+// const token = "changeit";`),
 				Attributes: map[string]string{
 					sources.AttrPath: "config.txt",
 				},
@@ -1570,7 +1570,7 @@ const token = "mockSecret";
 		"global allowlist - ignore, matches all conditions": {
 			cfgName: "valid/allowlist_global_multiple",
 			fragment: sources.Fragment{
-				Raw: `token := "mockSecret";`,
+				Raw: []byte(`token := "mockSecret";`),
 				Attributes: map[string]string{
 					sources.AttrPath: "node_modules/config.txt",
 				},
@@ -1579,7 +1579,7 @@ const token = "mockSecret";
 		"global allowlist - detect path, doesn't match all conditions": {
 			cfgName: "valid/allowlist_global_multiple",
 			fragment: sources.Fragment{
-				Raw: `var token = "fakeSecret";`,
+				Raw: []byte(`var token = "fakeSecret";`),
 				Attributes: map[string]string{
 					sources.AttrPath: "node_modules/config.txt",
 				},
@@ -1603,7 +1603,7 @@ const token = "mockSecret";
 		"allowlist - ignore commit": {
 			cfgName: "valid/allowlist_rule_commit",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \"AKIALALEMEL33243OLIA\"`,
+				Raw: []byte(`awsToken := \"AKIALALEMEL33243OLIA\"`),
 				Attributes: map[string]string{
 					sources.AttrPath:   "tmp.go",
 					sources.AttrGitSHA: "allowthiscommit",
@@ -1613,7 +1613,7 @@ const token = "mockSecret";
 		"allowlist - ignore path": {
 			cfgName: "valid/allowlist_rule_path",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \"AKIALALEMEL33243OLIA\"`,
+				Raw: []byte(`awsToken := \"AKIALALEMEL33243OLIA\"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1622,7 +1622,7 @@ const token = "mockSecret";
 		"allowlist - ignore path when extending": {
 			cfgName: "valid/allowlist_rule_extend_default",
 			fragment: sources.Fragment{
-				Raw: `token = "aebfab88-7596-481d-82e8-c60c8f7de0c0"`,
+				Raw: []byte(`token = "aebfab88-7596-481d-82e8-c60c8f7de0c0"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "path/to/your/problematic/file.js",
 				},
@@ -1631,7 +1631,7 @@ const token = "mockSecret";
 		"allowlist - ignore regex": {
 			cfgName: "valid/allowlist_rule_regex",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \"AKIALALEMEL33243OLIA\"`,
+				Raw: []byte(`awsToken := \"AKIALALEMEL33243OLIA\"`),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1640,7 +1640,7 @@ const token = "mockSecret";
 		"fragment level composite": {
 			cfgName: "composite",
 			fragment: sources.Fragment{
-				Raw: multili,
+				Raw: []byte(multili),
 			},
 			expectedFindings: []report.Finding{
 				{
@@ -1663,7 +1663,7 @@ const token = "mockSecret";
 		"detect encoded": {
 			cfgName: "encoded",
 			fragment: sources.Fragment{
-				Raw: encodedTestValues,
+				Raw: []byte(encodedTestValues),
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -3568,7 +3568,7 @@ let password = 'Summer2024!';`
 			require.NoError(t, err)
 
 			f := tc.fragment
-			f.Raw = raw
+			f.Raw = []byte(raw)
 
 			actual := d.detectFragmentWithRule(f, raw, rule, []*codec.EncodedSegment{}, nil)
 			compare(t, actual, tc.expected)
@@ -3663,7 +3663,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		},
 		"unix regex+path rule - windows path separator": {
 			fragment: sources.Fragment{
-				Raw: `<password>s3cr3t</password>`,
+				Raw: []byte(`<password>s3cr3t</password>`),
 				Attributes: map[string]string{
 					sources.AttrPath: `.m2/settings.xml`,
 				},
@@ -3713,7 +3713,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		},
 		"windows regex+path rule - windows path separator": {
 			fragment: sources.Fragment{
-				Raw: `<password>s3cr3t</password>`,
+				Raw: []byte(`<password>s3cr3t</password>`),
 				Attributes: map[string]string{
 					sources.AttrPath: `.m2/settings.xml`,
 				},
@@ -3732,7 +3732,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	require.NoError(t, err)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{}, nil)
+			actual := d.detectFragmentWithRule(test.fragment, string(test.fragment.Raw), test.rule, []*codec.EncodedSegment{}, nil)
 			compare(t, actual, test.expected)
 		})
 	}
@@ -3747,7 +3747,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 		// unix
 		"unix path separator - unix rule - OR allowlist path-only": {
 			fragment: sources.Fragment{
-				Raw: `value: "s3cr3t"`,
+				Raw: []byte(`value: "s3cr3t"`),
 				Attributes: map[string]string{
 					sources.AttrPath: `ignoreme/unix.txt`,
 				},
@@ -3765,7 +3765,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 		},
 		"unix path separator - windows rule - OR allowlist path-only": {
 			fragment: sources.Fragment{
-				Raw: `value: "s3cr3t"`,
+				Raw: []byte(`value: "s3cr3t"`),
 				Attributes: map[string]string{
 					sources.AttrPath: `ignoreme/unix.txt`,
 				},
@@ -3797,7 +3797,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 		},
 		"unix path separator - unix rule - AND allowlist path+stopwords": {
 			fragment: sources.Fragment{
-				Raw: `value: "f4k3s3cr3t"`,
+				Raw: []byte(`value: "f4k3s3cr3t"`),
 				Attributes: map[string]string{
 					sources.AttrPath: `ignoreme/unix.txt`,
 				},
@@ -3817,7 +3817,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 		},
 		"unix path separator - windows rule - AND allowlist path+stopwords": {
 			fragment: sources.Fragment{
-				Raw: `value: "f4k3s3cr3t"`,
+				Raw: []byte(`value: "f4k3s3cr3t"`),
 				Attributes: map[string]string{
 					sources.AttrPath: `ignoreme/unix.txt`,
 				},
@@ -3852,7 +3852,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 		// windows
 		"windows path separator - unix rule - OR allowlist path-only": {
 			fragment: sources.Fragment{
-				Raw: `value: "s3cr3t"`,
+				Raw: []byte(`value: "s3cr3t"`),
 				Attributes: map[string]string{
 					sources.AttrPath: `ignoreme/windows.txt`,
 				},
@@ -3870,7 +3870,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 		},
 		"windows path separator - windows rule - OR allowlist path-only": {
 			fragment: sources.Fragment{
-				Raw: `value: "s3cr3t"`,
+				Raw: []byte(`value: "s3cr3t"`),
 				Attributes: map[string]string{
 					sources.AttrPath: `ignoreme/windows.txt`,
 				},
@@ -3902,7 +3902,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 		},
 		"windows path separator - unix rule - AND allowlist path+stopwords": {
 			fragment: sources.Fragment{
-				Raw: `value: "f4k3s3cr3t"`,
+				Raw: []byte(`value: "f4k3s3cr3t"`),
 				Attributes: map[string]string{
 					sources.AttrPath: `ignoreme/unix.txt`,
 				},
@@ -3922,7 +3922,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 		},
 		"windows path separator - windows rule - AND allowlist path+stopwords": {
 			fragment: sources.Fragment{
-				Raw: `value: "f4k3s3cr3t"`,
+				Raw: []byte(`value: "f4k3s3cr3t"`),
 				Attributes: map[string]string{
 					sources.AttrPath: `ignoreme/unix.txt`,
 				},
@@ -3968,7 +3968,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			require.NoError(t, cfg.CompileFilters(nil))
 			rule := cfg.Rules[test.rule.RuleID]
 
-			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, rule, []*codec.EncodedSegment{}, nil)
+			actual := d.detectFragmentWithRule(test.fragment, string(test.fragment.Raw), rule, []*codec.EncodedSegment{}, nil)
 			compare(t, actual, test.expected)
 		})
 	}

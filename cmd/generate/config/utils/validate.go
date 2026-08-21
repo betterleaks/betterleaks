@@ -44,7 +44,7 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 	d := createSingleRuleDetector(r)
 	for path, tp := range truePositives {
 		f := sources.Fragment{
-			Raw: tp,
+			Raw: []byte(tp),
 			Attributes: map[string]string{
 				sources.AttrPath: path,
 			},
@@ -60,7 +60,7 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 	}
 	for path, fp := range falsePositives {
 		f := sources.Fragment{
-			Raw: fp,
+			Raw: []byte(fp),
 			Attributes: map[string]string{
 				sources.AttrPath: path,
 			},

@@ -3,6 +3,8 @@ package ahocorasick
 import (
 	"fmt"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
@@ -25,6 +27,61 @@ func TestVisitUnicodeSimpleFoldOffsets(t *testing.T) {
 		return true
 	})
 	require.Equal(t, [][3]int{{0, 0, len("KEY")}, {1, len("KEY "), len("KEY ſecret")}}, got)
+}
+
+func TestFoldRuneASCIIExhaustivelyMatchesUnicodeSimpleFold(t *testing.T) {
+	reference := func(r rune) (byte, bool) {
+		for next := r; ; next = unicode.SimpleFold(next) {
+			if next < utf8.RuneSelf {
+				return fold(byte(next), true), true
+			}
+			if folded := unicode.SimpleFold(next); folded == r {
+				return 0, false
+			}
+		}
+	}
+	for r := rune(utf8.RuneSelf); r <= utf8.MaxRune; r++ {
+		got, gotOK := foldRuneASCII(r)
+		want, wantOK := reference(r)
+		if got != want || gotOK != wantOK {
+			t.Fatalf("foldRuneASCII(%U) = (%q, %v), want (%q, %v)", r, got, gotOK, want, wantOK)
+		}
+	}
+}
+
+func TestVisitBytesMatchesStringOffsets(t *testing.T) {
+	m := Compile([]string{"key", "secret", "hers"}, true)
+	text := "KEY uſecret hers"
+	var fromString, fromBytes [][3]int
+	m.Visit(text, func(id, start, end int) bool {
+		fromString = append(fromString, [3]int{id, start, end})
+		return true
+	})
+	m.VisitBytes([]byte(text), func(id, start, end int) bool {
+		fromBytes = append(fromBytes, [3]int{id, start, end})
+		return true
+	})
+	require.Equal(t, fromString, fromBytes)
+}
+
+func TestVisitIDsMatchesOffsetVisitors(t *testing.T) {
+	m := Compile([]string{"key", "secret", "hers"}, true)
+	text := "KEY uſecret hers"
+	var withOffsets, fromString, fromBytes []int
+	m.Visit(text, func(id, _, _ int) bool {
+		withOffsets = append(withOffsets, id)
+		return true
+	})
+	m.VisitIDs(text, func(id int) bool {
+		fromString = append(fromString, id)
+		return true
+	})
+	m.VisitIDsBytes([]byte(text), func(id int) bool {
+		fromBytes = append(fromBytes, id)
+		return true
+	})
+	require.Equal(t, withOffsets, fromString)
+	require.Equal(t, withOffsets, fromBytes)
 }
 
 func TestVisitStableIDsAndStop(t *testing.T) {
@@ -55,6 +112,14 @@ func TestVisitASCIIAllocations(t *testing.T) {
 	m := Compile([]string{"needle"}, true)
 	allocs := testing.AllocsPerRun(100, func() {
 		m.Visit("haystack NEEDLE haystack", func(_, _, _ int) bool { return true })
+	})
+	require.Zero(t, allocs)
+	allocs = testing.AllocsPerRun(100, func() {
+		m.VisitBytes([]byte("haystack NEEDLE haystack"), func(_, _, _ int) bool { return true })
+	})
+	require.Zero(t, allocs)
+	allocs = testing.AllocsPerRun(100, func() {
+		m.VisitIDsBytes([]byte("haystack NEEDLE haystack"), func(_ int) bool { return true })
 	})
 	require.Zero(t, allocs)
 }

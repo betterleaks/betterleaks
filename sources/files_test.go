@@ -1,15 +1,77 @@
 package sources
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestFilesWorkerPoolFragments(t *testing.T) {
+	root := t.TempDir()
+	want := make(map[string]string)
+	for _, name := range []string{"one.txt", "two.txt", "three.txt", "four.txt"} {
+		content := "content for " + name
+		path := filepath.Join(root, name)
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+		want[path] = content
+	}
+
+	got := make(map[string]string)
+	var gotMu sync.Mutex
+	source := &Files{Path: root, Workers: 2}
+	err := source.Fragments(t.Context(), func(fragment *Fragment, err error) error {
+		defer fragment.Release()
+		if err != nil {
+			return err
+		}
+		gotMu.Lock()
+		got[fragment.Attr(AttrPath)] = string(fragment.Raw)
+		gotMu.Unlock()
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+func TestFilesWorkerPoolReturnsYieldErrors(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o600))
+	wantErr := errors.New("stop this file")
+	source := &Files{Path: root, Workers: 2}
+	err := source.Fragments(t.Context(), func(fragment *Fragment, _ error) error {
+		fragment.Release()
+		return wantErr
+	})
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestFilesScanTargetsPrefersPathSkipFunc(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o600))
+
+	var pathCalls, fallbackCalls atomic.Int64
+	source := &Files{
+		Path: root,
+		ShouldSkipPath: func(string) bool {
+			pathCalls.Add(1)
+			return false
+		},
+		ShouldSkip: func(map[string]string) bool {
+			fallbackCalls.Add(1)
+			return false
+		},
+	}
+	require.NoError(t, source.scanTargets(t.Context(), func(ScanTarget, error) error { return nil }))
+	require.Positive(t, pathCalls.Load())
+	require.Zero(t, fallbackCalls.Load())
+}
 
 func TestFilesScanTargetsPathsMatchFilepathWalkDir(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "root")

@@ -53,24 +53,28 @@ func init() {
 var (
 	encodings = []*encoding{
 		{
-			kind:       percentKind,
-			decode:     decodePercent,
-			precedence: 4,
+			kind:        percentKind,
+			decode:      decodePercent,
+			decodeBytes: decodePercentBytes,
+			precedence:  4,
 		},
 		{
-			kind:       unicodeKind,
-			decode:     decodeUnicode,
-			precedence: 3,
+			kind:        unicodeKind,
+			decode:      decodeUnicode,
+			decodeBytes: decodeUnicodeBytes,
+			precedence:  3,
 		},
 		{
-			kind:       hexKind,
-			decode:     decodeHex,
-			precedence: 2,
+			kind:        hexKind,
+			decode:      decodeHex,
+			decodeBytes: decodeHexBytes,
+			precedence:  2,
 		},
 		{
-			kind:       base64Kind,
-			decode:     decodeBase64,
-			precedence: 1,
+			kind:        base64Kind,
+			decode:      decodeBase64,
+			decodeBytes: decodeBase64Bytes,
+			precedence:  1,
 		},
 	}
 )
@@ -128,19 +132,60 @@ type encoding struct {
 	kind encodingKind
 	// take the match and return the decoded value
 	decode func(string) string
+	// decodeBytes avoids converting every byte-oriented lookalike to a string.
+	decodeBytes func([]byte) string
 	// determine which encoding should win out when two overlap
 	precedence int
 }
 
-// findEncodingMatches finds as many encodings as it can for this pass
-// using a single-pass byte-level scanner instead of regex.
-func findEncodingMatches(data string) []encodingMatch {
-	n := len(data)
-	if n == 0 {
-		return nil
+// encodingMatchFilter applies the same immediate-neighbor precedence rules as
+// the former post-processing slice. Keeping one pending match provides the
+// necessary lookahead without retaining every base64-like token in a fragment.
+type encodingMatchFilter struct {
+	pending    encodingMatch
+	hasPending bool
+	suppressed bool
+}
+
+func (f *encodingMatchFilter) add(match encodingMatch) (encodingMatch, bool) {
+	if !f.hasPending {
+		f.pending = match
+		f.hasPending = true
+		return encodingMatch{}, false
 	}
 
-	var all []encodingMatch
+	ready := f.pending
+	nextSuppressesPending := f.pending.overlaps(match.startEnd) &&
+		match.encoding.precedence > f.pending.encoding.precedence
+	emit := !f.suppressed && !nextSuppressesPending
+
+	f.suppressed = match.overlaps(f.pending.startEnd) &&
+		f.pending.encoding.precedence > match.encoding.precedence
+	f.pending = match
+	return ready, emit
+}
+
+func (f *encodingMatchFilter) finish() (encodingMatch, bool) {
+	return f.pending, f.hasPending && !f.suppressed
+}
+
+// visitEncodingMatches sends every precedence-filtered encoding match to a
+// decoder collector using a single-pass byte-level scanner instead of regex.
+type encodingText interface {
+	string | []byte
+}
+
+type encodingMatchCollector interface {
+	add(match encodingMatch)
+}
+
+func visitEncodingMatches[T encodingText, C encodingMatchCollector](data T, collector C) {
+	n := len(data)
+	if n == 0 {
+		return
+	}
+
+	var matches encodingMatchFilter
 	i := 0
 
 	for i < n {
@@ -160,10 +205,12 @@ func findEncodingMatches(data string) []encodingMatch {
 				}
 				j++
 			}
-			all = append(all, encodingMatch{
+			if ready, ok := matches.add(encodingMatch{
 				encoding: encodings[0], // percent
 				startEnd: startEnd{start, lastPercentEnd},
-			})
+			}); ok {
+				collector.add(ready)
+			}
 			i = lastPercentEnd
 			continue
 		}
@@ -202,10 +249,12 @@ func findEncodingMatches(data string) []encodingMatch {
 					}
 					break
 				}
-				all = append(all, encodingMatch{
+				if ready, ok := matches.add(encodingMatch{
 					encoding: encodings[1], // unicode
 					startEnd: startEnd{start, end},
-				})
+				}); ok {
+					collector.add(ready)
+				}
 				i = end
 				continue
 			}
@@ -247,10 +296,12 @@ func findEncodingMatches(data string) []encodingMatch {
 						}
 						break
 					}
-					all = append(all, encodingMatch{
+					if ready, ok := matches.add(encodingMatch{
 						encoding: encodings[1], // unicode
 						startEnd: startEnd{start, end},
-					})
+					}); ok {
+						collector.add(ready)
+					}
 					i = end
 					matched = true
 				}
@@ -288,10 +339,12 @@ func findEncodingMatches(data string) []encodingMatch {
 						}
 						break
 					}
-					all = append(all, encodingMatch{
+					if ready, ok := matches.add(encodingMatch{
 						encoding: encodings[1], // unicode
 						startEnd: startEnd{start, end},
-					})
+					}); ok {
+						collector.add(ready)
+					}
 					i = end
 					matched = true
 				}
@@ -324,16 +377,20 @@ func findEncodingMatches(data string) []encodingMatch {
 
 			if allHex && runLen >= 32 {
 				// Emit as hex match (without trailing =)
-				all = append(all, encodingMatch{
+				if ready, ok := matches.add(encodingMatch{
 					encoding: encodings[2], // hex
 					startEnd: startEnd{start, start + runLen},
-				})
+				}); ok {
+					collector.add(ready)
+				}
 			} else if runLen >= 16 {
 				// Emit as base64 match (include trailing =)
-				all = append(all, encodingMatch{
+				if ready, ok := matches.add(encodingMatch{
 					encoding: encodings[3], // base64
 					startEnd: startEnd{start, end},
-				})
+				}); ok {
+					collector.add(ready)
+				}
 			}
 			continue
 		}
@@ -341,28 +398,7 @@ func findEncodingMatches(data string) []encodingMatch {
 		i++
 	}
 
-	totalMatches := len(all)
-	if totalMatches <= 1 {
-		return all
+	if ready, ok := matches.finish(); ok {
+		collector.add(ready)
 	}
-
-	// filter out lower precedence ones that overlap their neighbors
-	filtered := make([]encodingMatch, 0, len(all))
-	for i, m := range all {
-		if i > 0 {
-			prev := all[i-1]
-			if m.overlaps(prev.startEnd) && prev.encoding.precedence > m.encoding.precedence {
-				continue // skip this one
-			}
-		}
-		if i+1 < totalMatches {
-			next := all[i+1]
-			if m.overlaps(next.startEnd) && next.encoding.precedence > m.encoding.precedence {
-				continue // skip this one
-			}
-		}
-		filtered = append(filtered, m)
-	}
-
-	return filtered
 }

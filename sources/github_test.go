@@ -36,8 +36,8 @@ func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
 	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4), Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
-	var fragments []Fragment
-	err := src.scanRepo(t.Context(), nil, repo, func(fragment Fragment, err error) error {
+	var fragments []*Fragment
+	err := src.scanRepo(t.Context(), nil, repo, func(fragment *Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -55,8 +55,8 @@ func TestGitHub_scanRepo_prefilterUsesMergedRepoAttrsOnFragments(t *testing.T) {
 	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4), Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
-	var fragments []Fragment
-	err := src.scanRepo(t.Context(), nil, repo, func(fragment Fragment, err error) error {
+	var fragments []*Fragment
+	err := src.scanRepo(t.Context(), nil, repo, func(fragment *Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -74,15 +74,15 @@ func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	src := &GitHub{ShouldSkip: skip, Sema: semgroup.NewGroup(t.Context(), 4), Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
-	var fragments []Fragment
-	err := src.scanRepo(t.Context(), nil, repo, func(fragment Fragment, err error) error {
+	var fragments []*Fragment
+	err := src.scanRepo(t.Context(), nil, repo, func(fragment *Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, fragments)
-	require.Contains(t, fragments[0].Raw, "AKIALALEMEL33243OLIA")
+	require.Contains(t, string(fragments[0].Raw), "AKIALALEMEL33243OLIA")
 	require.Equal(t, "repo", fragments[0].Attr(AttrGitHubRepo))
 	require.Equal(t, "owner", fragments[0].Attr(AttrGitHubOwner))
 	require.NotEmpty(t, fragments[0].Attr(AttrPath))
@@ -97,8 +97,8 @@ func TestGitHub_scanRepo_skipRepoGitDoesNotCloneOrScanHistory(t *testing.T) {
 	}
 	repo := newTestGitHubRepo(filepath.Join(t.TempDir(), "does-not-exist"))
 
-	var fragments []Fragment
-	err := src.scanRepo(t.Context(), nil, repo, func(fragment Fragment, err error) error {
+	var fragments []*Fragment
+	err := src.scanRepo(t.Context(), nil, repo, func(fragment *Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -138,9 +138,9 @@ func TestGitHub_scanURL_gistDoesNotPanicAndStampsAttrs(t *testing.T) {
 	}
 	client := src.newClient(t.Context())
 
-	var fragments []Fragment
+	var fragments []*Fragment
 	require.NotPanics(t, func() {
-		err := src.scanURL(t.Context(), client, src.URL, func(fragment Fragment, err error) error {
+		err := src.scanURL(t.Context(), client, src.URL, func(fragment *Fragment, err error) error {
 			require.NoError(t, err)
 			fragments = append(fragments, fragment)
 			return nil
@@ -154,7 +154,7 @@ func TestGitHub_scanURL_gistDoesNotPanicAndStampsAttrs(t *testing.T) {
 	require.Equal(t, "user", fragments[0].Attr(AttrGitHubGistOwner))
 	require.Equal(t, "secret.txt", fragments[0].Attr(AttrGitHubGistFilename))
 	require.Equal(t, "https://gist.github.example.com/user/abc123def456", fragments[0].Attr(AttrURL))
-	require.Contains(t, fragments[0].Raw, "AKIALALEMEL33243OLIA")
+	require.Contains(t, string(fragments[0].Raw), "AKIALALEMEL33243OLIA")
 }
 
 func TestGitHub_emitIssueAndComments_stampsAttrs(t *testing.T) {
@@ -178,9 +178,9 @@ func TestGitHub_emitIssueAndComments_stampsAttrs(t *testing.T) {
 		},
 	}
 
-	var fragments []Fragment
+	var fragments []*Fragment
 	var commentCount int
-	err := src.emitIssueAndComments(t.Context(), "owner", "repo", issue, &commentCount, func(fragment Fragment, err error) error {
+	err := src.emitIssueAndComments(t.Context(), "owner", "repo", issue, &commentCount, func(fragment *Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -192,13 +192,13 @@ func TestGitHub_emitIssueAndComments_stampsAttrs(t *testing.T) {
 	require.Equal(t, ResourceGitHubIssue, fragments[0].Attr(AttrResource))
 	require.Equal(t, "42", fragments[0].Attr(AttrGitHubIssueNumber))
 	require.Equal(t, issueURL, fragments[0].Attr(AttrURL))
-	require.Contains(t, fragments[0].Raw, "Issue title")
+	require.Contains(t, string(fragments[0].Raw), "Issue title")
 
 	require.Equal(t, ResourceGitHubComment, fragments[1].Attr(AttrResource))
 	require.Equal(t, "101", fragments[1].Attr(AttrGitHubCommentID))
 	require.Equal(t, "42", fragments[1].Attr(AttrGitHubIssueNumber))
 	require.Equal(t, issueURL, fragments[1].Attr(AttrURL))
-	require.Equal(t, "Issue comment", fragments[1].Raw)
+	require.Equal(t, "Issue comment", string(fragments[1].Raw))
 }
 
 func TestGithubRetryDecider_PrimaryRateLimit403(t *testing.T) {
@@ -259,9 +259,9 @@ func TestGitHub_emitPRAndComments_stampsPRAndReviewThreadAttrs(t *testing.T) {
 		},
 	}
 
-	var fragments []Fragment
+	var fragments []*Fragment
 	var commentCount int
-	err := src.emitPRAndComments(t.Context(), "owner", "repo", pr, &commentCount, func(fragment Fragment, err error) error {
+	err := src.emitPRAndComments(t.Context(), "owner", "repo", pr, &commentCount, func(fragment *Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -314,9 +314,9 @@ func TestGitHub_emitDiscussion_stampsDiscussionCommentAndReplyAttrs(t *testing.T
 		},
 	}
 
-	var fragments []Fragment
+	var fragments []*Fragment
 	var commentCount int
-	err := src.emitDiscussion(t.Context(), "owner", "repo", discussion, &commentCount, func(fragment Fragment, err error) error {
+	err := src.emitDiscussion(t.Context(), "owner", "repo", discussion, &commentCount, func(fragment *Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -353,8 +353,8 @@ func TestGitHub_emitRelease_stampsReleaseAttrs(t *testing.T) {
 	}
 
 	src := &GitHub{Resources: GitHubResourceSet{GitHubResourceTypeReleases: true}}
-	var fragments []Fragment
-	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment Fragment, err error) error {
+	var fragments []*Fragment
+	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment *Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -364,7 +364,7 @@ func TestGitHub_emitRelease_stampsReleaseAttrs(t *testing.T) {
 	require.Equal(t, ResourceGitHubRelease, fragments[0].Attr(AttrResource))
 	require.Equal(t, tag, fragments[0].Attr(AttrGitHubReleaseTag))
 	require.Equal(t, htmlURL, fragments[0].Attr(AttrURL))
-	require.Contains(t, fragments[0].Raw, releaseName)
+	require.Contains(t, string(fragments[0].Raw), releaseName)
 }
 
 func TestGitHub_emitRelease_prefilterSkipsReleaseByTag(t *testing.T) {
@@ -383,7 +383,7 @@ func TestGitHub_emitRelease_prefilterSkipsReleaseByTag(t *testing.T) {
 	}
 
 	called := false
-	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment Fragment, err error) error {
+	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment *Fragment, err error) error {
 		called = true
 		return nil
 	})
@@ -428,8 +428,8 @@ func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 		AttrGitHubActionsEvent:   run.GetEvent(),
 		AttrResource:             ResourceGitHubActions,
 	}
-	var fragments []Fragment
-	err = src.downloadAndScan(t.Context(), zipURL.String(), nil, zipPath, actionsAttrs, "", func(fragment Fragment, err error) error {
+	var fragments []*Fragment
+	err = src.downloadAndScan(t.Context(), zipURL.String(), nil, zipPath, actionsAttrs, "", func(fragment *Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -443,7 +443,7 @@ func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 	require.Equal(t, runName, fragment.Attr(AttrGitHubActionsRunName))
 	require.Equal(t, runURL, fragment.Attr(AttrGitHubActionsRunURL))
 	require.Equal(t, event, fragment.Attr(AttrGitHubActionsEvent))
-	require.Contains(t, fragment.Raw, "AKIALALEMEL33243OLIA")
+	require.Contains(t, string(fragment.Raw), "AKIALALEMEL33243OLIA")
 	require.Contains(t, fragment.Attr(AttrPath), "actions/logs")
 }
 
@@ -485,7 +485,7 @@ func TestGitHub_downloadAndScan_bearerToken(t *testing.T) {
 			// Token field on src is intentionally set to a value that would
 			// fail the empty-token assertion if it were used by mistake.
 			src := &GitHub{Token: "ghp_must_not_leak", MaxArchiveDepth: 2}
-			err := src.downloadAndScan(t.Context(), server.URL+"/blob.zip", nil, "p/blob.zip", nil, tc.token, func(_ Fragment, err error) error {
+			err := src.downloadAndScan(t.Context(), server.URL+"/blob.zip", nil, "p/blob.zip", nil, tc.token, func(_ *Fragment, err error) error {
 				return err
 			})
 			require.NoError(t, err)
@@ -540,7 +540,7 @@ func TestGitHub_scanActions_startsLogsBeforeWorkflowPaginationCompletes(t *testi
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- src.scanActions(t.Context(), client, repo, func(Fragment, error) error { return nil })
+		errCh <- src.scanActions(t.Context(), client, repo, func(*Fragment, error) error { return nil })
 	}()
 
 	select {
@@ -631,7 +631,7 @@ func TestGitHub_scanActions_startsArtifactsBeforeWorkflowPaginationCompletes(t *
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- src.scanActions(t.Context(), client, repo, func(Fragment, error) error { return nil })
+		errCh <- src.scanActions(t.Context(), client, repo, func(*Fragment, error) error { return nil })
 	}()
 
 	select {
@@ -759,7 +759,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 		if runtime.GOOS == "windows" {
 			t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 		}
-		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, fmt.Sprintf("%s", out))
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
 }
 
@@ -848,7 +848,7 @@ func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 		Token:     "tok",
 		Resources: GitHubResourceSet{GitHubResourceTypeReleases: true},
 	}
-	err := src.Fragments(t.Context(), func(_ Fragment, _ error) error { return nil })
+	err := src.Fragments(t.Context(), func(_ *Fragment, _ error) error { return nil })
 	require.NoError(t, err)
 
 	mu.Lock()
@@ -920,7 +920,7 @@ func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
 		Resources: GitHubResourceSet{GitHubResourceTypeReleases: true},
 	}
 
-	yield := func(_ Fragment, _ error) error {
+	yield := func(_ *Fragment, _ error) error {
 		mu.Lock()
 		if done {
 			yieldAfterDone = true

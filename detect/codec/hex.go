@@ -33,6 +33,14 @@ func init() {
 
 // decodeHex decodes hex data
 func decodeHex(encodedValue string) string {
+	return decodeHexValue(encodedValue)
+}
+
+func decodeHexBytes(encodedValue []byte) string {
+	return decodeHexValue(encodedValue)
+}
+
+func decodeHexValue[T string | []byte](encodedValue T) string {
 	size := len(encodedValue)
 	// hex should have two characters per byte
 	if size%2 != 0 {

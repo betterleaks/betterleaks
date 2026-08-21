@@ -6,6 +6,7 @@ import (
 	"math"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
@@ -127,11 +128,36 @@ func shannonEntropy(data string) (entropy float64) {
 		return 0
 	}
 
+	var asciiCounts [utf8.RuneSelf]int
+	var asciiSeen [utf8.RuneSelf]byte
+	seen := 0
+	for i := 0; i < len(data); i++ {
+		char := data[i]
+		if char >= utf8.RuneSelf {
+			return shannonEntropyRunes(data)
+		}
+		if asciiCounts[char] == 0 {
+			asciiSeen[seen] = char
+			seen++
+		}
+		asciiCounts[char]++
+	}
+
+	invLength := 1.0 / float64(len(data))
+	for _, char := range asciiSeen[:seen] {
+		freq := float64(asciiCounts[char]) * invLength
+		entropy -= freq * math.Log2(freq)
+	}
+	return entropy
+}
+
+func shannonEntropyRunes(data string) float64 {
 	charCounts := make(map[rune]int)
 	for _, char := range data {
 		charCounts[char]++
 	}
 
+	entropy := 0.0
 	invLength := 1.0 / float64(len(data))
 	for _, count := range charCounts {
 		freq := float64(count) * invLength
@@ -143,13 +169,36 @@ func shannonEntropy(data string) (entropy float64) {
 
 // filter will dedupe and redact findings
 func filter(findings []report.Finding) []report.Finding {
+	// One finding cannot duplicate or outrank itself. This is the overwhelmingly
+	// common accepted path and avoids building identities, maps, and a second
+	// result slice merely to return the same value.
+	if len(findings) <= 1 {
+		return findings
+	}
+
 	// Collect every component finding's (rule, line, secret) identity so the
 	// corresponding top-level finding can be suppressed.
-	componentSet := make(map[string]struct{})
+	type findingIdentity struct {
+		rule                   string
+		startLine, startColumn int
+		endLine, endColumn     int
+		secret                 string
+	}
+	var componentSet map[findingIdentity]struct{}
 	for _, f := range findings {
 		for _, set := range f.ComponentSets {
 			for _, comp := range set.Components {
-				componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", comp.RuleID, comp.StartLine, comp.StartColumn, comp.EndLine, comp.EndColumn, comp.Secret)] = struct{}{}
+				if componentSet == nil {
+					componentSet = make(map[findingIdentity]struct{})
+				}
+				componentSet[findingIdentity{
+					rule:        comp.RuleID,
+					startLine:   comp.StartLine,
+					startColumn: comp.StartColumn,
+					endLine:     comp.EndLine,
+					endColumn:   comp.EndColumn,
+					secret:      comp.Secret,
+				}] = struct{}{}
 			}
 		}
 	}
@@ -160,7 +209,14 @@ func filter(findings []report.Finding) []report.Finding {
 
 		// Skip findings already surfaced as the same rule's component of a
 		// composite finding in this batch.
-		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.StartLine, f.StartColumn, f.EndLine, f.EndColumn, f.Secret)]
+		_, isComponent := componentSet[findingIdentity{
+			rule:        f.RuleID,
+			startLine:   f.StartLine,
+			startColumn: f.StartColumn,
+			endLine:     f.EndLine,
+			endColumn:   f.EndColumn,
+			secret:      f.Secret,
+		}]
 		if isComponent {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 			logging.Trace().Msgf("skipping %s finding (%s), already a component of another finding", f.RuleID, redactedMatch)
