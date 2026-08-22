@@ -43,8 +43,6 @@ cd betterleaks
 make build
 ```
 
-Betterleaks is also bundled in [MegaLinter](https://megalinter.io), an open-source linters aggregator for CI — see its [Betterleaks page](https://megalinter.io/latest/descriptors/repository_betterleaks/) for setup details.
-
 ### Usage
 ```
 # Scan Git
@@ -146,3 +144,9 @@ r.status == 200 && (r.json?.login ?? "") != "" ? {
 Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config. If you're using Betterleaks in production, it is recommended you maintain your own config instead of extending the upstream default config directly. This keeps your rule set stable across Betterleaks upgrades and lets you review new upstream rules before adopting them.
 
 Test out your rules in the [Betterleaks Playground](https://betterleaks.com/playground)
+
+### Who uses Betterleaks?
+
+Projects and organizations that run Betterleaks. Open a pull request to add yours!
+
+- [MegaLinter](https://megalinter.io) - open-source linter aggregator for CI, ships Betterleaks out of the box ([Betterleaks page](https://megalinter.io/latest/descriptors/repository_betterleaks/))
