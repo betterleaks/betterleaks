@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"errors"
 	"io"
 	"maps"
 )
@@ -16,6 +17,15 @@ type Stdin struct {
 }
 
 func (s *Stdin) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if s == nil {
+		return errors.New("sources: stdin source is required")
+	}
+	if s.Content == nil {
+		return errors.New("sources: stdin content is required")
+	}
+	if yield == nil {
+		return errors.New("sources: stdin fragment callback is required")
+	}
 	file := &File{
 		Content:         s.Content,
 		ShouldSkip:      s.ShouldSkip,

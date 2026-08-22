@@ -14,7 +14,7 @@ type SarifReporter struct {
 
 var _ Reporter = (*SarifReporter)(nil)
 
-func (r *SarifReporter) Write(w io.WriteCloser, findings []Finding) error {
+func (r *SarifReporter) Write(w io.Writer, findings []Finding) error {
 	sarif := Sarif{
 		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
 		Version: "2.1.0",

@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"math"
 	"path/filepath"
 	"testing"
 
@@ -18,9 +19,21 @@ func TestSamePath(t *testing.T) {
 	assert.False(t, samePath("proj/sub/other.toml", cfg))
 }
 
-func TestShannonEntropyASCIIPathMatchesRuneReference(t *testing.T) {
+func TestShannonEntropyMatchesByteReference(t *testing.T) {
+	reference := func(value string) float64 {
+		counts := make(map[byte]int)
+		for i := range len(value) {
+			counts[value[i]]++
+		}
+		var entropy float64
+		for _, count := range counts {
+			probability := float64(count) / float64(len(value))
+			entropy -= probability * math.Log2(probability)
+		}
+		return entropy
+	}
 	for _, value := range []string{"a", "abcabc", "secret-token_123", "こんにちはsecret"} {
-		assert.InDelta(t, shannonEntropyRunes(value), shannonEntropy(value), 1e-12)
+		assert.InDelta(t, reference(value), shannonEntropy(value), 1e-12)
 	}
 	assert.Zero(t, shannonEntropy(""))
 }

@@ -6,21 +6,55 @@ import (
 	"compress/gzip"
 	_ "embed"
 	"encoding/base64"
+	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/pkoukk/tiktoken-go"
 )
 
 //go:embed assets/cl100k_base.tiktoken.gz
 var bpeData []byte
 
-// TikTokenLoader implements the tiktoken.BpeLoader interface
-type TiktokenLoader struct{}
+const cl100kPattern = `(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+`
 
-// LoadTiktokenBpe parses the embedded BPE file into the expected map.
-func (l *TiktokenLoader) LoadTiktokenBpe(file string) (map[string]int, error) {
-	reader, err := gzip.NewReader(bytes.NewReader(bpeData))
+// newEmbeddedTokenizer constructs cl100k_base without changing tiktoken-go's
+// process-global BPE loader. Betterleaks is a library as well as a command; a
+// detector must not alter tokenizer behavior for unrelated code in its host.
+func newEmbeddedTokenizer() (*tiktoken.Tiktoken, error) {
+	ranks, err := loadEmbeddedBPERanks()
 	if err != nil {
 		return nil, err
+	}
+	specialTokens := map[string]int{
+		tiktoken.ENDOFTEXT:   100257,
+		tiktoken.FIM_PREFIX:  100258,
+		tiktoken.FIM_MIDDLE:  100259,
+		tiktoken.FIM_SUFFIX:  100260,
+		tiktoken.ENDOFPROMPT: 100276,
+	}
+	bpe, err := tiktoken.NewCoreBPE(ranks, specialTokens, cl100kPattern)
+	if err != nil {
+		return nil, fmt.Errorf("compile cl100k_base: %w", err)
+	}
+	encoding := &tiktoken.Encoding{
+		Name:           tiktoken.MODEL_CL100K_BASE,
+		PatStr:         cl100kPattern,
+		MergeableRanks: ranks,
+		SpecialTokens:  specialTokens,
+		ExplicitNVocab: 0,
+	}
+	specialTokenSet := make(map[string]any, len(specialTokens))
+	for token := range specialTokens {
+		specialTokenSet[token] = struct{}{}
+	}
+	return tiktoken.NewTiktoken(bpe, encoding, specialTokenSet), nil
+}
+
+func loadEmbeddedBPERanks() (map[string]int, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(bpeData))
+	if err != nil {
+		return nil, fmt.Errorf("open embedded cl100k_base: %w", err)
 	}
 	defer reader.Close()
 
@@ -33,26 +67,26 @@ func (l *TiktokenLoader) LoadTiktokenBpe(file string) (map[string]int, error) {
 			continue
 		}
 
-		parts := strings.Split(line, " ")
-		if len(parts) != 2 {
-			continue
+		encoded, rankText, ok := strings.Cut(line, " ")
+		if !ok || strings.Contains(rankText, " ") {
+			return nil, fmt.Errorf("invalid embedded cl100k_base line %q", line)
 		}
 
-		tokenBytes, err := base64.StdEncoding.DecodeString(parts[0])
+		tokenBytes, err := base64.StdEncoding.DecodeString(encoded)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode embedded cl100k_base token: %w", err)
 		}
 
-		rank, err := strconv.Atoi(parts[1])
+		rank, err := strconv.Atoi(rankText)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode embedded cl100k_base rank: %w", err)
 		}
 
 		bpeRanks[string(tokenBytes)] = rank
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read embedded cl100k_base: %w", err)
 	}
 
 	return bpeRanks, nil

@@ -45,7 +45,7 @@ func NewTemplateReporter(templatePath string) (*TemplateReporter, error) {
 
 // writeTemplate renders the findings using the user-provided template.
 // https://www.digitalocean.com/community/tutorials/how-to-use-templates-in-go
-func (t *TemplateReporter) Write(w io.WriteCloser, findings []Finding) error {
+func (t *TemplateReporter) Write(w io.Writer, findings []Finding) error {
 	if err := t.template.Execute(w, findings); err != nil {
 		return err
 	}

@@ -42,3 +42,13 @@ func TestFileFragmentLeaseOutlivesCallback(t *testing.T) {
 	require.Nil(t, leased.Raw)
 	require.Nil(t, leased.Attributes)
 }
+
+func TestCopiedFileFragmentCannotReleaseLease(t *testing.T) {
+	fragment := newFileFragment("lease.txt")
+	copy := *fragment
+
+	require.PanicsWithValue(t, "sources: Release called on a copied Fragment lease", func() {
+		copy.Release()
+	})
+	fragment.Release()
+}

@@ -264,7 +264,7 @@ func visitEncodingMatches[T encodingText, C encodingMatchCollector](data T, coll
 		if c == '\\' {
 			matched := false
 			// Check for \\uXXXX (double backslash)
-			if i+7 < n && data[i+1] == '\\' {
+			if i+6 < n && data[i+1] == '\\' {
 				uc := data[i+2]
 				if (uc == 'u' || uc == 'U') &&
 					isHexChar[data[i+3]] && isHexChar[data[i+4]] &&

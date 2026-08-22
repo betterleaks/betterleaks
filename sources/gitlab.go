@@ -209,6 +209,15 @@ func (s *GitLab) Validate() error {
 
 // Fragments enumerates GitLab projects and scans each one.
 func (s *GitLab) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if s == nil {
+		return errors.New("sources: GitLab source is required")
+	}
+	if yield == nil {
+		return errors.New("sources: GitLab fragment callback is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := s.Validate(); err != nil {
 		return err
 	}

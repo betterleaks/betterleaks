@@ -159,6 +159,22 @@ func TestDecode(t *testing.T) {
 	}
 }
 
+func TestDecodeTerminalDoubleBackslashUnicodeEscape(t *testing.T) {
+	const encoded = `x\\u0068`
+
+	decoder := NewDecoder()
+	decoded, segments := decoder.Decode(encoded, nil)
+	require.Equal(t, "xh", decoded)
+	require.NotEmpty(t, segments)
+	decoder.Release()
+
+	decoder = NewDecoder()
+	decodedBytes, segments := decoder.DecodeBytes([]byte(encoded), nil)
+	require.Equal(t, "xh", string(decodedBytes))
+	require.NotEmpty(t, segments)
+	decoder.Release()
+}
+
 func TestEncodingMatchFilterPreservesNeighborPrecedence(t *testing.T) {
 	match := func(encodingIndex, start, end int) encodingMatch {
 		return encodingMatch{
@@ -242,4 +258,72 @@ func TestDecoderStartingNewChainReleasesPriorScratch(t *testing.T) {
 	// A new top-level call replaces the prior chain instead of accumulating its
 	// segment metadata until the caller remembers to invoke Release.
 	require.Len(t, *decoder.ownedSegments, 1)
+}
+
+func FuzzDecodeBytesMatchesString(f *testing.F) {
+	for _, seed := range []string{
+		"plain source text",
+		`secret%3D%22q%24%21%40%23%24%25%5E%26%2A%28%20asdf%22`,
+		`secret=\\u0068\\u0065\\u006c\\u006c\\u006f`,
+		`secret=\u0068\u0065\u006c\u006c\u006f 6C6F76656C792070656F706C65`,
+		`bG9uZ2VyLWVuY29kZWQtc2VjcmV0LXRlc3Q=`,
+		`prefix U+0061 U+0062 U+0063 suffix`,
+		"\xff\xfe%20\\u0061YWJjZGVmZ2hpamtsbW5vcA==",
+	} {
+		f.Add([]byte(seed))
+	}
+
+	f.Fuzz(func(t *testing.T, input []byte) {
+		if len(input) > 128*1024 {
+			t.Skip()
+		}
+
+		stringDecoder := NewDecoder()
+		byteDecoder := NewDecoder()
+		defer stringDecoder.Release()
+		defer byteDecoder.Release()
+
+		stringCurrent := string(input)
+		byteCurrent := input
+		var stringPredecessors, bytePredecessors []*EncodedSegment
+		for range 8 {
+			stringNext, stringSegments := stringDecoder.Decode(stringCurrent, stringPredecessors)
+			byteNext, byteSegments := byteDecoder.DecodeBytes(byteCurrent, bytePredecessors)
+
+			require.Equal(t, stringNext, string(byteNext))
+			require.Equal(t, snapshotSegments(stringSegments), snapshotSegments(byteSegments))
+			if len(stringSegments) == 0 {
+				return
+			}
+
+			stringCurrent, stringPredecessors = stringNext, stringSegments
+			byteCurrent, bytePredecessors = byteNext, byteSegments
+		}
+	})
+}
+
+type encodedSegmentSnapshot struct {
+	original         startEnd
+	encoded          startEnd
+	decoded          startEnd
+	decodedValue     string
+	encodings        encodingKind
+	depth            int
+	predecessorCount int
+}
+
+func snapshotSegments(segments []*EncodedSegment) []encodedSegmentSnapshot {
+	result := make([]encodedSegmentSnapshot, len(segments))
+	for i, segment := range segments {
+		result[i] = encodedSegmentSnapshot{
+			original:         segment.original,
+			encoded:          segment.encoded,
+			decoded:          segment.decoded,
+			decodedValue:     segment.decodedValue,
+			encodings:        segment.encodings,
+			depth:            segment.depth,
+			predecessorCount: len(segment.predecessors),
+		}
+	}
+	return result
 }

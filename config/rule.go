@@ -7,7 +7,6 @@ import (
 
 	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
@@ -76,16 +75,10 @@ type Rule struct {
 	// ValidateExpr is the raw expression used for secret validation.
 	ValidateExpr string
 
-	// validationProgram is the compiled validation program, set at config load time.
-	validationProgram exprruntime.Program
-
 	// Filter is an expression evaluated against attributes + finding per regex match.
 	// Returns true = skip (discard this finding); false = keep.
 	// Deprecated legacy Allowlists, Entropy, and TokenEfficiency are translated into this field.
 	Filter string
-
-	// filterProgram is the compiled filter program, set at startup.
-	filterProgram exprruntime.Program
 }
 
 // Component references another rule that contributes a nearby match to a multipart finding.
@@ -162,19 +155,3 @@ func (r *Rule) Validate() error {
 	r.validated = true
 	return nil
 }
-
-// ValidationProgram returns the compiled validation program for this rule, or nil.
-func (r *Rule) ValidationProgram() exprruntime.Program {
-	return r.validationProgram
-}
-
-// SetValidationProgram stores a compiled validation program on the rule.
-func (r *Rule) SetValidationProgram(p exprruntime.Program) {
-	r.validationProgram = p
-}
-
-// FilterProgram returns the compiled filter program for this rule, or nil.
-func (r *Rule) FilterProgram() exprruntime.Program { return r.filterProgram }
-
-// SetFilterProgram stores a compiled filter program on the rule.
-func (r *Rule) SetFilterProgram(p exprruntime.Program) { r.filterProgram = p }

@@ -1,7 +1,8 @@
 package detect
 
 import (
-	"errors"
+	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -157,26 +158,32 @@ func TestFileLoadBaseline(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		Filename      string
-		ExpectedError error
+		ExpectedError string
 	}{
 		{
 			Filename:      "../testdata/baseline/baseline.csv",
-			ExpectedError: errors.New("the format of the file ../testdata/baseline/baseline.csv is not supported"),
+			ExpectedError: "decode baseline",
 		},
 		{
 			Filename:      "../testdata/baseline/baseline.sarif",
-			ExpectedError: errors.New("the format of the file ../testdata/baseline/baseline.sarif is not supported"),
+			ExpectedError: "decode baseline",
 		},
 		{
 			Filename:      "../testdata/baseline/notfound.json",
-			ExpectedError: errors.New("could not open ../testdata/baseline/notfound.json"),
+			ExpectedError: "open baseline",
 		},
 	}
 
 	for _, test := range tests {
 		_, err := LoadBaseline(test.Filename)
-		assert.Equal(t, test.ExpectedError, err)
+		assert.ErrorContains(t, err, test.ExpectedError)
 	}
+
+	_, err := LoadBaseline("../testdata/baseline/notfound.json")
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	_, err = LoadBaseline("../testdata/baseline/baseline.csv")
+	var syntaxError *json.SyntaxError
+	assert.ErrorAs(t, err, &syntaxError)
 }
 
 func TestIgnoreIssuesInBaseline(t *testing.T) {

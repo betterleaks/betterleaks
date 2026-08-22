@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -40,6 +41,14 @@ func TestFilesWorkerPoolFragments(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
+func TestFilesFragmentsValidatesPublicInputs(t *testing.T) {
+	var source *Files
+	require.EqualError(t, source.Fragments(t.Context(), func(*Fragment, error) error { return nil }), "sources: files source is required")
+
+	source = &Files{}
+	require.EqualError(t, source.Fragments(t.Context(), nil), "sources: files fragment callback is required")
+}
+
 func TestFilesWorkerPoolReturnsYieldErrors(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o600))
@@ -50,6 +59,63 @@ func TestFilesWorkerPoolReturnsYieldErrors(t *testing.T) {
 		return wantErr
 	})
 	require.ErrorIs(t, err, wantErr)
+}
+
+func TestFilesMaxSizeAppliesToSymlinkTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation commonly requires elevated privileges on Windows")
+	}
+
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	link := filepath.Join(root, "link.txt")
+	require.NoError(t, os.WriteFile(target, []byte("too large"), 0o600))
+	require.NoError(t, os.Symlink(target, link))
+
+	source := &Files{
+		Path:           link,
+		FollowSymlinks: true,
+		MaxFileSize:    3,
+		Workers:        1,
+	}
+	var yielded atomic.Int64
+	require.NoError(t, source.Fragments(t.Context(), func(fragment *Fragment, err error) error {
+		if fragment != nil {
+			defer fragment.Release()
+		}
+		require.NoError(t, err)
+		yielded.Add(1)
+		return nil
+	}))
+	require.Zero(t, yielded.Load())
+}
+
+func TestFilesMaxSizeDoesNotUseSymlinkPathLength(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation commonly requires elevated privileges on Windows")
+	}
+
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	link := filepath.Join(root, "link.txt")
+	require.NoError(t, os.WriteFile(target, []byte("x"), 0o600))
+	require.NoError(t, os.Symlink(target, link))
+
+	source := &Files{
+		Path:           link,
+		FollowSymlinks: true,
+		MaxFileSize:    1,
+		Workers:        1,
+	}
+	var raw string
+	require.NoError(t, source.Fragments(t.Context(), func(fragment *Fragment, err error) error {
+		defer fragment.Release()
+		require.NoError(t, err)
+		raw = string(fragment.Raw)
+		require.Equal(t, link, fragment.Attr(AttrFSSymlink))
+		return nil
+	}))
+	require.Equal(t, "x", raw)
 }
 
 func TestFilesScanTargetsPrefersPathSkipFunc(t *testing.T) {
@@ -68,7 +134,7 @@ func TestFilesScanTargetsPrefersPathSkipFunc(t *testing.T) {
 			return false
 		},
 	}
-	require.NoError(t, source.scanTargets(t.Context(), func(ScanTarget, error) error { return nil }))
+	require.NoError(t, source.scanTargets(t.Context(), func(scanTarget, error) error { return nil }))
 	require.Positive(t, pathCalls.Load())
 	require.Zero(t, fallbackCalls.Load())
 }
@@ -117,7 +183,7 @@ func TestFilesScanTargetsPathsMatchFilepathWalkDir(t *testing.T) {
 			return false
 		},
 	}
-	require.NoError(t, source.scanTargets(t.Context(), func(target ScanTarget, err error) error {
+	require.NoError(t, source.scanTargets(t.Context(), func(target scanTarget, err error) error {
 		if err != nil {
 			return err
 		}

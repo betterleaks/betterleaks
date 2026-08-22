@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -28,8 +29,17 @@ import (
 type GitCmd struct {
 	cmd         *exec.Cmd
 	diffFilesCh <-chan *gitdiff.File
+	parseReady  <-chan gitParseResult
 	errCh       <-chan error
 	repoPath    string
+	cancel      context.CancelFunc
+	parseOnce   sync.Once
+	waitOnce    sync.Once
+	waitErr     error
+}
+
+type gitParseResult struct {
+	files <-chan *gitdiff.File
 }
 
 // gitConfigIsolationEnv contains the standard Git configuration isolation environment variables.
@@ -69,76 +79,42 @@ func gitConfigIsolationEnv() []string {
 // a blob from a repo
 type blobReader struct {
 	io.ReadCloser
-	cmd *exec.Cmd
+	cmd       *exec.Cmd
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // Close closes the underlying reader and then waits for the command to complete,
 // releasing its resources.
 func (br *blobReader) Close() error {
-	// Discard the remaining data from the pipe to avoid blocking
-	_, drainErr := io.Copy(io.Discard, br)
-	// Close the pipe (should signal the command to stop if it hasn't already)
-	closeErr := br.ReadCloser.Close()
-	// Wait to prevent zombie processes.
-	waitErr := br.cmd.Wait()
-	// Return the first error encountered
-	if drainErr != nil {
-		return drainErr
+	if br == nil {
+		return nil
 	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return waitErr
+	br.closeOnce.Do(func() {
+		// Draining lets cat-file exit normally when archive identification did not
+		// consume the entire blob. Wait always reaps the process.
+		_, drainErr := io.Copy(io.Discard, br)
+		closeErr := br.ReadCloser.Close()
+		waitErr := br.cmd.Wait()
+		br.closeErr = errors.Join(drainErr, closeErr, waitErr)
+	})
+	return br.closeErr
 }
 
 // NewGitLogCmd starts a git log command tied to ctx.
 func NewGitLogCmd(ctx context.Context, source string, logOpts string) (*GitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	var cmd *exec.Cmd
+	args := []string{"-C", sourceClean, "log", "-p", "-U0"}
 	if logOpts != "" {
-		args := []string{"-C", sourceClean, "log", "-p", "-U0"}
-
 		userArgs, err := splitGitLogOpts(logOpts)
 		if err != nil {
 			return nil, fmt.Errorf("invalid --log-opts: %w", err)
 		}
-
 		args = append(args, userArgs...)
-		cmd = exec.CommandContext(ctx, "git", args...)
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
-			"--full-history", "--all", "--diff-filter=tuxdb")
+		args = append(args, "--full-history", "--all", "--diff-filter=tuxdb")
 	}
-	cmd.Env = gitConfigIsolationEnv()
-
-	logging.Debug().Msgf("executing: %s", cmd.String())
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	errCh := make(chan error)
-	go listenForStdErr(stderr, errCh)
-
-	gitdiffFiles, err := gitdiff.Parse(stdout)
-	if err != nil {
-		return nil, err
-	}
-
-	return &GitCmd{
-		cmd:         cmd,
-		diffFilesCh: gitdiffFiles,
-		errCh:       errCh,
-		repoPath:    sourceClean,
-	}, nil
+	return startGitCmd(ctx, sourceClean, args)
 }
 
 // splitGitLogOpts parses user-provided --log-opts with a small shell-inspired
@@ -202,45 +178,121 @@ func splitGitLogOpts(input string) ([]string, error) {
 // NewGitDiffCmd starts a git diff command tied to ctx.
 func NewGitDiffCmd(ctx context.Context, source string, staged bool) (*GitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	var cmd *exec.Cmd
-	cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff", ".")
+	args := []string{"-C", sourceClean, "diff", "-U0", "--no-ext-diff"}
 	if staged {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff",
-			"--staged", ".")
+		args = append(args, "--staged")
 	}
+	args = append(args, ".")
+	return startGitCmd(ctx, sourceClean, args)
+}
+
+// startGitCmd starts git and transfers ownership of the process and parser
+// goroutines to the returned GitCmd.
+func startGitCmd(ctx context.Context, repoPath string, args []string) (*GitCmd, error) {
+	gitCmd, _, err := startGitCmdInternal(ctx, repoPath, args, false)
+	return gitCmd, err
+}
+
+func startGitCmdWithStdin(ctx context.Context, repoPath string, args []string) (*GitCmd, io.WriteCloser, error) {
+	return startGitCmdInternal(ctx, repoPath, args, true)
+}
+
+func startGitCmdInternal(
+	ctx context.Context,
+	repoPath string,
+	args []string,
+	withStdin bool,
+) (*GitCmd, io.WriteCloser, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmdCtx, cancel := context.WithCancel(ctx)
+	cmd := exec.CommandContext(cmdCtx, "git", args...)
 	cmd.Env = gitConfigIsolationEnv()
 	logging.Debug().Msgf("executing: %s", cmd.String())
 
+	var stdin io.WriteCloser
+	if withStdin {
+		var err error
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			cancel()
+			return nil, nil, err
+		}
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		cancel()
+		return nil, nil, err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, err
+		cancel()
+		return nil, nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		cancel()
+		return nil, nil, err
 	}
 
-	errCh := make(chan error)
-	go listenForStdErr(stderr, errCh)
-
-	gitdiffFiles, err := gitdiff.Parse(stdout)
-	if err != nil {
-		return nil, err
-	}
+	parseReady, errCh := prepareGitOutput(stdout, stderr)
 
 	return &GitCmd{
-		cmd:         cmd,
-		diffFilesCh: gitdiffFiles,
-		errCh:       errCh,
-		repoPath:    sourceClean,
-	}, nil
+		cmd:        cmd,
+		parseReady: parseReady,
+		errCh:      errCh,
+		repoPath:   repoPath,
+		cancel:     cancel,
+	}, stdin, nil
+}
+
+// prepareGitOutput initializes gitdiff parsing asynchronously so stdin-fed Git
+// workers can be started before their commit stream is written. Once initialized,
+// consumers receive gitdiff's channel directly: bridging every file through a
+// second channel would retain one additional parsed patch per Git worker.
+func prepareGitOutput(stdout, stderr io.ReadCloser) (<-chan gitParseResult, <-chan error) {
+	ready := make(chan gitParseResult, 1)
+	errs := make(chan error, 2)
+	var readers sync.WaitGroup
+	readers.Add(2)
+
+	go func() {
+		defer readers.Done()
+		parsed, err := gitdiff.Parse(stdout)
+		if err != nil {
+			errs <- fmt.Errorf("parse git output: %w", err)
+			empty := make(chan *gitdiff.File)
+			close(empty)
+			parsed = empty
+		}
+		ready <- gitParseResult{files: parsed}
+		close(ready)
+	}()
+	go func() {
+		defer readers.Done()
+		listenForStdErr(stderr, errs)
+	}()
+	go func() {
+		readers.Wait()
+		close(errs)
+	}()
+
+	return ready, errs
 }
 
 // DiffFilesCh returns a channel with *gitdiff.File.
 func (c *GitCmd) DiffFilesCh() <-chan *gitdiff.File {
+	if c == nil {
+		return nil
+	}
+	c.parseOnce.Do(func() {
+		if c.diffFilesCh != nil || c.parseReady == nil {
+			return
+		}
+		if result, ok := <-c.parseReady; ok {
+			c.diffFilesCh = result.files
+		}
+	})
 	return c.diffFilesCh
 }
 
@@ -254,17 +306,48 @@ func (c *GitCmd) ErrCh() <-chan error {
 //
 // Wait also closes underlying stdout and stderr.
 func (c *GitCmd) Wait() error {
-	return c.cmd.Wait()
+	if c == nil || c.cmd == nil {
+		return errors.New("sources: nil git command")
+	}
+	c.waitOnce.Do(func() {
+		c.waitErr = c.cmd.Wait()
+		if c.cancel != nil {
+			c.cancel()
+		}
+	})
+	return c.waitErr
+}
+
+func (c *GitCmd) cancelAndDrain() {
+	if c == nil {
+		return
+	}
+	if c.cancel != nil {
+		c.cancel()
+	}
+	for range c.DiffFilesCh() {
+	}
+	for range c.errCh {
+	}
 }
 
 // String displays the command used for GitCmd
 func (c *GitCmd) String() string {
+	if c == nil || c.cmd == nil {
+		return ""
+	}
 	return c.cmd.String()
 }
 
 // NewBlobReader returns a reader for a blob in the command's repository.
 // The caller must close the reader.
 func (c *GitCmd) NewBlobReader(ctx context.Context, commit, path string) (io.ReadCloser, error) {
+	if c == nil || c.cmd == nil {
+		return nil, errors.New("sources: git command is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	gitArgs := []string{"-C", c.repoPath, "cat-file", "blob", commit + ":" + path}
 	cmd := exec.CommandContext(ctx, "git", gitArgs...)
 	cmd.Env = gitConfigIsolationEnv()
@@ -282,14 +365,32 @@ func (c *GitCmd) NewBlobReader(ctx context.Context, commit, path string) (io.Rea
 	}, nil
 }
 
-// listenForStdErr listens for stderr output from git, prints it to stdout,
-// sends to errCh and closes it.
+// listenForStdErr drains stderr, logs known non-fatal warnings, and reports all
+// other output as one error after the stream closes.
 func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
-	defer close(errCh)
+	defer stderr.Close()
 
-	var errLines []string
+	const maxRetainedStderr = 64 * 1024
+	var retained strings.Builder
+	truncated := false
+	retain := func(line string) {
+		if retained.Len() >= maxRetainedStderr {
+			truncated = true
+			return
+		}
+		if retained.Len() > 0 {
+			retained.WriteString("; ")
+		}
+		remaining := maxRetainedStderr - retained.Len()
+		if len(line) > remaining {
+			line = line[:remaining]
+			truncated = true
+		}
+		retained.WriteString(line)
+	}
 
 	scanner := bufio.NewScanner(stderr)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		// if git throws one of the following errors:
 		//
@@ -322,12 +423,18 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 		} else {
 			line := scanner.Text()
 			logging.Error().Msgf("[git] %s", line)
-			errLines = append(errLines, line)
+			retain(line)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		retain(fmt.Sprintf("read stderr: %v", err))
+	}
 
-	if len(errLines) > 0 {
-		errCh <- fmt.Errorf("git stderr: %s", strings.Join(errLines, "; "))
+	if retained.Len() > 0 {
+		if truncated {
+			retained.WriteString(" [truncated]")
+		}
+		errCh <- fmt.Errorf("git stderr: %s", retained.String())
 	}
 }
 
@@ -340,17 +447,40 @@ type Git struct {
 	MaxArchiveDepth int
 }
 
-// Fragments yields fragments from a git repo
+// Fragments yields fragments from a git repo.
 func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	return s.fragments(ctx, yield)
+}
+
+func (s *Git) fragments(ctx context.Context, yield FragmentsFunc) (returnErr error) {
+	if s == nil || s.Cmd == nil || s.Cmd.cmd == nil {
+		return errors.New("sources: git command is required")
+	}
+	if yield == nil {
+		return errors.New("sources: git fragment callback is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	completed := false
 	defer func() {
-		if err := s.Cmd.Wait(); err != nil {
-			logging.Debug().Err(err).Str("cmd", s.Cmd.String()).Msg("command aborted")
+		if !completed {
+			// A parser producer may be blocked sending to diffFilesCh when the
+			// consumer exits early. Kill git and drain both channels before Wait
+			// so neither the process nor parser goroutines can leak.
+			s.Cmd.cancelAndDrain()
+		}
+		waitErr := s.Cmd.Wait()
+		if completed && waitErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("%s: %w", s.Cmd.String(), waitErr))
 		}
 	}()
 
 	var (
 		diffFilesCh = s.Cmd.DiffFilesCh()
 		errCh       = s.Cmd.ErrCh()
+		stderrErr   error
 	)
 
 	// loop to range over both DiffFiles (stdout) and ErrCh (stderr)
@@ -362,6 +492,9 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			if !open {
 				diffFilesCh = nil
 				break
+			}
+			if gitdiffFile == nil {
+				continue
 			}
 
 			if gitdiffFile.IsDelete {
@@ -432,11 +565,9 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					}
 					return yield(fragment, err)
 				})
-				if closeErr := blob.Close(); closeErr != nil {
-					logging.Debug().Err(closeErr).Msg("blobReader.Close() returned an error")
-				}
-				if err != nil {
-					return err
+				closeErr := blob.Close()
+				if err != nil || closeErr != nil {
+					return errors.Join(err, closeErr)
 				}
 				continue
 			}
@@ -446,7 +577,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					continue
 				}
 				fragment := Fragment{
-					Raw:        []byte(textFragment.Raw(gitdiff.OpAdd)),
+					Raw:        addedTextBytes(textFragment),
 					StartLine:  int(textFragment.NewPosition),
 					Attributes: maps.Clone(commitAttrs),
 				}
@@ -462,11 +593,31 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				break
 			}
 
-			return yield(&Fragment{}, err)
+			stderrErr = errors.Join(stderrErr, err)
 		}
 	}
 
-	return ctx.Err()
+	completed = true
+	return errors.Join(stderrErr, ctx.Err())
+}
+
+func addedTextBytes(fragment *gitdiff.TextFragment) []byte {
+	size := 0
+	for _, line := range fragment.Lines {
+		if line.Op == gitdiff.OpAdd {
+			size += len(line.Line)
+		}
+	}
+	if size == 0 {
+		return nil
+	}
+	raw := make([]byte, 0, size)
+	for _, line := range fragment.Lines {
+		if line.Op == gitdiff.OpAdd {
+			raw = append(raw, line.Line...)
+		}
+	}
+	return raw
 }
 
 // ResolveRemote resolves the SCM platform and remote URL for the given source.

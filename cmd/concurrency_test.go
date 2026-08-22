@@ -8,11 +8,13 @@ import (
 )
 
 func TestConcurrencyFlags(t *testing.T) {
-	for _, name := range []string{"source-workers", "detect-workers"} {
-		flag := rootCmd.PersistentFlags().Lookup(name)
-		require.NotNil(t, flag)
-		require.Equal(t, "0", flag.DefValue)
-	}
+	detectWorkers := rootCmd.PersistentFlags().Lookup("detect-workers")
+	require.NotNil(t, detectWorkers)
+	require.Equal(t, "0", detectWorkers.DefValue)
+
+	sourceWorkers := directoryCmd.Flags().Lookup("source-workers")
+	require.NotNil(t, sourceWorkers)
+	require.Equal(t, "0", sourceWorkers.DefValue)
 }
 
 func TestValidateConcurrencyFlags(t *testing.T) {

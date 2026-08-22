@@ -8,8 +8,8 @@ import (
 // Fragment represents a fragment of a source with its metadata. A Fragment
 // received from Source.Fragments is a lease: ownership passes to the callback,
 // which may retain it after the callback returns and must eventually call
-// Release. Leased Fragments must not be copied because ownership belongs to the
-// original pointer.
+// Release. Copying a leased Fragment does not transfer ownership: Release must
+// be called on the original pointer supplied to the callback.
 type Fragment struct {
 	// Raw is the raw content of the fragment
 	Raw []byte
@@ -26,6 +26,7 @@ type Fragment struct {
 	// release returns source-owned storage. It is deliberately unexported so
 	// only the source that created a lease can install its recycler.
 	release         func(*Fragment)
+	owner           *Fragment
 	bufferLease     *[]byte
 	attributesLease map[string]string
 }
@@ -37,6 +38,9 @@ type Fragment struct {
 func (f *Fragment) Release() {
 	if f == nil || f.release == nil {
 		return
+	}
+	if f.owner != nil && f.owner != f {
+		panic("sources: Release called on a copied Fragment lease")
 	}
 	release := f.release
 	f.release = nil

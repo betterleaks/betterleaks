@@ -127,6 +127,15 @@ func (s *HuggingFace) Validate() error {
 }
 
 func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if s == nil {
+		return errors.New("sources: Hugging Face source is required")
+	}
+	if yield == nil {
+		return errors.New("sources: Hugging Face fragment callback is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := s.Validate(); err != nil {
 		return err
 	}

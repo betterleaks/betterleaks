@@ -49,10 +49,11 @@ func putBuffer(buffer *[]byte) {
 
 var readerPool = sync.Pool{
 	New: func() any {
-		// readUntilSafeBoundary examines at most maxPeekSize bytes. Holding that
-		// window lets it scan one buffered span instead of issuing thousands of
-		// ReadByte calls and several small underlying reads per large fragment.
-		return bufio.NewReaderSize(nil, maxPeekSize)
+		// Reader capacity affects fragment boundaries when an archive reader
+		// returns short reads. Keep bufio's historical default capacity so this
+		// refactor does not change finding locations or component grouping. The
+		// batched safe-boundary scan still avoids the old ReadByte loop.
+		return bufio.NewReader(nil)
 	},
 }
 
@@ -74,6 +75,7 @@ func newFileFragment(path string) *Fragment {
 	fragment.Attributes = attrs
 	fragment.attributesLease = attrs
 	fragment.release = releaseFileFragment
+	fragment.owner = fragment
 	return fragment
 }
 
@@ -110,6 +112,38 @@ type seekReaderAt interface {
 	io.Seeker
 }
 
+// fragmentCallbackPanic distinguishes a caller panic from a panic raised by an
+// archive implementation. Archive panics are treated as malformed input, but
+// swallowing a caller panic would violate the Fragments callback contract and
+// can hide programmer errors.
+type fragmentCallbackPanic struct {
+	value any
+}
+
+func preserveFragmentCallbackPanic(yield FragmentsFunc) FragmentsFunc {
+	return func(fragment *Fragment, err error) error {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				panic(&fragmentCallbackPanic{value: recovered})
+			}
+		}()
+		return yield(fragment, err)
+	}
+}
+
+func recoverArchivePanic(path, operation string, returnErr *error) {
+	if recovered := recover(); recovered != nil {
+		if callbackPanic, ok := recovered.(*fragmentCallbackPanic); ok {
+			panic(callbackPanic.value)
+		}
+		logging.Warn().
+			Str("path", path).
+			Str("panic", fmt.Sprint(recovered)).
+			Msg("skipping archive: panic during " + operation)
+		*returnErr = nil
+	}
+}
+
 // File is a source for yielding fragments from a file or other reader
 type File struct {
 	// Content provides a reader to the file's content
@@ -118,9 +152,6 @@ type File struct {
 	Path string
 	// Symlink represents a symlink to the file if that's how it was discovered
 	Symlink string
-	// Size is the snapshot size of a regular file discovered by Files. A zero
-	// value means unknown and keeps stream-style EOF probing.
-	Size int64
 	// ShouldSkip is a callback that decides whether to skip a file based on its
 	// attributes (e.g. path). If nil, no skipping is performed.
 	ShouldSkip SkipFunc
@@ -135,6 +166,18 @@ type File struct {
 
 // Fragments yields fragments for the this source
 func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if s == nil {
+		return fmt.Errorf("sources: file source is required")
+	}
+	if s.Content == nil {
+		return fmt.Errorf("sources: file content is required")
+	}
+	if yield == nil {
+		return fmt.Errorf("sources: file fragment callback is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return s.fragments(ctx, yield)
 }
 
@@ -179,12 +222,10 @@ func (s *File) fragments(ctx context.Context, yield FragmentsFunc) error {
 			return nil
 		}
 		if extractor, ok := format.(archives.Extractor); ok {
-			s.extractorFragments(ctx, extractor, stream, yield)
-			return nil
+			return s.extractorFragments(ctx, extractor, stream, yield)
 		}
 		if decompressor, ok := format.(archives.Decompressor); ok {
-			s.decompressorFragments(ctx, decompressor, stream, yield)
-			return nil
+			return s.decompressorFragments(ctx, decompressor, stream, yield)
 		}
 		logging.Warn().Str("path", s.FullPath()).Msg("skipping unknown archive type")
 	}
@@ -196,29 +237,22 @@ func (s *File) fragments(ctx context.Context, yield FragmentsFunc) error {
 }
 
 // extractorFragments recursively crawls archives and yields fragments
-func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield FragmentsFunc) {
+func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield FragmentsFunc) (returnErr error) { //nolint:nonamedreturns // panic recovery must set the returned error
 	// Malformed archives can make the extraction library panic (e.g. a tiny
 	// .rar whose block header encodes a bogus size). Recover here so a bad
 	// archive is skipped with a warning instead of killing the process. This
 	// guard sits inside extractorFragments (rather than at the dispatch site)
 	// so it protects every nesting level: extractorFragments recurses into
 	// nested entries via file.Fragments below.
-	defer func() {
-		if r := recover(); r != nil {
-			logging.Warn().
-				Str("path", s.FullPath()).
-				Str("panic", fmt.Sprint(r)).
-				Msg("skipping archive: panic during extraction")
-		}
-	}()
+	defer recoverArchivePanic(s.FullPath(), "extraction", &returnErr)
+	yield = preserveFragmentCallbackPanic(yield)
 
 	if _, isSeekReaderAt := reader.(seekReaderAt); !isSeekReaderAt {
 		switch extractor.(type) {
 		case archives.SevenZip, archives.Zip:
-			tmpfile, err := os.CreateTemp("", "gitleaks-archive-")
+			tmpfile, err := os.CreateTemp("", "betterleaks-archive-")
 			if err != nil {
-				logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not create archive tmp file")
-				return
+				return fmt.Errorf("create archive temporary file: %w", err)
 			}
 			defer func() {
 				_ = tmpfile.Close()
@@ -227,14 +261,24 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 			_, err = io.Copy(tmpfile, reader)
 			if err != nil {
-				logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not copy archive file")
-				return
+				return fmt.Errorf("copy archive to temporary file: %w", err)
 			}
 
 			reader = tmpfile
 		}
 	}
 
+	var (
+		callbackErr     error
+		callbackErrOnce sync.Once
+	)
+	trackedYield := func(fragment *Fragment, err error) error {
+		yieldErr := yield(fragment, err)
+		if yieldErr != nil {
+			callbackErrOnce.Do(func() { callbackErr = yieldErr })
+		}
+		return yieldErr
+	}
 	err := extractor.Extract(ctx, reader, func(_ context.Context, d archives.FileInfo) error {
 		path := filepath.Clean(d.NameInArchive)
 		if !d.Mode().IsRegular() {
@@ -264,31 +308,32 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			archiveDepth:    s.archiveDepth + 1,
 		}
 
-		return file.fragments(ctx, yield)
+		return file.fragments(ctx, trackedYield)
 	})
 
+	if callbackErr != nil {
+		return callbackErr
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	if err != nil {
 		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("error reading archive")
 	}
+	return nil
 }
 
 // decompressorFragments recursively crawls archives and yields fragments
-func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) {
+func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) (returnErr error) { //nolint:nonamedreturns // panic recovery must set the returned error
 	// Register recovery before cleanup so it runs last and can also catch a
 	// panic from closing a malformed decompressor reader.
-	defer func() {
-		if r := recover(); r != nil {
-			logging.Warn().
-				Str("path", s.FullPath()).
-				Str("panic", fmt.Sprint(r)).
-				Msg("skipping compressed file: panic during decompression")
-		}
-	}()
+	defer recoverArchivePanic(s.FullPath(), "decompression", &returnErr)
+	yield = preserveFragmentCallbackPanic(yield)
 
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
 		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not read compressed file")
-		return
+		return nil
 	}
 	defer func() {
 		_ = innerReader.Close()
@@ -296,16 +341,12 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 
 	br := getReader(innerReader)
 	defer putReader(br)
-	if err := s.fileFragments(ctx, br, true, yield); err != nil {
-		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("error reading compressed file")
-	}
+	return s.fileFragments(ctx, br, true, yield)
 }
 
 // fileFragments reads the file into fragments to yield.
 func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiveContent bool, yield FragmentsFunc) error {
 	prevFragmentEndLine := 0
-	bytesConsumed := int64(0)
-	knownSize := s.Size > 0 && !isArchiveContent
 	for {
 		select {
 		case <-ctx.Done():
@@ -332,8 +373,6 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 
 				return nil
 			}
-			bytesConsumed += int64(n)
-
 			// Build fragment metadata only after reading content. Every file has a
 			// final zero-byte EOF probe, which should not allocate an unused map.
 			fullPath := s.FullPath()
@@ -369,28 +408,18 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 			// Try to split chunks across large areas of whitespace, if possible.
 			peekBuf := bytes.NewBuffer(buffer[:n])
 			stopAfterYield := false
-			peekSize := maxPeekSize
-			if knownSize {
-				peekSize = min(peekSize, max(int(s.Size-bytesConsumed), 0))
-			}
-			if peekSize > 0 {
-				if err := readUntilSafeBoundary(reader, n, peekSize, peekBuf); err != nil {
-					if isArchiveContent {
-						logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content until safe boundary")
-						stopAfterYield = true
-					} else {
-						fragment.Raw = peekBuf.Bytes()
-						fragment.bufferLease = bufferLease
-						return yield(
-							fragment,
-							fmt.Errorf("could not read file: could not read until safe boundary: %w", err),
-						)
-					}
+			if err := readUntilSafeBoundary(reader, n, maxPeekSize, peekBuf); err != nil {
+				if isArchiveContent {
+					logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content until safe boundary")
+					stopAfterYield = true
+				} else {
+					fragment.Raw = peekBuf.Bytes()
+					fragment.bufferLease = bufferLease
+					return yield(
+						fragment,
+						fmt.Errorf("could not read file: could not read until safe boundary: %w", err),
+					)
 				}
-			}
-			bytesConsumed += int64(peekBuf.Len() - n)
-			if knownSize && bytesConsumed >= s.Size {
-				stopAfterYield = true
 			}
 
 			fragment.Raw = peekBuf.Bytes()

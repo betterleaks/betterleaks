@@ -50,6 +50,14 @@ func (c *scanContent) findAllIndex(re *blregexp.Regexp) [][]int {
 	return re.FindAllStringIndex(c.text, -1)
 }
 
+func (c *scanContent) submatchIndex(re *blregexp.Regexp, start, end int) []int {
+	start, end = clampRange(start, end, c.len())
+	if c.byteBacked {
+		return re.FindSubmatchIndex(c.data[start:end])
+	}
+	return re.FindStringSubmatchIndex(c.text[start:end])
+}
+
 func (c *scanContent) sliceString(start, end int) string {
 	start, end = clampRange(start, end, c.len())
 	if c.byteBacked {

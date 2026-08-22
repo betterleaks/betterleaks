@@ -1,7 +1,7 @@
 package codec
 
 import (
-	"fmt"
+	"strconv"
 )
 
 // EncodedSegment represents a portion of text that is encoded in some way.
@@ -33,9 +33,13 @@ type EncodedSegment struct {
 
 // Tags returns additional meta data tags related to the types of segments
 func Tags(segments []*EncodedSegment) []string {
-	// Return an empty list if we don't have any segments
+	return AppendTags(nil, segments)
+}
+
+// AppendTags appends decode metadata to dst.
+func AppendTags(dst []string, segments []*EncodedSegment) []string {
 	if len(segments) == 0 {
-		return []string{}
+		return dst
 	}
 
 	// Since decoding is done in passes, the depth of all the segments
@@ -48,15 +52,13 @@ func Tags(segments []*EncodedSegment) []string {
 		encodings |= segments[i].encodings
 	}
 
-	kinds := encodings.kinds()
-	tags := make([]string, len(kinds)+1)
-
-	tags[len(tags)-1] = fmt.Sprintf("decode-depth:%d", depth)
-	for i, kind := range kinds {
-		tags[i] = fmt.Sprintf("decoded:%s", kind)
+	for i, name := range encodingNames {
+		if int(encodings)&(1<<i) != 0 {
+			dst = append(dst, "decoded:"+name)
+		}
 	}
-
-	return tags
+	dst = append(dst, "decode-depth:"+strconv.Itoa(depth))
+	return dst
 }
 
 // CurrentLine returns from the start of the line containing the segments
@@ -123,40 +125,32 @@ func CurrentLineBytes(segments []*EncodedSegment, currentRaw []byte) []byte {
 	return currentRaw[start:end]
 }
 
-// AdjustMatchIndex maps a match index from the current decode pass back to
-// its location in the original text
-func AdjustMatchIndex(segments []*EncodedSegment, matchIndex []int) []int {
-	// Don't adjust if we're not provided any segments
+// AdjustMatchRange maps a range from the current decode pass back to its
+// location in the original text.
+func AdjustMatchRange(segments []*EncodedSegment, start, end int) (int, int) {
 	if len(segments) == 0 {
-		return matchIndex
+		return start, end
 	}
-
-	// Map the match to the location in the original text
-	match := startEnd{matchIndex[0], matchIndex[1]}
-
-	// Map the match to its orignal location
-	adjusted := toOriginal(segments, match)
-
-	// Return the adjusted match index
-	return []int{
-		adjusted.start,
-		adjusted.end,
-	}
+	adjusted := toOriginal(segments, startEnd{start, end})
+	return adjusted.start, adjusted.end
 }
 
 // SegmentsWithDecodedOverlap the segments where the start and end overlap its
 // decoded range
 func SegmentsWithDecodedOverlap(segments []*EncodedSegment, start, end int) []*EncodedSegment {
-	se := startEnd{start, end}
-	overlaps := []*EncodedSegment{}
+	return AppendSegmentsWithDecodedOverlap(nil, segments, start, end)
+}
 
+// AppendSegmentsWithDecodedOverlap appends segments whose decoded range
+// overlaps start:end to dst.
+func AppendSegmentsWithDecodedOverlap(dst, segments []*EncodedSegment, start, end int) []*EncodedSegment {
+	se := startEnd{start, end}
 	for _, segment := range segments {
 		if segment.decoded.overlaps(se) {
-			overlaps = append(overlaps, segment)
+			dst = append(dst, segment)
 		}
 	}
-
-	return overlaps
+	return dst
 }
 
 // toOriginal maps a start/end to its start/end in the original text

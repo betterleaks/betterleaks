@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	ahocorasick "github.com/rrethy/ahocorasick"
 	"github.com/spf13/cobra"
 
 	configpkg "github.com/betterleaks/betterleaks/config"
@@ -149,18 +148,18 @@ func getEnvWithName(primary, fallback string) (string, string) {
 }
 
 func validateConfig(cfg *configpkg.Config) error {
-	compileKeywordTrie(cfg)
 	if err := compileRuleRegexps(cfg); err != nil {
-		return err
-	}
-	if err := cfg.CompileFilters(nil); err != nil {
 		return err
 	}
 	rt, err := exprruntime.New(nil)
 	if err != nil {
 		return err
 	}
-	if prg := cfg.PrefilterProgram(); prg != nil {
+	if cfg.Prefilter != "" {
+		prg, err := rt.CompilePrefilter(cfg.Prefilter)
+		if err != nil {
+			return fmt.Errorf("compiling global prefilter: %w", err)
+		}
 		if _, err := rt.EvalPrefilter(prg, fakeAttributes()); err != nil {
 			return fmt.Errorf("evaluating global prefilter: %w", err)
 		}
@@ -174,10 +173,6 @@ func validateConfig(cfg *configpkg.Config) error {
 			return fmt.Errorf("evaluating global filter: %w", err)
 		}
 	}
-	validationRT, err := cfg.CompileValidation()
-	if err != nil {
-		return err
-	}
 	for _, id := range sortedRuleIDs(cfg) {
 		rule := cfg.Rules[id]
 		if rule.Filter != "" {
@@ -189,8 +184,8 @@ func validateConfig(cfg *configpkg.Config) error {
 				return fmt.Errorf("evaluating rule %s filter: %w", id, err)
 			}
 		}
-		if validationRT != nil && rule.ValidateExpr != "" {
-			if _, err := validationRT.CompileValidation(rule.ValidateExpr); err != nil {
+		if rule.ValidateExpr != "" {
+			if _, err := rt.CompileValidation(rule.ValidateExpr); err != nil {
 				return fmt.Errorf("compiling rule %s validation: %w", id, err)
 			}
 		}
@@ -241,14 +236,6 @@ func countValidationRules(cfg *configpkg.Config) (int, int) {
 		}
 	}
 	return withValidation, len(cfg.Rules) - withValidation
-}
-
-func compileKeywordTrie(cfg *configpkg.Config) {
-	keywords := make([]string, 0, len(cfg.Keywords))
-	for keyword := range cfg.Keywords {
-		keywords = append(keywords, keyword)
-	}
-	_ = ahocorasick.CompileStrings(keywords)
 }
 
 func compileRuleRegexps(cfg *configpkg.Config) error {

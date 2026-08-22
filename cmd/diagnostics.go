@@ -261,20 +261,15 @@ func (dm *DiagnosticsManager) WriteMemoryProfile() {
 	dm.memProfile = ""
 }
 
-func writeMemoryStats(path string, stats runtime.MemStats) (err error) {
+func writeMemoryStats(path string, stats runtime.MemStats) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if closeErr := f.Close(); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
 
 	encoder := json.NewEncoder(f)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(memoryStats{
+	encodeErr := encoder.Encode(memoryStats{
 		CapturedAfterGC:   true,
 		HeapAllocBytes:    stats.HeapAlloc,
 		HeapInuseBytes:    stats.HeapInuse,
@@ -286,6 +281,7 @@ func writeMemoryStats(path string, stats runtime.MemStats) (err error) {
 		TotalAllocBytes:   stats.TotalAlloc,
 		NumGC:             stats.NumGC,
 	})
+	return errors.Join(encodeErr, f.Close())
 }
 
 // StartTraceProfile starts execution tracing

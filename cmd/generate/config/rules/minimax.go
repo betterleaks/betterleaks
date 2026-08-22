@@ -25,8 +25,9 @@ func MiniMaxAPIKey() *config.Rule {
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
-	tps := append(
-		utils.GenerateSampleSecrets("minimax", "sk-api-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{119}`, 3.5)),
+	tps := utils.GenerateSampleSecrets(
+		"minimax",
+		"sk-api-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{119}`, 3.5),
 	)
 	fps := []string{
 		`minimax_api_key = "sk-api-uBf3S6jw9Akw0X6u9KDy"`,

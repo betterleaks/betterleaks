@@ -6,7 +6,6 @@ import (
 	"math"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
@@ -128,42 +127,26 @@ func shannonEntropy(data string) (entropy float64) {
 		return 0
 	}
 
-	var asciiCounts [utf8.RuneSelf]int
-	var asciiSeen [utf8.RuneSelf]byte
+	// Secret matching and expression filters are byte-oriented. Computing the
+	// same byte entropy here keeps reported values consistent with filters and
+	// avoids allocating a rune-frequency map for non-ASCII input.
+	var byteCounts [256]int
+	var byteSeen [256]byte
 	seen := 0
 	for i := 0; i < len(data); i++ {
-		char := data[i]
-		if char >= utf8.RuneSelf {
-			return shannonEntropyRunes(data)
-		}
-		if asciiCounts[char] == 0 {
-			asciiSeen[seen] = char
+		value := data[i]
+		if byteCounts[value] == 0 {
+			byteSeen[seen] = value
 			seen++
 		}
-		asciiCounts[char]++
+		byteCounts[value]++
 	}
 
 	invLength := 1.0 / float64(len(data))
-	for _, char := range asciiSeen[:seen] {
-		freq := float64(asciiCounts[char]) * invLength
+	for _, value := range byteSeen[:seen] {
+		freq := float64(byteCounts[value]) * invLength
 		entropy -= freq * math.Log2(freq)
 	}
-	return entropy
-}
-
-func shannonEntropyRunes(data string) float64 {
-	charCounts := make(map[rune]int)
-	for _, char := range data {
-		charCounts[char]++
-	}
-
-	entropy := 0.0
-	invLength := 1.0 / float64(len(data))
-	for _, count := range charCounts {
-		freq := float64(count) * invLength
-		entropy -= freq * math.Log2(freq)
-	}
-
 	return entropy
 }
 

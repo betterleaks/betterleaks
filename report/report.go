@@ -12,5 +12,5 @@ const (
 )
 
 type Reporter interface {
-	Write(w io.WriteCloser, findings []Finding) error
+	Write(w io.Writer, findings []Finding) error
 }

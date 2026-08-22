@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -188,7 +189,7 @@ type sourceDownloadOptions struct {
 }
 
 // downloadAndScanSource downloads content from a URL or scans an existing reader via File.
-func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yield FragmentsFunc) error {
+func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yield FragmentsFunc) (returnErr error) { //nolint:nonamedreturns // deferred cleanup errors must be returned
 	start := time.Now()
 	reader := opts.Reader
 
@@ -216,7 +217,14 @@ func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yiel
 		}
 		reader = resp.Body
 	}
-	defer reader.Close()
+	readerClosed := false
+	defer func() {
+		if !readerClosed {
+			if err := reader.Close(); err != nil {
+				returnErr = errors.Join(returnErr, fmt.Errorf("close download %s: %w", opts.Path, err))
+			}
+		}
+	}()
 
 	tempPattern := opts.TempPattern
 	if tempPattern == "" {
@@ -227,12 +235,25 @@ func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yiel
 		return err
 	}
 	defer func() {
-		tmp.Close()
-		os.Remove(tmp.Name())
+		if err := tmp.Close(); err != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("close download temporary file: %w", err))
+		}
+		if err := os.Remove(tmp.Name()); err != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("remove download temporary file: %w", err))
+		}
 	}()
 
-	if _, err := io.Copy(tmp, reader); err != nil {
-		return fmt.Errorf("download %s: %w", opts.Path, err)
+	_, copyErr := io.Copy(tmp, reader)
+	closeErr := reader.Close()
+	readerClosed = true
+	if copyErr != nil {
+		if closeErr != nil {
+			closeErr = fmt.Errorf("close download %s: %w", opts.Path, closeErr)
+		}
+		return errors.Join(fmt.Errorf("download %s: %w", opts.Path, copyErr), closeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close download %s: %w", opts.Path, closeErr)
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return err

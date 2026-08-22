@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,7 +126,6 @@ func init() {
 	_ = rootCmd.PersistentFlags().MarkHidden("regexp-engine")
 
 	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable")
-	rootCmd.PersistentFlags().Int("source-workers", 0, "number of concurrent source tasks (0 = source default)")
 	rootCmd.PersistentFlags().Int("detect-workers", 0, "number of concurrent detection workers (0 = GOMAXPROCS)")
 
 	// Validation flags
@@ -370,9 +368,12 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	if err := applyRuleSelection(cmd, cfg); err != nil {
 		logging.Fatal().Err(err).Msg("unable to apply rule selection")
 	}
+	if _, err := resolveFindingsReport(cmd, cfg); err != nil {
+		logging.Fatal().Err(err).Msg("invalid report configuration")
+	}
 
-	// Setup common detector. NewDetector compiles global expression programs and
-	// sets up the validation pool, so the cfg must be fully prepared.
+	// NewDetector compiles global expression programs, so the cfg must be fully
+	// prepared before construction.
 	validationEnvVars, err := cmd.Flags().GetStringSlice("validation-env-vars")
 	if err != nil {
 		logging.Fatal().Err(err).Msg("validation-env-vars flag")
@@ -406,11 +407,10 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	}
 	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
 
-	detector, err := detect.NewDetector(cmd.Context(), cfg, valOpts)
+	detector, err := detect.NewDetector(cfg, valOpts)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("could not create detector")
 	}
-	detector.SourceWorkers = mustGetIntFlag(cmd, "source-workers")
 	detector.DetectWorkers = mustGetIntFlag(cmd, "detect-workers")
 	detector.MinConfidence, err = confidenceFlag(cmd)
 	if err != nil {
@@ -527,7 +527,7 @@ func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findin
 		diagnosticsManager.StopDiagnostics()
 	}
 
-	if detector.ValidationPool != nil {
+	if detector.ValidationEnabled() {
 		logging.Info().
 			Int("valid", detector.ValidationCounts["valid"]).
 			Int("needs_validation", detector.ValidationCounts["needs_validation"]).
@@ -572,10 +572,16 @@ func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findin
 	}
 }
 
-func writeFindingsReport(cmd *cobra.Command, cfg *config.Config, findings []report.Finding) error {
+type findingsReport struct {
+	path     string
+	format   string
+	reporter report.Reporter
+}
+
+func resolveFindingsReport(cmd *cobra.Command, cfg *config.Config) (*findingsReport, error) {
 	reportPath := mustGetStringFlag(cmd, "report-path")
 	if reportPath == "" {
-		return nil
+		return nil, nil
 	}
 
 	reportFormat := strings.TrimSpace(strings.ToLower(mustGetStringFlag(cmd, "report-format")))
@@ -583,7 +589,7 @@ func writeFindingsReport(cmd *cobra.Command, cfg *config.Config, findings []repo
 	if reportTemplate != "" && reportFormat == "" {
 		reportFormat = "template"
 	} else if reportTemplate != "" && reportFormat != "template" {
-		return errors.New("report format must be 'template' if --report-template is specified")
+		return nil, errors.New("report format must be 'template' if --report-template is specified")
 	}
 	if reportFormat == "" {
 		ext := strings.ToLower(filepath.Ext(reportPath))
@@ -595,7 +601,7 @@ func writeFindingsReport(cmd *cobra.Command, cfg *config.Config, findings []repo
 		case ".sarif":
 			reportFormat = "sarif"
 		default:
-			return fmt.Errorf("unknown report format for %q", reportPath)
+			return nil, fmt.Errorf("unknown report format for %q", reportPath)
 		}
 		logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
 	}
@@ -609,32 +615,48 @@ func writeFindingsReport(cmd *cobra.Command, cfg *config.Config, findings []repo
 	case "junit":
 		reporter = &report.JunitReporter{}
 	case "sarif":
-		reporter = &report.SarifReporter{OrderedRules: cfg.GetOrderedRules()}
+		var orderedRules []config.Rule
+		if cfg != nil {
+			orderedRules = cfg.GetOrderedRules()
+		}
+		reporter = &report.SarifReporter{OrderedRules: orderedRules}
 	case "template":
 		var err error
 		reporter, err = report.NewTemplateReporter(reportTemplate)
 		if err != nil {
-			return fmt.Errorf("invalid report template: %w", err)
+			return nil, fmt.Errorf("invalid report template: %w", err)
 		}
 	default:
-		return fmt.Errorf("unknown report format %q", reportFormat)
+		return nil, fmt.Errorf("unknown report format %q", reportFormat)
+	}
+	return &findingsReport{path: reportPath, format: reportFormat, reporter: reporter}, nil
+}
+
+func writeFindingsReport(cmd *cobra.Command, cfg *config.Config, findings []report.Finding) error {
+	resolved, err := resolveFindingsReport(cmd, cfg)
+	if err != nil || resolved == nil {
+		return err
+	}
+	if resolved.path == report.StdoutReportPath {
+		if err := resolved.reporter.Write(os.Stdout, findings); err != nil {
+			return fmt.Errorf("write %s report: %w", resolved.format, err)
+		}
+		return nil
 	}
 
-	var output io.WriteCloser
-	if reportPath == report.StdoutReportPath {
-		output = os.Stdout
-	} else {
-		file, err := os.Create(reportPath)
-		if err != nil {
-			return fmt.Errorf("create report %q: %w", reportPath, err)
-		}
-		defer func() { _ = file.Close() }()
-		output = file
+	file, err := os.Create(resolved.path)
+	if err != nil {
+		return fmt.Errorf("create report %q: %w", resolved.path, err)
 	}
-	if err := reporter.Write(output, findings); err != nil {
-		return fmt.Errorf("write %s report: %w", reportFormat, err)
+	writeErr := resolved.reporter.Write(file, findings)
+	closeErr := file.Close()
+	if writeErr != nil {
+		writeErr = fmt.Errorf("write %s report: %w", resolved.format, writeErr)
 	}
-	return nil
+	if closeErr != nil {
+		closeErr = fmt.Errorf("close report %q: %w", resolved.path, closeErr)
+	}
+	return errors.Join(writeErr, closeErr)
 }
 
 func fileExists(fileName string) bool {

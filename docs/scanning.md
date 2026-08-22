@@ -27,7 +27,7 @@ bounded queue:
 betterleaks dir . --source-workers 16 --detect-workers 8
 ```
 
-- `--source-workers` limits file-source tasks. `0` keeps the source's default.
+- `--source-workers` limits concurrent file readers for `dir`. `0` uses 20.
 - `--detect-workers` limits workers scanning leased fragments. `0` uses
   `GOMAXPROCS`.
 - `--validation-workers` independently controls live validation.
@@ -740,7 +740,7 @@ betterleaks git . -v --redact
 betterleaks dir . \
 	--report-path report.txt \
 	--report-format template \
-	--report-template report_templates/basic.tmpl
+	--report-template ./report.tmpl
 
 # show clipped context in verbose mode
 betterleaks dir . -v --match-context 5L,40C

@@ -3,12 +3,24 @@ package sources
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+type trackingReadCloser struct {
+	io.Reader
+	closed   bool
+	closeErr error
+}
+
+func (r *trackingReadCloser) Close() error {
+	r.closed = true
+	return r.closeErr
+}
 
 func Test_readUntilSafeBoundary(t *testing.T) {
 	// Arrange
@@ -91,4 +103,39 @@ func TestReadUntilSafeBoundaryHonorsExactReadLimit(t *testing.T) {
 	remainder, err := io.ReadAll(reader)
 	require.NoError(t, err)
 	require.Equal(t, "remaining", string(remainder))
+}
+
+func TestDownloadClosesReaderBeforeScanning(t *testing.T) {
+	reader := &trackingReadCloser{Reader: strings.NewReader("scan me")}
+	err := downloadAndScanSource(t.Context(), sourceDownloadOptions{
+		Reader: reader,
+		Path:   "download.txt",
+	}, func(fragment *Fragment, err error) error {
+		if fragment != nil {
+			defer fragment.Release()
+		}
+		require.NoError(t, err)
+		require.True(t, reader.closed, "the downloaded body must be closed before file scanning starts")
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, reader.closed)
+}
+
+func TestDownloadReturnsReaderCloseError(t *testing.T) {
+	wantErr := errors.New("close failed")
+	reader := &trackingReadCloser{
+		Reader:   strings.NewReader("scan me"),
+		closeErr: wantErr,
+	}
+	err := downloadAndScanSource(t.Context(), sourceDownloadOptions{
+		Reader: reader,
+		Path:   "download.txt",
+	}, func(fragment *Fragment, _ error) error {
+		if fragment != nil {
+			fragment.Release()
+		}
+		return nil
+	})
+	require.ErrorIs(t, err, wantErr)
 }

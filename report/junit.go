@@ -13,59 +13,76 @@ type JunitReporter struct {
 
 var _ Reporter = (*JunitReporter)(nil)
 
-func (r *JunitReporter) Write(w io.WriteCloser, findings []Finding) error {
+func (r *JunitReporter) Write(w io.Writer, findings []Finding) error {
+	suites, err := getTestSuites(findings)
+	if err != nil {
+		return err
+	}
 	testSuites := TestSuites{
-		TestSuites: getTestSuites(findings),
+		TestSuites: suites,
 	}
 
-	io.WriteString(w, xml.Header)
+	if _, err := io.WriteString(w, xml.Header); err != nil {
+		return err
+	}
 	encoder := xml.NewEncoder(w)
 	encoder.Indent("", "\t")
 	return encoder.Encode(testSuites)
 }
 
-func getTestSuites(findings []Finding) []TestSuite {
+func getTestSuites(findings []Finding) ([]TestSuite, error) {
+	testCases, err := getTestCases(findings)
+	if err != nil {
+		return nil, err
+	}
 	return []TestSuite{
 		{
 			Failures:  strconv.Itoa(len(findings)),
 			Name:      "betterleaks",
 			Tests:     strconv.Itoa(len(findings)),
-			TestCases: getTestCases(findings),
+			TestCases: testCases,
 			Time:      "",
 		},
-	}
+	}, nil
 }
 
-func getTestCases(findings []Finding) []TestCase {
+func getTestCases(findings []Finding) ([]TestCase, error) {
 	testCases := []TestCase{}
 	for _, f := range findings {
+		failure, err := getFailure(f)
+		if err != nil {
+			return nil, err
+		}
 		testCase := TestCase{
 			Classname: f.Description,
-			Failure:   getFailure(f),
+			Failure:   failure,
 			File:      f.File,
 			Name:      getMessage(f),
 			Time:      "",
 		}
 		testCases = append(testCases, testCase)
 	}
-	return testCases
+	return testCases, nil
 }
 
-func getFailure(f Finding) Failure {
+func getFailure(f Finding) (Failure, error) {
+	data, err := getData(f)
+	if err != nil {
+		return Failure{}, err
+	}
 	return Failure{
-		Data:    getData(f),
+		Data:    data,
 		Message: getMessage(f),
 		Type:    f.Description,
-	}
+	}, nil
 }
 
-func getData(f Finding) string {
+func getData(f Finding) (string, error) {
 	data, err := json.MarshalIndent(f, "", "\t")
 	if err != nil {
-		fmt.Println(err)
-		return ""
+		return "", fmt.Errorf("marshal finding for JUnit: %w", err)
 	}
-	return string(data)
+	return string(data), nil
 }
 
 func getMessage(f Finding) string {

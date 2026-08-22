@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
@@ -123,9 +124,26 @@ func TestTranslate(t *testing.T) {
 func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 	cfg, err := Default()
 	require.NoError(t, err)
-	require.NoError(t, cfg.CompileFilters(nil))
-	_, err = cfg.CompileValidation()
+	runtime, err := exprruntime.New(nil)
 	require.NoError(t, err)
+	if cfg.Prefilter != "" {
+		_, err = runtime.CompilePrefilter(cfg.Prefilter)
+		require.NoError(t, err)
+	}
+	if cfg.Filter != "" {
+		_, err = runtime.CompileFilter(cfg.Filter, nil)
+		require.NoError(t, err)
+	}
+	for _, rule := range cfg.Rules {
+		if rule.Filter != "" {
+			_, err = runtime.CompileFilter(rule.Filter, nil)
+			require.NoError(t, err)
+		}
+		if rule.ValidateExpr != "" {
+			_, err = runtime.CompileValidation(rule.ValidateExpr)
+			require.NoError(t, err)
+		}
+	}
 }
 
 func TestGenericRuleConfidence(t *testing.T) {

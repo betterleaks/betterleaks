@@ -36,12 +36,10 @@ type Finding struct {
 	// CaptureGroups holds named regex capture groups from the match.
 	CaptureGroups map[string]string `json:",omitempty"`
 
-	// Fragment used for multi-part rule checking and CEL filtering
-	Fragment *sources.Fragment `json:",omitempty"`
-
 	// Attributes holds additional metadata about the finding.
 	// Keys are defined in sources.Attr* constants (subject to change), but this is extensible for custom use cases.
-	// Attributes are initially populated from the source's Fragment attributes and can be added to in the Detector or ValidationPool.
+	// Attributes are initially populated from source metadata and can be enriched
+	// during detection or validation.
 	// Deprecated "attribute" fields (File, Commit, etc.) are synced from Attributes for compatibility.
 	Attributes map[string]string `json:",omitempty"`
 

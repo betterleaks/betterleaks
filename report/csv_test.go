@@ -1,6 +1,8 @@
 package report
 
 import (
+	"bytes"
+	"encoding/csv"
 	"os"
 	"path/filepath"
 	"testing"
@@ -74,4 +76,19 @@ func TestWriteCSV(t *testing.T) {
 			assert.Equal(t, wantStr, gotStr)
 		})
 	}
+}
+
+func TestWriteCSVIncludesLinkWhenLaterFindingHasOne(t *testing.T) {
+	var output bytes.Buffer
+	findings := []Finding{
+		{RuleID: "first"},
+		{RuleID: "second", Link: "https://example.test/finding"},
+	}
+	require.NoError(t, (&CsvReporter{}).Write(&output, findings))
+
+	records, err := csv.NewReader(bytes.NewReader(output.Bytes())).ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 3)
+	require.Equal(t, "Link", records[0][len(records[0])-1])
+	require.Equal(t, findings[1].Link, records[2][len(records[2])-1])
 }

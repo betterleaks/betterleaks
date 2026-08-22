@@ -31,6 +31,12 @@ func (r *Regexp) Match(b []byte) bool {
 	e, ok := r.compiled()
 	return ok && e.Match(b)
 }
+func (r *Regexp) FindSubmatchIndex(b []byte) []int {
+	if e, ok := r.compiled(); ok {
+		return e.FindSubmatchIndex(b)
+	}
+	return nil
+}
 func (r *Regexp) FindString(s string) string {
 	if e, ok := r.compiled(); ok {
 		return e.FindString(s)
@@ -43,6 +49,12 @@ func (r *Regexp) FindStringSubmatch(s string) []string {
 	}
 	return nil
 }
+func (r *Regexp) FindStringSubmatchIndex(s string) []int {
+	if e, ok := r.compiled(); ok {
+		return e.FindStringSubmatchIndex(s)
+	}
+	return nil
+}
 func (r *Regexp) FindAllStringIndex(s string, n int) [][]int {
 	if e, ok := r.compiled(); ok {
 		return e.FindAllStringIndex(s, n)
@@ -52,6 +64,18 @@ func (r *Regexp) FindAllStringIndex(s string, n int) [][]int {
 func (r *Regexp) FindAllIndex(b []byte, n int) [][]int {
 	if e, ok := r.compiled(); ok {
 		return e.FindAllIndex(b, n)
+	}
+	return nil
+}
+func (r *Regexp) FindAllSubmatchIndex(b []byte, n int) [][]int {
+	if e, ok := r.compiled(); ok {
+		return e.FindAllSubmatchIndex(b, n)
+	}
+	return nil
+}
+func (r *Regexp) FindAllStringSubmatchIndex(s string, n int) [][]int {
+	if e, ok := r.compiled(); ok {
+		return e.FindAllStringSubmatchIndex(s, n)
 	}
 	return nil
 }

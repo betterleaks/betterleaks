@@ -104,6 +104,23 @@ func TestCandidateBitmap(t *testing.T) {
 	require.Equal(t, []string{"high", "always"}, findingRuleIDs(d.DetectString("alias HIGHSECRET ALWAYSSECRET")))
 }
 
+func TestCaptureFallbackWhenIsolatedMatchLosesContext(t *testing.T) {
+	rule := config.Rule{
+		RuleID:      "context-sensitive-capture",
+		Regex:       regexp.MustCompile(`\B(foo)`),
+		SecretGroup: 1,
+	}
+	detector := newTestDetector(t, &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		Keywords:       make(map[string]struct{}),
+		NoKeywordRules: []string{rule.RuleID},
+	})
+
+	findings := detector.DetectString("xfoo")
+	require.Len(t, findings, 1)
+	require.Equal(t, "foo", findings[0].Secret)
+}
+
 func findingRuleIDs(findings []report.Finding) []string {
 	ids := make([]string, len(findings))
 	for i := range findings {
@@ -445,6 +462,10 @@ func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 		"Rake task arguments": {
 			path: "lib/tasks/passwords.rake",
 			raw:  `gitlab:password:check_hashes:[true]`,
+		},
+		"Rake command with prefix": {
+			path: "doc/administration/raketasks/password.md",
+			raw:  `bundle exec rake gitlab:password:check_hashes:[true] RAILS_ENV=production`,
 		},
 		"nested unquoted assignment": {
 			path: "Documentation/admin-guide/kernel-parameters.txt",
@@ -1123,8 +1144,6 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 		NoKeywordRules: []string{rule.RuleID},
 		OrderedRules:   []string{rule.RuleID},
 	}
-	require.NoError(t, cfg.CompileFilters(nil))
-
 	d := newTestDetector(t, cfg)
 	findings := d.DetectFragment(t.Context(), sources.Fragment{Raw: []byte("red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST")})
 
@@ -1140,8 +1159,6 @@ func TestConfidenceAttributeAndFilter(t *testing.T) {
 		NoKeywordRules: []string{low.RuleID, promoted.RuleID},
 		OrderedRules:   []string{low.RuleID, promoted.RuleID},
 	}
-	require.NoError(t, cfg.CompileFilters(nil))
-
 	detector := newTestDetector(t, cfg)
 	detector.MinConfidence = "high"
 	findings := detector.DetectString("ABCDEFGHIJKLMNOPQRST")
@@ -3216,7 +3233,7 @@ func TestDetectWithArchives(t *testing.T) {
 			}
 
 			cfg := loadTestConfig(t, tt.cfgName)
-			detector, err := NewDetector(ctx, cfg, ValidationOptions{})
+			detector, err := NewDetector(cfg, ValidationOptions{})
 			require.NoError(t, err)
 
 			findings, err := collectTestRun(
@@ -3553,7 +3570,6 @@ let password = 'Summer2024!';`
 				Rules: map[string]config.Rule{"test-rule": rule},
 			}
 			require.NoError(t, cfg.TranslateLegacyFilters())
-			require.NoError(t, cfg.CompileFilters(nil))
 			rule = cfg.Rules["test-rule"]
 
 			d, err := NewDetectorDefaultConfig()
@@ -3611,6 +3627,34 @@ func TestNormalizeGitleaksIgnorePaths(t *testing.T) {
 		"b55d88dc151f7022901cda41a03d43e0e508f2b7:test_data/test_local_repo_three_leaks.json:aws-access-token:73": {},
 	}
 	assert.ElementsMatch(t, maps.Keys(d.gitleaksIgnore), maps.Keys(expected))
+}
+
+func TestAddGitleaksIgnoreReturnsScannerError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".gitleaksignore")
+	require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", 70*1024)), 0o600))
+
+	detector := &Detector{gitleaksIgnore: map[string]struct{}{
+		"existing.txt:test-rule:1": {},
+	}}
+	err := detector.AddGitleaksIgnore(path)
+	require.ErrorContains(t, err, "read ignore file")
+	require.Equal(t, map[string]struct{}{
+		"existing.txt:test-rule:1": {},
+	}, detector.gitleaksIgnore, "a failed load must not partially mutate the detector")
+}
+
+func TestAddGitleaksIgnoreAcceptsColonsInPaths(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".gitleaksignore")
+	content := "C:\\repo\\secret.txt:test-rule:7\n" +
+		"0123456789012345678901234567890123456789:C:\\repo\\secret.txt:test-rule:8\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	detector := &Detector{}
+	require.NoError(t, detector.AddGitleaksIgnore(path))
+	require.Equal(t, map[string]struct{}{
+		"C:/repo/secret.txt:test-rule:7":                                          {},
+		"0123456789012345678901234567890123456789:C:/repo/secret.txt:test-rule:8": {},
+	}, detector.gitleaksIgnore)
 }
 
 func TestWindowsFileSeparator_RulePath(t *testing.T) {
@@ -3957,7 +4001,6 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 				Rules: map[string]config.Rule{test.rule.RuleID: test.rule},
 			}
 			require.NoError(t, cfg.TranslateLegacyFilters())
-			require.NoError(t, cfg.CompileFilters(nil))
 			rule := cfg.Rules[test.rule.RuleID]
 
 			actual := d.detectFragmentWithRule(test.fragment, string(test.fragment.Raw), rule, []*codec.EncodedSegment{}, nil)

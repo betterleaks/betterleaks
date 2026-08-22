@@ -229,6 +229,15 @@ func (s *GitHub) Validate() error {
 
 // Fragments enumerates GitHub repos and scans each one.
 func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if s == nil {
+		return errors.New("sources: GitHub source is required")
+	}
+	if yield == nil {
+		return errors.New("sources: GitHub fragment callback is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := s.Validate(); err != nil {
 		return err
 	}

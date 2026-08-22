@@ -115,7 +115,7 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 		}
 	}
 
-	detector, err := detect.NewDetector(context.Background(), cfg, detect.ValidationOptions{})
+	detector, err := detect.NewDetector(cfg, detect.ValidationOptions{})
 	if err != nil {
 		logging.Fatal().Err(err).Msg("Failed to create rule validation detector.")
 	}

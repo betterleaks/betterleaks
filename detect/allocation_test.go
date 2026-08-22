@@ -94,3 +94,20 @@ func TestDetectAcceptedCandidateAllocationBudget(t *testing.T) {
 		t.Fatalf("accepted candidate allocated %.2f times above regex floor %.2f (total %.2f)", extra, backend, detectAllocs)
 	}
 }
+
+func TestDetectStringAcceptedCandidateAllocationBudget(t *testing.T) {
+	detector, re := allocationDetector(t)
+	const content = "candidate_ABCDEFGHIJKLMNOPQRST"
+	allocationFindings = detector.DetectString(content)
+	allocationMatches = re.FindAllStringIndex(content, -1)
+
+	backend := testing.AllocsPerRun(200, func() {
+		allocationMatches = re.FindAllStringIndex(content, -1)
+	})
+	detectAllocs := testing.AllocsPerRun(200, func() {
+		allocationFindings = detector.DetectString(content)
+	})
+	if extra := detectAllocs - backend; extra > 8 {
+		t.Fatalf("accepted string candidate allocated %.2f times above regex floor %.2f (total %.2f)", extra, backend, detectAllocs)
+	}
+}

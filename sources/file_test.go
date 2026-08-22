@@ -1,6 +1,9 @@
 package sources
 
 import (
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -35,6 +38,98 @@ func TestFileFragmentsYieldsCanonicalBytes(t *testing.T) {
 		return nil
 	}))
 	require.Equal(t, "first\nsecond\n", got)
+}
+
+func TestFileFragmentsValidatesPublicInputs(t *testing.T) {
+	var source *File
+	require.EqualError(t, source.Fragments(t.Context(), func(*Fragment, error) error { return nil }), "sources: file source is required")
+
+	source = &File{}
+	require.EqualError(t, source.Fragments(t.Context(), func(*Fragment, error) error { return nil }), "sources: file content is required")
+
+	source.Content = strings.NewReader("content")
+	require.EqualError(t, source.Fragments(t.Context(), nil), "sources: file fragment callback is required")
+}
+
+func TestFileArchivePropagatesCallbackError(t *testing.T) {
+	var gzipData bytes.Buffer
+	gzipWriter := gzip.NewWriter(&gzipData)
+	_, err := io.WriteString(gzipWriter, "archive content\n")
+	require.NoError(t, err)
+	require.NoError(t, gzipWriter.Close())
+
+	var zipData bytes.Buffer
+	zipWriter := zip.NewWriter(&zipData)
+	entry, err := zipWriter.Create("secret.txt")
+	require.NoError(t, err)
+	_, err = io.WriteString(entry, "archive content\n")
+	require.NoError(t, err)
+	require.NoError(t, zipWriter.Close())
+
+	wantErr := errors.New("stop archive scan")
+	for _, test := range []struct {
+		name string
+		path string
+		data []byte
+	}{
+		{name: "decompressor", path: "fixture.gz", data: gzipData.Bytes()},
+		{name: "extractor", path: "fixture.zip", data: zipData.Bytes()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			source := &File{
+				Content:         bytes.NewReader(test.data),
+				Path:            test.path,
+				MaxArchiveDepth: 1,
+			}
+			err := source.Fragments(t.Context(), func(fragment *Fragment, err error) error {
+				if fragment != nil {
+					defer fragment.Release()
+				}
+				require.NoError(t, err)
+				return wantErr
+			})
+			require.ErrorIs(t, err, wantErr)
+		})
+	}
+}
+
+func TestFileArchiveDoesNotRecoverCallbackPanic(t *testing.T) {
+	var gzipData bytes.Buffer
+	gzipWriter := gzip.NewWriter(&gzipData)
+	_, err := io.WriteString(gzipWriter, "archive content\n")
+	require.NoError(t, err)
+	require.NoError(t, gzipWriter.Close())
+
+	var zipData bytes.Buffer
+	zipWriter := zip.NewWriter(&zipData)
+	entry, err := zipWriter.Create("secret.txt")
+	require.NoError(t, err)
+	_, err = io.WriteString(entry, "archive content\n")
+	require.NoError(t, err)
+	require.NoError(t, zipWriter.Close())
+
+	for _, test := range []struct {
+		name string
+		path string
+		data []byte
+	}{
+		{name: "decompressor", path: "fixture.gz", data: gzipData.Bytes()},
+		{name: "extractor", path: "fixture.zip", data: zipData.Bytes()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			source := &File{
+				Content:         bytes.NewReader(test.data),
+				Path:            test.path,
+				MaxArchiveDepth: 1,
+			}
+			require.PanicsWithValue(t, "callback panic", func() {
+				_ = source.Fragments(t.Context(), func(fragment *Fragment, _ error) error {
+					fragment.Release()
+					panic("callback panic")
+				})
+			})
+		})
+	}
 }
 
 // panicReader panics on the first Read, emulating a decompressor that blows up

@@ -14,7 +14,7 @@ import (
 
 func newTestDetector(t testing.TB, cfg *config.Config) *Detector {
 	t.Helper()
-	detector, err := NewDetector(context.Background(), cfg, ValidationOptions{})
+	detector, err := NewDetector(cfg, ValidationOptions{})
 	require.NoError(t, err)
 	return detector
 }

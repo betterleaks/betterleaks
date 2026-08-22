@@ -10,9 +10,7 @@ import (
 
 	gv "github.com/hashicorp/go-version"
 	"github.com/pelletier/go-toml/v2"
-	tiktoken "github.com/pkoukk/tiktoken-go"
 
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/version"
@@ -140,11 +138,6 @@ type Config struct {
 	// Returns true = skip (discard) this finding; false = keep.
 	// Translated from global Allowlists regex/stopword checks.
 	Filter string
-
-	// prefilterProgram and filterProgram hold global programs compiled by
-	// CompileFilters. Per-rule filter and validation compilation is lazy.
-	prefilterProgram exprruntime.Program
-	filterProgram    exprruntime.Program
 }
 
 // Extend is a struct that allows users to define how they want their
@@ -535,61 +528,6 @@ func (rc *rawConfig) parseAllowlist(a *rawRuleAllowlist) (*Allowlist, error) {
 		return nil, err
 	}
 	return allowlist, nil
-}
-
-// PrefilterProgram returns the compiled global prefilter program, or nil if not set.
-func (c *Config) PrefilterProgram() exprruntime.Program { return c.prefilterProgram }
-
-// SetPrefilterProgram stores a compiled global prefilter program.
-func (c *Config) SetPrefilterProgram(p exprruntime.Program) { c.prefilterProgram = p }
-
-// FilterProgram returns the compiled global filter program, or nil if not set.
-func (c *Config) FilterProgram() exprruntime.Program { return c.filterProgram }
-
-// SetFilterProgram stores a compiled global filter program.
-func (c *Config) SetFilterProgram(p exprruntime.Program) { c.filterProgram = p }
-
-// CompileFilters compiles only the global prefilter needed before scanning.
-// Global finding filters and per-rule filters compile lazily on first candidate.
-func (c *Config) CompileFilters(tokenizer *tiktoken.Tiktoken) error {
-	runtime, err := exprruntime.New(nil)
-	if err != nil {
-		return fmt.Errorf("creating expr runtime: %w", err)
-	}
-
-	if c.Prefilter != "" {
-		prg, compileErr := runtime.CompilePrefilter(c.Prefilter)
-		if compileErr != nil {
-			return fmt.Errorf("compiling global prefilter: %w", compileErr)
-		}
-		c.prefilterProgram = prg
-	}
-
-	return nil
-}
-
-// CompileValidation returns a runtime for per-rule validation expressions.
-// Individual validation programs are compiled lazily by the detector.
-// Returns (nil, nil) when no rules have validation expressions.
-func (c *Config) CompileValidation() (*exprruntime.Runtime, error) {
-	// Quick check: skip environment creation if nothing to compile.
-	hasValidation := false
-	for _, r := range c.Rules {
-		if r.ValidateExpr != "" {
-			hasValidation = true
-			break
-		}
-	}
-	if !hasValidation {
-		return nil, nil
-	}
-
-	runtime, err := exprruntime.New(nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating validation env: %w", err)
-	}
-
-	return runtime, nil
 }
 
 func (c *Config) GetOrderedRules() []Rule {

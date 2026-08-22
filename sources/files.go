@@ -12,11 +12,11 @@ import (
 	"github.com/charlievieth/fastwalk"
 )
 
-// TODO: remove this in v9 and have scanTargets yield file sources
-type ScanTarget struct {
+const defaultFileWorkers = 20
+
+type scanTarget struct {
 	Path    string
 	Symlink string
-	Size    int64
 }
 
 // Files is a source for yielding fragments from a collection of files
@@ -26,14 +26,13 @@ type Files struct {
 	FollowSymlinks bool
 	MaxFileSize    int
 	Path           string
-	// Workers controls the fixed file worker pool. A context override takes
-	// precedence; zero uses the source default.
+	// Workers controls the fixed file worker pool. Zero uses 20 workers.
 	Workers         int
 	MaxArchiveDepth int
 }
 
 // scanTargets yields scan targets to a callback func
-func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) error) error {
+func (s *Files) scanTargets(ctx context.Context, yield func(scanTarget, error) error) error {
 	// fastwalk only accepts directory roots. Lstat also preserves the existing
 	// symlink handling when the requested root is a single file or symlink.
 	rootInfo, err := os.Lstat(s.Path)
@@ -53,7 +52,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		scanTarget := ScanTarget{Path: path}
+		target := scanTarget{Path: path}
 
 		if err != nil {
 			if os.IsPermission(err) {
@@ -80,25 +79,9 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			logging.Error().Err(err).Str("path", path).Msg("skipping file: could not get info")
 			return nil
 		}
-
-		// Empty; nothing to do here.
-		if info.Size() == 0 {
-			logging.Debug().Str("path", path).Msg("skipping empty file")
-			return nil
-		}
-
-		// Too large; nothing to do here.
-		if s.MaxFileSize > 0 && info.Size() > int64(s.MaxFileSize) {
-			logging.Warn().Str("path", path).Msgf(
-				"skipping file: too large max_size=%dMB, size=%dMB",
-				s.MaxFileSize/1_000_000, info.Size()/1_000_000,
-			)
-			return nil
-		}
-		scanTarget.Size = info.Size()
-
+		effectiveInfo := info
 		// set the initial scan target values
-		if d.Type() == fs.ModeSymlink {
+		if d.Type()&fs.ModeSymlink != 0 {
 			if !s.FollowSymlinks {
 				logging.Debug().Str("path", path).Msg("skipping symlink: follow symlinks disabled")
 				return nil
@@ -113,15 +96,30 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 				logging.Error().Err(err).Str("path", path).Str("target", realPath).Msg("skipping symlink: could not get target info")
 				return nil
 			}
-			if realPathFileInfo.IsDir() {
-				logging.Debug().Str("path", path).Str("target", realPath).Msgf("skipping symlink: target is directory")
-				return nil
-			}
-			scanTarget = ScanTarget{
+			effectiveInfo = realPathFileInfo
+			target = scanTarget{
 				Path:    realPath,
 				Symlink: path,
-				Size:    realPathFileInfo.Size(),
 			}
+		}
+
+		// Use the resolved target metadata for symlinks. Lstat reports the length
+		// of the link text, not the target file size, so applying limits before
+		// resolution can reject a small file solely because its path is long.
+		if !effectiveInfo.Mode().IsRegular() {
+			logging.Debug().Str("path", path).Msg("skipping non-regular file")
+			return nil
+		}
+		if effectiveInfo.Size() == 0 {
+			logging.Debug().Str("path", path).Msg("skipping empty file")
+			return nil
+		}
+		if s.MaxFileSize > 0 && effectiveInfo.Size() > int64(s.MaxFileSize) {
+			logging.Warn().Str("path", path).Msgf(
+				"skipping file: too large max_size=%dMB, size=%dMB",
+				s.MaxFileSize/1_000_000, effectiveInfo.Size()/1_000_000,
+			)
+			return nil
 		}
 
 		if shouldSkipFilePath(s.ShouldSkipPath, s.ShouldSkip, path) {
@@ -131,7 +129,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 
 		yieldMu.Lock()
 		defer yieldMu.Unlock()
-		return yield(scanTarget, nil)
+		return yield(target, nil)
 	}
 
 	if !rootInfo.IsDir() {
@@ -156,19 +154,27 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	ctx = ensureSourceWorkers(ctx)
-	workers := s.Workers
-	if override := sourceWorkerOverride(ctx); override > 0 {
-		workers = override
+	if s == nil {
+		return errors.New("sources: files source is required")
 	}
+	if yield == nil {
+		return errors.New("sources: files fragment callback is required")
+	}
+	workers := s.Workers
 	if workers <= 0 {
-		workers = sourceWorkerCount(ctx, defaultSourceWorkers)
+		workers = defaultFileWorkers
 	}
 	return s.fragmentsWithWorkers(ctx, yield, workers)
 }
 
 func (s *Files) fragmentsWithWorkers(ctx context.Context, yield FragmentsFunc, workerCount int) error {
-	jobs := make(chan ScanTarget, workerCount)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	jobs := make(chan scanTarget, workerCount)
 	var workers sync.WaitGroup
 	workers.Add(workerCount)
 
@@ -181,53 +187,64 @@ func (s *Files) fragmentsWithWorkers(ctx context.Context, yield FragmentsFunc, w
 		scanErrMu.Lock()
 		scanErr = errors.Join(scanErr, err)
 		scanErrMu.Unlock()
+		cancel()
 	}
 
 	for range workerCount {
 		go func() {
 			defer workers.Done()
 			for target := range jobs {
-				recordError(s.scanFile(ctx, target, yield))
+				if runCtx.Err() != nil {
+					continue
+				}
+				recordError(s.scanFile(runCtx, target, yield))
 			}
 		}()
 	}
 
-	walkErr := s.scanTargets(ctx, func(scanTarget ScanTarget, err error) error {
+	walkErr := s.scanTargets(runCtx, func(target scanTarget, err error) error {
 		if err != nil {
 			recordError(err)
 			return nil
 		}
 		select {
-		case jobs <- scanTarget:
+		case jobs <- target:
 			return nil
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-runCtx.Done():
+			return runCtx.Err()
 		}
 	})
 	close(jobs)
 	workers.Wait()
-	return errors.Join(walkErr, scanErr)
+	if scanErr != nil {
+		if walkErr != nil && !errors.Is(walkErr, context.Canceled) {
+			return errors.Join(scanErr, walkErr)
+		}
+		return scanErr
+	}
+	return walkErr
 }
 
-func (s *Files) scanFile(ctx context.Context, scanTarget ScanTarget, yield FragmentsFunc) error {
-	logging.Trace().Str("path", scanTarget.Path).Msg("scanning path")
-	f, err := os.Open(scanTarget.Path)
+func (s *Files) scanFile(ctx context.Context, target scanTarget, yield FragmentsFunc) error {
+	logging.Trace().Str("path", target.Path).Msg("scanning path")
+	f, err := os.Open(target.Path)
 	if err != nil {
 		if os.IsPermission(err) {
-			logging.Warn().Str("path", scanTarget.Path).Msg("skipping file: permission denied")
+			logging.Warn().Str("path", target.Path).Msg("skipping file: permission denied")
+		} else {
+			logging.Warn().Err(err).Str("path", target.Path).Msg("skipping file: could not open")
 		}
 		return nil
 	}
 
 	file := File{
 		Content:         f,
-		Path:            scanTarget.Path,
-		Symlink:         scanTarget.Symlink,
-		Size:            scanTarget.Size,
+		Path:            target.Path,
+		Symlink:         target.Symlink,
 		ShouldSkip:      s.ShouldSkip,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 	}
 	err = file.Fragments(ctx, yield)
-	_ = f.Close()
-	return err
+	closeErr := f.Close()
+	return errors.Join(err, closeErr)
 }

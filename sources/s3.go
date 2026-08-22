@@ -173,6 +173,15 @@ func (s *S3) resolveCreds() (s3Creds, error) {
 // Fragments dispatches to single-bucket or enumerate-mode scanning based on
 // the parsed URL.
 func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if s == nil {
+		return errors.New("sources: S3 source is required")
+	}
+	if yield == nil {
+		return errors.New("sources: S3 fragment callback is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if s.parsed.Bucket == "" && s.parsed.BucketGlob == "" {
 		if err := s.Validate(); err != nil {
 			return err

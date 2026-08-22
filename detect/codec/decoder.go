@@ -17,6 +17,7 @@ type Decoder struct {
 const (
 	maxPooledDecodedBytes   = 256 * 1024
 	maxPooledDecodedEntries = 256
+	maxPooledSegments       = 1024
 )
 
 var decodedBytesPool = sync.Pool{
@@ -143,12 +144,19 @@ func (d *Decoder) Release() {
 		clear(d.decodedMap)
 	}
 	if d.ownedSegments != nil {
-		for _, segment := range *d.ownedSegments {
+		segments := d.ownedSegments
+		for _, segment := range *segments {
 			*segment = EncodedSegment{}
 			encodedSegmentPool.Put(segment)
 		}
-		*d.ownedSegments = (*d.ownedSegments)[:0]
-		encodedSegmentListPool.Put(d.ownedSegments)
+		// A zero-length pointer slice still keeps every pointer in its backing
+		// array alive. Clear it before pooling, and drop unusually large lists so
+		// one adversarial fragment cannot permanently raise each worker's floor.
+		clear(*segments)
+		*segments = (*segments)[:0]
+		if cap(*segments) <= maxPooledSegments {
+			encodedSegmentListPool.Put(segments)
+		}
 		d.ownedSegments = nil
 	}
 }

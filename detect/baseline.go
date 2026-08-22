@@ -34,15 +34,15 @@ func IsNew(finding report.Finding, redact uint, baseline []report.Finding) bool 
 }
 
 func LoadBaseline(baselinePath string) ([]report.Finding, error) {
-	bytes, err := os.ReadFile(baselinePath)
+	data, err := os.ReadFile(baselinePath)
 	if err != nil {
-		return nil, fmt.Errorf("could not open %s", baselinePath)
+		return nil, fmt.Errorf("open baseline %q: %w", baselinePath, err)
 	}
 
 	var previousFindings []report.Finding
-	err = json.Unmarshal(bytes, &previousFindings)
+	err = json.Unmarshal(data, &previousFindings)
 	if err != nil {
-		return nil, fmt.Errorf("the format of the file %s is not supported", baselinePath)
+		return nil, fmt.Errorf("decode baseline %q: %w", baselinePath, err)
 	}
 
 	return previousFindings, nil

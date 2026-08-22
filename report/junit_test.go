@@ -1,6 +1,7 @@
 package report
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"os"
@@ -100,6 +101,16 @@ func TestWriteJunit(t *testing.T) {
 
 		assert.Equal(t, wantSuites, gotSuites)
 	}
+}
+
+func TestWriteJunitReturnsFindingMarshalError(t *testing.T) {
+	findings := []Finding{{
+		ValidationMeta: map[string]any{"unsupported": make(chan struct{})},
+	}}
+	var output bytes.Buffer
+	err := (&JunitReporter{}).Write(&output, findings)
+	require.ErrorContains(t, err, "marshal finding for JUnit")
+	require.Empty(t, output.Bytes())
 }
 
 func normalizeJunitJSONPayloads(t *testing.T, suites *TestSuites) {

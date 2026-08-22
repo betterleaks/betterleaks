@@ -17,6 +17,7 @@ import (
 func init() {
 	rootCmd.AddCommand(directoryCmd)
 	directoryCmd.Flags().Bool("follow-symlinks", false, "scan files that are symlinks to other files")
+	directoryCmd.Flags().Int("source-workers", 0, "number of concurrent file readers (0 = 20)")
 }
 
 var directoryCmd = &cobra.Command{
@@ -45,6 +46,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	verbose := mustGetBoolFlag(cmd, "verbose")
 	legacyPrint := mustGetBoolFlag(cmd, "legacy-print")
 	exitCode := mustGetIntFlag(cmd, "exit-code")
+	sourceWorkers := mustGetIntFlag(cmd, "source-workers")
 
 	var (
 		allFindings  []report.Finding
@@ -66,7 +68,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 			FollowSymlinks:  followSymlinks,
 			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
 			Path:            source,
-			Workers:         20,
+			Workers:         sourceWorkers,
 			MaxArchiveDepth: maxArchiveDepth,
 		}
 

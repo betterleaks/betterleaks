@@ -32,9 +32,10 @@ func ZAIAPIKey() *config.Rule {
 		Filter: `entropy(finding["secret"]) <= 3.5`,
 	}
 
-	tps := append(
-		utils.GenerateSampleSecrets("zai", "cbe5985d07804065b46efaf1daa82834.ZLV4IOHGbEEHPDt5"),
+	tps := utils.GenerateSampleSecrets(
+		"zai",
+		"cbe5985d07804065b46efaf1daa82834.ZLV4IOHGbEEHPDt5",
 	)
-	fps := []string{}
+	var fps []string
 	return utils.Validate(r, tps, fps)
 }

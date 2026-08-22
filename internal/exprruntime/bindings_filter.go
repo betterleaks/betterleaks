@@ -368,8 +368,12 @@ func (rt *runtimeBindings) tokenizerInstance() *tiktoken.Tiktoken {
 }
 
 func (rt *runtimeBindings) failsTokenEfficiency(secret string) bool {
+	analyzed := tokenAnalysisText(secret)
+	if reject, decided := dictionaryTokenEfficiencyResult(analyzed); decided {
+		return reject
+	}
 	tke := rt.tokenizerInstance()
-	return tke != nil && failsTokenEfficiency(tke, secret)
+	return tke != nil && failsTokenEfficiencyTokenized(tke, analyzed)
 }
 
 func (rt *runtimeBindings) tokenRatio(secret string) float64 {
@@ -408,15 +412,26 @@ func tokenRatioForText(tke *tiktoken.Tiktoken, analyzed string) (float64, bool) 
 
 func failsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
 	analyzed := tokenAnalysisText(secret)
+	if reject, decided := dictionaryTokenEfficiencyResult(analyzed); decided {
+		return reject
+	}
+	return failsTokenEfficiencyTokenized(tke, analyzed)
+}
+
+func dictionaryTokenEfficiencyResult(analyzed string) (bool, bool) {
 	if len(analyzed) == 0 {
-		return false
+		return false, true
 	}
 	// Dictionary matches are an unconditional rejection in the original
-	// heuristic. Check them before tokenization so common readable placeholders
-	// avoid the regex and token-slice allocations in tiktoken entirely.
+	// heuristic. Callers run this before acquiring the lazily initialized
+	// tokenizer so common readable placeholders avoid its vocabulary entirely.
 	if words.HasAnyMatchInList(analyzed, 5) {
-		return true
+		return true, true
 	}
+	return false, false
+}
+
+func failsTokenEfficiencyTokenized(tke *tiktoken.Tiktoken, analyzed string) bool {
 	ratio, ok := tokenRatioForText(tke, analyzed)
 	if !ok {
 		return false

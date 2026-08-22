@@ -12,7 +12,7 @@ type CsvReporter struct {
 
 var _ Reporter = (*CsvReporter)(nil)
 
-func (r *CsvReporter) Write(w io.WriteCloser, findings []Finding) error {
+func (r *CsvReporter) Write(w io.Writer, findings []Finding) error {
 	if len(findings) == 0 {
 		return nil
 	}
@@ -38,8 +38,14 @@ func (r *CsvReporter) Write(w io.WriteCloser, findings []Finding) error {
 		"Fingerprint",
 		"Tags",
 	}
-	// A miserable attempt at "omitempty" so tests don't yell at me.
-	if findings[0].Link != "" {
+	hasLink := false
+	for _, f := range findings {
+		if f.Link != "" {
+			hasLink = true
+			break
+		}
+	}
+	if hasLink {
 		columns = append(columns, "Link")
 	}
 	hasMatchContext := false
@@ -74,7 +80,7 @@ func (r *CsvReporter) Write(w io.WriteCloser, findings []Finding) error {
 			f.Fingerprint,
 			strings.Join(f.Tags, " "),
 		}
-		if findings[0].Link != "" {
+		if hasLink {
 			row = append(row, f.Link)
 		}
 		if hasMatchContext {

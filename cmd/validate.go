@@ -108,12 +108,9 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	rt, err := resolved.cfg.CompileValidation()
+	rt, err := exprruntime.New(nil)
 	if err != nil {
-		return err
-	}
-	if rt == nil {
-		return fmt.Errorf("rule %q does not define validation", ruleID)
+		return fmt.Errorf("creating validation runtime: %w", err)
 	}
 	if err := configureCredentialRuntime(cmd, rt); err != nil {
 		return err

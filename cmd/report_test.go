@@ -49,3 +49,27 @@ func TestWriteFindingsReportRejectsTemplateFormatMismatch(t *testing.T) {
 	err := writeFindingsReport(cmd, &config.Config{}, nil)
 	require.EqualError(t, err, "report format must be 'template' if --report-template is specified")
 }
+
+func TestResolveFindingsReportDoesNotTouchOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "findings.json")
+	require.NoError(t, os.WriteFile(path, []byte("keep me"), 0o600))
+	cmd := reportTestCommand(path, "json", "")
+
+	resolved, err := resolveFindingsReport(cmd, &config.Config{})
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	contents, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "keep me", string(contents))
+}
+
+func TestResolveFindingsReportValidatesTemplateBeforeWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "findings.txt")
+	cmd := reportTestCommand(path, "template", filepath.Join(t.TempDir(), "missing.tmpl"))
+
+	resolved, err := resolveFindingsReport(cmd, &config.Config{})
+	require.Nil(t, resolved)
+	require.ErrorContains(t, err, "invalid report template")
+	_, statErr := os.Stat(path)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}

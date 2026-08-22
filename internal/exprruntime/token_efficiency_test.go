@@ -3,6 +3,8 @@ package exprruntime_test
 import (
 	"testing"
 
+	"github.com/pkoukk/tiktoken-go"
+
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/stretchr/testify/require"
@@ -39,6 +41,23 @@ func TestTokenEfficiencyBindings(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestDictionaryTokenEfficiencyDoesNotInitializeTokenizer(t *testing.T) {
+	env, err := exprruntime.New(nil)
+	require.NoError(t, err)
+	providerCalls := 0
+	env.SetTokenizerProvider(func() *tiktoken.Tiktoken {
+		providerCalls++
+		return nil
+	})
+	program, err := env.CompileFilter(`filter.failsTokenEfficiency(finding["secret"])`, nil)
+	require.NoError(t, err)
+
+	reject, err := env.EvalFilter(program, map[string]any{"secret": "linkedinX9qB2mK7pR4zT8"}, nil)
+	require.NoError(t, err)
+	require.True(t, reject)
+	require.Zero(t, providerCalls)
 }
 
 func TestTokenRatio(t *testing.T) {

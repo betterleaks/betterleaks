@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/betterleaks/betterleaks/config"
+	blregexp "github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/stretchr/testify/require"
@@ -86,7 +88,7 @@ func TestRunSourceDrainsFragmentLeasesAfterWorkerError(t *testing.T) {
 	}}
 	wantErr := errors.New("stop detection")
 
-	err := detector.runSource(t.Context(), source, func(Result) error {
+	err := detector.runSource(t.Context(), source, nil, func(Result) error {
 		return wantErr
 	})
 
@@ -109,6 +111,34 @@ func TestRunSourceReturnsExternalCancellation(t *testing.T) {
 		return nil
 	})
 
-	err := detector.runSource(ctx, source, func(Result) error { return nil })
+	err := detector.runSource(ctx, source, nil, func(Result) error { return nil })
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestValidationDetectorCanRunMoreThanOnce(t *testing.T) {
+	rule := config.Rule{
+		RuleID:       "validation-test",
+		Keywords:     []string{"candidate_"},
+		Regex:        blregexp.MustCompile(`candidate_[A-Z]{20}`),
+		ValidateExpr: `{"result": "valid"}`,
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		Keywords:       map[string]struct{}{"candidate_": {}},
+		KeywordToRules: map[string][]string{"candidate_": {rule.RuleID}},
+		OrderedRules:   []string{rule.RuleID},
+	}
+	detector, err := NewDetector(cfg, ValidationOptions{Enabled: true, Workers: 1})
+	require.NoError(t, err)
+	require.True(t, detector.ValidationEnabled())
+
+	for range 2 {
+		findings, err := collectTestRun(t.Context(), detector, &sources.File{
+			Content: strings.NewReader("candidate_ABCDEFGHIJKLMNOPQRST"),
+			Path:    "validation.txt",
+		})
+		require.NoError(t, err)
+		require.Len(t, findings, 1)
+		require.Equal(t, report.ValidationStatusValid, findings[0].ValidationStatus)
+	}
 }
