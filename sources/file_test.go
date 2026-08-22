@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -28,7 +29,8 @@ func (p *panicReader) Close() error {
 // panicDecompressor is an archives.Decompressor whose reader panics. When
 // panicOnOpen is set, OpenReader itself panics instead.
 type panicDecompressor struct {
-	reader      *panicReader
+	reader      io.ReadCloser
+	openErr     error
 	panicOnOpen bool
 }
 
@@ -36,7 +38,15 @@ func (d *panicDecompressor) OpenReader(_ io.Reader) (io.ReadCloser, error) {
 	if d.panicOnOpen {
 		panic("boom during open")
 	}
-	return d.reader, nil
+	return d.reader, d.openErr
+}
+
+type closePanicReader struct {
+	io.Reader
+}
+
+func (*closePanicReader) Close() error {
+	panic("boom during close")
 }
 
 func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
@@ -63,6 +73,44 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 			s.decompressorFragments(
 				t.Context(),
 				&panicDecompressor{panicOnOpen: true},
+				strings.NewReader("irrelevant"),
+				func(Fragment, error) error { return nil },
+			)
+		})
+	})
+
+	t.Run("typed nil reader returned with an error is not closed", func(t *testing.T) {
+		var typedNilReader *panicReader
+		yielded := false
+		s := &File{Path: "evil.gz"}
+
+		require.NotPanics(t, func() {
+			s.decompressorFragments(
+				t.Context(),
+				&panicDecompressor{
+					reader:  typedNilReader,
+					openErr: errors.New("invalid header"),
+				},
+				strings.NewReader("irrelevant"),
+				func(Fragment, error) error {
+					yielded = true
+					return nil
+				},
+			)
+		})
+
+		require.False(t, yielded)
+	})
+
+	t.Run("panic while closing the inner reader is recovered", func(t *testing.T) {
+		s := &File{Path: "evil.gz"}
+
+		require.NotPanics(t, func() {
+			s.decompressorFragments(
+				t.Context(),
+				&panicDecompressor{
+					reader: &closePanicReader{Reader: strings.NewReader("")},
+				},
 				strings.NewReader("irrelevant"),
 				func(Fragment, error) error { return nil },
 			)
@@ -108,4 +156,26 @@ func TestFile_Fragments_malformedRarDoesNotPanic(t *testing.T) {
 		err := s.Fragments(t.Context(), func(Fragment, error) error { return nil })
 		require.NoError(t, err)
 	})
+}
+
+// TestFile_Fragments_malformedGzipDoesNotPanic drives a gzip header with an
+// invalid compression method through the public entry point. OpenReader
+// returns an error and an io.ReadCloser interface holding a nil *gzip.Reader.
+func TestFile_Fragments_malformedGzipDoesNotPanic(t *testing.T) {
+	payload := "\x1f\x8b\x02\x00\x00\x00\x00\x00\x00\x03"
+	yielded := false
+	s := &File{
+		Content:         strings.NewReader(payload),
+		Path:            "evil.gz",
+		MaxArchiveDepth: 5,
+	}
+
+	require.NotPanics(t, func() {
+		err := s.Fragments(t.Context(), func(Fragment, error) error {
+			yielded = true
+			return nil
+		})
+		require.NoError(t, err)
+	})
+	require.False(t, yielded)
 }

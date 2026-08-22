@@ -9,6 +9,7 @@ import (
 func BitlyAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "bitly-access-token",
+		Confidence:  "high",
 		Description: "Detected a Bitly access token, which may allow unauthorized access to Bitly account and link management APIs.",
 		Regex:       regexp.MustCompile(`(?i)\bbitly(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN)(?:.|[\n\r]){0,32}?([a-f0-9]{40})\b`),
 		Keywords:    []string{"bitly"},
@@ -21,7 +22,7 @@ func BitlyAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.0`,
+		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

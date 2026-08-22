@@ -11,6 +11,7 @@ func EasyPost() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "easypost-api-token",
+		Confidence:  "high",
 		Description: "Identified an EasyPost API token, which could lead to unauthorized postal and shipment service access and data exposure.",
 		Regex:       regexp.MustCompile(`\bEZAK(?i)[a-z0-9]{54}\b`),
 		Keywords:    []string{"EZAK"},
@@ -34,6 +35,7 @@ func EasyPostTestAPI() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "easypost-test-api-token",
+		Confidence:  "high",
 		Description: "Detected an EasyPost test API token, risking exposure of test environments and potentially sensitive shipment data.",
 		Regex:       regexp.MustCompile(`\bEZTK(?i)[a-z0-9]{54}\b`),
 		Keywords:    []string{"EZTK"},

@@ -13,6 +13,7 @@ func HashiCorpTerraform() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "hashicorp-tf-api-token",
+		Confidence:  "high",
 		Description: "Uncovered a HashiCorp Terraform user/org API token, which may lead to unauthorized infrastructure management and security breaches.",
 		Regex:       regexp.MustCompile(`(?i)[a-z0-9]{14}\.(?-i:atlasv1)\.[a-z0-9\-_=]{60,70}`),
 		Keywords:    []string{"atlasv1"},
@@ -35,6 +36,7 @@ func HashicorpField() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "hashicorp-tf-password",
+		Confidence:  "medium",
 		Description: "Identified a HashiCorp Terraform password field, risking unauthorized infrastructure configuration and security breaches.",
 		Regex:       utils.GenerateSemiGenericRegex(keywords, fmt.Sprintf(`"%s"`, utils.AlphaNumericExtended("8,20")), true),
 		Path:        regexp.MustCompile(`(?i)\.(?:tf|hcl)$`),

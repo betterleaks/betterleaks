@@ -5,7 +5,7 @@
 ```
 
 Betterleaks is a configurable, fast, and thorough secrets scanner. It is maintained by the folks who made Gitleaks, including the original author.
-Check out this series of blog posts to learn how the detection engine works: 1. [Regex is all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need), 2. [Rare Not Random](https://lookingatcomputer.substack.com/p/rare-not-random), 3. [Express YourCELf](https://lookingatcomputer.substack.com/p/express-yourcelf-filtering-and-validating).
+Check out this series of blog posts to learn how the detection engine works: 1. [Regex is all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need), 2. [Rare Not Random](https://lookingatcomputer.substack.com/p/rare-not-random), 3. [Express YourCELf](https://lookingatcomputer.substack.com/p/express-yourcelf-filtering-and-validating), 4. [Better generic secrets detection](https://www.aikido.dev/blog/better-generic-secrets-detection-non-secrets).
 
 Development is supported by
 <a href="https://www.aikido.dev"><img src="docs/aikido_log.svg" alt="Aikido Security" width="80" /></a>
@@ -77,6 +77,12 @@ betterleaks s3 'https://<account-id>.r2.cloudflarestorage.com/*'
 
 # Scan stdin
 cat some_file.txt | betterleaks stdin -v
+
+# Revalidate a known credential without running detection
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat
+
+# Print only its status (for example, VALID)
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat --simple
 ```
 
 For more advanced scanning examples check out the [scanning doc](docs/scanning.md).
@@ -88,12 +94,12 @@ Betterleaks' strength comes from its expressive configuration. Filtering and val
 ```toml
 # Global prefilter, it runs before expensive regex calls
 prefilter = '''
-filter.matchesAny(get(attributes, "path", ""), [
+filter.matchesAny(attributes["path"], [
   `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff|pdf|exe)$`,
   `(?:^|/)node_modules(?:/.*)?$`,
   `(?:^|/)vendor(?:/.*)?$`
 ])
-|| get(attributes, "git.author_name", "") == "renovate[bot]"
+|| attributes["git.author_name"] == "renovate[bot]"
 '''
 
 # Global filter, it runs for _every_ candidate secret.
@@ -116,8 +122,8 @@ keywords = ["github_pat_"]
 # Rule-level filter
 filter = '''
 (
-    get(attributes, "git.author_name", "") == "ci-runner" &&
-    filter.matchesAny(get(attributes, "path", ""), [`^mocks/`]) &&
+    attributes["git.author_name"] == "ci-runner" &&
+    filter.matchesAny(attributes["path"], [`^mocks/`]) &&
     finding["secret"] contains "TESTING"
 )
 || (filter.entropy(finding["secret"]) <= 3.0)
@@ -127,7 +133,7 @@ filter = '''
 validate = '''
 let r = http.get("https://api.github.com/user", {
     "Accept": "application/vnd.github+json",
-    "Authorization": "token " + secret
+    "Authorization": "token " + finding["secret"]
   });
 r.status == 200 && (r.json?.login ?? "") != "" ? {
     "result": "valid",
@@ -140,6 +146,11 @@ r.status == 200 && (r.json?.login ?? "") != "" ? {
   } : validate.unknown(r)
 '''
 ```
+
+Multipart rules declare nearby component rules with `components` and read them
+through `components["rule-id"]?.secret ?? ""` or
+`components["rule-id"]?.captures?.group ?? ""`. Primary-rule named groups are
+available through `finding["captures"]`.
 
 Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config. If you're using Betterleaks in production, it is recommended you maintain your own config instead of extending the upstream default config directly. This keeps your rule set stable across Betterleaks upgrades and lets you review new upstream rules before adopting them.
 

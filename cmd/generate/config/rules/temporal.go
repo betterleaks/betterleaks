@@ -9,6 +9,7 @@ func TemporalCloudAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "temporal-cloud-api-key.1",
+		Confidence:  "high",
 		Description: "Temporal Cloud API key.",
 		Regex: utils.GenerateUniqueTokenRegex(
 			`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*Y2NvdW50X2lk[A-Za-z0-9_-]*InRlbXBvcmFsLmlv[A-Za-z0-9_-]*(?:ICJrZXlfaWQiOi|a2V5X2lk|rZXlfaWQi)[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}`,

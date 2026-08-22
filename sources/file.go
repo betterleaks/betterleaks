@@ -220,13 +220,9 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 // decompressorFragments recursively crawls archives and yields fragments
 func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) {
-	// Declared upfront so that the deferred func can release it even if
-	// decompression panics on malformed content.
-	var innerReader io.ReadCloser
+	// Register recovery before cleanup so it runs last and can also catch a
+	// panic from closing a malformed decompressor reader.
 	defer func() {
-		if innerReader != nil {
-			_ = innerReader.Close()
-		}
 		if r := recover(); r != nil {
 			logging.Warn().
 				Str("path", s.FullPath()).
@@ -240,6 +236,9 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not read compressed file")
 		return
 	}
+	defer func() {
+		_ = innerReader.Close()
+	}()
 
 	br := getReader(innerReader)
 	defer putReader(br)
@@ -259,7 +258,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 		}()
 	}
 
-	totalLines := 0
+	prevFragmentEndLine := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -293,7 +292,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 			}
 
 			// Only check the filetype at the start of file.
-			if totalLines == 0 {
+			if prevFragmentEndLine == 0 {
 				// TODO: could other optimizations be introduced here?
 				if mimetype, err := filetype.Match(s.Buffer[:n]); err != nil {
 					if isArchiveContent {
@@ -331,10 +330,11 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 
 			fragment.Raw = peekBuf.String()
 			fragment.Bytes = peekBuf.Bytes()
-			fragment.StartLine = totalLines + 1
+			fragment.StartLine = prevFragmentEndLine + 1
 
-			// Count the number of newlines in this chunk
-			totalLines += strings.Count(fragment.Raw, "\n")
+			// Count the number of newlines in this chunk to determine the end
+			// line for this fragment.
+			prevFragmentEndLine += strings.Count(fragment.Raw, "\n")
 
 			if s.Symlink != "" {
 				symlink := s.Symlink

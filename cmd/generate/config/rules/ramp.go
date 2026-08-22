@@ -10,6 +10,7 @@ func RampClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "ramp-client-id",
+		Confidence:  "high",
 		Description: "Ramp client ID, used as a component of the Ramp client-secret composite rule.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ramp_id_[A-Za-z0-9]{40}`, false),
 		Keywords:    []string{"ramp_id_"},
@@ -32,6 +33,7 @@ func RampClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "ramp-client-secret",
+		Confidence:  "high",
 		Description: "Ramp OAuth client secret.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ramp_sec_[A-Za-z0-9]{48}`, false),
 		Keywords:    []string{"ramp_sec_"},
@@ -39,7 +41,7 @@ func RampClientSecret() *config.Rule {
 			{RuleID: "ramp-client-id"},
 		},
 		ValidateExpr: `let r = http.post("https://api.ramp.com/developer/v1/token", {
-    "Authorization": "Basic " + base64.encode(bytes(captures["ramp-client-id"] + ":" + finding["secret"])),
+    "Authorization": "Basic " + base64.encode(bytes((components["ramp-client-id"]?.secret ?? "") + ":" + finding["secret"])),
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
   }, "grant_type=client_credentials&scope=betterleaks%3Avalidate"); r.status == 200

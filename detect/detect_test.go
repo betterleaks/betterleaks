@@ -47,6 +47,19 @@ func newCancelOnSecondCheck() *cancelOnSecondCheck {
 	return &cancelOnSecondCheck{open: make(chan struct{}), closed: closed}
 }
 
+func normalizeFindings(fs []report.Finding) {
+	// TODO: Temporary mitigation.
+	// https://github.com/gitleaks/gitleaks/issues/1641
+	for i := 0; i < len(fs); i++ {
+		f := &fs[i]
+		f.Line = strings.ReplaceAll(f.Line, "\r", "")
+		before := len(f.Match)
+		f.Match = strings.ReplaceAll(f.Match, "\r", "")
+		after := len(f.Match)
+		f.EndColumn -= before - after
+	}
+}
+
 func (c *cancelOnSecondCheck) Deadline() (time.Time, bool) { return time.Time{}, false }
 func (c *cancelOnSecondCheck) Done() <-chan struct{} {
 	c.checks++
@@ -283,11 +296,13 @@ func TestOptionalOnlyComponents(t *testing.T) {
 [[rules]]
 id = "primary"
 regex = '''primary=([a-z]+)'''
+specificity = 20
 components = [{ id = "optional-component", optional = true }]
 
 [[rules]]
 id = "optional-component"
 regex = '''optional=([a-z]+)'''
+specificity = 100
 skipReport = true
 `, "")
 	require.NoError(t, err)
@@ -302,6 +317,694 @@ skipReport = true
 	require.Len(t, findings[0].ComponentSets, 1)
 	require.Len(t, findings[0].ComponentSets[0].Components, 1)
 	assert.True(t, findings[0].ComponentSets[0].Components[0].Optional)
+
+	findings = detector.DetectString("primary=shared optional=shared")
+	require.Len(t, findings, 1, "a primary must not be suppressed by its own same-line, same-value component")
+	require.Len(t, findings[0].ComponentSets, 1)
+	assert.Equal(t, "shared", findings[0].ComponentSets[0].Components[0].Secret)
+}
+
+func TestGenericPasswordConfidenceAndContext(t *testing.T) {
+	detector, err := NewDetectorDefaultConfig()
+	require.NoError(t, err)
+
+	genericPasswordFindings := func(raw string, path ...string) []report.Finding {
+		t.Helper()
+		detected := detector.DetectString(raw)
+		if len(path) > 0 {
+			detected = detector.Detect(sources.Fragment{
+				Raw:        raw,
+				Attributes: map[string]string{sources.AttrPath: path[0]},
+			})
+		}
+		var findings []report.Finding
+		for _, finding := range detected {
+			if finding.RuleID == "generic-password" {
+				findings = append(findings, finding)
+			}
+		}
+		return findings
+	}
+
+	for name, raw := range map[string]string{
+		"weak standalone password":          "password: hunter2",
+		"uppercase weak password":           `password = "PASSWORD"`,
+		"random standalone password":        "password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB",
+		"password containing username text": `password: "username: alice"`,
+		"password containing a URI":         `password: "postgres://db.internal/app"`,
+		"password containing its key name":  `password: "MyPassword123!"`,
+		"password containing login syntax":  `password = "please login(foo"`,
+		"password containing assignment":    `password = "safe password = process.env.PASSWORD"`,
+		"password ending in parenthesis":    `password = "hunter2)"`,
+		"password resembling Rake syntax":   `password = "foo:[bar]"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(raw)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, raw := range map[string]string{
+		"hash comment":          `password = "hunter2"  # development password`,
+		"slash comment":         `password = "hunter2" // TODO: move to vault`,
+		"block comment":         `password = "hunter2" /* TODO: move to vault`,
+		"SQL comment":           `password = "hunter2" -- local database`,
+		"unquoted with comment": `password = hunter2 # development password`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(raw)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "hunter2", findings[0].Secret)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	unquotedHash := genericPasswordFindings(`password = hunter2#prod`)
+	require.Len(t, unquotedHash, 1)
+	assert.Equal(t, "hunter2#prod", unquotedHash[0].Secret)
+
+	assert.Empty(t, genericPasswordFindings("username: alice\npassword: your_password"))
+	assert.Empty(t, genericPasswordFindings(`password = "${DB_PASSWORD}"`))
+	assert.Empty(t, genericPasswordFindings(`password = getPassword()`))
+	assert.Empty(t, genericPasswordFindings(`password = "[REDACTED]"`))
+	assert.Empty(t, genericPasswordFindings("database.host = db.internal\ndatabase_pw = undefined"))
+
+	for name, tc := range map[string]struct {
+		path string
+		raw  string
+	}{
+		"encrypted password field with opaque literal": {
+			path: "services/settings.json",
+			raw:  `"encryptedPassword": "MDoEEPgAAAAAAAAAAAAAAAAAAAAAAAEwFAYIKoZIhvcNAwcEC",`,
+		},
+		"encrypted password field with plaintext literal": {
+			path: "config/database.yml",
+			raw:  `encrypted_password: "hunter2"`,
+		},
+		"encrypted password field with dictionary cipher name": {
+			path: "config/database.yml",
+			raw:  `encrypted_password: "Blowfish"`,
+		},
+		"vault password field with plaintext literal": {
+			path: "config/vault.yml",
+			raw:  `vault_password: "hunter2"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(tc.raw, tc.path)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, tc := range map[string]struct {
+		path string
+		raw  string
+	}{
+		"shell command substitution": {
+			path: "config/setup.sh",
+			raw:  `keystore_password=$(curl --silent https://example.invalid/password)`,
+		},
+		"Ruby interpolation": {
+			path: "config/credentials.rb",
+			raw:  `password: "pw_#{SecureRandom.hex(4)}"`,
+		},
+		"Python mapping interpolation": {
+			path: "app/database.py",
+			raw:  `query = "ALTER USER %(user)s WITH PASSWORD %(password)s"`,
+		},
+		"Rake expression": {
+			path: "lib/tasks/accounts.rake",
+			raw:  `password: password).relay(STDIN.read),`,
+		},
+		"CLI option": {
+			path: "lib/commands.rb",
+			raw:  `password: "--password"`,
+		},
+		"Rake task arguments": {
+			path: "lib/tasks/passwords.rake",
+			raw:  `gitlab:password:check_hashes:[true]`,
+		},
+		"nested unquoted assignment": {
+			path: "Documentation/admin-guide/kernel-parameters.txt",
+			raw:  `password=mypassword.domain=mydom`,
+		},
+		"Django PBKDF2 verifier": {
+			path: "fixtures/users.json",
+			raw:  `"password": "pbkdf2_sha256$30000$salt$H9BEzMlGhw=="`,
+		},
+		"LDAP verifier": {
+			path: "config/ldap.yml",
+			raw:  `password: "{SSHA}bW9ja2VkLXNzaGEtZGlnZXN0"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Empty(t, genericPasswordFindings(tc.raw, tc.path))
+		})
+	}
+
+	rubyVariables := `def basic_auth
+  { username: username, password: password }
+end`
+	assert.Empty(t, genericPasswordFindings(rubyVariables, "auth.rb"))
+
+	for name, tc := range map[string]struct {
+		path string
+		raw  string
+	}{
+		"Ruby method chain": {
+			path: "app/helpers/profiles_helper.rb",
+			raw:  `confirm_with_password: current_user.confirm_deletion_with_password?.to_s,`,
+		},
+		"Go field selector": {
+			path: "internal/redis/redis_test.go",
+			raw:  `SentinelPassword: tc.inputSentinelPassword,`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Empty(t, genericPasswordFindings(tc.raw, tc.path))
+		})
+	}
+
+	rubyLiteralPassword := genericPasswordFindings(
+		`credentials = { username: username, password: "hunter2" }`,
+		"auth.rb",
+	)
+	require.Len(t, rubyLiteralPassword, 1)
+	assert.Equal(t, "hunter2", rubyLiteralPassword[0].Secret)
+	assert.Equal(t, "medium", rubyLiteralPassword[0].Attributes["confidence"])
+	assert.Empty(t, rubyLiteralPassword[0].ComponentSets, "a Ruby variable must not be attached as a literal username")
+
+	quotedExpressionText := genericPasswordFindings(
+		`credentials = { password: "current_user.confirm_deletion_with_password?.to_s" }`,
+		"auth.rb",
+	)
+	require.Len(t, quotedExpressionText, 1)
+	assert.Equal(t, "current_user.confirm_deletion_with_password?.to_s", quotedExpressionText[0].Secret)
+
+	rubyLiterals := genericPasswordFindings(
+		`credentials = { username: "alice", password: "hunter2" }`,
+		"auth.rb",
+	)
+	require.Len(t, rubyLiterals, 1)
+	require.Len(t, rubyLiterals[0].ComponentSets, 1)
+	assert.Equal(t, "alice", rubyLiterals[0].ComponentSets[0].Components[0].Secret)
+
+	anchoredUsernameFilter := genericPasswordFindings(
+		`credentials = { username: "safe username = null, suffix", password: "hunter2" }`,
+		"auth.rb",
+	)
+	require.Len(t, anchoredUsernameFilter, 1)
+	require.Len(t, anchoredUsernameFilter[0].ComponentSets, 1)
+	assert.Equal(t, "safe username = null, suffix", anchoredUsernameFilter[0].ComponentSets[0].Components[0].Secret)
+
+	camelCaseClient := genericPasswordFindings(
+		`credentials = { clientId: "service-client", password: "hunter2" }`,
+		"auth.js",
+	)
+	require.Len(t, camelCaseClient, 1)
+	assert.Equal(t, "medium", camelCaseClient[0].Attributes["confidence"])
+	require.Len(t, camelCaseClient[0].ComponentSets, 1)
+	assert.Equal(t, "service-client", camelCaseClient[0].ComponentSets[0].Components[0].Secret)
+
+	yamlScalars := genericPasswordFindings("credentials:\n  username: alice\n  password: hunter2", "config.yml")
+	require.Len(t, yamlScalars, 1)
+	require.Len(t, yamlScalars[0].ComponentSets, 1)
+	assert.Equal(t, "alice", yamlScalars[0].ComponentSets[0].Components[0].Secret)
+
+	usernameOnly := genericPasswordFindings("USERNAME=alice@example.com\nPASSWORD=hunter2")
+	require.Len(t, usernameOnly, 1)
+	assert.Equal(t, "low", usernameOnly[0].Attributes["confidence"])
+	require.Len(t, usernameOnly[0].ComponentSets, 1)
+	assert.Equal(t, "generic-username", usernameOnly[0].ComponentSets[0].Components[0].RuleID)
+
+	paired := genericPasswordFindings("credentials: {\nusername: alice\npassword: hunter2\n}")
+	require.Len(t, paired, 1)
+	assert.Equal(t, "medium", paired[0].Attributes["confidence"])
+	require.Len(t, paired[0].ComponentSets, 1)
+	require.Len(t, paired[0].ComponentSets[0].Components, 1)
+	assert.Equal(t, "generic-username", paired[0].ComponentSets[0].Components[0].RuleID)
+	assert.Equal(t, "alice", paired[0].ComponentSets[0].Components[0].Secret)
+
+	for name, tc := range map[string]struct {
+		path string
+		raw  string
+	}{
+		"commented credential": {
+			path: "config/credentials.rb",
+			raw:  `# credentials = { username: "alice", password: "hunter2" }`,
+		},
+		"replace-me value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: replace_me\n}",
+		},
+		"symbolic password name": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: PGPASSWORD\n}",
+		},
+		"example value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: example\n}",
+		},
+		"numbered example value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: example123!\n}",
+		},
+		"example password value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: example_password\n}",
+		},
+		"reversed example value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: PasswordExample!\n}",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(tc.raw, tc.path)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, tc := range map[string]struct {
+		path string
+		raw  string
+	}{
+		"test directory": {
+			path: "test/fixtures/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: hunter2\n}",
+		},
+		"example filename": {
+			path: "config/database.example.yml",
+			raw:  "credentials: {\nusername: alice\npassword: hunter2\n}",
+		},
+		"README": {
+			path: "README.md",
+			raw:  "credentials: {\nusername: alice\npassword: hunter2\n}",
+		},
+		"direct auth in spec": {
+			path: "src/authentication.spec.js",
+			raw:  `smtp.login(username, "hunter2")`,
+		},
+		"human password phrase": {
+			path: "config/database.yml.example",
+			raw:  "credentials: {\nusername: git\npassword: \"secure password\"\n}",
+		},
+		"test credential object": {
+			path: "spec/models/application_setting_spec.rb",
+			raw:  `{ protocol: "http", user: "admin", password: "p@ssword", host: "localhost" }`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(tc.raw, tc.path)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+		})
+	}
+
+	productionCredential := genericPasswordFindings(
+		"database_host: db.internal\ncredentials: {\nusername: alice\npassword: hunter2\n}",
+		"config/database.yml",
+	)
+	require.Len(t, productionCredential, 1)
+	assert.Equal(t, "medium", productionCredential[0].Attributes["confidence"])
+
+	prefixedEnvironmentCredential := genericPasswordFindings(
+		"POSTGRES_DB: app\nPOSTGRES_USER: alice\nPOSTGRES_PASSWORD: hunter2",
+		".github/workflows/integration.yml",
+	)
+	require.Len(t, prefixedEnvironmentCredential, 1)
+	assert.Equal(t, "medium", prefixedEnvironmentCredential[0].Attributes["confidence"])
+
+	weakDefaultCredential := genericPasswordFindings(
+		"credentials: {\nusername: alice\npassword: changeme\n}",
+		"config/database.yml",
+	)
+	require.Len(t, weakDefaultCredential, 1)
+	assert.Equal(t, "medium", weakDefaultCredential[0].Attributes["confidence"])
+
+	rakeVariables := genericPasswordFindings(
+		`credentials = { username: username, password: "hunter2" }`,
+		"lib/tasks/authentication.rake",
+	)
+	require.Len(t, rakeVariables, 1)
+	assert.Equal(t, "medium", rakeVariables[0].Attributes["confidence"])
+	assert.Empty(t, rakeVariables[0].ComponentSets, "a Rake variable must not be attached as a literal username")
+
+	promoted := genericPasswordFindings("credentials: {\nusername: alice@example.com\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n}")
+	require.Len(t, promoted, 1)
+	assert.Equal(t, "medium", promoted[0].Attributes["confidence"])
+
+	authOnly := genericPasswordFindings("credentials: {\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n}")
+	require.Len(t, authOnly, 1)
+	assert.Equal(t, "low", authOnly[0].Attributes["confidence"])
+
+	strongUsernameOnly := genericPasswordFindings("username: alice@example.com\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"")
+	require.Len(t, strongUsernameOnly, 1)
+	assert.Equal(t, "low", strongUsernameOnly[0].Attributes["confidence"])
+
+	dynamicUsername := genericPasswordFindings("credentials: {\nusername: process.env.USERNAME\npassword: hunter2\n}")
+	require.Len(t, dynamicUsername, 1)
+	assert.Equal(t, "medium", dynamicUsername[0].Attributes["confidence"])
+	assert.Empty(t, dynamicUsername[0].ComponentSets, "a dynamic username is auth context but not an attachable component")
+
+	for name, raw := range map[string]string{
+		"underscore with database asset": "database.host = db.internal\ndatabase_pw = J8svR4qL7nT2xM6zK9",
+		"hyphen in connection call":      "service.connect(\n  service-pw: Qv7D0LXCM3EIMbgJpUNnkRtOfOueHznB\n)",
+		"dot with dsn":                   "dsn: postgres://db.internal/app\nclient.pw = m4FqK8zR2tV6xN9pC7",
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(raw)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Empty(t, findings[0].ComponentSets)
+		})
+	}
+
+	weakAliasPair := genericPasswordFindings("credentials: {\nusername: alice\ndatabase_pw: hunter2\n}")
+	require.Len(t, weakAliasPair, 1)
+	assert.Equal(t, "medium", weakAliasPair[0].Attributes["confidence"])
+	require.Len(t, weakAliasPair[0].ComponentSets, 1)
+
+	insideWindow := "login()\n" + strings.Repeat("context line\n", 4) + "username: alice\npassword: hunter2"
+	insideWindowFindings := genericPasswordFindings(insideWindow)
+	require.Len(t, insideWindowFindings, 1)
+	assert.Equal(t, "medium", insideWindowFindings[0].Attributes["confidence"])
+
+	outsideWindow := "login()\n" + strings.Repeat("context line\n", 5) + "username: alice\npassword: hunter2"
+	outsideWindowFindings := genericPasswordFindings(outsideWindow)
+	require.Len(t, outsideWindowFindings, 1)
+	assert.Equal(t, "low", outsideWindowFindings[0].Attributes["confidence"])
+
+	for name, tc := range map[string]struct {
+		raw    string
+		secret string
+	}{
+		"login": {
+			raw:    `smtp.login(username, "hunter2")`,
+			secret: "hunter2",
+		},
+		"four character login password": {
+			raw:    `login(user, "root")`,
+			secret: "root",
+		},
+		"uppercase weak login password": {
+			raw:    `login(user, "PASSWD")`,
+			secret: "PASSWD",
+		},
+		"authenticate": {
+			raw:    `client.authenticate(user, "password1")`,
+			secret: "password1",
+		},
+		"authenticate account selector": {
+			raw:    `client.authenticate(account.id, "root")`,
+			secret: "root",
+		},
+		"log in alias": {
+			raw:    `service.log_in(account, 'correct horse battery staple')`,
+			secret: "correct horse battery staple",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(tc.raw)
+			require.Len(t, findings, 1)
+			assert.Equal(t, tc.secret, findings[0].Secret)
+			assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+			assert.Empty(t, findings[0].ComponentSets)
+		})
+	}
+
+	for name, raw := range map[string]string{
+		"request and basic": `authenticate(request, "basic")`,
+		"request and oauth": `authenticate(request, "oauth2")`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := genericPasswordFindings(raw)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	assert.Empty(t, genericPasswordFindings(`postgres://user:hunter2@example.com/db`))
+	assert.Empty(t, genericPasswordFindings(`ldap.bind(user, "hunter2")`))
+	assert.Empty(t, genericPasswordFindings(`log.in(user, "hunter2")`))
+	assert.Empty(t, genericPasswordFindings(`log-in(user, "hunter2")`))
+}
+
+func TestGenericCredentialURI(t *testing.T) {
+	detector, err := NewDetectorDefaultConfig()
+	require.NoError(t, err)
+
+	findingsForRule := func(raw, ruleID string, path ...string) []report.Finding {
+		t.Helper()
+		detected := detector.DetectString(raw)
+		if len(path) > 0 {
+			detected = detector.Detect(sources.Fragment{
+				Raw:        raw,
+				Attributes: map[string]string{sources.AttrPath: path[0]},
+			})
+		}
+		var findings []report.Finding
+		for _, finding := range detected {
+			if finding.RuleID == ruleID {
+				findings = append(findings, finding)
+			}
+		}
+		return findings
+	}
+
+	for name, tc := range map[string]struct {
+		raw      string
+		secret   string
+		scheme   string
+		username string
+		host     string
+	}{
+		"PostgreSQL": {
+			raw:      `DATABASE_URL="postgresql://alice:hunter2@db.internal/app"`,
+			secret:   "hunter2",
+			scheme:   "postgresql",
+			username: "alice",
+			host:     "db.internal",
+		},
+		"HTTPS basic auth": {
+			raw:      `SERVICE_URL="https://alice:s3cr3t@service.internal/api"`,
+			secret:   "s3cr3t",
+			scheme:   "https",
+			username: "alice",
+			host:     "service.internal",
+		},
+		"HTTP percent-encoded password": {
+			raw:      `PROXY_URL=http://api-user:p%40ssword@proxy.internal:8080/v1`,
+			secret:   "p%40ssword",
+			scheme:   "http",
+			username: "api-user",
+			host:     "proxy.internal",
+		},
+		"password-only Redis": {
+			raw:    `REDIS_URL=redis://:s3cr3t@cache.internal:6379/0`,
+			secret: "s3cr3t",
+			scheme: "redis",
+			host:   "cache.internal",
+		},
+		"percent-encoded AMQP": {
+			raw:      `AMQP_URL='amqps://service:p%40ssword@rabbitmq.internal/vhost'`,
+			secret:   "p%40ssword",
+			scheme:   "amqps",
+			username: "service",
+			host:     "rabbitmq.internal",
+		},
+		"short weak password": {
+			raw:      `SSH_URL=ssh://root:root@192.0.2.10:22/`,
+			secret:   "root",
+			scheme:   "ssh",
+			username: "root",
+			host:     "192.0.2.10",
+		},
+		"IPv6 host and fragment": {
+			raw:      `MYSQL_URL=mysql://service:p%2Fss@[2001:db8::1]:3306#primary`,
+			secret:   "p%2Fss",
+			scheme:   "mysql",
+			username: "service",
+			host:     "[2001:db8::1]",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(tc.raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			finding := findings[0]
+			assert.Equal(t, tc.secret, finding.Secret)
+			assert.Equal(t, "medium", finding.Attributes["confidence"])
+			assert.Equal(t, tc.scheme, finding.CaptureGroups["scheme"])
+			assert.Equal(t, tc.username, finding.CaptureGroups["username"])
+			assert.Equal(t, tc.secret, finding.CaptureGroups["password"])
+			assert.Equal(t, tc.host, finding.CaptureGroups["host"])
+			assert.Contains(t, finding.CaptureGroups["uri"], tc.secret)
+		})
+	}
+
+	for name, password := range map[string]string{
+		"example":          "example",
+		"numbered example": "example123!",
+		"example password": "example_password",
+		"reversed example": "PasswordExample!",
+		"encoded example":  "example%5Fpassword",
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule("postgres://alice:"+password+"@db.internal/app", "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, password, findings[0].Secret)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, raw := range map[string]string{
+		"generic username and password": `https://username:password@gitlab.company.com/api`,
+		"foo and bar":                   `https://foo:bar@demo.host/api`,
+		"numbered test tuple":           `https://test123:test123!@anotherhost/api`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, raw := range map[string]string{
+		"reserved invalid TLD":   `ssh://alice:hunter2@host.invalid/repository`,
+		"reserved test TLD":      `https://alice:s3cr3t@service.test/v1`,
+		"localhost":              `https://alice:s3cr3t@localhost/v1`,
+		"localhost subdomain":    `redis://:s3cr3t@cache.localhost:6379/0`,
+		"localhost trailing dot": `redis://:s3cr3t@cache.localhost.:6379/0`,
+		"documentation and test": `postgresql://alice:hunter2@example.com,service.test/app`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	for name, path := range map[string]string{
+		"test directory":          `test/integration/client.go`,
+		"spec filename":           `app/services/client_spec.rb`,
+		"fixture directory":       `config/fixtures/database.yml`,
+		"testdata directory":      `internal/client/testdata/config.yml`,
+		"example filename":        `config/database.example.yml`,
+		"template directory":      `ci/templates/database.yml`,
+		"QA directory":            `qa/runtime/config.rb`,
+		"documentation directory": `doc-locale/ja-jp/setup.md`,
+		"documentation extension": `guides/setup.rst`,
+		"readme":                  `config/README.md`,
+		"Windows test path":       `test\fixtures\database.yml`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(
+				`postgresql://alice:hunter2@db.internal/app`,
+				"generic-credential-uri",
+				path,
+			)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+		})
+	}
+
+	productionSource := findingsForRule(
+		`postgresql://alice:hunter2@db.internal/app`,
+		"generic-credential-uri",
+		`config/production.yml`,
+	)
+	require.Len(t, productionSource, 1)
+	assert.Equal(t, "medium", productionSource[0].Attributes["confidence"])
+
+	// Weak and common default passwords are still credentials when embedded in
+	// a URI; their strength must not be confused with detection confidence.
+	for _, password := range []string{"changeme", "password", "guest"} {
+		findings := findingsForRule("postgres://alice:"+password+"@db.internal/app", "generic-credential-uri")
+		require.Len(t, findings, 1)
+		assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+	}
+
+	for name, raw := range map[string]string{
+		"missing password":             `postgres://alice@db.internal/app`,
+		"empty password":               `postgres://alice:@db.internal/app`,
+		"braced variable":              `postgres://alice:${DB_PASSWORD}@db.internal/app`,
+		"shell variable":               `postgres://alice:$DB_PASSWORD@db.internal/app`,
+		"template expressions":         `postgres://{{ db_user }}:{{ db_password }}@db.internal/app`,
+		"angle placeholders":           `postgres://<username>:<password>@db.internal/app`,
+		"synthetic SSH URI":            `ssh://foo:bar@example.com`,
+		"synthetic database URI":       `postgres://username:password@example.org/app`,
+		"synthetic FTP URI":            `ftp://foo:bar@test.com/repository`,
+		"example.com host":             `https://alice:s3cr3t@example.com/api`,
+		"example.com subdomain":        `https://alice:s3cr3t@api.example.com/v1`,
+		"example.com underscore host":  `http://user:pass:word@old_configurator.example.com)`,
+		"example.net host":             `postgres://alice:hunter2@db.example.net/app`,
+		"reserved example TLD":         `redis://:s3cr3t@cache.example/0`,
+		"example.com trailing dot":     `https://alice:s3cr3t@example.com./v1`,
+		"example.com query":            `https://alice:s3cr3t@example.com?mode=test`,
+		"all reserved hosts":           `postgresql://alice:hunter2@example.com,db.example.net/app`,
+		"instructional Redis password": `redis://:redis-password-goes-here@gitlab-redis/`,
+		"masked Redis password":        `redis://:xxxx@gitlab-redis/`,
+		"braced HTTP placeholder":      `http://user:{password}@service.internal/`,
+		"replace-me password":          `postgres://alice:replace_me@db.internal/app`,
+		"HTTPS URL without userinfo":   `https://example.com/api`,
+		"email-like text":              `alice:hunter2@example.com`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Empty(t, findingsForRule(raw, "generic-credential-uri"))
+		})
+	}
+
+	assert.Empty(t, findingsForRule(
+		`http://username:password@example.com,https://test:test@example.org:9200`,
+		"generic-credential-uri",
+	))
+
+	placeholderShapedInternalURI := findingsForRule(
+		`ssh://foo:bar@gitlab.internal/repository`,
+		"generic-credential-uri",
+	)
+	require.Len(t, placeholderShapedInternalURI, 1)
+	assert.Equal(t, "low", placeholderShapedInternalURI[0].Attributes["confidence"])
+
+	nonReservedExamplePrefix := findingsForRule(
+		`https://alice:s3cr3t@example.company.internal/v1`,
+		"generic-credential-uri",
+	)
+	require.Len(t, nonReservedExamplePrefix, 1)
+	assert.Equal(t, "medium", nonReservedExamplePrefix[0].Attributes["confidence"])
+
+	nonReservedLocalhostPrefix := findingsForRule(
+		`https://alice:s3cr3t@localhost.internal/v1`,
+		"generic-credential-uri",
+	)
+	require.Len(t, nonReservedLocalhostPrefix, 1)
+	assert.Equal(t, "medium", nonReservedLocalhostPrefix[0].Attributes["confidence"])
+
+	for name, raw := range map[string]string{
+		"reserved host first":  `postgresql://alice:hunter2@example.com,db.internal/app`,
+		"reserved host last":   `postgresql://alice:hunter2@db.internal,example.com/app`,
+		"localhost host first": `postgresql://alice:hunter2@localhost,db.internal/app`,
+		"test host last":       `postgresql://alice:hunter2@db.internal,service.test/app`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := findingsForRule(raw, "generic-credential-uri")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+		})
+	}
+
+	// Provider-specific rules should suppress this generic fallback when they
+	// accept the same credential.
+	mongodb := detector.DetectString(`MONGO_URL="mongodb://svc-reader:q9V7nB2K4xL8@mongo.internal:27017/app"`)
+	var mongodbRules []string
+	for _, finding := range mongodb {
+		if finding.RuleID == "mongodb-connection-string" || finding.RuleID == "generic-credential-uri" {
+			mongodbRules = append(mongodbRules, finding.RuleID)
+		}
+	}
+	assert.Equal(t, []string{"mongodb-connection-string"}, mongodbRules)
 }
 
 func TestComponentProximity(t *testing.T) {
@@ -429,6 +1132,24 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
 }
 
+func TestConfidenceAttributeAndFilter(t *testing.T) {
+	low := config.Rule{RuleID: "specific-low", Regex: regexp.MustCompile(`[A-Z0-9]{20}`), Specificity: 1, Confidence: "low"}
+	promoted := config.Rule{RuleID: "promoted", Regex: regexp.MustCompile(`[A-Z0-9]{20}`), Confidence: "medium", Filter: `let _ = filter.setConfidence("high"); false`}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{low.RuleID: low, promoted.RuleID: promoted},
+		NoKeywordRules: []string{low.RuleID, promoted.RuleID},
+		OrderedRules:   []string{low.RuleID, promoted.RuleID},
+	}
+	require.NoError(t, cfg.CompileFilters(nil))
+
+	detector := NewDetector(cfg)
+	detector.MinConfidence = "high"
+	findings := detector.DetectString("ABCDEFGHIJKLMNOPQRST")
+	require.Len(t, findings, 1)
+	require.Equal(t, "promoted", findings[0].RuleID)
+	require.Equal(t, "high", findings[0].Attributes["confidence"])
+}
+
 func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 	decoded := "provider decoded-secret-ABCDEFGHIJKLMNOPQRST"
 	raw := base64.StdEncoding.EncodeToString([]byte(decoded))
@@ -491,7 +1212,10 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 }
 
 func TestDetect(t *testing.T) {
+	// Set the logger for detect to trace for easier debugging and set it back at the end
+	defer func(original zerolog.Logger) { logging.Logger = original }(logging.Logger)
 	logging.Logger = logging.Logger.Level(zerolog.TraceLevel)
+
 	tests := map[string]struct {
 		cfgName      string
 		baselinePath string
@@ -546,11 +1270,11 @@ func TestDetect(t *testing.T) {
 					Secret:      "AKIALALEMEL33243OKIA",
 					Match:       "AKIALALEMEL33243OKIA",
 					File:        "tmp.go",
-					Line:        `awsToken := \"AKIALALEMEL33243OKIA\"`,
+					Line:        "awsToken := \\\"AKIALALEMEL33243OKIA\\\"\n",
 					RuleID:      "aws-access-key",
 					Tags:        []string{"key", "AWS"},
-					StartLine:   0,
-					EndLine:     0,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 15,
 					EndColumn:   34,
 					Entropy:     3.1464393,
@@ -560,7 +1284,7 @@ func TestDetect(t *testing.T) {
 		"detect finding - aws": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \"AKIALALEMEL33243OLIA\"`,
+				Raw: `awsToken := \"AKIALALEMEL33843OLIA\"`,
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -570,12 +1294,12 @@ func TestDetect(t *testing.T) {
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
 					File:        "tmp.go",
-					Line:        `awsToken := \"AKIALALEMEL33243OLIA\"`,
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
+					Line:        `awsToken := \"AKIALALEMEL33843OLIA\"`,
+					Match:       "AKIALALEMEL33843OLIA",
+					Secret:      "AKIALALEMEL33843OLIA",
 					Entropy:     3.0841837,
-					StartLine:   0,
-					EndLine:     0,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 15,
 					EndColumn:   34,
 					Tags:        []string{"key", "AWS"},
@@ -601,8 +1325,8 @@ func TestDetect(t *testing.T) {
 					Match:       "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
 					Secret:      "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
 					Entropy:     5.22193,
-					StartLine:   0,
-					EndLine:     0,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 2,
 					EndColumn:   41,
 					Tags:        []string{"key", "Github"},
@@ -615,8 +1339,8 @@ func TestDetect(t *testing.T) {
 					Match:       "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
 					Secret:      "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
 					Entropy:     5.22193,
-					StartLine:   0,
-					EndLine:     0,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 45,
 					EndColumn:   84,
 					Tags:        []string{"key", "Github"},
@@ -641,8 +1365,8 @@ func TestDetect(t *testing.T) {
 					Match:       "BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;",
 					Secret:      "cafebabe:deadbeef",
 					Entropy:     2.6098502,
-					StartLine:   0,
-					EndLine:     0,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 8,
 					EndColumn:   60,
 					Tags:        []string{},
@@ -666,8 +1390,8 @@ func TestDetect(t *testing.T) {
 					Match:       "BUNDLE_ENTERPRISE__CONTRIBSYS__COM=\"cafebabe:deadbeef\"",
 					Secret:      "cafebabe:deadbeef",
 					Entropy:     2.6098502,
-					StartLine:   0,
-					EndLine:     0,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 21,
 					EndColumn:   74,
 					Tags:        []string{},
@@ -691,8 +1415,8 @@ func TestDetect(t *testing.T) {
 					Match:       "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:",
 					Secret:      "cafeb4b3:d3adb33f",
 					Entropy:     2.984234,
-					StartLine:   0,
-					EndLine:     0,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 8,
 					EndColumn:   58,
 					Tags:        []string{},
@@ -718,7 +1442,7 @@ func TestDetect(t *testing.T) {
 		"detect finding - matches path,regex,entropy": {
 			cfgName: "generic_with_py_path",
 			fragment: sources.Fragment{
-				Raw: `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
+				Raw: `const Discord_Public_Key = "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.py",
 				},
@@ -728,12 +1452,12 @@ func TestDetect(t *testing.T) {
 					RuleID:      "generic-api-key",
 					Description: "Generic API Key",
 					File:        "tmp.py",
-					Line:        `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
-					Match:       "Key = \"e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"",
-					Secret:      "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5",
-					Entropy:     3.7906237,
-					StartLine:   0,
-					EndLine:     0,
+					Line:        `const Discord_Public_Key = "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
+					Match:       "Key = \"e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"",
+					Secret:      "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5",
+					Entropy:     3.7766143,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 22,
 					EndColumn:   93,
 					Tags:        []string{},
@@ -782,7 +1506,7 @@ func TestDetect(t *testing.T) {
 		"rule - match based on entropy": {
 			cfgName: "valid/rule_entropy_group",
 			fragment: sources.Fragment{
-				Raw: `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"
+				Raw: `const Discord_Public_Key = "e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"
 //const Discord_Public_Key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 `,
 				Attributes: map[string]string{
@@ -794,12 +1518,12 @@ func TestDetect(t *testing.T) {
 					RuleID:      "discord-api-key",
 					Description: "Discord API key",
 					File:        "tmp.go",
-					Line:        `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
-					Match:       "Discord_Public_Key = \"e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"",
-					Secret:      "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5",
+					Line:        "const Discord_Public_Key = \"e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"\n",
+					Match:       "Discord_Public_Key = \"e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"",
+					Secret:      "e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5",
 					Entropy:     3.7906237,
-					StartLine:   0,
-					EndLine:     0,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 7,
 					EndColumn:   93,
 					Tags:        []string{},
@@ -831,14 +1555,14 @@ const token = "mockSecret";
 				{
 					RuleID:      "test",
 					File:        "config.txt",
-					Line:        "\nconst token = \"mockSecret\";",
+					Line:        "const token = \"mockSecret\";\n",
 					Match:       `token = "mockSecret"`,
 					Secret:      "mockSecret",
 					Entropy:     2.9219282,
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 8,
-					EndColumn:   27,
+					StartLine:   2,
+					EndLine:     2,
+					StartColumn: 7,
+					EndColumn:   26,
 					Tags:        []string{},
 				},
 			},
@@ -868,8 +1592,8 @@ const token = "mockSecret";
 					Match:       `token = "fakeSecret"`,
 					Secret:      "fakeSecret",
 					Entropy:     2.8464394,
-					StartLine:   0,
-					EndLine:     0,
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 5,
 					EndColumn:   24,
 					Tags:        []string{},
@@ -922,18 +1646,18 @@ const token = "mockSecret";
 				{
 					Description: "Primary rule",
 					RuleID:      "primary-rule",
-					StartLine:   5,
-					EndLine:     5,
-					StartColumn: 5,
-					EndColumn:   26,
-					Line:        "\n\t\t\tpassword = \"secret123\"",
+					StartLine:   6,
+					EndLine:     6,
+					StartColumn: 4,
+					EndColumn:   25,
+					Line:        "\t\t\tpassword = \"secret123\"\n",
 					Match:       `password = "secret123"`,
 					Secret:      "secret123",
 					Entropy:     2.9477028846740723,
 					Tags:        []string{},
 				},
 			},
-			expectedAuxOutput: "│ components:\n│   -  username-rule:1 ...... admin\n",
+			expectedAuxOutput: "│ components:\n│   -  username-rule:2 ...... admin\n",
 		},
 		// Decoding
 		"detect encoded": {
@@ -950,13 +1674,13 @@ const token = "mockSecret";
 					Secret:      "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----",
 					Match:       "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----",
 					File:        "tmp.go",
-					Line:        "\n-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----",
+					Line:        "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----\n",
 					RuleID:      "private-key",
 					Tags:        []string{"key", "private"},
-					StartLine:   2,
-					EndLine:     5,
-					StartColumn: 2,
-					EndColumn:   26,
+					StartLine:   3,
+					EndLine:     6,
+					StartColumn: 1,
+					EndColumn:   25,
 					Entropy:     5.350665,
 				},
 				{ // Encoded key captured by custom b64 regex rule
@@ -964,13 +1688,13 @@ const token = "mockSecret";
 					Secret:      "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K",
 					Match:       "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K",
 					File:        "tmp.go",
-					Line:        "\nprivate_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'",
+					Line:        "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n",
 					RuleID:      "b64-encoded-private-key",
 					Tags:        []string{"key", "private"},
-					StartLine:   8,
-					EndLine:     8,
-					StartColumn: 16,
-					EndColumn:   207,
+					StartLine:   9,
+					EndLine:     9,
+					StartColumn: 15,
+					EndColumn:   206,
 					Entropy:     5.3861146,
 				},
 				{ // Encoded key captured by plain text rule using the decoder
@@ -978,13 +1702,13 @@ const token = "mockSecret";
 					Secret:      "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----",
 					Match:       "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----",
 					File:        "tmp.go",
-					Line:        "\nprivate_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'",
+					Line:        "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n",
 					RuleID:      "private-key",
 					Tags:        []string{"key", "private", "decoded:base64", "decode-depth:1"},
-					StartLine:   8,
-					EndLine:     8,
-					StartColumn: 16,
-					EndColumn:   207,
+					StartLine:   9,
+					EndLine:     9,
+					StartColumn: 15,
+					EndColumn:   206,
 					Entropy:     5.350665,
 				},
 				{ // Encoded Small secret at the end to make sure it's picked up by the decoding
@@ -992,13 +1716,13 @@ const token = "mockSecret";
 					Secret:      "small-secret",
 					Match:       "small-secret",
 					File:        "tmp.go",
-					Line:        "\nc21hbGwtc2VjcmV0",
+					Line:        "c21hbGwtc2VjcmV0\n",
 					RuleID:      "small-secret",
 					Tags:        []string{"small", "secret", "decoded:base64", "decode-depth:1"},
-					StartLine:   15,
-					EndLine:     15,
-					StartColumn: 2,
-					EndColumn:   17,
+					StartLine:   16,
+					EndLine:     16,
+					StartColumn: 1,
+					EndColumn:   16,
 					Entropy:     3.0849626,
 				},
 				{ // Secret where the decoded match goes outside the encoded value
@@ -1006,13 +1730,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-value00",
 					Match:       "secret=decoded-secret-value00",
 					File:        "tmp.go",
-					Line:        "\nsecret=ZGVjb2RlZC1zZWNyZXQtdmFsdWUwMA==",
+					Line:        "secret=ZGVjb2RlZC1zZWNyZXQtdmFsdWUwMA==\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:1"},
-					StartLine:   18,
-					EndLine:     18,
-					StartColumn: 2,
-					EndColumn:   40,
+					StartLine:   19,
+					EndLine:     19,
+					StartColumn: 1,
+					EndColumn:   39,
 					Entropy:     3.4428623,
 				},
 				{ // This just confirms that with no allowlist the pattern is detected (i.e. the regex is good)
@@ -1020,13 +1744,13 @@ const token = "mockSecret";
 					Secret:      "lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw",
 					Match:       "password=\"lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw\"",
 					File:        "tmp.go",
-					Line:        "\npassword=\"bFJxQkstejVrZjQtcGxlYXNlLWlnbm9yZS1tZS1YLVhJSk0yUGRkdw==\"",
+					Line:        "password=\"bFJxQkstejVrZjQtcGxlYXNlLWlnbm9yZS1tZS1YLVhJSk0yUGRkdw==\"\n",
 					RuleID:      "decoded-password-dont-ignore",
 					Tags:        []string{"decode-ignore", "decoded:base64", "decode-depth:1"},
-					StartLine:   23,
-					EndLine:     23,
-					StartColumn: 2,
-					EndColumn:   68,
+					StartLine:   24,
+					EndLine:     24,
+					StartColumn: 1,
+					EndColumn:   67,
 					Entropy:     4.5841837,
 				},
 				{ // Hex encoded data check
@@ -1034,13 +1758,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-valuevHEX",
 					Match:       "secret=decoded-secret-valuevHEX",
 					File:        "tmp.go",
-					Line:        "\nsecret=6465636F6465642D7365637265742D76616C756576484558",
+					Line:        "secret=6465636F6465642D7365637265742D76616C756576484558\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:hex", "decode-depth:1"},
-					StartLine:   26,
-					EndLine:     26,
-					StartColumn: 2,
-					EndColumn:   56,
+					StartLine:   27,
+					EndLine:     27,
+					StartColumn: 1,
+					EndColumn:   55,
 					Entropy:     3.6531072,
 				},
 				{ // handle partial encoded percent data
@@ -1048,13 +1772,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-valuev2",
 					Match:       "secret=decoded-secret-valuev2",
 					File:        "tmp.go",
-					Line:        "\nsecret=decoded-%73%65%63%72%65%74-valuev2",
+					Line:        "secret=decoded-%73%65%63%72%65%74-valuev2\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
-					StartLine:   30,
-					EndLine:     30,
-					StartColumn: 2,
-					EndColumn:   42,
+					StartLine:   31,
+					EndLine:     31,
+					StartColumn: 1,
+					EndColumn:   41,
 					Entropy:     3.4428623,
 				},
 				{ // handle partial encoded percent data
@@ -1062,13 +1786,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-valuev3",
 					Match:       "secret=decoded-secret-valuev3",
 					File:        "tmp.go",
-					Line:        "\nsecret=%64%65coded-%73%65%63%72%65%74-valuev3",
+					Line:        "secret=%64%65coded-%73%65%63%72%65%74-valuev3\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
-					StartLine:   32,
-					EndLine:     32,
-					StartColumn: 2,
-					EndColumn:   46,
+					StartLine:   33,
+					EndLine:     33,
+					StartColumn: 1,
+					EndColumn:   45,
 					Entropy:     3.4428623,
 				},
 				{ // Encoded AWS config with a access key id inside a JWT
@@ -1076,13 +1800,13 @@ const token = "mockSecret";
 					Secret:      "ASIAIOSFODNN7LXM10JI",
 					Match:       " ASIAIOSFODNN7LXM10JI",
 					File:        "tmp.go",
-					Line:        "\neyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA",
+					Line:        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n",
 					RuleID:      "aws-iam-unique-identifier",
 					Tags:        []string{"aws", "identifier", "decoded:base64", "decode-depth:2"},
-					StartLine:   11,
-					EndLine:     11,
-					StartColumn: 39,
-					EndColumn:   344,
+					StartLine:   12,
+					EndLine:     12,
+					StartColumn: 38,
+					EndColumn:   343,
 					Entropy:     3.6841838,
 				},
 				{ // Encoded AWS config with a secret access key inside a JWT
@@ -1090,13 +1814,13 @@ const token = "mockSecret";
 					Secret:      "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A",
 					Match:       "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A",
 					File:        "tmp.go",
-					Line:        "\neyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA",
+					Line:        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n",
 					RuleID:      "aws-secret-access-key",
 					Tags:        []string{"aws", "secret", "decoded:base64", "decode-depth:2"},
-					StartLine:   11,
-					EndLine:     11,
-					StartColumn: 39,
-					EndColumn:   344,
+					StartLine:   12,
+					EndLine:     12,
+					StartColumn: 38,
+					EndColumn:   343,
 					Entropy:     4.721928,
 				},
 				{ // Secret where the decoded match goes outside the encoded value and then encoded again
@@ -1104,13 +1828,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
 					File:        "tmp.go",
-					Line:        "\nc2VjcmV0PVpHVmpiMlJsWkMxelpXTnlaWFF0ZG1Gc2RXVT0=",
+					Line:        "c2VjcmV0PVpHVmpiMlJsWkMxelpXTnlaWFF0ZG1Gc2RXVT0=\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:2"},
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 2,
-					EndColumn:   49,
+					StartLine:   21,
+					EndLine:     21,
+					StartColumn: 1,
+					EndColumn:   48,
 					Entropy:     3.3037016,
 				},
 				{ // handle encodings that touch eachother
@@ -1118,13 +1842,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-valuev5",
 					Match:       "secret=decoded-secret-valuev5",
 					File:        "tmp.go",
-					Line:        "\nsecret%3d6465636F6465642D7365637265742D76616C75657635",
+					Line:        "secret%3d6465636F6465642D7365637265742D76616C75657635\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decode-depth:2"},
-					StartLine:   40,
-					EndLine:     40,
-					StartColumn: 2,
-					EndColumn:   54,
+					StartLine:   41,
+					EndLine:     41,
+					StartColumn: 1,
+					EndColumn:   53,
 					Entropy:     3.4428623,
 				},
 				{ // handle partial encoded percent data465642D7365637265742D76616C75657635
@@ -1132,13 +1856,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-valuev4",
 					Match:       "secret=decoded-secret-valuev4",
 					File:        "tmp.go",
-					Line:        "\nc2VjcmV0PVpHVmpiMl%4AsWkMxelpXTnlaWFF0ZG1Gc2RXVjJOQT09",
+					Line:        "c2VjcmV0PVpHVmpiMl%4AsWkMxelpXTnlaWFF0ZG1Gc2RXVjJOQT09\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:3"},
-					StartLine:   38,
-					EndLine:     38,
-					StartColumn: 2,
-					EndColumn:   55,
+					StartLine:   39,
+					EndLine:     39,
+					StartColumn: 1,
+					EndColumn:   54,
 					Entropy:     3.4428623,
 				},
 				{ // multiple percent encodings in a single layer base64
@@ -1146,13 +1870,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-valuex86",
 					Match:       "secret=decoded-secret-valuex86",
 					File:        "tmp.go",
-					Line:        "\nsecret=ZGVjb2%52lZC1zZWNyZXQtdm%46sdWV4ODY=  # ends in x86",
+					Line:        "secret=ZGVjb2%52lZC1zZWNyZXQtdm%46sdWV4ODY=  # ends in x86\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
-					StartLine:   42,
-					EndLine:     42,
-					StartColumn: 2,
-					EndColumn:   44,
+					StartLine:   43,
+					EndLine:     43,
+					StartColumn: 1,
+					EndColumn:   43,
 					Entropy:     3.6381476,
 				},
 				{ // base64 encoded partially percent encoded value
@@ -1160,13 +1884,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
 					File:        "tmp.go",
-					Line:        "\nsecret=ZGVjb2RlZC0lNzMlNjUlNjMlNzIlNjUlNzQtdmFsdWU=",
+					Line:        "secret=ZGVjb2RlZC0lNzMlNjUlNjMlNzIlNjUlNzQtdmFsdWU=\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
-					StartLine:   44,
-					EndLine:     44,
-					StartColumn: 2,
-					EndColumn:   52,
+					StartLine:   45,
+					EndLine:     45,
+					StartColumn: 1,
+					EndColumn:   51,
 					Entropy:     3.3037016,
 				},
 				{ // one of the lines above that went through... a lot
@@ -1174,13 +1898,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
 					File:        "tmp.go",
-					Line:        "\nLook at this value: %4EjMzMjU2NkE2MzZENTYzMDUwNTY3MDQ4%4eTY2RDcwNjk0RDY5NTUzMTRENkQ3ODYx%25%34%65TE3QTQ2MzY1NzZDNjQ0RjY1NTY3MDU5NTU1ODUyNkI2MjUzNTUzMDRFNkU0RTZCNTYzMTU1MzkwQQ== # isn't it crazy?",
+					Line:        "Look at this value: %4EjMzMjU2NkE2MzZENTYzMDUwNTY3MDQ4%4eTY2RDcwNjk0RDY5NTUzMTRENkQ3ODYx%25%34%65TE3QTQ2MzY1NzZDNjQ0RjY1NTY3MDU5NTU1ODUyNkI2MjUzNTUzMDRFNkU0RTZCNTYzMTU1MzkwQQ== # isn't it crazy?\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decoded:base64", "decode-depth:7"},
-					StartLine:   47,
-					EndLine:     47,
-					StartColumn: 22,
-					EndColumn:   177,
+					StartLine:   48,
+					EndLine:     48,
+					StartColumn: 21,
+					EndColumn:   176,
 					Entropy:     3.3037016,
 				},
 				{ // Multi percent encode two random characters close to the bounds of the base64
@@ -1188,13 +1912,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
 					File:        "tmp.go",
-					Line:        "\nsecret=ZG%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%36%25%33%31%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%33%25%33%322RlZC1zZWNyZXQtd%25%36%64%25%34%36%25%37%33dWU=",
+					Line:        "secret=ZG%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%36%25%33%31%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%33%25%33%322RlZC1zZWNyZXQtd%25%36%64%25%34%36%25%37%33dWU=\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:5"},
-					StartLine:   50,
-					EndLine:     50,
-					StartColumn: 2,
-					EndColumn:   300,
+					StartLine:   51,
+					EndLine:     51,
+					StartColumn: 1,
+					EndColumn:   299,
 					Entropy:     3.3037016,
 				},
 				{ // The similar to the above but also touching the edge of the base64
@@ -1202,13 +1926,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
 					File:        "tmp.go",
-					Line:        "\nsecret=%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34",
+					Line:        "secret=%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
-					StartLine:   52,
-					EndLine:     52,
-					StartColumn: 2,
-					EndColumn:   86,
+					StartLine:   53,
+					EndLine:     53,
+					StartColumn: 1,
+					EndColumn:   85,
 					Entropy:     3.3037016,
 				},
 				{ // The similar to the above but also touching and overlapping the base64
@@ -1216,13 +1940,13 @@ const token = "mockSecret";
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
 					File:        "tmp.go",
-					Line:        "\nsecret%3D%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34",
+					Line:        "secret%3D%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
-					StartLine:   54,
-					EndLine:     54,
-					StartColumn: 2,
-					EndColumn:   88,
+					StartLine:   55,
+					EndLine:     55,
+					StartColumn: 1,
+					EndColumn:   87,
 					Entropy:     3.3037016,
 				},
 			},
@@ -1305,9 +2029,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 19,
-					EndColumn:   38,
-					Line:        "\n    awsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 18,
+					EndColumn:   37,
+					Line:        "    awsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Secret:      "AKIALALEMEL33243OLIA",
 					Match:       "AKIALALEMEL33243OLIA",
 					Entropy:     3.0841837,
@@ -1326,11 +2050,11 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   9,
 					EndLine:     9,
-					StartColumn: 17,
-					EndColumn:   36,
+					StartColumn: 16,
+					EndColumn:   35,
 					Secret:      "AKIALALEMEL33243OLIA",
 					Match:       "AKIALALEMEL33243OLIA",
-					Line:        "\n\taws_token := \"AKIALALEMEL33243OLIA\"",
+					Line:        "\taws_token := \"AKIALALEMEL33243OLIA\"\n",
 					File:        "foo/foo.go",
 					Date:        "2021-11-02T23:48:06Z",
 					Commit:      "491504d5a31946ce75e22554cc34203d8e5ff3ca",
@@ -1354,10 +2078,10 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   9,
 					EndLine:     9,
-					StartColumn: 17,
-					EndColumn:   36,
+					StartColumn: 16,
+					EndColumn:   35,
 					Secret:      "AKIALALEMEL33243OLIA",
-					Line:        "\n\taws_token := \"AKIALALEMEL33243OLIA\"",
+					Line:        "\taws_token := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Date:        "2021-11-02T23:48:06Z",
 					File:        "foo/foo.go",
@@ -1381,9 +2105,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "main.go.zst",
@@ -1402,9 +2126,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.tar!files/api.go",
@@ -1423,9 +2147,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.tar!files/main.go",
@@ -1444,9 +2168,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.zip!files/api.go",
@@ -1465,9 +2189,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.zip!files/main.go",
@@ -1486,9 +2210,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.7z!files/api.go",
@@ -1507,9 +2231,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.7z!files/main.go",
@@ -1528,9 +2252,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.tar.zst!files/api.go",
@@ -1549,9 +2273,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.tar.zst!files/main.go",
@@ -1570,9 +2294,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files/api.go",
@@ -1591,9 +2315,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files/main.go",
@@ -1612,9 +2336,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files/main.go.xz",
@@ -1633,9 +2357,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files/main.go.zst",
@@ -1654,9 +2378,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files/main.go.gz",
@@ -1675,9 +2399,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.tar.xz!files/api.go",
@@ -1696,9 +2420,9 @@ func TestFromGit(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "nested.tar.gz!archives/files.tar.xz!files/main.go",
@@ -1777,9 +2501,9 @@ func TestFromGitStaged(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   7,
 					EndLine:     7,
-					StartColumn: 18,
-					EndColumn:   37,
-					Line:        "\n\taws_token2 := \"AKIALALEMEL33243OLIA\" // this one is not",
+					StartColumn: 17,
+					EndColumn:   36,
+					Line:        "\taws_token2 := \"AKIALALEMEL33243OLIA\" // this one is not\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "api/api.go",
@@ -1847,9 +2571,9 @@ func TestFromFiles(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/repos/nogit/main.go",
@@ -1869,9 +2593,9 @@ func TestFromFiles(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/repos/nogit/main.go",
@@ -1895,9 +2619,9 @@ func TestFromFiles(t *testing.T) {
 					Description: "Generic API Key",
 					StartLine:   4,
 					EndLine:     4,
-					StartColumn: 5,
-					EndColumn:   35,
-					Line:        "\nDB_PASSWORD=8ae31cacf141669ddfb5da",
+					StartColumn: 4,
+					EndColumn:   34,
+					Line:        "DB_PASSWORD=8ae31cacf141669ddfb5da\n",
 					Match:       "PASSWORD=8ae31cacf141669ddfb5da",
 					Secret:      "8ae31cacf141669ddfb5da",
 					File:        "../testdata/repos/nogit/.env.prod",
@@ -1940,20 +2664,8 @@ func TestFromFiles(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			// TODO: Temporary mitigation.
-			// https://github.com/gitleaks/gitleaks/issues/1641
-			normalizedFindings := make([]report.Finding, len(findings))
-			for i, f := range findings {
-				if strings.HasSuffix(f.Line, "\r") {
-					f.Line = strings.ReplaceAll(f.Line, "\r", "")
-				}
-				if strings.HasSuffix(f.Match, "\r") {
-					f.EndColumn = f.EndColumn - 1
-					f.Match = strings.ReplaceAll(f.Match, "\r", "")
-				}
-				normalizedFindings[i] = f
-			}
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(normalizedFindings))
+			normalizeFindings(findings)
+			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
 		})
 	}
 }
@@ -1979,9 +2691,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files/api.go",
@@ -1995,9 +2707,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files/main.go",
@@ -2011,9 +2723,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files/main.go.gz",
@@ -2027,9 +2739,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files/main.go.xz",
@@ -2043,9 +2755,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files/main.go.zst",
@@ -2065,9 +2777,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.7z!files/api.go",
@@ -2081,9 +2793,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.7z!files/main.go",
@@ -2103,9 +2815,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.tar!files/api.go",
@@ -2119,9 +2831,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.tar!files/main.go",
@@ -2141,9 +2853,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.tar.xz!files/api.go",
@@ -2157,9 +2869,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.tar.xz!files/main.go",
@@ -2179,9 +2891,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.tar.zst!files/api.go",
@@ -2195,9 +2907,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.tar.zst!files/main.go",
@@ -2217,9 +2929,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.zip!files/api.go",
@@ -2233,9 +2945,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/files.zip!files/main.go",
@@ -2255,9 +2967,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.tar!files/api.go",
@@ -2271,9 +2983,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.tar!files/main.go",
@@ -2287,9 +2999,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.zip!files/api.go",
@@ -2303,9 +3015,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.zip!files/main.go",
@@ -2319,9 +3031,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.7z!files/api.go",
@@ -2335,9 +3047,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.7z!files/main.go",
@@ -2351,9 +3063,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.tar.zst!files/api.go",
@@ -2367,9 +3079,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.tar.zst!files/main.go",
@@ -2383,9 +3095,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files/api.go",
@@ -2399,9 +3111,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files/main.go",
@@ -2415,9 +3127,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files/main.go.xz",
@@ -2431,9 +3143,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files/main.go.zst",
@@ -2447,9 +3159,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files/main.go.gz",
@@ -2463,9 +3175,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.tar.xz!files/api.go",
@@ -2479,9 +3191,9 @@ func TestDetectWithArchives(t *testing.T) {
 					Description: "AWS Access Key",
 					StartLine:   20,
 					EndLine:     20,
-					StartColumn: 16,
-					EndColumn:   35,
-					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					StartColumn: 15,
+					EndColumn:   34,
+					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
 					Match:       "AKIALALEMEL33243OLIA",
 					Secret:      "AKIALALEMEL33243OLIA",
 					File:        "../testdata/archives/nested.tar.gz!archives/files.tar.xz!files/main.go",
@@ -2528,20 +3240,8 @@ func TestDetectWithArchives(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			// TODO: Temporary mitigation.
-			// https://github.com/gitleaks/gitleaks/issues/1641
-			normalizedFindings := make([]report.Finding, len(findings))
-			for i, f := range findings {
-				if strings.HasSuffix(f.Line, "\r") {
-					f.Line = strings.ReplaceAll(f.Line, "\r", "")
-				}
-				if strings.HasSuffix(f.Match, "\r") {
-					f.EndColumn = f.EndColumn - 1
-					f.Match = strings.ReplaceAll(f.Match, "\r", "")
-				}
-				normalizedFindings[i] = f
-			}
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(normalizedFindings))
+			normalizeFindings(findings)
+			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
 		})
 	}
 
@@ -2572,7 +3272,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 					EndColumn:   35,
 					Match:       "-----BEGIN OPENSSH PRIVATE KEY-----",
 					Secret:      "-----BEGIN OPENSSH PRIVATE KEY-----",
-					Line:        "-----BEGIN OPENSSH PRIVATE KEY-----",
+					Line:        "-----BEGIN OPENSSH PRIVATE KEY-----\n",
 					File:        "../testdata/repos/symlinks/source_file/id_ed25519",
 					SymlinkFile: "../testdata/repos/symlinks/file_symlink/symlinked_id_ed25519",
 					Tags:        []string{"key", "AsymmetricPrivateKey"},
@@ -2657,11 +3357,11 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 			expected: []report.Finding{
 				{
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 18,
-					EndColumn:   28,
-					Line:        "let username = 'james@mail.com';\nlet password = 'Summer2024!';",
+					StartLine:   2,
+					EndLine:     2,
+					StartColumn: 17,
+					EndColumn:   27,
+					Line:        "let password = 'Summer2024!';",
 					Match:       "Summer2024!",
 					Secret:      "Summer2024!",
 					File:        "package.json",
@@ -2686,11 +3386,11 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 			expected: []report.Finding{
 				{
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 18,
-					EndColumn:   28,
-					Line:        "let username = 'james@mail.com';\nlet password = 'Summer2024!';",
+					StartLine:   2,
+					EndLine:     2,
+					StartColumn: 17,
+					EndColumn:   27,
+					Line:        "let password = 'Summer2024!';",
 					Match:       "Summer2024!",
 					Secret:      "Summer2024!",
 					File:        "package-lock.json",
@@ -2765,11 +3465,11 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 			expected: []report.Finding{
 				{
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 18,
-					EndColumn:   28,
-					Line:        "let username = 'james@mail.com';\nlet password = 'Summer2024!';",
+					StartLine:   2,
+					EndLine:     2,
+					StartColumn: 17,
+					EndColumn:   27,
+					Line:        "let password = 'Summer2024!';",
 					Match:       "Summer2024!",
 					Secret:      "Summer2024!",
 					File:        "config.js",
@@ -2789,11 +3489,11 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 			expected: []report.Finding{
 				{
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 18,
-					EndColumn:   28,
-					Line:        "let username = 'james@mail.com';\nlet password = 'Summer2024!';",
+					StartLine:   2,
+					EndLine:     2,
+					StartColumn: 17,
+					EndColumn:   27,
+					Line:        "let password = 'Summer2024!';",
 					Match:       "Summer2024!",
 					Secret:      "Summer2024!",
 					Entropy:     3.095795154571533,
@@ -2817,11 +3517,11 @@ func TestDetectRuleAllowlist(t *testing.T) {
 			},
 			expected: []report.Finding{
 				{
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 18,
-					EndColumn:   28,
-					Line:        "let username = 'james@mail.com';\nlet password = 'Summer2024!';",
+					StartLine:   2,
+					EndLine:     2,
+					StartColumn: 17,
+					EndColumn:   27,
+					Line:        "let password = 'Summer2024!';",
 					Match:       "Summer2024!",
 					Secret:      "Summer2024!",
 					File:        "config.js",
@@ -2871,7 +3571,7 @@ let password = 'Summer2024!';`
 			f.Raw = raw
 
 			actual := d.detectFragmentWithRule(f, raw, rule, []*codec.EncodedSegment{}, nil)
-			compare(t, tc.expected, actual)
+			compare(t, actual, tc.expected)
 		})
 	}
 }
@@ -2976,6 +3676,8 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 			expected: []report.Finding{
 				{
 					RuleID:      "test-rule",
+					StartLine:   1,
+					EndLine:     1,
 					StartColumn: 1,
 					EndColumn:   27,
 					Line:        "<password>s3cr3t</password>",
@@ -3031,7 +3733,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{}, nil)
-			compare(t, test.expected, actual)
+			compare(t, actual, test.expected)
 		})
 	}
 }
@@ -3082,7 +3784,9 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 				{
 					RuleID:      "windows-rule",
 					StartColumn: 9,
+					StartLine:   1,
 					EndColumn:   14,
+					EndLine:     1,
 					Line:        `value: "s3cr3t"`,
 					Match:       `s3cr3t`,
 					Secret:      `s3cr3t`,
@@ -3133,7 +3837,9 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 				{
 					RuleID:      "windows-rule",
 					StartColumn: 1,
+					StartLine:   1,
 					EndColumn:   19,
+					EndLine:     1,
 					Line:        `value: "f4k3s3cr3t"`,
 					Match:       `value: "f4k3s3cr3t"`,
 					Secret:      `value: "f4k3s3cr3t"`,
@@ -3183,7 +3889,9 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 				{
 					RuleID:      "windows-rule",
 					StartColumn: 9,
+					StartLine:   1,
 					EndColumn:   14,
+					EndLine:     1,
 					Line:        `value: "s3cr3t"`,
 					Match:       `s3cr3t`,
 					Secret:      `s3cr3t`,
@@ -3235,7 +3943,9 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 				{
 					RuleID:      "windows-rule",
 					StartColumn: 1,
+					StartLine:   1,
 					EndColumn:   19,
+					EndLine:     1,
 					Line:        `value: "f4k3s3cr3t"`,
 					Match:       `value: "f4k3s3cr3t"`,
 					Secret:      `value: "f4k3s3cr3t"`,
@@ -3259,7 +3969,7 @@ func TestWindowsFileSeparator_RuleAllowlistPaths(t *testing.T) {
 			rule := cfg.Rules[test.rule.RuleID]
 
 			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, rule, []*codec.EncodedSegment{}, nil)
-			compare(t, test.expected, actual)
+			compare(t, actual, test.expected)
 		})
 	}
 }

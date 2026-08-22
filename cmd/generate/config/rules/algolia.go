@@ -10,9 +10,11 @@ func AlgoliaApplicationID() *config.Rule {
 	r := config.Rule{
 		Description: "Detected an Algolia application ID, used as a component of the algolia-api-key composite rule.",
 		RuleID:      "algolia-application-id",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{10}`, true),
 		Keywords:    []string{"algolia"},
 		SkipReport:  true,
+		Filter:      `filter.entropy(finding["secret"]) < 2.75 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{
@@ -31,17 +33,19 @@ func AlgoliaApiKey() *config.Rule {
 	r := config.Rule{
 		Description: "Identified an Algolia API Key, which could result in unauthorized search operations and data exposure on Algolia-managed platforms.",
 		RuleID:      "algolia-api-key",
+		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{32}`, true),
 		Keywords:    []string{"algolia"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 		Components: []*config.Component{
 			{RuleID: "algolia-application-id"},
 		},
 		// Algolia's public Search API key includes these four read-only ACLs.
 		// "settings" reads index settings; "editSettings" is the write permission.
-		ValidateExpr: `let r = http.get("https://" + captures["algolia-application-id"] + ".algolia.net/1/keys/" + finding["secret"], {
+		ValidateExpr: `let r = http.get("https://" + (components["algolia-application-id"]?.secret ?? "") + ".algolia.net/1/keys/" + finding["secret"], {
     "Accept": "application/json",
     "X-Algolia-API-Key": finding["secret"],
-    "X-Algolia-Application-Id": captures["algolia-application-id"]
+    "X-Algolia-Application-Id": (components["algolia-application-id"]?.secret ?? "")
   }); let acl = r.json?.acl ?? [];
   let public_acls = ["search", "browse", "listIndexes", "settings"];
   let has_sensitive_acl = any(acl, {# not in public_acls});
@@ -56,6 +60,6 @@ func AlgoliaApiKey() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("algolia", secrets.NewSecret(utils.Hex("32")))
+	tps := utils.GenerateSampleSecrets("algolia", secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5))
 	return utils.Validate(r, tps, nil)
 }

@@ -11,6 +11,7 @@ func PlanetScalePassword() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "planetscale-password",
+		Confidence:  "high",
 		Description: "Discovered a PlanetScale password, which could lead to unauthorized database operations and data breaches.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pscale_pw_(?i)[\w=\.-]{32,64}`, true),
 		Keywords: []string{
@@ -31,6 +32,7 @@ func PlanetScalePassword() *config.Rule {
 func PlanetScaleID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "planetscale-id",
+		Confidence:  "high",
 		Description: "Found a PlanetScale service token ID.",
 		Regex: regexp.MustCompile(
 			`(?i)(?:pscale|planetscale)(?:.|[\n\r]){0,16}?(?:USER|ID|NAME)(?:.|[\n\r]){0,16}?([a-z0-9]{12})`,
@@ -52,6 +54,7 @@ func PlanetScaleAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "planetscale-api-token",
+		Confidence:  "high",
 		Description: "Identified a PlanetScale API token, potentially compromising database management and operations.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pscale_tkn_(?i)[\w=\.-]{32,64}`, false),
 		Keywords: []string{
@@ -62,10 +65,10 @@ func PlanetScaleAPIToken() *config.Rule {
 		},
 		ValidateExpr: `let r = http.get("https://api.planetscale.com/v1/organizations", {
     "Accept": "application/json",
-    "Authorization": captures["planetscale-id"] + ":" + finding["secret"]
+    "Authorization": (components["planetscale-id"]?.secret ?? "") + ":" + finding["secret"]
   }); r.status == 200 && (r.json?.type ?? "") == "list" ? {
     "result": "valid",
-    "organization": getPath(r.json, "data.0.name", "")
+    "organization": r.json?.data?.[0]?.name ?? ""
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -84,6 +87,7 @@ func PlanetScaleOAuthToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "planetscale-oauth-token",
+		Confidence:  "high",
 		Description: "Found a PlanetScale OAuth token, posing a risk to database access control and sensitive data integrity.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pscale_oauth_[\w=\.-]{32,64}`, false),
 		Keywords: []string{

@@ -18,6 +18,145 @@ func TestSamePath(t *testing.T) {
 	assert.False(t, samePath("proj/sub/other.toml", cfg))
 }
 
+func TestFilterTracksComponentOwnership(t *testing.T) {
+	component := &report.ComponentFinding{
+		RuleID:          "generic-username",
+		StartLine:       170,
+		Secret:          "invalid",
+		RuleSpecificity: 100,
+	}
+
+	t.Run("preserves a primary matching its own component", func(t *testing.T) {
+		primary := report.Finding{
+			RuleID:          "generic-password",
+			StartLine:       170,
+			Match:           "password: 'invalid'",
+			Secret:          "invalid",
+			RuleSpecificity: 20,
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{component}},
+			},
+		}
+
+		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary}))
+	})
+
+	t.Run("suppresses a standalone finding owned by another primary", func(t *testing.T) {
+		primary := report.Finding{
+			RuleID:          "generic-password",
+			StartLine:       170,
+			Match:           "password: 'hunter2'",
+			Secret:          "hunter2",
+			RuleSpecificity: 20,
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{component}},
+			},
+		}
+		standaloneComponent := report.Finding{
+			RuleID:    "generic-username",
+			StartLine: 170,
+			Match:     "login: 'invalid'",
+			Secret:    "invalid",
+		}
+
+		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary, standaloneComponent}))
+	})
+
+	t.Run("preserves the same value at a different location", func(t *testing.T) {
+		primary := report.Finding{
+			RuleID:    "generic-password",
+			StartLine: 170,
+			Secret:    "hunter2",
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{{
+					RuleID:      "generic-username",
+					StartLine:   170,
+					EndLine:     170,
+					StartColumn: 10,
+					EndColumn:   16,
+					Secret:      "invalid",
+				}}},
+			},
+		}
+		ownedStandalone := report.Finding{
+			RuleID:      "generic-username",
+			StartLine:   170,
+			EndLine:     170,
+			StartColumn: 10,
+			EndColumn:   16,
+			Secret:      "invalid",
+		}
+		unownedStandalone := report.Finding{
+			RuleID:      "generic-username",
+			StartLine:   170,
+			EndLine:     170,
+			StartColumn: 30,
+			EndColumn:   36,
+			Secret:      "invalid",
+		}
+
+		assert.Equal(t,
+			[]report.Finding{primary, unownedStandalone},
+			filter([]report.Finding{primary, ownedStandalone, unownedStandalone}),
+		)
+	})
+
+	t.Run("allows another owner's component to take precedence", func(t *testing.T) {
+		ownedComponent := &report.ComponentFinding{
+			RuleID:          "specific-rule",
+			StartLine:       170,
+			Match:           "credential: 'prefix-invalid-suffix'",
+			Secret:          "prefix-invalid-suffix",
+			RuleSpecificity: 100,
+		}
+		primary := report.Finding{
+			RuleID:          "composite-rule",
+			StartLine:       169,
+			Match:           "composite: 'hunter2'",
+			Secret:          "hunter2",
+			RuleSpecificity: 50,
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{ownedComponent}},
+			},
+		}
+		standalone := report.Finding{
+			RuleID:          "generic-rule",
+			StartLine:       170,
+			Match:           "credential: 'invalid'",
+			Secret:          "invalid",
+			RuleSpecificity: 20,
+		}
+
+		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary, standalone}))
+	})
+
+	t.Run("suppresses a composite surfaced inside another primary", func(t *testing.T) {
+		nestedComponent := &report.ComponentFinding{
+			RuleID:    "nested-composite",
+			StartLine: 170,
+			Secret:    "shared",
+		}
+		outerPrimary := report.Finding{
+			RuleID:    "outer-primary",
+			StartLine: 169,
+			Secret:    "outer",
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{nestedComponent}},
+			},
+		}
+		nestedPrimary := report.Finding{
+			RuleID:    "nested-composite",
+			StartLine: 170,
+			Secret:    "shared",
+			ComponentSets: []report.ComponentSet{
+				{Components: []*report.ComponentFinding{{RuleID: "leaf", StartLine: 171, Secret: "leaf"}}},
+			},
+		}
+
+		assert.Equal(t, []report.Finding{outerPrimary}, filter([]report.Finding{outerPrimary, nestedPrimary}))
+	})
+}
+
 func Test_createScmLink(t *testing.T) {
 	tests := map[string]struct {
 		platform  string

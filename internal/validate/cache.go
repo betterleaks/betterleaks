@@ -2,8 +2,8 @@ package validate
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
-	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -28,27 +28,30 @@ func NewCache() *Cache {
 	return &Cache{store: make(map[string]*Result)}
 }
 
-// TODO maybe rename this to "components" and collapse secret into it too
-func CacheKey(ruleID, secret string, auxiliary map[string]string) string {
-	h := sha256.New()
-	h.Write([]byte(ruleID))
-	h.Write([]byte{0})
-	h.Write([]byte(secret))
-	if len(auxiliary) > 0 {
-		h.Write([]byte{0})
-		keys := make([]string, 0, len(auxiliary))
-		for k := range auxiliary {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			h.Write([]byte(k))
-			h.Write([]byte{0})
-			h.Write([]byte(auxiliary[k]))
-			h.Write([]byte{0})
-		}
+// CacheKey identifies a validation input. Captures and components occupy
+// separate namespaces so identical user-defined keys cannot collide.
+func CacheKey(ruleID, secret string, captures map[string]string, components map[string]cacheComponent) string {
+	encoded, err := json.Marshal(struct {
+		RuleID     string                    `json:"rule_id"`
+		Secret     string                    `json:"secret"`
+		Captures   map[string]string         `json:"captures,omitempty"`
+		Components map[string]cacheComponent `json:"components,omitempty"`
+	}{
+		RuleID:     ruleID,
+		Secret:     secret,
+		Captures:   captures,
+		Components: components,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("encode validation cache key: %v", err))
 	}
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return fmt.Sprintf("%x", sha256.Sum256(encoded))
+}
+
+type cacheComponent struct {
+	Secret string `json:"secret"`
+	// Captures contains named regex capture groups only.
+	Captures map[string]string `json:"captures,omitempty"`
 }
 
 // GetOrDo looks up key in the cache. On a hit it returns the cached result.

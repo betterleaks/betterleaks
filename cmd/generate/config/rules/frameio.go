@@ -12,6 +12,7 @@ func FrameIO() *config.Rule {
 	r := config.Rule{
 		Description: "Found a Frame.io API token, potentially compromising video collaboration and project management.",
 		RuleID:      "frameio-api-token",
+		Confidence:  "high",
 		Regex:       regexp.MustCompile(`fio-u-(?i)[a-z0-9\-_=]{64}`),
 		Keywords:    []string{"fio-u-"},
 		ValidateExpr: `let r = http.get("https://api.frame.io/v2/me", {

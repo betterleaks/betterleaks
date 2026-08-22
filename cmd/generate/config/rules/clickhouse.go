@@ -11,6 +11,7 @@ func ClickHouseCloud() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "clickhouse-cloud-api-secret-key",
+		Confidence:  "high",
 		Description: "Identified a pattern that may indicate clickhouse cloud API secret key, risking unauthorized clickhouse cloud api access and data breaches on ClickHouse Cloud platforms.",
 		Regex:       regexp.MustCompile(`\b(4b1d[A-Za-z0-9]{38})\b`),
 		Keywords: []string{
@@ -20,7 +21,7 @@ func ClickHouseCloud() *config.Rule {
 			{RuleID: "clickhouse-cloud-key-id"},
 		},
 		ValidateExpr: `let r = http.get("https://api.clickhouse.cloud/v1/organizations", {
-    "Authorization": "Basic " + base64.encode(bytes(captures["clickhouse-cloud-key-id"] + ":" + finding["secret"]))
+    "Authorization": "Basic " + base64.encode(bytes((components["clickhouse-cloud-key-id"]?.secret ?? "") + ":" + finding["secret"]))
   }); r.status == 200 && (r.body contains "\"id\":") && (r.body contains "\"name\":") ? {
     "result": "valid"
   } : r.status in [401, 403] ? {
@@ -43,6 +44,7 @@ func ClickHouseCloud() *config.Rule {
 func ClickHouseCloudKeyID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "clickhouse-cloud-key-id",
+		Confidence:  "high",
 		Description: "Detected a ClickHouse Cloud key ID, used as a component of the clickhouse-cloud-api-secret-key composite rule.",
 		Regex:       regexp.MustCompile(`(?i)\bclickhouse(?:.|[\n\r]){0,16}?(?:ID|USER)(?:.|[\n\r]){0,16}?([a-z0-9]{20})`),
 		Keywords:    []string{"clickhouse"},

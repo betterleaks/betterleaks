@@ -15,7 +15,7 @@ type Fragment struct {
 	// Indicates if this fragment is inherited from a finding
 	InheritedFromFinding bool
 
-	// StartLine is the line number this fragment starts on
+	// StartLine is the line number this fragment starts on (SetDefaults sets it to 1 if unset)
 	StartLine int
 
 	// Attributes holds all source-specific metadata
@@ -43,4 +43,11 @@ func (f *Fragment) Logger() zerolog.Logger {
 		l = l.Str("commit", sha)
 	}
 	return l.Logger()
+}
+
+// SetDefaults sets default fields that might not have been set on the fragment
+func (f *Fragment) SetDefaults() {
+	if f.StartLine == 0 {
+		f.StartLine = 1 // Lines start at 1
+	}
 }

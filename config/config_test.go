@@ -128,6 +128,38 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestGenericRuleConfidence(t *testing.T) {
+	cfg, err := Default()
+	require.NoError(t, err)
+	for id, rule := range cfg.Rules {
+		require.NotEmptyf(t, rule.Confidence, "rule %q has no confidence", id)
+	}
+	require.Equal(t, "low", cfg.Rules["generic-api-key"].Confidence)
+	require.Equal(t, "medium", cfg.Rules["box-api-access-token"].Confidence)
+	require.Equal(t, "high", cfg.Rules["openai-api-key"].Confidence)
+	require.Contains(t, cfg.Rules["generic-api-key"].Filter, `\b[a-z0-9]+[_.-]+token\b`)
+	require.Contains(t, cfg.Rules["generic-api-key"].Filter, `]) ? "medium" : "low";`)
+}
+
+func TestRuleConfidence(t *testing.T) {
+	cfg, err := ParseTOMLString(`
+[[rules]]
+id = "test"
+regex = "secret"
+confidence = "high"
+`, "")
+	require.NoError(t, err)
+	require.Equal(t, "high", cfg.Rules["test"].Confidence)
+
+	_, err = ParseTOMLString(`
+[[rules]]
+id = "test"
+regex = "secret"
+confidence = "certain"
+`, "")
+	require.ErrorContains(t, err, "invalid confidence")
+}
+
 func TestTranslateAllowlists(t *testing.T) {
 	tests := []translateCase{
 		// Global
@@ -135,7 +167,7 @@ func TestTranslateAllowlists(t *testing.T) {
 			cfgName: "valid/allowlist_global_old_compat",
 			cfg: &Config{
 				Rules:     map[string]Rule{},
-				Prefilter: `containsAny(get(attributes, "path", ""), ["0989c462-69c9-49fa-b7d2-30dc5c576a97"])`,
+				Prefilter: `containsAny(attributes["path"], ["0989c462-69c9-49fa-b7d2-30dc5c576a97"])`,
 			},
 		},
 		{
@@ -160,7 +192,7 @@ func TestTranslateAllowlists(t *testing.T) {
 						Regex:    regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z]{36}`),
 						Tags:     []string{},
 						Keywords: []string{},
-						Filter:   "matchesAny(get(attributes, \"path\", \"\"), [`(?:^|/)@octokit/auth-token/README\\.md$`])",
+						Filter:   "matchesAny(attributes[\"path\"], [`(?:^|/)@octokit/auth-token/README\\.md$`])",
 					},
 					"github-oauth": {
 						RuleID:   "github-oauth",
@@ -173,7 +205,7 @@ func TestTranslateAllowlists(t *testing.T) {
 						Regex:    regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
 						Tags:     []string{},
 						Keywords: []string{},
-						Filter:   "matchesAny(get(attributes, \"path\", \"\"), [`(?:^|/)@octokit/auth-token/README\\.md$`])",
+						Filter:   "matchesAny(attributes[\"path\"], [`(?:^|/)@octokit/auth-token/README\\.md$`])",
 					},
 				},
 			},
@@ -242,7 +274,7 @@ func TestTranslateAllowlists(t *testing.T) {
 					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
 					Keywords:    []string{},
 					Tags:        []string{"key", "AWS"},
-					Filter:      `get(attributes, "git.sha", "") in ["allowthiscommit"]`,
+					Filter:      `attributes["git.sha"] in ["allowthiscommit"]`,
 				}},
 			},
 		},
@@ -256,7 +288,7 @@ func TestTranslateAllowlists(t *testing.T) {
 					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
 					Keywords:    []string{},
 					Tags:        []string{"key", "AWS"},
-					Filter:      "matchesAny(get(attributes, \"path\", \"\"), [`.go`])",
+					Filter:      "matchesAny(attributes[\"path\"], [`.go`])",
 				}},
 			},
 		},
@@ -345,7 +377,7 @@ func TestTranslateExtend(t *testing.T) {
 						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
-						Filter:      "matchesAny(get(attributes, \"path\", \"\"), [`something.py`])",
+						Filter:      "matchesAny(attributes[\"path\"], [`something.py`])",
 					},
 				},
 			},
@@ -469,7 +501,7 @@ func TestTranslateExtend(t *testing.T) {
 						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
-						Filter:      "(matchesAny(get(attributes, \"path\", \"\"), [`ignore\\.xaml`]) || get(attributes, \"git.sha\", \"\") in [\"abcdefg1\"])" + "\n|| " + `containsAny(finding["secret"], ["fake"])` + "\n|| " + "(matchesAny(finding[\"line\"], [`foo.+bar`]) || containsAny(finding[\"secret\"], [\"example\"]))",
+						Filter:      "(matchesAny(attributes[\"path\"], [`ignore\\.xaml`]) || attributes[\"git.sha\"] in [\"abcdefg1\"])" + "\n|| " + `containsAny(finding["secret"], ["fake"])` + "\n|| " + "(matchesAny(finding[\"line\"], [`foo.+bar`]) || containsAny(finding[\"secret\"], [\"example\"]))",
 					},
 				},
 			},
@@ -485,7 +517,7 @@ func TestTranslateExtend(t *testing.T) {
 						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
-						Filter:      `containsAny(finding["secret"], ["fake"])` + "\n|| " + "(matchesAny(get(attributes, \"path\", \"\"), [`ignore\\.xaml`]) && get(attributes, \"git.sha\", \"\") in [\"abcdefg1\"] && matchesAny(finding[\"line\"], [`foo.+bar`]) && containsAny(finding[\"secret\"], [\"example\"]))",
+						Filter:      `containsAny(finding["secret"], ["fake"])` + "\n|| " + "(matchesAny(attributes[\"path\"], [`ignore\\.xaml`]) && attributes[\"git.sha\"] in [\"abcdefg1\"] && matchesAny(finding[\"line\"], [`foo.+bar`]) && containsAny(finding[\"secret\"], [\"example\"]))",
 					},
 				},
 			},

@@ -11,6 +11,7 @@ func Clojars() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "clojars-api-token",
+		Confidence:  "high",
 		Description: "Uncovered a possible Clojars API token, risking unauthorized access to Clojure libraries and potential code manipulation.",
 		Regex:       regexp.MustCompile(`(?i)CLOJARS_[a-z0-9]{60}`),
 		Keywords:    []string{"clojars_"},

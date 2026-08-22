@@ -9,6 +9,7 @@ import (
 func ElevenLabs() *config.Rule {
 	r := config.Rule{
 		RuleID:      "elevenlabs-api-key",
+		Confidence:  "high",
 		Description: "Detected an ElevenLabs API Key, which may expose AI voice synthesis services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"elevenlabs"}, `sk_[0-9a-f]{48}`, true),
 		Keywords:    []string{"elevenlabs"},

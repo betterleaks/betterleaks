@@ -21,6 +21,7 @@ func DevCycleClientSDKKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:       "devcycle-client-sdk-key",
+		Confidence:   "high",
 		Description:  "DevCycle client SDK key.",
 		Regex:        regexp.MustCompile(`\b(dvc_client_[A-Za-z0-9]{8,32})`),
 		Keywords:     []string{"dvc_client_"},
@@ -42,6 +43,7 @@ func DevCycleMobileSDKKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:       "devcycle-mobile-sdk-key",
+		Confidence:   "high",
 		Description:  "DevCycle mobile SDK key.",
 		Regex:        regexp.MustCompile(`\b(dvc_mobile_[A-Za-z0-9]{8,32})`),
 		Keywords:     []string{"dvc_mobile_"},
@@ -63,6 +65,7 @@ func DevCycleServerSDKKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:       "devcycle-server-sdk-key",
+		Confidence:   "high",
 		Description:  "DevCycle server SDK key.",
 		Regex:        regexp.MustCompile(`\b(dvc_server_[A-Za-z0-9]{8,32})`),
 		Keywords:     []string{"dvc_server_"},

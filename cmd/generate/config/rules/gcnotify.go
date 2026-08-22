@@ -10,6 +10,7 @@ func GCNotifyAPIKey() *config.Rule {
 	uuid := `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`
 	r := config.Rule{
 		RuleID:      "canadian-digital-service-notify-api-key",
+		Confidence:  "high",
 		Description: "Detected a GC Notify API key, which may allow unauthorized notification access.",
 		Regex:       regexp.MustCompile(`(?i:\b(ApiKey-v1\s+gcntfy-[a-z0-9_]+-` + uuid + `-` + uuid + `)\b)`),
 		Keywords:    []string{"gcntfy-"},

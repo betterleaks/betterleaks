@@ -8,6 +8,7 @@ import (
 func CodecovAccessToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "codecov-access-token",
+		Confidence:  "high",
 		Description: "Found a pattern resembling a Codecov Access Token, posing a risk of unauthorized access to code coverage reports and sensitive data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"codecov"}, `[A-Z0-9-]{36}`, true),
 		Keywords:    []string{"codecov"},
@@ -20,7 +21,7 @@ func CodecovAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

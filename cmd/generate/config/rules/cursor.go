@@ -9,6 +9,7 @@ import (
 func CursorAPIKey() *config.Rule {
 	r := config.Rule{
 		RuleID:      "cursor-api-key",
+		Confidence:  "medium",
 		Description: "Detected a Cursor Integrations API Key, which may expose AI-assisted development services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"cursor"}, `key_[0-9a-f]{64}`, true),
 		Keywords:    []string{"cursor"},

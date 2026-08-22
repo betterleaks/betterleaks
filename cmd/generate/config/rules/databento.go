@@ -9,6 +9,7 @@ func DatabentoAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "databento-api-key",
+		Confidence:  "high",
 		Description: "Databento API key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"databento"}, `db-[A-Za-z0-9]{29}`, true),
 		Keywords:    []string{"databento"},

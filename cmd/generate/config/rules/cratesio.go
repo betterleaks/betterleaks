@@ -9,6 +9,7 @@ func CratesIOAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		RuleID:      "crates-io-api-key",
+		Confidence:  "high",
 		Description: "crates.io API key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`crates(?:[_.-]?io)?`}, `cio[A-Za-z0-9]{32}`, true),
 		Keywords:    []string{"crates"},

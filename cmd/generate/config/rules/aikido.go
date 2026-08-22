@@ -9,6 +9,7 @@ import (
 func AikidoClientID() *config.Rule {
 	r := config.Rule{
 		RuleID:      "aikido-client-id",
+		Confidence:  "high",
 		Description: "Detected an Aikido client ID, used as a component of the aikido-client-secret composite rule.",
 		Regex:       utils.GenerateUniqueTokenRegex(`AIK_CLIENT_[A-Za-z0-9]{24}`, false),
 		Keywords:    []string{"AIK_CLIENT_"},
@@ -28,6 +29,7 @@ func AikidoClientID() *config.Rule {
 func AikidoClientSecret() *config.Rule {
 	r := config.Rule{
 		RuleID:      "aikido-client-secret",
+		Confidence:  "high",
 		Description: "Detected an Aikido client secret, which may allow unauthorized access to Aikido APIs when paired with a client ID.",
 		Regex:       utils.GenerateUniqueTokenRegex(`AIK_SECRET_[A-Za-z0-9]{64}`, false),
 		Keywords:    []string{"AIK_SECRET_"},
@@ -49,6 +51,7 @@ func AikidoClientSecret() *config.Rule {
 func AikidoCIToken() *config.Rule {
 	r := config.Rule{
 		RuleID:      "aikido-ci-token",
+		Confidence:  "high",
 		Description: "Detected an Aikido CI token, which may allow unauthorized CI scan integration activity in Aikido.",
 		Regex:       regexp.MustCompile(`\b(AIK_CI_[A-Za-z0-9]{20,44})\b`),
 		Keywords:    []string{"AIK_CI_"},

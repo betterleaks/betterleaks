@@ -19,7 +19,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	}{
 		{
 			name: "validation",
-			fns:  functionNames((&Runtime{}).validationBindings(nil, nil, nil, nil, nil)),
+			fns:  functionNames((&Runtime{}).validationBindings(nil, nil, nil, nil, nil, nil)),
 			current: []string{
 				"http.get", "http.post", "env.get", "env.getOrDefault", "strings.obfuscate",
 				"strings.urlQueryEscape", "validate.unknown", "json.string",
@@ -35,7 +35,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			fns:  functionNames(filterBindings(nil, emptyFilterFinding, emptyStringMap)),
 			current: []string{
 				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.entropy",
-				"filter.failsTokenEfficiency",
+				"filter.failsTokenEfficiency", "filter.tokenRatio", "filter.setConfidence",
 			},
 			deprecated: []string{"matchesAny", "containsAny", "entropy", "failsTokenEfficiency"},
 		},
@@ -44,7 +44,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			fns:  functionNames(prefilterBindings(emptyStringMap)),
 			current: []string{
 				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.entropy",
-				"filter.failsTokenEfficiency",
+				"filter.failsTokenEfficiency", "filter.tokenRatio",
 			},
 			deprecated: []string{"matchesAny", "containsAny", "entropy", "failsTokenEfficiency"},
 		},
@@ -69,8 +69,20 @@ func TestFilterScopes(t *testing.T) {
 
 	_, err = env.CompilePrefilter(`finding["secret"] == ""`)
 	require.Error(t, err)
-	_, err = env.CompilePrefilter(`matchesAny(get(attributes, "path", ""), [".go"])`)
+	_, err = env.CompilePrefilter(`matchesAny(attributes["path"], [".go"])`)
 	require.NoError(t, err)
+}
+
+func TestAttributeMapAccessIsSafeWhenKeyIsMissing(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+
+	prg, err := env.CompilePrefilter(`attributes["path"] == ""`)
+	require.NoError(t, err)
+
+	got, err := env.EvalPrefilter(prg, nil)
+	require.NoError(t, err)
+	require.True(t, got)
 }
 
 func TestFilterEntropy(t *testing.T) {
@@ -84,6 +96,18 @@ func TestFilterEntropy(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	require.True(t, skip)
+}
+
+func TestFilterSetConfidence(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	prg, err := env.CompileFilter(`let _ = filter.setConfidence("high"); false`, nil)
+	require.NoError(t, err)
+
+	attributes := map[string]string{}
+	_, err = env.EvalFilter(prg, nil, attributes)
+	require.NoError(t, err)
+	require.Equal(t, "high", attributes["confidence"])
 }
 
 func TestFilterEvalUsesPerCallBindings(t *testing.T) {
