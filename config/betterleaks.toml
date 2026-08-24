@@ -10452,6 +10452,36 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# voyageai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "voyageai-api-key"
+description = "Detected a Voyage AI API key, which may expose embedding and retrieval model access to unauthorized parties."
+regex = '''\b((?:pa|al)-[A-Za-z0-9_-]{43})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = [
+    "pa-",
+    "al-",
+]
+validate = '''
+let r = http.post("https://api.voyageai.com/v1/embeddings", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Content-Type": "application/json"
+  }, "{\"input\":\"hi\",\"model\":\"nonexistent-model-xyz-12345\"}");
+  let invalidResponse = (r.body contains "Provided API key is invalid") ||
+    (r.body contains "cannot access this endpoint");
+  r.status == 401 || invalidResponse ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : r.status in [200, 400, 403] ? {
+    "result": "valid"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # vultr-api-key.1
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]

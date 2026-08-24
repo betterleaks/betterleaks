@@ -511,6 +511,7 @@ func main() {
 		rules.VaultBatchToken(),
 		rules.VaultServiceToken(),
 		rules.VirusTotalAPIKey(),
+		rules.VoyageAIAPIKey(),
 		rules.VultrAPIKey(),
 		rules.WakaTimeAPIKeyV1(),
 		rules.WakaTimeAPIKeyV2(),
