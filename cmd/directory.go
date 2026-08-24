@@ -40,13 +40,10 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
-	verbose := mustGetBoolFlag(cmd, "verbose")
 	exitCode := mustGetIntFlag(cmd, "exit-code")
+	findings := report.NewFindingsCollector(mustGetStringFlag(cmd, "report-path") != "")
 
 	var (
-		allFindings  []report.Finding
 		lastDetector *detect.Detector
 		scanErrs     []error
 	)
@@ -57,7 +54,6 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		initConfig(source)
 		cfg := Config(cmd)
 		detector := Detector(cmd, cfg, source)
-		detector.SkipFindingAppend = true
 		lastDetector = detector
 
 		s := &sources.Files{
@@ -69,7 +65,6 @@ func runDirectory(cmd *cobra.Command, args []string) {
 			MaxArchiveDepth: maxArchiveDepth,
 		}
 
-		var findings []report.Finding
 		for result := range detector.Run(cmd.Context(), s) {
 			if result.Err != nil {
 				scanErrs = append(scanErrs, result.Err)
@@ -77,17 +72,9 @@ func runDirectory(cmd *cobra.Command, args []string) {
 				continue
 			}
 
-			findings = append(findings, result.Finding)
-			if verbose {
-				if detector.LegacyPrint {
-					result.Finding.PrintLegacy(noColor, uint(redact))
-				} else {
-					result.Finding.Print(noColor, uint(redact))
-				}
-			}
+			collectFinding(detector, findings, result.Finding)
 		}
 
-		allFindings = append(allFindings, findings...)
 		totalBytes += detector.TotalBytes.Load()
 	}
 
@@ -101,7 +88,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findingSummaryAndExit(lastDetector, allFindings, exitCode, start, scanErr)
+	findingSummaryAndExit(lastDetector, findings, exitCode, start, scanErr)
 }
 
 // removeNestedPaths filters out paths that are children of other paths in the

@@ -19,6 +19,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -70,24 +71,17 @@ func runDetect(cmd *cobra.Command, args []string) {
 	// - git: scan the history of the repo
 	// - no-git: scan files by treating the repo as a plain directory
 	var (
-		err      error
-		findings []report.Finding
+		err error
+		src sources.Source
 	)
 	if noGit {
-		findings, err = detector.DetectSource(
-			cmd.Context(), &sources.Files{
-				ShouldSkip:      detector.SkipFunc(),
-				FollowSymlinks:  detector.FollowSymlinks,
-				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
-				Path:            sourcePath,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-			},
-		)
-
-		if err != nil {
-			// don't exit on error, just log it
-			logging.Error().Err(err).Msg("failed to scan directory")
+		src = &sources.Files{
+			ShouldSkip:      detector.SkipFunc(),
+			FollowSymlinks:  detector.FollowSymlinks,
+			MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
+			Path:            sourcePath,
+			Sema:            detector.Sema,
+			MaxArchiveDepth: detector.MaxArchiveDepth,
 		}
 	} else if fromPipe {
 		attrs, attrErr := parseSetAttrFlag(cmd)
@@ -95,16 +89,7 @@ func runDetect(cmd *cobra.Command, args []string) {
 			logging.Fatal().Err(attrErr).Msg("invalid --set-attr value")
 		}
 
-		findings, err = detector.DetectSource(
-			cmd.Context(),
-			newStdinSource(os.Stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth),
-		)
-
-		if err != nil {
-			// log fatal to exit, no need to continue since a report
-			// will not be generated when scanning from a pipe...for now
-			logging.Fatal().Err(err).Msg("failed scan input from stdin")
-		}
+		src = newStdinSource(os.Stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth)
 	} else {
 		var (
 			gitCmd      *sources.GitCmd
@@ -121,20 +106,30 @@ func runDetect(cmd *cobra.Command, args []string) {
 		}
 		resolvedPlatform, remoteURL := sources.ResolveRemote(cmd.Context(), scmPlatform, sourcePath)
 
-		findings, err = detector.DetectSource(
-			cmd.Context(), &sources.Git{
-				Cmd:             gitCmd,
-				ShouldSkip:      detector.SkipFunc(),
-				Platform:        resolvedPlatform,
-				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-			},
-		)
+		src = &sources.Git{
+			Cmd:             gitCmd,
+			ShouldSkip:      detector.SkipFunc(),
+			Platform:        resolvedPlatform,
+			RemoteURL:       remoteURL,
+			Sema:            detector.Sema,
+			MaxArchiveDepth: detector.MaxArchiveDepth,
+		}
+	}
 
-		if err != nil {
-			// don't exit on error, just log it
-			logging.Error().Err(err).Msg("failed to scan Git repository")
+	findings := report.NewFindingsCollector(mustGetStringFlag(cmd, "report-path") != "")
+	var scanErrs []error
+	for result := range detector.Run(cmd.Context(), src) {
+		if result.Err != nil {
+			scanErrs = append(scanErrs, result.Err)
+			logging.Error().Err(result.Err).Msg("scan error")
+			continue
+		}
+		collectFinding(detector, findings, result.Finding)
+	}
+	if n := len(scanErrs); n > 0 {
+		err = &multipleErrors{
+			msg:  fmt.Sprintf("%d error(s) encountered during scan", n),
+			errs: scanErrs,
 		}
 	}
 
