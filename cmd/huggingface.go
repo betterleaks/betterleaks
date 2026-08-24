@@ -18,7 +18,7 @@ func init() {
 	huggingFaceCmd.Flags().StringSlice("include", nil, "resource types to scan: repos (default), discussions, prs, buckets")
 	huggingFaceCmd.Flags().StringSlice("exclude", nil, "resource types to skip: repos, discussions, prs, buckets")
 	huggingFaceCmd.Flags().StringSlice("exclude-repo", nil, "glob patterns to exclude repos by owner/name")
-	huggingFaceCmd.Flags().Int("git-workers", 0, "parallel git workers per repo (0 = single process)")
+	huggingFaceCmd.Flags().Int("git-workers", 0, "parallel git log workers per repo (0 = --source-workers, then single process)")
 	huggingFaceCmd.Flags().String("log-opts", "", "git log options passed to each repo scan")
 	huggingFaceCmd.Flags().Int64("max-bucket-object-size", 0, "bucket objects larger than this many bytes are skipped (0 = 250 MiB default)")
 }
@@ -79,7 +79,6 @@ func runHuggingFace(cmd *cobra.Command, args []string) {
 		Exclude:             exclude,
 		ExcludeRepos:        excludeRepos,
 		ShouldSkip:          detector.SkipFunc(),
-		Sema:                detector.Sema,
 		MaxArchiveDepth:     detector.MaxArchiveDepth,
 		Workers:             mustGetIntFlag(cmd, "git-workers"),
 		LogOpts:             mustGetStringFlag(cmd, "log-opts"),

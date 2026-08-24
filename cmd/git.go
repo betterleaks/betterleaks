@@ -28,7 +28,7 @@ func init() {
 	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
 	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
 	gitCmd.Flags().String("log-opts", "", "git log options")
-	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process)")
+	gitCmd.Flags().Int("git-workers", 0, "parallel git log workers (0 = --source-workers, then single process)")
 }
 
 var gitCmd = &cobra.Command{
@@ -85,9 +85,11 @@ func runGit(cmd *cobra.Command, args []string) {
 		// Remote info + links are irrelevant for staged changes.
 		src = &sources.Git{
 			Cmd:             gitCmd,
+			RepoPath:        "",
+			LogOpts:         "",
+			Workers:         0,
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        scm.NoPlatform,
-			Sema:            detector.Sema,
 			MaxArchiveDepth: detector.MaxArchiveDepth,
 		}
 	} else {
@@ -95,31 +97,15 @@ func runGit(cmd *cobra.Command, args []string) {
 			logging.Fatal().Err(err).Send()
 		}
 		resolvedPlatform, remoteURL := sources.ResolveRemote(cmd.Context(), scmPlatform, source)
-
-		if gitWorkers > 0 {
-			src = &sources.ParallelGit{
-				RepoPath:        source,
-				ShouldSkip:      detector.SkipFunc(),
-				Platform:        resolvedPlatform,
-				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-				LogOpts:         logOpts,
-				Workers:         gitWorkers,
-			}
-		} else {
-			gitCmd, cmdErr := sources.NewGitLogCmdContext(cmd.Context(), source, logOpts)
-			if cmdErr != nil {
-				logging.Fatal().Err(cmdErr).Msg("could not create Git log cmd")
-			}
-			src = &sources.Git{
-				Cmd:             gitCmd,
-				ShouldSkip:      detector.SkipFunc(),
-				Platform:        resolvedPlatform,
-				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-			}
+		src = &sources.Git{
+			Cmd:             nil,
+			RepoPath:        source,
+			LogOpts:         logOpts,
+			Workers:         gitWorkers,
+			ShouldSkip:      detector.SkipFunc(),
+			Platform:        resolvedPlatform,
+			RemoteURL:       remoteURL,
+			MaxArchiveDepth: detector.MaxArchiveDepth,
 		}
 	}
 

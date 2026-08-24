@@ -80,7 +80,6 @@ func runDetect(cmd *cobra.Command, args []string) {
 				FollowSymlinks:  detector.FollowSymlinks,
 				MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 				Path:            sourcePath,
-				Sema:            detector.Sema,
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 			},
 		)
@@ -106,16 +105,9 @@ func runDetect(cmd *cobra.Command, args []string) {
 			logging.Fatal().Err(err).Msg("failed scan input from stdin")
 		}
 	} else {
-		var (
-			gitCmd      *sources.GitCmd
-			scmPlatform scm.Platform
-		)
+		var scmPlatform scm.Platform
 
 		logOpts := mustGetStringFlag(cmd, "log-opts")
-		if gitCmd, err = sources.NewGitLogCmdContext(cmd.Context(), sourcePath, logOpts); err != nil {
-			logging.Fatal().Err(err).Msg("could not create Git cmd")
-		}
-
 		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
 			logging.Fatal().Err(err).Send()
 		}
@@ -123,11 +115,13 @@ func runDetect(cmd *cobra.Command, args []string) {
 
 		findings, err = detector.DetectSource(
 			cmd.Context(), &sources.Git{
-				Cmd:             gitCmd,
+				Cmd:             nil,
+				RepoPath:        sourcePath,
+				LogOpts:         logOpts,
+				Workers:         0,
 				ShouldSkip:      detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 			},
 		)

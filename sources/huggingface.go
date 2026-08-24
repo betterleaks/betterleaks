@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/internal/httpclient"
@@ -46,7 +45,6 @@ type HuggingFace struct {
 	Resources    HuggingFaceResourceSet
 
 	ShouldSkip      SkipFunc
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
 	Workers         int
 	LogOpts         string
@@ -129,6 +127,7 @@ func (s *HuggingFace) Validate() error {
 }
 
 func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	ctx = ensureSourceWorkers(ctx)
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -150,7 +149,7 @@ func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error 
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(huggingFaceScanConcurrency)
+	scanGroup.SetLimit(sourceWorkerCount(ctx, huggingFaceScanConcurrency))
 
 	var repoCount atomic.Int64
 	var bucketCount atomic.Int64
@@ -687,24 +686,15 @@ func (s *HuggingFace) wrapYieldWithAttrs(attrs map[string]string, yield Fragment
 func (s *HuggingFace) scanRepoGit(ctx context.Context, repo huggingFaceRepo, yield FragmentsFunc) error {
 	remote := repo.GitURL(s.baseURL)
 	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		var src Source
-		if s.Workers > 0 {
-			src = &ParallelGit{
-				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
-				Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts: s.LogOpts, Workers: s.Workers,
-			}
-		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
-			if err != nil {
-				return err
-			}
-			src = &Git{
-				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
-				Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-			}
+		src := &Git{
+			Cmd:             nil,
+			RepoPath:        repoPath,
+			LogOpts:         s.LogOpts,
+			Workers:         s.Workers,
+			ShouldSkip:      s.ShouldSkip,
+			Platform:        scm.UnknownPlatform,
+			RemoteURL:       repo.WebURL(s.baseURL),
+			MaxArchiveDepth: s.MaxArchiveDepth,
 		}
 		return src.Fragments(ctx, yield)
 	})
