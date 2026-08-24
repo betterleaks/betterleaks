@@ -810,8 +810,16 @@ func TestExtendedRuleKeywordsAreDowncase(t *testing.T) {
 			cfg, err := loadTestConfig(tt.cfgName)
 			require.NoError(t, err)
 
-			_, exists := cfg.Keywords[tt.expectedKeywords]
-			require.Truef(t, exists, "The expected keyword %s did not exist as a key of cfg.Keywords", tt.expectedKeywords)
+			found := false
+			for _, rule := range cfg.Rules {
+				for _, keyword := range rule.Keywords {
+					if keyword == tt.expectedKeywords {
+						found = true
+						break
+					}
+				}
+			}
+			require.Truef(t, found, "The expected keyword %s did not exist in any rule", tt.expectedKeywords)
 		})
 	}
 }

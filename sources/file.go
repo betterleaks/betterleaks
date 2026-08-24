@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -298,12 +299,14 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			return nil
 		}
 
+		outerPaths := slices.Clone(s.outerPaths)
+		outerPaths = append(outerPaths, filepath.ToSlash(s.Path))
 		file := &File{
 			Content:         innerReader,
 			Path:            path,
 			Symlink:         s.Symlink,
 			ShouldSkip:      s.ShouldSkip,
-			outerPaths:      append(s.outerPaths, filepath.ToSlash(s.Path)),
+			outerPaths:      outerPaths,
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			archiveDepth:    s.archiveDepth + 1,
 		}
@@ -467,11 +470,21 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 // FullPath returns the File.Path with any preceding outer paths
 func (s *File) FullPath() string {
 	if len(s.outerPaths) > 0 {
-		return strings.Join(
-			// outerPaths have already been normalized to slash
-			append(s.outerPaths, s.Path),
-			InnerPathSeparator,
-		)
+		// Do not append directly to outerPaths: a spare-capacity append could
+		// overwrite the path slice owned by a nested archive. Building the path
+		// directly also avoids allocating a temporary []string for every fragment.
+		length := len(s.Path) + len(s.outerPaths)*len(InnerPathSeparator)
+		for _, path := range s.outerPaths {
+			length += len(path)
+		}
+		var fullPath strings.Builder
+		fullPath.Grow(length)
+		for _, path := range s.outerPaths {
+			fullPath.WriteString(path)
+			fullPath.WriteString(InnerPathSeparator)
+		}
+		fullPath.WriteString(s.Path)
+		return fullPath.String()
 	}
 
 	return s.Path

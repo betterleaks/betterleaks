@@ -83,6 +83,23 @@ func TestRedact_SharedPointerDedup(t *testing.T) {
 	assert.Equal(t, "ab...", shared.CaptureGroups["token"])
 }
 
+func TestRedact_SharedPointerDedupWithinOneSet(t *testing.T) {
+	shared := &ComponentFinding{
+		Secret: "abcdefghij",
+		Match:  "found abcdefghij here",
+	}
+	f := Finding{
+		ComponentSets: []ComponentSet{
+			{Components: []*ComponentFinding{shared, shared}},
+		},
+	}
+
+	f.Redact(75)
+
+	assert.Equal(t, "ab...", shared.Secret)
+	assert.Equal(t, "found ab... here", shared.Match)
+}
+
 func TestMask(t *testing.T) {
 
 	tests := map[string]struct {
@@ -99,6 +116,16 @@ func TestMask(t *testing.T) {
 			finding: Finding{Match: "line containing", Secret: ""},
 			expect:  Finding{Match: "line containing", Secret: ""},
 			percent: 75,
+		},
+		"empty secret full redaction": {
+			finding: Finding{Line: "line containing", Match: "line containing", Secret: ""},
+			expect:  Finding{Line: "line containing", Match: "line containing", Secret: ""},
+			percent: 100,
+		},
+		"zero percent is a no-op": {
+			finding: Finding{Line: "line secret", Match: "line secret", Secret: "secret"},
+			expect:  Finding{Line: "line secret", Match: "line secret", Secret: "secret"},
+			percent: 0,
 		},
 		"short secret": {
 			finding: Finding{Match: "line containing", Secret: "ss"},
@@ -125,6 +152,7 @@ func TestMaskSecret(t *testing.T) {
 		expect  string
 	}{
 		"normal masking":  {secret: "secret", percent: 75, expect: "se..."},
+		"no masking":      {secret: "secret", percent: 0, expect: "secret"},
 		"high masking":    {secret: "secret", percent: 90, expect: "s..."},
 		"low masking":     {secret: "secret", percent: 10, expect: "secre..."},
 		"invalid masking": {secret: "secret", percent: 1000, expect: "..."},
@@ -140,6 +168,10 @@ func TestMaskSecret(t *testing.T) {
 func TestBuildComponentSets_Empty(t *testing.T) {
 	f := &Finding{}
 	f.BuildComponentSets(nil, 100)
+	assert.Nil(t, f.ComponentSets)
+	f.BuildComponentSets([]*ComponentFinding{nil}, 100)
+	assert.Nil(t, f.ComponentSets)
+	f.BuildComponentSets([]*ComponentFinding{{RuleID: "test"}}, 0)
 	assert.Nil(t, f.ComponentSets)
 }
 
@@ -225,20 +257,38 @@ func TestBuildComponentSets_JSONSerialization(t *testing.T) {
 	assert.Equal(t, true, components[1].(map[string]any)["Optional"])
 }
 
-func TestFindingAttrFallsBackToDeprecatedFields(t *testing.T) {
+func TestFindingAttrReadsAttributes(t *testing.T) {
 	f := Finding{
-		File:   "fallback.txt",
-		Commit: "abc123",
-		Author: "alice",
-		Email:  "alice@example.com",
-		Date:   "2026-04-13",
+		Attributes: map[string]string{
+			sources.AttrPath:           "source.txt",
+			sources.AttrGitSHA:         "abc123",
+			sources.AttrGitAuthorName:  "alice",
+			sources.AttrGitAuthorEmail: "alice@example.com",
+			sources.AttrGitDate:        "2026-04-13",
+		},
 	}
 
-	assert.Equal(t, "fallback.txt", f.Attr(sources.AttrPath))
+	assert.Equal(t, "source.txt", f.Attr(sources.AttrPath))
 	assert.Equal(t, "abc123", f.Attr(sources.AttrGitSHA))
 	assert.Equal(t, "alice", f.Attr(sources.AttrGitAuthorName))
 	assert.Equal(t, "alice@example.com", f.Attr(sources.AttrGitAuthorEmail))
 	assert.Equal(t, "2026-04-13", f.Attr(sources.AttrGitDate))
+}
+
+func TestFindingJSONDoesNotExposeRemovedFields(t *testing.T) {
+	finding := Finding{Attributes: map[string]string{sources.AttrPath: "source.txt"}}
+	data, err := json.Marshal(finding)
+	require.NoError(t, err)
+
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal(data, &fields))
+	for _, field := range []string{
+		"File", "SymlinkFile", "Commit", "Link", "Entropy",
+		"Author", "Email", "Date", "Message",
+	} {
+		assert.NotContains(t, fields, field)
+	}
+	assert.Equal(t, "source.txt", fields["Attributes"].(map[string]any)[sources.AttrPath])
 }
 
 func TestRedactMasksCaptureGroups(t *testing.T) {

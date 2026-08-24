@@ -1,6 +1,7 @@
 package report
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,13 +35,15 @@ func TestWriteSarif(t *testing.T) {
 					EndLine:     2,
 					StartColumn: 1,
 					EndColumn:   2,
-					Message:     "opps",
-					File:        "auth.py",
-					Commit:      "0000000000000000",
-					Author:      "John Doe",
-					Email:       "johndoe@gmail.com",
-					Date:        "10-19-2003",
-					Tags:        []string{"tag1", "tag2", "tag3"},
+					Attributes: testGitAttributes(
+						"auth.py",
+						"0000000000000000",
+						"John Doe",
+						"johndoe@gmail.com",
+						"10-19-2003",
+						"opps",
+					),
+					Tags: []string{"tag1", "tag2", "tag3"},
 				},
 			}},
 	}
@@ -80,7 +83,11 @@ func TestWriteSarif(t *testing.T) {
 
 			wantStr := lineEndingReplacer.Replace(string(want))
 			gotStr := lineEndingReplacer.Replace(string(got))
-			assert.Equal(t, wantStr, gotStr)
+			var wantJSON any
+			require.NoError(t, json.Unmarshal([]byte(wantStr), &wantJSON))
+			var gotJSON any
+			require.NoError(t, json.Unmarshal([]byte(gotStr), &gotJSON))
+			assert.Equal(t, wantJSON, gotJSON)
 		})
 	}
 }

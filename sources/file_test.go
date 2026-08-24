@@ -51,6 +51,17 @@ func TestFileFragmentsValidatesPublicInputs(t *testing.T) {
 	require.EqualError(t, source.Fragments(t.Context(), nil), "sources: file fragment callback is required")
 }
 
+func TestFileFullPathDoesNotMutateOuterPaths(t *testing.T) {
+	backing := []string{"outer.zip", "sentinel"}
+	source := &File{
+		Path:       "inner.txt",
+		outerPaths: backing[:1],
+	}
+
+	require.Equal(t, "outer.zip!inner.txt", source.FullPath())
+	require.Equal(t, "sentinel", backing[1])
+}
+
 func TestFileArchivePropagatesCallbackError(t *testing.T) {
 	var gzipData bytes.Buffer
 	gzipWriter := gzip.NewWriter(&gzipData)

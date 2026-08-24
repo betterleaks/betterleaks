@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/internal/color"
+	"github.com/betterleaks/betterleaks/sources"
 )
 
 // PrintLegacy prints a finding using the legacy key/value verbose format.
@@ -82,7 +83,6 @@ func (f Finding) PrintLegacy(noColor bool, redact uint) {
 	}
 
 	fmt.Printf("%-12s %s\n", "RuleID:", f.RuleID)
-	fmt.Printf("%-12s %f\n", "Entropy:", f.Entropy)
 
 	if len(f.Tags) > 0 {
 		fmt.Printf("%-12s %s\n", "Tags:", strings.Join(f.Tags, ", "))
@@ -104,8 +104,8 @@ func (f Finding) PrintLegacy(noColor bool, redact uint) {
 	fmt.Printf("%-12s %d\n", "Line:", f.StartLine)
 	fmt.Printf("%-12s %s\n", "Fingerprint:", f.Fingerprint)
 
-	if f.Link != "" {
-		fmt.Printf("%-12s %s\n", "Link:", f.Link)
+	if link := f.Attr(sources.AttrURL); link != "" {
+		fmt.Printf("%-12s %s\n", "Link:", link)
 	}
 
 	if f.MatchContext != "" {

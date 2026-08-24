@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/betterleaks/betterleaks/sources"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,13 +31,14 @@ func TestWriteCSV(t *testing.T) {
 					EndLine:     2,
 					StartColumn: 1,
 					EndColumn:   2,
-					Message:     "opps",
-					File:        "auth.py",
-					SymlinkFile: "",
-					Commit:      "0000000000000000",
-					Author:      "John Doe",
-					Email:       "johndoe@gmail.com",
-					Date:        "10-19-2003",
+					Attributes: testGitAttributes(
+						"auth.py",
+						"0000000000000000",
+						"John Doe",
+						"johndoe@gmail.com",
+						"10-19-2003",
+						"opps",
+					),
 					Fingerprint: "fingerprint",
 					Tags:        []string{"tag1", "tag2", "tag3"},
 				},
@@ -82,7 +84,7 @@ func TestWriteCSVIncludesLinkWhenLaterFindingHasOne(t *testing.T) {
 	var output bytes.Buffer
 	findings := []Finding{
 		{RuleID: "first"},
-		{RuleID: "second", Link: "https://example.test/finding"},
+		{RuleID: "second", Attributes: map[string]string{sources.AttrURL: "https://example.test/finding"}},
 	}
 	require.NoError(t, (&CsvReporter{}).Write(&output, findings))
 
@@ -90,5 +92,5 @@ func TestWriteCSVIncludesLinkWhenLaterFindingHasOne(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 3)
 	require.Equal(t, "Link", records[0][len(records[0])-1])
-	require.Equal(t, findings[1].Link, records[2][len(records[2])-1])
+	require.Equal(t, findings[1].Attr(sources.AttrURL), records[2][len(records[2])-1])
 }

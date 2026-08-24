@@ -114,13 +114,6 @@ type Config struct {
 	Path        string
 	Description string
 	Rules       map[string]Rule
-	Keywords    map[string]struct{}
-	// KeywordToRules maps each lowercase keyword to the rule IDs that use it.
-	// This allows O(1) lookup from Aho-Corasick keyword matches to the rules
-	// that need to be checked, instead of iterating all rules.
-	KeywordToRules map[string][]string
-	// NoKeywordRules contains rule IDs that have no keywords and must always be checked.
-	NoKeywordRules []string
 	// used to keep sarif results consistent
 	OrderedRules []string
 
@@ -176,7 +169,6 @@ func Default() (*Config, error) {
 
 func (rc *rawConfig) translate(depth int) (*Config, error) {
 	var (
-		keywords       = make(map[string]struct{})
 		orderedRules   []string
 		rulesMap       = make(map[string]Rule)
 		ruleAllowlists = make(map[string][]*Allowlist)
@@ -207,7 +199,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		} else {
 			for i, k := range vr.Keywords {
 				keyword := strings.ToLower(k)
-				keywords[keyword] = struct{}{}
 				vr.Keywords[i] = keyword
 			}
 		}
@@ -296,7 +287,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		Description:           rc.Description,
 		Extend:                rc.Extend,
 		Rules:                 rulesMap,
-		Keywords:              keywords,
 		OrderedRules:          orderedRules,
 		MinVersion:            rc.MinVersion,
 		BetterleaksMinVersion: rc.BetterleaksMinVersion,
@@ -376,20 +366,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			c.Rules[ruleID] = rule
 		}
 
-	}
-
-	// Build keyword-to-rules lookup for efficient rule dispatch.
-	// This must be done after extends are resolved so all rules are present.
-	c.KeywordToRules = make(map[string][]string)
-	c.NoKeywordRules = nil
-	for ruleID, rule := range c.Rules {
-		if len(rule.Keywords) == 0 {
-			c.NoKeywordRules = append(c.NoKeywordRules, ruleID)
-		} else {
-			for _, k := range rule.Keywords {
-				c.KeywordToRules[k] = append(c.KeywordToRules[k], ruleID)
-			}
-		}
 	}
 
 	// Translate legacy allowlists / entropy / token-efficiency into CEL strings.
@@ -608,9 +584,6 @@ func (c *Config) extend(extensionConfig *Config) {
 		if !ok {
 			// Rule doesn't exist, add it to the config.
 			c.Rules[ruleID] = baseRule
-			for _, k := range baseRule.Keywords {
-				c.Keywords[k] = struct{}{}
-			}
 			c.OrderedRules = append(c.OrderedRules, ruleID)
 		} else {
 			// Rule exists, merge our changes into the base.
@@ -645,10 +618,6 @@ func (c *Config) extend(extensionConfig *Config) {
 			if currentRule.componentsSet {
 				baseRule.Components = currentRule.Components
 				baseRule.componentsSet = true
-			}
-			// The keywords from the base rule and the extended rule must be merged into the global keywords list
-			for _, k := range baseRule.Keywords {
-				c.Keywords[k] = struct{}{}
 			}
 			c.Rules[ruleID] = baseRule
 		}

@@ -1,5 +1,5 @@
 | File | Line | Secret |
 |:-----|-----:|--------|
 {{ range . -}}
-| {{ .File }} | {{ .StartLine }} | {{ quote .Secret }} |
+| {{ index .Attributes "path" }} | {{ .StartLine }} | {{ quote .Secret }} |
 {{ end -}}

@@ -113,11 +113,6 @@ func TestApplyRuleSelection(t *testing.T) {
 				assert.True(t, cfg.Rules[tt.wantHiddenRule].SkipReport)
 				assert.False(t, originalRules[tt.wantHiddenRule].SkipReport, "selection must not mutate component rules")
 			}
-			for keyword, ruleIDs := range cfg.KeywordToRules {
-				for _, ruleID := range ruleIDs {
-					assert.Contains(t, cfg.Rules, ruleID, "keyword %q references a removed rule", keyword)
-				}
-			}
 		})
 	}
 }

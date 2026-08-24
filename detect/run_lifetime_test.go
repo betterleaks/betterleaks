@@ -61,6 +61,39 @@ func TestRunEarlyStopWaitsForFragmentRelease(t *testing.T) {
 	}
 }
 
+func TestRunConsumerPanicWaitsForFragmentRelease(t *testing.T) {
+	detector, _ := allocationDetector(t)
+	detector.DetectWorkers = 1
+	source := &runTrackingSource{inner: &sources.File{
+		Content: strings.NewReader(
+			"candidate_ABCDEFGHIJKLMNOPQRST\n" + strings.Repeat("ordinary content\n", 20_000),
+		),
+		Path: "large.txt",
+	}}
+
+	require.PanicsWithValue(t, "consumer panic", func() {
+		for result := range detector.Run(t.Context(), source) {
+			require.NoError(t, result.Err)
+			panic("consumer panic")
+		}
+	})
+
+	require.NotEmpty(t, source.fragments)
+	for _, fragment := range source.fragments {
+		require.Nil(t, fragment.Raw)
+		require.Nil(t, fragment.Attributes)
+	}
+
+	// runActive remains set until draining completes, so a recovered consumer
+	// can immediately reuse the detector without overlapping the failed run.
+	findings, err := collectTestRun(t.Context(), detector, &sources.File{
+		Content: strings.NewReader("candidate_ZYXWVUTSRQPONMLKJIHG"),
+		Path:    "next.txt",
+	})
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+}
+
 func TestRunReleasesFragmentLeasesOnCompletion(t *testing.T) {
 	detector, _ := allocationDetector(t)
 	source := &runTrackingSource{inner: &sources.File{
@@ -123,10 +156,8 @@ func TestValidationDetectorCanRunMoreThanOnce(t *testing.T) {
 		ValidateExpr: `{"result": "valid"}`,
 	}
 	cfg := &config.Config{
-		Rules:          map[string]config.Rule{rule.RuleID: rule},
-		Keywords:       map[string]struct{}{"candidate_": {}},
-		KeywordToRules: map[string][]string{"candidate_": {rule.RuleID}},
-		OrderedRules:   []string{rule.RuleID},
+		Rules:        map[string]config.Rule{rule.RuleID: rule},
+		OrderedRules: []string{rule.RuleID},
 	}
 	detector, err := NewDetector(cfg, ValidationOptions{Enabled: true, Workers: 1})
 	require.NoError(t, err)

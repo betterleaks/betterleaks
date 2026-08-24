@@ -126,24 +126,5 @@ func applyRuleSelection(cmd *cobra.Command, cfg *config.Config) error {
 	}
 
 	cfg.Rules = selectedRules
-	rebuildRuleDispatch(cfg)
 	return nil
-}
-
-// rebuildRuleDispatch drops keywords for rules removed by CLI selection and
-// refreshes the detector's keyword-to-rule indexes.
-func rebuildRuleDispatch(cfg *config.Config) {
-	cfg.Keywords = make(map[string]struct{})
-	cfg.KeywordToRules = make(map[string][]string)
-	cfg.NoKeywordRules = nil
-	for ruleID, rule := range cfg.Rules {
-		if len(rule.Keywords) == 0 {
-			cfg.NoKeywordRules = append(cfg.NoKeywordRules, ruleID)
-			continue
-		}
-		for _, keyword := range rule.Keywords {
-			cfg.Keywords[keyword] = struct{}{}
-			cfg.KeywordToRules[keyword] = append(cfg.KeywordToRules[keyword], ruleID)
-		}
-	}
 }

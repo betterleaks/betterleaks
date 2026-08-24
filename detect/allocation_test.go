@@ -24,10 +24,8 @@ func allocationDetector(t testing.TB) (*Detector, *blregexp.Regexp) {
 		Regex:    re,
 	}
 	cfg := &config.Config{
-		Rules:          map[string]config.Rule{rule.RuleID: rule},
-		Keywords:       map[string]struct{}{"candidate_": {}},
-		KeywordToRules: map[string][]string{"candidate_": {rule.RuleID}},
-		OrderedRules:   []string{rule.RuleID},
+		Rules:        map[string]config.Rule{rule.RuleID: rule},
+		OrderedRules: []string{rule.RuleID},
 	}
 	return newTestDetector(t, cfg), re
 }

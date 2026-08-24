@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +29,10 @@ func TestWriteFindingsReportInfersJSONFormat(t *testing.T) {
 	require.NoError(t, writeFindingsReport(cmd, &config.Config{}, findings))
 	contents, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Contains(t, string(contents), `"RuleID": "example"`)
+	var got []report.Finding
+	require.NoError(t, json.Unmarshal(contents, &got))
+	require.Len(t, got, 1)
+	require.Equal(t, "example", got[0].RuleID)
 }
 
 func TestWriteFindingsReportTemplateImpliesFormat(t *testing.T) {

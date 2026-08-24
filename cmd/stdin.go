@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -41,16 +40,12 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 	// parse flag(s)
 	exitCode := mustGetIntFlag(cmd, "exit-code")
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
-	verbose := mustGetBoolFlag(cmd, "verbose")
-	legacyPrint := mustGetBoolFlag(cmd, "legacy-print")
 	attrs, err := parseSetAttrFlag(cmd)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("invalid --set-attr value")
 	}
 
-	var findings []report.Finding
+	findings := newFindingCollector(cmd)
 	var scanErrs []error
 	source := newStdinSource(os.Stdin, attrs, detector.SkipFunc(), maxArchiveDepth)
 	for result := range detector.Run(cmd.Context(), source) {
@@ -59,13 +54,10 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 			logging.Error().Err(result.Err).Msg("failed to scan input from stdin")
 			continue
 		}
-		findings = append(findings, result.Finding)
-		if verbose {
-			if legacyPrint {
-				result.Finding.PrintLegacy(noColor, redact)
-			} else {
-				result.Finding.Print(noColor, redact)
-			}
+		if collectErr := findings.Add(result.Finding); collectErr != nil {
+			scanErrs = append(scanErrs, collectErr)
+			logging.Error().Err(collectErr).Msg("failed to collect finding")
+			break
 		}
 	}
 

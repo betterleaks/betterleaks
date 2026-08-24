@@ -558,7 +558,6 @@ func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding
 	if r.Confidence != "" {
 		finding.SetAttr(confidence.Attribute, r.Confidence)
 	}
-	finding.SyncDeprecatedSourceFields()
 	finding.SetFingerprint()
 	return finding
 }
@@ -655,6 +654,18 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				_ = emit(Result{Err: err})
 			}
 		}()
+		pipelineDone := false
+		defer func() {
+			if pipelineDone {
+				return
+			}
+			// Early termination, including a panic in the consumer's yield function,
+			// still has to honor the Run lifetime contract. Cancel production, then
+			// wait for workers to drain and release every fragment before returning.
+			cancel()
+			for range resultsCh {
+			}
+		}()
 
 		// consume results and send to caller via yield
 		for res := range resultsCh {
@@ -679,15 +690,10 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 			}
 
 			if !yield(res) {
-				cancel()
-				// The workers drain and release every accepted fragment after
-				// cancellation. Wait for its result channel to close so iterator
-				// consumers never inherit background source work or live leases.
-				for range resultsCh {
-				}
 				return
 			}
 		}
+		pipelineDone = true
 	}
 }
 
@@ -1054,8 +1060,8 @@ func (d *Detector) detectFragmentContent(ctx context.Context, fragment sources.F
 	defer func() {
 		clear(candidates.marked)
 		// Reset all decoder-owned state before publishing the workspace back to
-		// the shared pool. Putting it first lets another scan acquire and mutate
-		// the decoder concurrently with Release.
+		// the shared pool. Publishing first would let another scan acquire and
+		// mutate the decoder concurrently with Release.
 		decoder.Release()
 		if pooledCandidates {
 			d.candidatePool.Put(candidates)
@@ -1638,11 +1644,6 @@ func (d *Detector) detectContentWithRule(fragment sources.Fragment,
 		if findingMap != nil {
 			putAnyMap(&d.filterFindingMapPool, findingMap)
 		}
-		if !needsEntropyField {
-			entropy = shannonEntropy(finding.Secret)
-		}
-		finding.Entropy = float32(entropy)
-		finding.SyncDeprecatedSourceFields()
 		finding.SetFingerprint()
 		if finding.Line == "" {
 			finding.Line = original.sliceString(loc.startLineIndex, loc.endLineIndex)
@@ -1738,13 +1739,6 @@ func cloneRetainedFindingText(finding *report.Finding, exprContext string) {
 	finding.SetExprContext(appendText(exprContext))
 }
 
-// processComponents attaches nearby component matches and enforces required components.
-func (d *Detector) processComponents(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding) []report.Finding {
-	original := byteScanContent(fragment.Raw)
-	current := stringScanContent(currentRaw)
-	return d.processContentComponents(fragment, &original, &current, r, encodedSegments, primaryFindings)
-}
-
 func (d *Detector) processContentComponents(fragment sources.Fragment, original, current *scanContent, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding) []report.Finding {
 	if len(primaryFindings) == 0 {
 		fragmentRuleEvent(fragment, r.RuleID, logging.Debug()).Msg("no primary findings to process for components")
@@ -1815,7 +1809,7 @@ func (d *Detector) processContentComponents(fragment sources.Fragment, original,
 			}
 		}
 
-		if d.hasAllRequiredComponents(componentFindings, r.Components) {
+		if hasAllRequiredComponents(componentFindings, r.Components) {
 			newFinding := primaryFinding
 			newFinding.BuildComponentSets(componentFindings, maxComponentSets)
 			finalFindings = append(finalFindings, newFinding)
@@ -1832,7 +1826,7 @@ func (d *Detector) processContentComponents(fragment sources.Fragment, original,
 }
 
 // hasAllRequiredComponents checks that every required component has a nearby match.
-func (d *Detector) hasAllRequiredComponents(componentFindings []*report.ComponentFinding, components []*config.Component) bool {
+func hasAllRequiredComponents(componentFindings []*report.ComponentFinding, components []*config.Component) bool {
 	for _, component := range components {
 		if component.Optional {
 			continue
@@ -1896,16 +1890,6 @@ func withinProximityContent(raw *scanContent, fragmentStartLine int, primary, co
 	default:
 		return false
 	}
-}
-
-func rawLineStarts(raw string) []int {
-	starts := []int{0}
-	for i := 0; i < len(raw); i++ {
-		if raw[i] == '\n' {
-			starts = append(starts, i+1)
-		}
-	}
-	return starts
 }
 
 func findingStartOffset(lineStarts []int, fragmentStartLine int, finding report.Finding) (int, bool) {

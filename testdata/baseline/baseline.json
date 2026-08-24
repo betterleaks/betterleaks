@@ -7,13 +7,14 @@
   "EndColumn": 106,
   "Match": "************************",
   "Secret": "************************",
-  "File": "detect/detect_test.go",
-  "Commit": "9326f35380636bcbe61e94b0584d1618c4b5c2c2",
-  "Entropy": 1.9606875,
-  "Author": "****",
-  "Email": "****",
-  "Date": "2022-03-07T14:33:06Z",
-  "Message": "Escape - character in regex character groups (#802)\n\n* fix char escape\n\n* add test\n\n* fix verbosity in make test",
+  "Attributes": {
+   "path": "detect/detect_test.go",
+   "git.sha": "9326f35380636bcbe61e94b0584d1618c4b5c2c2",
+   "git.author_name": "****",
+   "git.author_email": "****",
+   "git.date": "2022-03-07T14:33:06Z",
+   "git.message": "Escape - character in regex character groups (#802)\n\n* fix char escape\n\n* add test\n\n* fix verbosity in make test"
+  },
   "Tags": [],
   "RuleID": "pypi-upload-token",
   "Fingerprint": "9326f35380636bcbe61e94b0584d1618c4b5c2c2:detect/detect_test.go:pypi-upload-token:32"
@@ -26,13 +27,14 @@
   "EndColumn": 106,
   "Match": "************************",
   "Secret": "************************",
-  "File": "detect/detect_test.go",
-  "Commit": "9326f35380636bcbe61e94b0584d1618c4b5c2c2",
-  "Entropy": 1.9606875,
-  "Author": "****",
-  "Email": "****",
-  "Date": "2022-03-07T14:33:06Z",
-  "Message": "Escape - character in regex character groups (#802)\n\n* fix char escape\n\n* add test\n\n* fix verbosity in make test",
+  "Attributes": {
+   "path": "detect/detect_test.go",
+   "git.sha": "9326f35380636bcbe61e94b0584d1618c4b5c2c2",
+   "git.author_name": "****",
+   "git.author_email": "****",
+   "git.date": "2022-03-07T14:33:06Z",
+   "git.message": "Escape - character in regex character groups (#802)\n\n* fix char escape\n\n* add test\n\n* fix verbosity in make test"
+  },
   "Tags": [],
   "RuleID": "pypi-upload-token",
   "Fingerprint": "9326f35380636bcbe61e94b0584d1618c4b5c2c2:detect/detect_test.go:pypi-upload-token:33"

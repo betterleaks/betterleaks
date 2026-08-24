@@ -5,22 +5,24 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/betterleaks/betterleaks/sources"
 )
 
 type CsvReporter struct {
 }
 
 var _ Reporter = (*CsvReporter)(nil)
+var _ StreamReporter = (*CsvReporter)(nil)
 
 func (r *CsvReporter) Write(w io.Writer, findings []Finding) error {
-	if len(findings) == 0 {
+	return r.WriteStream(w, len(findings), iterateFindings(findings))
+}
+
+func (r *CsvReporter) WriteStream(w io.Writer, count int, findings FindingIterator) error {
+	if count == 0 {
 		return nil
 	}
-
-	var (
-		cw  = csv.NewWriter(w)
-		err error
-	)
 	columns := []string{"RuleID",
 		"Commit",
 		"File",
@@ -38,58 +40,61 @@ func (r *CsvReporter) Write(w io.Writer, findings []Finding) error {
 		"Fingerprint",
 		"Tags",
 	}
-	hasLink := false
-	for _, f := range findings {
-		if f.Link != "" {
+	var seen, hasLink, hasMatchContext bool
+	if err := findings(func(f Finding) error {
+		seen = true
+		if f.Attr(sources.AttrURL) != "" {
 			hasLink = true
-			break
 		}
-	}
-	if hasLink {
-		columns = append(columns, "Link")
-	}
-	hasMatchContext := false
-	for _, f := range findings {
 		if f.MatchContext != "" {
 			hasMatchContext = true
-			break
 		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if !seen {
+		return nil
+	}
+
+	if hasLink {
+		columns = append(columns, "Link")
 	}
 	if hasMatchContext {
 		columns = append(columns, "MatchContext")
 	}
 
-	if err = cw.Write(columns); err != nil {
+	cw := csv.NewWriter(w)
+	if err := cw.Write(columns); err != nil {
 		return err
 	}
-	for _, f := range findings {
+	if err := findings(func(f Finding) error {
 		row := []string{f.RuleID,
-			f.Commit,
-			f.File,
-			f.SymlinkFile,
+			f.Attr(sources.AttrGitSHA),
+			f.Attr(sources.AttrPath),
+			f.Attr(sources.AttrFSSymlink),
 			f.Secret,
 			f.Match,
 			strconv.Itoa(f.StartLine),
 			strconv.Itoa(f.EndLine),
 			strconv.Itoa(f.StartColumn),
 			strconv.Itoa(f.EndColumn),
-			f.Author,
-			f.Message,
-			f.Date,
-			f.Email,
+			f.Attr(sources.AttrGitAuthorName),
+			f.Attr(sources.AttrGitMessage),
+			f.Attr(sources.AttrGitDate),
+			f.Attr(sources.AttrGitAuthorEmail),
 			f.Fingerprint,
 			strings.Join(f.Tags, " "),
 		}
 		if hasLink {
-			row = append(row, f.Link)
+			row = append(row, f.Attr(sources.AttrURL))
 		}
 		if hasMatchContext {
 			row = append(row, f.MatchContext)
 		}
-
-		if err = cw.Write(row); err != nil {
-			return err
-		}
+		return cw.Write(row)
+	}); err != nil {
+		return err
 	}
 
 	cw.Flush()

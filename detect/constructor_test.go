@@ -29,7 +29,6 @@ func TestNilDetectorDirectDetectionIsEmpty(t *testing.T) {
 func TestNewDetectorReturnsPrefilterCompilationError(t *testing.T) {
 	cfg := &config.Config{
 		Rules:     make(map[string]config.Rule),
-		Keywords:  make(map[string]struct{}),
 		Prefilter: `attributes["path"] ==`,
 	}
 
@@ -41,7 +40,6 @@ func TestNewDetectorReturnsPrefilterCompilationError(t *testing.T) {
 func TestNewDetectorDoesNotMutateConfigWhenCompilingPrefilter(t *testing.T) {
 	cfg := &config.Config{
 		Rules:     make(map[string]config.Rule),
-		Keywords:  make(map[string]struct{}),
 		Prefilter: `attributes["path"] == "ignored.txt"`,
 	}
 
@@ -54,8 +52,7 @@ func TestNewDetectorDoesNotMutateConfigWhenCompilingPrefilter(t *testing.T) {
 
 func TestNewDetectorDoesNotRequireContext(t *testing.T) {
 	cfg := &config.Config{
-		Rules:    make(map[string]config.Rule),
-		Keywords: make(map[string]struct{}),
+		Rules: make(map[string]config.Rule),
 	}
 
 	detector, err := NewDetector(cfg, ValidationOptions{})
@@ -120,7 +117,6 @@ func TestNewDetectorOrdersUnlistedRulesDeterministically(t *testing.T) {
 			"z-last":  {RuleID: "z-last", Regex: match, Specificity: 1},
 			"a-first": {RuleID: "a-first", Regex: match, Specificity: 1},
 		},
-		Keywords:     make(map[string]struct{}),
 		OrderedRules: []string{"listed", "listed"},
 	}
 
@@ -202,10 +198,6 @@ func TestNewDetectorDerivesKeywordDispatchFromRules(t *testing.T) {
 				Regex:  blregexp.MustCompile(`always_[a-z]+`),
 			},
 		},
-		// These derived compatibility fields are deliberately absent.
-		Keywords:       nil,
-		KeywordToRules: nil,
-		NoKeywordRules: nil,
 	}
 
 	detector, err := NewDetector(cfg, ValidationOptions{})
@@ -215,8 +207,7 @@ func TestNewDetectorDerivesKeywordDispatchFromRules(t *testing.T) {
 
 func TestNewDetectorRejectsUnknownValidationStatus(t *testing.T) {
 	cfg := &config.Config{
-		Rules:    make(map[string]config.Rule),
-		Keywords: make(map[string]struct{}),
+		Rules: make(map[string]config.Rule),
 	}
 
 	detector, err := NewDetector(cfg, ValidationOptions{StatusFilter: "valid, typo"})

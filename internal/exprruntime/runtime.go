@@ -351,14 +351,6 @@ func (v *findingUsageVisitor) Visit(node *ast.Node) {
 // false positives. If the finding map escapes or is indexed dynamically, all
 // expensive fields are conservatively enabled to preserve custom-filter
 // behavior.
-func inspectFindingUsage(expression string) findingUsage {
-	tree, err := parser.Parse(expression)
-	if err != nil {
-		return inspectFindingUsageNode(nil)
-	}
-	return inspectFindingUsageNode(tree.Node)
-}
-
 func inspectFindingUsageNode(node ast.Node) findingUsage {
 	usage := findingUsage{fields: make(map[string]struct{})}
 	if node == nil {

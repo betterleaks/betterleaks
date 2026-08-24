@@ -10,8 +10,8 @@ import (
 	"github.com/betterleaks/betterleaks/sources"
 )
 
-// Finding contains a whole bunch of information about a secret finding.
-// Plenty of real estate in this bad boy so fillerup as needed.
+// Finding describes one detected secret and the source metadata needed to
+// report, validate, and baseline it.
 type Finding struct {
 	// Rule is the name of the rule that was matched
 	RuleID      string
@@ -36,11 +36,8 @@ type Finding struct {
 	// CaptureGroups holds named regex capture groups from the match.
 	CaptureGroups map[string]string `json:",omitempty"`
 
-	// Attributes holds additional metadata about the finding.
-	// Keys are defined in sources.Attr* constants (subject to change), but this is extensible for custom use cases.
-	// Attributes are initially populated from source metadata and can be enriched
-	// during detection or validation.
-	// Deprecated "attribute" fields (File, Commit, etc.) are synced from Attributes for compatibility.
+	// Attributes holds source and detector metadata. Well-known keys are defined
+	// by sources.Attr* constants; callers may add their own keys.
 	Attributes map[string]string `json:",omitempty"`
 
 	Tags []string
@@ -53,38 +50,13 @@ type Finding struct {
 
 	ValidationStatus ValidationStatus `json:",omitempty"`
 	ValidationReason string           `json:",omitempty"`
-	// TODO maybe just use the Attribute map
-	ValidationMeta map[string]any `json:",omitempty"`
+	ValidationMeta   map[string]any   `json:",omitempty"`
 
-	// unique identifier
+	// Fingerprint is a stable source/rule/line identifier.
 	Fingerprint string
 
 	// Hidden field to hold expression context without bloating the report output.
 	exprContext string
-
-	// Deprecated
-	// File is the name of the file containing the finding
-	// Deprecated
-	File string
-	// Deprecated
-	SymlinkFile string
-	// Deprecated
-	Commit string
-	// Deprecated
-	Link string `json:",omitempty"`
-
-	// Entropy is the shannon entropy of Value
-	// Deprecated
-	Entropy float32
-
-	// Deprecated
-	Author string
-	// Deprecated
-	Email string
-	// Deprecated
-	Date string
-	// Deprecated
-	Message string
 }
 
 // ComponentSet represents one combination of component findings (one element per
@@ -97,8 +69,8 @@ type ComponentSet struct {
 }
 
 type ComponentFinding struct {
-	// contains a subset of the Finding fields
-	// only used for reporting
+	// ComponentFinding contains the subset of Finding needed to report and
+	// validate a composite rule component.
 	RuleID      string
 	Optional    bool
 	StartLine   int
@@ -117,7 +89,7 @@ type ComponentFinding struct {
 // grouped by RuleID and populates f.ComponentSets. maxComponentSets caps the total number of
 // combos to prevent excessive memory use.
 func (f *Finding) BuildComponentSets(componentFindings []*ComponentFinding, maxComponentSets int) {
-	if len(componentFindings) == 0 {
+	if len(componentFindings) == 0 || maxComponentSets <= 0 {
 		f.ComponentSets = nil
 		return
 	}
@@ -126,10 +98,17 @@ func (f *Finding) BuildComponentSets(componentFindings []*ComponentFinding, maxC
 	var ruleOrder []string
 	byRule := make(map[string][]*ComponentFinding)
 	for _, rf := range componentFindings {
+		if rf == nil {
+			continue
+		}
 		if _, exists := byRule[rf.RuleID]; !exists {
 			ruleOrder = append(ruleOrder, rf.RuleID)
 		}
 		byRule[rf.RuleID] = append(byRule[rf.RuleID], rf)
+	}
+	if len(ruleOrder) == 0 {
+		f.ComponentSets = nil
+		return
 	}
 
 	products := cartesianFindings(ruleOrder, byRule, maxComponentSets)
@@ -166,36 +145,50 @@ func cartesianFindings(ruleOrder []string, byRule map[string][]*ComponentFinding
 
 // Redact removes sensitive information from a finding.
 func (f *Finding) Redact(percent uint) {
-	secret := MaskSecret(f.Secret, percent)
-	if percent >= 100 {
-		secret = "REDACTED"
+	if f == nil || percent == 0 {
+		return
 	}
-	f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
-	f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
-	f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
-	// Capture groups can contain the secret verbatim and are emitted in JSON,
-	// JUnit, and template reports, so they must be redacted too. Done before
-	// f.Secret is overwritten so the original value is still available to match.
-	for k, v := range f.CaptureGroups {
-		f.CaptureGroups[k] = strings.ReplaceAll(v, f.Secret, secret)
+	if original := f.Secret; original != "" {
+		secret := MaskSecret(original, percent)
+		if percent >= 100 {
+			secret = "REDACTED"
+		}
+		f.Line = strings.ReplaceAll(f.Line, original, secret)
+		f.Match = strings.ReplaceAll(f.Match, original, secret)
+		f.MatchContext = strings.ReplaceAll(f.MatchContext, original, secret)
+		// Capture groups can contain the secret verbatim and are emitted in JSON,
+		// JUnit, and template reports, so they must be redacted too.
+		for key, value := range f.CaptureGroups {
+			f.CaptureGroups[key] = strings.ReplaceAll(value, original, secret)
+		}
+		f.Secret = secret
 	}
-	f.Secret = secret
 
-	seen := make(map[*ComponentFinding]struct{})
+	var seen map[*ComponentFinding]struct{}
 	for _, set := range f.ComponentSets {
 		for _, comp := range set.Components {
+			if comp == nil {
+				continue
+			}
+			if seen == nil {
+				seen = make(map[*ComponentFinding]struct{}, len(set.Components))
+			}
 			if _, ok := seen[comp]; ok {
 				continue
 			}
 			seen[comp] = struct{}{}
-			compSecret := MaskSecret(comp.Secret, percent)
+			original := comp.Secret
+			if original == "" {
+				continue
+			}
+			compSecret := MaskSecret(original, percent)
 			if percent >= 100 {
 				compSecret = "REDACTED"
 			}
-			comp.Line = strings.ReplaceAll(comp.Line, comp.Secret, compSecret)
-			comp.Match = strings.ReplaceAll(comp.Match, comp.Secret, compSecret)
-			for k, v := range comp.CaptureGroups {
-				comp.CaptureGroups[k] = strings.ReplaceAll(v, comp.Secret, compSecret)
+			comp.Line = strings.ReplaceAll(comp.Line, original, compSecret)
+			comp.Match = strings.ReplaceAll(comp.Match, original, compSecret)
+			for key, value := range comp.CaptureGroups {
+				comp.CaptureGroups[key] = strings.ReplaceAll(value, original, compSecret)
 			}
 			comp.Secret = compSecret
 		}
@@ -205,6 +198,9 @@ func (f *Finding) Redact(percent uint) {
 // MaskSecret applies partial masking to a secret string based on the given percentage.
 // At 100% the caller should use "REDACTED" instead.
 func MaskSecret(secret string, percent uint) string {
+	if percent == 0 {
+		return secret
+	}
 	if percent > 100 {
 		percent = 100
 	}
@@ -283,54 +279,13 @@ func (f *Finding) SetAttr(key, value string) {
 	f.Attributes[key] = value
 }
 
-func (f Finding) Attr(key string) string {
-	if f.Attributes != nil {
-		if value := f.Attributes[key]; value != "" {
-			return value
-		}
-	}
-
-	switch key {
-	case sources.AttrPath:
-		return f.File
-	case sources.AttrFSSymlink:
-		return f.SymlinkFile
-	case sources.AttrGitSHA:
-		return f.Commit
-	case sources.AttrGitAuthorName:
-		return f.Author
-	case sources.AttrGitAuthorEmail:
-		return f.Email
-	case sources.AttrGitDate:
-		return f.Date
-	case sources.AttrGitMessage:
-		return f.Message
-	default:
-		return ""
-	}
+func (f *Finding) Attr(key string) string {
+	return f.Attributes[key]
 }
 
-// SetAttributes stores a copy of attrs and syncs deprecated source fields for compatibility.
+// SetAttributes stores a copy of attrs.
 func (f *Finding) SetAttributes(attrs map[string]string) {
 	f.Attributes = maps.Clone(attrs)
-	f.SyncDeprecatedSourceFields()
-}
-
-// Attribute is retained as a compatibility wrapper around Attr.
-func (f Finding) Attribute(key string) string {
-	return f.Attr(key)
-}
-
-// SyncDeprecatedSourceFields backfills deprecated fields from Attributes so
-// legacy reporters, baselines, and templates continue to work.
-func (f *Finding) SyncDeprecatedSourceFields() {
-	f.File = f.Attr(sources.AttrPath)
-	f.SymlinkFile = f.Attr(sources.AttrFSSymlink)
-	f.Commit = f.Attr(sources.AttrGitSHA)
-	f.Author = f.Attr(sources.AttrGitAuthorName)
-	f.Email = f.Attr(sources.AttrGitAuthorEmail)
-	f.Date = f.Attr(sources.AttrGitDate)
-	f.Message = f.Attr(sources.AttrGitMessage)
 }
 
 func (f *Finding) SetFingerprint() {

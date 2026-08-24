@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -521,7 +522,7 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findings []report.Finding, exitCode int, start time.Time, err error) {
+func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findings *findingCollector, exitCode int, start time.Time, err error) {
 	if diagnosticsManager.Enabled {
 		logging.Debug().Msg("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()
@@ -538,28 +539,28 @@ func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findin
 			Msg("validation complete")
 	}
 
-	detect.RedactFindings(findings, detector.Redact)
-
 	totalBytes := detector.TotalBytes.Load()
 	bytesMsg := fmt.Sprintf("scanned ~%d bytes (%s)", totalBytes, bytesConvert(totalBytes))
 	if err == nil {
 		logging.Info().Msgf("%s in %s", bytesMsg, FormatDuration(time.Since(start)))
-		if len(findings) != 0 {
-			logging.Warn().Msgf("leaks found: %d", len(findings))
+		if findings.Len() != 0 {
+			logging.Warn().Msgf("leaks found: %d", findings.Len())
 		} else {
 			logging.Info().Msg("no leaks found")
 		}
 	} else {
 		logging.Warn().Msg(bytesMsg)
 		logging.Warn().Msgf("partial scan completed in %s", FormatDuration(time.Since(start)))
-		if len(findings) != 0 {
-			logging.Warn().Msgf("%d leaks found in partial scan", len(findings))
+		if findings.Len() != 0 {
+			logging.Warn().Msgf("%d leaks found in partial scan", findings.Len())
 		} else {
 			logging.Warn().Msg("no leaks found in partial scan")
 		}
 	}
 
-	if reportErr := writeFindingsReport(cmd, detector.Config, findings); reportErr != nil {
+	reportErr := writeCollectedFindingsReport(cmd, detector.Config, findings)
+	closeErr := findings.Close()
+	if reportErr := errors.Join(reportErr, closeErr); reportErr != nil {
 		logging.Fatal().Err(reportErr).Msg("failed to write report")
 	}
 
@@ -567,7 +568,7 @@ func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findin
 		os.Exit(1)
 	}
 
-	if len(findings) != 0 {
+	if findings.Len() != 0 {
 		os.Exit(exitCode)
 	}
 }
@@ -637,8 +638,35 @@ func writeFindingsReport(cmd *cobra.Command, cfg *config.Config, findings []repo
 	if err != nil || resolved == nil {
 		return err
 	}
+	return writeResolvedFindingsReport(resolved, func(w io.Writer) error {
+		return resolved.reporter.Write(w, findings)
+	})
+}
+
+func writeCollectedFindingsReport(cmd *cobra.Command, cfg *config.Config, findings *findingCollector) error {
+	resolved, err := resolveFindingsReport(cmd, cfg)
+	if err != nil || resolved == nil {
+		return err
+	}
+
+	return writeResolvedFindingsReport(resolved, func(w io.Writer) error {
+		if reporter, ok := resolved.reporter.(report.StreamReporter); ok {
+			return reporter.WriteStream(w, findings.Len(), report.FindingIterator(findings.Iterate))
+		}
+		if _, ok := resolved.reporter.(*report.TemplateReporter); !ok {
+			return fmt.Errorf("reporter %T does not support streaming findings", resolved.reporter)
+		}
+		allFindings, err := findings.Slice()
+		if err != nil {
+			return err
+		}
+		return resolved.reporter.Write(w, allFindings)
+	})
+}
+
+func writeResolvedFindingsReport(resolved *findingsReport, write func(io.Writer) error) error {
 	if resolved.path == report.StdoutReportPath {
-		if err := resolved.reporter.Write(os.Stdout, findings); err != nil {
+		if err := write(os.Stdout); err != nil {
 			return fmt.Errorf("write %s report: %w", resolved.format, err)
 		}
 		return nil
@@ -648,7 +676,7 @@ func writeFindingsReport(cmd *cobra.Command, cfg *config.Config, findings []repo
 	if err != nil {
 		return fmt.Errorf("create report %q: %w", resolved.path, err)
 	}
-	writeErr := resolved.reporter.Write(file, findings)
+	writeErr := write(file)
 	closeErr := file.Close()
 	if writeErr != nil {
 		writeErr = fmt.Errorf("write %s report: %w", resolved.format, writeErr)

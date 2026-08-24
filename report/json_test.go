@@ -1,7 +1,9 @@
 package report
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,14 +21,30 @@ var simpleFinding = Finding{
 	EndLine:     2,
 	StartColumn: 1,
 	EndColumn:   2,
-	Message:     "opps",
-	File:        "auth.py",
-	SymlinkFile: "",
-	Commit:      "0000000000000000",
-	Author:      "John Doe",
-	Email:       "johndoe@gmail.com",
-	Date:        "10-19-2003",
-	Tags:        []string{},
+	Attributes: testGitAttributes(
+		"auth.py",
+		"0000000000000000",
+		"John Doe",
+		"johndoe@gmail.com",
+		"10-19-2003",
+		"opps",
+	),
+	Tags: []string{},
+}
+
+func TestWriteJSONStreamsEachFinding(t *testing.T) {
+	var output bytes.Buffer
+	reporter := JsonReporter{}
+	iteratorErr := errors.New("stop after first finding")
+
+	err := reporter.WriteStream(&output, 1, func(visit func(Finding) error) error {
+		require.NoError(t, visit(Finding{RuleID: "first"}))
+		require.NotEmpty(t, output.Bytes(), "first finding should be written before the iterator advances")
+		return iteratorErr
+	})
+
+	require.ErrorIs(t, err, iteratorErr)
+	require.Contains(t, output.String(), `"RuleID":"first"`)
 }
 
 func TestWriteJSON(t *testing.T) {

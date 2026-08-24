@@ -6,63 +6,74 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+
+	"github.com/betterleaks/betterleaks/sources"
 )
 
 type JunitReporter struct {
 }
 
 var _ Reporter = (*JunitReporter)(nil)
+var _ StreamReporter = (*JunitReporter)(nil)
 
 func (r *JunitReporter) Write(w io.Writer, findings []Finding) error {
-	suites, err := getTestSuites(findings)
-	if err != nil {
-		return err
+	// Preserve the slice API's all-or-nothing behavior for marshal errors. The
+	// streaming API receives already-spooled, JSON-safe findings from the CLI.
+	for i := range findings {
+		if _, err := getFailure(findings[i]); err != nil {
+			return err
+		}
 	}
-	testSuites := TestSuites{
-		TestSuites: suites,
-	}
+	return r.WriteStream(w, len(findings), iterateFindings(findings))
+}
 
+func (r *JunitReporter) WriteStream(w io.Writer, count int, findings FindingIterator) error {
 	if _, err := io.WriteString(w, xml.Header); err != nil {
 		return err
 	}
 	encoder := xml.NewEncoder(w)
 	encoder.Indent("", "\t")
-	return encoder.Encode(testSuites)
-}
-
-func getTestSuites(findings []Finding) ([]TestSuite, error) {
-	testCases, err := getTestCases(findings)
-	if err != nil {
-		return nil, err
+	testSuites := xml.StartElement{Name: xml.Name{Local: "testsuites"}}
+	if err := encoder.EncodeToken(testSuites); err != nil {
+		return err
 	}
-	return []TestSuite{
-		{
-			Failures:  strconv.Itoa(len(findings)),
-			Name:      "betterleaks",
-			Tests:     strconv.Itoa(len(findings)),
-			TestCases: testCases,
-			Time:      "",
+	testSuite := xml.StartElement{
+		Name: xml.Name{Local: "testsuite"},
+		Attr: []xml.Attr{
+			{Name: xml.Name{Local: "failures"}, Value: strconv.Itoa(count)},
+			{Name: xml.Name{Local: "name"}, Value: "betterleaks"},
+			{Name: xml.Name{Local: "tests"}, Value: strconv.Itoa(count)},
+			{Name: xml.Name{Local: "time"}, Value: ""},
 		},
-	}, nil
-}
+	}
+	if err := encoder.EncodeToken(testSuite); err != nil {
+		return err
+	}
 
-func getTestCases(findings []Finding) ([]TestCase, error) {
-	testCases := []TestCase{}
-	for _, f := range findings {
+	if err := findings(func(f Finding) error {
 		failure, err := getFailure(f)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		testCase := TestCase{
 			Classname: f.Description,
 			Failure:   failure,
-			File:      f.File,
+			File:      f.Attr(sources.AttrPath),
 			Name:      getMessage(f),
 			Time:      "",
 		}
-		testCases = append(testCases, testCase)
+		return encoder.Encode(testCase)
+	}); err != nil {
+		return err
 	}
-	return testCases, nil
+
+	if err := encoder.EncodeToken(testSuite.End()); err != nil {
+		return err
+	}
+	if err := encoder.EncodeToken(testSuites.End()); err != nil {
+		return err
+	}
+	return encoder.Flush()
 }
 
 func getFailure(f Finding) (Failure, error) {
@@ -86,16 +97,18 @@ func getData(f Finding) (string, error) {
 }
 
 func getMessage(f Finding) string {
-	if f.Commit == "" {
-		return fmt.Sprintf("%s has detected a secret in file %s, line %s.", f.RuleID, f.File, strconv.Itoa(f.StartLine))
+	path := f.Attr(sources.AttrPath)
+	commit := f.Attr(sources.AttrGitSHA)
+	if commit == "" {
+		return fmt.Sprintf("%s has detected a secret in file %s, line %s.", f.RuleID, path, strconv.Itoa(f.StartLine))
 	}
 
-	return fmt.Sprintf("%s has detected a secret in file %s, line %s, at commit %s.", f.RuleID, f.File, strconv.Itoa(f.StartLine), f.Commit)
+	return fmt.Sprintf("%s has detected a secret in file %s, line %s, at commit %s.", f.RuleID, path, strconv.Itoa(f.StartLine), commit)
 }
 
 type TestSuites struct {
-	XMLName    xml.Name `xml:"testsuites"`
-	TestSuites []TestSuite
+	XMLName    xml.Name    `xml:"testsuites"`
+	TestSuites []TestSuite `xml:"testsuite"`
 }
 
 type TestSuite struct {

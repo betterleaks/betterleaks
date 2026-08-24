@@ -53,9 +53,6 @@ type Rule struct {
 	// Allowlists allows a rule to be ignored for specific commits, paths, regexes, and/or stopwords.
 	Allowlists []*Allowlist
 
-	// validated is an internal flag to track whether `Validate()` has been called.
-	validated bool
-
 	// Components are other rules whose matches contribute to this rule.
 	// Required components gate the rule; optional components are attached when found.
 	Components []*Component
@@ -92,8 +89,8 @@ type Component struct {
 
 // Validate guards against common misconfigurations.
 func (r *Rule) Validate() error {
-	if r.validated {
-		return nil
+	if r == nil {
+		return errors.New("rule is required")
 	}
 
 	// Ensure |id| is present.
@@ -121,6 +118,12 @@ func (r *Rule) Validate() error {
 	}
 
 	// Ensure |secretGroup| works.
+	if r.SecretGroup < 0 {
+		return fmt.Errorf("%s: invalid regex secret group %d, must be non-negative", r.RuleID, r.SecretGroup)
+	}
+	if r.Regex == nil && r.SecretGroup != 0 {
+		return fmt.Errorf("%s: regex secret group %d requires a regex", r.RuleID, r.SecretGroup)
+	}
 	if r.Regex != nil && r.SecretGroup > r.Regex.NumSubexp() {
 		return fmt.Errorf("%s: invalid regex secret group %d, max regex secret group %d", r.RuleID, r.SecretGroup, r.Regex.NumSubexp())
 	}
@@ -143,6 +146,9 @@ func (r *Rule) Validate() error {
 		if strings.TrimSpace(component.RuleID) == "" {
 			return fmt.Errorf("%s: component rule ID is empty", r.RuleID)
 		}
+		if component.RuleID == r.RuleID {
+			return fmt.Errorf("%s: rule cannot reference itself as a component", r.RuleID)
+		}
 		if _, exists := seenComponents[component.RuleID]; exists {
 			return fmt.Errorf("%s: duplicate component rule ID %q", r.RuleID, component.RuleID)
 		}
@@ -152,6 +158,5 @@ func (r *Rule) Validate() error {
 		}
 	}
 
-	r.validated = true
 	return nil
 }

@@ -749,6 +749,12 @@ betterleaks dir . -v --match-context 5L,40C
 betterleaks dir ./artifacts --max-archive-depth 2 --max-decode-depth 5
 ```
 
+Built-in JSON, CSV, JUnit, and SARIF reports do not retain the complete finding
+set in memory. Findings are replayed from a temporary file, so scans with very
+large result sets need sufficient space in the operating system's temporary
+directory. Custom templates retain the complete `[]Finding` value for template
+compatibility and should not be used for unbounded result sets.
+
 ---
 
 ## Related docs

@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/sources"
 )
 
 type SarifReporter struct {
@@ -13,26 +14,55 @@ type SarifReporter struct {
 }
 
 var _ Reporter = (*SarifReporter)(nil)
+var _ StreamReporter = (*SarifReporter)(nil)
 
 func (r *SarifReporter) Write(w io.Writer, findings []Finding) error {
-	sarif := Sarif{
-		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
-		Version: "2.1.0",
-		Runs:    r.getRuns(findings),
-	}
-
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", " ")
-	return encoder.Encode(sarif)
+	return r.WriteStream(w, len(findings), iterateFindings(findings))
 }
 
-func (r *SarifReporter) getRuns(findings []Finding) []Runs {
-	return []Runs{
-		{
-			Tool:    r.getTool(),
-			Results: getResults(findings),
-		},
+func (r *SarifReporter) WriteStream(w io.Writer, _ int, findings FindingIterator) error {
+	if _, err := io.WriteString(w, "{\n \"$schema\": \"https://json.schemastore.org/sarif-2.1.0.json\",\n \"version\": \"2.1.0\",\n \"runs\": [\n  {\n   \"tool\": "); err != nil {
+		return err
 	}
+
+	tool, err := json.Marshal(r.getTool())
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(tool); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, ",\n   \"results\": ["); err != nil {
+		return err
+	}
+
+	first := true
+	if err := findings(func(f Finding) error {
+		if first {
+			first = false
+			if _, err := io.WriteString(w, "\n"); err != nil {
+				return err
+			}
+		} else if _, err := io.WriteString(w, ",\n"); err != nil {
+			return err
+		}
+
+		result, err := json.Marshal(resultFromFinding(f))
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(result)
+		return err
+	}); err != nil {
+		return err
+	}
+	if !first {
+		if _, err := io.WriteString(w, "\n"); err != nil {
+			return err
+		}
+	}
+	_, err = io.WriteString(w, "   ]\n  }\n ]\n}\n")
+	return err
 }
 
 func (r *SarifReporter) getTool() Tool {
@@ -58,7 +88,6 @@ func hasEmptyRules(tool Tool) bool {
 }
 
 func (r *SarifReporter) getRules() []Rules {
-	// TODO	for _, rule := range cfg.Rules {
 	var rules []Rules
 	for _, rule := range r.OrderedRules {
 		rules = append(rules, Rules{
@@ -72,45 +101,41 @@ func (r *SarifReporter) getRules() []Rules {
 }
 
 func messageText(f Finding) string {
-	if f.Commit == "" {
-		return fmt.Sprintf("%s has detected secret for file %s.", f.RuleID, f.File)
+	path := f.Attr(sources.AttrPath)
+	commit := f.Attr(sources.AttrGitSHA)
+	if commit == "" {
+		return fmt.Sprintf("%s has detected secret for file %s.", f.RuleID, path)
 	}
 
-	return fmt.Sprintf("%s has detected secret for file %s at commit %s.", f.RuleID, f.File, f.Commit)
-
+	return fmt.Sprintf("%s has detected secret for file %s at commit %s.", f.RuleID, path, commit)
 }
 
-func getResults(findings []Finding) []Results {
-	results := []Results{}
-	for _, f := range findings {
-		r := Results{
-			Message: Message{
-				Text: messageText(f),
-			},
-			RuleId:    f.RuleID,
-			Locations: getLocation(f),
-			// This information goes in partial fingerprings until revision
-			// data can be added somewhere else
-			PartialFingerPrints: PartialFingerPrints{
-				CommitSha:     f.Commit,
-				Email:         f.Email,
-				CommitMessage: f.Message,
-				Date:          f.Date,
-				Author:        f.Author,
-			},
-			Properties: Properties{
-				Tags: f.Tags,
-			},
-		}
-		results = append(results, r)
+func resultFromFinding(f Finding) Results {
+	return Results{
+		Message: Message{
+			Text: messageText(f),
+		},
+		RuleId:    f.RuleID,
+		Locations: getLocation(f),
+		// This information goes in partial fingerprints until revision data
+		// can be added somewhere else.
+		PartialFingerPrints: PartialFingerPrints{
+			CommitSha:     f.Attr(sources.AttrGitSHA),
+			Email:         f.Attr(sources.AttrGitAuthorEmail),
+			CommitMessage: f.Attr(sources.AttrGitMessage),
+			Date:          f.Attr(sources.AttrGitDate),
+			Author:        f.Attr(sources.AttrGitAuthorName),
+		},
+		Properties: Properties{
+			Tags: f.Tags,
+		},
 	}
-	return results
 }
 
 func getLocation(f Finding) []Locations {
-	uri := f.File
-	if f.SymlinkFile != "" {
-		uri = f.SymlinkFile
+	uri := f.Attr(sources.AttrPath)
+	if symlink := f.Attr(sources.AttrFSSymlink); symlink != "" {
+		uri = symlink
 	}
 	loc := Locations{
 		PhysicalLocation: PhysicalLocation{

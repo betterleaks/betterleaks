@@ -5,20 +5,38 @@ import sys
 
 
 COMPARE_FIELDS = [
-    "RuleID", "Description", "File",
+    "RuleID", "Description",
     "StartLine", "EndLine", "StartColumn", "EndColumn",
-    "Match", "Secret", "Entropy",
-    "Commit", "Author", "Email", "Date", "Message",
-    "SymlinkFile",
+    "Match", "Secret",
 ]
+
+LEGACY_ATTRIBUTE_FIELDS = {
+    "File": "path",
+    "SymlinkFile": "fs.symlink",
+    "Commit": "git.sha",
+    "Link": "url",
+    "Author": "git.author_name",
+    "Email": "git.author_email",
+    "Date": "git.date",
+    "Message": "git.message",
+}
+
+
+def finding_attributes(f):
+    """Return canonical attributes, including fallbacks for old reports."""
+    attributes = dict(f.get("Attributes") or {})
+    for legacy_field, attribute in LEGACY_ATTRIBUTE_FIELDS.items():
+        value = f.get(legacy_field, "")
+        if value and attribute not in attributes:
+            attributes[attribute] = value
+    return attributes
 
 
 def normalize_finding(f):
     """Create a comparable dict from a finding, excluding Fingerprint."""
     d = {field: f.get(field, "") for field in COMPARE_FIELDS}
-    d["Entropy"] = f.get("Entropy", 0)
     d["Tags"] = tuple(sorted(f.get("Tags") or []))
-    d["Attributes"] = tuple(sorted((f.get("Attributes") or {}).items()))
+    d["Attributes"] = tuple(sorted(finding_attributes(f).items()))
     return d
 
 
@@ -30,9 +48,10 @@ def finding_hash(f):
 
 def finding_key(f):
     """Grouping key (location-based, ignoring commit metadata)."""
+    attributes = finding_attributes(f)
     return (
         f.get("RuleID", ""),
-        f.get("File", ""),
+        attributes.get("path", ""),
         f.get("StartLine", 0),
         f.get("EndLine", 0),
         f.get("StartColumn", 0),
@@ -69,7 +88,6 @@ def main():
     all_keys = set(main_by_key) | set(cel_by_key)
     only_main = []
     only_cel = []
-    field_diffs = []
     order_diffs = 0
 
     for k in sorted(all_keys):
@@ -135,9 +153,10 @@ def main():
         print("FINDINGS ONLY IN MAIN (regressions)")
         print("=" * 60)
         for f in only_main:
-            print(f"  [{f['RuleID']}] {f['File']}:{f.get('StartLine', '?')}")
-            print(f"    Commit: {f.get('Commit', '')[:12]}")
-            print(f"    Date:   {f.get('Date', '')}")
+            attributes = finding_attributes(f)
+            print(f"  [{f['RuleID']}] {attributes.get('path', '')}:{f.get('StartLine', '?')}")
+            print(f"    Commit: {attributes.get('git.sha', '')[:12]}")
+            print(f"    Date:   {attributes.get('git.date', '')}")
         print()
 
     if only_cel:
@@ -145,9 +164,10 @@ def main():
         print("FINDINGS ONLY IN CEL-FILTER (new)")
         print("=" * 60)
         for f in only_cel:
-            print(f"  [{f['RuleID']}] {f['File']}:{f.get('StartLine', '?')}")
-            print(f"    Commit: {f.get('Commit', '')[:12]}")
-            print(f"    Date:   {f.get('Date', '')}")
+            attributes = finding_attributes(f)
+            print(f"  [{f['RuleID']}] {attributes.get('path', '')}:{f.get('StartLine', '?')}")
+            print(f"    Commit: {attributes.get('git.sha', '')[:12]}")
+            print(f"    Date:   {attributes.get('git.date', '')}")
         print()
 
     if not only_main and not only_cel:
