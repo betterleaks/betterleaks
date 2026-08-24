@@ -3612,13 +3612,13 @@ func TestNormalizeGitleaksIgnorePaths(t *testing.T) {
 	err = d.AddGitleaksIgnore("../testdata/gitleaksignore/.windowspaths")
 	require.NoError(t, err)
 
-	assert.Len(t, d.gitleaksIgnore, 3)
+	assert.Len(t, d.suppression.Ignore, 3)
 	expected := map[string]struct{}{
 		"foo/bar/gitleaks-false-positive.yaml:aws-access-token:4":                                                 {},
 		"foo/bar/gitleaks-false-positive.yaml:aws-access-token:5":                                                 {},
 		"b55d88dc151f7022901cda41a03d43e0e508f2b7:test_data/test_local_repo_three_leaks.json:aws-access-token:73": {},
 	}
-	assert.ElementsMatch(t, maps.Keys(d.gitleaksIgnore), maps.Keys(expected))
+	assert.ElementsMatch(t, maps.Keys(d.suppression.Ignore), maps.Keys(expected))
 }
 
 func TestWindowsFileSeparator_RulePath(t *testing.T) {

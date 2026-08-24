@@ -83,6 +83,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("report-path", "r", "", "report file (use \"-\" for stdout)")
 	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
 	rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
+	rootCmd.PersistentFlags().Bool("report-include-line", false, "include matched line text in JSON reports (enables `betterleaks report replay` to evaluate filters referencing finding.line)")
 	rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
 	rootCmd.PersistentFlags().String("confidence", "", "minimum confidence to include (low, medium, high)")
@@ -290,6 +291,25 @@ func findIgnoreFile(dir string) string {
 	return ""
 }
 
+// loadIgnoreFilesFrom calls addFn for ignore files found at the standard three locations:
+// flagPath directly (if a file), the flagPath directory, and searchDir.
+func loadIgnoreFilesFrom(addFn func(string) error, flagPath, searchDir string) {
+	try := func(path string) {
+		if err := addFn(path); err != nil {
+			logging.Warn().Err(err).Str("path", path).Msg("could not load ignore file")
+		}
+	}
+	if fileExists(flagPath) {
+		try(flagPath)
+	}
+	if f := findIgnoreFile(flagPath); f != "" {
+		try(f)
+	}
+	if f := findIgnoreFile(searchDir); f != "" {
+		try(f)
+	}
+}
+
 func initDiagnostics() {
 	// Initialize diagnostics manager
 	diagnosticsFlag, err := rootCmd.PersistentFlags().GetString("diagnostics")
@@ -423,6 +443,9 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	if detector.LegacyPrint, err = cmd.Flags().GetBool("legacy-print"); err != nil {
 		logging.Fatal().Err(err).Send()
 	}
+	if detector.PersistLine, err = cmd.Flags().GetBool("report-include-line"); err != nil {
+		logging.Fatal().Err(err).Send()
+	}
 	if detector.MaxTargetMegaBytes, err = cmd.Flags().GetInt("max-target-megabytes"); err != nil {
 		logging.Fatal().Err(err).Send()
 	}
@@ -446,27 +469,7 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	if err != nil {
 		logging.Fatal().Err(err).Msg("could not get ignore path")
 	}
-
-	// If the flag points directly to an ignore file, use it
-	if fileExists(ignorePath) {
-		if err = detector.AddGitleaksIgnore(ignorePath); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// Check for ignore file in the flag directory (.betterleaksignore first, then .gitleaksignore)
-	if ignoreFile := findIgnoreFile(ignorePath); ignoreFile != "" {
-		if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// Check for ignore file in the source directory (.betterleaksignore first, then .gitleaksignore)
-	if ignoreFile := findIgnoreFile(source); ignoreFile != "" {
-		if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
+	loadIgnoreFilesFrom(detector.AddGitleaksIgnore, ignorePath, source)
 
 	// ignore findings from the baseline (an existing report in json format generated earlier)
 	baselinePath, _ := cmd.Flags().GetString("baseline-path")
@@ -478,67 +481,81 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	}
 
 	// Validate report settings.
-	reportPath := mustGetStringFlag(cmd, "report-path")
+	reporter, reportPath, err := buildReporter(cmd, cfg)
+	if err != nil {
+		logging.Fatal().Err(err).Send()
+	}
 	if reportPath != "" {
-		if reportPath != report.StdoutReportPath {
-			// Ensure the path is writable.
-			if f, err := os.Create(reportPath); err != nil {
-				logging.Fatal().Err(err).Msgf("Report path is not writable: %s", reportPath)
-			} else {
-				_ = f.Close()
-				_ = os.Remove(reportPath)
-			}
-		}
-
-		// Build report writer.
-		var (
-			reporter       report.Reporter
-			reportFormat   = mustGetStringFlag(cmd, "report-format")
-			reportTemplate = mustGetStringFlag(cmd, "report-template")
-		)
-		if reportFormat == "" {
-			ext := strings.ToLower(filepath.Ext(reportPath))
-			switch ext {
-			case ".csv":
-				reportFormat = "csv"
-			case ".json":
-				reportFormat = "json"
-			case ".sarif":
-				reportFormat = "sarif"
-			default:
-				logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
-			}
-			logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
-		}
-		switch strings.TrimSpace(strings.ToLower(reportFormat)) {
-		case "csv":
-			reporter = &report.CsvReporter{}
-		case "json":
-			reporter = &report.JsonReporter{}
-		case "junit":
-			reporter = &report.JunitReporter{}
-		case "sarif":
-			reporter = &report.SarifReporter{
-				OrderedRules: cfg.GetOrderedRules(),
-			}
-		case "template":
-			if reporter, err = report.NewTemplateReporter(reportTemplate); err != nil {
-				logging.Fatal().Err(err).Msg("Invalid report template")
-			}
-		default:
-			logging.Fatal().Msgf("unknown report format %s", reportFormat)
-		}
-
-		// Sanity check.
-		if reportTemplate != "" && reportFormat != "template" {
-			logging.Fatal().Msgf("Report format must be 'template' if --report-template is specified")
-		}
-
 		detector.ReportPath = reportPath
 		detector.Reporter = reporter
 	}
 
 	return detector
+}
+
+// buildReporter constructs a report.Reporter from the standard
+// --report-format / --report-path / --report-template flags.
+// reportPath is returned so callers can also open the destination file.
+// Returns a nil reporter and empty path when --report-path is not set.
+func buildReporter(cmd *cobra.Command, cfg *config.Config) (report.Reporter, string, error) {
+	reportPath := mustGetStringFlag(cmd, "report-path")
+	if reportPath == "" {
+		return nil, "", nil
+	}
+
+	if reportPath != report.StdoutReportPath {
+		if f, err := os.Create(reportPath); err != nil {
+			return nil, "", fmt.Errorf("report path is not writable: %w", err)
+		} else {
+			_ = f.Close()
+			_ = os.Remove(reportPath)
+		}
+	}
+
+	reportFormat := mustGetStringFlag(cmd, "report-format")
+	reportTemplate := mustGetStringFlag(cmd, "report-template")
+
+	if reportTemplate != "" && reportFormat != "" && reportFormat != "template" {
+		return nil, "", fmt.Errorf("report format must be 'template' if --report-template is specified")
+	}
+
+	if reportFormat == "" {
+		ext := strings.ToLower(filepath.Ext(reportPath))
+		switch ext {
+		case ".csv":
+			reportFormat = "csv"
+		case ".json":
+			reportFormat = "json"
+		case ".sarif":
+			reportFormat = "sarif"
+		default:
+			return nil, "", fmt.Errorf("unknown report format for path %q (use --report-format)", reportPath)
+		}
+		logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
+	}
+
+	var reporter report.Reporter
+	switch strings.TrimSpace(strings.ToLower(reportFormat)) {
+	case "csv":
+		reporter = &report.CsvReporter{}
+	case "json":
+		reporter = &report.JsonReporter{}
+	case "junit":
+		reporter = &report.JunitReporter{}
+	case "sarif":
+		reporter = &report.SarifReporter{
+			OrderedRules: cfg.GetOrderedRules(),
+		}
+	case "template":
+		var err error
+		if reporter, err = report.NewTemplateReporter(reportTemplate); err != nil {
+			return nil, "", fmt.Errorf("invalid report template: %w", err)
+		}
+	default:
+		return nil, "", fmt.Errorf("unknown report format %q", reportFormat)
+	}
+
+	return reporter, reportPath, nil
 }
 
 func bytesConvert(bytes uint64) string {

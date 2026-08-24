@@ -1,13 +1,11 @@
 package detect
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"iter"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -109,6 +107,10 @@ type Detector struct {
 	// are included in validation output.
 	ValidationExtractEmpty bool
 
+	// PersistLine, when true, preserves the matched Line field in emitted findings.
+	// Required for `betterleaks report replay` to evaluate filters referencing finding.line.
+	PersistLine bool
+
 	// IgnoreGitleaksAllow is a flag to ignore gitleaks:allow comments.
 	IgnoreGitleaksAllow bool
 
@@ -117,13 +119,10 @@ type Detector struct {
 	prefilter *ahocorasick.Matcher
 
 	// a list of known findings that should be ignored
-	baseline []report.Finding
+	suppression *Suppression
 
 	// path to baseline
 	baselinePath string
-
-	// gitleaksIgnore
-	gitleaksIgnore map[string]struct{}
 
 	TotalBytes atomic.Uint64
 
@@ -141,9 +140,7 @@ type Detector struct {
 	validationRuntime  *exprruntime.Runtime
 	validationProgramM sync.Mutex
 	validationPrograms map[string]exprruntime.Program
-	globalFilter       exprruntime.Program
-	filterProgramM     sync.Mutex
-	filterPrograms     map[string]exprruntime.Program
+	filterSet          *FilterSet
 
 	// rulesBySpecificity contains every configured rule ID in descending
 	// specificity order. Its positions are the shared index space used by the
@@ -261,7 +258,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 
 	keywords := maps.Keys(cfg.Keywords)
 	d := &Detector{
-		gitleaksIgnore:         make(map[string]struct{}),
+		suppression:            NewSuppression(),
 		findings:               make([]report.Finding, 0),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
@@ -270,7 +267,7 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
 		validationPrograms:     make(map[string]exprruntime.Program),
-		filterPrograms:         make(map[string]exprruntime.Program),
+		filterSet:              NewFilterSet(cfg, exprRuntime),
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
@@ -360,23 +357,6 @@ func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
 	return d.tokenizer
 }
 
-func (d *Detector) globalFilterProgram() (exprruntime.Program, bool, error) {
-	if d.Config.Filter == "" {
-		return nil, false, nil
-	}
-	d.filterProgramM.Lock()
-	defer d.filterProgramM.Unlock()
-	if d.globalFilter != nil {
-		return d.globalFilter, true, nil
-	}
-	prg, err := d.exprRuntime.CompileFilter(d.Config.Filter, nil)
-	if err != nil {
-		return nil, false, fmt.Errorf("compiling global filter: %w", err)
-	}
-	d.globalFilter = prg
-	return prg, true, nil
-}
-
 func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, error) {
 	if d.validationRuntime == nil {
 		return nil, false, nil
@@ -396,37 +376,6 @@ func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, 
 		return nil, false, fmt.Errorf("compiling rule %s validation: %w", ruleID, err)
 	}
 	d.validationPrograms[ruleID] = prg
-	return prg, true, nil
-}
-
-func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, error) {
-	d.filterProgramM.Lock()
-	defer d.filterProgramM.Unlock()
-
-	rule := r
-	cacheable := false
-	if cfgRule, ok := d.Config.Rules[r.RuleID]; ok {
-		rule = cfgRule
-		cacheable = true
-	}
-	if rule.Filter == "" {
-		return nil, false, nil
-	}
-	if cacheable {
-		if prg := d.filterPrograms[rule.RuleID]; prg != nil {
-			return prg, true, nil
-		}
-	}
-	if prg := rule.FilterProgram(); prg != nil {
-		return prg, true, nil
-	}
-	prg, err := d.exprRuntime.CompileFilter(rule.Filter, nil)
-	if err != nil {
-		return nil, false, fmt.Errorf("compiling rule %s filter: %w", rule.RuleID, err)
-	}
-	if cacheable {
-		d.filterPrograms[rule.RuleID] = prg
-	}
 	return prg, true, nil
 }
 
@@ -622,6 +571,10 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					}
 				}
 
+				if !d.PersistLine {
+					res.Finding.Line = ""
+				}
+
 				if !d.SkipFindingAppend {
 					d.findings = append(d.findings, res.Finding)
 				}
@@ -635,76 +588,14 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 	}
 }
 
-// ignore compares a finding against a baseline report or betterleaksignore
-// file entries.
+// ignore compares a finding against the ignore file and baseline.
 func (d *Detector) ignore(finding report.Finding) bool {
-	logger := logging.With().Str("finding", finding.Secret).Logger()
-	path := finding.Attributes[sources.AttrPath]
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, finding.RuleID, finding.StartLine)
-
-	if _, ok := d.gitleaksIgnore[globalFingerprint]; ok {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msg("skipping finding: global fingerprint")
-		return true
-	}
-
-	if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msg("skipping finding: fingerprint")
-		return true
-	}
-
-	if d.baseline != nil && !IsNew(finding, d.Redact, d.baseline) {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msgf("skipping finding: baseline")
-		return true
-	}
-	return false
+	d.suppression.Redact = d.Redact
+	return d.suppression.Suppressed(finding)
 }
 
-func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
-	logging.Debug().Str("path", gitleaksIgnorePath).Msgf("found .gitleaksignore file")
-	file, err := os.Open(gitleaksIgnorePath)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// https://github.com/securego/gosec/issues/512
-		if err := file.Close(); err != nil {
-			logging.Warn().Err(err).Msgf("Error closing .gitleaksignore file")
-		}
-	}()
-
-	scanner := bufio.NewScanner(file)
-	replacer := strings.NewReplacer("\\", "/")
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip lines that start with a comment
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Normalize the path.
-		// TODO: Make this a breaking change in v9.
-		s := strings.Split(line, ":")
-		switch len(s) {
-		case 3:
-			// Global fingerprint.
-			// `file:rule-id:start-line`
-			s[0] = replacer.Replace(s[0])
-		case 4:
-			// Commit fingerprint.
-			// `commit:file:rule-id:start-line`
-			s[1] = replacer.Replace(s[1])
-		default:
-			logging.Warn().Str("fingerprint", line).Msg("Invalid .gitleaksignore entry")
-		}
-		d.gitleaksIgnore[strings.Join(s, ":")] = struct{}{}
-	}
-	return nil
+func (d *Detector) AddGitleaksIgnore(path string) error {
+	return d.suppression.AddIgnoreFile(path)
 }
 
 // DetectString scans the given string and returns a list of findings
@@ -1057,7 +948,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 		// Global filter: Expr path (attributes + finding).
-		if prg, ok, err := d.globalFilterProgram(); err != nil {
+		if prg, ok, err := d.filterSet.Global(); err != nil {
 			logger.Warn().Err(err).Msg("global filter compile error")
 		} else if ok {
 			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
@@ -1072,7 +963,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		// Rule filter: Expr path (includes entropy, regex/stopword allowlists, tokenEfficiency).
-		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
+		if prg, ok, err := d.filterSet.ForRule(r); err != nil {
 			logger.Warn().Err(err).Msg("rule filter compile error")
 		} else if ok {
 			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)

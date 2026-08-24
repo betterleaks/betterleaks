@@ -223,7 +223,7 @@ func TestIgnoreIssuesInBaseline(t *testing.T) {
 	for _, test := range tests {
 		d, err := NewDetectorDefaultConfig()
 		require.NoError(t, err)
-		d.baseline = test.baseline
+		d.suppression.Baseline = test.baseline
 		for _, finding := range test.findings {
 			d.AddFinding(finding)
 		}
