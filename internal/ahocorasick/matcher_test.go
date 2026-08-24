@@ -41,10 +41,10 @@ func TestFoldRuneASCIIExhaustivelyMatchesUnicodeSimpleFold(t *testing.T) {
 		}
 	}
 	for r := rune(utf8.RuneSelf); r <= utf8.MaxRune; r++ {
-		got, gotOK := foldRuneASCII(r)
+		got, gotOK := FoldRuneASCII(r)
 		want, wantOK := reference(r)
 		if got != want || gotOK != wantOK {
-			t.Fatalf("foldRuneASCII(%U) = (%q, %v), want (%q, %v)", r, got, gotOK, want, wantOK)
+			t.Fatalf("FoldRuneASCII(%U) = (%q, %v), want (%q, %v)", r, got, gotOK, want, wantOK)
 		}
 	}
 }
@@ -78,6 +78,26 @@ func TestVisitIDsMatchesOffsetVisitors(t *testing.T) {
 	})
 	m.VisitIDsBytes([]byte(text), func(id int) bool {
 		fromBytes = append(fromBytes, id)
+		return true
+	})
+	require.Equal(t, withOffsets, fromString)
+	require.Equal(t, withOffsets, fromBytes)
+}
+
+func TestVisitEndsMatchesOffsetVisitors(t *testing.T) {
+	m := Compile([]string{"key", "secret", "hers"}, true)
+	text := "KEY uſecret hers"
+	var withOffsets, fromString, fromBytes [][2]int
+	m.Visit(text, func(id, _, end int) bool {
+		withOffsets = append(withOffsets, [2]int{id, end})
+		return true
+	})
+	m.VisitEnds(text, func(id, end int) bool {
+		fromString = append(fromString, [2]int{id, end})
+		return true
+	})
+	m.VisitEndsBytes([]byte(text), func(id, end int) bool {
+		fromBytes = append(fromBytes, [2]int{id, end})
 		return true
 	})
 	require.Equal(t, withOffsets, fromString)
@@ -120,6 +140,14 @@ func TestVisitASCIIAllocations(t *testing.T) {
 	require.Zero(t, allocs)
 	allocs = testing.AllocsPerRun(100, func() {
 		m.VisitIDsBytes([]byte("haystack NEEDLE haystack"), func(_ int) bool { return true })
+	})
+	require.Zero(t, allocs)
+	allocs = testing.AllocsPerRun(100, func() {
+		m.VisitEndsBytes([]byte("haystack NEEDLE haystack"), func(_, _ int) bool { return true })
+	})
+	require.Zero(t, allocs)
+	allocs = testing.AllocsPerRun(100, func() {
+		m.VisitEnds("haystack NEEDLE haystack", func(_, _ int) bool { return true })
 	})
 	require.Zero(t, allocs)
 }

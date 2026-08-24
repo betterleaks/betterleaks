@@ -86,8 +86,10 @@ type Result struct {
 type ruleCandidates struct {
 	// Indexes match rulesBySpecificity, preserving rule order without building
 	// a map and sorted slice for every fragment and decode pass.
-	marked  []bool
-	decoder codec.Decoder
+	marked          []bool
+	matchSpanStates []ruleMatchSpanState
+	matchSpanEpoch  uint32
+	decoder         codec.Decoder
 }
 
 // scanWorkspace is owned by one long-lived detection worker. Keeping the rule
@@ -101,7 +103,10 @@ const maxPooledCandidateMapEntries = 64
 
 func (d *Detector) newScanWorkspace() *scanWorkspace {
 	return &scanWorkspace{
-		candidates: ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))},
+		candidates: ruleCandidates{
+			marked:          make([]bool, len(d.rulesBySpecificity)),
+			matchSpanStates: make([]ruleMatchSpanState, len(d.rulesBySpecificity)),
+		},
 	}
 }
 
@@ -220,7 +225,13 @@ type Detector struct {
 	// keywordRuleIndexes maps each Aho-Corasick pattern ID to the positions in
 	// rulesBySpecificity of rules that use that keyword. Precomputing this avoids
 	// keyword strings and map lookups while scanning each fragment.
-	keywordRuleIndexes [][]int
+	keywordRuleIndexes   [][]int
+	keywordRuleSpanPlans [][]matchSpanPlan
+
+	// ruleMatchSpanEligible records which rules provably contain a literal
+	// anchor keyword on every regex path. Individual plans may still leave an
+	// unbounded prefix or suffix open to the fragment edge.
+	ruleMatchSpanEligible []bool
 
 	// noKeywordIndexes contains positions in rulesBySpecificity for rules with no
 	// keyword prefilter. These rules are candidates on every scan and decode pass.
@@ -298,9 +309,24 @@ func NewDetector(cfg *config.Config, valOpts ValidationOptions) (*Detector, erro
 	}
 	keywords := maps.Keys(keywordToRuleIndexes)
 	sort.Strings(keywords)
+	ruleSpanPlans := make([]ruleMatchSpanPlan, len(rulesBySpecificity))
+	ruleMatchSpanEligible := make([]bool, len(rulesBySpecificity))
+	for ruleIndex, rule := range rulesBySpecificity {
+		if plan, ok := analyzeRuleMatchSpans(rule); ok {
+			ruleSpanPlans[ruleIndex] = plan
+			ruleMatchSpanEligible[ruleIndex] = true
+		}
+	}
 	keywordRuleIndexes := make([][]int, len(keywords))
+	keywordRuleSpanPlans := make([][]matchSpanPlan, len(keywords))
 	for patternID, keyword := range keywords {
-		keywordRuleIndexes[patternID] = keywordToRuleIndexes[keyword]
+		indexes := keywordToRuleIndexes[keyword]
+		keywordRuleIndexes[patternID] = indexes
+		plans := make([]matchSpanPlan, len(indexes))
+		for dispatchIndex, ruleIndex := range indexes {
+			plans[dispatchIndex] = ruleSpanPlans[ruleIndex].keywords[keyword]
+		}
+		keywordRuleSpanPlans[patternID] = plans
 	}
 	d := &Detector{
 		gitleaksIgnore:         make(map[string]struct{}),
@@ -312,6 +338,8 @@ func NewDetector(cfg *config.Config, valOpts ValidationOptions) (*Detector, erro
 		rulesBySpecificity:     rulesBySpecificity,
 		ruleIndexByID:          ruleIndexByID,
 		keywordRuleIndexes:     keywordRuleIndexes,
+		keywordRuleSpanPlans:   keywordRuleSpanPlans,
+		ruleMatchSpanEligible:  ruleMatchSpanEligible,
 		noKeywordIndexes:       noKeywordIndexes,
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
@@ -320,7 +348,10 @@ func NewDetector(cfg *config.Config, valOpts ValidationOptions) (*Detector, erro
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
 	}
 	d.candidatePool.New = func() any {
-		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
+		return &ruleCandidates{
+			marked:          make([]bool, len(d.rulesBySpecificity)),
+			matchSpanStates: make([]ruleMatchSpanState, len(d.rulesBySpecificity)),
+		}
 	}
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
 
@@ -1059,6 +1090,7 @@ func (d *Detector) detectFragmentContent(ctx context.Context, fragment sources.F
 	decoder := &candidates.decoder
 	defer func() {
 		clear(candidates.marked)
+		candidates.resetMatchSpans()
 		// Reset all decoder-owned state before publishing the workspace back to
 		// the shared pool. Publishing first would let another scan acquire and
 		// mutate the decoder concurrently with Release.
@@ -1076,9 +1108,12 @@ ScanLoop:
 		default:
 			// A rule is a candidate when any of its keywords matched. The bitmap
 			// deduplicates rules referenced by multiple matching keywords.
-			current.visit(d.prefilter, func(patternID int) bool {
-				for _, ruleIndex := range d.keywordRuleIndexes[patternID] {
+			current.visit(d.prefilter, func(patternID, end int) bool {
+				for dispatchIndex, ruleIndex := range d.keywordRuleIndexes[patternID] {
 					candidates.marked[ruleIndex] = true
+					if plan := d.keywordRuleSpanPlans[patternID][dispatchIndex]; plan.valid {
+						candidates.addMatchSpan(ruleIndex, end, current.len(), plan)
+					}
 				}
 				return true
 			})
@@ -1091,11 +1126,17 @@ ScanLoop:
 				if !candidates.marked[ruleIndex] {
 					continue
 				}
+				// A span-eligible regex cannot match unless one of its literal
+				// anchor keywords matched. Context-only keyword hits still mark the
+				// rule above for compatibility, but do not require a regex scan.
+				if d.ruleMatchSpanEligible[ruleIndex] && !candidates.hasMatchSpan(ruleIndex) {
+					continue
+				}
 				select {
 				case <-ctx.Done():
 					break ScanLoop
 				default:
-					for _, finding := range d.detectContentWithRuleTimed(fragment, &original, &current, rule, encodedSegments, findings) {
+					for _, finding := range d.detectContentWithRuleTimed(fragment, &original, &current, rule, encodedSegments, findings, candidates.matchSpanWindow(ruleIndex)) {
 						if confidence.Meets(finding.Attr(confidence.Attribute), d.MinConfidence) {
 							findings = append(findings, finding)
 						}
@@ -1104,6 +1145,7 @@ ScanLoop:
 			}
 			// Blank the worker-local bitmap before a recursive decode pass.
 			clear(candidates.marked)
+			candidates.resetMatchSpans()
 
 			// increment the depth by 1 as we start our decoding pass
 			currentDecodeDepth++
@@ -1129,13 +1171,14 @@ func (d *Detector) detectContentWithRuleTimed(fragment sources.Fragment,
 	original, current *scanContent,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
-	priorFindings []report.Finding) []report.Finding {
+	priorFindings []report.Finding,
+	window matchSpanWindow) []report.Finding {
 	if d.RuleTimings == nil {
-		return d.detectContentWithRule(fragment, original, current, r, encodedSegments, priorFindings)
+		return d.detectContentWithRule(fragment, original, current, r, encodedSegments, priorFindings, window)
 	}
 
 	start := time.Now()
-	findings := d.detectContentWithRule(fragment, original, current, r, encodedSegments, priorFindings)
+	findings := d.detectContentWithRule(fragment, original, current, r, encodedSegments, priorFindings, window)
 	d.RuleTimings.Record(r.RuleID, time.Since(start))
 	return findings
 }
@@ -1219,14 +1262,15 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	priorFindings []report.Finding) []report.Finding {
 	original := byteScanContent(fragment.Raw)
 	current := stringScanContent(currentRaw)
-	return d.detectContentWithRule(fragment, &original, &current, r, encodedSegments, priorFindings)
+	return d.detectContentWithRule(fragment, &original, &current, r, encodedSegments, priorFindings, matchSpanWindow{})
 }
 
 func (d *Detector) detectContentWithRule(fragment sources.Fragment,
 	original, current *scanContent,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
-	priorFindings []report.Finding) []report.Finding {
+	priorFindings []report.Finding,
+	window matchSpanWindow) []report.Finding {
 	var findings []report.Finding
 
 	if r.SkipReport && !fragment.InheritedFromFinding {
@@ -1257,7 +1301,7 @@ func (d *Detector) detectContentWithRule(fragment sources.Fragment,
 	}
 
 	hasSubexpressions := r.Regex.NumSubexp() > 0
-	matches := current.findAllIndex(r.Regex)
+	matches := current.findAllIndexSpan(r.Regex, window)
 	if len(matches) == 0 {
 		return findings
 	}
@@ -1768,7 +1812,7 @@ func (d *Detector) processContentComponents(fragment sources.Fragment, original,
 		inheritedFragment := fragment
 		inheritedFragment.InheritedFromFinding = true
 
-		componentFindings := d.detectContentWithRuleTimed(inheritedFragment, original, current, rule, encodedSegments, nil)
+		componentFindings := d.detectContentWithRuleTimed(inheritedFragment, original, current, rule, encodedSegments, nil, matchSpanWindow{})
 		allComponentFindings[component.RuleID] = componentFindings
 
 		fragmentRuleEvent(fragment, r.RuleID, logging.Debug()).

@@ -35,12 +35,12 @@ func (c *scanContent) len() int {
 	return len(c.text)
 }
 
-func (c *scanContent) visit(matcher *ahocorasick.Matcher, yield func(patternID int) bool) {
+func (c *scanContent) visit(matcher *ahocorasick.Matcher, yield func(patternID, end int) bool) {
 	if c.byteBacked {
-		matcher.VisitIDsBytes(c.data, yield)
+		matcher.VisitEndsBytes(c.data, yield)
 		return
 	}
-	matcher.VisitIDs(c.text, yield)
+	matcher.VisitEnds(c.text, yield)
 }
 
 func (c *scanContent) findAllIndex(re *blregexp.Regexp) [][]int {
@@ -48,6 +48,45 @@ func (c *scanContent) findAllIndex(re *blregexp.Regexp) [][]int {
 		return re.FindAllIndex(c.data, -1)
 	}
 	return re.FindAllStringIndex(c.text, -1)
+}
+
+func (c *scanContent) findAllIndexSpan(re *blregexp.Regexp, window matchSpanWindow) [][]int {
+	if !window.active {
+		return c.findAllIndex(re)
+	}
+	return c.findAllIndexRange(re, window.span.start, window.span.end)
+}
+
+func (c *scanContent) findAllIndexRange(re *blregexp.Regexp, start, end int) [][]int {
+	start, end = clampRange(start, end, c.len())
+	if start == 0 && end == c.len() {
+		return c.findAllIndex(re)
+	}
+
+	var matches [][]int
+	if c.byteBacked {
+		matches = re.FindAllIndex(c.data[start:end], -1)
+	} else {
+		matches = re.FindAllStringIndex(c.text[start:end], -1)
+	}
+
+	accepted := matches[:0]
+	for _, match := range matches {
+		match[0] += start
+		match[1] += start
+		// Slicing can create artificial text, line, or word boundaries. The
+		// analyzer reserves one maximum-width UTF-8 rune on each side. A real
+		// match anchored by the keyword cannot consume that guard, so matches
+		// that do are slice-boundary artifacts.
+		if start > 0 && match[0] < start+matchSpanBoundaryPadding {
+			continue
+		}
+		if end < c.len() && match[1] > end-matchSpanBoundaryPadding {
+			continue
+		}
+		accepted = append(accepted, match)
+	}
+	return accepted
 }
 
 func (c *scanContent) submatchIndex(re *blregexp.Regexp, start, end int) []int {

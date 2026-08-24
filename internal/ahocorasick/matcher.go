@@ -107,7 +107,7 @@ func (m *Matcher) Visit(text string, fn func(patternID, start, end int) bool) {
 		size := 1
 		if m.foldASCII && b >= utf8.RuneSelf {
 			r, runeSize := utf8.DecodeRuneInString(text[i:])
-			folded, ok := foldRuneASCII(r)
+			folded, ok := FoldRuneASCII(r)
 			if !ok {
 				state = 0
 				i += runeSize
@@ -154,7 +154,7 @@ func (m *Matcher) VisitBytes(text []byte, fn func(patternID, start, end int) boo
 		size := 1
 		if m.foldASCII && b >= utf8.RuneSelf {
 			r, runeSize := utf8.DecodeRune(text[i:])
-			folded, ok := foldRuneASCII(r)
+			folded, ok := FoldRuneASCII(r)
 			if !ok {
 				state = 0
 				i += runeSize
@@ -191,7 +191,7 @@ func (m *Matcher) VisitIDs(text string, fn func(patternID int) bool) {
 		size := 1
 		if m.foldASCII && b >= utf8.RuneSelf {
 			r, runeSize := utf8.DecodeRuneInString(text[i:])
-			folded, ok := foldRuneASCII(r)
+			folded, ok := FoldRuneASCII(r)
 			if !ok {
 				state = 0
 				i += runeSize
@@ -220,7 +220,7 @@ func (m *Matcher) VisitIDsBytes(text []byte, fn func(patternID int) bool) {
 		size := 1
 		if m.foldASCII && b >= utf8.RuneSelf {
 			r, runeSize := utf8.DecodeRune(text[i:])
-			folded, ok := foldRuneASCII(r)
+			folded, ok := FoldRuneASCII(r)
 			if !ok {
 				state = 0
 				i += runeSize
@@ -241,11 +241,71 @@ func (m *Matcher) VisitIDsBytes(text []byte, fn func(patternID int) bool) {
 	}
 }
 
-// foldRuneASCII reports the ASCII member of a non-ASCII rune's Unicode
+// VisitEnds calls fn with the pattern ID and source-byte end offset of every
+// match. It is cheaper than Visit when callers need a conservative window but
+// do not need the exact start offset.
+func (m *Matcher) VisitEnds(text string, fn func(patternID, end int) bool) {
+	state := uint32(0)
+	for i := 0; i < len(text); {
+		b := text[i]
+		size := 1
+		if m.foldASCII && b >= utf8.RuneSelf {
+			r, runeSize := utf8.DecodeRuneInString(text[i:])
+			folded, ok := FoldRuneASCII(r)
+			if !ok {
+				state = 0
+				i += runeSize
+				continue
+			}
+			b, size = folded, runeSize
+		} else {
+			b = fold(b, m.foldASCII)
+		}
+
+		state = m.transitions[int(state)*256+int(b)]
+		for _, id := range m.outputs[state] {
+			if !fn(int(id), i+size) {
+				return
+			}
+		}
+		i += size
+	}
+}
+
+// VisitEndsBytes is the byte-slice form of VisitEnds.
+func (m *Matcher) VisitEndsBytes(text []byte, fn func(patternID, end int) bool) {
+	state := uint32(0)
+	for i := 0; i < len(text); {
+		b := text[i]
+		size := 1
+		if m.foldASCII && b >= utf8.RuneSelf {
+			r, runeSize := utf8.DecodeRune(text[i:])
+			folded, ok := FoldRuneASCII(r)
+			if !ok {
+				state = 0
+				i += runeSize
+				continue
+			}
+			b, size = folded, runeSize
+		} else {
+			b = fold(b, m.foldASCII)
+		}
+
+		state = m.transitions[int(state)*256+int(b)]
+		for _, id := range m.outputs[state] {
+			if !fn(int(id), i+size) {
+				return
+			}
+		}
+		i += size
+	}
+}
+
+// FoldRuneASCII reports the ASCII member of a non-ASCII rune's Unicode
 // simple-fold set. Unicode has exactly two such compatibility folds: long s
 // and Kelvin sign. Keeping them explicit avoids consulting the Unicode case
 // tables for every ordinary non-ASCII source rune.
-func foldRuneASCII(r rune) (byte, bool) {
+func FoldRuneASCII(r rune) (byte, bool) {
 	switch r {
 	case '\u017f': // long s: S, s, ſ
 		return 's', true
