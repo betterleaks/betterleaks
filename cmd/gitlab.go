@@ -97,9 +97,9 @@ func runGitLab(cmd *cobra.Command, args []string) {
 		AllGroups:        mustGetBoolFlag(cmd, "all-groups"),
 		IncludeSubgroups: mustGetBoolFlag(cmd, "include-subgroups"),
 		ShouldSkip:       detector.SkipFunc(),
-		Sema:             detector.Sema,
 		MaxArchiveDepth:  detector.MaxArchiveDepth,
-		Workers:          mustGetIntFlag(cmd, "git-workers"),
+		Workers:          mustGetIntFlag(cmd, "source-workers"),
+		GitWorkers:       mustGetIntFlag(cmd, "git-workers"),
 		LogOpts:          mustGetStringFlag(cmd, "log-opts"),
 		DateRangeOpts: sources.DateRangeOptions{
 			Since: since,

@@ -52,6 +52,11 @@ var (
 			if _, err := confidenceFlag(cmd); err != nil {
 				return err
 			}
+			if workers, err := cmd.Flags().GetInt("source-workers"); err != nil {
+				return err
+			} else if workers < 0 {
+				return fmt.Errorf("--source-workers must be non-negative")
+			}
 			// Set the timeout for all the commands
 			if timeout, err := cmd.Flags().GetInt("timeout"); err != nil {
 				return err
@@ -90,6 +95,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color in terminal output")
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
+	rootCmd.PersistentFlags().Int("source-workers", 0, "number of concurrent source workers (0 = source default)")
 	rootCmd.PersistentFlags().BoolP("ignore-gitleaks-allow", "", false, "ignore gitleaks:allow and betterleaks:allow comments")
 	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
 	rootCmd.Flag("redact").NoOptDefVal = "100"

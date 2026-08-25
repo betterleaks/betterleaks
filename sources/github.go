@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"github.com/google/go-github/v72/github"
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/sync/errgroup"
@@ -59,9 +58,9 @@ type GitHub struct {
 
 	// Scan config (passed through to Git/ParallelGit per repo)
 	ShouldSkip      SkipFunc
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
-	Workers         int // git workers per repo (0 = single process)
+	Workers         int // 0 uses source-specific defaults
+	GitWorkers      int // git workers per repo (0 = single process)
 	LogOpts         string
 
 	// GitHub API
@@ -258,7 +257,7 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(100)
+	scanGroup.SetLimit(workerCount(s.Workers, 100))
 
 	if target.Resource == "user" && s.Resources.Has(GitHubResourceTypeGists) {
 		scanGroup.Go(func() error {
@@ -618,12 +617,12 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
 	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		var src Source
-		if s.Workers > 0 {
+		if s.GitWorkers > 0 {
 			src = &ParallelGit{
 				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 				Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts: s.LogOpts, Workers: s.Workers,
+				MaxArchiveDepth: s.MaxArchiveDepth,
+				LogOpts:         s.LogOpts, GitWorkers: s.GitWorkers, Workers: s.Workers,
 			}
 		} else {
 			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
@@ -633,7 +632,7 @@ func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield
 			src = &Git{
 				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
 				Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
+				MaxArchiveDepth: s.MaxArchiveDepth, Workers: s.Workers,
 			}
 		}
 		return src.Fragments(ctx, yield)
@@ -644,7 +643,7 @@ func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield
 func (s *GitHub) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
 	owner := repo.GetOwner().GetLogin()
 	repoName := repo.GetName()
-	workers := max(defaultActionsWorkers, 1)
+	workers := workerCount(s.Workers, defaultActionsWorkers)
 
 	runs := make(chan *github.WorkflowRun, workers)
 	g, gctx := errgroup.WithContext(ctx)

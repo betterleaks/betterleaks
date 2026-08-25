@@ -62,7 +62,7 @@ type S3 struct {
 
 	// Scan config
 	MaxObjectSize   int64
-	Workers         int
+	Workers         int // concurrent object scans; 0 uses the source default
 	ShouldSkip      SkipFunc
 	MaxArchiveDepth int
 
@@ -255,10 +255,7 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 	if maxSize <= 0 {
 		maxSize = s3DefaultMaxObjectSize
 	}
-	workers := s.Workers
-	if workers <= 0 {
-		workers = s3DefaultWorkers
-	}
+	workers := workerCount(s.Workers, s3DefaultWorkers)
 
 	bucketAttrs := map[string]string{
 		AttrS3Bucket: target.Bucket,

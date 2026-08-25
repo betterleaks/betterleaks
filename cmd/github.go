@@ -99,9 +99,9 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		Exclude:         exclude,
 		ExcludeRepos:    excludeRepos,
 		ShouldSkip:      detector.SkipFunc(),
-		Sema:            detector.Sema,
 		MaxArchiveDepth: detector.MaxArchiveDepth,
-		Workers:         mustGetIntFlag(cmd, "git-workers"),
+		Workers:         mustGetIntFlag(cmd, "source-workers"),
+		GitWorkers:      mustGetIntFlag(cmd, "git-workers"),
 		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
 		Actions: sources.ActionsOptions{
 			Workflows: actionsWorkflows,

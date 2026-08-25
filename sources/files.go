@@ -10,8 +10,10 @@ import (
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/charlievieth/fastwalk"
-	"github.com/fatih/semgroup"
+	"golang.org/x/sync/errgroup"
 )
+
+const defaultFileWorkers = 40
 
 // TODO: remove this in v9 and have scanTargets yield file sources
 type ScanTarget struct {
@@ -25,8 +27,8 @@ type Files struct {
 	FollowSymlinks  bool
 	MaxFileSize     int
 	Path            string
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
+	Workers         int // 0 uses the source default
 }
 
 // scanTargets yields scan targets to a callback func
@@ -153,52 +155,44 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	var wg sync.WaitGroup
+	g, groupCtx := errgroup.WithContext(ctx)
+	g.SetLimit(workerCount(s.Workers, defaultFileWorkers))
 
-	err := s.scanTargets(ctx, func(scanTarget ScanTarget, err error) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			wg.Add(1)
-			s.Sema.Go(func() error {
-				logger := logging.With().Str("path", scanTarget.Path).Logger()
-				logger.Trace().Msg("scanning path")
-
-				f, err := os.Open(scanTarget.Path)
-				if err != nil {
-					if os.IsPermission(err) {
-						logger.Warn().Msg("skipping file: permission denied")
-					}
-					wg.Done()
-					return nil
-				}
-
-				// Convert this to a file source
-				file := File{
-					Content:         f,
-					Path:            scanTarget.Path,
-					Symlink:         scanTarget.Symlink,
-					ShouldSkip:      s.ShouldSkip,
-					MaxArchiveDepth: s.MaxArchiveDepth,
-				}
-
-				err = file.Fragments(ctx, yield)
-				// Avoiding a defer in a hot loop
-				_ = f.Close()
-				wg.Done()
-				return err
-			})
-
-			return nil
+	producerErr := s.scanTargets(groupCtx, func(scanTarget ScanTarget, scanErr error) error {
+		if scanErr != nil {
+			return scanErr
 		}
+		if err := groupCtx.Err(); err != nil {
+			return err
+		}
+
+		g.Go(func() error {
+			logger := logging.With().Str("path", scanTarget.Path).Logger()
+			logger.Trace().Msg("scanning path")
+
+			f, err := os.Open(scanTarget.Path)
+			if err != nil {
+				if os.IsPermission(err) {
+					logger.Warn().Msg("skipping file: permission denied")
+				}
+				return nil
+			}
+
+			file := File{
+				Content:         f,
+				Path:            scanTarget.Path,
+				Symlink:         scanTarget.Symlink,
+				ShouldSkip:      s.ShouldSkip,
+				MaxArchiveDepth: s.MaxArchiveDepth,
+			}
+
+			err = file.Fragments(groupCtx, yield)
+			// Avoid a defer in this hot path.
+			_ = f.Close()
+			return err
+		})
+		return nil
 	})
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		wg.Wait()
-		return err
-	}
+	return errors.Join(producerErr, g.Wait())
 }

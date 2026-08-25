@@ -2,6 +2,22 @@
 
 Use `--help` for full flag descriptions. This page is for patterns.
 
+## Source workers
+
+Use `--source-workers` to control how many source items are scanned
+concurrently. A value of `0` keeps each source's default.
+
+```sh
+# scan at most eight files at a time
+betterleaks dir . --source-workers 8
+
+# limit repository and nested content scanning
+betterleaks github https://github.com/my-company --source-workers 8
+```
+
+`--git-workers` is separate: it controls parallel Git history processes, while
+`--source-workers` controls the source work produced by those processes.
+
 ## Pick a target
 
 | Want to scan | Use |
@@ -522,8 +538,11 @@ betterleaks s3 --max-object-size=1073741824 https://my-bucket.s3.us-east-1.amazo
 betterleaks s3 --max-archive-depth=2 https://my-bucket.s3.us-east-1.amazonaws.com/
 
 # fewer concurrent GETs against rate-limited endpoints (default: 16)
-betterleaks s3 --workers=4 https://my-bucket.s3.us-east-1.amazonaws.com/
+betterleaks s3 --source-workers=4 https://my-bucket.s3.us-east-1.amazonaws.com/
 ```
+
+S3 also accepts its existing `--workers` flag. When set, it overrides
+`--source-workers` for that scan.
 
 Objects in `GLACIER`, `GLACIER_IR`, and `DEEP_ARCHIVE` storage classes are skipped before fetching, as are empty objects and directory markers (`key/`).
 

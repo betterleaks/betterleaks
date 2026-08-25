@@ -79,8 +79,8 @@ func runDetect(cmd *cobra.Command, args []string) {
 			FollowSymlinks:  detector.FollowSymlinks,
 			MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
 			Path:            sourcePath,
-			Sema:            detector.Sema,
 			MaxArchiveDepth: detector.MaxArchiveDepth,
+			Workers:         mustGetIntFlag(cmd, "source-workers"),
 		}
 	} else if fromPipe {
 		attrs, attrErr := parseSetAttrFlag(cmd)
@@ -110,8 +110,8 @@ func runDetect(cmd *cobra.Command, args []string) {
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        resolvedPlatform,
 			RemoteURL:       remoteURL,
-			Sema:            detector.Sema,
 			MaxArchiveDepth: detector.MaxArchiveDepth,
+			Workers:         mustGetIntFlag(cmd, "source-workers"),
 		}
 	}
 

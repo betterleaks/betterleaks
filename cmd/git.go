@@ -65,6 +65,7 @@ func runGit(cmd *cobra.Command, args []string) {
 	staged := mustGetBoolFlag(cmd, "staged")
 	preCommit := mustGetBoolFlag(cmd, "pre-commit")
 	gitWorkers := mustGetIntFlag(cmd, "git-workers")
+	sourceWorkers := mustGetIntFlag(cmd, "source-workers")
 	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 
 	var (
@@ -83,8 +84,8 @@ func runGit(cmd *cobra.Command, args []string) {
 			Cmd:             gitCmd,
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        scm.NoPlatform,
-			Sema:            detector.Sema,
 			MaxArchiveDepth: detector.MaxArchiveDepth,
+			Workers:         sourceWorkers,
 		}
 	} else {
 		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
@@ -98,10 +99,10 @@ func runGit(cmd *cobra.Command, args []string) {
 				ShouldSkip:      detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
 				MaxArchiveDepth: detector.MaxArchiveDepth,
 				LogOpts:         logOpts,
-				Workers:         gitWorkers,
+				GitWorkers:      gitWorkers,
+				Workers:         sourceWorkers,
 			}
 		} else {
 			gitCmd, cmdErr := sources.NewGitLogCmdContext(cmd.Context(), source, logOpts)
@@ -113,8 +114,8 @@ func runGit(cmd *cobra.Command, args []string) {
 				ShouldSkip:      detector.SkipFunc(),
 				Platform:        resolvedPlatform,
 				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
 				MaxArchiveDepth: detector.MaxArchiveDepth,
+				Workers:         sourceWorkers,
 			}
 		}
 	}

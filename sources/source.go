@@ -1,8 +1,6 @@
 package sources
 
-import (
-	"context"
-)
+import "context"
 
 // FragmentsFunc is the type of function called by Fragments to yield the next
 // fragment
@@ -18,4 +16,11 @@ type Source interface {
 	// Fragments provides a filepath.WalkDir like interface for scanning the
 	// fragments in the source
 	Fragments(ctx context.Context, yield FragmentsFunc) error
+}
+
+func workerCount(configured, fallback int) int {
+	if configured > 0 {
+		return configured
+	}
+	return fallback
 }

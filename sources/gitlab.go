@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/internal/httpclient"
@@ -62,9 +61,9 @@ type GitLab struct {
 
 	// Scan config (passed through to Git/ParallelGit per project)
 	ShouldSkip      SkipFunc
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
-	Workers         int
+	Workers         int // 0 uses source-specific defaults
+	GitWorkers      int // git workers per project (0 = single process)
 	LogOpts         string
 
 	// Date-range filtering for API-backed resources
@@ -238,7 +237,7 @@ func (s *GitLab) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(gitlabScanConcurrency)
+	scanGroup.SetLimit(workerCount(s.Workers, gitlabScanConcurrency))
 
 	projCh, enumErrCh := s.enumerateProjects(ctx, target)
 	var projCount atomic.Int64
@@ -986,12 +985,12 @@ func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, yield 
 	}
 	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		var src Source
-		if s.Workers > 0 {
+		if s.GitWorkers > 0 {
 			src = &ParallelGit{
 				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 				Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts: s.LogOpts, Workers: s.Workers,
+				MaxArchiveDepth: s.MaxArchiveDepth,
+				LogOpts:         s.LogOpts, GitWorkers: s.GitWorkers, Workers: s.Workers,
 			}
 		} else {
 			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
@@ -1001,7 +1000,7 @@ func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, yield 
 			src = &Git{
 				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
 				Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
+				MaxArchiveDepth: s.MaxArchiveDepth, Workers: s.Workers,
 			}
 		}
 		return src.Fragments(ctx, yield)

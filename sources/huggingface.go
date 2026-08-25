@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatih/semgroup"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/internal/httpclient"
@@ -46,9 +45,9 @@ type HuggingFace struct {
 	Resources    HuggingFaceResourceSet
 
 	ShouldSkip      SkipFunc
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
-	Workers         int
+	Workers         int // 0 uses source-specific defaults
+	GitWorkers      int // git workers per repo (0 = single process)
 	LogOpts         string
 
 	MaxBucketObjectSize int64
@@ -150,7 +149,7 @@ func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error 
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(huggingFaceScanConcurrency)
+	scanGroup.SetLimit(workerCount(s.Workers, huggingFaceScanConcurrency))
 
 	var repoCount atomic.Int64
 	var bucketCount atomic.Int64
@@ -688,12 +687,12 @@ func (s *HuggingFace) scanRepoGit(ctx context.Context, repo huggingFaceRepo, yie
 	remote := repo.GitURL(s.baseURL)
 	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		var src Source
-		if s.Workers > 0 {
+		if s.GitWorkers > 0 {
 			src = &ParallelGit{
 				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 				Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts: s.LogOpts, Workers: s.Workers,
+				MaxArchiveDepth: s.MaxArchiveDepth,
+				LogOpts:         s.LogOpts, GitWorkers: s.GitWorkers, Workers: s.Workers,
 			}
 		} else {
 			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
@@ -703,7 +702,7 @@ func (s *HuggingFace) scanRepoGit(ctx context.Context, repo huggingFaceRepo, yie
 			src = &Git{
 				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
 				Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
+				MaxArchiveDepth: s.MaxArchiveDepth, Workers: s.Workers,
 			}
 		}
 		return src.Fragments(ctx, yield)
@@ -733,7 +732,7 @@ func (s *HuggingFace) scanBucket(ctx context.Context, bucket huggingFaceBucket, 
 	if maxSize <= 0 {
 		maxSize = huggingFaceDefaultMaxBucketObjectSize
 	}
-	workers := huggingFaceBucketWorkers
+	workers := workerCount(s.Workers, huggingFaceBucketWorkers)
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(workers)
 	var scanned atomic.Int64

@@ -15,16 +15,17 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
-	"github.com/fatih/semgroup"
 	"github.com/gitleaks/go-gitdiff/gitdiff"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
+
+const defaultGitWorkers = 40
 
 // GitCmd helps to work with Git's output.
 type GitCmd struct {
@@ -369,8 +370,8 @@ type Git struct {
 	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
+	Workers         int // 0 uses the source default
 }
 
 // Fragments yields fragments from a git repo
@@ -381,17 +382,26 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 	}()
 
+	g, groupCtx := errgroup.WithContext(ctx)
+	g.SetLimit(workerCount(s.Workers, defaultGitWorkers))
+	wait := func(producerErr error) error {
+		workerErr := g.Wait()
+		if workerErr != nil {
+			return workerErr
+		}
+		return producerErr
+	}
+
 	var (
 		diffFilesCh = s.Cmd.DiffFilesCh()
 		errCh       = s.Cmd.ErrCh()
-		wg          sync.WaitGroup
 	)
 
 	// loop to range over both DiffFiles (stdout) and ErrCh (stderr)
 	for diffFilesCh != nil || errCh != nil {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-groupCtx.Done():
+			return wait(groupCtx.Err())
 		case gitdiffFile, open := <-diffFilesCh:
 			if !open {
 				diffFilesCh = nil
@@ -442,12 +452,9 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				}
 			}
 
-			wg.Add(1)
-			s.Sema.Go(func() error {
-				defer wg.Done()
-
+			g.Go(func() error {
 				if yieldAsArchive {
-					blob, err := s.Cmd.NewBlobReaderContext(ctx, commitSHA, gitdiffFile.NewName)
+					blob, err := s.Cmd.NewBlobReaderContext(groupCtx, commitSHA, gitdiffFile.NewName)
 					if err != nil {
 						logging.Error().Err(err).Msg("could not read archive blob")
 						return nil
@@ -461,7 +468,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 					}
 
 					// enrich and yield fragments
-					err = file.Fragments(ctx, func(fragment Fragment, err error) error {
+					err = file.Fragments(groupCtx, func(fragment Fragment, err error) error {
 						// create base attributes of the commit
 						attrs := maps.Clone(commitAttrs)
 						// add fragment-specific attributes (in case attributes have been enriched by the file source)
@@ -503,17 +510,11 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				break
 			}
 
-			return yield(Fragment{}, err)
+			return wait(yield(Fragment{}, err))
 		}
 	}
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		wg.Wait()
-		return nil
-	}
+	return wait(nil)
 }
 
 // ResolveRemote resolves the SCM platform and remote URL for the given source.

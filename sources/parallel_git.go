@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fatih/semgroup"
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 	"golang.org/x/sync/errgroup"
 
@@ -27,15 +26,15 @@ type ParallelGit struct {
 	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
-	Sema            *semgroup.Group
 	MaxArchiveDepth int
 	LogOpts         string
-	Workers         int // 0 means auto (min(NumCPU, 4))
+	GitWorkers      int // 0 means auto (min(NumCPU, 4))
+	Workers         int // source workers per Git process; 0 uses the Git default
 }
 
-func (s *ParallelGit) workers() int {
-	if s.Workers > 0 {
-		return s.Workers
+func (s *ParallelGit) gitWorkers() int {
+	if s.GitWorkers > 0 {
+		return s.GitWorkers
 	}
 	return min(runtime.NumCPU(), 4)
 }
@@ -49,7 +48,7 @@ func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error 
 	}
 
 	count := len(commits)
-	workers := s.workers()
+	workers := s.gitWorkers()
 	if count == 0 {
 		return nil
 	}
@@ -94,8 +93,8 @@ func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) 
 		ShouldSkip:      s.ShouldSkip,
 		Platform:        s.Platform,
 		RemoteURL:       s.RemoteURL,
-		Sema:            s.Sema,
 		MaxArchiveDepth: s.MaxArchiveDepth,
+		Workers:         s.Workers,
 	}
 
 	return src.Fragments(ctx, yield)
@@ -114,8 +113,8 @@ func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield FragmentsFunc,
 		ShouldSkip:      s.ShouldSkip,
 		Platform:        s.Platform,
 		RemoteURL:       s.RemoteURL,
-		Sema:            s.Sema,
 		MaxArchiveDepth: s.MaxArchiveDepth,
+		Workers:         s.Workers,
 	}
 
 	return src.Fragments(ctx, yield)
