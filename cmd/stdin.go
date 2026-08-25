@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -45,7 +44,7 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 		logging.Fatal().Err(err).Msg("invalid --set-attr value")
 	}
 
-	findings := report.NewFindingsCollector(mustGetStringFlag(cmd, "report-path") != "")
+	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 	source := newStdinSource(os.Stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth)
 	for result := range detector.Run(cmd.Context(), source) {
 		if result.Err != nil {

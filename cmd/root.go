@@ -385,9 +385,6 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
 
 	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
-	// The CLI consumes Run results as they arrive. Do not also retain them in
-	// Detector's deprecated compatibility slice.
-	detector.SkipFindingAppend = true
 	detector.MinConfidence, err = confidenceFlag(cmd)
 	if err != nil {
 		logging.Fatal().Err(err).Send()
@@ -571,7 +568,7 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func collectFinding(detector *detect.Detector, findings *report.FindingsCollector, finding report.Finding) {
+func collectFinding(detector *detect.Detector, findings *findingCollector, finding report.Finding) {
 	findings.Add(finding)
 	if !detector.Verbose {
 		return
@@ -583,7 +580,7 @@ func collectFinding(detector *detect.Detector, findings *report.FindingsCollecto
 	finding.Print(detector.NoColor, detector.Redact)
 }
 
-func findingSummaryAndExit(detector *detect.Detector, findings *report.FindingsCollector, exitCode int, start time.Time, err error) {
+func findingSummaryAndExit(detector *detect.Detector, findings *findingCollector, exitCode int, start time.Time, err error) {
 	if diagnosticsManager.Enabled {
 		logging.Debug().Msg("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()
@@ -604,16 +601,16 @@ func findingSummaryAndExit(detector *detect.Detector, findings *report.FindingsC
 	bytesMsg := fmt.Sprintf("scanned ~%d bytes (%s)", totalBytes, bytesConvert(totalBytes))
 	if err == nil {
 		logging.Info().Msgf("%s in %s", bytesMsg, FormatDuration(time.Since(start)))
-		if findings.Len() != 0 {
-			logging.Warn().Msgf("leaks found: %d", findings.Len())
+		if findings.Count() != 0 {
+			logging.Warn().Msgf("leaks found: %d", findings.Count())
 		} else {
 			logging.Info().Msg("no leaks found")
 		}
 	} else {
 		logging.Warn().Msg(bytesMsg)
 		logging.Warn().Msgf("partial scan completed in %s", FormatDuration(time.Since(start)))
-		if findings.Len() != 0 {
-			logging.Warn().Msgf("%d leaks found in partial scan", findings.Len())
+		if findings.Count() != 0 {
+			logging.Warn().Msgf("%d leaks found in partial scan", findings.Count())
 		} else {
 			logging.Warn().Msg("no leaks found in partial scan")
 		}
@@ -621,7 +618,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings *report.FindingsC
 
 	// write report if desired
 	if detector.Reporter != nil {
-		reportFindings := detector.FilterByStatus(findings.Findings())
+		reportFindings := detector.FilterByStatus(findings.ReportFindings())
 		detect.RedactFindings(reportFindings, detector.Redact)
 
 		var (
@@ -656,7 +653,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings *report.FindingsC
 		os.Exit(1)
 	}
 
-	if findings.Len() != 0 {
+	if findings.Count() != 0 {
 		os.Exit(exitCode)
 	}
 }

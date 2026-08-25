@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
@@ -61,7 +60,7 @@ func runProtect(cmd *cobra.Command, args []string) {
 		MaxArchiveDepth: detector.MaxArchiveDepth,
 	}
 
-	findings := report.NewFindingsCollector(mustGetStringFlag(cmd, "report-path") != "")
+	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
 		if result.Err != nil {

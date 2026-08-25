@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -113,7 +112,7 @@ func runGitLab(cmd *cobra.Command, args []string) {
 	}
 
 	exitCode := mustGetIntFlag(cmd, "exit-code")
-	findings := report.NewFindingsCollector(mustGetStringFlag(cmd, "report-path") != "")
+	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
