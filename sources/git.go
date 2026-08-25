@@ -384,13 +384,6 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 	g, groupCtx := errgroup.WithContext(ctx)
 	g.SetLimit(workerCount(s.Workers, defaultGitWorkers))
-	wait := func(producerErr error) error {
-		workerErr := g.Wait()
-		if workerErr != nil {
-			return workerErr
-		}
-		return producerErr
-	}
 
 	var (
 		diffFilesCh = s.Cmd.DiffFilesCh()
@@ -401,7 +394,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	for diffFilesCh != nil || errCh != nil {
 		select {
 		case <-groupCtx.Done():
-			return wait(groupCtx.Err())
+			return waitForGitWorkers(g, groupCtx, groupCtx.Err())
 		case gitdiffFile, open := <-diffFilesCh:
 			if !open {
 				diffFilesCh = nil
@@ -510,11 +503,19 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				break
 			}
 
-			return wait(yield(Fragment{}, err))
+			return waitForGitWorkers(g, groupCtx, yield(Fragment{}, err))
 		}
 	}
 
-	return wait(nil)
+	return waitForGitWorkers(g, groupCtx, nil)
+}
+
+func waitForGitWorkers(g *errgroup.Group, groupCtx context.Context, producerErr error) error {
+	workerErr := g.Wait()
+	if workerErr != nil && producerErr == groupCtx.Err() {
+		return workerErr
+	}
+	return errors.Join(producerErr, workerErr)
 }
 
 // ResolveRemote resolves the SCM platform and remote URL for the given source.

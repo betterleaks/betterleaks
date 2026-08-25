@@ -1,5 +1,36 @@
 package sources
 
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
+)
+
+func TestWaitForGitWorkersPreservesIndependentErrors(t *testing.T) {
+	producerErr := errors.New("git stderr")
+	workerErr := errors.New("fragment worker")
+	g, groupCtx := errgroup.WithContext(t.Context())
+	g.Go(func() error { return workerErr })
+
+	err := waitForGitWorkers(g, groupCtx, producerErr)
+	require.ErrorIs(t, err, producerErr)
+	require.ErrorIs(t, err, workerErr)
+}
+
+func TestWaitForGitWorkersOmitsGroupCancellation(t *testing.T) {
+	workerErr := errors.New("fragment worker")
+	g, groupCtx := errgroup.WithContext(t.Context())
+	g.Go(func() error { return workerErr })
+	<-groupCtx.Done()
+
+	err := waitForGitWorkers(g, groupCtx, groupCtx.Err())
+	require.ErrorIs(t, err, workerErr)
+	require.False(t, errors.Is(err, context.Canceled))
+}
+
 // TODO: commenting out this test for now because it's flaky. Alternatives to consider to get this working:
 // -- use `git stash` instead of `restore()`
 
