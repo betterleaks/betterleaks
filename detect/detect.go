@@ -29,7 +29,6 @@ import (
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 
-	"github.com/fatih/semgroup"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
 )
@@ -223,10 +222,6 @@ type Detector struct {
 	// This is only used for logging purposes and git scans.
 	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
 	commitMap map[string]bool
-
-	// Sema (https://github.com/fatih/semgroup) controls the concurrency
-	// Deprecated: this is only used for git log workers and can be removed when the legacy git scan is removed in v2.
-	Sema *semgroup.Group
 }
 
 // NewDetectorContext creates a new Detector.
@@ -258,7 +253,6 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
 		prefilter:              ahocorasick.Compile(keywords, true),
-		Sema:                   semgroup.NewGroup(ctx, 40),
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
 		validationPrograms:     make(map[string]exprruntime.Program),

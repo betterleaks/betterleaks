@@ -56,8 +56,8 @@ func runProtect(cmd *cobra.Command, args []string) {
 		Cmd:             gitCmd,
 		ShouldSkip:      detector.SkipFunc(),
 		Platform:        scm.NoPlatform,
-		Sema:            detector.Sema,
 		MaxArchiveDepth: detector.MaxArchiveDepth,
+		Workers:         mustGetIntFlag(cmd, "source-workers"),
 	}
 
 	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")

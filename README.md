@@ -46,7 +46,7 @@ make build
 ### Usage
 ```
 # Scan Git
-betterleaks git /path/to/repo -v --git-workers=16
+betterleaks git /path/to/repo -v --source-workers=16
 
 # Scan local filesystem
 betterleaks dir /path/to/file/or/dir -v
@@ -155,5 +155,4 @@ available through `finding["captures"]`.
 Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config. If you're using Betterleaks in production, it is recommended you maintain your own config instead of extending the upstream default config directly. This keeps your rule set stable across Betterleaks upgrades and lets you review new upstream rules before adopting them.
 
 Test out your rules in the [Betterleaks Playground](https://betterleaks.com/playground)
-
 
