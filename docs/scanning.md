@@ -15,8 +15,14 @@ betterleaks dir . --source-workers 8
 betterleaks github https://github.com/my-company --source-workers 8
 ```
 
-`--git-workers` is separate: it controls parallel Git history processes, while
-`--source-workers` controls the source work produced by those processes.
+For `betterleaks git`, `--git-workers` is a compatibility alias for
+`--source-workers`; both control the same parallel Git history workers. GitHub,
+GitLab, and Hugging Face use only `--source-workers`. A single repository,
+project, model, dataset, Space, or bucket receives the full worker count. For
+an organization, user, group, or owner scan, up to 25% of the workers (capped
+at four) scan top-level targets. The remaining workers are divided between
+their nested Git history or file scans. A value of `0` preserves the source's
+historical defaults.
 
 ## Pick a target
 
@@ -75,7 +81,7 @@ Use `git` for history and diffs.
 betterleaks git .
 
 # parallel history scan
-betterleaks git . --git-workers 8
+betterleaks git . --source-workers 8
 
 # custom git log scope
 betterleaks git . --log-opts="--all --since='90 days ago'"
@@ -90,7 +96,7 @@ betterleaks git . --pre-commit --staged
 betterleaks git . --platform github
 
 # history scan with JSON output
-betterleaks git . --git-workers 8 --report-path findings.json --report-format json
+betterleaks git . --source-workers 8 --report-path findings.json --report-format json
 ```
 
 ---

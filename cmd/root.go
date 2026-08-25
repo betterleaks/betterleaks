@@ -57,6 +57,13 @@ var (
 			} else if workers < 0 {
 				return fmt.Errorf("--source-workers must be non-negative")
 			}
+			if cmd.Flags().Lookup("git-workers") != nil {
+				if workers, err := cmd.Flags().GetInt("git-workers"); err != nil {
+					return err
+				} else if workers < 0 {
+					return fmt.Errorf("--git-workers must be non-negative")
+				}
+			}
 			// Set the timeout for all the commands
 			if timeout, err := cmd.Flags().GetInt("timeout"); err != nil {
 				return err

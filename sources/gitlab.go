@@ -59,11 +59,10 @@ type GitLab struct {
 	AllGroups        bool
 	IncludeSubgroups bool
 
-	// Scan config (passed through to Git/ParallelGit per project)
+	// Scan config (passed through to Git per project)
 	ShouldSkip      SkipFunc
 	MaxArchiveDepth int
 	Workers         int // 0 uses source-specific defaults
-	GitWorkers      int // git workers per project (0 = single process)
 	LogOpts         string
 
 	// Date-range filtering for API-backed resources
@@ -232,19 +231,20 @@ func (s *GitLab) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	if direct {
 		return s.scanDirect(ctx, target, yield)
 	}
+	workers := allocateProviderWorkers(s.Workers, gitlabScanConcurrency, target.Kind == "project")
 
 	scanCtx, cancelScans := context.WithCancel(ctx)
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(workerCount(s.Workers, gitlabScanConcurrency))
+	scanGroup.SetLimit(workers.TargetWorkers)
 
 	projCh, enumErrCh := s.enumerateProjects(ctx, target)
 	var projCount atomic.Int64
 	for proj := range projCh {
 		projCount.Add(1)
 		scanGroup.Go(func() error {
-			return s.scanProject(scanCtx, proj, yield)
+			return s.scanProjectWithWorkers(scanCtx, proj, workers.WorkersPerTarget, yield)
 		})
 	}
 	enumErr := <-enumErrCh
@@ -924,6 +924,10 @@ func (s *GitLab) inDateRange(t time.Time) (ok bool, terminate bool) {
 // L3 skip layers and delegates to per-resource scanners which add their own
 // L2 skips.
 func (s *GitLab) scanProject(ctx context.Context, proj *gitlabProject, yield FragmentsFunc) error {
+	return s.scanProjectWithWorkers(ctx, proj, 0, yield)
+}
+
+func (s *GitLab) scanProjectWithWorkers(ctx context.Context, proj *gitlabProject, workers int, yield FragmentsFunc) error {
 	logger := logging.With().Str("project", proj.PathWithNamespace).Logger()
 	projectAttrs := s.projectAttributes(proj, "")
 
@@ -951,7 +955,7 @@ func (s *GitLab) scanProject(ctx context.Context, proj *gitlabProject, yield Fra
 	}
 
 	if s.Resources.Has(GitLabResourceTypeRepos) {
-		if err := run("repos", func() error { return s.scanProjectGit(ctx, proj, glYield) }); err != nil {
+		if err := run("repos", func() error { return s.scanProjectGit(ctx, proj, workers, glYield) }); err != nil {
 			return err
 		}
 	}
@@ -979,29 +983,16 @@ func (s *GitLab) scanProject(ctx context.Context, proj *gitlabProject, yield Fra
 }
 
 // scanProjectGit clones the project and scans its git history.
-func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, yield FragmentsFunc) error {
+func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, workers int, yield FragmentsFunc) error {
 	if proj.HTTPURLToRepo == "" {
 		return nil
 	}
 	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		var src Source
-		if s.GitWorkers > 0 {
-			src = &ParallelGit{
-				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
-				Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
-				MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts:         s.LogOpts, GitWorkers: s.GitWorkers, Workers: s.Workers,
-			}
-		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
-			if err != nil {
-				return err
-			}
-			src = &Git{
-				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
-				Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
-				MaxArchiveDepth: s.MaxArchiveDepth, Workers: s.Workers,
-			}
+		src := &Git{
+			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
+			Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
+			MaxArchiveDepth: s.MaxArchiveDepth,
+			LogOpts:         s.LogOpts, Workers: workers,
 		}
 		return src.Fragments(ctx, yield)
 	})

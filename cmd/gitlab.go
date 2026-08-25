@@ -24,7 +24,6 @@ func init() {
 	gitlabCmd.Flags().StringSlice("exclude-repo", nil, "glob patterns to exclude projects by full path (e.g. 'group/test-*')")
 	gitlabCmd.Flags().Bool("include-subgroups", true, "when scanning a group, recurse into subgroups")
 	gitlabCmd.Flags().Bool("all-groups", false, "enumerate every group visible to the token (instance-wide)")
-	gitlabCmd.Flags().Int("git-workers", 0, "parallel git workers per project (0 = single process)")
 	gitlabCmd.Flags().String("log-opts", "", "git log options passed to each project scan")
 
 	gitlabCmd.Flags().String("since", "", "only scan API items created after this date (YYYY-MM-DD or RFC3339)")
@@ -99,7 +98,6 @@ func runGitLab(cmd *cobra.Command, args []string) {
 		ShouldSkip:       detector.SkipFunc(),
 		MaxArchiveDepth:  detector.MaxArchiveDepth,
 		Workers:          mustGetIntFlag(cmd, "source-workers"),
-		GitWorkers:       mustGetIntFlag(cmd, "git-workers"),
 		LogOpts:          mustGetStringFlag(cmd, "log-opts"),
 		DateRangeOpts: sources.DateRangeOptions{
 			Since: since,

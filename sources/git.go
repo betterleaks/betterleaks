@@ -25,7 +25,7 @@ import (
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
-const defaultGitWorkers = 40
+const defaultGitFragmentWorkers = 40
 
 // GitCmd helps to work with Git's output.
 type GitCmd struct {
@@ -366,16 +366,34 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 
 // Git is a source for yielding fragments from a git repo
 type Git struct {
-	Cmd             *GitCmd
+	// Cmd scans an already-started Git command. When Cmd is nil, Fragments
+	// starts a history scan for RepoPath.
+	Cmd      *GitCmd
+	RepoPath string
+	LogOpts  string
+
 	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
 	MaxArchiveDepth int
-	Workers         int // 0 uses the source default
+	// Workers controls parallel Git history processes for RepoPath scans. For
+	// an explicitly supplied Cmd, it controls fragment workers. Zero uses one
+	// history process or the Cmd fragment default, respectively.
+	Workers int
 }
 
 // Fragments yields fragments from a git repo
 func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if s.Cmd == nil {
+		if s.RepoPath == "" {
+			return errors.New("git source requires Cmd or RepoPath")
+		}
+		return s.fragmentsFromRepo(ctx, yield)
+	}
+	return s.fragmentsFromCmd(ctx, yield)
+}
+
+func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 	defer func() {
 		if err := s.Cmd.Wait(); err != nil {
 			logging.Debug().Err(err).Str("cmd", s.Cmd.String()).Msg("command aborted")
@@ -383,22 +401,29 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	}()
 
 	g, groupCtx := errgroup.WithContext(ctx)
-	g.SetLimit(workerCount(s.Workers, defaultGitWorkers))
+	g.SetLimit(workerCount(s.Workers, defaultGitFragmentWorkers))
 
 	var (
 		diffFilesCh = s.Cmd.DiffFilesCh()
 		errCh       = s.Cmd.ErrCh()
 	)
+	finish := func(producerErr error) error {
+		producerErr = errors.Join(producerErr, drainGitOutput(diffFilesCh, errCh))
+		return waitForGitWorkers(g, groupCtx, producerErr)
+	}
 
 	// loop to range over both DiffFiles (stdout) and ErrCh (stderr)
 	for diffFilesCh != nil || errCh != nil {
 		select {
 		case <-groupCtx.Done():
-			return waitForGitWorkers(g, groupCtx, groupCtx.Err())
+			return finish(nil)
 		case gitdiffFile, open := <-diffFilesCh:
 			if !open {
 				diffFilesCh = nil
 				break
+			}
+			if groupCtx.Err() != nil {
+				return finish(nil)
 			}
 
 			if gitdiffFile.IsDelete {
@@ -446,6 +471,9 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			}
 
 			g.Go(func() error {
+				if groupCtx.Err() != nil {
+					return nil
+				}
 				if yieldAsArchive {
 					blob, err := s.Cmd.NewBlobReaderContext(groupCtx, commitSHA, gitdiffFile.NewName)
 					if err != nil {
@@ -502,8 +530,11 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				errCh = nil
 				break
 			}
+			if groupCtx.Err() != nil {
+				return finish(err)
+			}
 
-			return waitForGitWorkers(g, groupCtx, yield(Fragment{}, err))
+			return finish(yield(Fragment{}, err))
 		}
 	}
 
@@ -511,11 +542,31 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 }
 
 func waitForGitWorkers(g *errgroup.Group, groupCtx context.Context, producerErr error) error {
+	groupErr := groupCtx.Err()
 	workerErr := g.Wait()
-	if workerErr != nil && producerErr == groupCtx.Err() {
-		return workerErr
+	if workerErr != nil {
+		return errors.Join(producerErr, workerErr)
 	}
-	return errors.Join(producerErr, workerErr)
+	return errors.Join(producerErr, groupErr)
+}
+
+func drainGitOutput(diffFilesCh <-chan *gitdiff.File, errCh <-chan error) error {
+	var producerErr error
+	for diffFilesCh != nil || errCh != nil {
+		select {
+		case _, open := <-diffFilesCh:
+			if !open {
+				diffFilesCh = nil
+			}
+		case err, open := <-errCh:
+			if !open {
+				errCh = nil
+				continue
+			}
+			producerErr = errors.Join(producerErr, err)
+		}
+	}
+	return producerErr
 }
 
 // ResolveRemote resolves the SCM platform and remote URL for the given source.

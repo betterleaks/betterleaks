@@ -24,3 +24,35 @@ func workerCount(configured, fallback int) int {
 	}
 	return fallback
 }
+
+const maxProviderTargetWorkers = 4
+
+// providerWorkerAllocation divides an explicit source-worker budget between
+// top-level provider targets and the Git or file work within each target.
+// WorkersPerTarget is zero when the source should retain its historical
+// defaults.
+type providerWorkerAllocation struct {
+	TargetWorkers    int
+	WorkersPerTarget int
+}
+
+func allocateProviderWorkers(configured, defaultTargetWorkers int, singleTarget bool) providerWorkerAllocation {
+	if configured <= 0 {
+		if singleTarget {
+			defaultTargetWorkers = 1
+		}
+		return providerWorkerAllocation{TargetWorkers: defaultTargetWorkers}
+	}
+	if singleTarget {
+		return providerWorkerAllocation{
+			TargetWorkers:    1,
+			WorkersPerTarget: configured,
+		}
+	}
+
+	targetWorkers := min(max(configured/4, 1), maxProviderTargetWorkers)
+	return providerWorkerAllocation{
+		TargetWorkers:    targetWorkers,
+		WorkersPerTarget: max((configured-targetWorkers)/targetWorkers, 1),
+	}
+}

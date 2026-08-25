@@ -21,7 +21,6 @@ func init() {
 		"resource types to skip: repos, forks, prs, pr-comments, "+
 			"issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists")
 	githubCmd.Flags().StringSlice("exclude-repo", nil, "glob patterns to exclude repos")
-	githubCmd.Flags().Int("git-workers", 0, "parallel git workers per repo (0 = single process)")
 	githubCmd.Flags().String("log-opts", "", "git log options passed to each repo scan")
 
 	// Actions scanning
@@ -101,7 +100,6 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		ShouldSkip:      detector.SkipFunc(),
 		MaxArchiveDepth: detector.MaxArchiveDepth,
 		Workers:         mustGetIntFlag(cmd, "source-workers"),
-		GitWorkers:      mustGetIntFlag(cmd, "git-workers"),
 		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
 		Actions: sources.ActionsOptions{
 			Workflows: actionsWorkflows,

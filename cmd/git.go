@@ -27,7 +27,7 @@ func init() {
 	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
 	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
 	gitCmd.Flags().String("log-opts", "", "git log options")
-	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process)")
+	gitCmd.Flags().Int("git-workers", 0, "alias for --source-workers when scanning Git")
 }
 
 var gitCmd = &cobra.Command{
@@ -66,12 +66,15 @@ func runGit(cmd *cobra.Command, args []string) {
 	preCommit := mustGetBoolFlag(cmd, "pre-commit")
 	gitWorkers := mustGetIntFlag(cmd, "git-workers")
 	sourceWorkers := mustGetIntFlag(cmd, "source-workers")
+	workers, workerErr := resolveGitWorkers(sourceWorkers, gitWorkers)
+	if workerErr != nil {
+		logging.Fatal().Err(workerErr).Send()
+	}
 	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 
 	var (
-		err         error
-		src         sources.Source
-		scmPlatform scm.Platform
+		err error
+		src sources.Source
 	)
 
 	if preCommit || staged {
@@ -85,38 +88,23 @@ func runGit(cmd *cobra.Command, args []string) {
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        scm.NoPlatform,
 			MaxArchiveDepth: detector.MaxArchiveDepth,
-			Workers:         sourceWorkers,
+			Workers:         workers,
 		}
 	} else {
-		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
-			logging.Fatal().Err(err).Send()
+		scmPlatform, platformErr := scm.PlatformFromString(mustGetStringFlag(cmd, "platform"))
+		if platformErr != nil {
+			logging.Fatal().Err(platformErr).Send()
 		}
 		resolvedPlatform, remoteURL := sources.ResolveRemote(cmd.Context(), scmPlatform, source)
 
-		if gitWorkers > 0 {
-			src = &sources.ParallelGit{
-				RepoPath:        source,
-				ShouldSkip:      detector.SkipFunc(),
-				Platform:        resolvedPlatform,
-				RemoteURL:       remoteURL,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-				LogOpts:         logOpts,
-				GitWorkers:      gitWorkers,
-				Workers:         sourceWorkers,
-			}
-		} else {
-			gitCmd, cmdErr := sources.NewGitLogCmdContext(cmd.Context(), source, logOpts)
-			if cmdErr != nil {
-				logging.Fatal().Err(cmdErr).Msg("could not create Git log cmd")
-			}
-			src = &sources.Git{
-				Cmd:             gitCmd,
-				ShouldSkip:      detector.SkipFunc(),
-				Platform:        resolvedPlatform,
-				RemoteURL:       remoteURL,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-				Workers:         sourceWorkers,
-			}
+		src = &sources.Git{
+			RepoPath:        source,
+			ShouldSkip:      detector.SkipFunc(),
+			Platform:        resolvedPlatform,
+			RemoteURL:       remoteURL,
+			MaxArchiveDepth: detector.MaxArchiveDepth,
+			LogOpts:         logOpts,
+			Workers:         workers,
 		}
 	}
 
@@ -140,4 +128,20 @@ func runGit(cmd *cobra.Command, args []string) {
 	}
 
 	findingSummaryAndExit(detector, findings, exitCode, start, err)
+}
+
+func resolveGitWorkers(sourceWorkers, gitWorkers int) (int, error) {
+	if sourceWorkers < 0 {
+		return 0, fmt.Errorf("--source-workers must be non-negative")
+	}
+	if gitWorkers < 0 {
+		return 0, fmt.Errorf("--git-workers must be non-negative")
+	}
+	if sourceWorkers > 0 && gitWorkers > 0 && sourceWorkers != gitWorkers {
+		return 0, fmt.Errorf("--source-workers and --git-workers must match when both are set")
+	}
+	if sourceWorkers > 0 {
+		return sourceWorkers, nil
+	}
+	return gitWorkers, nil
 }

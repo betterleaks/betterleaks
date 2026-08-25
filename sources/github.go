@@ -25,6 +25,7 @@ import (
 
 const (
 	// Retry/concurrency limits.
+	githubScanConcurrency = 100
 	defaultActionsWorkers = 4
 	itemsPerPage          = 100
 	gqlIssuesFirst        = 50
@@ -56,11 +57,10 @@ type GitHub struct {
 	// or set directly by callers who want programmatic control.
 	Resources GitHubResourceSet
 
-	// Scan config (passed through to Git/ParallelGit per repo)
+	// Scan config (passed through to Git per repo)
 	ShouldSkip      SkipFunc
 	MaxArchiveDepth int
 	Workers         int // 0 uses source-specific defaults
-	GitWorkers      int // git workers per repo (0 = single process)
 	LogOpts         string
 
 	// GitHub API
@@ -244,10 +244,15 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	if err != nil {
 		return err
 	}
+	workers := allocateProviderWorkers(
+		s.Workers,
+		githubScanConcurrency,
+		direct || target.Resource == "repo",
+	)
 
 	client := s.newClient(ctx)
 	s.gqlClient = s.newGraphQLClient(ctx)
-	s.gqlSem = make(chan struct{}, 10)
+	s.gqlSem = make(chan struct{}, min(workers.TargetWorkers, 10))
 
 	if direct {
 		return s.scanURL(ctx, client, s.URL, yield)
@@ -257,7 +262,7 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(workerCount(s.Workers, 100))
+	scanGroup.SetLimit(workers.TargetWorkers)
 
 	if target.Resource == "user" && s.Resources.Has(GitHubResourceTypeGists) {
 		scanGroup.Go(func() error {
@@ -274,7 +279,7 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	for repo := range repoCh {
 		repoCount.Add(1)
 		scanGroup.Go(func() error {
-			return s.scanRepo(scanCtx, client, repo, yield)
+			return s.scanRepoWithWorkers(scanCtx, client, repo, workers.WorkersPerTarget, yield)
 		})
 	}
 	enumErr := <-enumErrCh
@@ -408,6 +413,10 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 // scanRepo runs all scans for a single repo under the shared top-level worker pool.
 // Git history remains non-fatal; API-backed scans still return errors.
 func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
+	return s.scanRepoWithWorkers(ctx, client, repo, 0, yield)
+}
+
+func (s *GitHub) scanRepoWithWorkers(ctx context.Context, client *github.Client, repo *github.Repository, workers int, yield FragmentsFunc) error {
 	name := repo.GetFullName()
 	logger := logging.With().Str("repo", name).Logger()
 	repoAttrs := s.repoAttributes(repo, "")
@@ -446,10 +455,10 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 	}
 
 	if s.Resources.Has(GitHubResourceTypeRepos) {
-		_ = run(string(GitHubResourceTypeRepos), func() error { return s.scanRepoGit(ctx, repo, ghYield) })
+		_ = run(string(GitHubResourceTypeRepos), func() error { return s.scanRepoGit(ctx, repo, workers, ghYield) })
 	}
 	if s.Resources.Has(GitHubResourceTypeActions) {
-		if err := run("actions", func() error { return s.scanActions(ctx, client, repo, ghYield) }); err != nil {
+		if err := run("actions", func() error { return s.scanActionsWithWorkers(ctx, client, repo, workers, ghYield) }); err != nil {
 			return err
 		}
 	}
@@ -614,26 +623,13 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 }
 
 // scanRepoGit clones and scans a repo's git history.
-func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
+func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, workers int, yield FragmentsFunc) error {
 	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		var src Source
-		if s.GitWorkers > 0 {
-			src = &ParallelGit{
-				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
-				Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
-				MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts:         s.LogOpts, GitWorkers: s.GitWorkers, Workers: s.Workers,
-			}
-		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
-			if err != nil {
-				return err
-			}
-			src = &Git{
-				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
-				Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
-				MaxArchiveDepth: s.MaxArchiveDepth, Workers: s.Workers,
-			}
+		src := &Git{
+			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
+			Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
+			MaxArchiveDepth: s.MaxArchiveDepth,
+			LogOpts:         s.LogOpts, Workers: workers,
 		}
 		return src.Fragments(ctx, yield)
 	})
@@ -641,9 +637,13 @@ func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield
 
 // scanActions scans workflow run logs (and optionally artifacts) for a repo.
 func (s *GitHub) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
+	return s.scanActionsWithWorkers(ctx, client, repo, s.Workers, yield)
+}
+
+func (s *GitHub) scanActionsWithWorkers(ctx context.Context, client *github.Client, repo *github.Repository, configuredWorkers int, yield FragmentsFunc) error {
 	owner := repo.GetOwner().GetLogin()
 	repoName := repo.GetName()
-	workers := workerCount(s.Workers, defaultActionsWorkers)
+	workers := workerCount(configuredWorkers, defaultActionsWorkers)
 
 	runs := make(chan *github.WorkflowRun, workers)
 	g, gctx := errgroup.WithContext(ctx)
