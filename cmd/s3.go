@@ -78,7 +78,7 @@ func runS3(cmd *cobra.Command, args []string) {
 		MaxObjectSize:   mustGetInt64Flag(cmd, "max-object-size"),
 		Workers:         workers,
 		ShouldSkip:      detector.SkipFunc(),
-		MaxArchiveDepth: detector.MaxArchiveDepth,
+		MaxArchiveDepth: mustGetIntFlag(cmd, "max-archive-depth"),
 	}
 
 	if err := src.Validate(); err != nil {
@@ -95,7 +95,7 @@ func runS3(cmd *cobra.Command, args []string) {
 			logging.Error().Err(result.Err).Msg("scan error")
 			continue
 		}
-		collectFinding(detector, findings, result.Finding)
+		collectFinding(cmd, findings, result.Finding)
 	}
 
 	var scanErr error
@@ -105,5 +105,5 @@ func runS3(cmd *cobra.Command, args []string) {
 			errs: scanErrs,
 		}
 	}
-	findingSummaryAndExit(detector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, scanErr)
 }

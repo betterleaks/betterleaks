@@ -56,7 +56,7 @@ func runProtect(cmd *cobra.Command, args []string) {
 		Cmd:             gitCmd,
 		ShouldSkip:      detector.SkipFunc(),
 		Platform:        scm.NoPlatform,
-		MaxArchiveDepth: detector.MaxArchiveDepth,
+		MaxArchiveDepth: mustGetIntFlag(cmd, "max-archive-depth"),
 		Workers:         mustGetIntFlag(cmd, "source-workers"),
 	}
 
@@ -68,7 +68,7 @@ func runProtect(cmd *cobra.Command, args []string) {
 			logging.Error().Err(result.Err).Msg("failed to scan Git repository")
 			continue
 		}
-		collectFinding(detector, findings, result.Finding)
+		collectFinding(cmd, findings, result.Finding)
 	}
 	if n := len(scanErrs); n > 0 {
 		err = &multipleErrors{
@@ -77,5 +77,5 @@ func runProtect(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findingSummaryAndExit(detector, findings, exitCode, start, err)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, err)
 }

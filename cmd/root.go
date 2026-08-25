@@ -410,34 +410,17 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		logging.Fatal().Err(err).Send()
 	}
 
-	if detector.MaxArchiveDepth, err = cmd.Flags().GetInt("max-archive-depth"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-
 	// set color flag at first
-	if detector.NoColor, err = cmd.Flags().GetBool("no-color"); err != nil {
+	noColor, err := cmd.Flags().GetBool("no-color")
+	if err != nil {
 		logging.Fatal().Err(err).Send()
 	}
 	// also init logger again without color
-	if detector.NoColor {
+	if noColor {
 		logging.Logger = log.Output(zerolog.ConsoleWriter{
 			Out:     os.Stderr,
-			NoColor: detector.NoColor,
+			NoColor: noColor,
 		}).Level(logLevel)
-	}
-	// set verbose flag
-	if detector.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	// set redact flag
-	if detector.Redact, err = cmd.Flags().GetUint("redact"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	if detector.LegacyPrint, err = cmd.Flags().GetBool("legacy-print"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	if detector.MaxTargetMegaBytes, err = cmd.Flags().GetInt("max-target-megabytes"); err != nil {
-		logging.Fatal().Err(err).Send()
 	}
 	// set ignore gitleaks:allow / betterleaks:allow flag
 	if detector.IgnoreGitleaksAllow, err = cmd.Flags().GetBool("ignore-gitleaks-allow"); err != nil {
@@ -484,71 +467,10 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	// ignore findings from the baseline (an existing report in json format generated earlier)
 	baselinePath, _ := cmd.Flags().GetString("baseline-path")
 	if baselinePath != "" {
-		err = detector.AddBaseline(baselinePath, source)
+		err = detector.AddBaselineWithRedaction(baselinePath, source, mustGetUIntFlag(cmd, "redact") > 0)
 		if err != nil {
 			logging.Error().Msgf("Could not load baseline. The path must point of a gitleaks report generated using the default format: %s", err)
 		}
-	}
-
-	// Validate report settings.
-	reportPath := mustGetStringFlag(cmd, "report-path")
-	if reportPath != "" {
-		if reportPath != report.StdoutReportPath {
-			// Ensure the path is writable.
-			if f, err := os.Create(reportPath); err != nil {
-				logging.Fatal().Err(err).Msgf("Report path is not writable: %s", reportPath)
-			} else {
-				_ = f.Close()
-				_ = os.Remove(reportPath)
-			}
-		}
-
-		// Build report writer.
-		var (
-			reporter       report.Reporter
-			reportFormat   = mustGetStringFlag(cmd, "report-format")
-			reportTemplate = mustGetStringFlag(cmd, "report-template")
-		)
-		if reportFormat == "" {
-			ext := strings.ToLower(filepath.Ext(reportPath))
-			switch ext {
-			case ".csv":
-				reportFormat = "csv"
-			case ".json":
-				reportFormat = "json"
-			case ".sarif":
-				reportFormat = "sarif"
-			default:
-				logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
-			}
-			logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
-		}
-		switch strings.TrimSpace(strings.ToLower(reportFormat)) {
-		case "csv":
-			reporter = &report.CsvReporter{}
-		case "json":
-			reporter = &report.JsonReporter{}
-		case "junit":
-			reporter = &report.JunitReporter{}
-		case "sarif":
-			reporter = &report.SarifReporter{
-				OrderedRules: cfg.GetOrderedRules(),
-			}
-		case "template":
-			if reporter, err = report.NewTemplateReporter(reportTemplate); err != nil {
-				logging.Fatal().Err(err).Msg("Invalid report template")
-			}
-		default:
-			logging.Fatal().Msgf("unknown report format %s", reportFormat)
-		}
-
-		// Sanity check.
-		if reportTemplate != "" && reportFormat != "template" {
-			logging.Fatal().Msgf("Report format must be 'template' if --report-template is specified")
-		}
-
-		detector.ReportPath = reportPath
-		detector.Reporter = reporter
 	}
 
 	return detector
@@ -581,19 +503,21 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func collectFinding(detector *detect.Detector, findings *findingCollector, finding report.Finding) {
+func collectFinding(cmd *cobra.Command, findings *findingCollector, finding report.Finding) {
 	findings.Add(finding)
-	if !detector.Verbose {
+	if !mustGetBoolFlag(cmd, "verbose") {
 		return
 	}
-	if detector.LegacyPrint {
-		finding.PrintLegacy(detector.NoColor, detector.Redact)
+	noColor := mustGetBoolFlag(cmd, "no-color")
+	redact := mustGetUIntFlag(cmd, "redact")
+	if mustGetBoolFlag(cmd, "legacy-print") {
+		finding.PrintLegacy(noColor, redact)
 		return
 	}
-	finding.Print(detector.NoColor, detector.Redact)
+	finding.Print(noColor, redact)
 }
 
-func findingSummaryAndExit(detector *detect.Detector, findings *findingCollector, exitCode int, start time.Time, err error) {
+func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findings *findingCollector, exitCode int, start time.Time, err error) {
 	if diagnosticsManager.Enabled {
 		logging.Debug().Msg("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()
@@ -630,20 +554,26 @@ func findingSummaryAndExit(detector *detect.Detector, findings *findingCollector
 	}
 
 	// write report if desired
-	if detector.Reporter != nil {
+	reportPath := mustGetStringFlag(cmd, "report-path")
+	if reportPath != "" {
+		reporter := reporterForCommand(cmd, detector.Config, reportPath)
 		reportFindings := detector.FilterByStatus(findings.ReportFindings())
-		detect.RedactFindings(reportFindings, detector.Redact)
+		if redact := mustGetUIntFlag(cmd, "redact"); redact > 0 {
+			for i := range reportFindings {
+				reportFindings[i].Redact(redact)
+			}
+		}
 
 		var (
 			file      io.WriteCloser
 			reportErr error
 		)
 
-		if detector.ReportPath == report.StdoutReportPath {
+		if reportPath == report.StdoutReportPath {
 			file = os.Stdout
 		} else {
 			// Open the file.
-			if file, reportErr = os.Create(detector.ReportPath); reportErr != nil {
+			if file, reportErr = os.Create(reportPath); reportErr != nil {
 				goto ReportEnd
 			}
 			defer func() {
@@ -652,7 +582,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings *findingCollector
 		}
 
 		// Write to the file.
-		if reportErr = detector.Reporter.Write(file, reportFindings); reportErr != nil { //nolint:staticcheck // Existing CLI report ownership is outside this focused change.
+		if reportErr = reporter.Write(file, reportFindings); reportErr != nil {
 			goto ReportEnd
 		}
 
@@ -668,6 +598,48 @@ func findingSummaryAndExit(detector *detect.Detector, findings *findingCollector
 
 	if findings.Count() != 0 {
 		os.Exit(exitCode)
+	}
+}
+
+func reporterForCommand(cmd *cobra.Command, cfg *config.Config, reportPath string) report.Reporter {
+	reportFormat := mustGetStringFlag(cmd, "report-format")
+	reportTemplate := mustGetStringFlag(cmd, "report-template")
+	if reportFormat == "" {
+		ext := strings.ToLower(filepath.Ext(reportPath))
+		switch ext {
+		case ".csv":
+			reportFormat = "csv"
+		case ".json":
+			reportFormat = "json"
+		case ".sarif":
+			reportFormat = "sarif"
+		default:
+			logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
+		}
+		logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
+	}
+	if reportTemplate != "" && reportFormat != "template" {
+		logging.Fatal().Msg("Report format must be 'template' if --report-template is specified")
+	}
+
+	switch strings.TrimSpace(strings.ToLower(reportFormat)) {
+	case "csv":
+		return &report.CsvReporter{}
+	case "json":
+		return &report.JsonReporter{}
+	case "junit":
+		return &report.JunitReporter{}
+	case "sarif":
+		return &report.SarifReporter{OrderedRules: cfg.GetOrderedRules()}
+	case "template":
+		reporter, err := report.NewTemplateReporter(reportTemplate)
+		if err != nil {
+			logging.Fatal().Err(err).Msg("Invalid report template")
+		}
+		return reporter
+	default:
+		logging.Fatal().Msgf("unknown report format %s", reportFormat)
+		return nil
 	}
 }
 

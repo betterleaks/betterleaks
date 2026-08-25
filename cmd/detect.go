@@ -62,7 +62,9 @@ func runDetect(cmd *cobra.Command, args []string) {
 	detector := Detector(cmd, cfg, sourcePath)
 
 	// parse flags
-	detector.FollowSymlinks = mustGetBoolFlag(cmd, "follow-symlinks")
+	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
+	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
+	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
 	exitCode := mustGetIntFlag(cmd, "exit-code")
 	noGit := mustGetBoolFlag(cmd, "no-git")
 	fromPipe := mustGetBoolFlag(cmd, "pipe")
@@ -76,10 +78,10 @@ func runDetect(cmd *cobra.Command, args []string) {
 	if noGit {
 		src = &sources.Files{
 			ShouldSkip:      detector.SkipFunc(),
-			FollowSymlinks:  detector.FollowSymlinks,
-			MaxFileSize:     detector.MaxTargetMegaBytes * 1_000_000,
+			FollowSymlinks:  followSymlinks,
+			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
 			Path:            sourcePath,
-			MaxArchiveDepth: detector.MaxArchiveDepth,
+			MaxArchiveDepth: maxArchiveDepth,
 			Workers:         mustGetIntFlag(cmd, "source-workers"),
 		}
 	} else if fromPipe {
@@ -88,7 +90,7 @@ func runDetect(cmd *cobra.Command, args []string) {
 			logging.Fatal().Err(attrErr).Msg("invalid --set-attr value")
 		}
 
-		src = newStdinSource(os.Stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth)
+		src = newStdinSource(os.Stdin, attrs, detector.SkipFunc(), maxArchiveDepth)
 	} else {
 		logOpts := mustGetStringFlag(cmd, "log-opts")
 		scmPlatform, platformErr := scm.PlatformFromString(mustGetStringFlag(cmd, "platform"))
@@ -102,7 +104,7 @@ func runDetect(cmd *cobra.Command, args []string) {
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        resolvedPlatform,
 			RemoteURL:       remoteURL,
-			MaxArchiveDepth: detector.MaxArchiveDepth,
+			MaxArchiveDepth: maxArchiveDepth,
 			LogOpts:         logOpts,
 			Workers:         mustGetIntFlag(cmd, "source-workers"),
 		}
@@ -116,7 +118,7 @@ func runDetect(cmd *cobra.Command, args []string) {
 			logging.Error().Err(result.Err).Msg("scan error")
 			continue
 		}
-		collectFinding(detector, findings, result.Finding)
+		collectFinding(cmd, findings, result.Finding)
 	}
 	if n := len(scanErrs); n > 0 {
 		err = &multipleErrors{
@@ -125,5 +127,5 @@ func runDetect(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findingSummaryAndExit(detector, findings, exitCode, start, err)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, err)
 }
