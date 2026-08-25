@@ -280,6 +280,27 @@ func (c *GitCmd) Wait() error {
 	return c.cmd.Wait()
 }
 
+// cancel stops the Git process so its output channels can be drained without
+// waiting for the rest of the command after a fragment worker fails.
+func (c *GitCmd) cancel() error {
+	if c == nil || c.cmd == nil {
+		return nil
+	}
+	if c.cmd.Cancel != nil {
+		if err := c.cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return err
+		}
+		return nil
+	}
+	if c.cmd.Process == nil {
+		return nil
+	}
+	if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	return nil
+}
+
 // String displays the command used for GitCmd
 func (c *GitCmd) String() string {
 	return c.cmd.String()
@@ -408,6 +429,9 @@ func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 		errCh       = s.Cmd.ErrCh()
 	)
 	finish := func(producerErr error) error {
+		if groupCtx.Err() != nil {
+			producerErr = errors.Join(producerErr, s.Cmd.cancel())
+		}
 		producerErr = errors.Join(producerErr, drainGitOutput(diffFilesCh, errCh))
 		return waitForGitWorkers(g, groupCtx, producerErr)
 	}
