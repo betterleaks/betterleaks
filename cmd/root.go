@@ -568,7 +568,19 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding, exitCode int, start time.Time, err error) {
+func collectFinding(detector *detect.Detector, findings *findingCollector, finding report.Finding) {
+	findings.Add(finding)
+	if !detector.Verbose {
+		return
+	}
+	if detector.LegacyPrint {
+		finding.PrintLegacy(detector.NoColor, detector.Redact)
+		return
+	}
+	finding.Print(detector.NoColor, detector.Redact)
+}
+
+func findingSummaryAndExit(detector *detect.Detector, findings *findingCollector, exitCode int, start time.Time, err error) {
 	if diagnosticsManager.Enabled {
 		logging.Debug().Msg("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()
@@ -585,23 +597,20 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 			Msg("validation complete")
 	}
 
-	findings = detector.FilterByStatus(findings)
-	detect.RedactFindings(findings, detector.Redact)
-
 	totalBytes := detector.TotalBytes.Load()
 	bytesMsg := fmt.Sprintf("scanned ~%d bytes (%s)", totalBytes, bytesConvert(totalBytes))
 	if err == nil {
 		logging.Info().Msgf("%s in %s", bytesMsg, FormatDuration(time.Since(start)))
-		if len(findings) != 0 {
-			logging.Warn().Msgf("leaks found: %d", len(findings))
+		if findings.Count() != 0 {
+			logging.Warn().Msgf("leaks found: %d", findings.Count())
 		} else {
 			logging.Info().Msg("no leaks found")
 		}
 	} else {
 		logging.Warn().Msg(bytesMsg)
 		logging.Warn().Msgf("partial scan completed in %s", FormatDuration(time.Since(start)))
-		if len(findings) != 0 {
-			logging.Warn().Msgf("%d leaks found in partial scan", len(findings))
+		if findings.Count() != 0 {
+			logging.Warn().Msgf("%d leaks found in partial scan", findings.Count())
 		} else {
 			logging.Warn().Msg("no leaks found in partial scan")
 		}
@@ -609,6 +618,9 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 
 	// write report if desired
 	if detector.Reporter != nil {
+		reportFindings := detector.FilterByStatus(findings.ReportFindings())
+		detect.RedactFindings(reportFindings, detector.Redact)
+
 		var (
 			file      io.WriteCloser
 			reportErr error
@@ -627,7 +639,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 		}
 
 		// Write to the file.
-		if reportErr = detector.Reporter.Write(file, findings); reportErr != nil {
+		if reportErr = detector.Reporter.Write(file, reportFindings); reportErr != nil { //nolint:staticcheck // Existing CLI report ownership is outside this focused change.
 			goto ReportEnd
 		}
 
@@ -641,7 +653,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 		os.Exit(1)
 	}
 
-	if len(findings) != 0 {
+	if findings.Count() != 0 {
 		os.Exit(exitCode)
 	}
 }

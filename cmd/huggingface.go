@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -91,12 +90,8 @@ func runHuggingFace(cmd *cobra.Command, args []string) {
 	}
 
 	exitCode := mustGetIntFlag(cmd, "exit-code")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
-	verbose := mustGetBoolFlag(cmd, "verbose")
+	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 
-	detector.SkipFindingAppend = true
-	var findings []report.Finding
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
 		if result.Err != nil {
@@ -104,14 +99,7 @@ func runHuggingFace(cmd *cobra.Command, args []string) {
 			logging.Error().Err(result.Err).Msg("scan error")
 			continue
 		}
-		findings = append(findings, result.Finding)
-		if verbose {
-			if detector.LegacyPrint {
-				result.Finding.PrintLegacy(noColor, redact)
-			} else {
-				result.Finding.Print(noColor, redact)
-			}
-		}
+		collectFinding(detector, findings, result.Finding)
 	}
 
 	var scanErr error
