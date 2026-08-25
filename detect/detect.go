@@ -164,15 +164,9 @@ type Detector struct {
 	// before they are returned because the pool is shared by concurrent scans.
 	candidatePool sync.Pool
 
-	// TODO remove this in v2
-	// SkipFindingAppend skips populating the deprecated detector-level findings
-	// slice while consuming results from Run.
-	//
-	// This keeps Run callers from retaining a second compatibility copy of the
-	// same findings when they are already consuming results directly.
-	//
-	// DetectSource intentionally ignores this flag to preserve its historical
-	// return contract.
+	// SkipFindingAppend is retained for source compatibility.
+	// Deprecated: Run no longer stores findings on Detector, so this field has no
+	// effect. Consume Run results and retain them in the caller when needed.
 	SkipFindingAppend bool
 
 	// ----------------------------------------------------------------
@@ -188,8 +182,7 @@ type Detector struct {
 	// of the detector's scan which can then be used to generate a
 	// report.
 	// Deprecated: findings are now emitted via the channel returned by Run.
-	// This slice is retained only for compatibility with deprecated callers and
-	// optional accumulation during Run when SkipFindingAppend is false.
+	// This slice is retained only for compatibility with deprecated callers.
 	findings []report.Finding
 
 	// findingsCh is created by DetectSource and carries all ready-to-display
@@ -262,7 +255,6 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	keywords := maps.Keys(cfg.Keywords)
 	d := &Detector{
 		gitleaksIgnore:         make(map[string]struct{}),
-		findings:               make([]report.Finding, 0),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
 		prefilter:              ahocorasick.Compile(keywords, true),
@@ -484,6 +476,8 @@ func NewDetectorDefaultConfig() (*Detector, error) {
 }
 
 // Run executes the pipeline on the given source and yields results as they are found.
+// Findings are not retained by the Detector; callers that need them after Run
+// must collect them while consuming the iterator.
 // It returns an iterator of Results, which can be consumed by the caller. We return an iterator to make the API clean.
 // You can do things like:
 //
@@ -611,7 +605,6 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				}
 
 				// Check validation status and if we should filter or not
-				// Check validation status and if we should filter or not
 				if len(d.ValidationStatusFilter) > 0 {
 					if res.Finding.ValidationStatus != "" {
 						if _, ok := d.ValidationStatusFilter[string(res.Finding.ValidationStatus)]; !ok {
@@ -620,10 +613,6 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					} else if _, ok := d.ValidationStatusFilter["none"]; !ok {
 						continue
 					}
-				}
-
-				if !d.SkipFindingAppend {
-					d.findings = append(d.findings, res.Finding)
 				}
 			}
 

@@ -78,6 +78,22 @@ func loadTestConfig(t *testing.T, cfgName string) *config.Config {
 	return cfg
 }
 
+func TestRunDoesNotRetainFindings(t *testing.T) {
+	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
+	source := &sources.Stdin{
+		Content: strings.NewReader("ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+	}
+
+	var findings []report.Finding
+	for result := range detector.Run(t.Context(), source) {
+		require.NoError(t, result.Err)
+		findings = append(findings, result.Finding)
+	}
+
+	require.Len(t, findings, 1)
+	require.Empty(t, detector.findings)
+}
+
 func TestCandidateBitmap(t *testing.T) {
 	rules := map[string]config.Rule{
 		"high":   {RuleID: "high", Specificity: 30, Keywords: []string{"shared", "alias"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
