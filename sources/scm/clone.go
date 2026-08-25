@@ -163,12 +163,14 @@ func gitCloneEnv(configs []GitConfig) []string {
 		"GIT_TERMINAL_PROMPT":    "0",
 	}
 
-	if len(configs) > 0 {
-		overrides["GIT_CONFIG_COUNT"] = fmt.Sprintf("%d", len(configs))
-		for i, cfg := range configs {
-			overrides[fmt.Sprintf("GIT_CONFIG_KEY_%d", i)] = cfg.Key
-			overrides[fmt.Sprintf("GIT_CONFIG_VALUE_%d", i)] = cfg.Value
-		}
+	// Always inject safe.directory=* so git can access repositories owned by a
+	// different user (common in Docker/CI). Prepend it so caller-provided configs
+	// (e.g. auth headers) take higher indices and are unaffected.
+	allConfigs := append([]GitConfig{{Key: "safe.directory", Value: "*"}}, configs...)
+	overrides["GIT_CONFIG_COUNT"] = fmt.Sprintf("%d", len(allConfigs))
+	for i, cfg := range allConfigs {
+		overrides[fmt.Sprintf("GIT_CONFIG_KEY_%d", i)] = cfg.Key
+		overrides[fmt.Sprintf("GIT_CONFIG_VALUE_%d", i)] = cfg.Value
 	}
 
 	env := os.Environ()

@@ -86,20 +86,41 @@ func TestAuthCloneConfigs(t *testing.T) {
 }
 
 func TestGitCloneEnv(t *testing.T) {
-	env := gitCloneEnv([]GitConfig{{Key: "http.extraheader", Value: "Authorization: basic abc"}})
-	joined := strings.Join(env, "\n")
+	t.Run("with auth config", func(t *testing.T) {
+		env := gitCloneEnv([]GitConfig{{Key: "http.extraheader", Value: "Authorization: basic abc"}})
+		joined := strings.Join(env, "\n")
 
-	for _, want := range []string{
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.extraheader",
-		"GIT_CONFIG_VALUE_0=Authorization: basic abc",
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_NOSYSTEM=1",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("gitCloneEnv() missing %q in %q", want, joined)
+		for _, want := range []string{
+			"GIT_CONFIG_COUNT=2",
+			"GIT_CONFIG_KEY_0=safe.directory",
+			"GIT_CONFIG_VALUE_0=*",
+			"GIT_CONFIG_KEY_1=http.extraheader",
+			"GIT_CONFIG_VALUE_1=Authorization: basic abc",
+			"GIT_TERMINAL_PROMPT=0",
+			"GIT_CONFIG_NOSYSTEM=1",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("gitCloneEnv() missing %q in:\n%s", want, joined)
+			}
 		}
-	}
+	})
+
+	t.Run("no auth config", func(t *testing.T) {
+		env := gitCloneEnv(nil)
+		joined := strings.Join(env, "\n")
+
+		for _, want := range []string{
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=safe.directory",
+			"GIT_CONFIG_VALUE_0=*",
+			"GIT_TERMINAL_PROMPT=0",
+			"GIT_CONFIG_NOSYSTEM=1",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("gitCloneEnv() missing %q in:\n%s", want, joined)
+			}
+		}
+	})
 }
 
 func TestSanitizeOutput(t *testing.T) {

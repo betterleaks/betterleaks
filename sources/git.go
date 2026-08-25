@@ -49,6 +49,12 @@ func gitConfigIsolationEnv() []string {
 		"GIT_CONFIG_SYSTEM":      nullDevice,
 		"GIT_NO_REPLACE_OBJECTS": "1",
 		"GIT_TERMINAL_PROMPT":    "0",
+		// Inject safe.directory=* so betterleaks can scan repositories owned by a
+		// different user (common in Docker/CI). Global and system configs are
+		// suppressed above, making this the only way to pass the setting through.
+		"GIT_CONFIG_COUNT":   "1",
+		"GIT_CONFIG_KEY_0":   "safe.directory",
+		"GIT_CONFIG_VALUE_0": "*",
 	}
 
 	env := os.Environ()
