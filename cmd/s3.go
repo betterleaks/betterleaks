@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -19,7 +18,7 @@ func init() {
 	s3Cmd.Flags().String("secret-key", "", "AWS secret key (overrides AWS_SECRET_ACCESS_KEY)")
 	s3Cmd.Flags().String("session-token", "", "AWS session token (overrides AWS_SESSION_TOKEN)")
 	s3Cmd.Flags().Int64("max-object-size", 0, "objects larger than this many bytes are skipped (0 = 250 MiB default)")
-	s3Cmd.Flags().Int("workers", 0, "concurrent object fetches (0 = 16 default)")
+	s3Cmd.Flags().Int("workers", 0, "concurrent object fetches (0 = --source-workers or source default)")
 }
 
 var s3Cmd = &cobra.Command{
@@ -64,6 +63,10 @@ func runS3(cmd *cobra.Command, args []string) {
 
 	cfg := Config(cmd)
 	detector := Detector(cmd, cfg, ".")
+	workers := mustGetIntFlag(cmd, "workers")
+	if workers == 0 {
+		workers = mustGetIntFlag(cmd, "source-workers")
+	}
 
 	src := &sources.S3{
 		URL:             args[0],
@@ -73,9 +76,9 @@ func runS3(cmd *cobra.Command, args []string) {
 		SecretKey:       mustGetStringFlag(cmd, "secret-key"),
 		SessionToken:    mustGetStringFlag(cmd, "session-token"),
 		MaxObjectSize:   mustGetInt64Flag(cmd, "max-object-size"),
-		Workers:         mustGetIntFlag(cmd, "workers"),
+		Workers:         workers,
 		ShouldSkip:      detector.SkipFunc(),
-		MaxArchiveDepth: detector.MaxArchiveDepth,
+		MaxArchiveDepth: mustGetIntFlag(cmd, "max-archive-depth"),
 	}
 
 	if err := src.Validate(); err != nil {
@@ -83,12 +86,8 @@ func runS3(cmd *cobra.Command, args []string) {
 	}
 
 	exitCode := mustGetIntFlag(cmd, "exit-code")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
-	verbose := mustGetBoolFlag(cmd, "verbose")
+	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 
-	detector.SkipFindingAppend = true
-	var findings []report.Finding
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
 		if result.Err != nil {
@@ -96,14 +95,7 @@ func runS3(cmd *cobra.Command, args []string) {
 			logging.Error().Err(result.Err).Msg("scan error")
 			continue
 		}
-		findings = append(findings, result.Finding)
-		if verbose {
-			if detector.LegacyPrint {
-				result.Finding.PrintLegacy(noColor, redact)
-			} else {
-				result.Finding.Print(noColor, redact)
-			}
-		}
+		collectFinding(cmd, findings, result.Finding)
 	}
 
 	var scanErr error
@@ -113,5 +105,5 @@ func runS3(cmd *cobra.Command, args []string) {
 			errs: scanErrs,
 		}
 	}
-	findingSummaryAndExit(detector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, scanErr)
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -25,7 +24,6 @@ func init() {
 	gitlabCmd.Flags().StringSlice("exclude-repo", nil, "glob patterns to exclude projects by full path (e.g. 'group/test-*')")
 	gitlabCmd.Flags().Bool("include-subgroups", true, "when scanning a group, recurse into subgroups")
 	gitlabCmd.Flags().Bool("all-groups", false, "enumerate every group visible to the token (instance-wide)")
-	gitlabCmd.Flags().Int("git-workers", 0, "parallel git workers per project (0 = single process)")
 	gitlabCmd.Flags().String("log-opts", "", "git log options passed to each project scan")
 
 	gitlabCmd.Flags().String("since", "", "only scan API items created after this date (YYYY-MM-DD or RFC3339)")
@@ -98,9 +96,8 @@ func runGitLab(cmd *cobra.Command, args []string) {
 		AllGroups:        mustGetBoolFlag(cmd, "all-groups"),
 		IncludeSubgroups: mustGetBoolFlag(cmd, "include-subgroups"),
 		ShouldSkip:       detector.SkipFunc(),
-		Sema:             detector.Sema,
-		MaxArchiveDepth:  detector.MaxArchiveDepth,
-		Workers:          mustGetIntFlag(cmd, "git-workers"),
+		MaxArchiveDepth:  mustGetIntFlag(cmd, "max-archive-depth"),
+		Workers:          mustGetIntFlag(cmd, "source-workers"),
 		LogOpts:          mustGetStringFlag(cmd, "log-opts"),
 		DateRangeOpts: sources.DateRangeOptions{
 			Since: since,
@@ -113,12 +110,8 @@ func runGitLab(cmd *cobra.Command, args []string) {
 	}
 
 	exitCode := mustGetIntFlag(cmd, "exit-code")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
-	verbose := mustGetBoolFlag(cmd, "verbose")
+	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 
-	detector.SkipFindingAppend = true
-	var findings []report.Finding
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
 		if result.Err != nil {
@@ -126,14 +119,7 @@ func runGitLab(cmd *cobra.Command, args []string) {
 			logging.Error().Err(result.Err).Msg("scan error")
 			continue
 		}
-		findings = append(findings, result.Finding)
-		if verbose {
-			if detector.LegacyPrint {
-				result.Finding.PrintLegacy(noColor, redact)
-			} else {
-				result.Finding.Print(noColor, redact)
-			}
-		}
+		collectFinding(cmd, findings, result.Finding)
 	}
 
 	var scanErr error
@@ -143,5 +129,5 @@ func runGitLab(cmd *cobra.Command, args []string) {
 			errs: scanErrs,
 		}
 	}
-	findingSummaryAndExit(detector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, scanErr)
 }

@@ -52,6 +52,18 @@ var (
 			if _, err := confidenceFlag(cmd); err != nil {
 				return err
 			}
+			if workers, err := cmd.Flags().GetInt("source-workers"); err != nil {
+				return err
+			} else if workers < 0 {
+				return fmt.Errorf("--source-workers must be non-negative")
+			}
+			if cmd.Flags().Lookup("git-workers") != nil {
+				if workers, err := cmd.Flags().GetInt("git-workers"); err != nil {
+					return err
+				} else if workers < 0 {
+					return fmt.Errorf("--git-workers must be non-negative")
+				}
+			}
 			// Set the timeout for all the commands
 			if timeout, err := cmd.Flags().GetInt("timeout"); err != nil {
 				return err
@@ -90,6 +102,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color in terminal output")
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
+	rootCmd.PersistentFlags().Int("source-workers", 0, "number of concurrent source workers (0 = source default)")
 	rootCmd.PersistentFlags().BoolP("ignore-gitleaks-allow", "", false, "ignore gitleaks:allow and betterleaks:allow comments")
 	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
 	rootCmd.Flag("redact").NoOptDefVal = "100"
@@ -397,34 +410,17 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		logging.Fatal().Err(err).Send()
 	}
 
-	if detector.MaxArchiveDepth, err = cmd.Flags().GetInt("max-archive-depth"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-
 	// set color flag at first
-	if detector.NoColor, err = cmd.Flags().GetBool("no-color"); err != nil {
+	noColor, err := cmd.Flags().GetBool("no-color")
+	if err != nil {
 		logging.Fatal().Err(err).Send()
 	}
 	// also init logger again without color
-	if detector.NoColor {
+	if noColor {
 		logging.Logger = log.Output(zerolog.ConsoleWriter{
 			Out:     os.Stderr,
-			NoColor: detector.NoColor,
+			NoColor: noColor,
 		}).Level(logLevel)
-	}
-	// set verbose flag
-	if detector.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	// set redact flag
-	if detector.Redact, err = cmd.Flags().GetUint("redact"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	if detector.LegacyPrint, err = cmd.Flags().GetBool("legacy-print"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	if detector.MaxTargetMegaBytes, err = cmd.Flags().GetInt("max-target-megabytes"); err != nil {
-		logging.Fatal().Err(err).Send()
 	}
 	// set ignore gitleaks:allow / betterleaks:allow flag
 	if detector.IgnoreGitleaksAllow, err = cmd.Flags().GetBool("ignore-gitleaks-allow"); err != nil {
@@ -471,71 +467,10 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	// ignore findings from the baseline (an existing report in json format generated earlier)
 	baselinePath, _ := cmd.Flags().GetString("baseline-path")
 	if baselinePath != "" {
-		err = detector.AddBaseline(baselinePath, source)
+		err = detector.AddBaselineWithRedaction(baselinePath, source, mustGetUIntFlag(cmd, "redact") > 0)
 		if err != nil {
 			logging.Error().Msgf("Could not load baseline. The path must point of a gitleaks report generated using the default format: %s", err)
 		}
-	}
-
-	// Validate report settings.
-	reportPath := mustGetStringFlag(cmd, "report-path")
-	if reportPath != "" {
-		if reportPath != report.StdoutReportPath {
-			// Ensure the path is writable.
-			if f, err := os.Create(reportPath); err != nil {
-				logging.Fatal().Err(err).Msgf("Report path is not writable: %s", reportPath)
-			} else {
-				_ = f.Close()
-				_ = os.Remove(reportPath)
-			}
-		}
-
-		// Build report writer.
-		var (
-			reporter       report.Reporter
-			reportFormat   = mustGetStringFlag(cmd, "report-format")
-			reportTemplate = mustGetStringFlag(cmd, "report-template")
-		)
-		if reportFormat == "" {
-			ext := strings.ToLower(filepath.Ext(reportPath))
-			switch ext {
-			case ".csv":
-				reportFormat = "csv"
-			case ".json":
-				reportFormat = "json"
-			case ".sarif":
-				reportFormat = "sarif"
-			default:
-				logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
-			}
-			logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
-		}
-		switch strings.TrimSpace(strings.ToLower(reportFormat)) {
-		case "csv":
-			reporter = &report.CsvReporter{}
-		case "json":
-			reporter = &report.JsonReporter{}
-		case "junit":
-			reporter = &report.JunitReporter{}
-		case "sarif":
-			reporter = &report.SarifReporter{
-				OrderedRules: cfg.GetOrderedRules(),
-			}
-		case "template":
-			if reporter, err = report.NewTemplateReporter(reportTemplate); err != nil {
-				logging.Fatal().Err(err).Msg("Invalid report template")
-			}
-		default:
-			logging.Fatal().Msgf("unknown report format %s", reportFormat)
-		}
-
-		// Sanity check.
-		if reportTemplate != "" && reportFormat != "template" {
-			logging.Fatal().Msgf("Report format must be 'template' if --report-template is specified")
-		}
-
-		detector.ReportPath = reportPath
-		detector.Reporter = reporter
 	}
 
 	return detector
@@ -568,7 +503,21 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding, exitCode int, start time.Time, err error) {
+func collectFinding(cmd *cobra.Command, findings *findingCollector, finding report.Finding) {
+	findings.Add(finding)
+	if !mustGetBoolFlag(cmd, "verbose") {
+		return
+	}
+	noColor := mustGetBoolFlag(cmd, "no-color")
+	redact := mustGetUIntFlag(cmd, "redact")
+	if mustGetBoolFlag(cmd, "legacy-print") {
+		finding.PrintLegacy(noColor, redact)
+		return
+	}
+	finding.Print(noColor, redact)
+}
+
+func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findings *findingCollector, exitCode int, start time.Time, err error) {
 	if diagnosticsManager.Enabled {
 		logging.Debug().Msg("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()
@@ -585,40 +534,46 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 			Msg("validation complete")
 	}
 
-	findings = detector.FilterByStatus(findings)
-	detect.RedactFindings(findings, detector.Redact)
-
 	totalBytes := detector.TotalBytes.Load()
 	bytesMsg := fmt.Sprintf("scanned ~%d bytes (%s)", totalBytes, bytesConvert(totalBytes))
 	if err == nil {
 		logging.Info().Msgf("%s in %s", bytesMsg, FormatDuration(time.Since(start)))
-		if len(findings) != 0 {
-			logging.Warn().Msgf("leaks found: %d", len(findings))
+		if findings.Count() != 0 {
+			logging.Warn().Msgf("leaks found: %d", findings.Count())
 		} else {
 			logging.Info().Msg("no leaks found")
 		}
 	} else {
 		logging.Warn().Msg(bytesMsg)
 		logging.Warn().Msgf("partial scan completed in %s", FormatDuration(time.Since(start)))
-		if len(findings) != 0 {
-			logging.Warn().Msgf("%d leaks found in partial scan", len(findings))
+		if findings.Count() != 0 {
+			logging.Warn().Msgf("%d leaks found in partial scan", findings.Count())
 		} else {
 			logging.Warn().Msg("no leaks found in partial scan")
 		}
 	}
 
 	// write report if desired
-	if detector.Reporter != nil {
+	reportPath := mustGetStringFlag(cmd, "report-path")
+	if reportPath != "" {
+		reporter := reporterForCommand(cmd, detector.Config, reportPath)
+		reportFindings := detector.FilterByStatus(findings.ReportFindings())
+		if redact := mustGetUIntFlag(cmd, "redact"); redact > 0 {
+			for i := range reportFindings {
+				reportFindings[i].Redact(redact)
+			}
+		}
+
 		var (
 			file      io.WriteCloser
 			reportErr error
 		)
 
-		if detector.ReportPath == report.StdoutReportPath {
+		if reportPath == report.StdoutReportPath {
 			file = os.Stdout
 		} else {
 			// Open the file.
-			if file, reportErr = os.Create(detector.ReportPath); reportErr != nil {
+			if file, reportErr = os.Create(reportPath); reportErr != nil {
 				goto ReportEnd
 			}
 			defer func() {
@@ -627,7 +582,7 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 		}
 
 		// Write to the file.
-		if reportErr = detector.Reporter.Write(file, findings); reportErr != nil {
+		if reportErr = reporter.Write(file, reportFindings); reportErr != nil {
 			goto ReportEnd
 		}
 
@@ -641,8 +596,50 @@ func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding,
 		os.Exit(1)
 	}
 
-	if len(findings) != 0 {
+	if findings.Count() != 0 {
 		os.Exit(exitCode)
+	}
+}
+
+func reporterForCommand(cmd *cobra.Command, cfg *config.Config, reportPath string) report.Reporter {
+	reportFormat := mustGetStringFlag(cmd, "report-format")
+	reportTemplate := mustGetStringFlag(cmd, "report-template")
+	if reportFormat == "" {
+		ext := strings.ToLower(filepath.Ext(reportPath))
+		switch ext {
+		case ".csv":
+			reportFormat = "csv"
+		case ".json":
+			reportFormat = "json"
+		case ".sarif":
+			reportFormat = "sarif"
+		default:
+			logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
+		}
+		logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
+	}
+	if reportTemplate != "" && reportFormat != "template" {
+		logging.Fatal().Msg("Report format must be 'template' if --report-template is specified")
+	}
+
+	switch strings.TrimSpace(strings.ToLower(reportFormat)) {
+	case "csv":
+		return &report.CsvReporter{}
+	case "json":
+		return &report.JsonReporter{}
+	case "junit":
+		return &report.JunitReporter{}
+	case "sarif":
+		return &report.SarifReporter{OrderedRules: cfg.GetOrderedRules()}
+	case "template":
+		reporter, err := report.NewTemplateReporter(reportTemplate)
+		if err != nil {
+			logging.Fatal().Err(err).Msg("Invalid report template")
+		}
+		return reporter
+	default:
+		logging.Fatal().Msgf("unknown report format %s", reportFormat)
+		return nil
 	}
 }
 

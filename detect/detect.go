@@ -29,7 +29,6 @@ import (
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 
-	"github.com/fatih/semgroup"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
 )
@@ -90,8 +89,7 @@ type Detector struct {
 	// MatchContext specifies how much context to extract around a match.
 	MatchContext contextwindow.Spec
 
-	// ValidationStatusFilter, when non-empty, restricts which findings are
-	// printed in verbose mode. Parsed from --validation-status.
+	// ValidationStatusFilter, when non-empty, restricts which findings Run emits.
 	ValidationStatusFilter map[string]struct{}
 
 	// MinConfidence suppresses classified findings below this level.
@@ -118,6 +116,9 @@ type Detector struct {
 
 	// a list of known findings that should be ignored
 	baseline []report.Finding
+	// baselineRedacted records whether secret text should be ignored when
+	// comparing findings with a redacted baseline report.
+	baselineRedacted bool
 
 	// path to baseline
 	baselinePath string
@@ -163,77 +164,6 @@ type Detector struct {
 	// the same rulesBySpecificity position should run. Bitmaps must be cleared
 	// before they are returned because the pool is shared by concurrent scans.
 	candidatePool sync.Pool
-
-	// TODO remove this in v2
-	// SkipFindingAppend skips populating the deprecated detector-level findings
-	// slice while consuming results from Run.
-	//
-	// This keeps Run callers from retaining a second compatibility copy of the
-	// same findings when they are already consuming results directly.
-	//
-	// DetectSource intentionally ignores this flag to preserve its historical
-	// return contract.
-	SkipFindingAppend bool
-
-	// ----------------------------------------------------------------
-	// DEPRECATED fields below, to be removed in the next major version
-	//
-	//
-	// report-related settings.
-	// Deprecated: detect should not handle reporting
-	ReportPath string
-	// Deprecated: detect should not handle reporting
-	Reporter report.Reporter
-	// findings is a slice of report.Findings. This is the result
-	// of the detector's scan which can then be used to generate a
-	// report.
-	// Deprecated: findings are now emitted via the channel returned by Run.
-	// This slice is retained only for compatibility with deprecated callers and
-	// optional accumulation during Run when SkipFindingAppend is false.
-	findings []report.Finding
-
-	// findingsCh is created by DetectSource and carries all ready-to-display
-	// findings. A single consumer goroutine reads from it.
-	// Deprecated: findings are now emitted via the channel returned by Run;
-	// this field is only used for the legacy DetectSource method and will be removed in v2.
-	findingsCh chan report.Finding
-
-	// Redact is a flag to redact findings. This is exported
-	// so users using gitleaks as a library can set this flag
-	// without calling `detector.Start(cmd *cobra.Command)`
-	Redact uint
-
-	// verbose is a flag to print findings
-	Verbose bool
-
-	// MaxArchiveDepth limits how deep the sources will explore nested archives
-	MaxArchiveDepth int
-
-	// files larger than this will be skipped
-	MaxTargetMegaBytes int
-
-	// followSymlinks is a flag to enable scanning symlink files
-	FollowSymlinks bool
-
-	// NoColor is a flag to disable color output
-	NoColor bool
-
-	// LegacyPrint uses the legacy key/value verbose format (typically with Verbose=true).
-	LegacyPrint bool
-
-	// commitMutex is to prevent concurrent access to the
-	// commit map when adding commits
-	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
-	commitMutex *sync.Mutex
-
-	// commitMap is used to keep track of commits that have been scanned.
-	// This is only used for logging purposes and git scans.
-	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
-	commitMap map[string]bool
-
-	// Sema (https://github.com/fatih/semgroup) controls the concurrency
-	// Deprecated: this is only used for git log workers and can be removed when the legacy git scan is removed in v2.
-	Sema *semgroup.Group
 }
 
 // NewDetectorContext creates a new Detector.
@@ -262,11 +192,9 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	keywords := maps.Keys(cfg.Keywords)
 	d := &Detector{
 		gitleaksIgnore:         make(map[string]struct{}),
-		findings:               make([]report.Finding, 0),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
 		prefilter:              ahocorasick.Compile(keywords, true),
-		Sema:                   semgroup.NewGroup(ctx, 40),
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
 		validationPrograms:     make(map[string]exprruntime.Program),
@@ -484,6 +412,8 @@ func NewDetectorDefaultConfig() (*Detector, error) {
 }
 
 // Run executes the pipeline on the given source and yields results as they are found.
+// Findings are not retained by the Detector; callers that need them after Run
+// must collect them while consuming the iterator.
 // It returns an iterator of Results, which can be consumed by the caller. We return an iterator to make the API clean.
 // You can do things like:
 //
@@ -611,7 +541,6 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				}
 
 				// Check validation status and if we should filter or not
-				// Check validation status and if we should filter or not
 				if len(d.ValidationStatusFilter) > 0 {
 					if res.Finding.ValidationStatus != "" {
 						if _, ok := d.ValidationStatusFilter[string(res.Finding.ValidationStatus)]; !ok {
@@ -620,10 +549,6 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					} else if _, ok := d.ValidationStatusFilter["none"]; !ok {
 						continue
 					}
-				}
-
-				if !d.SkipFindingAppend {
-					d.findings = append(d.findings, res.Finding)
 				}
 			}
 
@@ -656,7 +581,11 @@ func (d *Detector) ignore(finding report.Finding) bool {
 		return true
 	}
 
-	if d.baseline != nil && !IsNew(finding, d.Redact, d.baseline) {
+	redact := uint(0)
+	if d.baselineRedacted {
+		redact = 1
+	}
+	if d.baseline != nil && !IsNew(finding, redact, d.baseline) {
 		logger.Debug().
 			Str("fingerprint", finding.Fingerprint).
 			Msgf("skipping finding: baseline")
@@ -709,7 +638,7 @@ func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
 
 // DetectString scans the given string and returns a list of findings
 func (d *Detector) DetectString(content string) []report.Finding {
-	return d.Detect(sources.Fragment{
+	return d.detectFragment(context.Background(), sources.Fragment{
 		Raw: content,
 	})
 }

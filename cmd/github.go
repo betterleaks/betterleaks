@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -22,7 +21,6 @@ func init() {
 		"resource types to skip: repos, forks, prs, pr-comments, "+
 			"issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists")
 	githubCmd.Flags().StringSlice("exclude-repo", nil, "glob patterns to exclude repos")
-	githubCmd.Flags().Int("git-workers", 0, "parallel git workers per repo (0 = single process)")
 	githubCmd.Flags().String("log-opts", "", "git log options passed to each repo scan")
 
 	// Actions scanning
@@ -100,9 +98,8 @@ func runGitHub(cmd *cobra.Command, args []string) {
 		Exclude:         exclude,
 		ExcludeRepos:    excludeRepos,
 		ShouldSkip:      detector.SkipFunc(),
-		Sema:            detector.Sema,
-		MaxArchiveDepth: detector.MaxArchiveDepth,
-		Workers:         mustGetIntFlag(cmd, "git-workers"),
+		MaxArchiveDepth: mustGetIntFlag(cmd, "max-archive-depth"),
+		Workers:         mustGetIntFlag(cmd, "source-workers"),
 		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
 		Actions: sources.ActionsOptions{
 			Workflows: actionsWorkflows,
@@ -118,12 +115,8 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	}
 
 	exitCode := mustGetIntFlag(cmd, "exit-code")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
-	verbose := mustGetBoolFlag(cmd, "verbose")
+	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 
-	detector.SkipFindingAppend = true
-	var findings []report.Finding
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
 		if result.Err != nil {
@@ -131,14 +124,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 			logging.Error().Err(result.Err).Msg("scan error")
 			continue
 		}
-		findings = append(findings, result.Finding)
-		if verbose {
-			if detector.LegacyPrint {
-				result.Finding.PrintLegacy(noColor, redact)
-			} else {
-				result.Finding.Print(noColor, redact)
-			}
-		}
+		collectFinding(cmd, findings, result.Finding)
 	}
 
 	var scanErr error
@@ -148,7 +134,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 			errs: scanErrs,
 		}
 	}
-	findingSummaryAndExit(detector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, scanErr)
 }
 
 // parseDateFlag parses a date string as either YYYY-MM-DD or RFC3339.

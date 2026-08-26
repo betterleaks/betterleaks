@@ -2,6 +2,28 @@
 
 Use `--help` for full flag descriptions. This page is for patterns.
 
+## Source workers
+
+Use `--source-workers` to control how many source items are scanned
+concurrently. A value of `0` keeps each source's default.
+
+```sh
+# scan at most eight files at a time
+betterleaks dir . --source-workers 8
+
+# limit repository and nested content scanning
+betterleaks github https://github.com/my-company --source-workers 8
+```
+
+For `betterleaks git`, `--git-workers` is a compatibility alias for
+`--source-workers`; both control the same parallel Git history workers. GitHub,
+GitLab, and Hugging Face use only `--source-workers`. A single repository,
+project, model, dataset, Space, or bucket receives the full worker count. For
+an organization, user, group, or owner scan, up to 25% of the workers (capped
+at four) scan top-level targets. The remaining workers are divided between
+their nested Git history or file scans. A value of `0` preserves the source's
+historical defaults.
+
 ## Pick a target
 
 | Want to scan | Use |
@@ -59,7 +81,7 @@ Use `git` for history and diffs.
 betterleaks git .
 
 # parallel history scan
-betterleaks git . --git-workers 8
+betterleaks git . --source-workers 8
 
 # custom git log scope
 betterleaks git . --log-opts="--all --since='90 days ago'"
@@ -74,7 +96,7 @@ betterleaks git . --pre-commit --staged
 betterleaks git . --platform github
 
 # history scan with JSON output
-betterleaks git . --git-workers 8 --report-path findings.json --report-format json
+betterleaks git . --source-workers 8 --report-path findings.json --report-format json
 ```
 
 ---
@@ -522,8 +544,11 @@ betterleaks s3 --max-object-size=1073741824 https://my-bucket.s3.us-east-1.amazo
 betterleaks s3 --max-archive-depth=2 https://my-bucket.s3.us-east-1.amazonaws.com/
 
 # fewer concurrent GETs against rate-limited endpoints (default: 16)
-betterleaks s3 --workers=4 https://my-bucket.s3.us-east-1.amazonaws.com/
+betterleaks s3 --source-workers=4 https://my-bucket.s3.us-east-1.amazonaws.com/
 ```
+
+S3 also accepts its existing `--workers` flag. When set, it overrides
+`--source-workers` for that scan.
 
 Objects in `GLACIER`, `GLACIER_IR`, and `DEEP_ARCHIVE` storage classes are skipped before fetching, as are empty objects and directory markers (`key/`).
 
