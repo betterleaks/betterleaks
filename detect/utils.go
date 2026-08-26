@@ -206,14 +206,6 @@ func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.
 	return false
 }
 
-func printFinding(f report.Finding, noColor bool, redact uint, legacyPrint bool) {
-	if legacyPrint {
-		f.PrintLegacy(noColor, redact)
-		return
-	}
-	f.Print(noColor, redact)
-}
-
 // stripEmptyMeta removes keys whose value is an empty string or nil.
 func stripEmptyMeta(m map[string]any) map[string]any {
 	if len(m) == 0 {
@@ -240,13 +232,4 @@ func containsAllowSignature(line string) bool {
 		}
 	}
 	return false
-}
-
-func RedactFindings(findings []report.Finding, percent uint) {
-	if percent == 0 {
-		return
-	}
-	for i := range findings {
-		findings[i].Redact(percent)
-	}
 }

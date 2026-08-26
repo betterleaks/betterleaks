@@ -50,6 +50,12 @@ func LoadBaseline(baselinePath string) ([]report.Finding, error) {
 }
 
 func (d *Detector) AddBaseline(baselinePath string, source string) error {
+	return d.AddBaselineWithRedaction(baselinePath, source, false)
+}
+
+// AddBaselineWithRedaction loads a baseline and records whether its secret
+// fields were redacted when the report was written.
+func (d *Detector) AddBaselineWithRedaction(baselinePath string, source string, redacted bool) error {
 	if baselinePath != "" {
 		absoluteSource, err := filepath.Abs(source)
 		if err != nil {
@@ -72,6 +78,7 @@ func (d *Detector) AddBaseline(baselinePath string, source string) error {
 		}
 
 		d.baseline = baseline
+		d.baselineRedacted = redacted
 		baselinePath = relativeBaseline
 
 	}

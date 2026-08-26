@@ -89,8 +89,7 @@ type Detector struct {
 	// MatchContext specifies how much context to extract around a match.
 	MatchContext contextwindow.Spec
 
-	// ValidationStatusFilter, when non-empty, restricts which findings are
-	// printed in verbose mode. Parsed from --validation-status.
+	// ValidationStatusFilter, when non-empty, restricts which findings Run emits.
 	ValidationStatusFilter map[string]struct{}
 
 	// MinConfidence suppresses classified findings below this level.
@@ -117,6 +116,9 @@ type Detector struct {
 
 	// a list of known findings that should be ignored
 	baseline []report.Finding
+	// baselineRedacted records whether secret text should be ignored when
+	// comparing findings with a redacted baseline report.
+	baselineRedacted bool
 
 	// path to baseline
 	baselinePath string
@@ -162,66 +164,6 @@ type Detector struct {
 	// the same rulesBySpecificity position should run. Bitmaps must be cleared
 	// before they are returned because the pool is shared by concurrent scans.
 	candidatePool sync.Pool
-
-	// SkipFindingAppend is retained for source compatibility.
-	// Deprecated: Run no longer stores findings on Detector, so this field has no
-	// effect. Consume Run results and retain them in the caller when needed.
-	SkipFindingAppend bool
-
-	// ----------------------------------------------------------------
-	// DEPRECATED fields below, to be removed in the next major version
-	//
-	//
-	// report-related settings.
-	// Deprecated: detect should not handle reporting
-	ReportPath string
-	// Deprecated: detect should not handle reporting
-	Reporter report.Reporter
-	// findings is a slice of report.Findings. This is the result
-	// of the detector's scan which can then be used to generate a
-	// report.
-	// Deprecated: findings are now emitted via the channel returned by Run.
-	// This slice is retained only for compatibility with deprecated callers.
-	findings []report.Finding
-
-	// findingsCh is created by DetectSource and carries all ready-to-display
-	// findings. A single consumer goroutine reads from it.
-	// Deprecated: findings are now emitted via the channel returned by Run;
-	// this field is only used for the legacy DetectSource method and will be removed in v2.
-	findingsCh chan report.Finding
-
-	// Redact is a flag to redact findings. This is exported
-	// so users using gitleaks as a library can set this flag
-	// without calling `detector.Start(cmd *cobra.Command)`
-	Redact uint
-
-	// verbose is a flag to print findings
-	Verbose bool
-
-	// MaxArchiveDepth limits how deep the sources will explore nested archives
-	MaxArchiveDepth int
-
-	// files larger than this will be skipped
-	MaxTargetMegaBytes int
-
-	// followSymlinks is a flag to enable scanning symlink files
-	FollowSymlinks bool
-
-	// NoColor is a flag to disable color output
-	NoColor bool
-
-	// LegacyPrint uses the legacy key/value verbose format (typically with Verbose=true).
-	LegacyPrint bool
-
-	// commitMutex is to prevent concurrent access to the
-	// commit map when adding commits
-	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
-	commitMutex *sync.Mutex
-
-	// commitMap is used to keep track of commits that have been scanned.
-	// This is only used for logging purposes and git scans.
-	// Deprecated: this is only used for logging in git scans and can be removed when the legacy git scan is removed in v2.
-	commitMap map[string]bool
 }
 
 // NewDetectorContext creates a new Detector.
@@ -639,7 +581,11 @@ func (d *Detector) ignore(finding report.Finding) bool {
 		return true
 	}
 
-	if d.baseline != nil && !IsNew(finding, d.Redact, d.baseline) {
+	redact := uint(0)
+	if d.baselineRedacted {
+		redact = 1
+	}
+	if d.baseline != nil && !IsNew(finding, redact, d.baseline) {
 		logger.Debug().
 			Str("fingerprint", finding.Fingerprint).
 			Msgf("skipping finding: baseline")
@@ -692,7 +638,7 @@ func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
 
 // DetectString scans the given string and returns a list of findings
 func (d *Detector) DetectString(content string) []report.Finding {
-	return d.Detect(sources.Fragment{
+	return d.detectFragment(context.Background(), sources.Fragment{
 		Raw: content,
 	})
 }

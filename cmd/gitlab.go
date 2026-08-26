@@ -96,7 +96,7 @@ func runGitLab(cmd *cobra.Command, args []string) {
 		AllGroups:        mustGetBoolFlag(cmd, "all-groups"),
 		IncludeSubgroups: mustGetBoolFlag(cmd, "include-subgroups"),
 		ShouldSkip:       detector.SkipFunc(),
-		MaxArchiveDepth:  detector.MaxArchiveDepth,
+		MaxArchiveDepth:  mustGetIntFlag(cmd, "max-archive-depth"),
 		Workers:          mustGetIntFlag(cmd, "source-workers"),
 		LogOpts:          mustGetStringFlag(cmd, "log-opts"),
 		DateRangeOpts: sources.DateRangeOptions{
@@ -119,7 +119,7 @@ func runGitLab(cmd *cobra.Command, args []string) {
 			logging.Error().Err(result.Err).Msg("scan error")
 			continue
 		}
-		collectFinding(detector, findings, result.Finding)
+		collectFinding(cmd, findings, result.Finding)
 	}
 
 	var scanErr error
@@ -129,5 +129,5 @@ func runGitLab(cmd *cobra.Command, args []string) {
 			errs: scanErrs,
 		}
 	}
-	findingSummaryAndExit(detector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(cmd, detector, findings, exitCode, start, scanErr)
 }
