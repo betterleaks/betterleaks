@@ -156,3 +156,10 @@ Refer to the default [betterleaks config](https://github.com/betterleaks/betterl
 
 Test out your rules in the [Betterleaks Playground](https://betterleaks.com/playground)
 
+### Who uses Betterleaks?
+Projects and organizations that run Betterleaks. Open a pull request to add yours!
+- [Aikido Security](https://www.aikido.dev/)
+- [MegaLinter](https://megalinter.io) - open-source linter aggregator for CI, ships Betterleaks out of the box ([Betterleaks page](https://megalinter.io/latest/descriptors/repository_betterleaks/))
+- [Moyai](https://moyai.ai/)
+- [Entire.io](https://entire.io/)
+- [LeakTK](https://github.com/leaktk)
