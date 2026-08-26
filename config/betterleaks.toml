@@ -745,15 +745,10 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
 id = "atlassian-api-token"
-description = "Detected an Atlassian API token, posing a threat to project management and collaboration tool security and data confidentiality."
-regex = '''(?i)(?:(?-i:ATLASSIAN|[Aa]tlassian)|(?-i:CONFLUENCE|[Cc]onfluence)|(?-i:JIRA|[Jj]ira))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{20}[a-f0-9]{4})(?:\\?['"\x60]|[\s;]|\\[nr]|$)|\b(ATATT3[A-Za-z0-9_\-=]{186})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+description = "Detected an Atlassian Cloud API token, posing a threat to project management and collaboration tool security and data confidentiality."
+regex = '''\b(ATAT[A-Za-z0-9_\-=]{100,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
-keywords = [
-    "atlassian",
-    "confluence",
-    "jira",
-    "atatt3",
-]
+keywords = ["atat"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
@@ -1057,7 +1052,9 @@ confidence = "high"
 keywords = [
     "accountkey",
     "storage",
-    "key",
+    "accesskey",
+    "access_key",
+    "access-key",
 ]
 validate = '''
 let r = azure.validateStorage((components["azure-storage-account-name"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
@@ -2929,9 +2926,16 @@ filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) 
 [[rules]]
 id = "fal-api-key.1"
 description = "Fal.ai API key, which may allow access to model execution, billing, and platform APIs."
-regex = '''(?i:(?:fal)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}:[a-f0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i:(?:falai|fal_ai|fal-ai|fal.ai|fal-api|fal_api)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}:[a-f0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
-keywords = ["fal"]
+keywords = [
+    "falai",
+    "fal_ai",
+    "fal-ai",
+    "fal.ai",
+    "fal-api",
+    "fal_api",
+]
 validate = '''
 let r = http.get("https://api.fal.ai/v1/models/pricing?endpoint_id=fal-ai%2Fflux%2Fdev", {
     "Authorization": "Key " + finding["secret"],
