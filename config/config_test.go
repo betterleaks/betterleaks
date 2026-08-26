@@ -814,6 +814,25 @@ path = %q
 		assert.Nil(t, cfg.pendingRuleAllowlists)
 	})
 
+	t.Run("disabled inherited target drops its pending allowlist", func(t *testing.T) {
+		parentPath := writeConfig("disabled-target-parent.toml", `
+[extend]
+useDefault = true
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+regexes = ["example"]
+`)
+
+		cfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+disabledRules = ["generic-api-key"]
+`, parentPath), filepath.Join(tempDir, "disabled-target-child.toml"))
+		require.NoError(t, err)
+		assert.NotContains(t, cfg.Rules, "generic-api-key")
+		assert.Nil(t, cfg.pendingRuleAllowlists)
+	})
+
 	t.Run("nested extends", func(t *testing.T) {
 		basePath := writeConfig("nested-base.toml", `
 [[allowlists]]
@@ -846,6 +865,7 @@ regexes = ["example"]
 
 		_, err := ParseTOMLString(fmt.Sprintf(`[extend]
 path = %q
+disabledRules = ["missing-rule"]
 `, basePath), filepath.Join(tempDir, "invalid-target-outer.toml"))
 		require.EqualError(t, err, "[[allowlists]] target rule ID 'missing-rule' does not exist")
 	})

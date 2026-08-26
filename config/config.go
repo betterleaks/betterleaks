@@ -735,6 +735,11 @@ func (c *Config) extend(extensionConfig *Config) {
 			c.pendingRuleAllowlists = make(map[string][]*Allowlist)
 		}
 		for ruleID, allowlists := range extensionConfig.pendingRuleAllowlists {
+			if _, disabled := disabledRuleIDs[ruleID]; disabled {
+				if _, inherited := extensionConfig.Rules[ruleID]; inherited {
+					continue
+				}
+			}
 			c.pendingRuleAllowlists[ruleID] = append(c.pendingRuleAllowlists[ruleID], allowlists...)
 		}
 	}
