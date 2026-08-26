@@ -83,6 +83,36 @@ func TestRedact_SharedPointerDedup(t *testing.T) {
 	assert.Equal(t, "ab...", shared.CaptureGroups["token"])
 }
 
+func TestRedactedCopyDoesNotModifySharedData(t *testing.T) {
+	component := &ComponentFinding{ //nolint:exhaustruct // Only redaction fields matter here.
+		RuleID:        "component",
+		Secret:        "component-secret",
+		Match:         "token=component-secret",
+		CaptureGroups: map[string]string{"token": "component-secret"},
+	}
+	finding := Finding{ //nolint:exhaustruct // Only redaction fields matter here.
+		Secret:        "primary-secret",
+		Match:         "token=primary-secret",
+		CaptureGroups: map[string]string{"token": "primary-secret"},
+		ComponentSets: []ComponentSet{
+			{Components: []*ComponentFinding{component}, ValidationStatus: "", ValidationReason: ""},
+			{Components: []*ComponentFinding{component}, ValidationStatus: "", ValidationReason: ""},
+		},
+	}
+
+	redacted := finding.RedactedCopy(100)
+
+	assert.Equal(t, "primary-secret", finding.Secret)
+	assert.Equal(t, "primary-secret", finding.CaptureGroups["token"])
+	assert.Equal(t, "component-secret", component.Secret)
+	assert.Equal(t, "component-secret", component.CaptureGroups["token"])
+	assert.Equal(t, "REDACTED", redacted.Secret)
+	assert.Equal(t, "REDACTED", redacted.CaptureGroups["token"])
+	require.NotSame(t, component, redacted.ComponentSets[0].Components[0])
+	require.Same(t, redacted.ComponentSets[0].Components[0], redacted.ComponentSets[1].Components[0])
+	assert.Equal(t, "REDACTED", redacted.ComponentSets[0].Components[0].Secret)
+}
+
 func TestMask(t *testing.T) {
 
 	tests := map[string]struct {

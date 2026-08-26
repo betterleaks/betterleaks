@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -93,7 +94,7 @@ func init() {
 	rootCmd.PersistentFlags().StringP("config", "c", "", configDescription)
 	rootCmd.PersistentFlags().Int("exit-code", 1, "exit code when leaks have been encountered")
 	rootCmd.PersistentFlags().StringP("report-path", "r", "", "report file (use \"-\" for stdout)")
-	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
+	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, jsonl, csv, junit, sarif, template; validate supports pretty or jsonl)")
 	rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
 	rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
@@ -504,7 +505,9 @@ func bytesConvert(bytes uint64) string {
 }
 
 func collectFinding(cmd *cobra.Command, findings *findingCollector, finding report.Finding) {
-	findings.Add(finding)
+	if err := findings.Add(finding); err != nil {
+		logging.Fatal().Err(err).Msg("failed to write report")
+	}
 	if !mustGetBoolFlag(cmd, "verbose") {
 		return
 	}
@@ -556,39 +559,36 @@ func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findin
 	// write report if desired
 	reportPath := mustGetStringFlag(cmd, "report-path")
 	if reportPath != "" {
-		reporter := reporterForCommand(cmd, detector.Config, reportPath)
-		reportFindings := detector.FilterByStatus(findings.ReportFindings())
-		if redact := mustGetUIntFlag(cmd, "redact"); redact > 0 {
-			for i := range reportFindings {
-				reportFindings[i].Redact(redact)
-			}
-		}
-
-		var (
-			file      io.WriteCloser
-			reportErr error
-		)
-
-		if reportPath == report.StdoutReportPath {
-			file = os.Stdout
-		} else {
-			// Open the file.
-			if file, reportErr = os.Create(reportPath); reportErr != nil {
-				goto ReportEnd
-			}
-			defer func() {
-				_ = file.Close()
-			}()
-		}
-
-		// Write to the file.
-		if reportErr = reporter.Write(file, reportFindings); reportErr != nil {
-			goto ReportEnd
-		}
-
-	ReportEnd:
-		if reportErr != nil {
+		if reportErr := findings.Close(); reportErr != nil {
 			logging.Fatal().Err(reportErr).Msg("failed to write report")
+		}
+		if !findings.StreamsReport() {
+			var reportErr error
+			reporter := reporterForCommand(cmd, detector.Config, reportPath)
+			reportFindings := detector.FilterByStatus(findings.ReportFindings())
+			if redact := mustGetUIntFlag(cmd, "redact"); redact > 0 {
+				for i := range reportFindings {
+					reportFindings[i].Redact(redact)
+				}
+			}
+
+			var file io.WriteCloser
+
+			if reportPath == report.StdoutReportPath {
+				file = os.Stdout
+			} else {
+				file, reportErr = os.Create(reportPath)
+				if reportErr != nil {
+					logging.Fatal().Err(reportErr).Msg("failed to write report")
+				}
+				defer func() {
+					_ = file.Close()
+				}()
+			}
+
+			if reportErr = reporter.Write(file, reportFindings); reportErr != nil {
+				logging.Fatal().Err(reportErr).Msg("failed to write report")
+			}
 		}
 	}
 
@@ -602,31 +602,19 @@ func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findin
 }
 
 func reporterForCommand(cmd *cobra.Command, cfg *config.Config, reportPath string) report.Reporter {
-	reportFormat := mustGetStringFlag(cmd, "report-format")
+	reportFormat, err := reportFormatForCommand(cmd, reportPath)
+	if err != nil {
+		logging.Fatal().Err(err).Msg("failed to configure report")
+	}
 	reportTemplate := mustGetStringFlag(cmd, "report-template")
-	if reportFormat == "" {
-		ext := strings.ToLower(filepath.Ext(reportPath))
-		switch ext {
-		case ".csv":
-			reportFormat = "csv"
-		case ".json":
-			reportFormat = "json"
-		case ".sarif":
-			reportFormat = "sarif"
-		default:
-			logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
-		}
-		logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
-	}
-	if reportTemplate != "" && reportFormat != "template" {
-		logging.Fatal().Msg("Report format must be 'template' if --report-template is specified")
-	}
 
-	switch strings.TrimSpace(strings.ToLower(reportFormat)) {
+	switch reportFormat {
 	case "csv":
 		return &report.CsvReporter{}
 	case "json":
 		return &report.JsonReporter{}
+	case "jsonl":
+		return &report.JsonlReporter{}
 	case "junit":
 		return &report.JunitReporter{}
 	case "sarif":
@@ -640,6 +628,39 @@ func reporterForCommand(cmd *cobra.Command, cfg *config.Config, reportPath strin
 	default:
 		logging.Fatal().Msgf("unknown report format %s", reportFormat)
 		return nil
+	}
+}
+
+func reportFormatForCommand(cmd *cobra.Command, reportPath string) (string, error) {
+	reportFormat := strings.TrimSpace(strings.ToLower(mustGetStringFlag(cmd, "report-format")))
+	if reportFormat == "ndjson" {
+		reportFormat = "jsonl"
+	}
+	reportTemplate := mustGetStringFlag(cmd, "report-template")
+	if reportFormat == "" {
+		ext := strings.ToLower(filepath.Ext(reportPath))
+		switch ext {
+		case ".csv":
+			reportFormat = "csv"
+		case ".json":
+			reportFormat = "json"
+		case ".jsonl", ".ndjson":
+			reportFormat = "jsonl"
+		case ".sarif":
+			reportFormat = "sarif"
+		default:
+			return "", fmt.Errorf("unknown report format for extension %q", ext)
+		}
+		logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
+	}
+	if reportTemplate != "" && reportFormat != "template" {
+		return "", errors.New("report format must be 'template' if --report-template is specified")
+	}
+	switch reportFormat {
+	case "csv", "json", "jsonl", "junit", "sarif", "template":
+		return reportFormat, nil
+	default:
+		return "", fmt.Errorf("unknown report format %q", reportFormat)
 	}
 }
 

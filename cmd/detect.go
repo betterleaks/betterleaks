@@ -110,7 +110,10 @@ func runDetect(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
+	findings, collectorErr := newFindingCollector(cmd)
+	if collectorErr != nil {
+		logging.Fatal().Err(collectorErr).Msg("failed to configure report")
+	}
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
 		if result.Err != nil {
