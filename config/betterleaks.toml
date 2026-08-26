@@ -2935,6 +2935,8 @@ keywords = [
     "fal.ai",
     "fal-api",
     "fal_api",
+    "fal_key",
+    "fal-key",
 ]
 validate = '''
 let r = http.get("https://api.fal.ai/v1/models/pricing?endpoint_id=fal-ai%2Fflux%2Fdev", {
