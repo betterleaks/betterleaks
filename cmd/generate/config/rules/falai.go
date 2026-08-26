@@ -16,7 +16,7 @@ func FalAPIKey() *config.Rule {
 			utils.Hex("8")+`-`+utils.Hex("4")+`-`+utils.Hex("4")+`-`+utils.Hex("4")+`-`+utils.Hex("12")+`:`+utils.Hex("32"),
 			false,
 		),
-		Keywords: []string{"falai", "fal_ai", "fal-ai", "fal.ai", "fal-api", "fal_api"},
+		Keywords: []string{"falai", "fal_ai", "fal-ai", "fal.ai", "fal-api", "fal_api", "fal_key", "fal-key"},
 		ValidateExpr: `let r = http.get("https://api.fal.ai/v1/models/pricing?endpoint_id=fal-ai%2Fflux%2Fdev", {
     "Authorization": "Key " + finding["secret"],
     "Accept": "application/json"
