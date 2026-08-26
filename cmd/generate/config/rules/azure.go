@@ -124,7 +124,7 @@ func AzureStorageAccountKey() *config.Rule {
 		Confidence:  "high",
 		Description: "Detected an Azure Storage account key.",
 		Regex:       regexp.MustCompile(`(?i)\b(?:AccountKey|(?:azure[_\s.-]*)?(?:storage[_\s.-]*)?(?:account[_\s.-]*)?(?:access[_\s.-]*)?key)\b(?s:.{0,24}?)([A-Za-z0-9+/]{86}==)`),
-		Keywords:    []string{"AccountKey", "storage", "key"},
+		Keywords:    []string{"AccountKey", "storage", "accesskey", "access_key", "access-key"},
 		Components: []*config.Component{
 			{RuleID: "azure-storage-account-name", Within: "8L"},
 		},

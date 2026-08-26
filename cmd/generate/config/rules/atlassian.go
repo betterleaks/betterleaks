@@ -7,31 +7,29 @@ import (
 )
 
 func Atlassian() *config.Rule {
-	// define rule
 	r := config.Rule{
-		Description: "Detected an Atlassian API token, posing a threat to project management and collaboration tool security and data confidentiality.",
+		Description: "Detected an Atlassian Cloud API token, posing a threat to project management and collaboration tool security and data confidentiality.",
 		RuleID:      "atlassian-api-token",
 		Confidence:  "high",
-		Regex: utils.MergeRegexps(
-			utils.GenerateSemiGenericRegex(
-				[]string{"(?-i:ATLASSIAN|[Aa]tlassian)", "(?-i:CONFLUENCE|[Cc]onfluence)", "(?-i:JIRA|[Jj]ira)"},
-				`[a-z0-9]{20}[a-f0-9]{4}`, // The last 4 characters are an MD5 hash.
-				true,
-			),
-			utils.GenerateUniqueTokenRegex(`ATATT3[A-Za-z0-9_\-=]{186}`, false),
-		),
-		Keywords: []string{"atlassian", "confluence", "jira", "atatt3"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Regex:       utils.GenerateUniqueTokenRegex(`ATAT[A-Za-z0-9_\-=]{100,}`, false),
+		Keywords:    []string{"atat"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
-	// validate
-	tps := utils.GenerateSampleSecrets("atlassian", secrets.NewSecretWithEntropy(utils.AlphaNumeric("20")+"[a-f0-9]{4}", 3.5))
-	tps = append(tps, utils.GenerateSampleSecrets("confluence", secrets.NewSecretWithEntropy(utils.AlphaNumeric("20")+"[a-f0-9]{4}", 3.5))...)
-	tps = append(tps, utils.GenerateSampleSecrets("jira", secrets.NewSecretWithEntropy(utils.AlphaNumeric("20")+"[a-f0-9]{4}", 3.5))...)
-	tps = append(tps, `JIRA_API_TOKEN=HXe8DGg1iJd2AopzyxkFB7F2`)
-	tps = append(tps, utils.GenerateSampleSecrets("jira", "ATATT3xFfGF0K3irG5tKKi-6u-wwaXQFeGwZ-IHR-hQ3CulkKtMSuteRQFfLZ6jihHThzZCg_UjnDt-4Wl_gIRf4zrZJs5JqaeuBhsfJ4W5GD6yGg3W7903gbvaxZPBjxIQQ7BgFDSkPS8oPispw4KLz56mdK-G6CIvLO6hHRrZHY0Q3tvJ6JxE=C63992E6")...)
+	currentToken := "ATATT3" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_\-=]{186}`, 3.5)
+	variableToken := "ATAT" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_\-=]{100}`, 3.5)
+	tps := []string{
+		`ATLASSIAN_API_TOKEN="` + currentToken + `"`,
+		`token=` + variableToken,
+	}
 
-	fps := []string{"getPagesInConfluenceSpace,searchConfluenceUsingCql"}
+	fps := []string{
+		`JIRA_API_TOKEN=HXe8DGg1iJd2AopzyxkFB7F2`,
+		`BITBUCKET_ACCESS_TOKEN=ATCT` + secrets.NewSecret(`[A-Za-z0-9_\-=]{100}`),
+		`BITBUCKET_APP_PASSWORD=ATBB` + secrets.NewSecret(`[A-Za-z0-9_\-=]{100}`),
+		`ATLASSIAN_API_TOKEN=ATAT` + secrets.NewSecret(`[A-Za-z0-9_\-=]{99}`),
+		`getPagesInConfluenceSpace,searchConfluenceUsingCql`,
+	}
 
 	return utils.Validate(r, tps, fps)
 }
