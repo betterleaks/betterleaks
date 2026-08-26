@@ -12,7 +12,7 @@ func FalAPIKey() *config.Rule {
 		Confidence:  "high",
 		Description: "Fal.ai API key, which may allow access to model execution, billing, and platform APIs.",
 		Regex: utils.GenerateSemiGenericRegex(
-			[]string{"falai", "fal_ai", "fal-ai", "fal.ai", "fal-api", "fal_api"},
+			[]string{"falai", "fal_ai", "fal-ai", "fal.ai", "fal-api", "fal_api", "fal_key", "fal-key"},
 			utils.Hex("8")+`-`+utils.Hex("4")+`-`+utils.Hex("4")+`-`+utils.Hex("4")+`-`+utils.Hex("12")+`:`+utils.Hex("32"),
 			false,
 		),
