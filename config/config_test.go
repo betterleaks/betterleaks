@@ -747,6 +747,138 @@ components = [{ id = "component" }]
 	require.Len(t, cfg.Rules["child-primary"].Components, 1, "references should resolve after extension")
 }
 
+func TestTargetedGlobalAllowlistsAcrossExtends(t *testing.T) {
+	tempDir := t.TempDir()
+	writeConfig := func(name, content string) string {
+		path := filepath.Join(tempDir, name)
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+		return path
+	}
+
+	t.Run("allowlist and target rule in extended config", func(t *testing.T) {
+		basePath := writeConfig("base.toml", `
+[[rules]]
+id = "base-rule"
+regex = "secret"
+
+[[allowlists]]
+targetRules = ["base-rule"]
+regexes = ["example"]
+`)
+
+		cfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+`, basePath), filepath.Join(tempDir, "child.toml"))
+		require.NoError(t, err)
+		assert.Contains(t, cfg.Rules["base-rule"].Filter, "example")
+		assert.Nil(t, cfg.Rules["base-rule"].Allowlists)
+		assert.Nil(t, cfg.pendingRuleAllowlists)
+	})
+
+	t.Run("target rule in outer config", func(t *testing.T) {
+		basePath := writeConfig("base-outer-rule.toml", `
+[[allowlists]]
+targetRules = ["outer-rule"]
+regexes = ["example"]
+`)
+
+		cfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+
+[[rules]]
+id = "outer-rule"
+regex = "secret"
+`, basePath), filepath.Join(tempDir, "outer.toml"))
+		require.NoError(t, err)
+		assert.Contains(t, cfg.Rules["outer-rule"].Filter, "example")
+		assert.Nil(t, cfg.Rules["outer-rule"].Allowlists)
+		assert.Nil(t, cfg.pendingRuleAllowlists)
+	})
+
+	t.Run("default extension", func(t *testing.T) {
+		parentPath := writeConfig("default-parent.toml", `
+[extend]
+useDefault = true
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+regexes = ["example"]
+`)
+
+		cfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+`, parentPath), filepath.Join(tempDir, "default-child.toml"))
+		require.NoError(t, err)
+		assert.Contains(t, cfg.Rules["generic-api-key"].Filter, "example")
+		assert.Nil(t, cfg.Rules["generic-api-key"].Allowlists)
+		assert.Nil(t, cfg.pendingRuleAllowlists)
+	})
+
+	t.Run("nested extends", func(t *testing.T) {
+		basePath := writeConfig("nested-base.toml", `
+[[allowlists]]
+targetRules = ["nested-rule"]
+regexes = ["example"]
+`)
+		middlePath := writeConfig("nested-middle.toml", fmt.Sprintf(`[extend]
+path = %q
+`, basePath))
+
+		cfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+
+[[rules]]
+id = "nested-rule"
+regex = "secret"
+`, middlePath), filepath.Join(tempDir, "nested-outer.toml"))
+		require.NoError(t, err)
+		assert.Contains(t, cfg.Rules["nested-rule"].Filter, "example")
+		assert.Nil(t, cfg.Rules["nested-rule"].Allowlists)
+		assert.Nil(t, cfg.pendingRuleAllowlists)
+	})
+
+	t.Run("invalid target rule is rejected after extension", func(t *testing.T) {
+		basePath := writeConfig("invalid-target-base.toml", `
+[[allowlists]]
+targetRules = ["missing-rule"]
+regexes = ["example"]
+`)
+
+		_, err := ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+`, basePath), filepath.Join(tempDir, "invalid-target-outer.toml"))
+		require.EqualError(t, err, "[[allowlists]] target rule ID 'missing-rule' does not exist")
+	})
+
+	t.Run("unscoped and rule-level allowlists remain unchanged", func(t *testing.T) {
+		globalPath := writeConfig("unscoped-base.toml", `
+[[allowlists]]
+regexes = ["example"]
+`)
+		globalCfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+`, globalPath), filepath.Join(tempDir, "unscoped-outer.toml"))
+		require.NoError(t, err)
+		assert.Contains(t, globalCfg.Filter, "example")
+		assert.Nil(t, globalCfg.pendingRuleAllowlists)
+
+		rulePath := writeConfig("rule-base.toml", `
+[[rules]]
+id = "rule-level"
+regex = "secret"
+
+[[rules.allowlists]]
+regexes = ["example"]
+`)
+		ruleCfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+`, rulePath), filepath.Join(tempDir, "rule-outer.toml"))
+		require.NoError(t, err)
+		assert.Contains(t, ruleCfg.Rules["rule-level"].Filter, "example")
+		assert.Nil(t, ruleCfg.pendingRuleAllowlists)
+	})
+}
+
 func loadTestConfig(cfgName string) (*Config, error) {
 	return LoadFile(filepath.Join(configPath, cfgName+".toml"))
 }
