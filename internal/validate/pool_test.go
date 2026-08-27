@@ -180,8 +180,8 @@ func TestPoolExposesCanonicalAndLegacyComponentBindings(t *testing.T) {
 	p.Close()
 
 	got := <-emitted
-	if got.ValidationStatus != report.ValidationStatusValid {
-		t.Fatalf("validation status = %q, want valid (canonical and legacy bindings must both work)", got.ValidationStatus)
+	if got.Validation.Status != report.ValidationStatusValid {
+		t.Fatalf("validation status = %q, want valid (canonical and legacy bindings must both work)", got.Validation.Status)
 	}
 }
 

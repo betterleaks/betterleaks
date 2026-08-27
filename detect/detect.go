@@ -375,15 +375,26 @@ func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding
 		RuleID:          r.RuleID,
 		Description:     r.Description,
 		Match:           "file detected: " + path,
-		Tags:            r.Tags,
-		Attributes:      maps.Clone(fragment.Attributes),
+		Tags:            append([]string{}, r.Tags...),
 		RuleSpecificity: r.Specificity,
 	}
+	finding.SetAttributes(fragment.Attributes)
 	if r.Confidence != "" {
-		finding.SetAttr(confidence.Attribute, r.Confidence)
+		finding.Confidence = r.Confidence
 	}
-	finding.SyncDeprecatedSourceFields()
 	return finding
+}
+
+// promoteConfidence moves the value written by filter.setConfidence from the
+// mutable expression attributes into Finding's typed field.
+func promoteConfidence(finding *report.Finding, findingMap map[string]any) {
+	value, ok := finding.Attributes[confidence.Attribute]
+	if !ok {
+		return
+	}
+	finding.Confidence = value
+	delete(finding.Attributes, confidence.Attribute)
+	findingMap["confidence"] = value
 }
 
 // Run executes the pipeline on the given source and yields results as they are found.
@@ -506,16 +517,16 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		for res := range resultsCh {
 			if res.Err == nil {
 				if !d.ValidationExtractEmpty {
-					res.Finding.ValidationMeta = stripEmptyMeta(res.Finding.ValidationMeta)
+					res.Finding.Validation.Metadata = stripEmptyMeta(res.Finding.Validation.Metadata)
 				}
-				if res.Finding.ValidationStatus != "" {
-					d.ValidationCounts[res.Finding.ValidationStatus]++
+				if res.Finding.Validation.Status != "" {
+					d.ValidationCounts[res.Finding.Validation.Status]++
 				}
 
 				// Check validation status and if we should filter or not
 				if len(d.ValidationStatusFilter) > 0 {
-					if res.Finding.ValidationStatus != "" {
-						if _, ok := d.ValidationStatusFilter[string(res.Finding.ValidationStatus)]; !ok {
+					if res.Finding.Validation.Status != "" {
+						if _, ok := d.ValidationStatusFilter[string(res.Finding.Validation.Status)]; !ok {
 							continue
 						}
 					} else if _, ok := d.ValidationStatusFilter["none"]; !ok {
@@ -601,7 +612,7 @@ ScanLoop:
 						continue
 					}
 					for _, finding := range d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings) {
-						if confidence.Meets(finding.Attr(confidence.Attribute), d.MinConfidence) {
+						if confidence.Meets(finding.Confidence, d.MinConfidence) {
 							findings = append(findings, finding)
 						}
 					}
@@ -753,28 +764,30 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		loc := location(lineOffsets, fragment.Raw, matchIndex)
 
-		tags := r.Tags
+		tags := append([]string{}, r.Tags...)
 		if len(metaTags) > 0 {
-			tags = append(append([]string(nil), r.Tags...), metaTags...)
+			tags = append(tags, metaTags...)
 		}
 
 		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
 			RuleID:          r.RuleID,
 			Description:     r.Description,
-			StartLine:       prevFragmentEndLine + loc.startLine,
-			EndLine:         prevFragmentEndLine + loc.endLine,
-			StartColumn:     loc.startColumn,
-			EndColumn:       loc.endColumn,
 			Line:            strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
 			Match:           secret,
 			Secret:          secret,
-			Attributes:      maps.Clone(fragment.Attributes),
 			Tags:            tags,
 			RuleSpecificity: r.Specificity,
+			Location: report.Location{
+				StartLine:   prevFragmentEndLine + loc.startLine,
+				EndLine:     prevFragmentEndLine + loc.endLine,
+				StartColumn: loc.startColumn,
+				EndColumn:   loc.endColumn,
+			},
 		}
+		finding.SetAttributes(fragment.Attributes)
 		if r.Confidence != "" {
-			finding.SetAttr(confidence.Attribute, r.Confidence)
+			finding.Confidence = r.Confidence
 		}
 
 		// TODO eventually move this git specific bit into somewhere... better?
@@ -793,8 +806,6 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 				Msg("skipping finding: allow signature found")
 			continue
 		}
-		finding.SyncDeprecatedSourceFields()
-
 		if currentLine == "" {
 			currentLine = finding.Line
 		}
@@ -836,11 +847,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			continue
 		}
 
-		// Entropy is always computed — needed for report output regardless of filter path.
 		entropy := shannonEntropy(finding.Secret)
-		finding.Entropy = float32(entropy)
-
-		finding.SetFingerprint()
 
 		hasGlobalFilter := d.Config.Filter != "" || d.Config.FilterProgram() != nil
 		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
@@ -889,6 +896,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			logger.Warn().Err(err).Msg("global filter compile error")
 		} else if ok {
 			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
+			promoteConfidence(&finding, findingMap)
 			if err != nil {
 				logger.Warn().Err(err).Msg("global filter eval error")
 			} else if skip {
@@ -904,6 +912,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			logger.Warn().Err(err).Msg("rule filter compile error")
 		} else if ok {
 			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
+			promoteConfidence(&finding, findingMap)
 			if err != nil {
 				logger.Warn().Err(err).Msg("rule filter eval error")
 			} else if skip {
@@ -984,14 +993,11 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 					componentFindings = append(componentFindings, &report.ComponentFinding{
 						RuleID:          found.RuleID,
 						Optional:        component.Optional,
-						StartLine:       found.StartLine,
-						EndLine:         found.EndLine,
-						StartColumn:     found.StartColumn,
-						EndColumn:       found.EndColumn,
 						Line:            found.Line,
 						Match:           found.Match,
 						Secret:          found.Secret,
 						CaptureGroups:   found.CaptureGroups,
+						Location:        found.Location,
 						RuleSpecificity: found.RuleSpecificity,
 					})
 				}
@@ -1005,7 +1011,7 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 
 			logger.Debug().
 				Str("primary-rule", r.RuleID).
-				Int("primary-line", primaryFinding.StartLine).
+				Int("primary-line", primaryFinding.Location.StartLine).
 				Int("component-count", len(componentFindings)).
 				Msg("multi-part rule satisfied")
 		}
@@ -1054,14 +1060,14 @@ func withinProximity(raw string, fragmentStartLine int, primary, component repor
 			componentStart < min(primaryEnd+window.ColsAfter, len(raw))
 
 	case contextwindow.ModeBox:
-		if component.StartLine < primary.StartLine-window.LinesBefore ||
-			component.StartLine > primary.EndLine+window.LinesAfter {
+		if component.Location.StartLine < primary.Location.StartLine-window.LinesBefore ||
+			component.Location.StartLine > primary.Location.EndLine+window.LinesAfter {
 			return false
 		}
-		if primary.StartLine == primary.EndLine && (window.ColsBefore > 0 || window.ColsAfter > 0) {
-			componentColumn := component.StartColumn - 1
-			windowStart := max(primary.StartColumn-1-window.ColsBefore, 0)
-			windowEnd := primary.EndColumn + window.ColsAfter
+		if primary.Location.StartLine == primary.Location.EndLine && (window.ColsBefore > 0 || window.ColsAfter > 0) {
+			componentColumn := component.Location.StartColumn - 1
+			windowStart := max(primary.Location.StartColumn-1-window.ColsBefore, 0)
+			windowEnd := primary.Location.EndColumn + window.ColsAfter
 			return componentColumn >= windowStart && componentColumn < windowEnd
 		}
 		return true
@@ -1082,17 +1088,17 @@ func rawLineStarts(raw string) []int {
 }
 
 func findingStartOffset(lineStarts []int, fragmentStartLine int, finding report.Finding) (int, bool) {
-	line := finding.StartLine - fragmentStartLine
-	if line < 0 || line >= len(lineStarts) || finding.StartColumn < 1 {
+	line := finding.Location.StartLine - fragmentStartLine
+	if line < 0 || line >= len(lineStarts) || finding.Location.StartColumn < 1 {
 		return 0, false
 	}
-	return lineStarts[line] + finding.StartColumn - 1, true
+	return lineStarts[line] + finding.Location.StartColumn - 1, true
 }
 
 func findingEndOffset(lineStarts []int, fragmentStartLine int, finding report.Finding) (int, bool) {
-	line := finding.EndLine - fragmentStartLine
-	if line < 0 || line >= len(lineStarts) || finding.EndColumn < 0 {
+	line := finding.Location.EndLine - fragmentStartLine
+	if line < 0 || line >= len(lineStarts) || finding.Location.EndColumn < 0 {
 		return 0, false
 	}
-	return lineStarts[line] + finding.EndColumn, true
+	return lineStarts[line] + finding.Location.EndColumn, true
 }

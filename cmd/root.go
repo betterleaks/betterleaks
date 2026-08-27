@@ -108,7 +108,6 @@ func init() {
 	rootCmd.PersistentFlags().Bool("no-banner", false, "suppress banner")
 	rootCmd.PersistentFlags().StringSlice("disable-rule", nil, "disable specific rules by id (repeatable; shorthand: -dr)")
 	rootCmd.PersistentFlags().StringSlice("isolate-rule", nil, "only enable specific rules by id (repeatable; shorthand: -ir)")
-	rootCmd.PersistentFlags().StringP("betterleaks-ignore-path", "i", ".", "path to .betterleaksignore or .gitleaksignore file or folder containing one")
 	rootCmd.PersistentFlags().String("match-context", "", "context around match (this gets reported): L (lines), C (columns/characters). e.g. 10L, 100C, -2C,+4C")
 	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
 	rootCmd.PersistentFlags().Int("max-archive-depth", 8, "allow scanning into nested archives up to this depth")

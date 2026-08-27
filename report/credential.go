@@ -60,21 +60,21 @@ type CredentialRuleSummary struct {
 // NewCredentialReport builds a redacted report from a validated finding.
 func NewCredentialReport(finding Finding, secrets []string, includeEmpty bool) CredentialReport {
 	secrets = credentialSecretsForRedaction(secrets)
-	metadata := sanitizeCredentialMetadata(finding.ValidationMeta, secrets, includeEmpty)
+	metadata := sanitizeCredentialMetadata(finding.Validation.Metadata, secrets, includeEmpty)
 	result := CredentialReport{
 		SchemaVersion: CredentialReportSchemaVersion,
 		RuleID:        finding.RuleID,
 		Attributes:    sanitizeCredentialAttributes(finding.Attributes, secrets),
 		Validation: CredentialValidationReport{
-			Status:   finding.ValidationStatus,
-			Reason:   sanitizeCredentialString(finding.ValidationReason, secrets),
+			Status:   finding.Validation.Status,
+			Reason:   sanitizeCredentialString(finding.Validation.Reason, secrets),
 			Metadata: metadata,
 		},
 	}
 	for _, set := range finding.ComponentSets {
 		setResult := CredentialComponentSetReport{
-			Status: set.ValidationStatus,
-			Reason: sanitizeCredentialString(set.ValidationReason, secrets),
+			Status: set.Validation.Status,
+			Reason: sanitizeCredentialString(set.Validation.Reason, secrets),
 		}
 		for _, component := range set.Components {
 			setResult.Components = append(setResult.Components, CredentialComponentReport{

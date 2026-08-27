@@ -1,117 +1,90 @@
 package report
 
 import (
-	"fmt"
 	"maps"
 	"math"
 	"sort"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/internal/confidence"
 )
 
-// Finding contains a whole bunch of information about a secret finding.
-// Plenty of real estate in this bad boy so fillerup as needed.
+// Finding describes a secret found by a rule.
 type Finding struct {
-	// Rule is the name of the rule that was matched
-	RuleID      string
-	Description string
-
-	StartLine   int
-	EndLine     int
-	StartColumn int
-	EndColumn   int
+	RuleID      string `json:"ruleID"`
+	Description string `json:"description"`
+	Confidence  string `json:"confidence"`
 
 	// Regex match that triggered the finding
-	Match string
+	Match string `json:"match"`
 
 	// Captured secret
-	Secret string
+	Secret string `json:"secret"`
 
 	// MatchContext contains surrounding lines around the match
-	MatchContext string `json:",omitempty"`
-
-	Line string `json:"-"`
+	MatchContext string `json:"matchContext,omitempty"`
 
 	// CaptureGroups holds named regex capture groups from the match.
-	CaptureGroups map[string]string `json:",omitempty"`
+	CaptureGroups map[string]string `json:"captureGroups,omitempty"`
 
-	// Fragment used for multi-part rule checking and CEL filtering
-	Fragment *sources.Fragment `json:",omitempty"`
+	// Attributes holds extensible source metadata. Well-known keys are defined
+	// by the sources package.
+	Attributes map[string]string `json:"attributes,omitempty"`
 
-	// Attributes holds additional metadata about the finding.
-	// Keys are defined in sources.Attr* constants (subject to change), but this is extensible for custom use cases.
-	// Attributes are initially populated from the source's Fragment attributes and can be added to in the Detector or ValidationPool.
-	// Deprecated "attribute" fields (File, Commit, etc.) are synced from Attributes for compatibility.
-	Attributes map[string]string `json:",omitempty"`
-
-	Tags []string
-
-	RuleSpecificity int `json:"-"`
+	Location   Location   `json:"location"`
+	Validation Validation `json:"validation,omitzero"`
 
 	// ComponentSets holds the Cartesian-product combinations of component findings.
 	// Each set is one complete group of components that can be validated independently.
-	ComponentSets []ComponentSet `json:",omitempty"`
+	ComponentSets []ComponentSet `json:"componentSets,omitempty"`
 
-	ValidationStatus ValidationStatus `json:",omitempty"`
-	ValidationReason string           `json:",omitempty"`
-	// TODO maybe just use the Attribute map
-	ValidationMeta map[string]any `json:",omitempty"`
+	Tags []string `json:"tags"`
 
-	// unique identifier
-	Fingerprint string
+	Line            string `json:"-"`
+	RuleSpecificity int    `json:"-"`
 
 	// Hidden field to hold expression context without bloating the report output.
 	exprContext string
+}
 
-	// Deprecated
-	// File is the name of the file containing the finding
-	// Deprecated
-	File string
-	// Deprecated
-	SymlinkFile string
-	// Deprecated
-	Commit string
-	// Deprecated
-	Link string `json:",omitempty"`
+// Location identifies a finding's position in its source.
+type Location struct {
+	StartLine   int `json:"startLine"`
+	EndLine     int `json:"endLine"`
+	StartColumn int `json:"startColumn"`
+	EndColumn   int `json:"endColumn"`
+}
 
-	// Entropy is the shannon entropy of Value
-	// Deprecated
-	Entropy float32
+// Validation describes the result of validating a finding.
+type Validation struct {
+	Status   ValidationStatus `json:"status,omitempty"`
+	Reason   string           `json:"reason,omitempty"`
+	Metadata map[string]any   `json:"metadata,omitempty"`
+}
 
-	// Deprecated
-	Author string
-	// Deprecated
-	Email string
-	// Deprecated
-	Date string
-	// Deprecated
-	Message string
+func (v Validation) IsZero() bool {
+	return v.Status == "" && v.Reason == "" && len(v.Metadata) == 0
 }
 
 // ComponentSet represents one combination of component findings (one element per
 // matched component rule) from the Cartesian product. Each set can be validated
 // independently and carries its own validation result.
 type ComponentSet struct {
-	Components       []*ComponentFinding `json:"components"`
-	ValidationStatus ValidationStatus    `json:"validationStatus,omitempty"`
-	ValidationReason string              `json:"validationReason,omitempty"`
+	Components []*ComponentFinding `json:"components"`
+	Validation Validation          `json:"validation,omitzero"`
 }
 
 type ComponentFinding struct {
 	// contains a subset of the Finding fields
 	// only used for reporting
-	RuleID      string
-	Optional    bool
-	StartLine   int
-	EndLine     int
-	StartColumn int
-	EndColumn   int
-	Line        string `json:"-"`
-	Match       string
-	Secret      string
+	RuleID   string `json:"ruleID"`
+	Optional bool   `json:"optional,omitempty"`
+	Line     string `json:"-"`
+	Match    string `json:"match"`
+	Secret   string `json:"secret"`
 	// CaptureGroups holds named regex capture groups from the component match.
-	CaptureGroups   map[string]string `json:",omitempty"`
+	CaptureGroups   map[string]string `json:"captureGroups,omitempty"`
+	Location        Location          `json:"location"`
 	RuleSpecificity int               `json:"-"`
 }
 
@@ -279,6 +252,11 @@ func sortedMapKeys(m map[string]any) []string {
 }
 
 func (f *Finding) SetAttr(key, value string) {
+	if key == confidence.Attribute {
+		f.Confidence = value
+		delete(f.Attributes, key)
+		return
+	}
 	if f.Attributes == nil {
 		f.Attributes = make(map[string]string)
 	}
@@ -286,64 +264,22 @@ func (f *Finding) SetAttr(key, value string) {
 }
 
 func (f Finding) Attr(key string) string {
+	if key == confidence.Attribute {
+		return f.Confidence
+	}
 	if f.Attributes != nil {
-		if value := f.Attributes[key]; value != "" {
-			return value
-		}
+		return f.Attributes[key]
 	}
-
-	switch key {
-	case sources.AttrPath:
-		return f.File
-	case sources.AttrFSSymlink:
-		return f.SymlinkFile
-	case sources.AttrGitSHA:
-		return f.Commit
-	case sources.AttrGitAuthorName:
-		return f.Author
-	case sources.AttrGitAuthorEmail:
-		return f.Email
-	case sources.AttrGitDate:
-		return f.Date
-	case sources.AttrGitMessage:
-		return f.Message
-	default:
-		return ""
-	}
+	return ""
 }
 
-// SetAttributes stores a copy of attrs and syncs deprecated source fields for compatibility.
+// SetAttributes stores a copy of attrs, promoting confidence into its typed
+// Finding field.
 func (f *Finding) SetAttributes(attrs map[string]string) {
 	f.Attributes = maps.Clone(attrs)
-	f.SyncDeprecatedSourceFields()
-}
-
-// Attribute is retained as a compatibility wrapper around Attr.
-func (f Finding) Attribute(key string) string {
-	return f.Attr(key)
-}
-
-// SyncDeprecatedSourceFields backfills deprecated fields from Attributes so
-// legacy reporters, baselines, and templates continue to work.
-func (f *Finding) SyncDeprecatedSourceFields() {
-	f.File = f.Attr(sources.AttrPath)
-	f.SymlinkFile = f.Attr(sources.AttrFSSymlink)
-	f.Commit = f.Attr(sources.AttrGitSHA)
-	f.Author = f.Attr(sources.AttrGitAuthorName)
-	f.Email = f.Attr(sources.AttrGitAuthorEmail)
-	f.Date = f.Attr(sources.AttrGitDate)
-	f.Message = f.Attr(sources.AttrGitMessage)
-}
-
-func (f *Finding) SetFingerprint() {
-	path := f.Attributes[sources.AttrPath]
-	commit := f.Attributes[sources.AttrGitSHA]
-
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, f.RuleID, f.StartLine)
-	if commit != "" {
-		f.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", commit, path, f.RuleID, f.StartLine)
-	} else {
-		f.Fingerprint = globalFingerprint
+	if value, ok := f.Attributes[confidence.Attribute]; ok {
+		f.Confidence = value
+		delete(f.Attributes, confidence.Attribute)
 	}
 }
 
@@ -356,6 +292,7 @@ func (f *Finding) ToExprMap() map[string]string {
 		"line":        f.Line,
 		"rule_id":     f.RuleID,
 		"description": f.Description,
+		"confidence":  f.Confidence,
 		"context":     f.exprContext,
 	}
 }

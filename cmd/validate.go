@@ -542,22 +542,22 @@ func buildValidateFinding(rule configpkg.Rule, input validateCredentialInput) (r
 	finding := report.Finding{
 		RuleID:          rule.RuleID,
 		Description:     rule.Description,
-		StartLine:       1,
-		EndLine:         1,
-		StartColumn:     1,
 		Match:           input.Secret,
 		Secret:          input.Secret,
 		Line:            input.Secret,
 		CaptureGroups:   captures,
 		RuleSpecificity: rule.Specificity,
-		Tags:            append([]string(nil), rule.Tags...),
+		Tags:            append([]string{}, rule.Tags...),
+		Location: report.Location{
+			StartLine:   1,
+			EndLine:     1,
+			StartColumn: 1,
+		},
 	}
 	finding.SetAttributes(attrs)
 	if len(components) > 0 {
 		finding.ComponentSets = []report.ComponentSet{{Components: components}}
 	}
-	finding.SetFingerprint()
-
 	suppliedSecrets := make([]string, 0, len(componentSecrets)+len(input.Captures)+1)
 	suppliedSecrets = append(suppliedSecrets, input.Secret)
 	suppliedSecrets = append(suppliedSecrets, componentSecrets...)
@@ -630,11 +630,13 @@ func buildValidateComponents(
 		supplied[ruleID] = struct{}{}
 		secrets = append(secrets, secret)
 		components = append(components, &report.ComponentFinding{
-			RuleID:        ruleID,
-			Optional:      optional[ruleID],
-			StartLine:     1,
-			EndLine:       1,
-			StartColumn:   1,
+			RuleID:   ruleID,
+			Optional: optional[ruleID],
+			Location: report.Location{
+				StartLine:   1,
+				EndLine:     1,
+				StartColumn: 1,
+			},
 			Secret:        secret,
 			Match:         secret,
 			Line:          secret,

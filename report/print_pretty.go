@@ -144,17 +144,17 @@ func normalizeSnippet(f Finding) Finding {
 	}
 	if n > 0 {
 		out.Line = out.Line[n:]
-		if out.StartColumn > n {
-			out.StartColumn -= n
+		if out.Location.StartColumn > n {
+			out.Location.StartColumn -= n
 		} else {
-			out.StartColumn = 0
+			out.Location.StartColumn = 0
 		}
 	}
 	if terminalControlRe.MatchString(out.Line) {
 		out.Line = terminalControlRe.ReplaceAllString(out.Line, "")
 		out.Match = terminalControlRe.ReplaceAllString(out.Match, "")
 		out.Secret = terminalControlRe.ReplaceAllString(out.Secret, "")
-		out.StartColumn = 0
+		out.Location.StartColumn = 0
 	}
 	return out
 }
@@ -355,13 +355,13 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 	}
 
 	sort.SliceStable(f.ComponentSets, func(i, j int) bool {
-		return f.ComponentSets[i].ValidationStatus == ValidationStatusValid &&
-			f.ComponentSets[j].ValidationStatus != ValidationStatusValid
+		return f.ComponentSets[i].Validation.Status == ValidationStatusValid &&
+			f.ComponentSets[j].Validation.Status != ValidationStatusValid
 	})
 
 	hasValid := false
 	for _, set := range f.ComponentSets {
-		if set.ValidationStatus == ValidationStatusValid {
+		if set.Validation.Status == ValidationStatusValid {
 			hasValid = true
 			break
 		}
@@ -371,13 +371,13 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 	maxKey := 0
 	invalidCount := 0
 	for _, set := range f.ComponentSets {
-		if hasValid && set.ValidationStatus != ValidationStatusValid {
+		if hasValid && set.Validation.Status != ValidationStatusValid {
 			invalidCount++
 			continue
 		}
 		toRender = append(toRender, set)
 		for _, comp := range set.Components {
-			k := fmt.Sprintf("%s:%d", comp.RuleID, comp.StartLine)
+			k := fmt.Sprintf("%s:%d", comp.RuleID, comp.Location.StartLine)
 			if len(k) > maxKey {
 				maxKey = len(k)
 			}
@@ -390,9 +390,9 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 	// Each set's first row carries the status icon; continuation rows leave the
 	// icon column blank. The icon's presence-or-absence is the set delimiter.
 	for _, set := range toRender {
-		icon := prettySetIcon(string(set.ValidationStatus), noColor)
+		icon := prettySetIcon(string(set.Validation.Status), noColor)
 		for j, comp := range set.Components {
-			key := fmt.Sprintf("%s:%d", comp.RuleID, comp.StartLine)
+			key := fmt.Sprintf("%s:%d", comp.RuleID, comp.Location.StartLine)
 			dots := strings.Repeat(".", maxKey+6-len(key))
 			val := redactForDisplay(comp.Secret, redact)
 			if j == 0 {
@@ -477,7 +477,7 @@ func (f Finding) printPretty(noColor bool, redact uint) {
 	if len(rawLines) == 0 {
 		rawLines = []string{""}
 	}
-	pad := lineNumWidth(work.StartLine, len(rawLines))
+	pad := lineNumWidth(work.Location.StartLine, len(rawLines))
 	// gutterCols is the terminal display width of "│ %*d │ " — 5 single-column
 	// runes (│ + 2 spaces + │ + 1 separator space) plus `pad` digits.
 	gutterCols := pad + 5
@@ -492,9 +492,9 @@ func (f Finding) printPretty(noColor bool, redact uint) {
 		lines[i], mappings[i] = expandTabsForBody(l, gutterCols)
 	}
 
-	startByte, lenByte, ok := secretByteBounds(work.Line, work.Match, work.Secret, work.StartColumn)
+	startByte, lenByte, ok := secretByteBounds(work.Line, work.Match, work.Secret, work.Location.StartColumn)
 	if !ok {
-		renderLinesOnly(lines, work.StartLine, pad, budget)
+		renderLinesOnly(lines, work.Location.StartLine, pad, budget)
 		(&work).printPrettyMeta(noColor, redact)
 		writeFooter()
 		return
@@ -508,9 +508,9 @@ func (f Finding) printPretty(noColor bool, redact uint) {
 	bytesInSeg := mapping[min(secretByteInSegRaw+rawBytesInSeg, len(mapping)-1)] - secretByteInSeg
 
 	if len(lines) == 1 {
-		renderLineWithCaret(lines[segIdx], work.StartLine, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
+		renderLineWithCaret(lines[segIdx], work.Location.StartLine, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
 	} else {
-		renderMultiLine(lines, work.StartLine, segIdx, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
+		renderMultiLine(lines, work.Location.StartLine, segIdx, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
 	}
 
 	(&work).printPrettyMeta(noColor, redact)
@@ -608,6 +608,10 @@ func dotLeader(key, value string, maxKey int) {
 }
 
 func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
+	if f.Confidence != "" {
+		fmt.Println("│")
+		dotLeader("confidence", strings.ToUpper(f.Confidence), len("confidence"))
+	}
 	if len(f.Attributes) > 0 {
 		fmt.Println("│")
 		fmt.Printf("│ attributes:\n")
@@ -624,25 +628,25 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 			dotLeader(k, f.Attributes[k], maxK)
 		}
 	}
-	if f.ValidationStatus != "" {
+	if !f.Validation.IsZero() {
 		fmt.Printf("│ validation:\n")
 		maxVK := 6 // "status"/"reason" baseline
-		vk := sortedMapKeys(f.ValidationMeta)
+		vk := sortedMapKeys(f.Validation.Metadata)
 		for _, k := range vk {
 			if len(k) > maxVK {
 				maxVK = len(k)
 			}
 		}
-		vs := strings.ToUpper(string(f.ValidationStatus))
+		vs := strings.ToUpper(string(f.Validation.Status))
 		if !noColor {
-			vs = ValidationStyle(string(f.ValidationStatus), noColor).Render(vs)
+			vs = ValidationStyle(string(f.Validation.Status), noColor).Render(vs)
 		}
 		dotLeader("status", vs, maxVK)
-		if f.ValidationReason != "" {
-			dotLeader("reason", f.ValidationReason, maxVK)
+		if f.Validation.Reason != "" {
+			dotLeader("reason", f.Validation.Reason, maxVK)
 		}
 		for _, k := range vk {
-			dotLeader(k, fmt.Sprintf("%v", f.ValidationMeta[k]), maxVK)
+			dotLeader(k, fmt.Sprintf("%v", f.Validation.Metadata[k]), maxVK)
 		}
 	}
 	f.PrintComponentFindings(noColor, redact)

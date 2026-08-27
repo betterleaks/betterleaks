@@ -1,22 +1,24 @@
 [
  {
-  "RuleID": "test-rule",
-  "Description": "",
-  "StartLine": 1,
-  "EndLine": 2,
-  "StartColumn": 1,
-  "EndColumn": 2,
-  "Match": "line containing secret",
-  "Secret": "a secret",
-  "File": "auth.py",
-  "SymlinkFile": "",
-  "Commit": "0000000000000000",
-  "Entropy": 0,
-  "Author": "John Doe",
-  "Email": "johndoe@gmail.com",
-  "Date": "10-19-2003",
-  "Message": "opps",
-  "Tags": [],
-  "Fingerprint": ""
+  "ruleID": "test-rule",
+  "description": "",
+  "confidence": "medium",
+  "match": "line containing secret",
+  "secret": "a secret",
+  "location": {
+   "startLine": 1,
+   "endLine": 2,
+   "startColumn": 1,
+   "endColumn": 2
+  },
+  "attributes": {
+   "path": "auth.py",
+   "git.sha": "0000000000000000",
+   "git.author_name": "John Doe",
+   "git.author_email": "johndoe@gmail.com",
+   "git.date": "10-19-2003",
+   "git.message": "opps"
+  },
+  "tags": []
  }
 ]

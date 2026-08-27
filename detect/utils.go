@@ -31,6 +31,7 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 	p, _ := scm.PlatformFromString(platform)
 	commitSha := finding.Attr(sources.AttrGitSHA)
 	path := finding.Attr(sources.AttrPath)
+	location := finding.Location
 	if p == scm.UnknownPlatform || p == scm.NoPlatform || commitSha == "" || path == "" {
 		return ""
 	}
@@ -49,11 +50,11 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 		if ext == ".ipynb" || ext == ".md" {
 			link += "?plain=1"
 		}
-		if finding.StartLine != 0 {
-			link += fmt.Sprintf("#L%d", finding.StartLine)
+		if location.StartLine != 0 {
+			link += fmt.Sprintf("#L%d", location.StartLine)
 		}
-		if finding.EndLine != finding.StartLine {
-			link += fmt.Sprintf("-L%d", finding.EndLine)
+		if location.EndLine != location.StartLine {
+			link += fmt.Sprintf("-L%d", location.EndLine)
 		}
 		return link
 	case scm.GitLabPlatform:
@@ -61,11 +62,11 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 		if hasInnerPath {
 			return link
 		}
-		if finding.StartLine != 0 {
-			link += fmt.Sprintf("#L%d", finding.StartLine)
+		if location.StartLine != 0 {
+			link += fmt.Sprintf("#L%d", location.StartLine)
 		}
-		if finding.EndLine != finding.StartLine {
-			link += fmt.Sprintf("-%d", finding.EndLine)
+		if location.EndLine != location.StartLine {
+			link += fmt.Sprintf("-%d", location.EndLine)
 		}
 		return link
 	case scm.AzureDevOpsPlatform:
@@ -74,11 +75,11 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 		if hasInnerPath {
 			return link
 		}
-		if finding.StartLine != 0 {
-			link += fmt.Sprintf("&line=%d", finding.StartLine)
+		if location.StartLine != 0 {
+			link += fmt.Sprintf("&line=%d", location.StartLine)
 		}
-		if finding.EndLine != finding.StartLine {
-			link += fmt.Sprintf("&lineEnd=%d", finding.EndLine)
+		if location.EndLine != location.StartLine {
+			link += fmt.Sprintf("&lineEnd=%d", location.EndLine)
 		}
 		// This is a bit dirty, but Azure DevOps does not highlight the line when the lineStartColumn and lineEndColumn are not provided
 		link += "&lineStartColumn=1&lineEndColumn=10000000&type=2&lineStyle=plain&_a=files"
@@ -92,11 +93,11 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 		if ext == ".ipynb" || ext == ".md" {
 			link += "?display=source"
 		}
-		if finding.StartLine != 0 {
-			link += fmt.Sprintf("#L%d", finding.StartLine)
+		if location.StartLine != 0 {
+			link += fmt.Sprintf("#L%d", location.StartLine)
 		}
-		if finding.EndLine != finding.StartLine {
-			link += fmt.Sprintf("-L%d", finding.EndLine)
+		if location.EndLine != location.StartLine {
+			link += fmt.Sprintf("-L%d", location.EndLine)
 		}
 		return link
 	case scm.BitbucketPlatform:
@@ -104,11 +105,11 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 		if hasInnerPath {
 			return link
 		}
-		if finding.StartLine != 0 {
-			link += fmt.Sprintf("#lines-%d", finding.StartLine)
+		if location.StartLine != 0 {
+			link += fmt.Sprintf("#lines-%d", location.StartLine)
 		}
-		if finding.EndLine != finding.StartLine {
-			link += fmt.Sprintf(":%d", finding.EndLine)
+		if location.EndLine != location.StartLine {
+			link += fmt.Sprintf(":%d", location.EndLine)
 		}
 		return link
 	default:
@@ -149,7 +150,7 @@ func filter(findings []report.Finding) []report.Finding {
 	for _, f := range findings {
 		for _, set := range f.ComponentSets {
 			for _, comp := range set.Components {
-				componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", comp.RuleID, comp.StartLine, comp.StartColumn, comp.EndLine, comp.EndColumn, comp.Secret)] = struct{}{}
+				componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", comp.RuleID, comp.Location.StartLine, comp.Location.StartColumn, comp.Location.EndLine, comp.Location.EndColumn, comp.Secret)] = struct{}{}
 			}
 		}
 	}
@@ -160,7 +161,7 @@ func filter(findings []report.Finding) []report.Finding {
 
 		// Skip findings already surfaced as the same rule's component of a
 		// composite finding in this batch.
-		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.StartLine, f.StartColumn, f.EndLine, f.EndColumn, f.Secret)]
+		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.Location.StartLine, f.Location.StartColumn, f.Location.EndLine, f.Location.EndColumn, f.Secret)]
 		if isComponent {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 			logging.Trace().Msgf("skipping %s finding (%s), already a component of another finding", f.RuleID, redactedMatch)
@@ -178,7 +179,7 @@ func filter(findings []report.Finding) []report.Finding {
 
 func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.Finding) bool {
 	for _, fPrime := range findings {
-		if f.StartLine == fPrime.StartLine &&
+		if f.Location.StartLine == fPrime.Location.StartLine &&
 			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
 			f.RuleID != fPrime.RuleID &&
 			strings.Contains(fPrime.Secret, f.Secret) &&
@@ -191,7 +192,7 @@ func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.
 		for _, set := range fPrime.ComponentSets {
 			for _, comp := range set.Components {
 				if f.RuleID != fPrime.RuleID &&
-					f.StartLine == comp.StartLine &&
+					f.Location.StartLine == comp.Location.StartLine &&
 					f.RuleID != comp.RuleID &&
 					strings.Contains(comp.Secret, f.Secret) &&
 					comp.RuleSpecificity > f.RuleSpecificity {

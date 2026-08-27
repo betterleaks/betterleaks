@@ -9,13 +9,15 @@ import (
 
 func TestCredentialReportRedactsOverlappingSecretsAndMetadataKeys(t *testing.T) {
 	got := NewCredentialReport(Finding{
-		RuleID:           "test",
-		ValidationStatus: ValidationStatusValid,
+		RuleID: "test",
 		Attributes: map[string]string{
 			"credential-abcdef": "abcdef abc",
 		},
-		ValidationMeta: map[string]any{
-			"credential-abcdef": "abcdef abc",
+		Validation: Validation{
+			Status: ValidationStatusValid,
+			Metadata: map[string]any{
+				"credential-abcdef": "abcdef abc",
+			},
 		},
 	}, []string{"abc", "abcdef"}, false)
 
@@ -77,10 +79,10 @@ func TestCredentialReporterWritesText(t *testing.T) {
 
 func TestCredentialReportUsesComponentSchema(t *testing.T) {
 	result := NewCredentialReport(Finding{
-		RuleID:           "test-rule",
-		ValidationStatus: ValidationStatusValid,
+		RuleID:     "test-rule",
+		Validation: Validation{Status: ValidationStatusValid},
 		ComponentSets: []ComponentSet{{
-			ValidationStatus: ValidationStatusValid,
+			Validation: Validation{Status: ValidationStatusValid},
 			Components: []*ComponentFinding{
 				{RuleID: "required-component"},
 				{RuleID: "optional-component", Optional: true},

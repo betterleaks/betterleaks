@@ -107,12 +107,12 @@ func (p *Pool) worker() {
 			// Simple path: no matched components, validate the secret with its own captures.
 			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ToExprMap(), job.captures, f.Attributes)
 			if err != nil {
-				f.ValidationStatus = report.ValidationStatusError
-				f.ValidationReason = err.Error()
+				f.Validation.Status = report.ValidationStatusError
+				f.Validation.Reason = err.Error()
 			} else {
-				f.ValidationStatus = result.Status
-				f.ValidationReason = result.Reason
-				f.ValidationMeta = result.Metadata
+				f.Validation.Status = result.Status
+				f.Validation.Reason = result.Reason
+				f.Validation.Metadata = result.Metadata
 			}
 			if p.Emit != nil {
 				p.Emit(f)
@@ -165,8 +165,8 @@ func (p *Pool) worker() {
 			}
 
 			// Write status onto this set.
-			set.ValidationStatus = result.Status
-			set.ValidationReason = result.Reason
+			set.Validation.Status = result.Status
+			set.Validation.Reason = result.Reason
 
 			// Roll up finding-level status: pick the best (highest-priority) result.
 			newStatus := BetterStatus(overallStatus, result.Status)
@@ -178,9 +178,9 @@ func (p *Pool) worker() {
 
 		// Set finding-level status from rollup.
 		if bestResult != nil {
-			f.ValidationStatus = overallStatus
-			f.ValidationReason = bestResult.Reason
-			f.ValidationMeta = bestResult.Metadata
+			f.Validation.Status = overallStatus
+			f.Validation.Reason = bestResult.Reason
+			f.Validation.Metadata = bestResult.Metadata
 		}
 
 		// When at least one component set validates, keep only valid sets on the
@@ -188,11 +188,11 @@ func (p *Pool) worker() {
 		// We build a new slice so we do not compact a backing array that other
 		// copies of this Finding may still reference.
 		if slices.ContainsFunc(f.ComponentSets, func(s report.ComponentSet) bool {
-			return s.ValidationStatus == report.ValidationStatusValid
+			return s.Validation.Status == report.ValidationStatusValid
 		}) {
 			validOnly := make([]report.ComponentSet, 0, len(f.ComponentSets))
 			for _, s := range f.ComponentSets {
-				if s.ValidationStatus == report.ValidationStatusValid {
+				if s.Validation.Status == report.ValidationStatusValid {
 					validOnly = append(validOnly, s)
 				}
 			}

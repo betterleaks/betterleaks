@@ -258,7 +258,7 @@ func compare(t *testing.T, got, want []report.Finding) {
 			return strings.Join(a.Tags, "\x00") < strings.Join(b.Tags, "\x00")
 		}),
 		cmpopts.IgnoreFields(report.Finding{},
-			"Fingerprint", "Author", "Email", "Date", "Message", "Commit",
+			"Author", "Email", "Date", "Message", "Commit",
 			"File", "SymlinkFile", "Attributes",
 			"ComponentSets", "RuleSpecificity"),
 		cmpopts.IgnoreFields(report.ComponentFinding{}, "RuleSpecificity"),
@@ -406,7 +406,7 @@ func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			findings := genericPasswordFindings(raw)
 			require.Len(t, findings, 1)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 		})
 	}
 
@@ -421,7 +421,7 @@ func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 			findings := genericPasswordFindings(raw)
 			require.Len(t, findings, 1)
 			assert.Equal(t, "hunter2", findings[0].Secret)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 		})
 	}
 
@@ -459,7 +459,7 @@ func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			findings := genericPasswordFindings(tc.raw, tc.path)
 			require.Len(t, findings, 1)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 		})
 	}
 
@@ -538,7 +538,7 @@ end`
 	)
 	require.Len(t, rubyLiteralPassword, 1)
 	assert.Equal(t, "hunter2", rubyLiteralPassword[0].Secret)
-	assert.Equal(t, "medium", rubyLiteralPassword[0].Attributes["confidence"])
+	assert.Equal(t, "medium", rubyLiteralPassword[0].Confidence)
 	assert.Empty(t, rubyLiteralPassword[0].ComponentSets, "a Ruby variable must not be attached as a literal username")
 
 	quotedExpressionText := genericPasswordFindings(
@@ -569,7 +569,7 @@ end`
 		"auth.js",
 	)
 	require.Len(t, camelCaseClient, 1)
-	assert.Equal(t, "medium", camelCaseClient[0].Attributes["confidence"])
+	assert.Equal(t, "medium", camelCaseClient[0].Confidence)
 	require.Len(t, camelCaseClient[0].ComponentSets, 1)
 	assert.Equal(t, "service-client", camelCaseClient[0].ComponentSets[0].Components[0].Secret)
 
@@ -580,13 +580,13 @@ end`
 
 	usernameOnly := genericPasswordFindings("USERNAME=alice@example.com\nPASSWORD=hunter2")
 	require.Len(t, usernameOnly, 1)
-	assert.Equal(t, "low", usernameOnly[0].Attributes["confidence"])
+	assert.Equal(t, "low", usernameOnly[0].Confidence)
 	require.Len(t, usernameOnly[0].ComponentSets, 1)
 	assert.Equal(t, "generic-username", usernameOnly[0].ComponentSets[0].Components[0].RuleID)
 
 	paired := genericPasswordFindings("credentials: {\nusername: alice\npassword: hunter2\n}")
 	require.Len(t, paired, 1)
-	assert.Equal(t, "medium", paired[0].Attributes["confidence"])
+	assert.Equal(t, "medium", paired[0].Confidence)
 	require.Len(t, paired[0].ComponentSets, 1)
 	require.Len(t, paired[0].ComponentSets[0].Components, 1)
 	assert.Equal(t, "generic-username", paired[0].ComponentSets[0].Components[0].RuleID)
@@ -628,7 +628,7 @@ end`
 		t.Run(name, func(t *testing.T) {
 			findings := genericPasswordFindings(tc.raw, tc.path)
 			require.Len(t, findings, 1)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 		})
 	}
 
@@ -664,7 +664,7 @@ end`
 		t.Run(name, func(t *testing.T) {
 			findings := genericPasswordFindings(tc.raw, tc.path)
 			require.Len(t, findings, 1)
-			assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+			assert.Equal(t, "medium", findings[0].Confidence)
 		})
 	}
 
@@ -673,45 +673,45 @@ end`
 		"config/database.yml",
 	)
 	require.Len(t, productionCredential, 1)
-	assert.Equal(t, "medium", productionCredential[0].Attributes["confidence"])
+	assert.Equal(t, "medium", productionCredential[0].Confidence)
 
 	prefixedEnvironmentCredential := genericPasswordFindings(
 		"POSTGRES_DB: app\nPOSTGRES_USER: alice\nPOSTGRES_PASSWORD: hunter2",
 		".github/workflows/integration.yml",
 	)
 	require.Len(t, prefixedEnvironmentCredential, 1)
-	assert.Equal(t, "medium", prefixedEnvironmentCredential[0].Attributes["confidence"])
+	assert.Equal(t, "medium", prefixedEnvironmentCredential[0].Confidence)
 
 	weakDefaultCredential := genericPasswordFindings(
 		"credentials: {\nusername: alice\npassword: changeme\n}",
 		"config/database.yml",
 	)
 	require.Len(t, weakDefaultCredential, 1)
-	assert.Equal(t, "medium", weakDefaultCredential[0].Attributes["confidence"])
+	assert.Equal(t, "medium", weakDefaultCredential[0].Confidence)
 
 	rakeVariables := genericPasswordFindings(
 		`credentials = { username: username, password: "hunter2" }`,
 		"lib/tasks/authentication.rake",
 	)
 	require.Len(t, rakeVariables, 1)
-	assert.Equal(t, "medium", rakeVariables[0].Attributes["confidence"])
+	assert.Equal(t, "medium", rakeVariables[0].Confidence)
 	assert.Empty(t, rakeVariables[0].ComponentSets, "a Rake variable must not be attached as a literal username")
 
 	promoted := genericPasswordFindings("credentials: {\nusername: alice@example.com\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n}")
 	require.Len(t, promoted, 1)
-	assert.Equal(t, "medium", promoted[0].Attributes["confidence"])
+	assert.Equal(t, "medium", promoted[0].Confidence)
 
 	authOnly := genericPasswordFindings("credentials: {\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n}")
 	require.Len(t, authOnly, 1)
-	assert.Equal(t, "low", authOnly[0].Attributes["confidence"])
+	assert.Equal(t, "low", authOnly[0].Confidence)
 
 	strongUsernameOnly := genericPasswordFindings("username: alice@example.com\npassword: \"#exFfrbtEpo&RaTkZ#%*zFgS\"")
 	require.Len(t, strongUsernameOnly, 1)
-	assert.Equal(t, "low", strongUsernameOnly[0].Attributes["confidence"])
+	assert.Equal(t, "low", strongUsernameOnly[0].Confidence)
 
 	dynamicUsername := genericPasswordFindings("credentials: {\nusername: process.env.USERNAME\npassword: hunter2\n}")
 	require.Len(t, dynamicUsername, 1)
-	assert.Equal(t, "medium", dynamicUsername[0].Attributes["confidence"])
+	assert.Equal(t, "medium", dynamicUsername[0].Confidence)
 	assert.Empty(t, dynamicUsername[0].ComponentSets, "a dynamic username is auth context but not an attachable component")
 
 	for name, raw := range map[string]string{
@@ -722,25 +722,25 @@ end`
 		t.Run(name, func(t *testing.T) {
 			findings := genericPasswordFindings(raw)
 			require.Len(t, findings, 1)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 			assert.Empty(t, findings[0].ComponentSets)
 		})
 	}
 
 	weakAliasPair := genericPasswordFindings("credentials: {\nusername: alice\ndatabase_pw: hunter2\n}")
 	require.Len(t, weakAliasPair, 1)
-	assert.Equal(t, "medium", weakAliasPair[0].Attributes["confidence"])
+	assert.Equal(t, "medium", weakAliasPair[0].Confidence)
 	require.Len(t, weakAliasPair[0].ComponentSets, 1)
 
 	insideWindow := "login()\n" + strings.Repeat("context line\n", 4) + "username: alice\npassword: hunter2"
 	insideWindowFindings := genericPasswordFindings(insideWindow)
 	require.Len(t, insideWindowFindings, 1)
-	assert.Equal(t, "medium", insideWindowFindings[0].Attributes["confidence"])
+	assert.Equal(t, "medium", insideWindowFindings[0].Confidence)
 
 	outsideWindow := "login()\n" + strings.Repeat("context line\n", 5) + "username: alice\npassword: hunter2"
 	outsideWindowFindings := genericPasswordFindings(outsideWindow)
 	require.Len(t, outsideWindowFindings, 1)
-	assert.Equal(t, "low", outsideWindowFindings[0].Attributes["confidence"])
+	assert.Equal(t, "low", outsideWindowFindings[0].Confidence)
 
 	for name, tc := range map[string]struct {
 		raw    string
@@ -775,7 +775,7 @@ end`
 			findings := genericPasswordFindings(tc.raw)
 			require.Len(t, findings, 1)
 			assert.Equal(t, tc.secret, findings[0].Secret)
-			assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+			assert.Equal(t, "medium", findings[0].Confidence)
 			assert.Empty(t, findings[0].ComponentSets)
 		})
 	}
@@ -787,7 +787,7 @@ end`
 		t.Run(name, func(t *testing.T) {
 			findings := genericPasswordFindings(raw)
 			require.Len(t, findings, 1)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 		})
 	}
 
@@ -880,7 +880,7 @@ func TestGenericCredentialURI(t *testing.T) {
 			require.Len(t, findings, 1)
 			finding := findings[0]
 			assert.Equal(t, tc.secret, finding.Secret)
-			assert.Equal(t, "medium", finding.Attributes["confidence"])
+			assert.Equal(t, "medium", finding.Confidence)
 			assert.Equal(t, tc.scheme, finding.CaptureGroups["scheme"])
 			assert.Equal(t, tc.username, finding.CaptureGroups["username"])
 			assert.Equal(t, tc.secret, finding.CaptureGroups["password"])
@@ -900,7 +900,7 @@ func TestGenericCredentialURI(t *testing.T) {
 			findings := findingsForRule("postgres://alice:"+password+"@db.internal/app", "generic-credential-uri")
 			require.Len(t, findings, 1)
 			assert.Equal(t, password, findings[0].Secret)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 		})
 	}
 
@@ -912,7 +912,7 @@ func TestGenericCredentialURI(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			findings := findingsForRule(raw, "generic-credential-uri")
 			require.Len(t, findings, 1)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 		})
 	}
 
@@ -927,7 +927,7 @@ func TestGenericCredentialURI(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			findings := findingsForRule(raw, "generic-credential-uri")
 			require.Len(t, findings, 1)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 		})
 	}
 
@@ -951,7 +951,7 @@ func TestGenericCredentialURI(t *testing.T) {
 				path,
 			)
 			require.Len(t, findings, 1)
-			assert.Equal(t, "low", findings[0].Attributes["confidence"])
+			assert.Equal(t, "low", findings[0].Confidence)
 		})
 	}
 
@@ -961,14 +961,14 @@ func TestGenericCredentialURI(t *testing.T) {
 		`config/production.yml`,
 	)
 	require.Len(t, productionSource, 1)
-	assert.Equal(t, "medium", productionSource[0].Attributes["confidence"])
+	assert.Equal(t, "medium", productionSource[0].Confidence)
 
 	// Weak and common default passwords are still credentials when embedded in
 	// a URI; their strength must not be confused with detection confidence.
 	for _, password := range []string{"changeme", "password", "guest"} {
 		findings := findingsForRule("postgres://alice:"+password+"@db.internal/app", "generic-credential-uri")
 		require.Len(t, findings, 1)
-		assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+		assert.Equal(t, "medium", findings[0].Confidence)
 	}
 
 	for name, raw := range map[string]string{
@@ -1011,21 +1011,21 @@ func TestGenericCredentialURI(t *testing.T) {
 		"generic-credential-uri",
 	)
 	require.Len(t, placeholderShapedInternalURI, 1)
-	assert.Equal(t, "low", placeholderShapedInternalURI[0].Attributes["confidence"])
+	assert.Equal(t, "low", placeholderShapedInternalURI[0].Confidence)
 
 	nonReservedExamplePrefix := findingsForRule(
 		`https://alice:s3cr3t@example.company.internal/v1`,
 		"generic-credential-uri",
 	)
 	require.Len(t, nonReservedExamplePrefix, 1)
-	assert.Equal(t, "medium", nonReservedExamplePrefix[0].Attributes["confidence"])
+	assert.Equal(t, "medium", nonReservedExamplePrefix[0].Confidence)
 
 	nonReservedLocalhostPrefix := findingsForRule(
 		`https://alice:s3cr3t@localhost.internal/v1`,
 		"generic-credential-uri",
 	)
 	require.Len(t, nonReservedLocalhostPrefix, 1)
-	assert.Equal(t, "medium", nonReservedLocalhostPrefix[0].Attributes["confidence"])
+	assert.Equal(t, "medium", nonReservedLocalhostPrefix[0].Confidence)
 
 	for name, raw := range map[string]string{
 		"reserved host first":  `postgresql://alice:hunter2@example.com,db.internal/app`,
@@ -1036,7 +1036,7 @@ func TestGenericCredentialURI(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			findings := findingsForRule(raw, "generic-credential-uri")
 			require.Len(t, findings, 1)
-			assert.Equal(t, "medium", findings[0].Attributes["confidence"])
+			assert.Equal(t, "medium", findings[0].Confidence)
 		})
 	}
 
@@ -1192,7 +1192,7 @@ func TestConfidenceAttributeAndFilter(t *testing.T) {
 	findings := detector.DetectString("ABCDEFGHIJKLMNOPQRST")
 	require.Len(t, findings, 1)
 	require.Equal(t, "promoted", findings[0].RuleID)
-	require.Equal(t, "high", findings[0].Attributes["confidence"])
+	require.Equal(t, "high", findings[0].Confidence)
 }
 
 func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
@@ -2087,7 +2087,6 @@ func TestFromGit(t *testing.T) {
 					Email:       "zricer@protonmail.com",
 					Message:     "Accidentally add a secret",
 					Tags:        []string{"key", "AWS"},
-					Fingerprint: "1b6da43b82b22e4eaa10bcf8ee591e91abbfc587:main.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/1b6da43b82b22e4eaa10bcf8ee591e91abbfc587/main.go#L20",
 				},
 				{
@@ -2108,7 +2107,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "adding foo package with secret",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "491504d5a31946ce75e22554cc34203d8e5ff3ca:foo/foo.go:aws-access-key:9",
 					Link:        "https://github.com/gitleaks/test/blob/491504d5a31946ce75e22554cc34203d8e5ff3ca/foo/foo.go#L9",
 				},
 			},
@@ -2136,7 +2134,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "adding foo package with secret",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "491504d5a31946ce75e22554cc34203d8e5ff3ca:foo/foo.go:aws-access-key:9",
 					Link:        "https://github.com/gitleaks/test/blob/491504d5a31946ce75e22554cc34203d8e5ff3ca/foo/foo.go#L9",
 				},
 			},
@@ -2163,7 +2160,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add main.go.zst",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "db8789716fc664dbce0ed2d492570e92abf717a5:main.go.zst:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/db8789716fc664dbce0ed2d492570e92abf717a5/main.go.zst#L20",
 				},
 				{
@@ -2184,7 +2180,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.tar!files/api.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2205,7 +2200,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.tar!files/main.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2226,7 +2220,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.zip!files/api.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2247,7 +2240,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.zip!files/main.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2268,7 +2260,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.7z!files/api.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2289,7 +2280,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.7z!files/main.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2310,7 +2300,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.tar.zst!files/api.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2331,7 +2320,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.tar.zst!files/main.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2352,7 +2340,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files/api.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2373,7 +2360,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files/main.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2394,7 +2380,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files/main.go.xz:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2415,7 +2400,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files/main.go.zst:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2436,7 +2420,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files/main.go.gz:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2457,7 +2440,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.tar.xz!files/api.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 				{
@@ -2478,7 +2460,6 @@ func TestFromGit(t *testing.T) {
 					Message:     "Add nested.tar.gz",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68:nested.tar.gz!archives/files.tar.xz!files/main.go:aws-access-key:20",
 					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
 				},
 			},
@@ -2560,8 +2541,7 @@ func TestFromGitStaged(t *testing.T) {
 						"key",
 						"AWS",
 					},
-					Fingerprint: "api/api.go:aws-access-key:7",
-					Link:        "",
+					Link: "",
 				},
 			},
 		},
@@ -2620,7 +2600,6 @@ func TestFromFiles(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/repos/nogit/main.go:aws-access-key:20",
 				},
 			},
 		},
@@ -2641,7 +2620,6 @@ func TestFromFiles(t *testing.T) {
 					File:        "../testdata/repos/nogit/main.go",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/repos/nogit/main.go:aws-access-key:20",
 				},
 			},
 		},
@@ -2667,7 +2645,6 @@ func TestFromFiles(t *testing.T) {
 					File:        "../testdata/repos/nogit/.env.prod",
 					Tags:        []string{},
 					Entropy:     3.5383105,
-					Fingerprint: "../testdata/repos/nogit/.env.prod:generic-api-key:4",
 				},
 			},
 		},
@@ -2736,7 +2713,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -2752,7 +2728,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files/main.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -2768,7 +2743,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files/main.go.gz:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -2784,7 +2758,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files/main.go.xz:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -2800,7 +2773,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files/main.go.zst:aws-access-key:20",
 				},
 			},
 		},
@@ -2822,7 +2794,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.7z!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -2838,7 +2809,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.7z!files/main.go:aws-access-key:20",
 				},
 			},
 		},
@@ -2860,7 +2830,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.tar!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -2876,7 +2845,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.tar!files/main.go:aws-access-key:20",
 				},
 			},
 		},
@@ -2898,7 +2866,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.tar.xz!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -2914,7 +2881,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.tar.xz!files/main.go:aws-access-key:20",
 				},
 			},
 		},
@@ -2936,7 +2902,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.tar.zst!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -2952,7 +2917,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.tar.zst!files/main.go:aws-access-key:20",
 				},
 			},
 		},
@@ -2974,7 +2938,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.zip!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -2990,7 +2953,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/files.zip!files/main.go:aws-access-key:20",
 				},
 			},
 		},
@@ -3012,7 +2974,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.tar!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3028,7 +2989,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.tar!files/main.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3044,7 +3004,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.zip!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3060,7 +3019,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.zip!files/main.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3076,7 +3034,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.7z!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3092,7 +3049,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.7z!files/main.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3108,7 +3064,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.tar.zst!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3124,7 +3079,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.tar.zst!files/main.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3140,7 +3094,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3156,7 +3109,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files/main.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3172,7 +3124,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files/main.go.xz:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3188,7 +3139,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files/main.go.zst:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3204,7 +3154,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files/main.go.gz:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3220,7 +3169,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.tar.xz!files/api.go:aws-access-key:20",
 				},
 				{
 					RuleID:      "aws-access-key",
@@ -3236,7 +3184,6 @@ func TestDetectWithArchives(t *testing.T) {
 					SymlinkFile: "",
 					Tags:        []string{"key", "AWS"},
 					Entropy:     3.0841837,
-					Fingerprint: "../testdata/archives/nested.tar.gz!archives/files.tar.xz!files/main.go:aws-access-key:20",
 				},
 			},
 		},
@@ -3310,7 +3257,6 @@ func TestDetectWithSymlinks(t *testing.T) {
 					SymlinkFile: "../testdata/repos/symlinks/file_symlink/symlinked_id_ed25519",
 					Tags:        []string{"key", "AsymmetricPrivateKey"},
 					Entropy:     3.587164,
-					Fingerprint: "../testdata/repos/symlinks/source_file/id_ed25519:apkey:1",
 				},
 			},
 		},

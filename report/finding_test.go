@@ -144,7 +144,7 @@ func TestBuildComponentSets_Empty(t *testing.T) {
 }
 
 func TestBuildComponentSets_SingleRuleSingleFinding(t *testing.T) {
-	rf := &ComponentFinding{RuleID: "rule-a", Secret: "secret-a", StartLine: 1}
+	rf := &ComponentFinding{RuleID: "rule-a", Secret: "secret-a", Location: Location{StartLine: 1}}
 	f := &Finding{}
 	f.BuildComponentSets([]*ComponentFinding{rf}, 100)
 
@@ -156,9 +156,9 @@ func TestBuildComponentSets_SingleRuleSingleFinding(t *testing.T) {
 
 func TestBuildComponentSets_MultiRuleMultiFinding(t *testing.T) {
 	reqs := []*ComponentFinding{
-		{RuleID: "rule-a", Secret: "a1", StartLine: 1},
-		{RuleID: "rule-a", Secret: "a2", StartLine: 2},
-		{RuleID: "rule-b", Secret: "b1", StartLine: 3},
+		{RuleID: "rule-a", Secret: "a1", Location: Location{StartLine: 1}},
+		{RuleID: "rule-a", Secret: "a2", Location: Location{StartLine: 2}},
+		{RuleID: "rule-b", Secret: "b1", Location: Location{StartLine: 3}},
 	}
 	f := &Finding{}
 	f.BuildComponentSets(reqs, 100)
@@ -196,14 +196,18 @@ func TestBuildComponentSets_MaxCap(t *testing.T) {
 
 func TestBuildComponentSets_JSONSerialization(t *testing.T) {
 	reqs := []*ComponentFinding{
-		{RuleID: "aws-secret", Secret: "wJalrXUtnFEMI", StartLine: 10},
-		{RuleID: "aws-region", Optional: true, Secret: "us-east-1", StartLine: 11},
+		{RuleID: "aws-secret", Secret: "wJalrXUtnFEMI", Location: Location{StartLine: 10}},
+		{RuleID: "aws-region", Optional: true, Secret: "us-east-1", Location: Location{StartLine: 11}},
 	}
 	f := &Finding{
 		RuleID: "aws-access-key",
 		Secret: "AKIAIOSFODNN7EXAMPLE",
 	}
 	f.BuildComponentSets(reqs, 100)
+	f.ComponentSets[0].Validation = Validation{
+		Status: ValidationStatusValid,
+		Reason: "The component set was accepted.",
+	}
 
 	data, err := json.Marshal(f)
 	require.NoError(t, err)
@@ -211,34 +215,93 @@ func TestBuildComponentSets_JSONSerialization(t *testing.T) {
 	var parsed map[string]any
 	require.NoError(t, json.Unmarshal(data, &parsed))
 
-	sets, ok := parsed["ComponentSets"]
-	require.True(t, ok, "ComponentSets should be present in JSON")
-	assert.NotContains(t, parsed, "RequiredSets")
+	sets, ok := parsed["componentSets"]
+	require.True(t, ok, "componentSets should be present in JSON")
 	setSlice, ok := sets.([]any)
 	require.True(t, ok)
 	require.Len(t, setSlice, 1)
 
 	set := setSlice[0].(map[string]any)
+	assert.Equal(t, map[string]any{
+		"status": "valid",
+		"reason": "The component set was accepted.",
+	}, set["validation"])
 	components := set["components"].([]any)
 	require.Len(t, components, 2)
-	assert.Equal(t, false, components[0].(map[string]any)["Optional"])
-	assert.Equal(t, true, components[1].(map[string]any)["Optional"])
+	assert.NotContains(t, components[0].(map[string]any), "optional")
+	assert.Equal(t, true, components[1].(map[string]any)["optional"])
+	assert.Contains(t, components[0].(map[string]any), "location")
 }
 
-func TestFindingAttrFallsBackToDeprecatedFields(t *testing.T) {
+func TestFindingJSONSchema(t *testing.T) {
 	f := Finding{
-		File:   "fallback.txt",
-		Commit: "abc123",
-		Author: "alice",
-		Email:  "alice@example.com",
-		Date:   "2026-04-13",
+		RuleID:      "generic-credential-uri",
+		Description: "Detected a password embedded in a service connection URI.",
+		Confidence:  "low",
+		Match:       "https://user:pass@host.",
+		Secret:      "pass",
+		CaptureGroups: map[string]string{
+			"host":     "host.",
+			"password": "pass",
+			"scheme":   "https",
+			"uri":      "https://user:pass@host.",
+			"username": "user",
+		},
+		Location: Location{
+			StartLine:   189,
+			EndLine:     189,
+			StartColumn: 56,
+			EndColumn:   78,
+		},
+		Attributes: map[string]string{"path": "sources/scm/clone.go", "resource": "fs.content"},
+		Validation: Validation{
+			Status:   ValidationStatusValid,
+			Reason:   "The provider accepted the credential.",
+			Metadata: map[string]any{"account": "example"},
+		},
+		Tags: []string{},
 	}
 
-	assert.Equal(t, "fallback.txt", f.Attr(sources.AttrPath))
-	assert.Equal(t, "abc123", f.Attr(sources.AttrGitSHA))
-	assert.Equal(t, "alice", f.Attr(sources.AttrGitAuthorName))
-	assert.Equal(t, "alice@example.com", f.Attr(sources.AttrGitAuthorEmail))
-	assert.Equal(t, "2026-04-13", f.Attr(sources.AttrGitDate))
+	data, err := json.Marshal(f)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, "generic-credential-uri", got["ruleID"])
+	assert.Equal(t, "low", got["confidence"])
+	assert.Equal(t, map[string]any{
+		"startLine":   float64(189),
+		"endLine":     float64(189),
+		"startColumn": float64(56),
+		"endColumn":   float64(78),
+	}, got["location"])
+	assert.Equal(t, map[string]any{
+		"status":   "valid",
+		"reason":   "The provider accepted the credential.",
+		"metadata": map[string]any{"account": "example"},
+	}, got["validation"])
+	assert.NotContains(t, got["attributes"], "confidence")
+	assert.NotContains(t, got, "StartLine")
+	assert.NotContains(t, got, "ValidationStatus")
+
+	var roundTrip Finding
+	require.NoError(t, json.Unmarshal(data, &roundTrip))
+	assert.Equal(t, f, roundTrip)
+}
+
+func TestSetAttributesPromotesConfidence(t *testing.T) {
+	attrs := map[string]string{
+		sources.AttrPath: "secrets.txt",
+		"confidence":     "high",
+	}
+	var f Finding
+	f.SetAttributes(attrs)
+
+	assert.Equal(t, "high", f.Confidence)
+	assert.Equal(t, "high", f.Attr("confidence"))
+	assert.Equal(t, "secrets.txt", f.Attr(sources.AttrPath))
+	assert.NotContains(t, f.Attributes, "confidence")
+	assert.Contains(t, attrs, "confidence", "the caller's map must not be mutated")
 }
 
 func TestRedactMasksCaptureGroups(t *testing.T) {
