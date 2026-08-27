@@ -1,13 +1,11 @@
 package detect
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"iter"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -114,18 +112,6 @@ type Detector struct {
 	// matching given a set of words (keywords from the rules in the config)
 	prefilter *ahocorasick.Matcher
 
-	// a list of known findings that should be ignored
-	baseline []report.Finding
-	// baselineRedacted records whether secret text should be ignored when
-	// comparing findings with a redacted baseline report.
-	baselineRedacted bool
-
-	// path to baseline
-	baselinePath string
-
-	// gitleaksIgnore
-	gitleaksIgnore map[string]struct{}
-
 	TotalBytes atomic.Uint64
 
 	// RuleTimings records per-rule diagnostic timings when diagnostics are enabled.
@@ -191,7 +177,6 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 
 	keywords := maps.Keys(cfg.Keywords)
 	d := &Detector{
-		gitleaksIgnore:         make(map[string]struct{}),
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
 		prefilter:              ahocorasick.Compile(keywords, true),
@@ -401,16 +386,6 @@ func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding
 	return finding
 }
 
-// NewDetectorDefaultConfig creates a new detector with the default config
-func NewDetectorDefaultConfig() (*Detector, error) {
-	cfg, err := config.Default()
-	if err != nil {
-		return nil, err
-	}
-	d := NewDetector(cfg)
-	return d, nil
-}
-
 // Run executes the pipeline on the given source and yields results as they are found.
 // Findings are not retained by the Detector; callers that need them after Run
 // must collect them while consuming the iterator.
@@ -489,9 +464,6 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 
 				findings := d.detectFragment(runCtx, fragment)
 				for _, finding := range findings {
-					if d.ignore(finding) {
-						continue
-					}
 					if d.ValidationPool != nil {
 						if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
 							return err
@@ -560,82 +532,6 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 	}
 }
 
-// ignore compares a finding against a baseline report or betterleaksignore
-// file entries.
-func (d *Detector) ignore(finding report.Finding) bool {
-	logger := logging.With().Str("finding", finding.Secret).Logger()
-	path := finding.Attributes[sources.AttrPath]
-	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, finding.RuleID, finding.StartLine)
-
-	if _, ok := d.gitleaksIgnore[globalFingerprint]; ok {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msg("skipping finding: global fingerprint")
-		return true
-	}
-
-	if _, ok := d.gitleaksIgnore[finding.Fingerprint]; ok {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msg("skipping finding: fingerprint")
-		return true
-	}
-
-	redact := uint(0)
-	if d.baselineRedacted {
-		redact = 1
-	}
-	if d.baseline != nil && !IsNew(finding, redact, d.baseline) {
-		logger.Debug().
-			Str("fingerprint", finding.Fingerprint).
-			Msgf("skipping finding: baseline")
-		return true
-	}
-	return false
-}
-
-func (d *Detector) AddGitleaksIgnore(gitleaksIgnorePath string) error {
-	logging.Debug().Str("path", gitleaksIgnorePath).Msgf("found .gitleaksignore file")
-	file, err := os.Open(gitleaksIgnorePath)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// https://github.com/securego/gosec/issues/512
-		if err := file.Close(); err != nil {
-			logging.Warn().Err(err).Msgf("Error closing .gitleaksignore file")
-		}
-	}()
-
-	scanner := bufio.NewScanner(file)
-	replacer := strings.NewReplacer("\\", "/")
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip lines that start with a comment
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Normalize the path.
-		// TODO: Make this a breaking change in v9.
-		s := strings.Split(line, ":")
-		switch len(s) {
-		case 3:
-			// Global fingerprint.
-			// `file:rule-id:start-line`
-			s[0] = replacer.Replace(s[0])
-		case 4:
-			// Commit fingerprint.
-			// `commit:file:rule-id:start-line`
-			s[1] = replacer.Replace(s[1])
-		default:
-			logging.Warn().Str("fingerprint", line).Msg("Invalid .gitleaksignore entry")
-		}
-		d.gitleaksIgnore[strings.Join(s, ":")] = struct{}{}
-	}
-	return nil
-}
-
 // DetectString scans the given string and returns a list of findings
 func (d *Detector) DetectString(content string) []report.Finding {
 	return d.detectFragment(context.Background(), sources.Fragment{
@@ -649,7 +545,7 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 
 	// Skip the config file and baseline file to prevent self-scanning.
 	if path := fragment.Attr(sources.AttrPath); path != "" {
-		if samePath(path, d.Config.Path) || (d.baselinePath != "" && samePath(path, d.baselinePath)) {
+		if samePath(path, d.Config.Path) {
 			return nil
 		}
 	}

@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,32 +93,29 @@ func init() {
 	rootCmd.PersistentFlags().Int("exit-code", 1, "exit code when leaks have been encountered")
 	rootCmd.PersistentFlags().StringP("report-path", "r", "", "report file (use \"-\" for stdout)")
 	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
-	rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
-	rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
+	// rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
+	// rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
 	rootCmd.PersistentFlags().String("confidence", "", "minimum confidence to include (low, medium, high)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "show verbose output from scan")
-	rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
+	// rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color in terminal output")
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
 	rootCmd.PersistentFlags().Int("source-workers", 0, "number of concurrent source workers (0 = source default)")
-	rootCmd.PersistentFlags().BoolP("ignore-gitleaks-allow", "", false, "ignore gitleaks:allow and betterleaks:allow comments")
+	rootCmd.PersistentFlags().BoolP("ignore-betterleaks-allow", "", false, "ignore betterleaks:allow comments")
 	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
 	rootCmd.Flag("redact").NoOptDefVal = "100"
 	rootCmd.PersistentFlags().Bool("no-banner", false, "suppress banner")
-	rootCmd.PersistentFlags().StringSlice("enable-rule", []string{}, "only enable specific rules by id")
 	rootCmd.PersistentFlags().StringSlice("disable-rule", nil, "disable specific rules by id (repeatable; shorthand: -dr)")
 	rootCmd.PersistentFlags().StringSlice("isolate-rule", nil, "only enable specific rules by id (repeatable; shorthand: -ir)")
-	rootCmd.PersistentFlags().StringP("gitleaks-ignore-path", "i", ".", "path to .betterleaksignore or .gitleaksignore file or folder containing one")
-	rootCmd.PersistentFlags().String("match-context", "", "context around match: L (lines), C (columns/characters). e.g. 10L, 100C, -2C,+4C")
+	rootCmd.PersistentFlags().StringP("betterleaks-ignore-path", "i", ".", "path to .betterleaksignore or .gitleaksignore file or folder containing one")
+	rootCmd.PersistentFlags().String("match-context", "", "context around match (this gets reported): L (lines), C (columns/characters). e.g. 10L, 100C, -2C,+4C")
 	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
 	rootCmd.PersistentFlags().Int("max-archive-depth", 8, "allow scanning into nested archives up to this depth")
-	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for gitleaks commands in seconds (default \"0\", no timeout is set)")
+	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for betterleaks scan in seconds (default \"0\", no timeout is set)")
 	rootCmd.PersistentFlags().String("regex-engine", "re2", "regex engine (stdlib, re2)")
 	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
 	_ = rootCmd.PersistentFlags().MarkHidden("regexp-engine")
-
-	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable")
 
 	// Validation flags
 	rootCmd.PersistentFlags().Bool("validation", false, "enable validation of findings against live APIs")
@@ -291,18 +287,6 @@ func findConfigFile(source string) string {
 	return ""
 }
 
-// findIgnoreFile looks for an ignore file in the given directory.
-// It checks for .betterleaksignore first, then .gitleaksignore for backwards compatibility.
-func findIgnoreFile(dir string) string {
-	for _, name := range []string{".betterleaksignore", ".gitleaksignore"} {
-		path := filepath.Join(dir, name)
-		if fileExists(path) {
-			return path
-		}
-	}
-	return ""
-}
-
 func initDiagnostics() {
 	// Initialize diagnostics manager
 	diagnosticsFlag, err := rootCmd.PersistentFlags().GetString("diagnostics")
@@ -422,10 +406,6 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 			NoColor: noColor,
 		}).Level(logLevel)
 	}
-	// set ignore gitleaks:allow / betterleaks:allow flag
-	if detector.IgnoreGitleaksAllow, err = cmd.Flags().GetBool("ignore-gitleaks-allow"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
 
 	matchContextStr, err := cmd.Flags().GetString("match-context")
 	if err != nil {
@@ -435,41 +415,6 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 		detector.MatchContext, err = contextwindow.Parse(matchContextStr)
 		if err != nil {
 			logging.Fatal().Err(err).Msg("invalid --match-context value")
-		}
-	}
-
-	ignorePath, err := cmd.Flags().GetString("gitleaks-ignore-path")
-	if err != nil {
-		logging.Fatal().Err(err).Msg("could not get ignore path")
-	}
-
-	// If the flag points directly to an ignore file, use it
-	if fileExists(ignorePath) {
-		if err = detector.AddGitleaksIgnore(ignorePath); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// Check for ignore file in the flag directory (.betterleaksignore first, then .gitleaksignore)
-	if ignoreFile := findIgnoreFile(ignorePath); ignoreFile != "" {
-		if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// Check for ignore file in the source directory (.betterleaksignore first, then .gitleaksignore)
-	if ignoreFile := findIgnoreFile(source); ignoreFile != "" {
-		if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// ignore findings from the baseline (an existing report in json format generated earlier)
-	baselinePath, _ := cmd.Flags().GetString("baseline-path")
-	if baselinePath != "" {
-		err = detector.AddBaselineWithRedaction(baselinePath, source, mustGetUIntFlag(cmd, "redact") > 0)
-		if err != nil {
-			logging.Error().Msgf("Could not load baseline. The path must point of a gitleaks report generated using the default format: %s", err)
 		}
 	}
 
@@ -510,10 +455,6 @@ func collectFinding(cmd *cobra.Command, findings *findingCollector, finding repo
 	}
 	noColor := mustGetBoolFlag(cmd, "no-color")
 	redact := mustGetUIntFlag(cmd, "redact")
-	if mustGetBoolFlag(cmd, "legacy-print") {
-		finding.PrintLegacy(noColor, redact)
-		return
-	}
 	finding.Print(noColor, redact)
 }
 
@@ -553,45 +494,6 @@ func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findin
 		}
 	}
 
-	// write report if desired
-	reportPath := mustGetStringFlag(cmd, "report-path")
-	if reportPath != "" {
-		reporter := reporterForCommand(cmd, detector.Config, reportPath)
-		reportFindings := detector.FilterByStatus(findings.ReportFindings())
-		if redact := mustGetUIntFlag(cmd, "redact"); redact > 0 {
-			for i := range reportFindings {
-				reportFindings[i].Redact(redact)
-			}
-		}
-
-		var (
-			file      io.WriteCloser
-			reportErr error
-		)
-
-		if reportPath == report.StdoutReportPath {
-			file = os.Stdout
-		} else {
-			// Open the file.
-			if file, reportErr = os.Create(reportPath); reportErr != nil {
-				goto ReportEnd
-			}
-			defer func() {
-				_ = file.Close()
-			}()
-		}
-
-		// Write to the file.
-		if reportErr = reporter.Write(file, reportFindings); reportErr != nil {
-			goto ReportEnd
-		}
-
-	ReportEnd:
-		if reportErr != nil {
-			logging.Fatal().Err(reportErr).Msg("failed to write report")
-		}
-	}
-
 	if err != nil {
 		os.Exit(1)
 	}
@@ -599,63 +501,6 @@ func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findin
 	if findings.Count() != 0 {
 		os.Exit(exitCode)
 	}
-}
-
-func reporterForCommand(cmd *cobra.Command, cfg *config.Config, reportPath string) report.Reporter {
-	reportFormat := mustGetStringFlag(cmd, "report-format")
-	reportTemplate := mustGetStringFlag(cmd, "report-template")
-	if reportFormat == "" {
-		ext := strings.ToLower(filepath.Ext(reportPath))
-		switch ext {
-		case ".csv":
-			reportFormat = "csv"
-		case ".json":
-			reportFormat = "json"
-		case ".sarif":
-			reportFormat = "sarif"
-		default:
-			logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
-		}
-		logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
-	}
-	if reportTemplate != "" && reportFormat != "template" {
-		logging.Fatal().Msg("Report format must be 'template' if --report-template is specified")
-	}
-
-	switch strings.TrimSpace(strings.ToLower(reportFormat)) {
-	case "csv":
-		return &report.CsvReporter{}
-	case "json":
-		return &report.JsonReporter{}
-	case "junit":
-		return &report.JunitReporter{}
-	case "sarif":
-		return &report.SarifReporter{OrderedRules: cfg.GetOrderedRules()}
-	case "template":
-		reporter, err := report.NewTemplateReporter(reportTemplate)
-		if err != nil {
-			logging.Fatal().Err(err).Msg("Invalid report template")
-		}
-		return reporter
-	default:
-		logging.Fatal().Msgf("unknown report format %s", reportFormat)
-		return nil
-	}
-}
-
-func fileExists(fileName string) bool {
-	// check for a .gitleaksignore file
-	info, err := os.Stat(fileName)
-	if err != nil && !os.IsNotExist(err) {
-		return false
-	}
-
-	if info != nil && err == nil {
-		if !info.IsDir() {
-			return true
-		}
-	}
-	return false
 }
 
 func FormatDuration(d time.Duration) string {

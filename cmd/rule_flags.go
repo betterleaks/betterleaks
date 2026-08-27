@@ -47,13 +47,6 @@ func applyRuleSelection(cmd *cobra.Command, cfg *config.Config) error {
 		return fmt.Errorf("reading isolate-rule: %w", err)
 	}
 
-	// --enable-rule predates --isolate-rule and remains a compatibility alias.
-	enableRules, err := cmd.Flags().GetStringSlice("enable-rule")
-	if err != nil {
-		return fmt.Errorf("reading enable-rule: %w", err)
-	}
-	isolateRules = append(isolateRules, enableRules...)
-
 	disableRules, err := cmd.Flags().GetStringSlice("disable-rule")
 	if err != nil {
 		return fmt.Errorf("reading disable-rule: %w", err)
