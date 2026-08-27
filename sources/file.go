@@ -259,6 +259,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 	}
 
 	prevFragmentEndLine := 0
+	firstFragmentAttr := "true"
 	for {
 		select {
 		case <-ctx.Done():
@@ -271,8 +272,9 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 				fragPath = filepath.ToSlash(fullPath)
 			}
 			attr := map[string]string{
-				AttrPath:     fragPath,
-				AttrResource: ResourceFileContent,
+				AttrPath:            fragPath,
+				AttrResource:        ResourceFileContent,
+				AttrFSFirstFragment: firstFragmentAttr,
 			}
 			fragment := Fragment{
 				Attributes: attr,
@@ -363,6 +365,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 				return yield(fragment, nil)
 			}
 
+			firstFragmentAttr = "false"
 			if err := yield(fragment, err); err != nil {
 				return err
 			}

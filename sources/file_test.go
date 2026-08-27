@@ -179,3 +179,22 @@ func TestFile_Fragments_malformedGzipDoesNotPanic(t *testing.T) {
 	})
 	require.False(t, yielded)
 }
+
+func TestFile_Fragments_marksFirstFragment(t *testing.T) {
+	s := &File{
+		Content: strings.NewReader("aa\n\nbb\n\n"),
+		Path:    "example.txt",
+		Buffer:  make([]byte, 4),
+	}
+
+	var fragments []Fragment
+	require.NoError(t, s.Fragments(t.Context(), func(fragment Fragment, err error) error {
+		require.NoError(t, err)
+		fragments = append(fragments, fragment)
+		return nil
+	}))
+
+	require.Len(t, fragments, 2)
+	require.Equal(t, "true", fragments[0].Attr(AttrFSFirstFragment))
+	require.Equal(t, "false", fragments[1].Attr(AttrFSFirstFragment))
+}

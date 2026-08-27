@@ -698,6 +698,12 @@ ScanLoop:
 					break ScanLoop
 				default:
 					rule := d.Config.Rules[ruleID]
+					// A path-only rule cannot produce a new result after decoding content
+					// or for later chunks of the same file. Keep missing attributes eligible
+					// so fragments from sources other than File retain their existing behavior.
+					if rule.Regex == nil && (currentDecodeDepth > 0 || fragment.Attr(sources.AttrFSFirstFragment) == "false") {
+						continue
+					}
 					for _, finding := range d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings) {
 						if confidence.Meets(finding.Attr(confidence.Attribute), d.MinConfidence) {
 							findings = append(findings, finding)
@@ -784,23 +790,20 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
-	if r.Path != nil {
-		if r.Regex == nil && len(encodedSegments) == 0 {
-			if rulePathMatchesFragment(r.Path, fragment) {
-				return append(findings, newPathOnlyFinding(r, fragment))
-			}
+	if r.Regex == nil {
+		// Decoding content cannot change a path-only result.
+		if len(encodedSegments) > 0 {
 			return findings
 		}
-
-		if !rulePathMatchesFragment(r.Path, fragment) {
-			// If a rule defines both `path` and `regex`, the normalized fragment path
-			// must match before we spend time checking the content regex.
-			return findings
+		if rulePathMatchesFragment(r.Path, fragment) {
+			return append(findings, newPathOnlyFinding(r, fragment))
 		}
+		return findings
 	}
 
-	// if path only rule, skip content checks
-	if r.Regex == nil {
+	if r.Path != nil && !rulePathMatchesFragment(r.Path, fragment) {
+		// If a rule defines both `path` and `regex`, the normalized fragment path
+		// must match before we spend time checking the content regex.
 		return findings
 	}
 

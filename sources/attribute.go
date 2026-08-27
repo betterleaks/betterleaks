@@ -49,7 +49,8 @@ const (
 	AttrGitPlatform    = "git.platform"
 
 	// Filesystem
-	AttrFSSymlink = "fs.symlink"
+	AttrFSSymlink       = "fs.symlink"
+	AttrFSFirstFragment = "fs.first_fragment"
 
 	// GitHub
 	AttrGitHubOwner       = "github.owner"

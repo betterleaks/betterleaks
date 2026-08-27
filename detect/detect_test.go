@@ -93,6 +93,36 @@ func TestRunStreamsFindings(t *testing.T) {
 	require.Len(t, findings, 1)
 }
 
+func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
+	rule := config.Rule{
+		RuleID: "path-only",
+		Path:   regexp.MustCompile(`\.p12$`),
+	}
+	cfg := &config.Config{
+		Rules:          map[string]config.Rule{rule.RuleID: rule},
+		NoKeywordRules: []string{rule.RuleID},
+		OrderedRules:   []string{rule.RuleID},
+	}
+	detector := NewDetector(cfg)
+	detector.RuleTimings = NewRuleTimingCollector()
+	source := &sources.File{
+		Content: strings.NewReader("aa\n\nbb\n\n"),
+		Path:    "bundle.p12",
+		Buffer:  make([]byte, 4),
+	}
+
+	var findings []report.Finding
+	for result := range detector.Run(t.Context(), source) {
+		require.NoError(t, result.Err)
+		findings = append(findings, result.Finding)
+	}
+
+	require.Len(t, findings, 1)
+	timings := detector.RuleTimings.Snapshot()
+	require.Len(t, timings, 1)
+	require.Equal(t, uint64(1), timings[0].Hits)
+}
+
 func TestCandidateBitmap(t *testing.T) {
 	rules := map[string]config.Rule{
 		"high":   {RuleID: "high", Specificity: 30, Keywords: []string{"shared", "alias"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
