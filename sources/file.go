@@ -331,7 +331,6 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 			}
 
 			fragment.Raw = peekBuf.String()
-			fragment.Bytes = peekBuf.Bytes()
 			fragment.StartLine = prevFragmentEndLine + 1
 
 			// Count the number of newlines in this chunk to determine the end

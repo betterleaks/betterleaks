@@ -10,8 +10,6 @@ type Fragment struct {
 	// Raw is the raw content of the fragment
 	Raw string
 
-	Bytes []byte
-
 	// Indicates if this fragment is inherited from a finding
 	InheritedFromFinding bool
 

@@ -561,10 +561,7 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 		}
 	}
 
-	if fragment.Bytes == nil {
-		d.TotalBytes.Add(uint64(len(fragment.Raw)))
-	}
-	d.TotalBytes.Add(uint64(len(fragment.Bytes)))
+	d.TotalBytes.Add(uint64(len([]byte(fragment.Raw))))
 
 	findings := []report.Finding{}
 
