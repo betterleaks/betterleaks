@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-var allowlistRegexTests = map[string]struct {
+var globalFilterTests = map[string]struct {
 	invalid []string
 	valid   []string
 }{
@@ -103,7 +103,7 @@ var allowlistRegexTests = map[string]struct {
 	},
 }
 
-func globalSecretAllowed(secret string) bool {
+func globalSecretFiltered(secret string) bool {
 	skip, err := exprRuntime.EvalFilter(globalFilterProgram, map[string]any{"secret": secret}, nil)
 	if err != nil {
 		panic(err)
@@ -111,7 +111,7 @@ func globalSecretAllowed(secret string) bool {
 	return skip
 }
 
-func globalPathAllowed(path string) bool {
+func globalPathFiltered(path string) bool {
 	skip, err := exprRuntime.EvalPrefilter(globalPrefilterProgram, map[string]string{"path": path})
 	if err != nil {
 		panic(err)
@@ -119,39 +119,39 @@ func globalPathAllowed(path string) bool {
 	return skip
 }
 
-func TestConfigAllowlistRegexes(t *testing.T) {
-	for name, cases := range allowlistRegexTests {
+func TestGlobalFilter(t *testing.T) {
+	for name, cases := range globalFilterTests {
 		t.Run(name, func(t *testing.T) {
 			for _, c := range cases.invalid {
-				if !globalSecretAllowed(c) {
-					t.Errorf("invalid value not marked as allowed: %s", c)
+				if !globalSecretFiltered(c) {
+					t.Errorf("invalid value not filtered: %s", c)
 				}
 			}
 
 			for _, c := range cases.valid {
-				if globalSecretAllowed(c) {
-					t.Errorf("valid value marked as allowed: %s", c)
+				if globalSecretFiltered(c) {
+					t.Errorf("valid value filtered: %s", c)
 				}
 			}
 		})
 	}
 }
 
-func BenchmarkConfigAllowlistRegexes(b *testing.B) {
+func BenchmarkGlobalFilter(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		for _, cases := range allowlistRegexTests {
+		for _, cases := range globalFilterTests {
 			for _, c := range cases.invalid {
-				globalSecretAllowed(c)
+				globalSecretFiltered(c)
 			}
 
 			for _, c := range cases.valid {
-				globalSecretAllowed(c)
+				globalSecretFiltered(c)
 			}
 		}
 	}
 }
 
-var allowlistPathsTests = map[string]struct {
+var globalPrefilterTests = map[string]struct {
 	invalid []string
 	valid   []string
 }{
@@ -188,33 +188,33 @@ var allowlistPathsTests = map[string]struct {
 	},
 }
 
-func TestConfigAllowlistPaths(t *testing.T) {
-	for name, cases := range allowlistPathsTests {
+func TestGlobalPrefilter(t *testing.T) {
+	for name, cases := range globalPrefilterTests {
 		t.Run(name, func(t *testing.T) {
 			for _, c := range cases.invalid {
-				if !globalPathAllowed(c) {
-					t.Errorf("invalid path not marked as allowed: %s", c)
+				if !globalPathFiltered(c) {
+					t.Errorf("invalid path not filtered: %s", c)
 				}
 			}
 
 			for _, c := range cases.valid {
-				if globalPathAllowed(c) {
-					t.Errorf("valid path marked as allowed: %s", c)
+				if globalPathFiltered(c) {
+					t.Errorf("valid path filtered: %s", c)
 				}
 			}
 		})
 	}
 }
 
-func BenchmarkConfigAllowlistPaths(b *testing.B) {
+func BenchmarkGlobalPrefilter(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		for _, cases := range allowlistPathsTests {
+		for _, cases := range globalPrefilterTests {
 			for _, c := range cases.invalid {
-				globalPathAllowed(c)
+				globalPathFiltered(c)
 			}
 
 			for _, c := range cases.valid {
-				globalPathAllowed(c)
+				globalPathFiltered(c)
 			}
 		}
 	}

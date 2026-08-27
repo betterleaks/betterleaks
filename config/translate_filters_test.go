@@ -5,152 +5,6 @@ import (
 	"testing"
 )
 
-func TestCelRegexLit(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple regex without backslashes",
-			input:    `^[a-zA-Z_.-]+$`,
-			expected: "`^[a-zA-Z_.-]+$`",
-		},
-		{
-			name:     "contains backslash",
-			input:    `\d{4}-\d{2}-\d{2}`,
-			expected: "`\\d{4}-\\d{2}-\\d{2}`",
-		},
-		{
-			name:     "contains triple quote",
-			input:    `(?i)secret"""\s*=\s*\w+`,
-			expected: "`(?i)secret\"\"\"\\s*=\\s*\\w+`",
-		},
-		{
-			name:     "backslash pattern ending in quote",
-			input:    `(?im)"@[\w\/]+":[ ]{0,20}"[\w\.\-\d]+"`,
-			expected: "`(?im)\"@[\\w\\/]+\":[ ]{0,20}\"[\\w\\.\\-\\d]+\"`",
-		},
-		{
-			name:     "quotes in middle are fine with raw strings",
-			input:    `['"]?<[^>]+>['"]?:['"]?<[^>]+>|<[^:]+:[^>]+>['"]?`,
-			expected: "`['\"]?<[^>]+>['\"]?:['\"]?<[^>]+>|<[^:]+:[^>]+>['\"]?`",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			actual := exprRegexLit(tt.input)
-			if actual != tt.expected {
-				t.Errorf("exprRegexLit() = %v, want %v", actual, tt.expected)
-			}
-		})
-	}
-}
-
-func TestCelStringLit(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "plain string",
-			input:    "secret",
-			expected: `"secret"`,
-		},
-		{
-			name:     "contains double quote",
-			input:    `my "secret"`,
-			expected: `"my \"secret\""`,
-		},
-		{
-			name:     "contains newline and tab",
-			input:    "line1\n\tline2",
-			expected: `"line1\n\tline2"`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			actual := exprStringLit(tt.input)
-			if actual != tt.expected {
-				t.Errorf("exprStringLit() = %v, want %v", actual, tt.expected)
-			}
-		})
-	}
-}
-
-func TestCelRegexList(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []string
-		expected string
-	}{
-		{
-			name:     "empty list",
-			input:    []string{},
-			expected: "[]",
-		},
-		{
-			name:     "single item",
-			input:    []string{`\d+`},
-			expected: "[`\\d+`]",
-		},
-		{
-			name:     "multiple items (multiline formatting)",
-			input:    []string{"^foo$", `\b`, "^bar$"},
-			expected: "[\n  `^foo$`,\n  `\\b`,\n  `^bar$`\n]",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			actual := exprRegexList(tt.input)
-			if actual != tt.expected {
-				t.Errorf("exprRegexList() = \n%v\nwant \n%v", actual, tt.expected)
-			}
-		})
-	}
-}
-
-func TestCelStringList(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []string
-		expected string
-	}{
-		{
-			name:     "empty list",
-			input:    []string{},
-			expected: "[]",
-		},
-		{
-			name:     "single item",
-			input:    []string{"hello"},
-			expected: `["hello"]`,
-		},
-		{
-			name:  "multiple items (multiline formatting)",
-			input: []string{"a", "b", "c"},
-			expected: `[
-  "a",
-  "b",
-  "c"
-]`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			actual := exprStringList(tt.input)
-			if actual != tt.expected {
-				t.Errorf("exprStringList() = \n%v\nwant \n%v", actual, tt.expected)
-			}
-		})
-	}
-}
-
 func TestComposeFilters(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -158,99 +12,66 @@ func TestComposeFilters(t *testing.T) {
 		userExpr  string
 		expected  string
 	}{
+		{name: "empty", expected: ""},
+		{name: "user expression", userExpr: "condA", expected: "condA"},
+		{name: "generated expression", skipParts: []string{"condA"}, expected: "condA"},
 		{
-			name:      "empty inputs",
-			skipParts: nil,
-			userExpr:  "",
-			expected:  "",
-		},
-		{
-			name:      "only user expr",
-			skipParts: nil,
-			userExpr:  "has(finding.secret)",
-			expected:  "has(finding.secret)",
-		},
-		{
-			name:      "one skip part, no user expr",
-			skipParts: []string{"matchesAny(path, [...])"},
-			userExpr:  "",
-			expected:  "matchesAny(path, [...])",
-		},
-		{
-			name:      "multiple skip parts",
-			skipParts: []string{"condA", "condB"},
-			userExpr:  "",
-			expected:  "condA\n|| condB",
-		},
-		{
-			name:      "skip parts and user expr",
+			name:      "generated and user expressions",
 			skipParts: []string{"condA", "condB"},
 			userExpr:  "condC",
 			expected:  "condA\n|| condB\n|| condC",
 		},
 		{
-			name:      "skip part and user declaration",
+			name:      "user declaration",
 			skipParts: []string{"condA"},
 			userExpr:  "let context = finding.fragment_raw; context == secret",
 			expected:  "condA\n|| (let context = finding.fragment_raw; context == secret)",
-		},
-		{
-			name:      "skip part and commented user declaration",
-			skipParts: []string{"condA"},
-			userExpr:  "// explain context\nlet context = finding.fragment_raw; context == secret",
-			expected:  "condA\n|| (// explain context\nlet context = finding.fragment_raw; context == secret)",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := composeFilters(tt.skipParts, tt.userExpr)
-			if actual != tt.expected {
-				t.Errorf("composeFilters() = %q, want %q", actual, tt.expected)
+			if got := composeFilters(tt.skipParts, tt.userExpr); got != tt.expected {
+				t.Fatalf("composeFilters() = %q, want %q", got, tt.expected)
 			}
 		})
 	}
 }
 
-func TestTranslateLegacyFilters(t *testing.T) {
-	c := &Config{
-		Rules: map[string]Rule{
-			"rule-1": {
-				RuleID:  "rule-1",
-				Entropy: 3.5,
-				Filter:  "existing_filter()",
-			},
-			"rule-2": {
-				RuleID:          "rule-2",
-				TokenEfficiency: true,
-			},
-			"rule-3": {
-				RuleID:  "rule-3",
-				Entropy: 4, // Integer edge case for formatting
-			},
+func TestNormalizeRuleFilters(t *testing.T) {
+	c := &Config{Rules: map[string]Rule{
+		"entropy": {
+			RuleID:  "entropy",
+			Entropy: 3.5,
+			Filter:  "existingFilter()",
 		},
+		"token-efficiency": {
+			RuleID:          "token-efficiency",
+			TokenEfficiency: true,
+		},
+		"integer-entropy": {
+			RuleID:  "integer-entropy",
+			Entropy: 4,
+		},
+	}}
+
+	c.normalizeRuleFilters()
+
+	entropyRule := c.Rules["entropy"]
+	if !strings.Contains(entropyRule.Filter, `entropy(finding["secret"]) <= 3.5`) {
+		t.Fatalf("entropy filter not normalized: %s", entropyRule.Filter)
+	}
+	if !strings.Contains(entropyRule.Filter, "existingFilter()") {
+		t.Fatalf("existing filter lost: %s", entropyRule.Filter)
 	}
 
-	err := c.TranslateLegacyFilters()
-	if err != nil {
-		t.Fatalf("TranslateLegacyFilters returned error: %v", err)
+	tokenRule := c.Rules["token-efficiency"]
+	if !strings.Contains(tokenRule.Filter, `failsTokenEfficiency(finding["secret"])`) {
+		t.Fatalf("token-efficiency filter not normalized: %s", tokenRule.Filter)
 	}
 
-	r1 := c.Rules["rule-1"]
-	if !strings.Contains(r1.Filter, `entropy(finding["secret"]) <= 3.5`) {
-		t.Errorf("rule-1 missing entropy filter: %s", r1.Filter)
-	}
-	if !strings.Contains(r1.Filter, `existing_filter()`) {
-		t.Errorf("rule-1 missing existing filter: %s", r1.Filter)
-	}
-
-	r2 := c.Rules["rule-2"]
-	if !strings.Contains(r2.Filter, `failsTokenEfficiency`) {
-		t.Errorf("rule-2 missing token efficiency filter: %s", r2.Filter)
-	}
-
-	r3 := c.Rules["rule-3"]
-	if !strings.Contains(r3.Filter, `entropy(finding["secret"]) <= 4.0`) {
-		t.Errorf("rule-3 missing formatted integer entropy filter: %s", r3.Filter)
+	integerRule := c.Rules["integer-entropy"]
+	if !strings.Contains(integerRule.Filter, `entropy(finding["secret"]) <= 4.0`) {
+		t.Fatalf("integer entropy filter not normalized: %s", integerRule.Filter)
 	}
 }

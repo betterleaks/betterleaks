@@ -5,6 +5,7 @@
 package utils
 
 import (
+	"context"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
@@ -18,7 +19,11 @@ func Validate(rule config.Rule, truePositives []string, falsePositives []string)
 	r := &rule
 	d := createSingleRuleDetector(r)
 	for _, tp := range truePositives {
-		if len(d.DetectString(tp)) < 1 {
+		count, err := countFindings(d, sources.Fragment{Raw: tp})
+		if err != nil {
+			logging.Fatal().Err(err).Str("rule", r.RuleID).Msg("Failed to validate true positive.")
+		}
+		if count < 1 {
 			logging.Fatal().
 				Str("rule", r.RuleID).
 				Str("value", tp).
@@ -27,8 +32,11 @@ func Validate(rule config.Rule, truePositives []string, falsePositives []string)
 		}
 	}
 	for _, fp := range falsePositives {
-		findings := d.DetectString(fp)
-		if len(findings) != 0 {
+		count, err := countFindings(d, sources.Fragment{Raw: fp})
+		if err != nil {
+			logging.Fatal().Err(err).Str("rule", r.RuleID).Msg("Failed to validate false positive.")
+		}
+		if count != 0 {
 			logging.Fatal().
 				Str("rule", r.RuleID).
 				Str("value", fp).
@@ -49,7 +57,11 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 				sources.AttrPath: path,
 			},
 		}
-		if len(d.Detect(f)) != 1 {
+		count, err := countFindings(d, f)
+		if err != nil {
+			logging.Fatal().Err(err).Str("rule", r.RuleID).Msg("Failed to validate true positive.")
+		}
+		if count != 1 {
 			logging.Fatal().
 				Str("rule", r.RuleID).
 				Str("value", tp).
@@ -65,7 +77,11 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 				sources.AttrPath: path,
 			},
 		}
-		if len(d.Detect(f)) != 0 {
+		count, err := countFindings(d, f)
+		if err != nil {
+			logging.Fatal().Err(err).Str("rule", r.RuleID).Msg("Failed to validate false positive.")
+		}
+		if count != 0 {
 			logging.Fatal().
 				Str("rule", r.RuleID).
 				Str("value", fp).
@@ -114,5 +130,27 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 		}
 	}
 
-	return detect.NewDetector(cfg)
+	return detect.NewDetectorContext(context.Background(), cfg, detect.ValidationOptions{})
+}
+
+func countFindings(d *detect.Detector, fragment sources.Fragment) (int, error) {
+	count := 0
+	for result := range d.Run(context.Background(), fragmentSource{fragment: fragment}) {
+		if result.Err != nil {
+			return 0, result.Err
+		}
+		count++
+	}
+	return count, nil
+}
+
+type fragmentSource struct {
+	fragment sources.Fragment
+}
+
+func (s fragmentSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return yield(s.fragment, nil)
 }

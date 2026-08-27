@@ -77,7 +77,7 @@
 # -----BEGIN REGEX TARGET DECODED MATCH PATTERNS-----
 [[rules]]
   id = 'decoded-password-dont-ignore'
-  description = 'Make sure this would be detected with no allowlist'
+  description = 'Make sure this would be detected without a filter'
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
   secretGroup = 1
@@ -88,13 +88,7 @@
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
   secretGroup = 1
-
-  [[rules.allowlists]]
-    regexTarget = 'secret'
-    regexes = [
-      # The decoded segment that we are testing against
-      'please-ignore-me',
-    ]
+  filter = '''filter.matchesAny(finding["secret"], [`please-ignore-me`])'''
 
 [[rules]]
   id = 'decoded-password-ignore-match'
@@ -102,13 +96,7 @@
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
   secretGroup = 1
-
-  [[rules.allowlists]]
-    regexTarget = 'match'
-    regexes = [
-      # The decoded segment that we are testing against
-      'please-ignore-me',
-    ]
+  filter = '''filter.matchesAny(finding["match"], [`please-ignore-me`])'''
 
 [[rules]]
   id = 'decoded-password-ignore-line'
@@ -116,11 +104,5 @@
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
   secretGroup = 1
-
-  [[rules.allowlists]]
-    regexTarget = 'line'
-    regexes = [
-      # The decoded segment that we are testing against
-      'please-ignore-me',
-    ]
+  filter = '''filter.matchesAny(finding["line"], [`please-ignore-me`])'''
 # -----END REGEX TARGET DECODED MATCH PATTERNS-----

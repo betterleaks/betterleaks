@@ -40,9 +40,7 @@ func TestGCPValidateExprBinding_ServiceAccountValid(t *testing.T) {
 	}
 	env.GCPTokenEndpoint = ts.URL
 
-	prg, err := env.CompileValidation(`cel.bind(r,
-  gcp.validate(finding["secret"]),
-  r.status == 200 ? {
+	prg, err := env.CompileValidation(`let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid",
     "project_id": r.project_id,
     "client_email": r.client_email,
@@ -50,8 +48,7 @@ func TestGCPValidateExprBinding_ServiceAccountValid(t *testing.T) {
   } : r.status in [400, 401] ? {
     "result": "invalid",
     "reason": r.error_code
-  } : unknown(r)
-)`)
+  } : unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -103,15 +100,12 @@ func TestGCPValidateExprBinding_ApplicationDefaultCredentialsInvalid(t *testing.
 	}
 	env.GCPTokenEndpoint = ts.URL
 
-	prg, err := env.CompileValidation(`cel.bind(r,
-  gcp.validate(finding["secret"]),
-  r.status == 200 ? {
+	prg, err := env.CompileValidation(`let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid"
   } : r.status in [400, 401] ? {
     "result": "invalid",
     "error_code": r.error_code
-  } : unknown(r)
-)`)
+  } : unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

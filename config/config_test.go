@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
@@ -107,11 +108,6 @@ func TestTranslate(t *testing.T) {
 			cfg:       &Config{},
 			wantError: errors.New("discord-api-key: invalid regex secret group 5, max regex secret group 3"),
 		},
-		{
-			cfgName:   "invalid/allowlist_global_bad_regex",
-			cfg:       &Config{},
-			wantError: fmt.Errorf("[[allowlists]] invalid path regex \"*.test.js\": error parsing regexp: missing argument to repetition operator: `*`"),
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.cfgName, func(t *testing.T) {
@@ -124,8 +120,26 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 	cfg, err := Default()
 	require.NoError(t, err)
 	require.NoError(t, cfg.CompileFilters(nil))
-	_, err = cfg.CompileValidation()
+
+	filterRuntime, err := exprruntime.New(nil)
 	require.NoError(t, err)
+	if cfg.Filter != "" {
+		_, err = filterRuntime.CompileFilter(cfg.Filter, nil)
+		require.NoError(t, err, "global filter")
+	}
+
+	validationRuntime, err := cfg.CompileValidation()
+	require.NoError(t, err)
+	for _, rule := range cfg.GetOrderedRules() {
+		if rule.Filter != "" {
+			_, err = filterRuntime.CompileFilter(rule.Filter, nil)
+			require.NoErrorf(t, err, "rule %q filter", rule.RuleID)
+		}
+		if rule.ValidateExpr != "" {
+			_, err = validationRuntime.CompileValidation(rule.ValidateExpr)
+			require.NoErrorf(t, err, "rule %q validation", rule.RuleID)
+		}
+	}
 }
 
 func TestGenericRuleConfidence(t *testing.T) {
@@ -158,162 +172,6 @@ regex = "secret"
 confidence = "certain"
 `, "")
 	require.ErrorContains(t, err, "invalid confidence")
-}
-
-func TestTranslateAllowlists(t *testing.T) {
-	tests := []translateCase{
-		// Global
-		{
-			cfgName: "valid/allowlist_global_old_compat",
-			cfg: &Config{
-				Rules:     map[string]Rule{},
-				Prefilter: `containsAny(attributes["path"], ["0989c462-69c9-49fa-b7d2-30dc5c576a97"])`,
-			},
-		},
-		{
-			cfgName: "valid/allowlist_global_multiple",
-			cfg: &Config{
-				Rules: map[string]Rule{
-					"test": {
-						RuleID:   "test",
-						Regex:    regexp.MustCompile(`token = "(.+)"`),
-						Keywords: []string{},
-						Tags:     []string{},
-					},
-				},
-			},
-		},
-		{
-			cfgName: "valid/allowlist_global_target_rules",
-			cfg: &Config{
-				Rules: map[string]Rule{
-					"github-app-token": {
-						RuleID:   "github-app-token",
-						Regex:    regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z]{36}`),
-						Tags:     []string{},
-						Keywords: []string{},
-						Filter:   "matchesAny(attributes[\"path\"], [`(?:^|/)@octokit/auth-token/README\\.md$`])",
-					},
-					"github-oauth": {
-						RuleID:   "github-oauth",
-						Regex:    regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
-						Tags:     []string{},
-						Keywords: []string{},
-					},
-					"github-pat": {
-						RuleID:   "github-pat",
-						Regex:    regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
-						Tags:     []string{},
-						Keywords: []string{},
-						Filter:   "matchesAny(attributes[\"path\"], [`(?:^|/)@octokit/auth-token/README\\.md$`])",
-					},
-				},
-			},
-		},
-		{
-			cfgName: "valid/allowlist_global_regex",
-			cfg: &Config{
-				Rules: map[string]Rule{},
-			},
-		},
-		{
-			cfgName:   "invalid/allowlist_global_empty",
-			cfg:       &Config{},
-			wantError: errors.New("[[allowlists]] must contain at least one check for: commits, paths, regexes, or stopwords"),
-		},
-		{
-			cfgName:   "invalid/allowlist_global_old_and_new",
-			cfg:       &Config{},
-			wantError: errors.New("[allowlist] is deprecated, it cannot be used alongside [[allowlists]]"),
-		},
-		{
-			cfgName:   "invalid/allowlist_global_target_rule_id",
-			cfg:       &Config{},
-			wantError: errors.New("[[allowlists]] target rule ID 'github-pat' does not exist"),
-		},
-		{
-			cfgName:   "invalid/allowlist_global_regextarget",
-			cfg:       &Config{},
-			wantError: errors.New("[[allowlists]] unknown allowlist |regexTarget| 'mtach' (expected 'match', 'line')"),
-		},
-
-		// Rule
-		{
-			cfgName: "valid/allowlist_rule_old_compat",
-			cfg: &Config{
-				Rules: map[string]Rule{"example": {
-					RuleID:   "example",
-					Regex:    regexp.MustCompile(`example\d+`),
-					Tags:     []string{},
-					Keywords: []string{},
-					Filter:   "matchesAny(finding[\"secret\"], [`123`])",
-				}},
-			},
-		},
-		{
-			cfgName: "valid/allowlist_rule_regex",
-			cfg: &Config{
-				Title: "simple config with allowlist for aws",
-				Rules: map[string]Rule{"aws-access-key": {
-					RuleID:      "aws-access-key",
-					Description: "AWS Access Key",
-					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
-					Keywords:    []string{},
-					Tags:        []string{"key", "AWS"},
-					Filter:      "matchesAny(finding[\"secret\"], [`AKIALALEMEL33243OLIA`])",
-				}},
-			},
-		},
-		{
-			cfgName: "valid/allowlist_rule_commit",
-			cfg: &Config{
-				Title: "simple config with allowlist for a specific commit",
-				Rules: map[string]Rule{"aws-access-key": {
-					RuleID:      "aws-access-key",
-					Description: "AWS Access Key",
-					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
-					Keywords:    []string{},
-					Tags:        []string{"key", "AWS"},
-					Filter:      `attributes["git.sha"] in ["allowthiscommit"]`,
-				}},
-			},
-		},
-		{
-			cfgName: "valid/allowlist_rule_path",
-			cfg: &Config{
-				Title: "simple config with allowlist for .go files",
-				Rules: map[string]Rule{"aws-access-key": {
-					RuleID:      "aws-access-key",
-					Description: "AWS Access Key",
-					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
-					Keywords:    []string{},
-					Tags:        []string{"key", "AWS"},
-					Filter:      "matchesAny(attributes[\"path\"], [`.go`])",
-				}},
-			},
-		},
-		{
-			cfgName:   "invalid/allowlist_rule_empty",
-			cfg:       &Config{},
-			wantError: errors.New("example: [[rules.allowlists]] must contain at least one check for: commits, paths, regexes, or stopwords"),
-		},
-		{
-			cfgName:   "invalid/allowlist_rule_old_and_new",
-			cfg:       &Config{},
-			wantError: errors.New("example: [rules.allowlist] is deprecated, it cannot be used alongside [[rules.allowlist]]"),
-		},
-		{
-			cfgName:   "invalid/allowlist_rule_regextarget",
-			cfg:       &Config{},
-			wantError: errors.New("example: [[rules.allowlists]] unknown allowlist |regexTarget| 'mtach' (expected 'match', 'line')"),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.cfgName, func(t *testing.T) {
-			testTranslate(t, tt)
-		})
-	}
 }
 
 func TestTranslateExtend(t *testing.T) {
@@ -377,7 +235,7 @@ func TestTranslateExtend(t *testing.T) {
 						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
-						Filter:      "matchesAny(attributes[\"path\"], [`something.py`])",
+						Filter:      "filter.matchesAny(attributes[\"path\"], [`something.py`])",
 					},
 				},
 			},
@@ -490,39 +348,6 @@ func TestTranslateExtend(t *testing.T) {
 				},
 			},
 		},
-		{
-			cfgName: "valid/extend_rule_allowlist_or",
-			cfg: &Config{
-				Title: "gitleaks extended 3",
-				Rules: map[string]Rule{
-					"aws-secret-key-again-again": {
-						RuleID:      "aws-secret-key-again-again",
-						Description: "AWS Secret Key",
-						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
-						Keywords:    []string{},
-						Tags:        []string{"key", "AWS"},
-						Filter:      "(matchesAny(attributes[\"path\"], [`ignore\\.xaml`]) || attributes[\"git.sha\"] in [\"abcdefg1\"])" + "\n|| " + `containsAny(finding["secret"], ["fake"])` + "\n|| " + "(matchesAny(finding[\"line\"], [`foo.+bar`]) || containsAny(finding[\"secret\"], [\"example\"]))",
-					},
-				},
-			},
-		},
-		{
-			cfgName: "valid/extend_rule_allowlist_and",
-			cfg: &Config{
-				Title: "gitleaks extended 3",
-				Rules: map[string]Rule{
-					"aws-secret-key-again-again": {
-						RuleID:      "aws-secret-key-again-again",
-						Description: "AWS Secret Key",
-						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
-						Keywords:    []string{},
-						Tags:        []string{"key", "AWS"},
-						Filter:      `containsAny(finding["secret"], ["fake"])` + "\n|| " + "(matchesAny(attributes[\"path\"], [`ignore\\.xaml`]) && attributes[\"git.sha\"] in [\"abcdefg1\"] && matchesAny(finding[\"line\"], [`foo.+bar`]) && containsAny(finding[\"secret\"], [\"example\"]))",
-					},
-				},
-			},
-		},
-
 		// Invalid
 		{
 			cfgName:   "invalid/extend_invalid_ruleid",
@@ -564,15 +389,12 @@ func testTranslate(t *testing.T, test translateCase) {
 	opts := cmp.Options{
 		cmp.Comparer(regexComparer),
 		cmpopts.IgnoreFields(Rule{}, "Specificity"),
-		cmpopts.IgnoreUnexported(Rule{}, Allowlist{}),
+		cmpopts.IgnoreUnexported(Rule{}),
 	}
 	if diff := cmp.Diff(test.cfg.Title, cfg.Title); diff != "" {
 		t.Errorf("%s diff: (-want +got)\n%s", test.cfgName, diff)
 	}
 	if diff := cmp.Diff(test.cfg.Rules, cfg.Rules, opts); diff != "" {
-		t.Errorf("%s diff: (-want +got)\n%s", test.cfgName, diff)
-	}
-	if diff := cmp.Diff(test.cfg.Allowlists, cfg.Allowlists, opts); diff != "" {
 		t.Errorf("%s diff: (-want +got)\n%s", test.cfgName, diff)
 	}
 }

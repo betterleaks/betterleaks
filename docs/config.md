@@ -31,8 +31,7 @@ Aho-Corasick trie before running the heavier regex.
 ## Expr overview
 
 Betterleaks uses [Expr](https://expr-lang.org/) for `prefilter`, `filter`, and
-`validate` expressions. Existing CEL-shaped expressions are still accepted for
-compatibility, but new configs should use Expr syntax.
+`validate` expressions.
 
 - `prefilter` runs before regex matching and only has `attributes`.
 - `filter` runs after regex matching and has `attributes` and `finding`.
@@ -90,17 +89,20 @@ let genericMatchContext =
 
 ## Filtering
 
-Filters replace legacy allowlists, entropy checks, and token efficiency checks
-with Expr. If a filter expression evaluates to `true`, the item is skipped.
+Filters are the configuration mechanism for suppressing false positives. If a
+filter expression evaluates to `true`, the item is skipped.
 
 ### Filter functions
 
 | Function | Description |
 | :--- | :--- |
 | `filter.matchesAny(string, list)` | Returns `true` if the string matches any regex pattern in the list. |
+| `matchesAny(string, list)` | Equivalent to `filter.matchesAny(string, list)`. |
 | `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. |
 | `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
+| `containsAny(string, list)` | Equivalent to `filter.containsAny(string, list)`. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
+| `entropy(string)` | Equivalent to `filter.entropy(string)`; useful for concise rule filters. |
 | `filter.tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
 | `filter.failsTokenEfficiency(string)` | Returns `true` when the generic-secret heuristic identifies readable text using token ratio, wordlist matches, and a length-sensitive threshold. |
 | `filter.setConfidence(level)` | Sets the current finding's `confidence` attribute. Use as `let _ = filter.setConfidence(level);`. |

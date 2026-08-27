@@ -25,7 +25,7 @@ func TestEnvBinding_allowlistedSet(t *testing.T) {
 	require.NoError(t, err)
 	env.AllowedEnv = map[string]struct{}{"FOO": {}}
 
-	prg, err := env.CompileValidation(`env("FOO")`)
+	prg, err := env.CompileValidation(`env.get("FOO")`)
 	require.NoError(t, err)
 	got, err := env.Eval(prg, nil, nil)
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestEnvBinding_allowlistedUnset(t *testing.T) {
 	require.NoError(t, err)
 	env.AllowedEnv = map[string]struct{}{name: {}}
 
-	prg, err := env.CompileValidation(`env("` + name + `") == ""`)
+	prg, err := env.CompileValidation(`env.get("` + name + `") == ""`)
 	require.NoError(t, err)
 	got, err := env.Eval(prg, nil, nil)
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestEnvBinding_notAllowlisted(t *testing.T) {
 	require.NoError(t, err)
 	env.AllowedEnv = map[string]struct{}{"ONLY": {}}
 
-	prg, err := env.CompileValidation(`env("OPENAI_API_KEY")`)
+	prg, err := env.CompileValidation(`env.get("OPENAI_API_KEY")`)
 	require.NoError(t, err)
 	_, err = env.Eval(prg, nil, nil)
 	require.Error(t, err)
@@ -62,7 +62,7 @@ func TestEnvBinding_nilAllowlistDisables(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
 
-	prg, err := env.CompileValidation(`env("ANYTHING")`)
+	prg, err := env.CompileValidation(`env.get("ANYTHING")`)
 	require.NoError(t, err)
 	_, err = env.Eval(prg, nil, nil)
 	require.Error(t, err)
@@ -74,7 +74,7 @@ func TestEnvBinding_emptyAllowlistDisables(t *testing.T) {
 	require.NoError(t, err)
 	env.AllowedEnv = map[string]struct{}{}
 
-	prg, err := env.CompileValidation(`env("X")`)
+	prg, err := env.CompileValidation(`env.get("X")`)
 	require.NoError(t, err)
 	_, err = env.Eval(prg, nil, nil)
 	require.Error(t, err)
@@ -116,7 +116,7 @@ func TestEnvBinding_httpGetAuthorizationHeader(t *testing.T) {
 	env.AllowedEnv = map[string]struct{}{"CELENV_TEST_AUTH": {}}
 
 	expr := fmt.Sprintf(
-		`http.get(%s, {"Authorization": "Bearer " + env("CELENV_TEST_AUTH")}).status`,
+		`http.get(%s, {"Authorization": "Bearer " + env.get("CELENV_TEST_AUTH")}).status`,
 		strconv.Quote(ts.URL),
 	)
 	prg, err := env.CompileValidation(expr)
@@ -145,7 +145,7 @@ func TestValidation_envAndFindingHttpPostCompose(t *testing.T) {
 	env.AllowedEnv = map[string]struct{}{"CELENV_HDR_VAL": {}}
 
 	expr := fmt.Sprintf(
-		`http.post(%s, {"Content-Type": "text/plain"}, "key="+finding["secret"]+"|hdr="+env("CELENV_HDR_VAL")).status`,
+		`http.post(%s, {"Content-Type": "text/plain"}, "key="+finding["secret"]+"|hdr="+env.get("CELENV_HDR_VAL")).status`,
 		strconv.Quote(ts.URL),
 	)
 	prg, err := env.CompileValidation(expr)

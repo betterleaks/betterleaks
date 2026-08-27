@@ -44,7 +44,7 @@ type ValidationOptions struct {
 	RequestsPerSecond       float64
 	RequestsPerSecondByRule map[string]float64
 	// ValidationEnvVars lists environment variable names the validation Expr
-	// env(...) binding may read (see --validation-env-vars). Parsed into
+	// env.get(...) binding may read (see --validation-env-vars). Parsed into
 	// exprruntime.Runtime.AllowedEnv when the validation env is created.
 	ValidationEnvVars []string
 }
@@ -57,7 +57,7 @@ var errStopIteration = errors.New("pipeline: stop iteration")
 
 const (
 	// SlowWarningThreshold is the amount of time to wait before logging that a file is slow.
-	// This is useful for identifying problematic files and tuning the allowlist.
+	// This is useful for identifying problematic files and tuning the prefilter.
 	SlowWarningThreshold = 5 * time.Second
 
 	// maxComponentSets caps the Cartesian product of component-finding combinations
@@ -907,7 +907,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		// Rule filter: Expr path (includes entropy, regex/stopword allowlists, tokenEfficiency).
+		// Rule filter: Expr path (includes entropy and token-efficiency checks).
 		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
 			logger.Warn().Err(err).Msg("rule filter compile error")
 		} else if ok {

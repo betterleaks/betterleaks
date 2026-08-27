@@ -97,9 +97,7 @@ func TestAWSValidateExprBinding_Valid(t *testing.T) {
 	}
 	env.STSEndpoint = ts.URL
 
-	expr := `cel.bind(r,
-  aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")),
-  r.status == 200 ? {
+	expr := `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
     "result": "valid",
     "arn": r.arn,
     "account": r.account,
@@ -107,8 +105,7 @@ func TestAWSValidateExprBinding_Valid(t *testing.T) {
   } : r.status == 403 ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
-)`
+  } : unknown(r)`
 	prg, err := env.CompileValidation(expr)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
@@ -146,15 +143,12 @@ func TestAWSValidateExprBinding_Invalid(t *testing.T) {
 	}
 	env.STSEndpoint = ts.URL
 
-	expr := `cel.bind(r,
-  aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")),
-  r.status == 200 ? {
+	expr := `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
     "result": "valid"
   } : r.status == 403 ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)
-)`
+  } : unknown(r)`
 	prg, err := env.CompileValidation(expr)
 	if err != nil {
 		t.Fatalf("compile: %v", err)

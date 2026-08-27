@@ -196,7 +196,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		defer innerReader.Close()
 
 		if s.ShouldSkip != nil && shouldSkipPath(s.ShouldSkip, path) {
-			logging.Debug().Str("path", s.FullPath()).Msg("skipping file: global allowlist")
+			logging.Debug().Str("path", s.FullPath()).Msg("skipping file: global prefilter")
 			return nil
 		}
 

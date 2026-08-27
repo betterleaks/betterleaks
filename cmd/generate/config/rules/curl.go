@@ -100,11 +100,6 @@ func CurlHeaderAuth() *config.Rule {
 			fmt.Sprintf(`\bcurl\b(?:.*?|.*?(?:[\r\n]{1,2}.*?){1,5})[ \t\n\r](?:-H|--header)(?:=|[ \t]{0,5})(?:"%s"|'%s')(?:\B|\s|\z)`, authPat, authPat)),
 		Keywords: []string{"curl"},
 		Filter:   `entropy(finding["secret"]) <= 2.75`,
-		//Allowlists: []*config.Allowlist{
-		//	{
-		//		Regexes: []*regexp.Regexp{},
-		//	},
-		//},
 	}
 
 	tps := []string{

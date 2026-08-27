@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"strings"
+
 	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/config"
@@ -114,7 +116,7 @@ _LIBCPP_CONSTEXPR_AFTER_CXX11 `,
 		`[DEBUG]		org.neo4j.neo4j-graphdb-api:jar:3.5.12:test`,
 		`apiUrl=apigee.corpint.com`,
 		`X-API-Name": "NRG0-Hermes-INTERNAL-API",`,
-		// TODO: Jetbrains IML files (requires line-level allowlist).
+		// TODO: Jetbrains IML files (requires a line-level filter).
 		// `<orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.directory.api:api-asn1-api:1.0.0-M20" level="projcet" />`
 
 		// Auth
@@ -154,7 +156,7 @@ _LIBCPP_CONSTEXPR_AFTER_CXX11 `,
 		`-DKEYTAB_FILE=/tmp/app.keytab`,
 		`	doc.Security.KeySize = PdfEncryptionKeySize.Key128Bit;`,
 		`o.keySelector=n,o.haKey=!1,`,
-		// TODO: Requires line-level allowlists.
+		// TODO: Requires a line-level filter.
 		`                                "key_name": "prod5zyxlmy-cmk",`,
 		`                                "kms_key_id": "555ea4a3-d53a-4412-9c66-3a7cb667b0d6",`,
 		`	"key_vault_name": "web21prqodx24021",`,
@@ -222,7 +224,6 @@ jdbc.snowflake.url=`,
 }
 
 func newPlausibleSecret(regex string) string {
-	allowList := &config.Allowlist{StopWords: DefaultStopWords}
 	// attempt to generate a random secret,
 	// retrying until it contains at least one digit and no stop words
 	// TODO: currently the DefaultStopWords list contains many short words,
@@ -232,9 +233,19 @@ func newPlausibleSecret(regex string) string {
 		if !regexp.MustCompile(`[1-9]`).MatchString(secret) {
 			continue
 		}
-		if ok, _ := allowList.ContainsStopWord(secret); ok {
+		if containsStopWord(secret) {
 			continue
 		}
 		return secret
 	}
+}
+
+func containsStopWord(secret string) bool {
+	secret = strings.ToLower(secret)
+	for _, word := range DefaultStopWords {
+		if strings.Contains(secret, strings.ToLower(word)) {
+			return true
+		}
+	}
+	return false
 }

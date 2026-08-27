@@ -30,7 +30,7 @@ func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
 	t.Parallel()
 
 	repoPath := createGitHubTestRepo(t)
-	skip := compileGitHubPrefilter(t, `attributes[?"resource"].orValue("") == "github.repository" && attributes[?"github.repo"].orValue("") == "repo"`)
+	skip := compileGitHubPrefilter(t, `attributes["resource"] == "github.repository" && attributes["github.repo"] == "repo"`)
 
 	src := &GitHub{ShouldSkip: skip, Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
@@ -49,7 +49,7 @@ func TestGitHub_scanRepo_prefilterUsesMergedRepoAttrsOnFragments(t *testing.T) {
 	t.Parallel()
 
 	repoPath := createGitHubTestRepo(t)
-	skip := compileGitHubPrefilter(t, `attributes[?"github.repo"].orValue("") == "repo" && attributes[?"path"].orValue("") != ""`)
+	skip := compileGitHubPrefilter(t, `attributes["github.repo"] == "repo" && attributes["path"] != ""`)
 
 	src := &GitHub{ShouldSkip: skip, Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
@@ -68,7 +68,7 @@ func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	t.Parallel()
 
 	repoPath := createGitHubTestRepo(t)
-	skip := compileGitHubPrefilter(t, `containsAny(attributes[?"path"].orValue(""), ["does-not-match"])`)
+	skip := compileGitHubPrefilter(t, `containsAny(attributes["path"], ["does-not-match"])`)
 
 	src := &GitHub{ShouldSkip: skip, Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
@@ -377,7 +377,7 @@ func TestGitHub_emitRelease_prefilterSkipsReleaseByTag(t *testing.T) {
 
 	src := &GitHub{
 		Resources:  GitHubResourceSet{GitHubResourceTypeReleases: true},
-		ShouldSkip: compileGitHubPrefilter(t, `attributes[?"resource"].orValue("") == "github.release" && attributes[?"github.release.tag"].orValue("") == "v1.0.0"`),
+		ShouldSkip: compileGitHubPrefilter(t, `attributes["resource"] == "github.release" && attributes["github.release.tag"] == "v1.0.0"`),
 	}
 
 	called := false

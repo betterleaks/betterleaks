@@ -179,18 +179,9 @@ func (e *Runtime) CompileValidation(expression string) (Program, error) {
 }
 
 func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
-	exprText := expression
-	if NeedsCELCompat(expression) {
-		var err error
-		exprText, err = RewriteCELCompat(expression)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	// One Runtime compiles all expression types. The mode is part of the cache key
 	// because filter, prefilter, and validation expose different bindings.
-	cacheKey := compileCacheKey(mode, exprText, tokenizer)
+	cacheKey := compileCacheKey(mode, expression, tokenizer)
 	e.mu.RLock()
 	if prg, ok := e.cache[cacheKey]; ok {
 		e.mu.RUnlock()
@@ -199,11 +190,8 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 	e.mu.RUnlock()
 
 	b, options := e.compileBindings(mode, tokenizer)
-	vmPrg, err := expr.Compile(exprText, append([]expr.Option{expr.Env(b)}, options...)...)
+	vmPrg, err := expr.Compile(expression, append([]expr.Option{expr.Env(b)}, options...)...)
 	if err != nil {
-		if exprText != expression {
-			return nil, fmt.Errorf("%s expr compile error: %w\noriginal expression:\n%s\ncompat expression:\n%s", mode, err, expression, exprText)
-		}
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
 	prg := &compiledProgram{

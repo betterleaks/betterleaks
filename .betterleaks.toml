@@ -3,12 +3,13 @@
 # This betterleaks config extends the default config and ignores secrets located in the `cmd/generate/config/rules`
 
 title = "Betterleaks development"
+prefilter = '''
+filter.matchesAny(attributes["path"], [
+  `(^|/)cmd/generate/config/rules`,
+  `.*test\.go`,
+  `testdata`
+])
+'''
+
 [extend]
 useDefault = true
-
-[allowlist]
-paths = [
-  '''(^|/)cmd/generate/config/rules''',
-  '''.*test\.go''',
-  '''testdata'''
-]

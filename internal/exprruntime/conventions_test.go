@@ -9,7 +9,7 @@ import (
 )
 
 func TestProjectFunctionNamesFollowConvention(t *testing.T) {
-	validName := regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)?$`)
+	validName := regexp.MustCompile(`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)?$`)
 
 	for _, env := range []struct {
 		name       string
@@ -34,19 +34,21 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			name: "filter",
 			fns:  functionNames(filterBindings(nil, emptyFilterFinding, emptyStringMap)),
 			current: []string{
+				"matchesAny", "containsAny", "entropy",
 				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.entropy",
 				"filter.failsTokenEfficiency", "filter.tokenRatio", "filter.setConfidence",
 			},
-			deprecated: []string{"matchesAny", "containsAny", "entropy", "failsTokenEfficiency"},
+			deprecated: []string{"failsTokenEfficiency"},
 		},
 		{
 			name: "prefilter",
 			fns:  functionNames(prefilterBindings(emptyStringMap)),
 			current: []string{
+				"matchesAny", "containsAny", "entropy",
 				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.entropy",
 				"filter.failsTokenEfficiency", "filter.tokenRatio",
 			},
-			deprecated: []string{"matchesAny", "containsAny", "entropy", "failsTokenEfficiency"},
+			deprecated: []string{"failsTokenEfficiency"},
 		},
 	} {
 		for _, name := range env.current {
@@ -64,13 +66,25 @@ func TestFilterScopes(t *testing.T) {
 	require.NoError(t, err)
 	_, err = env.CompileFilter(`http.get("https://example.com")`, nil)
 	require.Error(t, err)
+	_, err = env.CompileFilter(`filter.entropy(finding["secret"]) > 0`, nil)
+	require.NoError(t, err)
 	_, err = env.CompileFilter(`entropy(finding["secret"]) > 0`, nil)
 	require.NoError(t, err)
 
 	_, err = env.CompilePrefilter(`finding["secret"] == ""`)
 	require.Error(t, err)
+	_, err = env.CompilePrefilter(`filter.matchesAny(attributes["path"], [".go"])`)
+	require.NoError(t, err)
 	_, err = env.CompilePrefilter(`matchesAny(attributes["path"], [".go"])`)
 	require.NoError(t, err)
+}
+
+func TestCELBindIsRejected(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+
+	_, err = env.CompileValidation(`cel.bind(secret, finding["secret"], secret)`)
+	require.Error(t, err)
 }
 
 func TestAttributeMapAccessIsSafeWhenKeyIsMissing(t *testing.T) {
@@ -88,14 +102,19 @@ func TestAttributeMapAccessIsSafeWhenKeyIsMissing(t *testing.T) {
 func TestFilterEntropy(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
-	prg, err := env.CompileFilter(`entropy(finding["secret"]) <= 1.0`, nil)
-	require.NoError(t, err)
+	for _, expression := range []string{
+		`entropy(finding["secret"]) <= 1.0`,
+		`filter.entropy(finding["secret"]) <= 1.0`,
+	} {
+		prg, err := env.CompileFilter(expression, nil)
+		require.NoError(t, err)
 
-	skip, err := env.EvalFilter(prg, map[string]any{
-		"secret": "aaaaaaaa",
-	}, nil)
-	require.NoError(t, err)
-	require.True(t, skip)
+		skip, err := env.EvalFilter(prg, map[string]any{
+			"secret": "aaaaaaaa",
+		}, nil)
+		require.NoError(t, err)
+		require.True(t, skip)
+	}
 }
 
 func TestFilterSetConfidence(t *testing.T) {

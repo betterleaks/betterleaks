@@ -51,9 +51,6 @@ type Rule struct {
 	// keyword(s) are in the content being scanned.
 	Keywords []string
 
-	// Allowlists allows a rule to be ignored for specific commits, paths, regexes, and/or stopwords.
-	Allowlists []*Allowlist
-
 	// validated is an internal flag to track whether `Validate()` has been called.
 	validated bool
 
@@ -81,7 +78,6 @@ type Rule struct {
 
 	// Filter is an expression evaluated against attributes + finding per regex match.
 	// Returns true = skip (discard this finding); false = keep.
-	// Deprecated legacy Allowlists, Entropy, and TokenEfficiency are translated into this field.
 	Filter string
 
 	// filterProgram is the compiled filter program, set at startup.
@@ -130,16 +126,6 @@ func (r *Rule) Validate() error {
 	// Ensure |secretGroup| works.
 	if r.Regex != nil && r.SecretGroup > r.Regex.NumSubexp() {
 		return fmt.Errorf("%s: invalid regex secret group %d, max regex secret group %d", r.RuleID, r.SecretGroup, r.Regex.NumSubexp())
-	}
-
-	for _, allowlist := range r.Allowlists {
-		// This will probably never happen.
-		if allowlist == nil {
-			continue
-		}
-		if err := allowlist.Validate(); err != nil {
-			return fmt.Errorf("%s: %w", r.RuleID, err)
-		}
 	}
 
 	seenComponents := make(map[string]struct{}, len(r.Components))

@@ -32,12 +32,6 @@ type rawConfig struct {
 	Extend      Extend    `toml:"extend"`
 	Rules       []rawRule `toml:"rules"`
 
-	// Deprecated: this is a shim for backwards-compatibility.
-	// TODO: Remove this in 9.x.
-	AllowList *rawGlobalAllowlist `toml:"allowlist"`
-
-	Allowlists []*rawGlobalAllowlist `toml:"allowlists"`
-
 	MinVersion            string `toml:"minVersion"`
 	BetterleaksMinVersion string `toml:"betterleaksMinVersion"`
 
@@ -59,12 +53,6 @@ type rawRule struct {
 	Tags        []string `toml:"tags"`
 	Specificity *int     `toml:"specificity"`
 	Confidence  string   `toml:"confidence"`
-
-	// Deprecated: this is a shim for backwards-compatibility.
-	// TODO: Remove this in 9.x.
-	AllowList *rawRuleAllowlist `toml:"allowlist"`
-
-	Allowlists []*rawRuleAllowlist `toml:"allowlists"`
 
 	// Components is a pointer so config extension can distinguish omission
 	// from an explicit empty list.
@@ -94,22 +82,7 @@ type rawComponent struct {
 	Within   string `toml:"within"`
 }
 
-type rawRuleAllowlist struct {
-	Description string   `toml:"description"`
-	Condition   string   `toml:"condition"`
-	Commits     []string `toml:"commits"`
-	Paths       []string `toml:"paths"`
-	RegexTarget string   `toml:"regexTarget"`
-	Regexes     []string `toml:"regexes"`
-	StopWords   []string `toml:"stopwords"`
-}
-
-type rawGlobalAllowlist struct {
-	TargetRules      []string `toml:"targetRules"`
-	rawRuleAllowlist `toml:",inline"`
-}
-
-// Config is a configuration struct that contains rules and an allowlist if present.
+// Config is a configuration struct that contains detection rules and filters.
 type Config struct {
 	Title       string
 	Extend      Extend
@@ -126,19 +99,14 @@ type Config struct {
 	// used to keep sarif results consistent
 	OrderedRules []string
 
-	// Deprecated: use filter/prefilter Expr expressions instead. This is a shim for backwards-compatibility.
-	Allowlists []*Allowlist
-
 	MinVersion            string
 	BetterleaksMinVersion string
 
 	// Prefilter is a global expression (attributes only) evaluated before any
 	// per-match work. Returns true = skip this fragment entirely; false = keep.
-	// Translated from global Allowlists path/commit checks.
 	Prefilter string
 	// Filter is a global expression (attributes + finding) evaluated per match.
 	// Returns true = skip (discard) this finding; false = keep.
-	// Translated from global Allowlists regex/stopword checks.
 	Filter string
 
 	// prefilterProgram and filterProgram hold global programs compiled by
@@ -183,10 +151,9 @@ func Default() (*Config, error) {
 
 func (rc *rawConfig) translate(depth int) (*Config, error) {
 	var (
-		keywords       = make(map[string]struct{})
-		orderedRules   []string
-		rulesMap       = make(map[string]Rule)
-		ruleAllowlists = make(map[string][]*Allowlist)
+		keywords     = make(map[string]struct{})
+		orderedRules []string
+		rulesMap     = make(map[string]Rule)
 	)
 
 	// Validate individual rules.
@@ -238,25 +205,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			Confidence:      vr.Confidence,
 			SkipReport:      vr.SkipReport,
 			TokenEfficiency: vr.TokenEfficiency,
-		}
-
-		// Parse the rule allowlists, including the older format for backwards compatibility.
-		if vr.AllowList != nil {
-			// TODO: Remove this in v9.
-			if len(vr.Allowlists) > 0 {
-				return nil, fmt.Errorf("%s: [rules.allowlist] is deprecated, it cannot be used alongside [[rules.allowlist]]", cr.RuleID)
-			}
-			vr.Allowlists = append(vr.Allowlists, vr.AllowList)
-		}
-		for _, a := range vr.Allowlists {
-			if a == nil {
-				a = &rawRuleAllowlist{}
-			}
-			allowlist, err := rc.parseAllowlist(a)
-			if err != nil {
-				return nil, fmt.Errorf("%s: [[rules.allowlists]] %w", cr.RuleID, err)
-			}
-			cr.Allowlists = append(cr.Allowlists, allowlist)
 		}
 
 		if vr.Components != nil {
@@ -317,33 +265,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		return nil, err
 	}
 
-	// Parse the config allowlists, including the older format for backwards compatibility.
-	if rc.AllowList != nil {
-		// TODO: Remove this in v9.
-		if len(rc.Allowlists) > 0 {
-			return nil, errors.New("[allowlist] is deprecated, it cannot be used alongside [[allowlists]]")
-		}
-		rc.Allowlists = append(rc.Allowlists, rc.AllowList)
-	}
-	for _, a := range rc.Allowlists {
-		if a == nil {
-			a = &rawGlobalAllowlist{}
-		}
-		allowlist, err := rc.parseAllowlist(&a.rawRuleAllowlist)
-		if err != nil {
-			return nil, fmt.Errorf("[[allowlists]] %w", err)
-		}
-		// Allowlists with |targetRules| aren't added to the global list.
-		if len(a.TargetRules) > 0 {
-			for _, ruleID := range a.TargetRules {
-				// It's not possible to validate |ruleID| until after extend.
-				ruleAllowlists[ruleID] = append(ruleAllowlists[ruleID], allowlist)
-			}
-		} else {
-			c.Allowlists = append(c.Allowlists, allowlist)
-		}
-	}
-
 	if maxExtendDepth != depth {
 		// disallow both usedefault and path from being set
 		if c.Extend.Path != "" && c.Extend.UseDefault {
@@ -373,16 +294,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			}
 		}
 
-		// Populate targeted configs.
-		for ruleID, allowlists := range ruleAllowlists {
-			rule, ok := c.Rules[ruleID]
-			if !ok {
-				return nil, fmt.Errorf("[[allowlists]] target rule ID '%s' does not exist", ruleID)
-			}
-			rule.Allowlists = append(rule.Allowlists, allowlists...)
-			c.Rules[ruleID] = rule
-		}
-
 	}
 
 	// Build keyword-to-rules lookup for efficient rule dispatch.
@@ -399,12 +310,9 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		}
 	}
 
-	// Translate legacy allowlists / entropy / token-efficiency into CEL strings.
-	// Must run after all extends and targeted allowlist population are complete.
+	// Normalize shorthand rule filters after all extends are resolved.
 	if depth == 0 {
-		if err := c.translateLegacyFilters(); err != nil {
-			return nil, err
-		}
+		c.normalizeRuleFilters()
 	}
 
 	return c, nil
@@ -480,61 +388,6 @@ func validateMinVersion(gitleaksMinVer, betterleaksMinVer, configPath string) er
 	}
 
 	return nil
-}
-
-func (rc *rawConfig) parseAllowlist(a *rawRuleAllowlist) (*Allowlist, error) {
-	var matchCondition AllowlistMatchCondition
-	switch strings.ToUpper(a.Condition) {
-	case "AND", "&&":
-		matchCondition = AllowlistMatchAnd
-	case "", "OR", "||":
-		matchCondition = AllowlistMatchOr
-	default:
-		return nil, fmt.Errorf("unknown allowlist |condition| '%s' (expected 'and', 'or')", a.Condition)
-	}
-
-	// Validate the target.
-	regexTarget := a.RegexTarget
-	if regexTarget != "" {
-		switch regexTarget {
-		case "secret":
-			regexTarget = ""
-		case "match", "line":
-			// do nothing
-		default:
-			return nil, fmt.Errorf("unknown allowlist |regexTarget| '%s' (expected 'match', 'line')", regexTarget)
-		}
-	}
-	var allowlistRegexes []*regexp.Regexp
-	for _, a := range a.Regexes {
-		pat, err := regexp.Compile(a)
-		if err != nil {
-			return nil, fmt.Errorf("invalid regex %q: %w", a, err)
-		}
-		allowlistRegexes = append(allowlistRegexes, pat)
-	}
-	var allowlistPaths []*regexp.Regexp
-	for _, a := range a.Paths {
-		pat, err := regexp.Compile(a)
-		if err != nil {
-			return nil, fmt.Errorf("invalid path regex %q: %w", a, err)
-		}
-		allowlistPaths = append(allowlistPaths, pat)
-	}
-
-	allowlist := &Allowlist{
-		Description:    a.Description,
-		MatchCondition: matchCondition,
-		Commits:        a.Commits,
-		Paths:          allowlistPaths,
-		RegexTarget:    regexTarget,
-		Regexes:        allowlistRegexes,
-		StopWords:      a.StopWords,
-	}
-	if err := allowlist.Validate(); err != nil {
-		return nil, err
-	}
-	return allowlist, nil
 }
 
 // PrefilterProgram returns the compiled global prefilter program, or nil if not set.
@@ -703,7 +556,6 @@ func (c *Config) extend(extensionConfig *Config) {
 			}
 			baseRule.Tags = append(baseRule.Tags, currentRule.Tags...)
 			baseRule.Keywords = append(baseRule.Keywords, currentRule.Keywords...)
-			baseRule.Allowlists = append(baseRule.Allowlists, currentRule.Allowlists...)
 			if currentRule.componentsSet {
 				baseRule.Components = currentRule.Components
 				baseRule.componentsSet = true
@@ -715,9 +567,6 @@ func (c *Config) extend(extensionConfig *Config) {
 			c.Rules[ruleID] = baseRule
 		}
 	}
-
-	// append allowlists, not attempting to merge
-	c.Allowlists = append(c.Allowlists, extensionConfig.Allowlists...)
 
 	// Current config's global Prefilter/Filter wins over extension's if set.
 	if c.Prefilter == "" {

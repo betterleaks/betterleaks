@@ -463,7 +463,7 @@ func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 				yieldAsArchive = true
 			}
 
-			// Build commit attributes and check prefilter / allowlists before
+			// Build commit attributes and check the prefilter before
 			// allocating goroutines or fragment memory.
 			commitSHA := ""
 			commitAttrs := make(map[string]string)
