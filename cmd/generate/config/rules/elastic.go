@@ -13,7 +13,7 @@ func ElasticCloudAPIKey() *config.Rule {
 		Description: "Identified an Elastic Cloud Serverless API key, which may expose Elasticsearch and Kibana resources to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`essu_[A-Za-z0-9_\-]{60,200}={0,2}`, false),
 		Keywords:    []string{"essu_"},
-		Entropy:     3.5,
+		Filter:      utils.MinEntropy(3.5),
 		ValidateExpr: `let r = http.get("https://api.elastic-cloud.com/api/v1/deployments", {
     "Authorization": "ApiKey " + finding["secret"]
   }); r.status == 200 && (r.body contains '"deployments"') ? {

@@ -78,7 +78,7 @@ func TestTranslate(t *testing.T) {
 			},
 		},
 		{
-			cfgName: "valid/rule_entropy_group",
+			cfgName: "valid/rule_secret_group",
 			cfg: &Config{
 				Rules: map[string]Rule{"discord-api-key": {
 					RuleID:      "discord-api-key",
@@ -104,7 +104,7 @@ func TestTranslate(t *testing.T) {
 			wantError: errors.New("discord-api-key: both |regex| and |path| are empty, this rule will have no effect"),
 		},
 		{
-			cfgName:   "invalid/rule_bad_entropy_group",
+			cfgName:   "invalid/rule_bad_secret_group",
 			cfg:       &Config{},
 			wantError: errors.New("discord-api-key: invalid regex secret group 5, max regex secret group 3"),
 		},
@@ -303,10 +303,10 @@ func TestTranslateExtend(t *testing.T) {
 			},
 		},
 		{
-			cfgName: "valid/extend_rule_override_entropy",
+			cfgName: "valid/extend_rule_override_filter",
 			rules:   []string{"aws-access-key"},
 			cfg: &Config{
-				Title: "override a built-in rule's entropy",
+				Title: "override a built-in rule's filter",
 				Rules: map[string]Rule{"aws-access-key": {
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",

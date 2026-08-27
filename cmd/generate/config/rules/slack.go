@@ -307,6 +307,8 @@ func SlackWebHookUrl() *config.Rule {
 // - https://www.papermtn.co.uk/retrieving-and-using-slack-cookies-for-authentication/
 // - https://blog.tw1sm.io/p/abusing-slack-for-offensive-operations
 func SlackSessionCookie() *config.Rule {
+	const minEntropy = 3.5
+
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-session-cookie",
@@ -318,7 +320,7 @@ func SlackSessionCookie() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("slack", secrets.NewSecretWithEntropy(`xoxd-[\w\/\\+-]{100,}={0,2}`, r.Entropy))
+	tps := utils.GenerateSampleSecrets("slack", secrets.NewSecretWithEntropy(`xoxd-[\w\/\\+-]{100,}={0,2}`, minEntropy))
 	tps = append(tps,
 		`"XOXD_TOKEN = "xoxd-RWAqM1zwIRrr+2XACnx2j85Nmnq7jXRq08nLu92OuSVSD/Oq/JrB6huw+1E7SYpflbEhm7gKHZsqNX3mypdDoskW+s9x+DXCS74jne9GFhai5C8C5pxXVy60iJT/U685IypCMgGzGnIiGmv03u+QU/CuEBtrLAVOjxqeLlunHjtjotJQAgBX2fJuQVq59uDyGb7SNSH5YWJEFrqdJFA6i0nxDrY2"`, // gitleaks:allow
 	)
@@ -333,6 +335,8 @@ func SlackSessionCookie() *config.Rule {
 
 // SlackSessionToken is a short-lived companion to SlackSessionCookie.
 func SlackSessionToken() *config.Rule {
+	const minEntropy = 3.5
+
 	// define rule
 	r := config.Rule{
 		RuleID:      "slack-session-token",
@@ -344,7 +348,7 @@ func SlackSessionToken() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("slack", secrets.NewSecretWithEntropy(`xoxc-\d{9,15}-\d{9,15}-\d{9,15}-[a-f0-9]{64}`, r.Entropy))
+	tps := utils.GenerateSampleSecrets("slack", secrets.NewSecretWithEntropy(`xoxc-\d{9,15}-\d{9,15}-\d{9,15}-[a-f0-9]{64}`, minEntropy))
 	tps = append(tps,
 		// https://github.com/ComteHerrapait/adp_but_better/blob/518fbe4dc84eb7dc1d8332ae316618124ef5c57d/prototypes/proto_slack_http.py#L25
 		`    "------WebKitFormBoundaryPBGcj8sy358Z0vNT\r\nContent-Disposition: form-data; name": '"profile"\r\n\r\n{"status_emoji":":tada:","status_expiration":1645052399,"status_text":"","status_text_canonical":""}\r\n------WebKitFormBoundaryPBGcj8sy358Z0vNT\r\nContent-Disposition: form-data; name="token"\r\n\r\n xoxc-2541715624-2536568458595-2560197464944-23a188852dc1e585a9b594b4facd7d96339fb1d45c592c67a2385fb02f3cd453\r\n------WebKitFormBoundaryPBGcj8sy358Z0v`,

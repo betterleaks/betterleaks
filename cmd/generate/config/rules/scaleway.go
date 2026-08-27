@@ -16,7 +16,7 @@ func ScalewaySecretKey() *config.Rule {
 			utils.Hex8_4_4_4_12(),
 			true,
 		),
-		Entropy:  3,
+		Filter:   utils.MinEntropy(3),
 		Keywords: []string{"scaleway", "scw"},
 		ValidateExpr: `let r = http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
     "X-Auth-Token": secret,

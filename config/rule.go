@@ -19,13 +19,7 @@ type Rule struct {
 	// Description is the description of the rule.
 	Description string
 
-	// Entropy is a float representing the minimum shannon
-	// entropy a regex group must have to be considered a secret.
-	Entropy float64
-
-	// SecretGroup is an int used to extract secret from regex
-	// match and used as the group that will have its entropy
-	// checked if `entropy` is set.
+	// SecretGroup identifies the regex group used as the secret.
 	SecretGroup int
 
 	// Regex is a golang regular expression used to detect secrets.
@@ -63,12 +57,6 @@ type Rule struct {
 	componentsSet bool
 
 	SkipReport bool
-
-	// TokenEfficiency enables the Token Efficiency filter for this rule.
-	// When enabled, candidate secrets are evaluated using BPE tokenization
-	// to measure how "rare" or non-natural-language a string is. Strings that
-	// tokenize efficiently (i.e., common words/phrases) are filtered out.
-	TokenEfficiency bool
 
 	// ValidateExpr is the raw expression used for secret validation.
 	ValidateExpr string

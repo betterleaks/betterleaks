@@ -48,7 +48,6 @@ type rawRule struct {
 	Path        string   `toml:"path"`
 	Regex       string   `toml:"regex"`
 	SecretGroup int      `toml:"secretGroup"`
-	Entropy     float64  `toml:"entropy"`
 	Keywords    []string `toml:"keywords"`
 	Tags        []string `toml:"tags"`
 	Specificity *int     `toml:"specificity"`
@@ -61,9 +60,8 @@ type rawRule struct {
 	// Deprecated: translated to required components when Components is absent.
 	Required []*rawRequired `toml:"required"`
 
-	Validate        string `toml:"validate"`
-	SkipReport      bool   `toml:"skipReport"`
-	TokenEfficiency bool   `toml:"tokenEfficiency"`
+	Validate   string `toml:"validate"`
+	SkipReport bool   `toml:"skipReport"`
 
 	// Filter is an Expr expression evaluated per match (attributes + finding).
 	// Returns true = skip (discard this finding); false = keep.
@@ -193,18 +191,16 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			specificity = *vr.Specificity
 		}
 		cr := Rule{
-			RuleID:          vr.ID,
-			Description:     vr.Description,
-			Regex:           regexPat,
-			SecretGroup:     vr.SecretGroup,
-			Entropy:         vr.Entropy,
-			Path:            pathPat,
-			Keywords:        vr.Keywords,
-			Tags:            vr.Tags,
-			Specificity:     specificity,
-			Confidence:      vr.Confidence,
-			SkipReport:      vr.SkipReport,
-			TokenEfficiency: vr.TokenEfficiency,
+			RuleID:      vr.ID,
+			Description: vr.Description,
+			Regex:       regexPat,
+			SecretGroup: vr.SecretGroup,
+			Path:        pathPat,
+			Keywords:    vr.Keywords,
+			Tags:        vr.Tags,
+			Specificity: specificity,
+			Confidence:  vr.Confidence,
+			SkipReport:  vr.SkipReport,
 		}
 
 		if vr.Components != nil {
@@ -308,11 +304,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 				c.KeywordToRules[k] = append(c.KeywordToRules[k], ruleID)
 			}
 		}
-	}
-
-	// Normalize shorthand rule filters after all extends are resolved.
-	if depth == 0 {
-		c.normalizeRuleFilters()
 	}
 
 	return c, nil
@@ -531,9 +522,6 @@ func (c *Config) extend(extensionConfig *Config) {
 			// Rule exists, merge our changes into the base.
 			if currentRule.Description != "" {
 				baseRule.Description = currentRule.Description
-			}
-			if currentRule.Entropy != 0 {
-				baseRule.Entropy = currentRule.Entropy
 			}
 			if currentRule.SecretGroup != 0 {
 				baseRule.SecretGroup = currentRule.SecretGroup
