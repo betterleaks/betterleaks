@@ -56,6 +56,11 @@ var (
 			} else if workers < 0 {
 				return fmt.Errorf("--source-workers must be non-negative")
 			}
+			if workers, err := cmd.Flags().GetInt("detect-workers"); err != nil {
+				return err
+			} else if workers < 0 {
+				return fmt.Errorf("--detect-workers must be non-negative")
+			}
 			if cmd.Flags().Lookup("git-workers") != nil {
 				if workers, err := cmd.Flags().GetInt("git-workers"); err != nil {
 					return err
@@ -102,6 +107,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color in terminal output")
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
 	rootCmd.PersistentFlags().Int("source-workers", 0, "number of concurrent source workers (0 = source default)")
+	rootCmd.PersistentFlags().Int("detect-workers", 0, "number of concurrent detection workers (0 = GOMAXPROCS)")
 	rootCmd.PersistentFlags().BoolP("ignore-betterleaks-allow", "", false, "ignore betterleaks:allow comments")
 	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
 	rootCmd.Flag("redact").NoOptDefVal = "100"
@@ -381,6 +387,7 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
 
 	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
+	detector.DetectWorkers = mustGetIntFlag(cmd, "detect-workers")
 	detector.MinConfidence, err = confidenceFlag(cmd)
 	if err != nil {
 		logging.Fatal().Err(err).Send()

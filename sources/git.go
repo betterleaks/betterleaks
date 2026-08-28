@@ -466,13 +466,12 @@ func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 			// Build commit attributes and check the prefilter before
 			// allocating goroutines or fragment memory.
 			commitSHA := ""
-			commitAttrs := make(map[string]string)
+			commitAttrs := map[string]string{AttrPath: gitdiffFile.NewName}
 			if gitdiffFile.PatchHeader != nil {
 				commitSHA = gitdiffFile.PatchHeader.SHA
 				commitAttrs[AttrGitSHA] = commitSHA
 				commitAttrs[AttrGitMessage] = gitdiffFile.PatchHeader.Message()
 				commitAttrs[AttrResource] = ResourceGitPatchContent
-				commitAttrs[AttrPath] = gitdiffFile.NewName
 				if s.RemoteURL != "" {
 					commitAttrs[AttrGitRemoteURL] = s.RemoteURL
 					commitAttrs[AttrGitPlatform] = s.Platform.String()
@@ -540,7 +539,6 @@ func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 						StartLine:  int(textFragment.NewPosition),
 						Attributes: commitAttrs,
 					}
-					fragment.SetAttr(AttrPath, gitdiffFile.NewName)
 
 					if err := yield(fragment, nil); err != nil {
 						return err

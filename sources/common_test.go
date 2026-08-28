@@ -2,7 +2,6 @@ package sources
 
 import (
 	"bufio"
-	"bytes"
 	"io"
 	"strings"
 	"testing"
@@ -60,8 +59,9 @@ func Test_readUntilSafeBoundary(t *testing.T) {
 
 			// Act
 			reader := bufio.NewReader(c.r)
-			peekBuf := bytes.NewBuffer(buf[:n])
-			err = readUntilSafeBoundary(reader, n, 20, peekBuf)
+			var peekBuf strings.Builder
+			_, _ = peekBuf.Write(buf[:n])
+			err = readUntilSafeBoundary(reader, n, 20, &peekBuf)
 			require.NoError(t, err)
 
 			// Assert

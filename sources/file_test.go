@@ -195,6 +195,8 @@ func TestFile_Fragments_marksFirstFragment(t *testing.T) {
 	}))
 
 	require.Len(t, fragments, 2)
+	require.Equal(t, "aa\n\n", fragments[0].Raw)
+	require.Equal(t, "bb\n\n", fragments[1].Raw)
 	require.Equal(t, "true", fragments[0].Attr(AttrFSFirstFragment))
 	require.Equal(t, "false", fragments[1].Attr(AttrFSFirstFragment))
 }

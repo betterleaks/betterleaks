@@ -2,7 +2,6 @@ package sources
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/betterleaks/betterleaks/logging"
@@ -71,14 +71,14 @@ func shouldSkipPath(skip SkipFunc, path string) bool {
 
 // readUntilSafeBoundary consumes |f| until it finds two consecutive `\n` characters, up to |maxPeekSize|.
 // This hopefully avoids splitting. (https://github.com/gitleaks/gitleaks/issues/1651)
-func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *bytes.Buffer) error {
+func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *strings.Builder) error {
 	if peekBuf.Len() == 0 {
 		return nil
 	}
 
 	// Does the buffer end in consecutive newlines?
 	var (
-		data         = peekBuf.Bytes()
+		data         = peekBuf.String()
 		lastChar     = data[len(data)-1]
 		newlineCount = 0 // Tracks consecutive newlines
 	)
@@ -105,7 +105,7 @@ func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *byt
 	// If not, read ahead until we (hopefully) find some.
 	newlineCount = 0
 	for {
-		data = peekBuf.Bytes()
+		data = peekBuf.String()
 		// Check if the last character is a newline.
 		lastChar = data[len(data)-1]
 		if lastChar == '\n' {

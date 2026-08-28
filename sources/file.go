@@ -2,7 +2,6 @@ package sources
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -260,17 +259,16 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 
 	prevFragmentEndLine := 0
 	firstFragmentAttr := "true"
+	fullPath := s.FullPath()
+	fragPath := fullPath
+	if isWindows {
+		fragPath = filepath.ToSlash(fullPath)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			// Compute the final normalized path upfront (isWindows is a compile-time constant).
-			fullPath := s.FullPath()
-			fragPath := fullPath
-			if isWindows {
-				fragPath = filepath.ToSlash(fullPath)
-			}
 			attr := map[string]string{
 				AttrPath:            fragPath,
 				AttrResource:        ResourceFileContent,
@@ -294,7 +292,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 			}
 
 			// Only check the filetype at the start of file.
-			if prevFragmentEndLine == 0 {
+			if firstFragmentAttr == "true" {
 				// TODO: could other optimizations be introduced here?
 				if mimetype, err := filetype.Match(s.Buffer[:n]); err != nil {
 					if isArchiveContent {
@@ -316,9 +314,15 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 			}
 
 			// Try to split chunks across large areas of whitespace, if possible.
-			peekBuf := bytes.NewBuffer(s.Buffer[:n])
+			var peekBuf strings.Builder
+			fragmentCapacity := n
+			if n == len(s.Buffer) {
+				fragmentCapacity += maxPeekSize
+			}
+			peekBuf.Grow(fragmentCapacity)
+			_, _ = peekBuf.Write(s.Buffer[:n])
 			stopAfterYield := false
-			if err := readUntilSafeBoundary(reader, n, maxPeekSize, peekBuf); err != nil {
+			if err := readUntilSafeBoundary(reader, n, maxPeekSize, &peekBuf); err != nil {
 				if isArchiveContent {
 					logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content until safe boundary")
 					stopAfterYield = true

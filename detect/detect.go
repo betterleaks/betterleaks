@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -116,6 +117,9 @@ type Detector struct {
 
 	// RuleTimings records per-rule diagnostic timings when diagnostics are enabled.
 	RuleTimings *RuleTimingCollector
+
+	// DetectWorkers limits concurrent fragment detection. Zero uses GOMAXPROCS.
+	DetectWorkers int
 
 	tokenizer     *tiktoken.Tiktoken
 	tokenizerOnce sync.Once
@@ -420,8 +424,8 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		// main channel for sending results back to the caller (eventually gets consumed by `emit`)
-		resultsCh := make(chan Result, 1000)
+		workerCount := d.detectWorkerCount()
+		resultsCh := make(chan Result, workerCount)
 
 		if d.ValidationCounts == nil {
 			d.ValidationCounts = make(map[report.ValidationStatus]int)
@@ -450,51 +454,40 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		go func() {
 			defer close(resultsCh)
 
+			fragmentsCh := make(chan sources.Fragment, workerCount)
+			var workers sync.WaitGroup
+			workers.Add(workerCount)
+			for range workerCount {
+				go func() {
+					defer workers.Done()
+					for fragment := range fragmentsCh {
+						if err := d.scanFragment(runCtx, fragment, emit); err != nil {
+							_ = emit(Result{Err: err})
+							cancel()
+							return
+						}
+					}
+				}()
+			}
+
 			err := source.Fragments(runCtx, func(fragment sources.Fragment, err error) error {
 				if err != nil {
 					return emit(Result{Err: err})
 				}
 
-				logger := fragment.Logger()
 				if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
-					logger.Trace().Msg("skipping empty fragment")
 					return nil
 				}
 
-				var timer *time.Timer
-				if logger.GetLevel() <= zerolog.DebugLevel {
-					timer = time.AfterFunc(SlowWarningThreshold, func() {
-						logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
-					})
+				select {
+				case <-runCtx.Done():
+					return errStopIteration
+				case fragmentsCh <- fragment:
+					return nil
 				}
-				defer func() {
-					if timer != nil {
-						timer.Stop()
-					}
-				}()
-
-				findings := d.detectFragment(runCtx, fragment)
-				for _, finding := range findings {
-					if d.ValidationPool != nil {
-						if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
-							return err
-						} else if ok {
-							if err := d.ValidationPool.SubmitContext(runCtx,
-								finding,
-								prg); err != nil {
-								if errors.Is(err, context.Canceled) {
-									return errStopIteration
-								}
-								return err
-							}
-							continue
-						}
-					}
-					emit(Result{Finding: finding})
-				}
-
-				return nil
 			})
+			close(fragmentsCh)
+			workers.Wait()
 
 			if d.ValidationPool != nil {
 				d.ValidationPool.Close()
@@ -510,6 +503,11 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				!errors.Is(err, errStopIteration) &&
 				!errors.Is(err, context.Canceled) {
 				_ = emit(Result{Err: err})
+			}
+		}()
+		defer func() {
+			cancel()
+			for range resultsCh {
 			}
 		}()
 
@@ -536,11 +534,52 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 			}
 
 			if !yield(res) {
-				cancel()
 				return
 			}
 		}
 	}
+}
+
+func (d *Detector) detectWorkerCount() int {
+	if d.DetectWorkers > 0 {
+		return d.DetectWorkers
+	}
+	return max(runtime.GOMAXPROCS(0), 1)
+}
+
+func (d *Detector) scanFragment(ctx context.Context, fragment sources.Fragment, emit func(Result) error) error {
+	var timer *time.Timer
+	if logging.Logger.GetLevel() <= zerolog.DebugLevel {
+		logger := fragment.Logger()
+		timer = time.AfterFunc(SlowWarningThreshold, func() {
+			logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
+		})
+	}
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+
+	for _, finding := range d.detectFragment(ctx, fragment) {
+		if d.ValidationPool != nil {
+			if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
+				return err
+			} else if ok {
+				if err := d.ValidationPool.SubmitContext(ctx, finding, prg); err != nil {
+					if errors.Is(err, context.Canceled) {
+						return errStopIteration
+					}
+					return err
+				}
+				continue
+			}
+		}
+		if err := emit(Result{Finding: finding}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DetectString scans the given string and returns a list of findings
@@ -561,7 +600,7 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 		}
 	}
 
-	d.TotalBytes.Add(uint64(len([]byte(fragment.Raw))))
+	d.TotalBytes.Add(uint64(len(fragment.Raw)))
 
 	findings := []report.Finding{}
 
