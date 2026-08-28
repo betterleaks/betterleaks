@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -256,11 +257,7 @@ func ExecuteContext(ctx context.Context) {
 		stderr:  os.Stderr,
 		exit:    os.Exit,
 	}
-	if err := runCLI(expandRuleFlagShorthands(os.Args[1:]), runtime); err != nil {
-		if strings.Contains(err.Error(), "unknown flag") {
-			// exit code 126: Command invoked cannot execute
-			os.Exit(126)
-		}
+	if err := runCLIWithErrorHandling(expandRuleFlagShorthands(os.Args[1:]), runtime); err != nil {
 		logging.Fatal().Msg(err.Error())
 	}
 }
@@ -271,6 +268,41 @@ func runCLI(args []string, runtime *commandRuntime) error {
 	if err != nil {
 		return err
 	}
+	return runCLIWithParser(args, runtime, cli, parser)
+}
+
+func runCLIWithErrorHandling(args []string, runtime *commandRuntime) error {
+	cli := &CLI{}
+	parser, err := newCLIParser(cli, runtime)
+	if err != nil {
+		return err
+	}
+	err = runCLIWithParser(args, runtime, cli, parser)
+	if err == nil {
+		return nil
+	}
+
+	var parseErr *kong.ParseError
+	if !errors.As(err, &parseErr) {
+		return err
+	}
+	if strings.Contains(err.Error(), "unknown flag") {
+		// Preserve the exit code used before the Kong migration.
+		err = cliExitError{error: err, code: 126}
+	}
+	parser.FatalIfErrorf(err)
+	return nil
+}
+
+type cliExitError struct {
+	error
+	code int
+}
+
+func (e cliExitError) ExitCode() int { return e.code }
+func (e cliExitError) Unwrap() error { return e.error }
+
+func runCLIWithParser(args []string, runtime *commandRuntime, cli *CLI, parser *kong.Kong) error {
 	if len(args) == 0 {
 		args = []string{"--help"}
 	}
@@ -293,6 +325,7 @@ func newCLIParser(cli *CLI, runtime *commandRuntime) (*kong.Kong, error) {
 		kong.Writers(runtime.stdout, runtime.stderr),
 		kong.Exit(runtime.exit),
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
+		kong.UsageOnError(),
 	)
 }
 
