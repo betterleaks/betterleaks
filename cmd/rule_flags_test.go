@@ -50,11 +50,6 @@ func TestApplyRuleSelection(t *testing.T) {
 			wantRules: []string{"github", "github-client-id", "slack"},
 		},
 		{
-			name:      "enable rule remains an isolate alias",
-			args:      []string{"--enable-rule", "aws", "--isolate-rule", "github"},
-			wantRules: []string{"aws", "github", "github-client-id"},
-		},
-		{
 			name:      "disable applies after isolate",
 			args:      []string{"--isolate-rule", "aws,github", "--disable-rule", "aws"},
 			wantRules: []string{"github", "github-client-id"},
@@ -125,7 +120,6 @@ func TestApplyRuleSelection(t *testing.T) {
 func newRuleSelectionTestCommand(t *testing.T, args []string) *cobra.Command {
 	t.Helper()
 	cmd := &cobra.Command{Use: "test"}
-	cmd.Flags().StringSlice("enable-rule", nil, "")
 	cmd.Flags().StringSlice("disable-rule", nil, "")
 	cmd.Flags().StringSlice("isolate-rule", nil, "")
 	require.NoError(t, cmd.ParseFlags(args))

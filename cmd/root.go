@@ -96,7 +96,16 @@ func init() {
 	cobra.OnInitialize(initLog)
 	rootCmd.PersistentFlags().StringP("config", "c", "", configDescription)
 	rootCmd.PersistentFlags().Int("exit-code", 1, "exit code when leaks have been encountered")
-	rootCmd.PersistentFlags().StringP("report-path", "r", "", "report file (use \"-\" for stdout)")
+	// TODO implement this flag
+	rootCmd.PersistentFlags().StringP("silent", "s", "", "silence output to stdout (valid values: none, all, findings, banner)")
+	// TODO implement this flag
+	rootCmd.PersistentFlags().StringP("jsonl", "", "", "print findings in JSONL")
+	// TODO implement this flag
+	rootCmd.PersistentFlags().StringP("report", "r", "", "output findings in report format to file (use \"-\" for stdout)")
+
+	// TODO remove this flag
+	rootCmd.PersistentFlags().String("report-path", "", "report file (use \"-\" for stdout)")
+	// TODO remove this flag
 	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
 	// rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
 	// rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
@@ -108,7 +117,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
 	rootCmd.PersistentFlags().Int("source-workers", 0, "number of concurrent source workers (0 = source default)")
 	rootCmd.PersistentFlags().Int("detect-workers", 0, "number of concurrent detection workers (0 = GOMAXPROCS)")
-	rootCmd.PersistentFlags().BoolP("ignore-betterleaks-allow", "", false, "ignore betterleaks:allow comments")
+	rootCmd.PersistentFlags().BoolP("ignore-allow-comments", "", false, "ignore allow comments")
 	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
 	rootCmd.Flag("redact").NoOptDefVal = "100"
 	rootCmd.PersistentFlags().Bool("no-banner", false, "suppress banner")

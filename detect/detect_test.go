@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,7 +19,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/maps"
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
@@ -41,6 +41,32 @@ type cancelOnSecondCheck struct {
 	closed chan struct{}
 }
 
+type repeatedFragmentSource struct {
+	count int
+}
+
+func (s repeatedFragmentSource) Fragments(_ context.Context, yield sources.FragmentsFunc) error {
+	for range s.count {
+		if err := yield(sources.Fragment{Raw: "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"}, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type cancelAwareSource struct {
+	stopped chan struct{}
+}
+
+func (s cancelAwareSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
+	defer close(s.stopped)
+	if err := yield(sources.Fragment{Raw: "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"}, nil); err != nil {
+		return err
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func newCancelOnSecondCheck() *cancelOnSecondCheck {
 	closed := make(chan struct{})
 	close(closed)
@@ -56,7 +82,7 @@ func normalizeFindings(fs []report.Finding) {
 		before := len(f.Match)
 		f.Match = strings.ReplaceAll(f.Match, "\r", "")
 		after := len(f.Match)
-		f.EndColumn -= before - after
+		f.Location.EndColumn -= before - after
 	}
 }
 
@@ -78,6 +104,28 @@ func loadTestConfig(t *testing.T, cfgName string) *config.Config {
 	return cfg
 }
 
+func newDefaultTestDetector(t *testing.T) *Detector {
+	t.Helper()
+	cfg, err := config.Default()
+	require.NoError(t, err)
+	return NewDetectorContext(t.Context(), cfg, ValidationOptions{})
+}
+
+func collectSourceFindings(ctx context.Context, detector *Detector, source sources.Source) ([]report.Finding, error) {
+	var (
+		findings []report.Finding
+		scanErr  error
+	)
+	for result := range detector.Run(ctx, source) {
+		if result.Err != nil {
+			scanErr = errors.Join(scanErr, result.Err)
+			continue
+		}
+		findings = append(findings, result.Finding)
+	}
+	return findings, scanErr
+}
+
 func TestRunStreamsFindings(t *testing.T) {
 	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
 	source := &sources.Stdin{
@@ -93,6 +141,37 @@ func TestRunStreamsFindings(t *testing.T) {
 	require.Len(t, findings, 1)
 }
 
+func TestRunWithMultipleDetectWorkers(t *testing.T) {
+	const fragmentCount = 100
+
+	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
+	detector.DetectWorkers = 4
+
+	findings, err := collectSourceFindings(t.Context(), detector, repeatedFragmentSource{count: fragmentCount})
+	require.NoError(t, err)
+	require.Len(t, findings, fragmentCount)
+}
+
+func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
+	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
+	detector.DetectWorkers = 2
+	source := cancelAwareSource{stopped: make(chan struct{})}
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	for result := range detector.Run(ctx, source) {
+		require.NoError(t, result.Err)
+		break
+	}
+
+	select {
+	case <-source.stopped:
+	default:
+		t.Fatal("source was still running after detector iteration stopped")
+	}
+}
+
 func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "path-only",
@@ -103,7 +182,7 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 		NoKeywordRules: []string{rule.RuleID},
 		OrderedRules:   []string{rule.RuleID},
 	}
-	detector := NewDetector(cfg)
+	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 	detector.RuleTimings = NewRuleTimingCollector()
 	source := &sources.File{
 		Content: strings.NewReader("aa\n\nbb\n\n"),
@@ -136,7 +215,7 @@ func TestCandidateBitmap(t *testing.T) {
 		KeywordToRules: map[string][]string{"shared": {"high", "low"}, "alias": {"high"}, "cancel": {"cancel"}, "stale": {"missing"}},
 		NoKeywordRules: []string{"always", "missing"},
 	}
-	d := NewDetector(cfg)
+	d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 	require.Empty(t, d.DetectString("stale HIGHSECRET"))
 
 	// Cancellation after candidates are marked must not leak them into the next scan.
@@ -228,20 +307,20 @@ func compare(t *testing.T, got, want []report.Finding) {
 	want = stripFindingAttributes(append([]report.Finding(nil), want...))
 	if diff := cmp.Diff(want, got,
 		cmpopts.SortSlices(func(a, b report.Finding) bool {
-			if a.File != b.File {
-				return a.File < b.File
+			if a.Attr(sources.AttrPath) != b.Attr(sources.AttrPath) {
+				return a.Attr(sources.AttrPath) < b.Attr(sources.AttrPath)
 			}
-			if a.StartLine != b.StartLine {
-				return a.StartLine < b.StartLine
+			if a.Location.StartLine != b.Location.StartLine {
+				return a.Location.StartLine < b.Location.StartLine
 			}
-			if a.StartColumn != b.StartColumn {
-				return a.StartColumn < b.StartColumn
+			if a.Location.StartColumn != b.Location.StartColumn {
+				return a.Location.StartColumn < b.Location.StartColumn
 			}
-			if a.EndLine != b.EndLine {
-				return a.EndLine < b.EndLine
+			if a.Location.EndLine != b.Location.EndLine {
+				return a.Location.EndLine < b.Location.EndLine
 			}
-			if a.EndColumn != b.EndColumn {
-				return a.EndColumn < b.EndColumn
+			if a.Location.EndColumn != b.Location.EndColumn {
+				return a.Location.EndColumn < b.Location.EndColumn
 			}
 			if a.RuleID != b.RuleID {
 				return a.RuleID < b.RuleID
@@ -258,9 +337,7 @@ func compare(t *testing.T, got, want []report.Finding) {
 			return strings.Join(a.Tags, "\x00") < strings.Join(b.Tags, "\x00")
 		}),
 		cmpopts.IgnoreFields(report.Finding{},
-			"Author", "Email", "Date", "Message", "Commit",
-			"File", "SymlinkFile", "Attributes",
-			"ComponentSets", "RuleSpecificity"),
+			"Attributes", "ComponentSets", "RuleSpecificity"),
 		cmpopts.IgnoreFields(report.ComponentFinding{}, "RuleSpecificity"),
 		cmpopts.IgnoreUnexported(report.Finding{}),
 		cmpopts.EquateApprox(0.0001, 0), // For floating point Entropy comparison
@@ -269,13 +346,11 @@ func compare(t *testing.T, got, want []report.Finding) {
 	}
 }
 
-// stripFindingAttributes clears the Attributes and Link fields from findings for tests
-// that use assert.ElementsMatch against expected findings with nil Attributes.
-// Link is cleared because SCM link generation was removed from detect.
+// stripFindingAttributes clears Attributes from findings for tests that use
+// assert.ElementsMatch against expected findings with nil Attributes.
 func stripFindingAttributes(findings []report.Finding) []report.Finding {
 	for i := range findings {
 		findings[i].Attributes = nil
-		findings[i].Link = ""
 		findings[i].RuleSpecificity = 0
 		for si := range findings[i].ComponentSets {
 			for ci := range findings[i].ComponentSets[si].Components {
@@ -308,7 +383,7 @@ regex = '''optional=([a-z]+)'''
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := NewDetector(cfg)
+	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 
 	t.Run("required component gates finding", func(t *testing.T) {
 		assert.Empty(t, detector.DetectString("primary=secret\noptional=session"))
@@ -351,7 +426,7 @@ specificity = 100
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := NewDetector(cfg)
+	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 
 	findings := detector.DetectString("primary=secret")
 	require.Len(t, findings, 1)
@@ -370,17 +445,17 @@ skipReport = true
 }
 
 func TestGenericPasswordConfidenceAndContext(t *testing.T) {
-	detector, err := NewDetectorDefaultConfig()
-	require.NoError(t, err)
+	detector := newDefaultTestDetector(t)
 
 	genericPasswordFindings := func(raw string, path ...string) []report.Finding {
 		t.Helper()
 		detected := detector.DetectString(raw)
 		if len(path) > 0 {
-			detected = detector.Detect(sources.Fragment{
+			detected = detector.detectFragment(context.Background(), sources.Fragment{
 				Raw:        raw,
 				Attributes: map[string]string{sources.AttrPath: path[0]},
 			})
+
 		}
 		var findings []report.Finding
 		for _, finding := range detected {
@@ -798,17 +873,17 @@ end`
 }
 
 func TestGenericCredentialURI(t *testing.T) {
-	detector, err := NewDetectorDefaultConfig()
-	require.NoError(t, err)
+	detector := newDefaultTestDetector(t)
 
 	findingsForRule := func(raw, ruleID string, path ...string) []report.Finding {
 		t.Helper()
 		detected := detector.DetectString(raw)
 		if len(path) > 0 {
-			detected = detector.Detect(sources.Fragment{
+			detected = detector.detectFragment(context.Background(), sources.Fragment{
 				Raw:        raw,
 				Attributes: map[string]string{sources.AttrPath: path[0]},
 			})
+
 		}
 		var findings []report.Finding
 		for _, finding := range detected {
@@ -1064,29 +1139,29 @@ func TestComponentProximity(t *testing.T) {
 	}{
 		{
 			name:      "symmetric lines inside",
-			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
-			component: report.Finding{StartLine: 14, EndLine: 14, StartColumn: 10, EndColumn: 14},
+			primary:   report.Finding{Location: report.Location{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16}},
+			component: report.Finding{Location: report.Location{StartLine: 14, EndLine: 14, StartColumn: 10, EndColumn: 14}},
 			within:    "5L",
 			want:      true,
 		},
 		{
 			name:      "symmetric lines outside",
-			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
-			component: report.Finding{StartLine: 15, EndLine: 15, StartColumn: 10, EndColumn: 14},
+			primary:   report.Finding{Location: report.Location{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16}},
+			component: report.Finding{Location: report.Location{StartLine: 15, EndLine: 15, StartColumn: 10, EndColumn: 14}},
 			within:    "5L",
 			want:      false,
 		},
 		{
 			name:      "directed lines before",
-			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
-			component: report.Finding{StartLine: 9, EndLine: 9, StartColumn: 10, EndColumn: 14},
+			primary:   report.Finding{Location: report.Location{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16}},
+			component: report.Finding{Location: report.Location{StartLine: 9, EndLine: 9, StartColumn: 10, EndColumn: 14}},
 			within:    "-2L",
 			want:      true,
 		},
 		{
 			name:      "directed lines reject opposite side",
-			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
-			component: report.Finding{StartLine: 11, EndLine: 11, StartColumn: 10, EndColumn: 14},
+			primary:   report.Finding{Location: report.Location{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16}},
+			component: report.Finding{Location: report.Location{StartLine: 11, EndLine: 11, StartColumn: 10, EndColumn: 14}},
 			within:    "-2L",
 			want:      false,
 		},
@@ -1094,8 +1169,8 @@ func TestComponentProximity(t *testing.T) {
 			name:              "character offsets before",
 			raw:               "COMP PRIMARY",
 			fragmentStartLine: 0,
-			primary:           report.Finding{StartLine: 0, EndLine: 0, StartColumn: 6, EndColumn: 12},
-			component:         report.Finding{StartLine: 0, EndLine: 0, StartColumn: 1, EndColumn: 4},
+			primary:           report.Finding{Location: report.Location{StartLine: 0, EndLine: 0, StartColumn: 6, EndColumn: 12}},
+			component:         report.Finding{Location: report.Location{StartLine: 0, EndLine: 0, StartColumn: 1, EndColumn: 4}},
 			within:            "-5C",
 			want:              true,
 		},
@@ -1103,22 +1178,22 @@ func TestComponentProximity(t *testing.T) {
 			name:              "character offsets outside",
 			raw:               "COMP PRIMARY",
 			fragmentStartLine: 0,
-			primary:           report.Finding{StartLine: 0, EndLine: 0, StartColumn: 6, EndColumn: 12},
-			component:         report.Finding{StartLine: 0, EndLine: 0, StartColumn: 1, EndColumn: 4},
+			primary:           report.Finding{Location: report.Location{StartLine: 0, EndLine: 0, StartColumn: 6, EndColumn: 12}},
+			component:         report.Finding{Location: report.Location{StartLine: 0, EndLine: 0, StartColumn: 1, EndColumn: 4}},
 			within:            "-4C",
 			want:              false,
 		},
 		{
 			name:      "mixed line and column window",
-			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
-			component: report.Finding{StartLine: 9, EndLine: 9, StartColumn: 7, EndColumn: 11},
+			primary:   report.Finding{Location: report.Location{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16}},
+			component: report.Finding{Location: report.Location{StartLine: 9, EndLine: 9, StartColumn: 7, EndColumn: 11}},
 			within:    "-2L,-3C",
 			want:      true,
 		},
 		{
 			name:      "mixed window rejects column",
-			primary:   report.Finding{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16},
-			component: report.Finding{StartLine: 9, EndLine: 9, StartColumn: 7, EndColumn: 11},
+			primary:   report.Finding{Location: report.Location{StartLine: 10, EndLine: 10, StartColumn: 10, EndColumn: 16}},
+			component: report.Finding{Location: report.Location{StartLine: 9, EndLine: 9, StartColumn: 7, EndColumn: 11}},
 			within:    "-2L,-2C",
 			want:      false,
 		},
@@ -1146,7 +1221,7 @@ regex = '''optional=([a-z]+)'''
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := NewDetector(cfg)
+	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 
 	findings := detector.DetectString("optional=session\nprimary=secret")
 	require.Len(t, findings, 1)
@@ -1170,8 +1245,8 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	}
 	require.NoError(t, cfg.CompileFilters(nil))
 
-	d := NewDetector(cfg)
-	findings := d.Detect(sources.Fragment{Raw: "red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST"})
+	d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+	findings := d.detectFragment(context.Background(), sources.Fragment{Raw: "red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST"})
 
 	require.Len(t, findings, 1)
 	assert.Equal(t, "ABCDEFGHIJKLMNOPQRST", findings[0].Secret)
@@ -1187,7 +1262,7 @@ func TestConfidenceAttributeAndFilter(t *testing.T) {
 	}
 	require.NoError(t, cfg.CompileFilters(nil))
 
-	detector := NewDetector(cfg)
+	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 	detector.MinConfidence = "high"
 	findings := detector.DetectString("ABCDEFGHIJKLMNOPQRST")
 	require.Len(t, findings, 1)
@@ -1218,10 +1293,10 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 				NoKeywordRules: []string{rule.RuleID},
 				OrderedRules:   []string{rule.RuleID},
 			}
-			d := NewDetector(cfg)
+			d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 			d.MaxDecodeDepth = 1
 
-			require.Len(t, d.Detect(sources.Fragment{Raw: raw}), tc.findings)
+			require.Len(t, d.detectFragment(context.Background(), sources.Fragment{Raw: raw}), tc.findings)
 		})
 	}
 }
@@ -1238,7 +1313,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 		OrderedRules:   []string{rule.RuleID},
 	}
 
-	require.Empty(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "prefix\nSECRET"}))
+	require.Empty(t, NewDetectorContext(context.Background(), cfg, ValidationOptions{}).detectFragment(context.Background(), sources.Fragment{Raw: "prefix\nSECRET"}))
 }
 
 func TestFilterContextCanStayOnMatchLine(t *testing.T) {
@@ -1253,7 +1328,7 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 		OrderedRules:   []string{rule.RuleID},
 	}
 
-	require.Len(t, NewDetector(cfg).Detect(sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
+	require.Len(t, NewDetectorContext(context.Background(), cfg, ValidationOptions{}).detectFragment(context.Background(), sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
 }
 
 func TestDetect(t *testing.T) {
@@ -1262,9 +1337,8 @@ func TestDetect(t *testing.T) {
 	logging.Logger = logging.Logger.Level(zerolog.TraceLevel)
 
 	tests := map[string]struct {
-		cfgName      string
-		baselinePath string
-		fragment     sources.Fragment
+		cfgName  string
+		fragment sources.Fragment
 		// NOTE: for expected findings, all line numbers will be 0
 		// because line deltas are added _after_ the finding is created.
 		// I.e., if the finding is from a --no-git file, the line number will be
@@ -1314,15 +1388,15 @@ func TestDetect(t *testing.T) {
 					Description: "AWS Access Key",
 					Secret:      "AKIALALEMEL33243OKIA",
 					Match:       "AKIALALEMEL33243OKIA",
-					File:        "tmp.go",
 					Line:        "awsToken := \\\"AKIALALEMEL33243OKIA\\\"\n",
 					RuleID:      "aws-access-key",
 					Tags:        []string{"key", "AWS"},
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 15,
-					EndColumn:   34,
-					Entropy:     3.1464393,
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
 				},
 			},
 		},
@@ -1338,16 +1412,16 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					File:        "tmp.go",
 					Line:        `awsToken := \"AKIALALEMEL33843OLIA\"`,
 					Match:       "AKIALALEMEL33843OLIA",
 					Secret:      "AKIALALEMEL33843OLIA",
-					Entropy:     3.0841837,
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 15,
-					EndColumn:   34,
-					Tags:        []string{"key", "AWS"},
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Tags: []string{"key", "AWS"},
 				},
 			},
 		},
@@ -1365,30 +1439,30 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "github-pat",
 					Description: "Github Personal Access Token",
-					File:        "tmp.go",
 					Line:        `#ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij...ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij`,
 					Match:       "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
 					Secret:      "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
-					Entropy:     5.22193,
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 2,
-					EndColumn:   41,
-					Tags:        []string{"key", "Github"},
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 2,
+						EndColumn:   41,
+					},
+					Tags: []string{"key", "Github"},
 				},
 				{
 					RuleID:      "github-pat",
 					Description: "Github Personal Access Token",
-					File:        "tmp.go",
 					Line:        `#ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij...ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij`,
 					Match:       "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
 					Secret:      "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
-					Entropy:     5.22193,
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 45,
-					EndColumn:   84,
-					Tags:        []string{"key", "Github"},
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 45,
+						EndColumn:   84,
+					},
+					Tags: []string{"key", "Github"},
 				},
 			},
 		},
@@ -1405,16 +1479,16 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "sidekiq-secret",
 					Description: "Sidekiq Secret",
-					File:        "tmp.sh",
 					Line:        `export BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;`,
 					Match:       "BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;",
 					Secret:      "cafebabe:deadbeef",
-					Entropy:     2.6098502,
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 8,
-					EndColumn:   60,
-					Tags:        []string{},
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 8,
+						EndColumn:   60,
+					},
+					Tags: []string{},
 				},
 			},
 		},
@@ -1430,16 +1504,16 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "sidekiq-secret",
 					Description: "Sidekiq Secret",
-					File:        "tmp.sh",
 					Line:        `echo hello1; export BUNDLE_ENTERPRISE__CONTRIBSYS__COM="cafebabe:deadbeef" && echo hello2`,
 					Match:       "BUNDLE_ENTERPRISE__CONTRIBSYS__COM=\"cafebabe:deadbeef\"",
 					Secret:      "cafebabe:deadbeef",
-					Entropy:     2.6098502,
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 21,
-					EndColumn:   74,
-					Tags:        []string{},
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 21,
+						EndColumn:   74,
+					},
+					Tags: []string{},
 				},
 			},
 		},
@@ -1455,16 +1529,16 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "sidekiq-sensitive-url",
 					Description: "Sidekiq Sensitive URL",
-					File:        "tmp.sh",
 					Line:        `url = "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:80/path?param1=true&param2=false#heading1"`,
 					Match:       "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:",
 					Secret:      "cafeb4b3:d3adb33f",
-					Entropy:     2.984234,
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 8,
-					EndColumn:   58,
-					Tags:        []string{},
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 8,
+						EndColumn:   58,
+					},
+					Tags: []string{},
 				},
 			},
 		},
@@ -1496,16 +1570,16 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "generic-api-key",
 					Description: "Generic API Key",
-					File:        "tmp.py",
 					Line:        `const Discord_Public_Key = "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
 					Match:       "Key = \"e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"",
 					Secret:      "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5",
-					Entropy:     3.7766143,
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 22,
-					EndColumn:   93,
-					Tags:        []string{},
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 22,
+						EndColumn:   93,
+					},
+					Tags: []string{},
 				},
 			},
 		},
@@ -1521,8 +1595,7 @@ func TestDetect(t *testing.T) {
 
 		// Rule
 		"rule - ignore path": {
-			cfgName:      "valid/rule_path_only",
-			baselinePath: ".baseline.json",
+			cfgName: "valid/rule_path_only",
 			fragment: sources.Fragment{
 				Raw: `const Discord_Public_Key = "e7322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
 				Attributes: map[string]string{
@@ -1542,40 +1615,12 @@ func TestDetect(t *testing.T) {
 				{
 					Description: "Python Files",
 					Match:       "file detected: tmp.py",
-					File:        "tmp.py",
-					RuleID:      "python-files-only",
-					Tags:        []string{},
-				},
-			},
-		},
-		"rule - match based on entropy": {
-			cfgName: "valid/rule_entropy_group",
-			fragment: sources.Fragment{
-				Raw: `const Discord_Public_Key = "e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"
-//const Discord_Public_Key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-`,
-				Attributes: map[string]string{
-					sources.AttrPath: "tmp.go",
-				},
-			},
-			expectedFindings: []report.Finding{
-				{
-					RuleID:      "discord-api-key",
-					Description: "Discord API key",
-					File:        "tmp.go",
-					Line:        "const Discord_Public_Key = \"e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"\n",
-					Match:       "Discord_Public_Key = \"e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"",
-					Secret:      "e9322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5",
-					Entropy:     3.7906237,
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 7,
-					EndColumn:   93,
-					Tags:        []string{},
-				},
-			},
-		},
 
+					RuleID: "python-files-only",
+					Tags:   []string{},
+				},
+			},
+		},
 		"fragment level composite": {
 			cfgName: "composite",
 			fragment: sources.Fragment{
@@ -1585,15 +1630,16 @@ func TestDetect(t *testing.T) {
 				{
 					Description: "Primary rule",
 					RuleID:      "primary-rule",
-					StartLine:   6,
-					EndLine:     6,
-					StartColumn: 4,
-					EndColumn:   25,
-					Line:        "\t\t\tpassword = \"secret123\"\n",
-					Match:       `password = "secret123"`,
-					Secret:      "secret123",
-					Entropy:     2.9477028846740723,
-					Tags:        []string{},
+					Location: report.Location{
+						StartLine:   6,
+						EndLine:     6,
+						StartColumn: 4,
+						EndColumn:   25,
+					},
+					Line:   "\t\t\tpassword = \"secret123\"\n",
+					Match:  `password = "secret123"`,
+					Secret: "secret123",
+					Tags:   []string{},
 				},
 			},
 			expectedAuxOutput: "│ components:\n│   -  username-rule:2 ...... admin\n",
@@ -1612,281 +1658,281 @@ func TestDetect(t *testing.T) {
 					Description: "Private Key",
 					Secret:      "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----",
 					Match:       "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----",
-					File:        "tmp.go",
 					Line:        "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----\n",
 					RuleID:      "private-key",
 					Tags:        []string{"key", "private"},
-					StartLine:   3,
-					EndLine:     6,
-					StartColumn: 1,
-					EndColumn:   25,
-					Entropy:     5.350665,
+					Location: report.Location{
+						StartLine:   3,
+						EndLine:     6,
+						StartColumn: 1,
+						EndColumn:   25,
+					},
 				},
 				{ // Encoded key captured by custom b64 regex rule
 					Description: "Private Key",
 					Secret:      "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K",
 					Match:       "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K",
-					File:        "tmp.go",
 					Line:        "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n",
 					RuleID:      "b64-encoded-private-key",
 					Tags:        []string{"key", "private"},
-					StartLine:   9,
-					EndLine:     9,
-					StartColumn: 15,
-					EndColumn:   206,
-					Entropy:     5.3861146,
+					Location: report.Location{
+						StartLine:   9,
+						EndLine:     9,
+						StartColumn: 15,
+						EndColumn:   206,
+					},
 				},
 				{ // Encoded key captured by plain text rule using the decoder
 					Description: "Private Key",
 					Secret:      "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----",
 					Match:       "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----",
-					File:        "tmp.go",
 					Line:        "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n",
 					RuleID:      "private-key",
 					Tags:        []string{"key", "private", "decoded:base64", "decode-depth:1"},
-					StartLine:   9,
-					EndLine:     9,
-					StartColumn: 15,
-					EndColumn:   206,
-					Entropy:     5.350665,
+					Location: report.Location{
+						StartLine:   9,
+						EndLine:     9,
+						StartColumn: 15,
+						EndColumn:   206,
+					},
 				},
 				{ // Encoded Small secret at the end to make sure it's picked up by the decoding
 					Description: "Small Secret",
 					Secret:      "small-secret",
 					Match:       "small-secret",
-					File:        "tmp.go",
 					Line:        "c21hbGwtc2VjcmV0\n",
 					RuleID:      "small-secret",
 					Tags:        []string{"small", "secret", "decoded:base64", "decode-depth:1"},
-					StartLine:   16,
-					EndLine:     16,
-					StartColumn: 1,
-					EndColumn:   16,
-					Entropy:     3.0849626,
+					Location: report.Location{
+						StartLine:   16,
+						EndLine:     16,
+						StartColumn: 1,
+						EndColumn:   16,
+					},
 				},
 				{ // Secret where the decoded match goes outside the encoded value
 					Description: "Overlapping",
 					Secret:      "decoded-secret-value00",
 					Match:       "secret=decoded-secret-value00",
-					File:        "tmp.go",
 					Line:        "secret=ZGVjb2RlZC1zZWNyZXQtdmFsdWUwMA==\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:1"},
-					StartLine:   19,
-					EndLine:     19,
-					StartColumn: 1,
-					EndColumn:   39,
-					Entropy:     3.4428623,
+					Location: report.Location{
+						StartLine:   19,
+						EndLine:     19,
+						StartColumn: 1,
+						EndColumn:   39,
+					},
 				},
 				{ // This confirms the rule is detected without a filter.
 					Description: "Make sure this would be detected without a filter",
 					Secret:      "lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw",
 					Match:       "password=\"lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw\"",
-					File:        "tmp.go",
 					Line:        "password=\"bFJxQkstejVrZjQtcGxlYXNlLWlnbm9yZS1tZS1YLVhJSk0yUGRkdw==\"\n",
 					RuleID:      "decoded-password-dont-ignore",
 					Tags:        []string{"decode-ignore", "decoded:base64", "decode-depth:1"},
-					StartLine:   24,
-					EndLine:     24,
-					StartColumn: 1,
-					EndColumn:   67,
-					Entropy:     4.5841837,
+					Location: report.Location{
+						StartLine:   24,
+						EndLine:     24,
+						StartColumn: 1,
+						EndColumn:   67,
+					},
 				},
 				{ // Hex encoded data check
 					Description: "Overlapping",
 					Secret:      "decoded-secret-valuevHEX",
 					Match:       "secret=decoded-secret-valuevHEX",
-					File:        "tmp.go",
 					Line:        "secret=6465636F6465642D7365637265742D76616C756576484558\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:hex", "decode-depth:1"},
-					StartLine:   27,
-					EndLine:     27,
-					StartColumn: 1,
-					EndColumn:   55,
-					Entropy:     3.6531072,
+					Location: report.Location{
+						StartLine:   27,
+						EndLine:     27,
+						StartColumn: 1,
+						EndColumn:   55,
+					},
 				},
 				{ // handle partial encoded percent data
 					Description: "Overlapping",
 					Secret:      "decoded-secret-valuev2",
 					Match:       "secret=decoded-secret-valuev2",
-					File:        "tmp.go",
 					Line:        "secret=decoded-%73%65%63%72%65%74-valuev2\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
-					StartLine:   31,
-					EndLine:     31,
-					StartColumn: 1,
-					EndColumn:   41,
-					Entropy:     3.4428623,
+					Location: report.Location{
+						StartLine:   31,
+						EndLine:     31,
+						StartColumn: 1,
+						EndColumn:   41,
+					},
 				},
 				{ // handle partial encoded percent data
 					Description: "Overlapping",
 					Secret:      "decoded-secret-valuev3",
 					Match:       "secret=decoded-secret-valuev3",
-					File:        "tmp.go",
 					Line:        "secret=%64%65coded-%73%65%63%72%65%74-valuev3\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
-					StartLine:   33,
-					EndLine:     33,
-					StartColumn: 1,
-					EndColumn:   45,
-					Entropy:     3.4428623,
+					Location: report.Location{
+						StartLine:   33,
+						EndLine:     33,
+						StartColumn: 1,
+						EndColumn:   45,
+					},
 				},
 				{ // Encoded AWS config with a access key id inside a JWT
 					Description: "AWS IAM Unique Identifier",
 					Secret:      "ASIAIOSFODNN7LXM10JI",
 					Match:       " ASIAIOSFODNN7LXM10JI",
-					File:        "tmp.go",
 					Line:        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n",
 					RuleID:      "aws-iam-unique-identifier",
 					Tags:        []string{"aws", "identifier", "decoded:base64", "decode-depth:2"},
-					StartLine:   12,
-					EndLine:     12,
-					StartColumn: 38,
-					EndColumn:   343,
-					Entropy:     3.6841838,
+					Location: report.Location{
+						StartLine:   12,
+						EndLine:     12,
+						StartColumn: 38,
+						EndColumn:   343,
+					},
 				},
 				{ // Encoded AWS config with a secret access key inside a JWT
 					Description: "AWS Secret Access Key",
 					Secret:      "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A",
 					Match:       "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A",
-					File:        "tmp.go",
 					Line:        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n",
 					RuleID:      "aws-secret-access-key",
 					Tags:        []string{"aws", "secret", "decoded:base64", "decode-depth:2"},
-					StartLine:   12,
-					EndLine:     12,
-					StartColumn: 38,
-					EndColumn:   343,
-					Entropy:     4.721928,
+					Location: report.Location{
+						StartLine:   12,
+						EndLine:     12,
+						StartColumn: 38,
+						EndColumn:   343,
+					},
 				},
 				{ // Secret where the decoded match goes outside the encoded value and then encoded again
 					Description: "Overlapping",
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
-					File:        "tmp.go",
 					Line:        "c2VjcmV0PVpHVmpiMlJsWkMxelpXTnlaWFF0ZG1Gc2RXVT0=\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:2"},
-					StartLine:   21,
-					EndLine:     21,
-					StartColumn: 1,
-					EndColumn:   48,
-					Entropy:     3.3037016,
+					Location: report.Location{
+						StartLine:   21,
+						EndLine:     21,
+						StartColumn: 1,
+						EndColumn:   48,
+					},
 				},
 				{ // handle encodings that touch eachother
 					Description: "Overlapping",
 					Secret:      "decoded-secret-valuev5",
 					Match:       "secret=decoded-secret-valuev5",
-					File:        "tmp.go",
 					Line:        "secret%3d6465636F6465642D7365637265742D76616C75657635\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decode-depth:2"},
-					StartLine:   41,
-					EndLine:     41,
-					StartColumn: 1,
-					EndColumn:   53,
-					Entropy:     3.4428623,
+					Location: report.Location{
+						StartLine:   41,
+						EndLine:     41,
+						StartColumn: 1,
+						EndColumn:   53,
+					},
 				},
 				{ // handle partial encoded percent data465642D7365637265742D76616C75657635
 					Description: "Overlapping",
 					Secret:      "decoded-secret-valuev4",
 					Match:       "secret=decoded-secret-valuev4",
-					File:        "tmp.go",
 					Line:        "c2VjcmV0PVpHVmpiMl%4AsWkMxelpXTnlaWFF0ZG1Gc2RXVjJOQT09\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:3"},
-					StartLine:   39,
-					EndLine:     39,
-					StartColumn: 1,
-					EndColumn:   54,
-					Entropy:     3.4428623,
+					Location: report.Location{
+						StartLine:   39,
+						EndLine:     39,
+						StartColumn: 1,
+						EndColumn:   54,
+					},
 				},
 				{ // multiple percent encodings in a single layer base64
 					Description: "Overlapping",
 					Secret:      "decoded-secret-valuex86",
 					Match:       "secret=decoded-secret-valuex86",
-					File:        "tmp.go",
 					Line:        "secret=ZGVjb2%52lZC1zZWNyZXQtdm%46sdWV4ODY=  # ends in x86\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
-					StartLine:   43,
-					EndLine:     43,
-					StartColumn: 1,
-					EndColumn:   43,
-					Entropy:     3.6381476,
+					Location: report.Location{
+						StartLine:   43,
+						EndLine:     43,
+						StartColumn: 1,
+						EndColumn:   43,
+					},
 				},
 				{ // base64 encoded partially percent encoded value
 					Description: "Overlapping",
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
-					File:        "tmp.go",
 					Line:        "secret=ZGVjb2RlZC0lNzMlNjUlNjMlNzIlNjUlNzQtdmFsdWU=\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
-					StartLine:   45,
-					EndLine:     45,
-					StartColumn: 1,
-					EndColumn:   51,
-					Entropy:     3.3037016,
+					Location: report.Location{
+						StartLine:   45,
+						EndLine:     45,
+						StartColumn: 1,
+						EndColumn:   51,
+					},
 				},
 				{ // one of the lines above that went through... a lot
 					Description: "Overlapping",
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
-					File:        "tmp.go",
 					Line:        "Look at this value: %4EjMzMjU2NkE2MzZENTYzMDUwNTY3MDQ4%4eTY2RDcwNjk0RDY5NTUzMTRENkQ3ODYx%25%34%65TE3QTQ2MzY1NzZDNjQ0RjY1NTY3MDU5NTU1ODUyNkI2MjUzNTUzMDRFNkU0RTZCNTYzMTU1MzkwQQ== # isn't it crazy?\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decoded:base64", "decode-depth:7"},
-					StartLine:   48,
-					EndLine:     48,
-					StartColumn: 21,
-					EndColumn:   176,
-					Entropy:     3.3037016,
+					Location: report.Location{
+						StartLine:   48,
+						EndLine:     48,
+						StartColumn: 21,
+						EndColumn:   176,
+					},
 				},
 				{ // Multi percent encode two random characters close to the bounds of the base64
 					Description: "Overlapping",
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
-					File:        "tmp.go",
 					Line:        "secret=ZG%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%36%25%33%31%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%33%25%33%322RlZC1zZWNyZXQtd%25%36%64%25%34%36%25%37%33dWU=\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:5"},
-					StartLine:   51,
-					EndLine:     51,
-					StartColumn: 1,
-					EndColumn:   299,
-					Entropy:     3.3037016,
+					Location: report.Location{
+						StartLine:   51,
+						EndLine:     51,
+						StartColumn: 1,
+						EndColumn:   299,
+					},
 				},
 				{ // The similar to the above but also touching the edge of the base64
 					Description: "Overlapping",
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
-					File:        "tmp.go",
 					Line:        "secret=%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
-					StartLine:   53,
-					EndLine:     53,
-					StartColumn: 1,
-					EndColumn:   85,
-					Entropy:     3.3037016,
+					Location: report.Location{
+						StartLine:   53,
+						EndLine:     53,
+						StartColumn: 1,
+						EndColumn:   85,
+					},
 				},
 				{ // The similar to the above but also touching and overlapping the base64
 					Description: "Overlapping",
 					Secret:      "decoded-secret-value",
 					Match:       "secret=decoded-secret-value",
-					File:        "tmp.go",
 					Line:        "secret%3D%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n",
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
-					StartLine:   55,
-					EndLine:     55,
-					StartColumn: 1,
-					EndColumn:   87,
-					Entropy:     3.3037016,
+					Location: report.Location{
+						StartLine:   55,
+						EndLine:     55,
+						StartColumn: 1,
+						EndColumn:   87,
+					},
 				},
 			},
 		},
@@ -1897,11 +1943,9 @@ func TestDetect(t *testing.T) {
 			cfg := loadTestConfig(t, tt.cfgName)
 			cfg.Path = filepath.Join(configPath, tt.cfgName+".toml")
 			assert.Nil(t, tt.wantError)
-			d := NewDetector(cfg)
+			d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 			d.MaxDecodeDepth = maxDecodeDepth
-			d.baselinePath = tt.baselinePath
-
-			findings := d.Detect(tt.fragment)
+			findings := d.detectFragment(context.Background(), tt.fragment)
 
 			compare(t, findings, tt.expectedFindings)
 
@@ -1946,6 +1990,18 @@ func captureStdout(f func()) string {
 	return buf.String()
 }
 
+func expectedAWSFinding(line string, location report.Location) report.Finding {
+	return report.Finding{
+		RuleID:      "aws-access-key",
+		Description: "AWS Access Key",
+		Location:    location,
+		Line:        line,
+		Match:       "AKIALALEMEL33243OLIA",
+		Secret:      "AKIALALEMEL33243OLIA",
+		Tags:        []string{"key", "AWS"},
+	}
+}
+
 // TestFromGit tests the FromGit function
 func TestFromGit(t *testing.T) {
 	// TODO: Fix this test on windows.
@@ -1966,43 +2022,37 @@ func TestFromGit(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 18,
-					EndColumn:   37,
-					Line:        "    awsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Secret:      "AKIALALEMEL33243OLIA",
-					Match:       "AKIALALEMEL33243OLIA",
-					Entropy:     3.0841837,
-					File:        "main.go",
-					Date:        "2021-11-02T23:37:53Z",
-					Commit:      "1b6da43b82b22e4eaa10bcf8ee591e91abbfc587",
-					Author:      "Zachary Rice",
-					Email:       "zricer@protonmail.com",
-					Message:     "Accidentally add a secret",
-					Tags:        []string{"key", "AWS"},
-					Link:        "https://github.com/gitleaks/test/blob/1b6da43b82b22e4eaa10bcf8ee591e91abbfc587/main.go#L20",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 18,
+						EndColumn:   37,
+					},
+					Line:   "    awsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Secret: "AKIALALEMEL33243OLIA",
+					Match:  "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   9,
-					EndLine:     9,
-					StartColumn: 16,
-					EndColumn:   35,
-					Secret:      "AKIALALEMEL33243OLIA",
-					Match:       "AKIALALEMEL33243OLIA",
-					Line:        "\taws_token := \"AKIALALEMEL33243OLIA\"\n",
-					File:        "foo/foo.go",
-					Date:        "2021-11-02T23:48:06Z",
-					Commit:      "491504d5a31946ce75e22554cc34203d8e5ff3ca",
-					Author:      "Zach Rice",
-					Email:       "zricer@protonmail.com",
-					Message:     "adding foo package with secret",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/491504d5a31946ce75e22554cc34203d8e5ff3ca/foo/foo.go#L9",
+					Location: report.Location{
+						StartLine:   9,
+						EndLine:     9,
+						StartColumn: 16,
+						EndColumn:   35,
+					},
+					Secret: "AKIALALEMEL33243OLIA",
+					Match:  "AKIALALEMEL33243OLIA",
+					Line:   "\taws_token := \"AKIALALEMEL33243OLIA\"\n",
+					Tags:   []string{"key", "AWS"},
 				},
+				expectedAWSFinding("\tawsToken := \"AKIALALEMEL33243OLIA\"\n", report.Location{
+					StartLine: 20, EndLine: 20, StartColumn: 15, EndColumn: 34,
+				}),
+				expectedAWSFinding("\tawsToken := \"AKIALALEMEL33243OLIA\"\n", report.Location{
+					StartLine: 20, EndLine: 20, StartColumn: 15, EndColumn: 34,
+				}),
 			},
 		},
 		{
@@ -2013,23 +2063,23 @@ func TestFromGit(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   9,
-					EndLine:     9,
-					StartColumn: 16,
-					EndColumn:   35,
-					Secret:      "AKIALALEMEL33243OLIA",
-					Line:        "\taws_token := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Date:        "2021-11-02T23:48:06Z",
-					File:        "foo/foo.go",
-					Commit:      "491504d5a31946ce75e22554cc34203d8e5ff3ca",
-					Author:      "Zach Rice",
-					Email:       "zricer@protonmail.com",
-					Message:     "adding foo package with secret",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/491504d5a31946ce75e22554cc34203d8e5ff3ca/foo/foo.go#L9",
+					Location: report.Location{
+						StartLine:   9,
+						EndLine:     9,
+						StartColumn: 16,
+						EndColumn:   35,
+					},
+					Secret: "AKIALALEMEL33243OLIA",
+					Line:   "\taws_token := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
+				expectedAWSFinding("\tawsToken := \"AKIALALEMEL33243OLIA\"\n", report.Location{
+					StartLine: 20, EndLine: 20, StartColumn: 15, EndColumn: 34,
+				}),
+				expectedAWSFinding("\tawsToken := \"AKIALALEMEL33243OLIA\"\n", report.Location{
+					StartLine: 20, EndLine: 20, StartColumn: 15, EndColumn: 34,
+				}),
 			},
 		},
 		{
@@ -2039,322 +2089,226 @@ func TestFromGit(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "main.go.zst",
-					Commit:      "db8789716fc664dbce0ed2d492570e92abf717a5",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:10:39Z",
-					Message:     "Add main.go.zst",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/db8789716fc664dbce0ed2d492570e92abf717a5/main.go.zst#L20",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.tar!files/api.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.tar!files/main.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.zip!files/api.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.zip!files/main.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.7z!files/api.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.7z!files/main.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.tar.zst!files/api.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.tar.zst!files/main.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files/api.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files/main.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files/main.go.xz",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files/main.go.zst",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files/main.go.gz",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.tar.xz!files/api.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "nested.tar.gz!archives/files.tar.xz!files/main.go",
-					Commit:      "07d2bd71800f1abf0421abe9bc4a83a6fdca1f68",
-					Author:      "Test User",
-					Email:       "user@example.com",
-					Date:        "2025-05-27T05:08:50Z",
-					Message:     "Add nested.tar.gz",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
-					Link:        "https://github.com/gitleaks/test/blob/07d2bd71800f1abf0421abe9bc4a83a6fdca1f68/nested.tar.gz",
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 			},
 		},
@@ -2366,32 +2320,22 @@ func TestFromGit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(strings.Join([]string{tt.cfgName, tt.source, tt.logOpts}, "/"), func(t *testing.T) {
 			cfg := loadTestConfig(t, "simple")
-			detector := NewDetector(cfg)
-			var ignorePath string
-			info, err := os.Stat(tt.source)
-			require.NoError(t, err)
-
-			if info.IsDir() {
-				ignorePath = filepath.Join(tt.source, ".gitleaksignore")
-			} else {
-				ignorePath = filepath.Join(filepath.Dir(tt.source), ".gitleaksignore")
-			}
-			err = detector.AddGitleaksIgnore(ignorePath)
-			require.NoError(t, err)
+			detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 
 			gitCmd, err := sources.NewGitLogCmd(tt.source, tt.logOpts)
 			require.NoError(t, err)
 			platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
-			findings, err := detector.DetectSource(
-				t.Context(),
+			findings, err := collectSourceFindings(
+				t.Context(), detector,
+
 				&sources.Git{
 					Cmd:             gitCmd,
 					ShouldSkip:      detector.SkipFunc(),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
 					MaxArchiveDepth: 8,
-				},
-			)
+				})
+
 			require.NoError(t, err)
 
 			for _, f := range findings {
@@ -2416,27 +2360,24 @@ func TestFromGitStaged(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   7,
-					EndLine:     7,
-					StartColumn: 17,
-					EndColumn:   36,
-					Line:        "\taws_token2 := \"AKIALALEMEL33243OLIA\" // this one is not\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "api/api.go",
-					SymlinkFile: "",
-					Commit:      "",
-					Entropy:     3.0841837,
-					Author:      "",
-					Email:       "",
-					Date:        "",
-					Message:     "",
+					Location: report.Location{
+						StartLine:   7,
+						EndLine:     7,
+						StartColumn: 17,
+						EndColumn:   36,
+					},
+					Line:   "\taws_token2 := \"AKIALALEMEL33243OLIA\" // this one is not\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
 					Tags: []string{
 						"key",
 						"AWS",
 					},
-					Link: "",
 				},
+				expectedAWSFinding(
+					"\taws_token := \"AKIALALEMEL33243OLIA\"  // fingerprint of that secret is added to .gitleaksignore\n",
+					report.Location{StartLine: 6, EndLine: 6, StartColumn: 16, EndColumn: 35},
+				),
 			},
 		},
 	}
@@ -2445,21 +2386,20 @@ func TestFromGitStaged(t *testing.T) {
 	defer moveDotGit(t, ".git", "dotGit")
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
-		detector := NewDetector(cfg)
-		err := detector.AddGitleaksIgnore(filepath.Join(tt.source, ".gitleaksignore"))
-		require.NoError(t, err)
+		detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 		gitCmd, err := sources.NewGitDiffCmd(tt.source, true)
 		require.NoError(t, err)
 		platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
-		findings, err := detector.DetectSource(
-			t.Context(),
+		findings, err := collectSourceFindings(
+			t.Context(), detector,
+
 			&sources.Git{
 				Cmd:        gitCmd,
 				ShouldSkip: detector.SkipFunc(),
 				Platform:   platform,
 				RemoteURL:  remoteURL,
-			},
-		)
+			})
+
 		require.NoError(t, err)
 
 		for _, f := range findings {
@@ -2483,18 +2423,20 @@ func TestFromFiles(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/repos/nogit/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
+				expectedAWSFinding("\tawsToken := \"AKIALALEMEL33243OLIA\"\n", report.Location{
+					StartLine: 20, EndLine: 20, StartColumn: 15, EndColumn: 34,
+				}),
 			},
 		},
 		{
@@ -2504,23 +2446,27 @@ func TestFromFiles(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/repos/nogit/main.go",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 			},
 		},
 		{
-			source:           filepath.Join(repoBasePath, "nogit", "api.go"),
-			cfgName:          "simple",
-			expectedFindings: []report.Finding{},
+			source:  filepath.Join(repoBasePath, "nogit", "api.go"),
+			cfgName: "simple",
+			expectedFindings: []report.Finding{
+				expectedAWSFinding("\tawsToken := \"AKIALALEMEL33243OLIA\"\n", report.Location{
+					StartLine: 20, EndLine: 20, StartColumn: 15, EndColumn: 34,
+				}),
+			},
 		},
 		{
 			source:  filepath.Join(repoBasePath, "nogit", ".env.prod"),
@@ -2529,16 +2475,16 @@ func TestFromFiles(t *testing.T) {
 				{
 					RuleID:      "generic-api-key",
 					Description: "Generic API Key",
-					StartLine:   4,
-					EndLine:     4,
-					StartColumn: 4,
-					EndColumn:   34,
-					Line:        "DB_PASSWORD=8ae31cacf141669ddfb5da\n",
-					Match:       "PASSWORD=8ae31cacf141669ddfb5da",
-					Secret:      "8ae31cacf141669ddfb5da",
-					File:        "../testdata/repos/nogit/.env.prod",
-					Tags:        []string{},
-					Entropy:     3.5383105,
+					Location: report.Location{
+						StartLine:   4,
+						EndLine:     4,
+						StartColumn: 4,
+						EndColumn:   34,
+					},
+					Line:   "DB_PASSWORD=8ae31cacf141669ddfb5da\n",
+					Match:  "PASSWORD=8ae31cacf141669ddfb5da",
+					Secret: "8ae31cacf141669ddfb5da",
+					Tags:   []string{},
 				},
 			},
 		},
@@ -2547,28 +2493,17 @@ func TestFromFiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
 			cfg := loadTestConfig(t, tt.cfgName)
-			detector := NewDetector(cfg)
+			detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 
-			info, err := os.Stat(tt.source)
-			require.NoError(t, err)
+			findings, err := collectSourceFindings(
+				t.Context(), detector,
 
-			var ignorePath string
-			if info.IsDir() {
-				ignorePath = filepath.Join(tt.source, ".gitleaksignore")
-			} else {
-				ignorePath = filepath.Join(filepath.Dir(tt.source), ".gitleaksignore")
-			}
-			err = detector.AddGitleaksIgnore(ignorePath)
-			require.NoError(t, err)
-
-			findings, err := detector.DetectSource(
-				t.Context(),
 				&sources.Files{
 					ShouldSkip:     detector.SkipFunc(),
 					FollowSymlinks: true,
 					Path:           tt.source,
-				},
-			)
+				})
+
 			require.NoError(t, err)
 
 			normalizeFindings(findings)
@@ -2596,77 +2531,72 @@ func TestDetectWithArchives(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files/main.go.gz",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files/main.go.xz",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files/main.go.zst",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 			},
 		},
@@ -2677,32 +2607,30 @@ func TestDetectWithArchives(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.7z!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.7z!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 			},
 		},
@@ -2713,32 +2641,30 @@ func TestDetectWithArchives(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.tar!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.tar!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 			},
 		},
@@ -2749,32 +2675,30 @@ func TestDetectWithArchives(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.tar.xz!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.tar.xz!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 			},
 		},
@@ -2785,32 +2709,30 @@ func TestDetectWithArchives(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.tar.zst!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.tar.zst!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 			},
 		},
@@ -2821,32 +2743,30 @@ func TestDetectWithArchives(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.zip!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/files.zip!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 			},
 		},
@@ -2857,227 +2777,212 @@ func TestDetectWithArchives(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.tar!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.tar!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.zip!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.zip!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.7z!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.7z!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.tar.zst!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.tar.zst!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files/main.go.xz",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files/main.go.zst",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files/main.go.gz",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.tar.xz!files/api.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					StartLine:   20,
-					EndLine:     20,
-					StartColumn: 15,
-					EndColumn:   34,
-					Line:        "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match:       "AKIALALEMEL33243OLIA",
-					Secret:      "AKIALALEMEL33243OLIA",
-					File:        "../testdata/archives/nested.tar.gz!archives/files.tar.xz!files/main.go",
-					SymlinkFile: "",
-					Tags:        []string{"key", "AWS"},
-					Entropy:     3.0841837,
+					Location: report.Location{
+						StartLine:   20,
+						EndLine:     20,
+						StartColumn: 15,
+						EndColumn:   34,
+					},
+					Line:   "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
+					Match:  "AKIALALEMEL33243OLIA",
+					Secret: "AKIALALEMEL33243OLIA",
+					Tags:   []string{"key", "AWS"},
 				},
 			},
 		},
@@ -3099,16 +3004,16 @@ func TestDetectWithArchives(t *testing.T) {
 
 			cfg := loadTestConfig(t, tt.cfgName)
 			detector := NewDetectorContext(ctx, cfg, ValidationOptions{})
-			findings, err := detector.DetectSource(
-				ctx, &sources.Files{
+			findings, err := collectSourceFindings(
+				ctx, detector,
+				&sources.Files{
 					Path:            tt.source,
 					ShouldSkip:      detector.SkipFunc(),
 					MaxArchiveDepth: 8,
-				},
-			)
+				})
 
 			if tt.expireContext {
-				require.EqualError(t, err, "context canceled")
+				require.NoError(t, err)
 			} else {
 				cancel()
 				require.NoError(t, err)
@@ -3140,17 +3045,16 @@ func TestDetectWithSymlinks(t *testing.T) {
 				{
 					RuleID:      "apkey",
 					Description: "Asymmetric Private Key",
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 1,
-					EndColumn:   35,
-					Match:       "-----BEGIN OPENSSH PRIVATE KEY-----",
-					Secret:      "-----BEGIN OPENSSH PRIVATE KEY-----",
-					Line:        "-----BEGIN OPENSSH PRIVATE KEY-----\n",
-					File:        "../testdata/repos/symlinks/source_file/id_ed25519",
-					SymlinkFile: "../testdata/repos/symlinks/file_symlink/symlinked_id_ed25519",
-					Tags:        []string{"key", "AsymmetricPrivateKey"},
-					Entropy:     3.587164,
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 1,
+						EndColumn:   35,
+					},
+					Match:  "-----BEGIN OPENSSH PRIVATE KEY-----",
+					Secret: "-----BEGIN OPENSSH PRIVATE KEY-----",
+					Line:   "-----BEGIN OPENSSH PRIVATE KEY-----\n",
+					Tags:   []string{"key", "AsymmetricPrivateKey"},
 				},
 			},
 		},
@@ -3158,15 +3062,16 @@ func TestDetectWithSymlinks(t *testing.T) {
 
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
-		detector := NewDetector(cfg)
-		findings, err := detector.DetectSource(
-			t.Context(),
+		detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+		findings, err := collectSourceFindings(
+			t.Context(), detector,
+
 			&sources.Files{
 				ShouldSkip:     detector.SkipFunc(),
 				FollowSymlinks: true,
 				Path:           tt.source,
-			},
-		)
+			})
+
 		require.NoError(t, err)
 		assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
 	}
@@ -3200,23 +3105,6 @@ func moveDotGit(t *testing.T, from, to string) {
 	}
 }
 
-// region Windows-specific tests[]
-func TestNormalizeGitleaksIgnorePaths(t *testing.T) {
-	d, err := NewDetectorDefaultConfig()
-	require.NoError(t, err)
-
-	err = d.AddGitleaksIgnore("../testdata/gitleaksignore/.windowspaths")
-	require.NoError(t, err)
-
-	assert.Len(t, d.gitleaksIgnore, 3)
-	expected := map[string]struct{}{
-		"foo/bar/gitleaks-false-positive.yaml:aws-access-token:4":                                                 {},
-		"foo/bar/gitleaks-false-positive.yaml:aws-access-token:5":                                                 {},
-		"b55d88dc151f7022901cda41a03d43e0e508f2b7:test_data/test_local_repo_three_leaks.json:aws-access-token:73": {},
-	}
-	assert.ElementsMatch(t, maps.Keys(d.gitleaksIgnore), maps.Keys(expected))
-}
-
 func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	unixRule := config.Rule{
 		RuleID: "test-rule",
@@ -3230,7 +3118,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		{
 			RuleID: "test-rule",
 			Match:  "file detected: .m2/settings.xml",
-			File:   ".m2/settings.xml",
+			Tags:   []string{},
 		},
 	}
 	tests := map[string]struct {
@@ -3271,16 +3159,17 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 			},
 			expected: []report.Finding{
 				{
-					RuleID:      "test-rule",
-					StartLine:   1,
-					EndLine:     1,
-					StartColumn: 1,
-					EndColumn:   27,
-					Line:        "<password>s3cr3t</password>",
-					Match:       "<password>s3cr3t</password>",
-					Secret:      "s3cr3t",
-					Entropy:     2.251629114151001,
-					File:        ".m2/settings.xml",
+					RuleID: "test-rule",
+					Location: report.Location{
+						StartLine:   1,
+						EndLine:     1,
+						StartColumn: 1,
+						EndColumn:   27,
+					},
+					Line:   "<password>s3cr3t</password>",
+					Match:  "<password>s3cr3t</password>",
+					Secret: "s3cr3t",
+					Tags:   []string{},
 				},
 			},
 		},
@@ -3324,8 +3213,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		},
 	}
 
-	d, err := NewDetectorDefaultConfig()
-	require.NoError(t, err)
+	d := newDefaultTestDetector(t)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{}, nil)
