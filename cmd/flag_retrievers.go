@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/dustin/go-humanize"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/spf13/cobra"
 )
@@ -37,12 +38,25 @@ func mustGetStringFlag(cmd *cobra.Command, name string) string {
 	return value
 }
 
-func mustGetInt64Flag(cmd *cobra.Command, name string) int64 {
-	value, err := cmd.Flags().GetInt64(name)
+func mustGetSizeFlag(cmd *cobra.Command, name string) int64 {
+	value, err := cmd.Flags().GetString(name)
 	if err != nil {
 		logging.Fatal().Err(err).Msgf("could not get flag: %s", name)
 	}
-	return value
+	n, err := parseSize(value)
+	if err != nil {
+		logging.Fatal().Err(err).Msgf("invalid size for flag --%s: %q", name, value)
+	}
+	return n
+}
+
+// parseSize converts a human-readable size string to bytes. Empty string returns 0.
+func parseSize(s string) (int64, error) {
+	if s == "" {
+		return 0, nil
+	}
+	n, err := humanize.ParseBytes(s)
+	return int64(n), err
 }
 
 func mustGetFloat64Flag(cmd *cobra.Command, name string) float64 {
