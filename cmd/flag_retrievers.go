@@ -1,8 +1,11 @@
 package cmd
 
 import (
-	"github.com/dustin/go-humanize"
+	"fmt"
+	"math"
+
 	"github.com/betterleaks/betterleaks/logging"
+	"github.com/dustin/go-humanize"
 	"github.com/spf13/cobra"
 )
 
@@ -56,7 +59,13 @@ func parseSize(s string) (int64, error) {
 		return 0, nil
 	}
 	n, err := humanize.ParseBytes(s)
-	return int64(n), err
+	if err != nil {
+		return 0, err
+	}
+	if n > math.MaxInt64 {
+		return 0, fmt.Errorf("size %q overflows int64 (max %d bytes)", s, int64(math.MaxInt64))
+	}
+	return int64(n), nil
 }
 
 func mustGetFloat64Flag(cmd *cobra.Command, name string) float64 {

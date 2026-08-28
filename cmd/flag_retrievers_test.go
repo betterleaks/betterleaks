@@ -21,6 +21,7 @@ func TestParseSize(t *testing.T) {
 		{input: "512kB", want: 512_000},
 		{input: "notasize", wantErr: true},
 		{input: "12 zettabytes", wantErr: true},
+		{input: "10EB", wantErr: true}, // overflows int64
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
