@@ -1,12 +1,14 @@
 package report
 
 import (
+	"encoding/json"
 	"maps"
 	"math"
 	"sort"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/internal/confidence"
+	"github.com/betterleaks/betterleaks/sources"
 )
 
 // Finding describes a secret found by a rule.
@@ -45,6 +47,30 @@ type Finding struct {
 
 	// Hidden field to hold expression context without bloating the report output.
 	exprContext string
+}
+
+// MarshalJSON omits attributes that exist only to coordinate the scanning
+// pipeline. They remain available on the in-memory finding for filters and
+// validation expressions, but are not part of the report schema.
+func (f Finding) MarshalJSON() ([]byte, error) {
+	type wireFinding Finding
+
+	wire := wireFinding(f)
+	wire.Attributes = reportAttributes(f.Attributes)
+	return json.Marshal(wire)
+}
+
+func reportAttributes(attributes map[string]string) map[string]string {
+	if _, internal := attributes[sources.AttrFSFirstFragment]; !internal {
+		return attributes
+	}
+
+	visible := maps.Clone(attributes)
+	delete(visible, sources.AttrFSFirstFragment)
+	if len(visible) == 0 {
+		return nil
+	}
+	return visible
 }
 
 // Location identifies a finding's position in its source.

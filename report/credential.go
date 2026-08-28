@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/betterleaks/betterleaks/sources"
 )
 
 const CredentialReportSchemaVersion = 1
@@ -96,7 +98,13 @@ func sanitizeCredentialAttributes(attributes map[string]string, secrets []string
 	}
 	out := make(map[string]string, len(attributes))
 	for key, value := range attributes {
+		if key == sources.AttrFSFirstFragment {
+			continue
+		}
 		out[sanitizeCredentialString(key, secrets)] = sanitizeCredentialString(value, secrets)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

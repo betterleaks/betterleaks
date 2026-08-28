@@ -612,12 +612,13 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 		fmt.Println("│")
 		dotLeader("confidence", strings.ToUpper(f.Confidence), len("confidence"))
 	}
-	if len(f.Attributes) > 0 {
+	attributes := reportAttributes(f.Attributes)
+	if len(attributes) > 0 {
 		fmt.Println("│")
 		fmt.Printf("│ attributes:\n")
 		maxK := 0
-		keys := make([]string, 0, len(f.Attributes))
-		for k := range f.Attributes {
+		keys := make([]string, 0, len(attributes))
+		for k := range attributes {
 			keys = append(keys, k)
 			if len(k) > maxK {
 				maxK = len(k)
@@ -625,7 +626,7 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			dotLeader(k, f.Attributes[k], maxK)
+			dotLeader(k, attributes[k], maxK)
 		}
 	}
 	if !f.Validation.IsZero() {

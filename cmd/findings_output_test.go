@@ -20,13 +20,20 @@ func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {
 	flags, sink := newFindingOutputCommand(false, "", false, 0)
 	collector, err := newFindingCollector(flags, true, sink)
 	require.NoError(t, err)
+	finding := testOutputFinding("default")
+	finding.Attributes = map[string]string{
+		sources.AttrPath:            "secrets.txt",
+		sources.AttrFSFirstFragment: "true",
+	}
 
 	output := captureFindingStdout(t, func() {
-		require.NoError(t, collector.Add(testOutputFinding("default")))
+		require.NoError(t, collector.Add(finding))
 		require.NoError(t, collector.Close())
 	})
 
 	require.Contains(t, output, "default")
+	require.Contains(t, output, sources.AttrPath)
+	require.NotContains(t, output, sources.AttrFSFirstFragment)
 	require.Equal(t, 1, collector.Count())
 }
 

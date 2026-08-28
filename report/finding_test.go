@@ -289,6 +289,23 @@ func TestFindingJSONSchema(t *testing.T) {
 	assert.Equal(t, f, roundTrip)
 }
 
+func TestFindingJSONOmitsInternalAttributes(t *testing.T) {
+	f := Finding{
+		Attributes: map[string]string{
+			sources.AttrPath:            "secrets.txt",
+			sources.AttrFSFirstFragment: "true",
+		},
+	}
+
+	data, err := json.Marshal(f)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, map[string]any{"path": "secrets.txt"}, got["attributes"])
+	assert.Equal(t, "true", f.Attributes[sources.AttrFSFirstFragment], "marshaling must not mutate the finding")
+}
+
 func TestSetAttributesPromotesConfidence(t *testing.T) {
 	attrs := map[string]string{
 		sources.AttrPath: "secrets.txt",

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/betterleaks/betterleaks/sources"
 )
 
 func TestCredentialReportRedactsOverlappingSecretsAndMetadataKeys(t *testing.T) {
@@ -30,6 +32,23 @@ func TestCredentialReportRedactsOverlappingSecretsAndMetadataKeys(t *testing.T) 
 	}
 	if got.Attributes["credential-[redacted]"] != "[redacted] [redacted]" {
 		t.Fatalf("sanitized attributes = %#v", got.Attributes)
+	}
+}
+
+func TestCredentialReportOmitsInternalAttributes(t *testing.T) {
+	got := NewCredentialReport(Finding{
+		RuleID: "test",
+		Attributes: map[string]string{
+			sources.AttrPath:            "secrets.txt",
+			sources.AttrFSFirstFragment: "true",
+		},
+	}, nil, false)
+
+	if _, ok := got.Attributes[sources.AttrFSFirstFragment]; ok {
+		t.Fatalf("internal attribute included in credential report: %#v", got.Attributes)
+	}
+	if got.Attributes[sources.AttrPath] != "secrets.txt" {
+		t.Fatalf("report attributes = %#v", got.Attributes)
 	}
 }
 
