@@ -13,6 +13,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(huggingFaceCmd)
+	scanFlags(huggingFaceCmd)
 	huggingFaceCmd.Flags().String("token", "", "Hugging Face access token (or set HUGGINGFACE_TOKEN/HF_TOKEN)")
 	huggingFaceCmd.Flags().StringSlice("include", nil, "resource types to scan: repos (default), discussions, prs, buckets")
 	huggingFaceCmd.Flags().StringSlice("exclude", nil, "resource types to skip: repos, discussions, prs, buckets")
@@ -52,8 +53,8 @@ var huggingFaceCmd = &cobra.Command{
 func runHuggingFace(cmd *cobra.Command, args []string) {
 	start := time.Now()
 
-	initConfig(".")
-	initDiagnostics()
+	initConfig(cmd, ".")
+	initDiagnostics(cmd)
 
 	cfg := Config(cmd)
 	detector := Detector(cmd, cfg, ".")

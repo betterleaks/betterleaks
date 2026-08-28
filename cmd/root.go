@@ -48,18 +48,24 @@ var (
 		Short:   "Betterleaks scans code, past or present, for secrets",
 		Version: version.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := confidenceFlag(cmd); err != nil {
-				return err
+			if cmd.Flags().Lookup("confidence") != nil {
+				if _, err := confidenceFlag(cmd); err != nil {
+					return err
+				}
 			}
-			if workers, err := cmd.Flags().GetInt("source-workers"); err != nil {
-				return err
-			} else if workers < 0 {
-				return fmt.Errorf("--source-workers must be non-negative")
+			if cmd.Flags().Lookup("source-workers") != nil {
+				if workers, err := cmd.Flags().GetInt("source-workers"); err != nil {
+					return err
+				} else if workers < 0 {
+					return fmt.Errorf("--source-workers must be non-negative")
+				}
 			}
-			if workers, err := cmd.Flags().GetInt("detect-workers"); err != nil {
-				return err
-			} else if workers < 0 {
-				return fmt.Errorf("--detect-workers must be non-negative")
+			if cmd.Flags().Lookup("detect-workers") != nil {
+				if workers, err := cmd.Flags().GetInt("detect-workers"); err != nil {
+					return err
+				} else if workers < 0 {
+					return fmt.Errorf("--detect-workers must be non-negative")
+				}
 			}
 			if cmd.Flags().Lookup("git-workers") != nil {
 				if workers, err := cmd.Flags().GetInt("git-workers"); err != nil {
@@ -67,14 +73,6 @@ var (
 				} else if workers < 0 {
 					return fmt.Errorf("--git-workers must be non-negative")
 				}
-			}
-			// Set the timeout for all the commands
-			if timeout, err := cmd.Flags().GetInt("timeout"); err != nil {
-				return err
-			} else if timeout > 0 {
-				ctx, cancel := context.WithTimeout(cmd.Context(), time.Duration(timeout)*time.Second)
-				cmd.SetContext(ctx)
-				cobra.OnFinalize(cancel)
 			}
 			return nil
 		},
@@ -95,55 +93,17 @@ const (
 func init() {
 	cobra.OnInitialize(initLog)
 	rootCmd.PersistentFlags().StringP("config", "c", "", configDescription)
-	rootCmd.PersistentFlags().Int("exit-code", 1, "exit code when leaks have been encountered")
-	rootCmd.PersistentFlags().BoolP("silent", "s", false, "suppress findings and banner")
-	rootCmd.PersistentFlags().Bool("jsonl", false, "print findings as JSONL")
-	rootCmd.PersistentFlags().StringP("report", "r", "", "output findings in report format to file (use \"-\" for stdout)")
-	// rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
-	rootCmd.PersistentFlags().String("confidence", "", "minimum confidence to include (low, medium, high)")
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color in terminal output")
-	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
-	rootCmd.PersistentFlags().Int("source-workers", 0, "number of concurrent source workers (0 = source default)")
-	rootCmd.PersistentFlags().Int("detect-workers", 0, "number of concurrent detection workers (0 = GOMAXPROCS)")
-	rootCmd.PersistentFlags().BoolP("ignore-allow-comments", "", false, "ignore allow comments")
-	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
-	rootCmd.Flag("redact").NoOptDefVal = "100"
-	rootCmd.PersistentFlags().Bool("no-banner", false, "suppress banner")
-	rootCmd.PersistentFlags().StringSlice("disable-rule", nil, "disable specific rules by id (repeatable; shorthand: -dr)")
-	rootCmd.PersistentFlags().StringSlice("isolate-rule", nil, "only enable specific rules by id (repeatable; shorthand: -ir)")
-	rootCmd.PersistentFlags().String("match-context", "", "context around match (this gets reported): L (lines), C (columns/characters). e.g. 10L, 100C, -2C,+4C")
-	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
-	rootCmd.PersistentFlags().Int("max-archive-depth", 8, "allow scanning into nested archives up to this depth")
-	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for betterleaks scan in seconds (default \"0\", no timeout is set)")
 	rootCmd.PersistentFlags().String("regex-engine", "re2", "regex engine (stdlib, re2)")
 	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
 	_ = rootCmd.PersistentFlags().MarkHidden("regexp-engine")
-
-	// Validation flags
-	rootCmd.PersistentFlags().Bool("validation", false, "enable validation of findings against live APIs")
-	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none (none = rules without validation)")
-	rootCmd.PersistentFlags().Duration("validation-timeout", 10*time.Second, "per-request timeout for validation")
-	rootCmd.PersistentFlags().Int("validation-workers", 10, "number of concurrent validation workers")
-	rootCmd.PersistentFlags().Int("validation-max-requests", 0, "maximum validation requests sent to each provider target (0 = unlimited)")
-	rootCmd.PersistentFlags().Int("validation-max-request", 0, "alias for --validation-max-requests")
-	_ = rootCmd.PersistentFlags().MarkHidden("validation-max-request")
-	rootCmd.PersistentFlags().Float64("validation-rps", 0, "global validation requests per second (0 = unlimited)")
-	rootCmd.PersistentFlags().StringSlice("validation-rps-rule", nil, "rule-specific validation request rate as RULE=RPS (repeatable)")
-	rootCmd.PersistentFlags().Bool("validation-extract-empty", false, "include empty values from extractors in output")
-	rootCmd.PersistentFlags().Bool("validation-debug", false, "include validation HTTP debug metadata in output")
-	rootCmd.PersistentFlags().StringSlice("validation-env-vars", nil, "comma-separated env var names the validation env.get(...) binding may read (repeat flag to add more); unset means env access is disabled")
-
-	// Add diagnostics flags
-	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace,rules,rules-csv). cpu=CPU prof, mem=memory prof, trace=exec tracing, rules=rule timings text, rules-csv=rule timings CSV, http=serve via net/http/pprof")
-	rootCmd.PersistentFlags().String("diagnostics-dir", "", "directory to store diagnostics output files when not using http mode (defaults to ./diagnostics)")
-
 }
 
 var logLevel = zerolog.InfoLevel
 
 func initLog() {
-	ll, err := rootCmd.Flags().GetString("log-level")
+	ll, err := rootCmd.PersistentFlags().GetString("log-level")
 	if err != nil {
 		logging.Fatal().Msg(err.Error())
 	}
@@ -167,10 +127,10 @@ func initLog() {
 	logging.Logger = logging.Logger.Level(logLevel)
 
 	var engineName string
-	if rootCmd.Flags().Changed("regex-engine") {
-		engineName, _ = rootCmd.Flags().GetString("regex-engine")
-	} else if rootCmd.Flags().Changed("regexp-engine") {
-		engineName, _ = rootCmd.Flags().GetString("regexp-engine")
+	if rootCmd.PersistentFlags().Changed("regex-engine") {
+		engineName, _ = rootCmd.PersistentFlags().GetString("regex-engine")
+	} else if rootCmd.PersistentFlags().Changed("regexp-engine") {
+		engineName, _ = rootCmd.PersistentFlags().GetString("regexp-engine")
 	}
 	switch engineName {
 	case "", "re2":
@@ -188,14 +148,14 @@ var (
 	loadedConfig       *config.Config
 )
 
-func initConfig(source string) {
+func initConfig(cmd *cobra.Command, source string) {
 	resolvedConfigPath = "" // reset for each call (cmd/directory.go calls per-source)
 	loadedConfig = nil
-	hideBanner, err := rootCmd.Flags().GetBool("no-banner")
+	hideBanner, err := cmd.Flags().GetBool("no-banner")
 	if err != nil {
 		logging.Fatal().Msg(err.Error())
 	}
-	silent, err := rootCmd.Flags().GetBool("silent")
+	silent, err := cmd.Flags().GetBool("silent")
 	if err != nil {
 		logging.Fatal().Msg(err.Error())
 	}
@@ -207,7 +167,7 @@ func initConfig(source string) {
 
 	logging.Debug().Msgf("using %s regex engine", regexp.Version())
 
-	cfgPath, err := rootCmd.Flags().GetString("config")
+	cfgPath, err := cmd.Flags().GetString("config")
 	if err != nil {
 		logging.Fatal().Msg(err.Error())
 	}
@@ -294,14 +254,14 @@ func findConfigFile(source string) string {
 	return ""
 }
 
-func initDiagnostics() {
+func initDiagnostics(cmd *cobra.Command) {
 	// Initialize diagnostics manager
-	diagnosticsFlag, err := rootCmd.PersistentFlags().GetString("diagnostics")
+	diagnosticsFlag, err := cmd.Flags().GetString("diagnostics")
 	if err != nil {
 		logging.Fatal().Err(err).Msg("Error getting diagnostics flag")
 	}
 
-	diagnosticsDir, err := rootCmd.PersistentFlags().GetString("diagnostics-dir")
+	diagnosticsDir, err := cmd.Flags().GetString("diagnostics-dir")
 	if err != nil {
 		logging.Fatal().Err(err).Msg("Error getting diagnostics-dir flag")
 	}

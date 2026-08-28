@@ -51,11 +51,10 @@ func TestValidateValidationRPS(t *testing.T) {
 	}
 }
 
-func TestGetValidationMaxRequestsSupportsSingularAlias(t *testing.T) {
+func TestGetValidationMaxRequests(t *testing.T) {
 	newCommand := func(args ...string) *cobra.Command {
 		cmd := &cobra.Command{Use: "test"}
 		cmd.Flags().Int("validation-max-requests", 0, "")
-		cmd.Flags().Int("validation-max-request", 0, "")
 		if err := cmd.ParseFlags(args); err != nil {
 			t.Fatalf("ParseFlags: %v", err)
 		}
@@ -68,13 +67,7 @@ func TestGetValidationMaxRequestsSupportsSingularAlias(t *testing.T) {
 		want int
 	}{
 		{name: "default", want: 0},
-		{name: "canonical", args: []string{"--validation-max-requests=10"}, want: 10},
-		{name: "alias", args: []string{"--validation-max-request=20"}, want: 20},
-		{
-			name: "both equal",
-			args: []string{"--validation-max-requests=30", "--validation-max-request=30"},
-			want: 30,
-		},
+		{name: "configured", args: []string{"--validation-max-requests=10"}, want: 10},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := getValidationMaxRequests(newCommand(test.args...))
@@ -87,12 +80,6 @@ func TestGetValidationMaxRequestsSupportsSingularAlias(t *testing.T) {
 		})
 	}
 
-	if _, err := getValidationMaxRequests(newCommand(
-		"--validation-max-requests=10",
-		"--validation-max-request=20",
-	)); err == nil {
-		t.Fatal("conflicting aliases returned no error")
-	}
 	if _, err := getValidationMaxRequests(newCommand("--validation-max-requests=-1")); err == nil {
 		t.Fatal("negative maximum returned no error")
 	}

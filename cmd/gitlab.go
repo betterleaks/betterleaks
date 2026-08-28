@@ -13,6 +13,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(gitlabCmd)
+	scanFlags(gitlabCmd)
 	gitlabCmd.Flags().String("token", "", "GitLab personal access token (or set GITLAB_TOKEN)")
 	gitlabCmd.Flags().String("base-url", "", "site base URL for self-hosted instances (e.g. https://gitlab.example.com/)")
 	gitlabCmd.Flags().StringSlice("include", nil,
@@ -54,8 +55,8 @@ var gitlabCmd = &cobra.Command{
 func runGitLab(cmd *cobra.Command, args []string) {
 	start := time.Now()
 
-	initConfig(".")
-	initDiagnostics()
+	initConfig(cmd, ".")
+	initDiagnostics(cmd)
 
 	cfg := Config(cmd)
 	detector := Detector(cmd, cfg, ".")

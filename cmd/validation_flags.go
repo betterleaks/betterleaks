@@ -14,23 +14,6 @@ func getValidationMaxRequests(cmd *cobra.Command) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	alias, err := cmd.Flags().GetInt("validation-max-request")
-	if err != nil {
-		return 0, err
-	}
-
-	canonicalChanged := cmd.Flags().Changed("validation-max-requests")
-	aliasChanged := cmd.Flags().Changed("validation-max-request")
-	if canonicalChanged && aliasChanged && maxRequests != alias {
-		return 0, fmt.Errorf(
-			"--validation-max-requests and --validation-max-request disagree (%d and %d)",
-			maxRequests,
-			alias,
-		)
-	}
-	if aliasChanged {
-		maxRequests = alias
-	}
 	if maxRequests < 0 {
 		return 0, fmt.Errorf("must be non-negative")
 	}

@@ -3,21 +3,38 @@ package cmd
 import (
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSourceWorkersFlag(t *testing.T) {
-	flag := rootCmd.PersistentFlags().Lookup("source-workers")
-	require.NotNil(t, flag)
-	require.Equal(t, "0", flag.DefValue)
-	detectFlag := rootCmd.PersistentFlags().Lookup("detect-workers")
-	require.NotNil(t, detectFlag)
-	require.Equal(t, "0", detectFlag.DefValue)
+	require.Nil(t, rootCmd.PersistentFlags().Lookup("source-workers"))
+	require.Nil(t, rootCmd.PersistentFlags().Lookup("detect-workers"))
+	for _, cmd := range scanCommands() {
+		flag := cmd.Flags().Lookup("source-workers")
+		require.NotNil(t, flag, cmd.Name())
+		require.Equal(t, "0", flag.DefValue)
+		detectFlag := cmd.Flags().Lookup("detect-workers")
+		require.NotNil(t, detectFlag, cmd.Name())
+		require.Equal(t, "0", detectFlag.DefValue)
+	}
 	require.NotNil(t, s3Cmd.Flags().Lookup("workers"))
 	require.NotNil(t, gitCmd.Flags().Lookup("git-workers"))
 	require.Nil(t, githubCmd.Flags().Lookup("git-workers"))
 	require.Nil(t, gitlabCmd.Flags().Lookup("git-workers"))
 	require.Nil(t, huggingFaceCmd.Flags().Lookup("git-workers"))
+}
+
+func scanCommands() []*cobra.Command {
+	return []*cobra.Command{
+		directoryCmd,
+		gitCmd,
+		githubCmd,
+		gitlabCmd,
+		huggingFaceCmd,
+		s3Cmd,
+		stdInCmd,
+	}
 }
 
 func TestResolveGitWorkers(t *testing.T) {

@@ -41,6 +41,8 @@ func newValidateCmd() *cobra.Command {
 	cmd.Flags().StringArray("capture", nil, "validation capture as name=value; use rule-id:name=value for a component (repeatable)")
 	cmd.Flags().Bool("list", false, "list rules that support direct validation")
 	cmd.Flags().Bool("simple", false, "print only the validation status")
+	cmd.Flags().Bool("jsonl", false, "print the validation result as JSONL")
+	validationRuntimeFlags(cmd)
 	return cmd
 }
 
@@ -48,13 +50,6 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	format, err := credentialReportFormat(cmd)
 	if err != nil {
 		return err
-	}
-	debug, err := cmd.Flags().GetBool("validation-debug")
-	if err != nil {
-		return err
-	}
-	if debug {
-		return errors.New("--validation-debug is not supported by validate because debug request and response bodies may contain credentials")
 	}
 	simple, err := cmd.Flags().GetBool("simple")
 	if err != nil {
@@ -155,13 +150,6 @@ func validateListMode(cmd *cobra.Command, args []string) error {
 }
 
 func credentialReportFormat(cmd *cobra.Command) (report.CredentialReportFormat, error) {
-	path, err := cmd.Flags().GetString("report")
-	if err != nil {
-		return "", err
-	}
-	if path != "" {
-		return "", errors.New("--report is not supported by validate; validation results are written to stdout")
-	}
 	jsonl, err := cmd.Flags().GetBool("jsonl")
 	if err != nil {
 		return "", err

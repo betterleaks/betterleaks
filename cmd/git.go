@@ -23,6 +23,7 @@ func (e *multipleErrors) Unwrap() []error { return e.errs }
 
 func init() {
 	rootCmd.AddCommand(gitCmd)
+	scanFlags(gitCmd)
 	gitCmd.Flags().String("platform", "", "the target platform used to generate links (github, gitlab)")
 	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
 	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
@@ -51,8 +52,8 @@ func runGit(cmd *cobra.Command, args []string) {
 	}
 
 	// setup config (aka, the thing that defines rules)
-	initConfig(source)
-	initDiagnostics()
+	initConfig(cmd, source)
+	initDiagnostics(cmd)
 
 	cfg := Config(cmd)
 

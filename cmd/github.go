@@ -13,6 +13,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(githubCmd)
+	scanFlags(githubCmd)
 	githubCmd.Flags().String("token", "", "GitHub personal access token (or set GITHUB_TOKEN)")
 	githubCmd.Flags().StringSlice("include", nil,
 		"resource types to scan: repos (default), forks, prs, pr-comments, "+
@@ -55,8 +56,8 @@ var githubCmd = &cobra.Command{
 func runGitHub(cmd *cobra.Command, args []string) {
 	start := time.Now()
 
-	initConfig(".")
-	initDiagnostics()
+	initConfig(cmd, ".")
+	initDiagnostics(cmd)
 
 	cfg := Config(cmd)
 	detector := Detector(cmd, cfg, ".")

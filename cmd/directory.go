@@ -15,6 +15,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(directoryCmd)
+	scanFlags(directoryCmd)
 	directoryCmd.Flags().Bool("follow-symlinks", false, "scan files that are symlinks to other files")
 }
 
@@ -32,7 +33,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	}
 	sourcesList = removeNestedPaths(sourcesList)
 
-	initDiagnostics()
+	initDiagnostics(cmd)
 
 	// start timer
 	start := time.Now()
@@ -50,7 +51,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	totalBytes := uint64(0)
 
 	for _, source := range sourcesList {
-		initConfig(source)
+		initConfig(cmd, source)
 		cfg := Config(cmd)
 		detector := Detector(cmd, cfg, source)
 		lastDetector = detector

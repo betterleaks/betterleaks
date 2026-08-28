@@ -15,6 +15,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(stdInCmd)
+	scanFlags(stdInCmd)
 	stdInCmd.Flags().StringArray("set-attr", nil, "set source attribute for stdin content, key=value (repeatable)")
 }
 
@@ -29,8 +30,8 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 	start := time.Now()
 
 	// setup config (aka, the thing that defines rules)
-	initConfig(".")
-	initDiagnostics()
+	initConfig(cmd, ".")
+	initDiagnostics(cmd)
 
 	cfg := Config(cmd)
 

@@ -203,23 +203,32 @@ func TestFindingCollectorRejectsUnknownReportExtension(t *testing.T) {
 	require.EqualError(t, err, "report path \""+path+"\" must end in .json or .jsonl")
 }
 
-func TestRootOutputFlags(t *testing.T) {
-	silent := rootCmd.PersistentFlags().Lookup("silent")
-	require.NotNil(t, silent)
-	require.Equal(t, "s", silent.Shorthand)
-	require.Equal(t, "false", silent.DefValue)
-	require.Equal(t, "bool", silent.Value.Type())
+func TestScanOutputFlags(t *testing.T) {
+	for _, cmd := range scanCommands() {
+		silent := cmd.Flags().Lookup("silent")
+		require.NotNil(t, silent, cmd.Name())
+		require.Equal(t, "s", silent.Shorthand)
+		require.Equal(t, "false", silent.DefValue)
+		require.Equal(t, "bool", silent.Value.Type())
 
-	jsonl := rootCmd.PersistentFlags().Lookup("jsonl")
-	require.NotNil(t, jsonl)
-	require.Equal(t, "bool", jsonl.Value.Type())
+		jsonl := cmd.Flags().Lookup("jsonl")
+		require.NotNil(t, jsonl, cmd.Name())
+		require.Equal(t, "bool", jsonl.Value.Type())
 
-	reportFlag := rootCmd.PersistentFlags().Lookup("report")
-	require.NotNil(t, reportFlag)
-	require.Equal(t, "r", reportFlag.Shorthand)
+		reportFlag := cmd.Flags().Lookup("report")
+		require.NotNil(t, reportFlag, cmd.Name())
+		require.Equal(t, "r", reportFlag.Shorthand)
+	}
+
+	for _, name := range []string{"silent", "jsonl", "report"} {
+		require.Nil(t, rootCmd.PersistentFlags().Lookup(name), name)
+	}
 
 	for _, removed := range []string{"report-path", "report-format", "verbose"} {
 		require.Nil(t, rootCmd.PersistentFlags().Lookup(removed))
+		for _, cmd := range scanCommands() {
+			require.Nil(t, cmd.Flags().Lookup(removed), cmd.Name())
+		}
 	}
 }
 

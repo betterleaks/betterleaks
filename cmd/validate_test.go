@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -509,7 +508,7 @@ let r2 = http.get(%q, {});
 	}
 }
 
-func TestValidateCommandRejectsReportPath(t *testing.T) {
+func TestValidateCommandDoesNotExposeReportPath(t *testing.T) {
 	configPath := writeValidateTestConfig(t, `
 [[rules]]
 id = "reported-token"
@@ -527,8 +526,8 @@ validate = '''{"result": "invalid", "reason": "Unauthorized"}'''
 		"reported-secret",
 	})
 	err := root.Execute()
-	if err == nil || !strings.Contains(err.Error(), "--report is not supported by validate") {
-		t.Fatalf("error = %v, want unsupported report path", err)
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --report") {
+		t.Fatalf("error = %v, want unknown report flag", err)
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
@@ -643,7 +642,7 @@ validate = '''{"result": "valid"}'''
 		{
 			name: "validation debug",
 			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--validation-debug", "secret"},
-			want: "--validation-debug is not supported by validate",
+			want: "unknown flag: --validation-debug",
 		},
 		{
 			name: "list with rule",
@@ -690,29 +689,13 @@ func TestReadValidateCredentialInputLimitsStdin(t *testing.T) {
 func newValidateTestRoot(t *testing.T) (*cobra.Command, *bytes.Buffer) {
 	t.Helper()
 
-	// Package-level Cobra initializers read flags from rootCmd. Merge its
-	// persistent flags before executing an isolated test command tree.
-	if err := rootCmd.ParseFlags(nil); err != nil {
-		t.Fatalf("initialize package root flags: %v", err)
-	}
-
 	root := &cobra.Command{
 		Use:           "betterleaks",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
 	root.PersistentFlags().String("config", "", "")
-	root.PersistentFlags().String("report", "", "")
-	root.PersistentFlags().Bool("jsonl", false, "")
 	root.PersistentFlags().Bool("no-color", false, "")
-	root.PersistentFlags().Duration("validation-timeout", 10*time.Second, "")
-	root.PersistentFlags().Int("validation-max-requests", 0, "")
-	root.PersistentFlags().Int("validation-max-request", 0, "")
-	root.PersistentFlags().Float64("validation-rps", 0, "")
-	root.PersistentFlags().StringSlice("validation-rps-rule", nil, "")
-	root.PersistentFlags().StringSlice("validation-env-vars", nil, "")
-	root.PersistentFlags().Bool("validation-debug", false, "")
-	root.PersistentFlags().Bool("validation-extract-empty", false, "")
 	root.AddCommand(newValidateCmd())
 
 	var stdout bytes.Buffer
@@ -762,7 +745,7 @@ func TestConfigureCredentialRuntimeRejectsNegativeTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find validate command: %v", err)
 	}
-	if err := root.PersistentFlags().Set("validation-timeout", "-1s"); err != nil {
+	if err := validateCmd.Flags().Set("validation-timeout", "-1s"); err != nil {
 		t.Fatalf("set timeout: %v", err)
 	}
 	if err := validateCmd.ParseFlags(nil); err != nil {

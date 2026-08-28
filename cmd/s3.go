@@ -12,6 +12,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(s3Cmd)
+	scanFlags(s3Cmd)
 	s3Cmd.Flags().String("region", "", "AWS region (required for some non-AWS endpoints; auto-probed for AWS)")
 	s3Cmd.Flags().Bool("anonymous", false, "do not sign requests; ignore AWS_* env vars and --access-key/--secret-key")
 	s3Cmd.Flags().String("access-key", "", "AWS access key (overrides AWS_ACCESS_KEY_ID)")
@@ -58,8 +59,8 @@ var s3Cmd = &cobra.Command{
 func runS3(cmd *cobra.Command, args []string) {
 	start := time.Now()
 
-	initConfig(".")
-	initDiagnostics()
+	initConfig(cmd, ".")
+	initDiagnostics(cmd)
 
 	cfg := Config(cmd)
 	detector := Detector(cmd, cfg, ".")
