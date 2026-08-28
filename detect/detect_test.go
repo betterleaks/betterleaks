@@ -172,6 +172,24 @@ func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
 	}
 }
 
+func TestRunCancellationDoesNotEmitErrors(t *testing.T) {
+	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
+	detector.DetectWorkers = 4
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	found := false
+	for result := range detector.Run(ctx, repeatedFragmentSource{count: 1000}) {
+		require.NoError(t, result.Err)
+		if !found {
+			found = true
+			cancel()
+		}
+	}
+	require.True(t, found)
+}
+
 func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "path-only",

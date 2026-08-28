@@ -1,9 +1,11 @@
 package report
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/sources"
@@ -32,6 +34,58 @@ var simpleFinding = Finding{
 		sources.AttrGitMessage:     "opps",
 	},
 	Tags: []string{},
+}
+
+func TestJSONFindingWriterStreams(t *testing.T) {
+	var output bytes.Buffer
+	writer, err := (&JsonReporter{}).NewWriter(&output)
+	require.NoError(t, err)
+
+	first := simpleFinding
+	first.RuleID = "first"
+	second := simpleFinding
+	second.RuleID = "second"
+	require.NoError(t, writer.WriteFinding(first))
+	require.NoError(t, writer.WriteFinding(second))
+	require.NoError(t, writer.Close())
+
+	var findings []Finding
+	require.NoError(t, json.Unmarshal(output.Bytes(), &findings))
+	require.Len(t, findings, 2)
+	require.Equal(t, "first", findings[0].RuleID)
+	require.Equal(t, "second", findings[1].RuleID)
+}
+
+func TestJSONFindingWriterFinalizesEmptyReport(t *testing.T) {
+	var output bytes.Buffer
+	writer, err := (&JsonReporter{}).NewWriter(&output)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	require.Equal(t, "[]\n", output.String())
+}
+
+func TestWriteJSONL(t *testing.T) {
+	first := simpleFinding
+	first.RuleID = "first"
+	second := simpleFinding
+	second.RuleID = "second"
+
+	var output bytes.Buffer
+	require.NoError(t, (&JsonlReporter{}).Write(testWriter{Buffer: &output}, []Finding{first, second}))
+
+	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
+	require.Len(t, lines, 2)
+	for i, line := range lines {
+		var finding Finding
+		require.NoError(t, json.Unmarshal([]byte(line), &finding))
+		require.Equal(t, []string{"first", "second"}[i], finding.RuleID)
+	}
+}
+
+func TestWriteEmptyJSONL(t *testing.T) {
+	var output bytes.Buffer
+	require.NoError(t, (&JsonlReporter{}).Write(testWriter{Buffer: &output}, nil))
+	require.Empty(t, output.String())
 }
 
 func TestWriteJSON(t *testing.T) {

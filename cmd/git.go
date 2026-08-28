@@ -71,7 +71,7 @@ func runGit(cmd *cobra.Command, args []string) {
 	if workerErr != nil {
 		logging.Fatal().Err(workerErr).Send()
 	}
-	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
+	findings := mustNewFindingCollector(cmd)
 
 	var (
 		err error
@@ -118,7 +118,7 @@ func runGit(cmd *cobra.Command, args []string) {
 			continue
 		}
 
-		collectFinding(cmd, findings, result.Finding)
+		collectFinding(findings, result.Finding)
 	}
 
 	if n := len(scanErrs); n > 0 {

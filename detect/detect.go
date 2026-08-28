@@ -462,7 +462,9 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					defer workers.Done()
 					for fragment := range fragmentsCh {
 						if err := d.scanFragment(runCtx, fragment, emit); err != nil {
-							_ = emit(Result{Err: err})
+							if !isPipelineStop(err) {
+								_ = emit(Result{Err: err})
+							}
 							cancel()
 							return
 						}
@@ -472,6 +474,9 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 
 			err := source.Fragments(runCtx, func(fragment sources.Fragment, err error) error {
 				if err != nil {
+					if isPipelineStop(err) {
+						return errStopIteration
+					}
 					return emit(Result{Err: err})
 				}
 
@@ -499,9 +504,7 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 					Msg("validation cache stats")
 			}
 
-			if err != nil &&
-				!errors.Is(err, errStopIteration) &&
-				!errors.Is(err, context.Canceled) {
+			if err != nil && !isPipelineStop(err) {
 				_ = emit(Result{Err: err})
 			}
 		}()
@@ -513,6 +516,11 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 
 		// consume results and send to caller via yield
 		for res := range resultsCh {
+			// Pipeline cancellation is control flow, not a scan error. Keep this
+			// check at the public boundary as a safeguard for every producer.
+			if isPipelineStop(res.Err) {
+				continue
+			}
 			if res.Err == nil {
 				if !d.ValidationExtractEmpty {
 					res.Finding.Validation.Metadata = stripEmptyMeta(res.Finding.Validation.Metadata)
@@ -538,6 +546,10 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 			}
 		}
 	}
+}
+
+func isPipelineStop(err error) bool {
+	return errors.Is(err, errStopIteration) || errors.Is(err, context.Canceled)
 }
 
 func (d *Detector) detectWorkerCount() int {

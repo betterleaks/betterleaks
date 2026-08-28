@@ -177,6 +177,37 @@ func (f *Finding) Redact(percent uint) {
 	}
 }
 
+// RedactedCopy returns a redacted finding without modifying maps, component
+// findings, or component sets shared with the original finding.
+func (f Finding) RedactedCopy(percent uint) Finding {
+	f.CaptureGroups = maps.Clone(f.CaptureGroups)
+
+	if len(f.ComponentSets) > 0 {
+		componentCopies := make(map[*ComponentFinding]*ComponentFinding)
+		sets := make([]ComponentSet, len(f.ComponentSets))
+		for i, set := range f.ComponentSets {
+			sets[i] = set
+			sets[i].Components = make([]*ComponentFinding, len(set.Components))
+			for j, component := range set.Components {
+				if component == nil {
+					continue
+				}
+				componentCopy, ok := componentCopies[component]
+				if !ok {
+					copyValue := *component
+					copyValue.CaptureGroups = maps.Clone(component.CaptureGroups)
+					componentCopy = &copyValue
+					componentCopies[component] = componentCopy
+				}
+				sets[i].Components[j] = componentCopy
+			}
+		}
+		f.ComponentSets = sets
+	}
+	f.Redact(percent)
+	return f
+}
+
 // MaskSecret applies partial masking to a secret string based on the given percentage.
 // At 100% the caller should use "REDACTED" instead.
 func MaskSecret(secret string, percent uint) string {

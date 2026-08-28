@@ -40,6 +40,24 @@ historical defaults.
 
 ---
 
+## Finding output
+
+Scan commands print findings in the human-readable format by default. Use
+`--jsonl` to emit one compact JSON finding per line instead.
+
+`--report <path>` writes a second, streaming report. The filename selects the
+format: `.json` writes a JSON array and `.jsonl` writes JSON Lines. Use
+`--report -` to write the report to stdout; it writes JSON by default and JSONL
+when combined with `--jsonl`. A stdout report replaces the normal finding
+output so the two formats are never interleaved. If a scan is interrupted, the
+report is finalized with the findings emitted before cancellation, including
+the closing bracket required for valid JSON.
+
+`--silent` suppresses terminal findings and the banner. An explicit report is
+still written. Use `--no-banner` when only the banner should be hidden.
+
+---
+
 ## `dir`
 
 Use `dir` for current filesystem state.
@@ -51,8 +69,8 @@ betterleaks dir .
 # multiple paths
 betterleaks dir services/api infra/terraform
 
-# verbose triage with context
-betterleaks dir . -v --match-context 3L
+# triage with context
+betterleaks dir . --match-context 3L
 
 # follow file symlinks
 betterleaks dir /mnt/data --follow-symlinks
@@ -64,10 +82,10 @@ betterleaks dir . --max-target-megabytes 20
 betterleaks dir ./release-bundles --max-archive-depth 2
 
 # JSON report
-betterleaks dir . --report-path findings.json --report-format json
+betterleaks dir . --report findings.json
 
-# SARIF for code scanning platforms
-betterleaks dir . --report-path findings.sarif --report-format sarif
+# JSONL report
+betterleaks dir . --report findings.jsonl
 ```
 
 ---
@@ -96,7 +114,7 @@ betterleaks git . --pre-commit --staged
 betterleaks git . --platform github
 
 # history scan with JSON output
-betterleaks git . --source-workers 8 --report-path findings.json --report-format json
+betterleaks git . --source-workers 8 --report findings.json
 ```
 
 ---
@@ -566,7 +584,7 @@ List the rules in the selected config that support direct validation:
 
 ```sh
 betterleaks validate --list
-betterleaks validate --list --report-format jsonl
+betterleaks validate --list --jsonl
 ```
 
 The list includes required components and named captures. Supply every listed
@@ -671,11 +689,11 @@ configuration and identify optional components explicitly:
 printf '%s\n' "$GITHUB_TOKEN" |
 	betterleaks validate \
 	--rule-id github-pat \
-	--report-format jsonl
+	--jsonl
 ```
 
-`validate` always writes results to stdout and does not support `--report-path`
-or `--report-template`. Output never includes the supplied primary, component,
+`validate` always writes results to stdout and does not support `--report`.
+Output never includes the supplied primary, component,
 or capture values. If a validator returns one in its reason or metadata, the
 matching value is replaced with `[redacted]`. Attributes are sanitized the same
 way. Validation metadata may still contain sensitive identity or account
@@ -704,13 +722,13 @@ Use `stdin` for generated or piped content.
 cat .env | betterleaks stdin
 
 # generated JSON
-terraform output -json | betterleaks stdin -v
+terraform output -json | betterleaks stdin
 
 # decompressed stream
 curl -sL https://example.com/blob.txt.gz | gunzip | betterleaks stdin
 
 # JSON report to stdout
-some-command | betterleaks stdin --report-path - --report-format json
+some-command | betterleaks stdin --report -
 ```
 
 ---
@@ -727,9 +745,6 @@ betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-key
 # disable selected rules
 betterleaks git . --disable-rule generic-api-key
 
-# use a baseline
-betterleaks git . --baseline-path findings.json
-
 # enable live validation
 betterleaks dir . --validation --validation-status valid,unknown
 
@@ -740,16 +755,10 @@ betterleaks dir . --validation \
 	--validation-rps-rule github-pat=2
 
 # redact output
-betterleaks git . -v --redact
+betterleaks git . --redact
 
-# custom template report
-betterleaks dir . \
-	--report-path report.txt \
-	--report-format template \
-	--report-template report_templates/basic.tmpl
-
-# show clipped context in verbose mode
-betterleaks dir . -v --match-context 5L,40C
+# show clipped context
+betterleaks dir . --match-context 5L,40C
 
 # scan archives and decoded content together
 betterleaks dir ./artifacts --max-archive-depth 2 --max-decode-depth 5

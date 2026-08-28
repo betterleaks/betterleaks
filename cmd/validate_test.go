@@ -53,7 +53,7 @@ attributes["path"] == "betterleaks://validate" ? {
 		"--config", configPath,
 		"--rule-id", "test-token",
 		"--capture", "tenant=acme",
-		"--report-format", "jsonl",
+		"--jsonl",
 		secret,
 	})
 	if err := root.Execute(); err != nil {
@@ -119,7 +119,7 @@ finding["secret"] == "from-stdin" ? {"result": "valid"} : {"result": "invalid"}
 		"validate",
 		"--config", configPath,
 		"--rule-id", "stdin-token",
-		"--report-format", "jsonl",
+		"--jsonl",
 	})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("validate command: %v", err)
@@ -195,7 +195,7 @@ components = [{ id = "account-id" }]
 		"--rule-id", "account-secret",
 		"--component", "account-id=acct-secret",
 		"--capture", "account-id:region=us",
-		"--report-format", "jsonl",
+		"--jsonl",
 		"secret-primary",
 	})
 	if err := root.Execute(); err != nil {
@@ -283,7 +283,7 @@ get(captures, "optional-part", "") in ["", "optional-secret"] ? {
 				"validate",
 				"--config", configPath,
 				"--rule-id", "primary",
-				"--report-format", "jsonl",
+				"--jsonl",
 			}
 			args = append(args, test.componentArguments...)
 			args = append(args, "primary-secret")
@@ -368,7 +368,7 @@ components = [{ id = "client-id" }]
 		"--rule-id", "client-secret",
 		"--component", "client-id=client-primary",
 		"--capture", "client-id:tenant=acme",
-		"--report-format", "jsonl",
+		"--jsonl",
 	})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("validate command: %v", err)
@@ -487,7 +487,7 @@ let r2 = http.get(%q, {});
 		"--config", configPath,
 		"--rule-id", "limited-token",
 		"--validation-max-requests", "1",
-		"--report-format", "jsonl",
+		"--jsonl",
 		"limited-secret",
 	})
 	if err := root.Execute(); err != nil {
@@ -523,11 +523,11 @@ validate = '''{"result": "invalid", "reason": "Unauthorized"}'''
 		"validate",
 		"--config", configPath,
 		"--rule-id", "reported-token",
-		"--report-path", reportPath,
+		"--report", reportPath,
 		"reported-secret",
 	})
 	err := root.Execute()
-	if err == nil || !strings.Contains(err.Error(), "--report-path is not supported by validate") {
+	if err == nil || !strings.Contains(err.Error(), "--report is not supported by validate") {
 		t.Fatalf("error = %v, want unsupported report path", err)
 	}
 	if stdout.Len() != 0 {
@@ -572,7 +572,7 @@ regex = '''(unvalidated)'''
 		"validate",
 		"--config", configPath,
 		"--list",
-		"--report-format", "jsonl",
+		"--jsonl",
 	})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("validate --list: %v", err)
@@ -636,18 +636,8 @@ validate = '''{"result": "valid"}'''
 			want: "supplied more than once",
 		},
 		{
-			name: "unsupported report",
-			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--report-format", "sarif", "secret"},
-			want: "must be pretty or jsonl",
-		},
-		{
-			name: "legacy JSON report",
-			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--report-format", "json", "secret"},
-			want: "must be pretty or jsonl",
-		},
-		{
 			name: "simple JSONL report",
-			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--simple", "--report-format", "jsonl", "secret"},
+			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--simple", "--jsonl", "secret"},
 			want: "--simple cannot be combined",
 		},
 		{
@@ -712,9 +702,8 @@ func newValidateTestRoot(t *testing.T) (*cobra.Command, *bytes.Buffer) {
 		SilenceUsage:  true,
 	}
 	root.PersistentFlags().String("config", "", "")
-	root.PersistentFlags().String("report-path", "", "")
-	root.PersistentFlags().String("report-format", "", "")
-	root.PersistentFlags().String("report-template", "", "")
+	root.PersistentFlags().String("report", "", "")
+	root.PersistentFlags().Bool("jsonl", false, "")
 	root.PersistentFlags().Bool("no-color", false, "")
 	root.PersistentFlags().Duration("validation-timeout", 10*time.Second, "")
 	root.PersistentFlags().Int("validation-max-requests", 0, "")

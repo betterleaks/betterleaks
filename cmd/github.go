@@ -115,7 +115,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 	}
 
 	exitCode := mustGetIntFlag(cmd, "exit-code")
-	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
+	findings := mustNewFindingCollector(cmd)
 
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
@@ -124,7 +124,7 @@ func runGitHub(cmd *cobra.Command, args []string) {
 			logging.Error().Err(result.Err).Msg("scan error")
 			continue
 		}
-		collectFinding(cmd, findings, result.Finding)
+		collectFinding(findings, result.Finding)
 	}
 
 	var scanErr error

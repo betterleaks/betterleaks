@@ -61,7 +61,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if simple && format != report.CredentialReportFormatPretty {
-		return errors.New("--simple cannot be combined with --report-format=jsonl")
+		return errors.New("--simple cannot be combined with --jsonl")
 	}
 
 	list, err := cmd.Flags().GetBool("list")
@@ -155,25 +155,21 @@ func validateListMode(cmd *cobra.Command, args []string) error {
 }
 
 func credentialReportFormat(cmd *cobra.Command) (report.CredentialReportFormat, error) {
-	path, err := cmd.Flags().GetString("report-path")
+	path, err := cmd.Flags().GetString("report")
 	if err != nil {
 		return "", err
 	}
 	if path != "" {
-		return "", errors.New("--report-path is not supported by validate; validation results are written to stdout")
+		return "", errors.New("--report is not supported by validate; validation results are written to stdout")
 	}
-	templatePath, err := cmd.Flags().GetString("report-template")
+	jsonl, err := cmd.Flags().GetBool("jsonl")
 	if err != nil {
 		return "", err
 	}
-	if templatePath != "" {
-		return "", errors.New("--report-template is not supported by validate; use pretty, --simple, or --report-format=jsonl")
+	if jsonl {
+		return report.CredentialReportFormatJSONL, nil
 	}
-	format, err := cmd.Flags().GetString("report-format")
-	if err != nil {
-		return "", err
-	}
-	return report.ResolveCredentialReportFormat(format)
+	return report.CredentialReportFormatPretty, nil
 }
 
 func credentialReporter(cmd *cobra.Command) (report.CredentialReporter, error) {

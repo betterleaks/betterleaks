@@ -96,23 +96,12 @@ func init() {
 	cobra.OnInitialize(initLog)
 	rootCmd.PersistentFlags().StringP("config", "c", "", configDescription)
 	rootCmd.PersistentFlags().Int("exit-code", 1, "exit code when leaks have been encountered")
-	// TODO implement this flag
-	rootCmd.PersistentFlags().StringP("silent", "s", "", "silence output to stdout (valid values: none, all, findings, banner)")
-	// TODO implement this flag
-	rootCmd.PersistentFlags().StringP("jsonl", "", "", "print findings in JSONL")
-	// TODO implement this flag
+	rootCmd.PersistentFlags().BoolP("silent", "s", false, "suppress findings and banner")
+	rootCmd.PersistentFlags().Bool("jsonl", false, "print findings as JSONL")
 	rootCmd.PersistentFlags().StringP("report", "r", "", "output findings in report format to file (use \"-\" for stdout)")
-
-	// TODO remove this flag
-	rootCmd.PersistentFlags().String("report-path", "", "report file (use \"-\" for stdout)")
-	// TODO remove this flag
-	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
-	// rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
 	// rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
 	rootCmd.PersistentFlags().String("confidence", "", "minimum confidence to include (low, medium, high)")
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "show verbose output from scan")
-	// rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
 	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color in terminal output")
 	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
 	rootCmd.PersistentFlags().Int("source-workers", 0, "number of concurrent source workers (0 = source default)")
@@ -203,10 +192,14 @@ func initConfig(source string) {
 	resolvedConfigPath = "" // reset for each call (cmd/directory.go calls per-source)
 	loadedConfig = nil
 	hideBanner, err := rootCmd.Flags().GetBool("no-banner")
-
 	if err != nil {
 		logging.Fatal().Msg(err.Error())
 	}
+	silent, err := rootCmd.Flags().GetBool("silent")
+	if err != nil {
+		logging.Fatal().Msg(err.Error())
+	}
+	hideBanner = hideBanner || silent
 	if !hideBanner && !bannerPrinted {
 		_, _ = fmt.Fprint(os.Stderr, banner)
 		bannerPrinted = true
@@ -329,10 +322,14 @@ func initDiagnostics() {
 }
 
 func Execute() {
+	ExecuteContext(context.Background())
+}
+
+func ExecuteContext(ctx context.Context) {
 	// pflag only supports single-character shorthands. Expand the requested
 	// multi-character aliases before Cobra parses the command line.
 	rootCmd.SetArgs(expandRuleFlagShorthands(os.Args[1:]))
-	if err := rootCmd.Execute(); err != nil {
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		if strings.Contains(err.Error(), "unknown flag") {
 			// exit code 126: Command invoked cannot execute
 			os.Exit(126)
@@ -463,17 +460,22 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func collectFinding(cmd *cobra.Command, findings *findingCollector, finding report.Finding) {
-	findings.Add(finding)
-	if !mustGetBoolFlag(cmd, "verbose") {
-		return
+func collectFinding(findings *findingCollector, finding report.Finding) {
+	if err := findings.Add(finding); err != nil {
+		logging.Fatal().Err(err).Msg("failed to write finding")
 	}
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
-	finding.Print(noColor, redact)
 }
 
 func findingSummaryAndExit(cmd *cobra.Command, detector *detect.Detector, findings *findingCollector, exitCode int, start time.Time, err error) {
+	// Finalize streaming reports first. In particular, JSON needs its closing
+	// bracket even when the command context was canceled by an interrupt.
+	if outputErr := findings.Close(); outputErr != nil {
+		logging.Fatal().Err(outputErr).Msg("failed to finish finding output")
+	}
+	if err == nil {
+		err = cmd.Context().Err()
+	}
+
 	if diagnosticsManager.Enabled {
 		logging.Debug().Msg("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()

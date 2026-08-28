@@ -335,6 +335,30 @@ func TestRedactPartiallyMasksCaptureGroups(t *testing.T) {
 	}
 }
 
+func TestRedactedCopyDoesNotMutateOriginal(t *testing.T) {
+	component := &ComponentFinding{
+		Match:         "component-secret",
+		Secret:        "component-secret",
+		CaptureGroups: map[string]string{"token": "component-secret"},
+	}
+	original := Finding{
+		Match:         "primary-secret",
+		Secret:        "primary-secret",
+		CaptureGroups: map[string]string{"token": "primary-secret"},
+		ComponentSets: []ComponentSet{{Components: []*ComponentFinding{component}}},
+	}
+
+	redacted := original.RedactedCopy(100)
+
+	require.Equal(t, "REDACTED", redacted.Secret)
+	require.Equal(t, "REDACTED", redacted.CaptureGroups["token"])
+	require.Equal(t, "REDACTED", redacted.ComponentSets[0].Components[0].Secret)
+	require.Equal(t, "primary-secret", original.Secret)
+	require.Equal(t, "primary-secret", original.CaptureGroups["token"])
+	require.Equal(t, "component-secret", component.Secret)
+	require.Equal(t, "component-secret", component.CaptureGroups["token"])
+}
+
 func TestMaskSecretMultibyteUTF8(t *testing.T) {
 	secret := "日本語パスワード" // 8 runes, 24 bytes
 
