@@ -4,19 +4,11 @@ import (
 	"fmt"
 
 	"github.com/betterleaks/betterleaks/version"
-	"github.com/spf13/cobra"
 )
 
-func init() {
-	rootCmd.AddCommand(versionCmd)
-}
+type VersionCmd struct{}
 
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "display betterleaks version",
-	Run:   runVersion,
-}
-
-func runVersion(cmd *cobra.Command, args []string) {
-	fmt.Println(version.Version)
+func (*VersionCmd) Run(runtime *commandRuntime) error {
+	_, _ = fmt.Fprintln(runtime.stdout, version.Version)
+	return nil
 }

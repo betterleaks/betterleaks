@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"github.com/betterleaks/betterleaks/report"
@@ -18,8 +17,8 @@ import (
 )
 
 func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {
-	cmd, _ := newFindingOutputCommand(false, "", false, 0)
-	collector, err := newFindingCollector(cmd)
+	flags, sink := newFindingOutputCommand(false, "", false, 0)
+	collector, err := newFindingCollector(flags, true, sink)
 	require.NoError(t, err)
 
 	output := captureFindingStdout(t, func() {
@@ -32,8 +31,8 @@ func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {
 }
 
 func TestFindingCollectorWritesJSONLToStdout(t *testing.T) {
-	cmd, output := newFindingOutputCommand(true, "", false, 100)
-	collector, err := newFindingCollector(cmd)
+	flags, output := newFindingOutputCommand(true, "", false, 100)
+	collector, err := newFindingCollector(flags, true, output)
 	require.NoError(t, err)
 
 	require.NoError(t, collector.Add(testOutputFinding("first")))
@@ -62,8 +61,8 @@ func TestFindingCollectorWritesReportByExtension(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "findings"+test.extension)
-			cmd, _ := newFindingOutputCommand(false, path, true, 0)
-			collector, err := newFindingCollector(cmd)
+			flags, output := newFindingOutputCommand(false, path, true, 0)
+			collector, err := newFindingCollector(flags, true, output)
 			require.NoError(t, err)
 			require.NoError(t, collector.Add(testOutputFinding("reported")))
 			require.NoError(t, collector.Close())
@@ -87,8 +86,8 @@ func TestFindingCollectorWritesReportByExtension(t *testing.T) {
 
 func TestFindingCollectorFinalizesPartialJSONReport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "partial.json")
-	cmd, _ := newFindingOutputCommand(false, path, true, 0)
-	collector, err := newFindingCollector(cmd)
+	flags, output := newFindingOutputCommand(false, path, true, 0)
+	collector, err := newFindingCollector(flags, true, output)
 	require.NoError(t, err)
 	require.NoError(t, collector.Add(testOutputFinding("before-interrupt")))
 
@@ -116,8 +115,8 @@ func TestFindingCollectorReportToStdoutOwnsStream(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd, output := newFindingOutputCommand(test.jsonl, report.StdoutReportPath, false, 0)
-			collector, err := newFindingCollector(cmd)
+			flags, output := newFindingOutputCommand(test.jsonl, report.StdoutReportPath, false, 0)
+			collector, err := newFindingCollector(flags, true, output)
 			require.NoError(t, err)
 			require.False(t, collector.pretty)
 			require.Nil(t, collector.stdoutWriter)
@@ -139,8 +138,8 @@ func TestFindingCollectorReportToStdoutOwnsStream(t *testing.T) {
 
 func TestFindingCollectorSilentFindingsStillWritesReport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "findings.json")
-	cmd, output := newFindingOutputCommand(true, path, true, 0)
-	collector, err := newFindingCollector(cmd)
+	flags, output := newFindingOutputCommand(true, path, true, 0)
+	collector, err := newFindingCollector(flags, true, output)
 	require.NoError(t, err)
 	require.NoError(t, collector.Add(testOutputFinding("silent")))
 	require.NoError(t, collector.Close())
@@ -165,8 +164,8 @@ func TestFindingCollectorSkipsReportBeforeFilesOpenIt(t *testing.T) {
 	relativeReportPath, err := filepath.Rel(workingDirectory, reportPath)
 	require.NoError(t, err)
 
-	cmd, _ := newFindingOutputCommand(false, relativeReportPath, true, 0)
-	collector, err := newFindingCollector(cmd)
+	flags, output := newFindingOutputCommand(false, relativeReportPath, true, 0)
+	collector, err := newFindingCollector(flags, true, output)
 	require.NoError(t, err)
 
 	configuredSkip := func(attributes map[string]string) bool {
@@ -198,43 +197,28 @@ func TestFindingCollectorSkipsReportBeforeFilesOpenIt(t *testing.T) {
 
 func TestFindingCollectorRejectsUnknownReportExtension(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "findings.txt")
-	cmd, _ := newFindingOutputCommand(false, path, false, 0)
-	_, err := newFindingCollector(cmd)
+	flags, output := newFindingOutputCommand(false, path, false, 0)
+	_, err := newFindingCollector(flags, true, output)
 	require.EqualError(t, err, "report path \""+path+"\" must end in .json or .jsonl")
 }
 
 func TestScanOutputFlags(t *testing.T) {
-	for _, cmd := range scanCommands() {
-		silent := cmd.Flags().Lookup("silent")
-		require.NotNil(t, silent, cmd.Name())
-		require.Equal(t, "s", silent.Shorthand)
-		require.Equal(t, "false", silent.DefValue)
-		require.Equal(t, "bool", silent.Value.Type())
-
-		jsonl := cmd.Flags().Lookup("jsonl")
-		require.NotNil(t, jsonl, cmd.Name())
-		require.Equal(t, "bool", jsonl.Value.Type())
-
-		reportFlag := cmd.Flags().Lookup("report")
-		require.NotNil(t, reportFlag, cmd.Name())
-		require.Equal(t, "r", reportFlag.Shorthand)
-	}
-
-	for _, name := range []string{"silent", "jsonl", "report"} {
-		require.Nil(t, rootCmd.PersistentFlags().Lookup(name), name)
-	}
+	cli, err := parseCLIForTest(t, "dir", "-s", "--jsonl", "-r", "findings.json")
+	require.NoError(t, err)
+	require.True(t, cli.Directory.Silent)
+	require.True(t, cli.Directory.JSONL)
+	require.Equal(t, "findings.json", cli.Directory.Report)
 
 	for _, removed := range []string{"report-path", "report-format", "verbose"} {
-		require.Nil(t, rootCmd.PersistentFlags().Lookup(removed))
-		for _, cmd := range scanCommands() {
-			require.Nil(t, cmd.Flags().Lookup(removed), cmd.Name())
-		}
+		_, err := parseCLIForTest(t, "dir", "--"+removed)
+		require.ErrorContains(t, err, "unknown flag")
 	}
 }
 
 func TestDeprecatedScanCommandsRemoved(t *testing.T) {
-	for _, command := range rootCmd.Commands() {
-		require.NotContains(t, []string{"detect", "protect"}, command.Name())
+	for _, command := range []string{"detect", "protect"} {
+		_, err := parseCLIForTest(t, command)
+		require.Error(t, err)
 	}
 }
 
@@ -245,16 +229,15 @@ func TestZeroValueFindingCollectorCountsWithoutOutput(t *testing.T) {
 	require.Equal(t, 1, collector.Count())
 }
 
-func newFindingOutputCommand(jsonl bool, reportPath string, silent bool, redact uint) (*cobra.Command, *bytes.Buffer) {
-	cmd := &cobra.Command{}
-	cmd.Flags().Bool("silent", silent, "")
-	cmd.Flags().Bool("jsonl", jsonl, "")
-	cmd.Flags().String("report", reportPath, "")
-	cmd.Flags().Bool("no-color", true, "")
-	cmd.Flags().Uint("redact", redact, "")
+func newFindingOutputCommand(jsonl bool, reportPath string, silent bool, redact uint) (*ScanFlags, *bytes.Buffer) {
+	flags := &ScanFlags{
+		JSONL:  jsonl,
+		Report: reportPath,
+		Silent: silent,
+		Redact: redactFlag(redact),
+	}
 	output := new(bytes.Buffer)
-	cmd.SetOut(output)
-	return cmd, output
+	return flags, output
 }
 
 func testOutputFinding(ruleID string) report.Finding {

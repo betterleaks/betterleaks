@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/spf13/cobra"
-
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/logging"
 )
 
 // expandRuleFlagShorthands translates the multi-character aliases requested by
-// the CLI into long flags. Cobra/pflag only supports one-character shorthands.
+// the CLI into long flags. Kong reserves short flags for one-character names.
 func expandRuleFlagShorthands(args []string) []string {
 	expanded := make([]string, len(args))
 	flagsEnded := false
@@ -41,17 +39,9 @@ func expandRuleFlagShorthands(args []string) []string {
 	return expanded
 }
 
-func applyRuleSelection(cmd *cobra.Command, cfg *config.Config) error {
-	isolateRules, err := cmd.Flags().GetStringSlice("isolate-rule")
-	if err != nil {
-		return fmt.Errorf("reading isolate-rule: %w", err)
-	}
-
-	disableRules, err := cmd.Flags().GetStringSlice("disable-rule")
-	if err != nil {
-		return fmt.Errorf("reading disable-rule: %w", err)
-	}
-
+func applyRuleSelection(flags *ScanFlags, cfg *config.Config) error {
+	isolateRules := flags.IsolateRule
+	disableRules := flags.DisableRule
 	if len(isolateRules) == 0 && len(disableRules) == 0 {
 		return nil
 	}

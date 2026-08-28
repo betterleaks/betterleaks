@@ -3,7 +3,6 @@ package cmd
 import (
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -81,7 +80,7 @@ func TestApplyRuleSelection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cmd := newRuleSelectionTestCommand(t, tt.args)
+			flags := newRuleSelectionTestFlags(t, tt.args)
 			originalRules := map[string]config.Rule{
 				"aws": {RuleID: "aws", Keywords: []string{"aws"}},
 				"github": {
@@ -96,7 +95,7 @@ func TestApplyRuleSelection(t *testing.T) {
 			}
 			cfg := &config.Config{Rules: originalRules}
 
-			err := applyRuleSelection(cmd, cfg)
+			err := applyRuleSelection(flags, cfg)
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
 				return
@@ -117,13 +116,12 @@ func TestApplyRuleSelection(t *testing.T) {
 	}
 }
 
-func newRuleSelectionTestCommand(t *testing.T, args []string) *cobra.Command {
+func newRuleSelectionTestFlags(t *testing.T, args []string) *ScanFlags {
 	t.Helper()
-	cmd := &cobra.Command{Use: "test"}
-	cmd.Flags().StringSlice("disable-rule", nil, "")
-	cmd.Flags().StringSlice("isolate-rule", nil, "")
-	require.NoError(t, cmd.ParseFlags(args))
-	return cmd
+	cliArgs := append([]string{"dir"}, args...)
+	cli, err := parseCLIForTest(t, cliArgs...)
+	require.NoError(t, err)
+	return &cli.Directory.ScanFlags
 }
 
 func ruleIDs(rules map[string]config.Rule) []string {

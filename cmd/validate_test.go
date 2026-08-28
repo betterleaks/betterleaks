@@ -14,8 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-
-	"github.com/spf13/cobra"
+	"time"
 
 	configpkg "github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
@@ -526,7 +525,7 @@ validate = '''{"result": "invalid", "reason": "Unauthorized"}'''
 		"reported-secret",
 	})
 	err := root.Execute()
-	if err == nil || !strings.Contains(err.Error(), "unknown flag: --report") {
+	if err == nil || !strings.Contains(err.Error(), "unknown flag --report") {
 		t.Fatalf("error = %v, want unknown report flag", err)
 	}
 	if stdout.Len() != 0 {
@@ -642,7 +641,7 @@ validate = '''{"result": "valid"}'''
 		{
 			name: "validation debug",
 			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--validation-debug", "secret"},
-			want: "unknown flag: --validation-debug",
+			want: "unknown flag --validation-debug",
 		},
 		{
 			name: "list with rule",
@@ -678,30 +677,36 @@ func TestEvaluateCredentialHonorsCanceledContext(t *testing.T) {
 }
 
 func TestReadValidateCredentialInputLimitsStdin(t *testing.T) {
-	cmd := newValidateCmd()
-	cmd.SetIn(strings.NewReader(strings.Repeat("x", maxValidateCredentialInputBytes+1)))
-	_, err := readValidateCredentialInput(cmd, nil)
+	_, err := readValidateCredentialInput(
+		strings.NewReader(strings.Repeat("x", maxValidateCredentialInputBytes+1)),
+		&ValidateCmd{},
+	)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("error = %v, want size error", err)
 	}
 }
 
-func newValidateTestRoot(t *testing.T) (*cobra.Command, *bytes.Buffer) {
+type validateTestCLI struct {
+	args    []string
+	runtime *commandRuntime
+}
+
+func (c *validateTestCLI) SetArgs(args []string) { c.args = args }
+func (c *validateTestCLI) SetIn(stdin io.Reader) { c.runtime.stdin = stdin }
+func (c *validateTestCLI) Execute() error        { return runCLI(c.args, c.runtime) }
+
+func newValidateTestRoot(t *testing.T) (*validateTestCLI, *bytes.Buffer) {
 	t.Helper()
 
-	root := &cobra.Command{
-		Use:           "betterleaks",
-		SilenceErrors: true,
-		SilenceUsage:  true,
+	stdout := new(bytes.Buffer)
+	runtime := &commandRuntime{
+		Context: context.Background(),
+		stdin:   os.Stdin,
+		stdout:  stdout,
+		stderr:  io.Discard,
+		exit:    func(int) {},
 	}
-	root.PersistentFlags().String("config", "", "")
-	root.PersistentFlags().Bool("no-color", false, "")
-	root.AddCommand(newValidateCmd())
-
-	var stdout bytes.Buffer
-	root.SetOut(&stdout)
-	root.SetErr(io.Discard)
-	return root, &stdout
+	return &validateTestCLI{runtime: runtime}, stdout
 }
 
 func writeValidateTestConfig(t *testing.T, contents string) string {
@@ -740,22 +745,11 @@ func TestUnknownValidationRuleErrorSuggestsProviderRules(t *testing.T) {
 }
 
 func TestConfigureCredentialRuntimeRejectsNegativeTimeout(t *testing.T) {
-	root, _ := newValidateTestRoot(t)
-	validateCmd, _, err := root.Find([]string{"validate"})
-	if err != nil {
-		t.Fatalf("find validate command: %v", err)
-	}
-	if err := validateCmd.Flags().Set("validation-timeout", "-1s"); err != nil {
-		t.Fatalf("set timeout: %v", err)
-	}
-	if err := validateCmd.ParseFlags(nil); err != nil {
-		t.Fatalf("merge inherited flags: %v", err)
-	}
 	runtime, err := exprruntime.New(nil)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
-	err = configureCredentialRuntime(validateCmd, runtime)
+	err = configureCredentialRuntime(ValidationRuntimeFlags{ValidationTimeout: -time.Second}, runtime)
 	if err == nil || !strings.Contains(err.Error(), "must be non-negative") {
 		t.Fatalf("error = %v", err)
 	}

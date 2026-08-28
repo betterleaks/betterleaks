@@ -6,42 +6,34 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
-func init() {
-	rootCmd.AddCommand(directoryCmd)
-	scanFlags(directoryCmd)
-	directoryCmd.Flags().Bool("follow-symlinks", false, "scan files that are symlinks to other files")
+type DirectoryCmd struct {
+	ScanFlags      `embed:""`
+	FollowSymlinks bool     `name:"follow-symlinks" help:"Scan files that are symlinks to other files."`
+	Paths          []string `arg:"" optional:"" name:"path" help:"Directories or files to scan."`
 }
 
-var directoryCmd = &cobra.Command{
-	Use:     "dir [flags] [path...]",
-	Aliases: []string{"file", "directory"},
-	Short:   "scan directories or files for secrets",
-	Run:     runDirectory,
+func (cmd *DirectoryCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	runDirectory(runtime, &cli.GlobalFlags, cmd)
+	return nil
 }
 
-func runDirectory(cmd *cobra.Command, args []string) {
-	sourcesList := args
+func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *DirectoryCmd) {
+	sourcesList := options.Paths
 	if len(sourcesList) == 0 {
 		sourcesList = []string{"."}
 	}
 	sourcesList = removeNestedPaths(sourcesList)
 
-	initDiagnostics(cmd)
+	initDiagnostics(&options.ScanFlags)
 
 	// start timer
 	start := time.Now()
-	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
-	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
-	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
-	exitCode := mustGetIntFlag(cmd, "exit-code")
-	findings := mustNewFindingCollector(cmd)
+	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
 
 	var (
 		lastDetector *detect.Detector
@@ -51,21 +43,21 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	totalBytes := uint64(0)
 
 	for _, source := range sourcesList {
-		initConfig(cmd, source)
-		cfg := Config(cmd)
-		detector := Detector(cmd, cfg, source)
+		initConfig(runtime, globals, &options.ScanFlags, source)
+		cfg := Config()
+		detector := Detector(runtime, globals, &options.ScanFlags, cfg, source)
 		lastDetector = detector
 
 		s := &sources.Files{
 			ShouldSkip:      findings.FileSkipFunc(detector.SkipFunc()),
-			FollowSymlinks:  followSymlinks,
-			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
+			FollowSymlinks:  options.FollowSymlinks,
+			MaxFileSize:     options.MaxTargetMegabytes * 1_000_000,
 			Path:            source,
-			MaxArchiveDepth: maxArchiveDepth,
-			Workers:         mustGetIntFlag(cmd, "source-workers"),
+			MaxArchiveDepth: options.MaxArchiveDepth,
+			Workers:         options.SourceWorkers,
 		}
 
-		for result := range detector.Run(cmd.Context(), s) {
+		for result := range detector.Run(runtime.Context, s) {
 			if result.Err != nil {
 				scanErrs = append(scanErrs, result.Err)
 				logging.Error().Err(result.Err).Msg("error scanning source")
@@ -88,7 +80,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findingSummaryAndExit(cmd, lastDetector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(runtime, lastDetector, findings, options.ExitCode, start, scanErr)
 }
 
 // removeNestedPaths filters out paths that are children of other paths in the

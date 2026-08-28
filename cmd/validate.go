@@ -12,7 +12,6 @@ import (
 
 	"github.com/expr-lang/expr/ast"
 	exprparser "github.com/expr-lang/expr/parser"
-	"github.com/spf13/cobra"
 
 	configpkg "github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
@@ -23,72 +22,53 @@ import (
 
 const maxValidateCredentialInputBytes = 1 << 20
 
-func init() {
-	rootCmd.AddCommand(newValidateCmd())
+type ValidateCmd struct {
+	ValidationRuntimeFlags `embed:""`
+	RuleID                 string   `name:"rule-id" help:"Rule whose validation expression should validate the secret."`
+	Component              []string `sep:"none" help:"Credential component as rule-id=secret (repeatable)."`
+	Capture                []string `sep:"none" help:"Validation capture as name=value; use rule-id:name=value for a component (repeatable)."`
+	List                   bool     `help:"List rules that support direct validation."`
+	Simple                 bool     `help:"Print only the validation status."`
+	JSONL                  bool     `name:"jsonl" help:"Print the validation result as JSONL."`
+	Secret                 string   `arg:"" optional:"" help:"Secret to validate; read from stdin when omitted."`
 }
 
-func newValidateCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:          "validate --rule-id <rule-id> [secret]",
-		Short:        "validate a known secret without running detection",
-		Long:         "Validate a known secret without running detection.\n\nWhen [secret] is omitted, the primary secret is read from piped or redirected stdin automatically. Supply multipart credential components explicitly with --component.",
-		Args:         cobra.MaximumNArgs(1),
-		SilenceUsage: true,
-		RunE:         runValidate,
-	}
-	cmd.Flags().String("rule-id", "", "rule whose validation expression should validate the secret")
-	cmd.Flags().StringArray("component", nil, "credential component as rule-id=secret (repeatable)")
-	cmd.Flags().StringArray("capture", nil, "validation capture as name=value; use rule-id:name=value for a component (repeatable)")
-	cmd.Flags().Bool("list", false, "list rules that support direct validation")
-	cmd.Flags().Bool("simple", false, "print only the validation status")
-	cmd.Flags().Bool("jsonl", false, "print the validation result as JSONL")
-	validationRuntimeFlags(cmd)
-	return cmd
+func (*ValidateCmd) Help() string {
+	return "When the secret is omitted, it is read from piped or redirected stdin. Supply multipart credential components explicitly with --component."
 }
 
-func runValidate(cmd *cobra.Command, args []string) error {
-	format, err := credentialReportFormat(cmd)
-	if err != nil {
-		return err
-	}
-	simple, err := cmd.Flags().GetBool("simple")
-	if err != nil {
-		return err
-	}
-	if simple && format != report.CredentialReportFormatPretty {
+func (cmd *ValidateCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	return runValidate(runtime, &cli.GlobalFlags, cmd)
+}
+
+func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *ValidateCmd) error {
+	format := credentialReportFormat(options)
+	if options.Simple && format != report.CredentialReportFormatPretty {
 		return errors.New("--simple cannot be combined with --jsonl")
 	}
 
-	list, err := cmd.Flags().GetBool("list")
-	if err != nil {
-		return err
-	}
-	if list {
-		if err := validateListMode(cmd, args); err != nil {
+	if options.List {
+		if err := validateListMode(options); err != nil {
 			return err
 		}
-		resolved, err := resolveConfig(cmd, nil)
+		resolved, err := resolveConfig(globals.Config, "")
 		if err != nil {
 			return err
 		}
-		return writeCredentialRuleList(cmd, newCredentialRuleList(resolved.cfg))
+		return writeCredentialRuleList(runtime, globals, options, newCredentialRuleList(resolved.cfg))
 	}
 
-	ruleID, err := cmd.Flags().GetString("rule-id")
-	if err != nil {
-		return err
-	}
-	ruleID = strings.TrimSpace(ruleID)
+	ruleID := strings.TrimSpace(options.RuleID)
 	if ruleID == "" {
 		return errors.New("--rule-id is required (use --list to see rules with validation)")
 	}
 
-	input, err := readValidateCredentialInput(cmd, args)
+	input, err := readValidateCredentialInput(runtime.stdin, options)
 	if err != nil {
 		return err
 	}
 
-	resolved, err := resolveConfig(cmd, nil)
+	resolved, err := resolveConfig(globals.Config, "")
 	if err != nil {
 		return err
 	}
@@ -110,7 +90,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	if rt == nil {
 		return fmt.Errorf("rule %q does not define validation", ruleID)
 	}
-	if err := configureCredentialRuntime(cmd, rt); err != nil {
+	if err := configureCredentialRuntime(options.ValidationRuntimeFlags, rt); err != nil {
 		return err
 	}
 
@@ -124,76 +104,55 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	validated, err := evaluateCredential(cmd.Context(), rt, program, finding)
+	validated, err := evaluateCredential(runtime.Context, rt, program, finding)
 	if err != nil {
 		return err
 	}
 
-	includeEmpty, err := cmd.Flags().GetBool("validation-extract-empty")
-	if err != nil {
-		return err
-	}
-	result := report.NewCredentialReport(validated, suppliedSecrets, includeEmpty)
-	return writeCredentialReport(cmd, result)
+	result := report.NewCredentialReport(validated, suppliedSecrets, options.ValidationExtractEmpty)
+	return writeCredentialReport(runtime, globals, options, result)
 }
 
-func validateListMode(cmd *cobra.Command, args []string) error {
-	if len(args) != 0 {
+func validateListMode(cmd *ValidateCmd) error {
+	if cmd.Secret != "" {
 		return errors.New("--list does not accept a secret")
 	}
-	for _, name := range []string{"rule-id", "component", "capture", "simple"} {
-		if cmd.Flags().Changed(name) {
-			return fmt.Errorf("--list cannot be combined with --%s", name)
-		}
+	if cmd.RuleID != "" {
+		return errors.New("--list cannot be combined with --rule-id")
+	}
+	if len(cmd.Component) > 0 {
+		return errors.New("--list cannot be combined with --component")
+	}
+	if len(cmd.Capture) > 0 {
+		return errors.New("--list cannot be combined with --capture")
+	}
+	if cmd.Simple {
+		return errors.New("--list cannot be combined with --simple")
 	}
 	return nil
 }
 
-func credentialReportFormat(cmd *cobra.Command) (report.CredentialReportFormat, error) {
-	jsonl, err := cmd.Flags().GetBool("jsonl")
-	if err != nil {
-		return "", err
+func credentialReportFormat(cmd *ValidateCmd) report.CredentialReportFormat {
+	if cmd.JSONL {
+		return report.CredentialReportFormatJSONL
 	}
-	if jsonl {
-		return report.CredentialReportFormatJSONL, nil
-	}
-	return report.CredentialReportFormatPretty, nil
+	return report.CredentialReportFormatPretty
 }
 
-func credentialReporter(cmd *cobra.Command) (report.CredentialReporter, error) {
-	format, err := credentialReportFormat(cmd)
-	if err != nil {
-		return report.CredentialReporter{}, err
-	}
-	noColor, err := cmd.Flags().GetBool("no-color")
-	if err != nil {
-		return report.CredentialReporter{}, err
-	}
-	simple, err := cmd.Flags().GetBool("simple")
-	if err != nil {
-		return report.CredentialReporter{}, err
-	}
+func credentialReporter(globals *GlobalFlags, cmd *ValidateCmd) report.CredentialReporter {
 	return report.CredentialReporter{
-		Format:  format,
-		NoColor: noColor,
-		Simple:  simple,
-	}, nil
+		Format:  credentialReportFormat(cmd),
+		NoColor: globals.NoColor,
+		Simple:  cmd.Simple,
+	}
 }
 
-func writeCredentialReport(cmd *cobra.Command, result report.CredentialReport) error {
-	reporter, err := credentialReporter(cmd)
-	if err != nil {
-		return err
-	}
-	return reporter.Write(cmd.OutOrStdout(), result)
+func writeCredentialReport(runtime *commandRuntime, globals *GlobalFlags, cmd *ValidateCmd, result report.CredentialReport) error {
+	return credentialReporter(globals, cmd).Write(runtime.stdout, result)
 }
 
-func writeCredentialRuleList(cmd *cobra.Command, result report.CredentialRuleList) error {
-	reporter, err := credentialReporter(cmd)
-	if err != nil {
-		return err
-	}
-	return reporter.WriteRuleList(cmd.OutOrStdout(), result)
+func writeCredentialRuleList(runtime *commandRuntime, globals *GlobalFlags, cmd *ValidateCmd, result report.CredentialRuleList) error {
+	return credentialReporter(globals, cmd).WriteRuleList(runtime.stdout, result)
 }
 
 func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
@@ -321,13 +280,13 @@ type validateCredentialInput struct {
 	Captures   map[string]string
 }
 
-func readValidateCredentialInput(cmd *cobra.Command, args []string) (validateCredentialInput, error) {
+func readValidateCredentialInput(stdin io.Reader, cmd *ValidateCmd) (validateCredentialInput, error) {
 	var secret string
-	if len(args) == 0 {
-		if !validateStdinAvailable(cmd.InOrStdin()) {
+	if cmd.Secret == "" {
+		if !validateStdinAvailable(stdin) {
 			return validateCredentialInput{}, errors.New("secret argument or piped credential is required")
 		}
-		data, err := readLimitedValidateStdin(cmd)
+		data, err := readLimitedValidateStdin(stdin)
 		if err != nil {
 			return validateCredentialInput{}, err
 		}
@@ -337,24 +296,16 @@ func readValidateCredentialInput(cmd *cobra.Command, args []string) (validateCre
 		}
 	} else {
 		var err error
-		secret, err = validateSecretFromBytes([]byte(args[0]))
+		secret, err = validateSecretFromBytes([]byte(cmd.Secret))
 		if err != nil {
 			return validateCredentialInput{}, err
 		}
 	}
-	captureValues, err := cmd.Flags().GetStringArray("capture")
-	if err != nil {
-		return validateCredentialInput{}, err
-	}
-	captures, err := parseUniqueAssignments(captureValues)
+	captures, err := parseUniqueAssignments(cmd.Capture)
 	if err != nil {
 		return validateCredentialInput{}, fmt.Errorf("invalid --capture value: %w", err)
 	}
-	componentValues, err := cmd.Flags().GetStringArray("component")
-	if err != nil {
-		return validateCredentialInput{}, err
-	}
-	components, err := parseValidateComponentAssignments(componentValues)
+	components, err := parseValidateComponentAssignments(cmd.Component)
 	if err != nil {
 		return validateCredentialInput{}, err
 	}
@@ -419,8 +370,8 @@ func validateSecretFromBytes(data []byte) (string, error) {
 	return secret, nil
 }
 
-func readLimitedValidateStdin(cmd *cobra.Command) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), maxValidateCredentialInputBytes+1))
+func readLimitedValidateStdin(stdin io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(stdin, maxValidateCredentialInputBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading credential from stdin: %w", err)
 	}
@@ -430,46 +381,29 @@ func readLimitedValidateStdin(cmd *cobra.Command) ([]byte, error) {
 	return data, nil
 }
 
-func configureCredentialRuntime(cmd *cobra.Command, rt *exprruntime.Runtime) error {
-	allowedEnv, err := cmd.Flags().GetStringSlice("validation-env-vars")
-	if err != nil {
-		return err
-	}
-	rt.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(allowedEnv)
+func configureCredentialRuntime(flags ValidationRuntimeFlags, rt *exprruntime.Runtime) error {
+	rt.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(flags.ValidationEnvVars)
 
-	timeout, err := cmd.Flags().GetDuration("validation-timeout")
-	if err != nil {
-		return err
-	}
-	if timeout < 0 {
+	if flags.ValidationTimeout < 0 {
 		return errors.New("--validation-timeout must be non-negative")
 	}
-	if timeout > 0 {
-		rt.SetHTTPClient(&http.Client{Timeout: timeout})
+	if flags.ValidationTimeout > 0 {
+		rt.SetHTTPClient(&http.Client{Timeout: flags.ValidationTimeout})
 	}
 
-	maxRequests, err := getValidationMaxRequests(cmd)
-	if err != nil {
-		return fmt.Errorf("validation maximum requests: %w", err)
+	if flags.ValidationMaxRequests < 0 {
+		return errors.New("validation maximum requests: must be non-negative")
 	}
-	rps, err := cmd.Flags().GetFloat64("validation-rps")
-	if err != nil {
-		return err
-	}
-	if err := validateValidationRPS(rps); err != nil {
+	if err := validateValidationRPS(flags.ValidationRPS); err != nil {
 		return fmt.Errorf("--validation-rps: %w", err)
 	}
-	ruleRPSValues, err := cmd.Flags().GetStringSlice("validation-rps-rule")
-	if err != nil {
-		return err
-	}
-	ruleRPS, err := parseValidationRuleRPS(ruleRPSValues)
+	ruleRPS, err := parseValidationRuleRPS(flags.ValidationRPSRule)
 	if err != nil {
 		return fmt.Errorf("--validation-rps-rule: %w", err)
 	}
 	if err := rt.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
-		MaxRequestsPerTarget:    maxRequests,
-		RequestsPerSecond:       rps,
+		MaxRequestsPerTarget:    flags.ValidationMaxRequests,
+		RequestsPerSecond:       flags.ValidationRPS,
 		RequestsPerSecondByRule: ruleRPS,
 	}); err != nil {
 		return err

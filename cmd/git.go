@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
@@ -21,66 +19,62 @@ type multipleErrors struct {
 func (e *multipleErrors) Error() string   { return e.msg }
 func (e *multipleErrors) Unwrap() []error { return e.errs }
 
-func init() {
-	rootCmd.AddCommand(gitCmd)
-	scanFlags(gitCmd)
-	gitCmd.Flags().String("platform", "", "the target platform used to generate links (github, gitlab)")
-	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
-	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
-	gitCmd.Flags().String("log-opts", "", "git log options")
-	gitCmd.Flags().Int("git-workers", 0, "alias for --source-workers when scanning Git")
+type GitCmd struct {
+	ScanFlags  `embed:""`
+	Platform   string `help:"Target platform used to generate links: github or gitlab."`
+	Staged     bool   `help:"Scan staged commits (for pre-commit)."`
+	PreCommit  bool   `name:"pre-commit" help:"Scan using git diff."`
+	LogOpts    string `name:"log-opts" help:"Git log options."`
+	GitWorkers int    `name:"git-workers" help:"Alias for --source-workers when scanning Git."`
+	Repo       string `arg:"" optional:"" help:"Repository to scan."`
 }
 
-var gitCmd = &cobra.Command{
-	Use:   "git [flags] [repo]",
-	Short: "scan git repositories for secrets",
-	Args:  cobra.MaximumNArgs(1),
-	Run:   runGit,
+func (cmd *GitCmd) Validate() error {
+	_, err := resolveGitWorkers(cmd.SourceWorkers, cmd.GitWorkers)
+	return err
 }
 
-func runGit(cmd *cobra.Command, args []string) {
+func (cmd *GitCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	runGit(runtime, &cli.GlobalFlags, cmd)
+	return nil
+}
+
+func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	// start timer
 	start := time.Now()
 
 	// grab source
 	source := "."
-	if len(args) == 1 {
-		source = args[0]
+	if options.Repo != "" {
+		source = options.Repo
 		if source == "" {
 			source = "."
 		}
 	}
 
 	// setup config (aka, the thing that defines rules)
-	initConfig(cmd, source)
-	initDiagnostics(cmd)
+	initConfig(runtime, globals, &options.ScanFlags, source)
+	initDiagnostics(&options.ScanFlags)
 
-	cfg := Config(cmd)
+	cfg := Config()
 
 	// create detector
-	detector := Detector(cmd, cfg, source)
+	detector := Detector(runtime, globals, &options.ScanFlags, cfg, source)
 
 	// parse flags
-	exitCode := mustGetIntFlag(cmd, "exit-code")
-	logOpts := mustGetStringFlag(cmd, "log-opts")
-	staged := mustGetBoolFlag(cmd, "staged")
-	preCommit := mustGetBoolFlag(cmd, "pre-commit")
-	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
-	gitWorkers := mustGetIntFlag(cmd, "git-workers")
-	sourceWorkers := mustGetIntFlag(cmd, "source-workers")
-	workers, workerErr := resolveGitWorkers(sourceWorkers, gitWorkers)
+	workers, workerErr := resolveGitWorkers(options.SourceWorkers, options.GitWorkers)
 	if workerErr != nil {
 		logging.Fatal().Err(workerErr).Send()
 	}
-	findings := mustNewFindingCollector(cmd)
+	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
 
 	var (
 		err error
 		src sources.Source
 	)
 
-	if preCommit || staged {
-		gitCmd, cmdErr := sources.NewGitDiffCmdContext(cmd.Context(), source, staged)
+	if options.PreCommit || options.Staged {
+		gitCmd, cmdErr := sources.NewGitDiffCmdContext(runtime.Context, source, options.Staged)
 		if cmdErr != nil {
 			logging.Fatal().Err(cmdErr).Msg("could not create Git diff cmd")
 		}
@@ -89,29 +83,29 @@ func runGit(cmd *cobra.Command, args []string) {
 			Cmd:             gitCmd,
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        scm.NoPlatform,
-			MaxArchiveDepth: maxArchiveDepth,
+			MaxArchiveDepth: options.MaxArchiveDepth,
 			Workers:         workers,
 		}
 	} else {
-		scmPlatform, platformErr := scm.PlatformFromString(mustGetStringFlag(cmd, "platform"))
+		scmPlatform, platformErr := scm.PlatformFromString(options.Platform)
 		if platformErr != nil {
 			logging.Fatal().Err(platformErr).Send()
 		}
-		resolvedPlatform, remoteURL := sources.ResolveRemote(cmd.Context(), scmPlatform, source)
+		resolvedPlatform, remoteURL := sources.ResolveRemote(runtime.Context, scmPlatform, source)
 
 		src = &sources.Git{
 			RepoPath:        source,
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        resolvedPlatform,
 			RemoteURL:       remoteURL,
-			MaxArchiveDepth: maxArchiveDepth,
-			LogOpts:         logOpts,
+			MaxArchiveDepth: options.MaxArchiveDepth,
+			LogOpts:         options.LogOpts,
 			Workers:         workers,
 		}
 	}
 
 	var scanErrs []error
-	for result := range detector.Run(cmd.Context(), src) {
+	for result := range detector.Run(runtime.Context, src) {
 		if result.Err != nil {
 			scanErrs = append(scanErrs, result.Err)
 			// don't exit on error, just log it
@@ -129,7 +123,7 @@ func runGit(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findingSummaryAndExit(cmd, detector, findings, exitCode, start, err)
+	findingSummaryAndExit(runtime, detector, findings, options.ExitCode, start, err)
 }
 
 func resolveGitWorkers(sourceWorkers, gitWorkers int) (int, error) {

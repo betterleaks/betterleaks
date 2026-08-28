@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	ahocorasick "github.com/rrethy/ahocorasick"
-	"github.com/spf13/cobra"
 
 	configpkg "github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
@@ -19,76 +18,64 @@ type resolvedConfig struct {
 	source string
 }
 
-func init() {
-	rootCmd.AddCommand(configCmd)
-	configCmd.AddCommand(configCheckCmd, configShowCmd, configPathCmd)
+type ConfigCmd struct {
+	Check ConfigCheckCmd `cmd:"" help:"Validate a betterleaks config."`
+	Show  ConfigShowCmd  `cmd:"" help:"Print the resolved betterleaks config."`
+	Path  ConfigPathCmd  `cmd:"" help:"Print the selected config source."`
 }
 
-var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "validate and inspect betterleaks configs",
+type ConfigCheckCmd struct {
+	Path string `arg:"" optional:"" name:"config-path" help:"Config file to validate."`
 }
 
-var configCheckCmd = &cobra.Command{
-	Use:          "check [config-path]",
-	Short:        "validate a betterleaks config",
-	Args:         cobra.MaximumNArgs(1),
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resolved, err := resolveConfig(cmd, args)
-		if err != nil {
-			return err
-		}
-		if err := validateConfig(resolved.cfg); err != nil {
-			return err
-		}
-		withValidation, withoutValidation := countValidationRules(resolved.cfg)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "OK: %d rules (%d with validation, %d without validation)\n",
-			len(resolved.cfg.Rules), withValidation, withoutValidation)
-		return nil
-	},
+func (cmd *ConfigCheckCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	resolved, err := resolveConfig(cli.Config, cmd.Path)
+	if err != nil {
+		return err
+	}
+	if err := validateConfig(resolved.cfg); err != nil {
+		return err
+	}
+	withValidation, withoutValidation := countValidationRules(resolved.cfg)
+	_, _ = fmt.Fprintf(runtime.stdout, "OK: %d rules (%d with validation, %d without validation)\n",
+		len(resolved.cfg.Rules), withValidation, withoutValidation)
+	return nil
 }
 
-var configShowCmd = &cobra.Command{
-	Use:          "show [config-path]",
-	Short:        "print the resolved betterleaks config",
-	Args:         cobra.MaximumNArgs(1),
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resolved, err := resolveConfig(cmd, args)
-		if err != nil {
-			return err
-		}
-		if err := validateConfig(resolved.cfg); err != nil {
-			return err
-		}
-		_, _ = cmd.OutOrStdout().Write([]byte(renderConfigTOML(renderConfig(resolved.cfg))))
-		return nil
-	},
+type ConfigShowCmd struct {
+	Path string `arg:"" optional:"" name:"config-path" help:"Config file to render."`
 }
 
-var configPathCmd = &cobra.Command{
-	Use:          "path",
-	Short:        "print the selected config source",
-	Args:         cobra.NoArgs,
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resolved, err := resolveConfig(cmd, args)
-		if err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), resolved.source)
-		return nil
-	},
+func (cmd *ConfigShowCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	resolved, err := resolveConfig(cli.Config, cmd.Path)
+	if err != nil {
+		return err
+	}
+	if err := validateConfig(resolved.cfg); err != nil {
+		return err
+	}
+	_, _ = runtime.stdout.Write([]byte(renderConfigTOML(renderConfig(resolved.cfg))))
+	return nil
 }
 
-func resolveConfig(cmd *cobra.Command, args []string) (*resolvedConfig, error) {
-	if len(args) > 0 {
-		return loadConfigFile(args[0])
+type ConfigPathCmd struct{}
+
+func (*ConfigPathCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	resolved, err := resolveConfig(cli.Config, "")
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(runtime.stdout, resolved.source)
+	return nil
+}
+
+func resolveConfig(configPath, argumentPath string) (*resolvedConfig, error) {
+	if argumentPath != "" {
+		return loadConfigFile(argumentPath)
 	}
 
-	if cfgPath := getConfigFlag(cmd); cfgPath != "" {
-		return loadConfigFile(cfgPath)
+	if configPath != "" {
+		return loadConfigFile(configPath)
 	}
 	if envPath, name := getEnvWithName("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
 		resolved, err := loadConfigFile(envPath)
@@ -121,21 +108,6 @@ func loadConfigFile(path string) (*resolvedConfig, error) {
 		return nil, err
 	}
 	return &resolvedConfig{cfg: cfg, source: path}, nil
-}
-
-func getConfigFlag(cmd *cobra.Command) string {
-	if cfgPath, err := cmd.Flags().GetString("config"); err == nil {
-		return cfgPath
-	}
-	if cfgPath, err := cmd.InheritedFlags().GetString("config"); err == nil {
-		return cfgPath
-	}
-	if cmd.Root() != nil {
-		if cfgPath, err := cmd.Root().PersistentFlags().GetString("config"); err == nil {
-			return cfgPath
-		}
-	}
-	return ""
 }
 
 func getEnvWithName(primary, fallback string) (string, string) {

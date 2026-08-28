@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/cobra"
-
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
@@ -32,39 +30,19 @@ type findingCollector struct {
 	closed       bool
 }
 
-func newFindingCollector(cmd *cobra.Command) (*findingCollector, error) {
-	silent, err := cmd.Flags().GetBool("silent")
-	if err != nil {
-		return nil, err
-	}
-	jsonl, err := cmd.Flags().GetBool("jsonl")
-	if err != nil {
-		return nil, err
-	}
-	reportPath, err := cmd.Flags().GetString("report")
-	if err != nil {
-		return nil, err
-	}
-
-	noColor, err := cmd.Flags().GetBool("no-color")
-	if err != nil {
-		return nil, err
-	}
-	redact, err := cmd.Flags().GetUint("redact")
-	if err != nil {
-		return nil, err
-	}
+func newFindingCollector(flags *ScanFlags, noColor bool, stdout io.Writer) (*findingCollector, error) {
 	collector := &findingCollector{
 		noColor:    noColor,
-		redact:     redact,
-		reportPath: reportPath,
+		redact:     uint(flags.Redact),
+		reportPath: flags.Report,
 	}
 
 	// A report directed to stdout owns the stream, preventing pretty or JSONL
 	// finding output from being interleaved with the report document.
-	if !silent && reportPath != report.StdoutReportPath {
-		if jsonl {
-			collector.stdoutWriter, err = (&report.JsonlReporter{}).NewWriter(cmd.OutOrStdout())
+	if !flags.Silent && flags.Report != report.StdoutReportPath {
+		if flags.JSONL {
+			var err error
+			collector.stdoutWriter, err = (&report.JsonlReporter{}).NewWriter(stdout)
 			if err != nil {
 				return nil, err
 			}
@@ -73,20 +51,20 @@ func newFindingCollector(cmd *cobra.Command) (*findingCollector, error) {
 		}
 	}
 
-	if reportPath == "" {
+	if flags.Report == "" {
 		return collector, nil
 	}
 
-	reporter, err := reporterForPath(reportPath, jsonl)
+	reporter, err := reporterForPath(flags.Report, flags.JSONL)
 	if err != nil {
 		return nil, err
 	}
-	if reportPath == report.StdoutReportPath {
-		collector.reportOutput = nopWriteCloser{Writer: cmd.OutOrStdout()}
+	if flags.Report == report.StdoutReportPath {
+		collector.reportOutput = nopWriteCloser{Writer: stdout}
 	} else {
-		collector.reportOutput, err = os.Create(reportPath)
+		collector.reportOutput, err = os.Create(flags.Report)
 		if err != nil {
-			return nil, fmt.Errorf("create report %q: %w", reportPath, err)
+			return nil, fmt.Errorf("create report %q: %w", flags.Report, err)
 		}
 		collector.closeReport = true
 	}
@@ -100,8 +78,8 @@ func newFindingCollector(cmd *cobra.Command) (*findingCollector, error) {
 	return collector, nil
 }
 
-func mustNewFindingCollector(cmd *cobra.Command) *findingCollector {
-	collector, err := newFindingCollector(cmd)
+func mustNewFindingCollector(flags *ScanFlags, noColor bool, stdout io.Writer) *findingCollector {
+	collector, err := newFindingCollector(flags, noColor, stdout)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("failed to configure finding output")
 	}

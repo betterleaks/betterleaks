@@ -3,8 +3,6 @@ package cmd
 import (
 	"math"
 	"testing"
-
-	"github.com/spf13/cobra"
 )
 
 func TestParseValidationRuleRPS(t *testing.T) {
@@ -51,36 +49,9 @@ func TestValidateValidationRPS(t *testing.T) {
 	}
 }
 
-func TestGetValidationMaxRequests(t *testing.T) {
-	newCommand := func(args ...string) *cobra.Command {
-		cmd := &cobra.Command{Use: "test"}
-		cmd.Flags().Int("validation-max-requests", 0, "")
-		if err := cmd.ParseFlags(args); err != nil {
-			t.Fatalf("ParseFlags: %v", err)
-		}
-		return cmd
-	}
-
-	for _, test := range []struct {
-		name string
-		args []string
-		want int
-	}{
-		{name: "default", want: 0},
-		{name: "configured", args: []string{"--validation-max-requests=10"}, want: 10},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := getValidationMaxRequests(newCommand(test.args...))
-			if err != nil {
-				t.Fatalf("getValidationMaxRequests: %v", err)
-			}
-			if got != test.want {
-				t.Fatalf("max requests = %d, want %d", got, test.want)
-			}
-		})
-	}
-
-	if _, err := getValidationMaxRequests(newCommand("--validation-max-requests=-1")); err == nil {
+func TestValidationRuntimeFlagsRejectNegativeMaxRequests(t *testing.T) {
+	flags := ValidationRuntimeFlags{ValidationMaxRequests: -1}
+	if err := flags.Validate(); err == nil {
 		t.Fatal("negative maximum returned no error")
 	}
 }

@@ -5,20 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
-
-	"github.com/spf13/cobra"
 )
-
-func getValidationMaxRequests(cmd *cobra.Command) (int, error) {
-	maxRequests, err := cmd.Flags().GetInt("validation-max-requests")
-	if err != nil {
-		return 0, err
-	}
-	if maxRequests < 0 {
-		return 0, fmt.Errorf("must be non-negative")
-	}
-	return maxRequests, nil
-}
 
 func validateValidationRPS(rps float64) error {
 	if math.IsNaN(rps) || math.IsInf(rps, 0) || rps < 0 {
