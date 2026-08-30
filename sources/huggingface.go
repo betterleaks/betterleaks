@@ -25,10 +25,8 @@ import (
 const (
 	huggingFaceDefaultBase                      = "https://huggingface.co/"
 	huggingFacePerPage                          = 100
-	huggingFaceScanConcurrency                  = 100
 	huggingFaceAPIConcurrency                   = 10
 	huggingFaceSnippetLimit                     = 200
-	huggingFaceBucketWorkers                    = 16
 	huggingFaceLargeObjectWarnThreshold   int64 = 1024 * 1024 * 1024
 	huggingFaceDefaultMaxBucketObjectSize int64 = 250 * 1024 * 1024
 )
@@ -46,8 +44,9 @@ type HuggingFace struct {
 
 	ShouldSkip      SkipFunc
 	MaxArchiveDepth int
-	Workers         int // 0 uses source-specific defaults
+	Jobs            int // 0 is automatic
 	LogOpts         string
+	budget          *jobBudget
 
 	MaxBucketObjectSize int64
 
@@ -130,6 +129,9 @@ func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error 
 	if err := s.Validate(); err != nil {
 		return err
 	}
+	jobs, budget := ensureJobBudget(s.Jobs, automaticProviderJobs(), s.budget)
+	s.Jobs = jobs
+	s.budget = budget
 	if err := s.ensureClient(); err != nil {
 		return err
 	}
@@ -143,17 +145,13 @@ func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error 
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
-	workers := allocateProviderWorkers(
-		s.Workers,
-		huggingFaceScanConcurrency,
-		target.Kind == "repo" || target.Kind == "bucket",
-	)
+	targetJobs := providerTargetJobs(jobs, target.Kind == "repo" || target.Kind == "bucket")
 
 	scanCtx, cancelScans := context.WithCancel(ctx)
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(workers.TargetWorkers)
+	scanGroup.SetLimit(targetJobs)
 
 	var repoCount atomic.Int64
 	var bucketCount atomic.Int64
@@ -166,7 +164,7 @@ func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error 
 		for repo := range repoCh {
 			repoCount.Add(1)
 			scanGroup.Go(func() error {
-				return s.scanRepoWithWorkers(scanCtx, repo, workers.WorkersPerTarget, yield)
+				return s.scanRepoWithJobs(scanCtx, repo, jobs, yield)
 			})
 		}
 		enumErr := <-enumErrCh
@@ -186,7 +184,7 @@ func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error 
 		for bucket := range bucketCh {
 			bucketCount.Add(1)
 			scanGroup.Go(func() error {
-				return s.scanBucketWithWorkers(scanCtx, bucket, workers.WorkersPerTarget, yield)
+				return s.scanBucketWithJobs(scanCtx, bucket, jobs, yield)
 			})
 		}
 		enumErr := <-bucketErrCh
@@ -620,10 +618,10 @@ func parseHuggingFaceSlug(kind HuggingFaceRepoKind, raw string) (owner, name str
 }
 
 func (s *HuggingFace) scanRepo(ctx context.Context, repo huggingFaceRepo, yield FragmentsFunc) error {
-	return s.scanRepoWithWorkers(ctx, repo, 0, yield)
+	return s.scanRepoWithJobs(ctx, repo, s.Jobs, yield)
 }
 
-func (s *HuggingFace) scanRepoWithWorkers(ctx context.Context, repo huggingFaceRepo, workers int, yield FragmentsFunc) error {
+func (s *HuggingFace) scanRepoWithJobs(ctx context.Context, repo huggingFaceRepo, jobs int, yield FragmentsFunc) error {
 	logger := logging.With().Str("repo", repo.Slug()).Str("type", string(repo.Kind)).Logger()
 	repoAttrs := s.repoAttributes(repo, "")
 	if s.ShouldSkip != nil && s.ShouldSkip(s.repoAttributes(repo, ResourceHuggingFaceRepo)) {
@@ -644,7 +642,7 @@ func (s *HuggingFace) scanRepoWithWorkers(ctx context.Context, repo huggingFaceR
 
 	if s.Resources.Has(HuggingFaceResourceTypeRepos) {
 		if err := run(string(HuggingFaceResourceTypeRepos), func() error {
-			return s.scanRepoGit(ctx, repo, workers, hfYield)
+			return s.scanRepoGit(ctx, repo, jobs, hfYield)
 		}); err != nil {
 			return err
 		}
@@ -691,14 +689,15 @@ func (s *HuggingFace) wrapYieldWithAttrs(attrs map[string]string, yield Fragment
 	}
 }
 
-func (s *HuggingFace) scanRepoGit(ctx context.Context, repo huggingFaceRepo, workers int, yield FragmentsFunc) error {
+func (s *HuggingFace) scanRepoGit(ctx context.Context, repo huggingFaceRepo, jobs int, yield FragmentsFunc) error {
 	remote := repo.GitURL(s.baseURL)
 	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		src := &Git{
 			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 			Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
 			MaxArchiveDepth: s.MaxArchiveDepth,
-			LogOpts:         s.LogOpts, Workers: workers,
+			LogOpts:         s.LogOpts, Jobs: jobs,
+			budget: s.budget,
 		}
 		return src.Fragments(ctx, yield)
 	})
@@ -713,10 +712,10 @@ type huggingFaceBucketEntry struct {
 }
 
 func (s *HuggingFace) scanBucket(ctx context.Context, bucket huggingFaceBucket, yield FragmentsFunc) error {
-	return s.scanBucketWithWorkers(ctx, bucket, s.Workers, yield)
+	return s.scanBucketWithJobs(ctx, bucket, s.Jobs, yield)
 }
 
-func (s *HuggingFace) scanBucketWithWorkers(ctx context.Context, bucket huggingFaceBucket, configuredWorkers int, yield FragmentsFunc) error {
+func (s *HuggingFace) scanBucketWithJobs(ctx context.Context, bucket huggingFaceBucket, configuredJobs int, yield FragmentsFunc) error {
 	logger := logging.With().Str("bucket", bucket.ID()).Logger()
 	logger.Info().Str("prefix", bucket.Prefix).Msg("scanning Hugging Face bucket")
 	if s.ShouldSkip != nil && s.ShouldSkip(s.bucketAttributes(bucket, nil, ResourceHuggingFaceBucket)) {
@@ -731,9 +730,9 @@ func (s *HuggingFace) scanBucketWithWorkers(ctx context.Context, bucket huggingF
 	if maxSize <= 0 {
 		maxSize = huggingFaceDefaultMaxBucketObjectSize
 	}
-	workers := workerCount(configuredWorkers, huggingFaceBucketWorkers)
+	jobs := jobsWithinBudget(configuredJobs, automaticJobs(), s.budget)
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(workers)
+	g.SetLimit(jobs)
 	var scanned atomic.Int64
 	var queued int
 	var skippedOversized int
@@ -775,11 +774,13 @@ func (s *HuggingFace) scanBucketWithWorkers(ctx context.Context, bucket huggingF
 			Int64("size", entry.Size).
 			Msg("queueing Hugging Face bucket object scan")
 		g.Go(func() error {
-			if err := s.scanBucketObject(gctx, bucket, entry, yield); err != nil {
-				return err
-			}
-			scanned.Add(1)
-			return nil
+			return s.budget.run(gctx, func() error {
+				if err := s.scanBucketObject(gctx, bucket, entry, yield); err != nil {
+					return err
+				}
+				scanned.Add(1)
+				return nil
+			})
 		})
 	}
 	if err := g.Wait(); err != nil {
@@ -1046,7 +1047,7 @@ func (s *HuggingFace) ensureClient() error {
 		s.httpClient = httpclient.NewAuthenticatedClient(s.Token, s.restRetry, s.baseURL.Host)
 	}
 	if s.apiSem == nil {
-		s.apiSem = make(chan struct{}, huggingFaceAPIConcurrency)
+		s.apiSem = make(chan struct{}, min(workerCount(s.Jobs, automaticProviderJobs()), huggingFaceAPIConcurrency))
 	}
 	return nil
 }

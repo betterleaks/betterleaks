@@ -32,6 +32,7 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 
 	// create detector
 	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "")
+	detector.Jobs = resolveJobPlan(options.Jobs, streamJobProfile).Detector
 
 	// parse flag(s)
 	attrs, err := parseSetAttrValues(options.SetAttr)

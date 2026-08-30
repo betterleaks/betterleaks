@@ -13,15 +13,28 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 )
 
-// fragmentsFromRepo scans Git history by partitioning commits across Workers
-// Git processes. Each process consumes fragments serially so Workers is the
-// complete concurrency control for a repository history scan.
+// fragmentsFromRepo partitions Git history across at most four processes.
+// Each process consumes fragments serially; the detector provides the other
+// half of the bounded jobs pipeline.
 func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error {
-	if s.Workers <= 1 {
-		return s.runFullHistory(ctx, yield, 1)
+	jobs := jobsWithinBudget(s.Jobs, min(automaticJobs(), maxGitHistoryJobs), s.budget)
+	historyJobs := min(jobs, maxGitHistoryJobs)
+
+	repoSource := *s
+	repoSource.Jobs = jobs
+
+	if historyJobs <= 1 {
+		return s.budget.run(ctx, func() error {
+			return repoSource.runFullHistory(ctx, yield)
+		})
 	}
 
-	commits, err := listCommits(ctx, s.RepoPath, s.LogOpts)
+	var commits []string
+	err := s.budget.run(ctx, func() error {
+		var err error
+		commits, err = listCommits(ctx, s.RepoPath, s.LogOpts)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("list commits: %w", err)
 	}
@@ -29,13 +42,15 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 		return nil
 	}
 
-	workers := min(s.Workers, len(commits))
+	workers := min(historyJobs, len(commits))
 	if workers == 1 {
-		return s.runFullHistory(ctx, yield, 1)
+		return s.budget.run(ctx, func() error {
+			return repoSource.runFullHistory(ctx, yield)
+		})
 	}
 
 	chunkSize := (len(commits) + workers - 1) / workers
-	logging.Info().
+	logging.Debug().
 		Int("commits", len(commits)).
 		Int("workers", workers).
 		Int("chunk_size", chunkSize).
@@ -50,18 +65,20 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 		end := min(start+chunkSize, len(commits))
 		chunk := commits[start:end]
 		g.Go(func() error {
-			return s.runHistoryChunk(groupCtx, yield, chunk)
+			return s.budget.run(groupCtx, func() error {
+				return repoSource.runHistoryChunk(groupCtx, yield, chunk)
+			})
 		})
 	}
 	return g.Wait()
 }
 
-func (s *Git) runFullHistory(ctx context.Context, yield FragmentsFunc, fragmentWorkers int) error {
+func (s *Git) runFullHistory(ctx context.Context, yield FragmentsFunc) error {
 	cmd, err := NewGitLogCmdContext(ctx, s.RepoPath, s.LogOpts)
 	if err != nil {
 		return err
 	}
-	return s.runGitCmd(ctx, yield, cmd, fragmentWorkers)
+	return s.runGitCmd(ctx, yield, cmd)
 }
 
 func (s *Git) runHistoryChunk(ctx context.Context, yield FragmentsFunc, commits []string) error {
@@ -69,15 +86,16 @@ func (s *Git) runHistoryChunk(ctx context.Context, yield FragmentsFunc, commits 
 	if err != nil {
 		return err
 	}
-	return s.runGitCmd(ctx, yield, cmd, 1)
+	return s.runGitCmd(ctx, yield, cmd)
 }
 
-func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *GitCmd, workers int) error {
+func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *GitCmd) error {
 	commandSource := *s
 	commandSource.Cmd = cmd
 	commandSource.RepoPath = ""
 	commandSource.LogOpts = ""
-	commandSource.Workers = workers
+	commandSource.Jobs = 1
+	commandSource.jobOwned = true
 	return commandSource.fragmentsFromCmd(ctx, yield)
 }
 

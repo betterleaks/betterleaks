@@ -74,7 +74,7 @@ func TestFilesScanTargetsPathsMatchFilepathWalkDir(t *testing.T) {
 	require.Equal(t, wantTargets, targets)
 }
 
-func TestFilesWorkersLimitsConcurrency(t *testing.T) {
+func TestFilesJobsLimitConcurrency(t *testing.T) {
 	const fileCount = 6
 
 	root := t.TempDir()
@@ -83,7 +83,7 @@ func TestFilesWorkersLimitsConcurrency(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("content"), 0o600))
 	}
 
-	source := &Files{Path: root, Workers: 2}
+	source := &Files{Path: root, Jobs: 2}
 	started := make(chan struct{}, fileCount)
 	release := make(chan struct{})
 	done := make(chan error, 1)
@@ -114,7 +114,7 @@ func TestFilesWorkersLimitsConcurrency(t *testing.T) {
 		})
 	}()
 
-	for range source.Workers {
+	for range source.Jobs {
 		select {
 		case <-started:
 		case err := <-done:
@@ -139,6 +139,6 @@ func TestFilesWorkersLimitsConcurrency(t *testing.T) {
 		t.Fatal("timed out waiting for scan completion")
 	}
 
-	require.Equal(t, int64(source.Workers), peak.Load())
+	require.Equal(t, int64(source.Jobs), peak.Load())
 	require.Equal(t, int64(fileCount), yielded.Load())
 }

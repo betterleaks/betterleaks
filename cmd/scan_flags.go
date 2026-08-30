@@ -18,8 +18,7 @@ type ScanFlags struct {
 	Report              string     `short:"r" help:"Output findings in report format to file (use '-' for stdout)."`
 	Confidence          string     `help:"Minimum confidence to include (low, medium, high)."`
 	MaxTargetMegabytes  int        `name:"max-target-megabytes" help:"Files larger than this will be skipped."`
-	SourceWorkers       int        `name:"source-workers" help:"Number of concurrent source workers (0 = source default)."`
-	DetectWorkers       int        `name:"detect-workers" help:"Number of concurrent detection workers (0 = GOMAXPROCS)."`
+	Jobs                int        `name:"jobs" short:"j" help:"Parallel scan jobs; CPU-bound stages cap at available processors (0 = automatic)."`
 	IgnoreAllowComments bool       `name:"ignore-allow-comments" help:"Ignore allow comments."`
 	Redact              redactFlag `placeholder:"PERCENT" help:"Redact secrets from logs and stdout. With no value, redact 100%; otherwise specify 0..100."`
 	NoBanner            bool       `name:"no-banner" help:"Suppress banner."`
@@ -40,11 +39,8 @@ type ScanFlags struct {
 }
 
 func (f ScanFlags) Validate() error {
-	if f.SourceWorkers < 0 {
-		return fmt.Errorf("--source-workers must be non-negative")
-	}
-	if f.DetectWorkers < 0 {
-		return fmt.Errorf("--detect-workers must be non-negative")
+	if f.Jobs < 0 {
+		return fmt.Errorf("--jobs must be non-negative")
 	}
 	if _, err := confidence.Parse(f.Confidence); err != nil {
 		return err

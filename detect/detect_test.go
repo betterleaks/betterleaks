@@ -141,11 +141,11 @@ func TestRunStreamsFindings(t *testing.T) {
 	require.Len(t, findings, 1)
 }
 
-func TestRunWithMultipleDetectWorkers(t *testing.T) {
+func TestRunWithMultipleJobs(t *testing.T) {
 	const fragmentCount = 100
 
 	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
-	detector.DetectWorkers = 4
+	detector.Jobs = 4
 
 	findings, err := collectSourceFindings(t.Context(), detector, repeatedFragmentSource{count: fragmentCount})
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestRunWithMultipleDetectWorkers(t *testing.T) {
 
 func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
 	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
-	detector.DetectWorkers = 2
+	detector.Jobs = 2
 	source := cancelAwareSource{stopped: make(chan struct{})}
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
@@ -174,7 +174,7 @@ func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
 
 func TestRunCancellationDoesNotEmitErrors(t *testing.T) {
 	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
-	detector.DetectWorkers = 4
+	detector.Jobs = 4
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

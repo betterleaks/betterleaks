@@ -23,7 +23,6 @@ import (
 
 const (
 	s3DefaultMaxObjectSize int64 = 250 * 1024 * 1024 // 250 MiB
-	s3DefaultWorkers             = 16
 	// s3PerObjectTimeout covers the full per-object scan (HTTP GET + body
 	// read + content scanning). Sized for the default 250 MiB cap at modest
 	// bandwidth, with room for archive extraction.
@@ -62,9 +61,10 @@ type S3 struct {
 
 	// Scan config
 	MaxObjectSize   int64
-	Workers         int // concurrent object scans; 0 uses the source default
+	Jobs            int // concurrent object scans; 0 is automatic
 	ShouldSkip      SkipFunc
 	MaxArchiveDepth int
+	budget          *jobBudget
 
 	parsed s3Target
 	creds  s3Creds
@@ -255,7 +255,7 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 	if maxSize <= 0 {
 		maxSize = s3DefaultMaxObjectSize
 	}
-	workers := workerCount(s.Workers, s3DefaultWorkers)
+	jobs := jobsWithinBudget(s.Jobs, automaticObjectJobs(), s.budget)
 
 	bucketAttrs := map[string]string{
 		AttrS3Bucket: target.Bucket,
@@ -293,7 +293,7 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 		listedCount += len(page.Contents)
 
 		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(workers)
+		g.SetLimit(jobs)
 		for _, obj := range page.Contents {
 			if skipReason := s.skipReason(obj, maxSize); skipReason != "" {
 				logging.Trace().Str("key", obj.Key).Str("reason", skipReason).Msg("skipping object")
@@ -305,14 +305,16 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 				continue
 			}
 			g.Go(func() error {
-				if err := s.scanObject(gctx, client, target, obj, attrs, yield); err != nil {
-					logging.Error().Err(err).Str("key", obj.Key).Msg("could not scan S3 object")
+				return s.budget.run(gctx, func() error {
+					if err := s.scanObject(gctx, client, target, obj, attrs, yield); err != nil {
+						logging.Error().Err(err).Str("key", obj.Key).Msg("could not scan S3 object")
+						return nil
+					}
+					mu.Lock()
+					scannedCount++
+					mu.Unlock()
 					return nil
-				}
-				mu.Lock()
-				scannedCount++
-				mu.Unlock()
-				return nil
+				})
 			})
 		}
 		if err := g.Wait(); err != nil {

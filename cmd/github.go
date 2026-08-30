@@ -35,6 +35,8 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 
 	cfg := Config()
 	detector := Detector(runtime, globals, &options.ScanFlags, cfg, ".")
+	jobs := resolveJobPlan(options.Jobs, providerJobProfile)
+	detector.Jobs = jobs.Detector
 
 	targetURL := options.TargetURL
 
@@ -68,7 +70,7 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		ExcludeRepos:    options.ExcludeRepo,
 		ShouldSkip:      detector.SkipFunc(),
 		MaxArchiveDepth: options.MaxArchiveDepth,
-		Workers:         options.SourceWorkers,
+		Jobs:            jobs.Source,
 		LogOpts:         options.LogOpts,
 		Actions: sources.ActionsOptions{
 			Workflows: options.ActionsWorkflow,

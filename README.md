@@ -46,7 +46,7 @@ make build
 ### Usage
 ```
 # Scan Git
-betterleaks git /path/to/repo -v --source-workers=16
+betterleaks git /path/to/repo -v -j 4
 
 # Scan local filesystem
 betterleaks dir /path/to/file/or/dir -v

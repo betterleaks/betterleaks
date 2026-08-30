@@ -386,7 +386,7 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	}
 
 	detector := detect.NewDetectorContext(runtime.Context, cfg, valOpts)
-	detector.DetectWorkers = flags.DetectWorkers
+	detector.Jobs = flags.Jobs
 	detector.MinConfidence, err = confidence.Parse(flags.Confidence)
 	if err != nil {
 		logging.Fatal().Err(err).Send()

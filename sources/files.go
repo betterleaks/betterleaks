@@ -13,8 +13,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const defaultFileWorkers = 40
-
 // TODO: remove this in v9 and have scanTargets yield file sources
 type ScanTarget struct {
 	Path    string
@@ -28,7 +26,8 @@ type Files struct {
 	MaxFileSize     int
 	Path            string
 	MaxArchiveDepth int
-	Workers         int // 0 uses the source default
+	Jobs            int // 0 is automatic
+	budget          *jobBudget
 }
 
 // scanTargets yields scan targets to a callback func
@@ -156,7 +155,8 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	g, groupCtx := errgroup.WithContext(ctx)
-	g.SetLimit(workerCount(s.Workers, defaultFileWorkers))
+	jobs := jobsWithinBudget(s.Jobs, automaticFileJobs(), s.budget)
+	g.SetLimit(jobs)
 
 	producerErr := s.scanTargets(groupCtx, func(scanTarget ScanTarget, scanErr error) error {
 		if scanErr != nil {
@@ -167,32 +167,41 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 
 		g.Go(func() error {
-			logger := logging.With().Str("path", scanTarget.Path).Logger()
-			logger.Trace().Msg("scanning path")
-
-			f, err := os.Open(scanTarget.Path)
-			if err != nil {
-				if os.IsPermission(err) {
-					logger.Warn().Msg("skipping file: permission denied")
-				}
-				return nil
+			if s.budget == nil {
+				return s.scanFile(groupCtx, scanTarget, yield)
 			}
-
-			file := File{
-				Content:         f,
-				Path:            scanTarget.Path,
-				Symlink:         scanTarget.Symlink,
-				ShouldSkip:      s.ShouldSkip,
-				MaxArchiveDepth: s.MaxArchiveDepth,
-			}
-
-			err = file.Fragments(groupCtx, yield)
-			// Avoid a defer in this hot path.
-			_ = f.Close()
-			return err
+			return s.budget.run(groupCtx, func() error {
+				return s.scanFile(groupCtx, scanTarget, yield)
+			})
 		})
 		return nil
 	})
 
 	return errors.Join(producerErr, g.Wait())
+}
+
+func (s *Files) scanFile(ctx context.Context, target ScanTarget, yield FragmentsFunc) error {
+	logger := logging.With().Str("path", target.Path).Logger()
+	logger.Trace().Msg("scanning path")
+
+	f, err := os.Open(target.Path)
+	if err != nil {
+		if os.IsPermission(err) {
+			logger.Warn().Msg("skipping file: permission denied")
+		}
+		return nil
+	}
+
+	file := File{
+		Content:         f,
+		Path:            target.Path,
+		Symlink:         target.Symlink,
+		ShouldSkip:      s.ShouldSkip,
+		MaxArchiveDepth: s.MaxArchiveDepth,
+	}
+
+	err = file.Fragments(ctx, yield)
+	// Avoid a defer in this hot path.
+	_ = f.Close()
+	return err
 }

@@ -1,6 +1,9 @@
 package sources
 
-import "context"
+import (
+	"context"
+	"runtime"
+)
 
 // FragmentsFunc is the type of function called by Fragments to yield the next
 // fragment
@@ -26,34 +29,73 @@ func workerCount(configured, fallback int) int {
 	return fallback
 }
 
-const maxProviderTargetWorkers = 4
-
-// providerWorkerAllocation divides an explicit source-worker budget between
-// top-level provider targets and the Git or file work within each target.
-// WorkersPerTarget is zero when the source should retain its historical
-// defaults.
-type providerWorkerAllocation struct {
-	TargetWorkers    int
-	WorkersPerTarget int
+func automaticJobs() int {
+	return max(runtime.GOMAXPROCS(0), 1)
 }
 
-func allocateProviderWorkers(configured, defaultTargetWorkers int, singleTarget bool) providerWorkerAllocation {
-	if configured <= 0 {
-		if singleTarget {
-			defaultTargetWorkers = 1
-		}
-		return providerWorkerAllocation{TargetWorkers: defaultTargetWorkers}
-	}
-	if singleTarget {
-		return providerWorkerAllocation{
-			TargetWorkers:    1,
-			WorkersPerTarget: configured,
-		}
-	}
+func automaticFileJobs() int {
+	processorJobs := automaticJobs()
+	return max(processorJobs, min(processorJobs*4, 40))
+}
 
-	targetWorkers := min(max(configured/4, 1), maxProviderTargetWorkers)
-	return providerWorkerAllocation{
-		TargetWorkers:    targetWorkers,
-		WorkersPerTarget: max((configured-targetWorkers)/targetWorkers, 1),
+func automaticObjectJobs() int {
+	return automaticJobs() * 2
+}
+
+const maxProviderTargetJobs = 4
+
+func automaticProviderJobs() int {
+	return min(automaticJobs(), maxProviderTargetJobs)
+}
+
+func providerTargetJobs(jobs int, singleTarget bool) int {
+	if singleTarget {
+		return 1
 	}
+	return min(jobs, maxProviderTargetJobs)
+}
+
+// jobBudget bounds leaf source work across nested sources. Provider target
+// goroutines do not hold a slot while waiting for their Git or object work, so
+// nested scans can share this budget without deadlocking.
+type jobBudget struct {
+	limit int
+	slots chan struct{}
+}
+
+func newJobBudget(jobs int) *jobBudget {
+	jobs = max(jobs, 1)
+	return &jobBudget{
+		limit: jobs,
+		slots: make(chan struct{}, jobs),
+	}
+}
+
+func jobsWithinBudget(configured, fallback int, existing *jobBudget) int {
+	jobs := workerCount(configured, fallback)
+	if existing != nil {
+		jobs = min(jobs, existing.limit)
+	}
+	return jobs
+}
+
+func ensureJobBudget(configured, fallback int, existing *jobBudget) (int, *jobBudget) {
+	jobs := jobsWithinBudget(configured, fallback, existing)
+	if existing != nil {
+		return jobs, existing
+	}
+	return jobs, newJobBudget(jobs)
+}
+
+func (b *jobBudget) run(ctx context.Context, fn func() error) error {
+	if b == nil {
+		return fn()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case b.slots <- struct{}{}:
+	}
+	defer func() { <-b.slots }()
+	return fn()
 }

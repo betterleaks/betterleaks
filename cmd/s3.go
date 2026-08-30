@@ -16,7 +16,6 @@ type S3Cmd struct {
 	SecretKey     string `name:"secret-key" help:"AWS secret key (overrides AWS_SECRET_ACCESS_KEY)."`
 	SessionToken  string `name:"session-token" help:"AWS session token (overrides AWS_SESSION_TOKEN)."`
 	MaxObjectSize int64  `name:"max-object-size" help:"Skip objects larger than this many bytes (0 = 250 MiB)."`
-	Workers       int    `help:"Concurrent object fetches (0 = --source-workers or source default)."`
 	URL           string `arg:"" help:"S3 or S3-compatible bucket URL."`
 }
 
@@ -33,10 +32,8 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 
 	cfg := Config()
 	detector := Detector(runtime, globals, &options.ScanFlags, cfg, ".")
-	workers := options.Workers
-	if workers == 0 {
-		workers = options.SourceWorkers
-	}
+	jobs := resolveJobPlan(options.Jobs, objectJobProfile)
+	detector.Jobs = jobs.Detector
 
 	src := &sources.S3{
 		URL:             options.URL,
@@ -46,7 +43,7 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 		SecretKey:       options.SecretKey,
 		SessionToken:    options.SessionToken,
 		MaxObjectSize:   options.MaxObjectSize,
-		Workers:         workers,
+		Jobs:            jobs.Source,
 		ShouldSkip:      detector.SkipFunc(),
 		MaxArchiveDepth: options.MaxArchiveDepth,
 	}

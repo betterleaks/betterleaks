@@ -18,16 +18,16 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func TestGitRepoWorkersHaveSameCoverage(t *testing.T) {
+func TestGitRepoJobsHaveSameCoverage(t *testing.T) {
 	repo := newGitTestRepo(t, 4)
 
-	scan := func(workers int) []string {
+	scan := func(jobs int) []string {
 		t.Helper()
 		var (
 			mu        sync.Mutex
 			fragments []string
 		)
-		source := &Git{RepoPath: repo, Workers: workers}
+		source := &Git{RepoPath: repo, Jobs: jobs}
 		require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
 			if err != nil {
 				return err
@@ -45,7 +45,10 @@ func TestGitRepoWorkersHaveSameCoverage(t *testing.T) {
 	require.Equal(t, scan(1), scan(2))
 }
 
-func TestGitRepoDefaultConsumesFragmentsSerially(t *testing.T) {
+func TestGitRepoDefaultProcessesFragmentsConcurrently(t *testing.T) {
+	if automaticJobs() < 2 {
+		t.Skip("automatic Git concurrency is serial when GOMAXPROCS is one")
+	}
 	repo := newGitTestRepo(t, 4)
 	started := make(chan struct{}, 4)
 	release := make(chan struct{})
@@ -68,6 +71,45 @@ func TestGitRepoDefaultConsumesFragmentsSerially(t *testing.T) {
 		})
 	}()
 
+	for range 2 {
+		select {
+		case <-started:
+		case err := <-done:
+			require.NoError(t, err)
+			t.Fatal("Git scan completed before yielding concurrent fragments")
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for concurrent Git fragments")
+		}
+	}
+	require.GreaterOrEqual(t, active.Load(), int64(2))
+
+	releaseAll()
+	require.NoError(t, <-done)
+}
+
+func TestGitRepoOneJobConsumesFragmentsSerially(t *testing.T) {
+	repo := newGitTestRepo(t, 4)
+	started := make(chan struct{}, 4)
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	var releaseOnce sync.Once
+	releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseAll()
+
+	var active atomic.Int64
+	go func() {
+		done <- (&Git{RepoPath: repo, Jobs: 1}).Fragments(t.Context(), func(_ Fragment, err error) error {
+			if err != nil {
+				return err
+			}
+			active.Add(1)
+			started <- struct{}{}
+			<-release
+			active.Add(-1)
+			return nil
+		})
+	}()
+
 	select {
 	case <-started:
 	case err := <-done:
@@ -79,7 +121,7 @@ func TestGitRepoDefaultConsumesFragmentsSerially(t *testing.T) {
 
 	select {
 	case <-started:
-		t.Fatal("default Git history scan yielded fragments concurrently")
+		t.Fatal("single-worker Git history scan yielded fragments concurrently")
 	case <-time.After(100 * time.Millisecond):
 	}
 	require.Equal(t, int64(1), active.Load())

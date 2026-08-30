@@ -25,7 +25,7 @@ import (
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
-const defaultGitFragmentWorkers = 40
+const maxGitHistoryJobs = 4
 
 // GitCmd helps to work with Git's output.
 type GitCmd struct {
@@ -397,10 +397,12 @@ type Git struct {
 	Platform        scm.Platform
 	RemoteURL       string
 	MaxArchiveDepth int
-	// Workers controls parallel Git history processes for RepoPath scans. For
-	// an explicitly supplied Cmd, it controls fragment workers. Zero uses one
-	// history process or the Cmd fragment default, respectively.
-	Workers int
+	// Jobs bounds concurrent Git history processes for RepoPath scans and
+	// fragment processing for an explicitly supplied Cmd. Zero is automatic.
+	Jobs int
+
+	budget   *jobBudget
+	jobOwned bool
 }
 
 // Fragments yields fragments from a git repo
@@ -422,7 +424,8 @@ func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 	}()
 
 	g, groupCtx := errgroup.WithContext(ctx)
-	g.SetLimit(workerCount(s.Workers, defaultGitFragmentWorkers))
+	jobs := jobsWithinBudget(s.Jobs, automaticJobs(), s.budget)
+	g.SetLimit(jobs)
 
 	var (
 		diffFilesCh = s.Cmd.DiffFilesCh()
@@ -494,58 +497,64 @@ func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 			}
 
 			g.Go(func() error {
-				if groupCtx.Err() != nil {
-					return nil
-				}
-				if yieldAsArchive {
-					blob, err := s.Cmd.NewBlobReaderContext(groupCtx, commitSHA, gitdiffFile.NewName)
-					if err != nil {
-						logging.Error().Err(err).Msg("could not read archive blob")
+				run := func() error {
+					if groupCtx.Err() != nil {
 						return nil
 					}
+					if yieldAsArchive {
+						blob, err := s.Cmd.NewBlobReaderContext(groupCtx, commitSHA, gitdiffFile.NewName)
+						if err != nil {
+							logging.Error().Err(err).Msg("could not read archive blob")
+							return nil
+						}
 
-					file := File{
-						Content:         blob,
-						Path:            gitdiffFile.NewName,
-						MaxArchiveDepth: s.MaxArchiveDepth,
-						ShouldSkip:      s.ShouldSkip,
-					}
+						file := File{
+							Content:         blob,
+							Path:            gitdiffFile.NewName,
+							MaxArchiveDepth: s.MaxArchiveDepth,
+							ShouldSkip:      s.ShouldSkip,
+						}
 
-					// enrich and yield fragments
-					err = file.Fragments(groupCtx, func(fragment Fragment, err error) error {
-						// create base attributes of the commit
-						attrs := maps.Clone(commitAttrs)
-						// add fragment-specific attributes (in case attributes have been enriched by the file source)
-						maps.Copy(attrs, fragment.Attributes)
-						// set the merged attributes back to the fragment that will be yielded
-						fragment.Attributes = attrs
-						return yield(fragment, err)
-					})
+						// enrich and yield fragments
+						err = file.Fragments(groupCtx, func(fragment Fragment, err error) error {
+							// create base attributes of the commit
+							attrs := maps.Clone(commitAttrs)
+							// add fragment-specific attributes (in case attributes have been enriched by the file source)
+							maps.Copy(attrs, fragment.Attributes)
+							// set the merged attributes back to the fragment that will be yielded
+							fragment.Attributes = attrs
+							return yield(fragment, err)
+						})
 
-					// Close the blob reader and log any issues
-					if err := blob.Close(); err != nil {
-						logging.Debug().Err(err).Msg("blobReader.Close() returned an error")
-					}
+						// Close the blob reader and log any issues
+						if err := blob.Close(); err != nil {
+							logging.Debug().Err(err).Msg("blobReader.Close() returned an error")
+						}
 
-					return err
-				}
-
-				for _, textFragment := range gitdiffFile.TextFragments {
-					if textFragment == nil {
-						return nil
-					}
-					fragment := Fragment{
-						Raw:        textFragment.Raw(gitdiff.OpAdd),
-						StartLine:  int(textFragment.NewPosition),
-						Attributes: commitAttrs,
-					}
-
-					if err := yield(fragment, nil); err != nil {
 						return err
 					}
-				}
 
-				return nil
+					for _, textFragment := range gitdiffFile.TextFragments {
+						if textFragment == nil {
+							return nil
+						}
+						fragment := Fragment{
+							Raw:        textFragment.Raw(gitdiff.OpAdd),
+							StartLine:  int(textFragment.NewPosition),
+							Attributes: commitAttrs,
+						}
+
+						if err := yield(fragment, nil); err != nil {
+							return err
+						}
+					}
+
+					return nil
+				}
+				if s.jobOwned {
+					return run()
+				}
+				return s.budget.run(groupCtx, run)
 			})
 		case err, open := <-errCh:
 			if !open {

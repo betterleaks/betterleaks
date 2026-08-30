@@ -30,6 +30,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 	sourcesList = removeNestedPaths(sourcesList)
 
 	initDiagnostics(&options.ScanFlags)
+	jobs := resolveJobPlan(options.Jobs, directoryJobProfile)
 
 	// start timer
 	start := time.Now()
@@ -46,6 +47,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 		initConfig(runtime, globals, &options.ScanFlags, source)
 		cfg := Config()
 		detector := Detector(runtime, globals, &options.ScanFlags, cfg, source)
+		detector.Jobs = jobs.Detector
 		lastDetector = detector
 
 		s := &sources.Files{
@@ -54,7 +56,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 			MaxFileSize:     options.MaxTargetMegabytes * 1_000_000,
 			Path:            source,
 			MaxArchiveDepth: options.MaxArchiveDepth,
-			Workers:         options.SourceWorkers,
+			Jobs:            jobs.Source,
 		}
 
 		for result := range detector.Run(runtime.Context, s) {

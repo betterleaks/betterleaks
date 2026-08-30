@@ -20,18 +20,12 @@ func (e *multipleErrors) Error() string   { return e.msg }
 func (e *multipleErrors) Unwrap() []error { return e.errs }
 
 type GitCmd struct {
-	ScanFlags  `embed:""`
-	Platform   string `help:"Target platform used to generate links: github or gitlab."`
-	Staged     bool   `help:"Scan staged commits (for pre-commit)."`
-	PreCommit  bool   `name:"pre-commit" help:"Scan using git diff."`
-	LogOpts    string `name:"log-opts" help:"Git log options."`
-	GitWorkers int    `name:"git-workers" help:"Alias for --source-workers when scanning Git."`
-	Repo       string `arg:"" optional:"" help:"Repository to scan."`
-}
-
-func (cmd *GitCmd) Validate() error {
-	_, err := resolveGitWorkers(cmd.SourceWorkers, cmd.GitWorkers)
-	return err
+	ScanFlags `embed:""`
+	Platform  string `help:"Target platform used to generate links: github or gitlab."`
+	Staged    bool   `help:"Scan staged commits (for pre-commit)."`
+	PreCommit bool   `name:"pre-commit" help:"Scan using git diff."`
+	LogOpts   string `name:"log-opts" help:"Git log options."`
+	Repo      string `arg:"" optional:"" help:"Repository to scan."`
 }
 
 func (cmd *GitCmd) Run(cli *CLI, runtime *commandRuntime) error {
@@ -60,13 +54,9 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 
 	// create detector
 	detector := Detector(runtime, globals, &options.ScanFlags, cfg, source)
+	jobs := resolveJobPlan(options.Jobs, gitJobProfile)
+	detector.Jobs = jobs.Detector
 
-	// parse flags
-	workers, workerErr := resolveGitWorkers(options.SourceWorkers, options.GitWorkers)
-	fmt.Println("Using", workers, "workers for scanning Git repository")
-	if workerErr != nil {
-		logging.Fatal().Err(workerErr).Send()
-	}
 	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
 
 	var (
@@ -85,7 +75,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        scm.NoPlatform,
 			MaxArchiveDepth: options.MaxArchiveDepth,
-			Workers:         workers,
+			Jobs:            jobs.Source,
 		}
 	} else {
 		scmPlatform, platformErr := scm.PlatformFromString(options.Platform)
@@ -101,7 +91,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 			RemoteURL:       remoteURL,
 			MaxArchiveDepth: options.MaxArchiveDepth,
 			LogOpts:         options.LogOpts,
-			Workers:         workers,
+			Jobs:            jobs.Source,
 		}
 	}
 
@@ -125,20 +115,4 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	}
 
 	findingSummaryAndExit(runtime, detector, findings, options.ExitCode, start, err)
-}
-
-func resolveGitWorkers(sourceWorkers, gitWorkers int) (int, error) {
-	if sourceWorkers < 0 {
-		return 0, fmt.Errorf("--source-workers must be non-negative")
-	}
-	if gitWorkers < 0 {
-		return 0, fmt.Errorf("--git-workers must be non-negative")
-	}
-	if sourceWorkers > 0 && gitWorkers > 0 && sourceWorkers != gitWorkers {
-		return 0, fmt.Errorf("--source-workers and --git-workers must match when both are set")
-	}
-	if sourceWorkers > 0 {
-		return sourceWorkers, nil
-	}
-	return gitWorkers, nil
 }

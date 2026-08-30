@@ -26,11 +26,10 @@ import (
 )
 
 const (
-	gitlabPerPage         = 100
-	gitlabScanConcurrency = 100
-	gitlabAPIConcurrency  = 10
-	gitlabDefaultBase     = "https://gitlab.com/"
-	gitlabAPISuffix       = "api/v4/"
+	gitlabPerPage        = 100
+	gitlabAPIConcurrency = 10
+	gitlabDefaultBase    = "https://gitlab.com/"
+	gitlabAPISuffix      = "api/v4/"
 )
 
 // GitLab enumerates projects via the GitLab REST API and delegates scanning
@@ -62,8 +61,9 @@ type GitLab struct {
 	// Scan config (passed through to Git per project)
 	ShouldSkip      SkipFunc
 	MaxArchiveDepth int
-	Workers         int // 0 uses source-specific defaults
+	Jobs            int // 0 is automatic
 	LogOpts         string
+	budget          *jobBudget
 
 	// Date-range filtering for API-backed resources
 	DateRangeOpts DateRangeOptions
@@ -219,6 +219,9 @@ func (s *GitLab) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		Msg("starting GitLab scan")
 
 	start := time.Now()
+	jobs, budget := ensureJobBudget(s.Jobs, automaticProviderJobs(), s.budget)
+	s.Jobs = jobs
+	s.budget = budget
 	if err := s.ensureClient(); err != nil {
 		return err
 	}
@@ -231,20 +234,20 @@ func (s *GitLab) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	if direct {
 		return s.scanDirect(ctx, target, yield)
 	}
-	workers := allocateProviderWorkers(s.Workers, gitlabScanConcurrency, target.Kind == "project")
+	targetJobs := providerTargetJobs(jobs, target.Kind == "project")
 
 	scanCtx, cancelScans := context.WithCancel(ctx)
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(workers.TargetWorkers)
+	scanGroup.SetLimit(targetJobs)
 
 	projCh, enumErrCh := s.enumerateProjects(ctx, target)
 	var projCount atomic.Int64
 	for proj := range projCh {
 		projCount.Add(1)
 		scanGroup.Go(func() error {
-			return s.scanProjectWithWorkers(scanCtx, proj, workers.WorkersPerTarget, yield)
+			return s.scanProjectWithJobs(scanCtx, proj, jobs, yield)
 		})
 	}
 	enumErr := <-enumErrCh
@@ -322,7 +325,7 @@ func (s *GitLab) ensureClient() error {
 		s.httpClient = httpclient.NewAuthenticatedClient(s.Token, s.restRetry, s.apiBaseURL.Host)
 	}
 	if s.apiSem == nil {
-		s.apiSem = make(chan struct{}, gitlabAPIConcurrency)
+		s.apiSem = make(chan struct{}, min(workerCount(s.Jobs, automaticProviderJobs()), gitlabAPIConcurrency))
 	}
 	return nil
 }
@@ -924,10 +927,10 @@ func (s *GitLab) inDateRange(t time.Time) (ok bool, terminate bool) {
 // L3 skip layers and delegates to per-resource scanners which add their own
 // L2 skips.
 func (s *GitLab) scanProject(ctx context.Context, proj *gitlabProject, yield FragmentsFunc) error {
-	return s.scanProjectWithWorkers(ctx, proj, 0, yield)
+	return s.scanProjectWithJobs(ctx, proj, s.Jobs, yield)
 }
 
-func (s *GitLab) scanProjectWithWorkers(ctx context.Context, proj *gitlabProject, workers int, yield FragmentsFunc) error {
+func (s *GitLab) scanProjectWithJobs(ctx context.Context, proj *gitlabProject, jobs int, yield FragmentsFunc) error {
 	logger := logging.With().Str("project", proj.PathWithNamespace).Logger()
 	projectAttrs := s.projectAttributes(proj, "")
 
@@ -955,7 +958,7 @@ func (s *GitLab) scanProjectWithWorkers(ctx context.Context, proj *gitlabProject
 	}
 
 	if s.Resources.Has(GitLabResourceTypeRepos) {
-		if err := run("repos", func() error { return s.scanProjectGit(ctx, proj, workers, glYield) }); err != nil {
+		if err := run("repos", func() error { return s.scanProjectGit(ctx, proj, jobs, glYield) }); err != nil {
 			return err
 		}
 	}
@@ -983,7 +986,7 @@ func (s *GitLab) scanProjectWithWorkers(ctx context.Context, proj *gitlabProject
 }
 
 // scanProjectGit clones the project and scans its git history.
-func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, workers int, yield FragmentsFunc) error {
+func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, jobs int, yield FragmentsFunc) error {
 	if proj.HTTPURLToRepo == "" {
 		return nil
 	}
@@ -992,7 +995,8 @@ func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, worker
 			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 			Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
 			MaxArchiveDepth: s.MaxArchiveDepth,
-			LogOpts:         s.LogOpts, Workers: workers,
+			LogOpts:         s.LogOpts, Jobs: jobs,
+			budget: s.budget,
 		}
 		return src.Fragments(ctx, yield)
 	})

@@ -2,27 +2,31 @@
 
 Use `--help` for full flag descriptions. This page is for patterns.
 
-## Source workers
+## Parallel jobs
 
-Use `--source-workers` to control how many source items are scanned
-concurrently. A value of `0` keeps each source's default.
+Use `-j` or `--jobs` to control pipeline width. A positive value bounds source
+work. CPU-bound detection uses the smaller of that value and `GOMAXPROCS`, so
+large I/O budgets do not oversubscribe the processor. Nested provider scans
+share the source-side budget rather than multiplying it per repository. Zero
+selects source-aware automatic widths.
 
 ```sh
-# scan at most eight files at a time
-betterleaks dir . --source-workers 8
+# use up to eight scan jobs
+betterleaks dir . -j 8
 
 # limit repository and nested content scanning
-betterleaks github https://github.com/my-company --source-workers 8
+betterleaks github https://github.com/my-company -j 8
 ```
 
-For `betterleaks git`, `--git-workers` is a compatibility alias for
-`--source-workers`; both control the same parallel Git history workers. GitHub,
-GitLab, and Hugging Face use only `--source-workers`. A single repository,
-project, model, dataset, Space, or bucket receives the full worker count. For
-an organization, user, group, or owner scan, up to 25% of the workers (capped
-at four) scan top-level targets. The remaining workers are divided between
-their nested Git history or file scans. A value of `0` preserves the source's
-historical defaults.
+For directories, automatic mode uses four I/O jobs per `GOMAXPROCS`, capped at
+40 unless `GOMAXPROCS` itself is higher. Object sources use twice `GOMAXPROCS`.
+Both use `GOMAXPROCS` for detection. For Git history, automatic mode uses up to
+four parallel Git processes and the same number of detector jobs. Explicit
+values remain upper bounds: detection is capped at `GOMAXPROCS`, while Git
+process and provider target concurrency are capped at four where additional
+parallelism has not improved throughput. `-j 1` provides a serial baseline for
+benchmarking. Validation retains its own worker and rate-limit controls because
+it performs external network requests.
 
 ## Pick a target
 
@@ -98,8 +102,8 @@ Use `git` for history and diffs.
 # full repo history
 betterleaks git .
 
-# parallel history scan
-betterleaks git . --source-workers 8
+# scan with four jobs
+betterleaks git . -j 4
 
 # custom git log scope
 betterleaks git . --log-opts="--all --since='90 days ago'"
@@ -114,7 +118,7 @@ betterleaks git . --pre-commit --staged
 betterleaks git . --platform github
 
 # history scan with JSON output
-betterleaks git . --source-workers 8 --report findings.json
+betterleaks git . -j 8 --report findings.json
 ```
 
 ---
@@ -561,12 +565,9 @@ betterleaks s3 --max-object-size=1073741824 https://my-bucket.s3.us-east-1.amazo
 # scan inside archives (.zip, .tar.gz, ...) in S3 objects
 betterleaks s3 --max-archive-depth=2 https://my-bucket.s3.us-east-1.amazonaws.com/
 
-# fewer concurrent GETs against rate-limited endpoints (default: 16)
-betterleaks s3 --source-workers=4 https://my-bucket.s3.us-east-1.amazonaws.com/
+# fewer concurrent GETs against a rate-limited endpoint
+betterleaks s3 -j 4 https://my-bucket.s3.us-east-1.amazonaws.com/
 ```
-
-S3 also accepts its existing `--workers` flag. When set, it overrides
-`--source-workers` for that scan.
 
 Objects in `GLACIER`, `GLACIER_IR`, and `DEEP_ARCHIVE` storage classes are skipped before fetching, as are empty objects and directory markers (`key/`).
 

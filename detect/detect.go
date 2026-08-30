@@ -122,8 +122,8 @@ type Detector struct {
 	// RuleTimings records per-rule diagnostic timings when diagnostics are enabled.
 	RuleTimings *RuleTimingCollector
 
-	// DetectWorkers limits concurrent fragment detection. Zero uses GOMAXPROCS.
-	DetectWorkers int
+	// Jobs limits concurrent fragment detection. Zero uses GOMAXPROCS.
+	Jobs int
 
 	tokenizer     *tiktoken.Tiktoken
 	tokenizerOnce sync.Once
@@ -442,7 +442,7 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		workerCount := d.detectWorkerCount()
+		workerCount := d.jobCount()
 		resultsCh := make(chan Result, workerCount)
 
 		if d.ValidationCounts == nil {
@@ -570,9 +570,9 @@ func isPipelineStop(err error) bool {
 	return errors.Is(err, errStopIteration) || errors.Is(err, context.Canceled)
 }
 
-func (d *Detector) detectWorkerCount() int {
-	if d.DetectWorkers > 0 {
-		return d.DetectWorkers
+func (d *Detector) jobCount() int {
+	if d.Jobs > 0 {
+		return d.Jobs
 	}
 	return max(runtime.GOMAXPROCS(0), 1)
 }
