@@ -49,9 +49,9 @@ it performs external network requests.
 Scan commands print findings in the human-readable format by default. Use
 `--jsonl` to emit one compact JSON finding per line instead.
 
-`--report <path>` writes a second, streaming report. The filename selects the
+`-o, --output <path>` writes a second, streaming report. The filename selects the
 format: `.json` writes a JSON array and `.jsonl` writes JSON Lines. Use
-`--report -` to write the report to stdout; it writes JSON by default and JSONL
+`--output -` to write the report to stdout; it writes JSON by default and JSONL
 when combined with `--jsonl`. A stdout report replaces the normal finding
 output so the two formats are never interleaved. If a scan is interrupted, the
 report is finalized with the findings emitted before cancellation, including
@@ -86,10 +86,10 @@ betterleaks dir . --max-target-megabytes 20
 betterleaks dir ./release-bundles --max-archive-depth 2
 
 # JSON report
-betterleaks dir . --report findings.json
+betterleaks dir . --output findings.json
 
 # JSONL report
-betterleaks dir . --report findings.jsonl
+betterleaks dir . --output findings.jsonl
 ```
 
 ---
@@ -118,7 +118,7 @@ betterleaks git . --pre-commit --staged
 betterleaks git . --platform github
 
 # history scan with JSON output
-betterleaks git . -j 8 --report findings.json
+betterleaks git . -j 8 --output findings.json
 ```
 
 ---
@@ -693,7 +693,7 @@ printf '%s\n' "$GITHUB_TOKEN" |
 	--jsonl
 ```
 
-`validate` always writes results to stdout and does not support `--report`.
+`validate` always writes results to stdout and does not support `--output`.
 Output never includes the supplied primary, component,
 or capture values. If a validator returns one in its reason or metadata, the
 matching value is replaced with `[redacted]`. Attributes are sanitized the same
@@ -729,7 +729,7 @@ terraform output -json | betterleaks stdin
 curl -sL https://example.com/blob.txt.gz | gunzip | betterleaks stdin
 
 # JSON report to stdout
-some-command | betterleaks stdin --report -
+some-command | betterleaks stdin --output -
 ```
 
 ---

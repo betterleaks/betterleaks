@@ -507,7 +507,7 @@ let r2 = http.get(%q, {});
 	}
 }
 
-func TestValidateCommandDoesNotExposeReportPath(t *testing.T) {
+func TestValidateCommandDoesNotExposeOutput(t *testing.T) {
 	configPath := writeValidateTestConfig(t, `
 [[rules]]
 id = "reported-token"
@@ -521,12 +521,12 @@ validate = '''{"result": "invalid", "reason": "Unauthorized"}'''
 		"validate",
 		"--config", configPath,
 		"--rule-id", "reported-token",
-		"--report", reportPath,
+		"--output", reportPath,
 		"reported-secret",
 	})
 	err := root.Execute()
-	if err == nil || !strings.Contains(err.Error(), "unknown flag --report") {
-		t.Fatalf("error = %v, want unknown report flag", err)
+	if err == nil || !strings.Contains(err.Error(), "unknown flag --output") {
+		t.Fatalf("error = %v, want unknown output flag", err)
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())

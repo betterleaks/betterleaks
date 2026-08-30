@@ -14,7 +14,7 @@ import (
 )
 
 // findingCollector counts and writes findings as they arrive. Reports are
-// streamed so enabling --report does not retain every finding in memory.
+// streamed so enabling --output does not retain every finding in memory.
 type findingCollector struct {
 	count int
 
@@ -34,12 +34,12 @@ func newFindingCollector(flags *ScanFlags, noColor bool, stdout io.Writer) (*fin
 	collector := &findingCollector{
 		noColor:    noColor,
 		redact:     uint(flags.Redact),
-		reportPath: flags.Report,
+		reportPath: flags.Output,
 	}
 
 	// A report directed to stdout owns the stream, preventing pretty or JSONL
 	// finding output from being interleaved with the report document.
-	if !flags.Silent && flags.Report != report.StdoutReportPath {
+	if !flags.Silent && flags.Output != report.StdoutReportPath {
 		if flags.JSONL {
 			var err error
 			collector.stdoutWriter, err = (&report.JsonlReporter{}).NewWriter(stdout)
@@ -51,20 +51,20 @@ func newFindingCollector(flags *ScanFlags, noColor bool, stdout io.Writer) (*fin
 		}
 	}
 
-	if flags.Report == "" {
+	if flags.Output == "" {
 		return collector, nil
 	}
 
-	reporter, err := reporterForPath(flags.Report, flags.JSONL)
+	reporter, err := reporterForPath(flags.Output, flags.JSONL)
 	if err != nil {
 		return nil, err
 	}
-	if flags.Report == report.StdoutReportPath {
+	if flags.Output == report.StdoutReportPath {
 		collector.reportOutput = nopWriteCloser{Writer: stdout}
 	} else {
-		collector.reportOutput, err = os.Create(flags.Report)
+		collector.reportOutput, err = os.Create(flags.Output)
 		if err != nil {
-			return nil, fmt.Errorf("create report %q: %w", flags.Report, err)
+			return nil, fmt.Errorf("create output %q: %w", flags.Output, err)
 		}
 		collector.closeReport = true
 	}
@@ -100,7 +100,7 @@ func reporterForPath(path string, stdoutJSONL bool) (report.StreamingReporter, e
 	case ".jsonl":
 		return &report.JsonlReporter{}, nil
 	default:
-		return nil, fmt.Errorf("report path %q must end in .json or .jsonl", path)
+		return nil, fmt.Errorf("output path %q must end in .json or .jsonl", path)
 	}
 }
 

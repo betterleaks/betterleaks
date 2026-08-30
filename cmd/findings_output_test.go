@@ -202,24 +202,26 @@ func TestFindingCollectorSkipsReportBeforeFilesOpenIt(t *testing.T) {
 	require.JSONEq(t, `[]`, string(contents))
 }
 
-func TestFindingCollectorRejectsUnknownReportExtension(t *testing.T) {
+func TestFindingCollectorRejectsUnknownOutputExtension(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "findings.txt")
 	flags, output := newFindingOutputCommand(false, path, false, 0)
 	_, err := newFindingCollector(flags, true, output)
-	require.EqualError(t, err, "report path \""+path+"\" must end in .json or .jsonl")
+	require.EqualError(t, err, "output path \""+path+"\" must end in .json or .jsonl")
 }
 
 func TestScanOutputFlags(t *testing.T) {
-	cli, err := parseCLIForTest(t, "dir", "-s", "--jsonl", "-r", "findings.json")
+	cli, err := parseCLIForTest(t, "dir", "-s", "--jsonl", "-o", "findings.json")
 	require.NoError(t, err)
 	require.True(t, cli.Directory.Silent)
 	require.True(t, cli.Directory.JSONL)
-	require.Equal(t, "findings.json", cli.Directory.Report)
+	require.Equal(t, "findings.json", cli.Directory.Output)
 
-	for _, removed := range []string{"report-path", "report-format", "verbose"} {
+	for _, removed := range []string{"report", "report-path", "report-format", "verbose"} {
 		_, err := parseCLIForTest(t, "dir", "--"+removed)
 		require.ErrorContains(t, err, "unknown flag")
 	}
+	_, err = parseCLIForTest(t, "dir", "-r", "findings.json")
+	require.ErrorContains(t, err, "unknown flag")
 }
 
 func TestDeprecatedScanCommandsRemoved(t *testing.T) {
@@ -236,10 +238,10 @@ func TestZeroValueFindingCollectorCountsWithoutOutput(t *testing.T) {
 	require.Equal(t, 1, collector.Count())
 }
 
-func newFindingOutputCommand(jsonl bool, reportPath string, silent bool, redact uint) (*ScanFlags, *bytes.Buffer) {
+func newFindingOutputCommand(jsonl bool, outputPath string, silent bool, redact uint) (*ScanFlags, *bytes.Buffer) {
 	flags := &ScanFlags{
 		JSONL:  jsonl,
-		Report: reportPath,
+		Output: outputPath,
 		Silent: silent,
 		Redact: redactFlag(redact),
 	}

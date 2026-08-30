@@ -11,7 +11,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 	scanOnly := []string{
 		"exit-code",
 		"silent",
-		"report",
+		"output",
 		"confidence",
 		"max-target-megabytes",
 		"jobs",

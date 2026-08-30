@@ -15,7 +15,7 @@ type ScanFlags struct {
 	ExitCode            int        `name:"exit-code" default:"1" help:"Exit code when leaks have been encountered."`
 	Silent              bool       `short:"s" help:"Suppress findings and banner."`
 	JSONL               bool       `name:"jsonl" help:"Print findings as JSONL."`
-	Report              string     `short:"r" help:"Output findings in report format to file (use '-' for stdout)."`
+	Output              string     `name:"output" short:"o" placeholder:"PATH" help:"Write findings to PATH (.json or .jsonl; use '-' for stdout)."`
 	Confidence          string     `help:"Minimum confidence to include (low, medium, high)."`
 	MaxTargetMegabytes  int        `name:"max-target-megabytes" help:"Files larger than this will be skipped."`
 	Jobs                int        `name:"jobs" short:"j" help:"Parallel scan jobs; CPU-bound stages cap at available processors (0 = automatic)."`
