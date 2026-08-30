@@ -43,7 +43,7 @@ func TestTranslate(t *testing.T) {
 			cfgName: "generic",
 			cfg: &Config{
 				Title: "gitleaks config",
-				Rules: map[string]Rule{"generic-api-key": {
+				Rules: []Rule{{
 					RuleID:      "generic-api-key",
 					Description: "Generic API Key",
 					Regex:       regexp.MustCompile(`(?i)(?:key|api|token|secret|client|passwd|password|auth|access)(?:[0-9a-z\-_\t .]{0,20})(?:[\s|']|[\s|"]){0,3}(?:=|>|:{1,3}=|\|\|:|<=|=>|:|\?=)(?:'|\"|\s|=|\x60){0,5}([0-9a-z\-_.=]{10,150})(?:['|\"|\n|\r|\s|\x60|;]|$)`),
@@ -56,7 +56,7 @@ func TestTranslate(t *testing.T) {
 		{
 			cfgName: "valid/rule_path_only",
 			cfg: &Config{
-				Rules: map[string]Rule{"python-files-only": {
+				Rules: []Rule{{
 					RuleID:      "python-files-only",
 					Description: "Python Files",
 					Path:        regexp.MustCompile(`.py`),
@@ -68,7 +68,7 @@ func TestTranslate(t *testing.T) {
 		{
 			cfgName: "valid/rule_regex_escaped_character_group",
 			cfg: &Config{
-				Rules: map[string]Rule{"pypi-upload-token": {
+				Rules: []Rule{{
 					RuleID:      "pypi-upload-token",
 					Description: "PyPI upload token",
 					Regex:       regexp.MustCompile(`pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,1000}`),
@@ -80,7 +80,7 @@ func TestTranslate(t *testing.T) {
 		{
 			cfgName: "valid/rule_secret_group",
 			cfg: &Config{
-				Rules: map[string]Rule{"discord-api-key": {
+				Rules: []Rule{{
 					RuleID:      "discord-api-key",
 					Description: "Discord API key",
 					Regex:       regexp.MustCompile(`(?i)(discord[a-z0-9_ .\-,]{0,25})(=|>|:=|\|\|:|<=|=>|:).{0,5}['\"]([a-h0-9]{64})['\"]`),
@@ -119,24 +119,25 @@ func TestTranslate(t *testing.T) {
 func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 	cfg, err := Default()
 	require.NoError(t, err)
-	require.NoError(t, cfg.CompileFilters(nil))
 
 	filterRuntime, err := exprruntime.New(nil)
 	require.NoError(t, err)
+	if cfg.Prefilter != "" {
+		_, err = filterRuntime.CompilePrefilter(cfg.Prefilter)
+		require.NoError(t, err, "global prefilter")
+	}
 	if cfg.Filter != "" {
 		_, err = filterRuntime.CompileFilter(cfg.Filter, nil)
 		require.NoError(t, err, "global filter")
 	}
 
-	validationRuntime, err := cfg.CompileValidation()
-	require.NoError(t, err)
-	for _, rule := range cfg.GetOrderedRules() {
+	for _, rule := range cfg.Rules {
 		if rule.Filter != "" {
 			_, err = filterRuntime.CompileFilter(rule.Filter, nil)
 			require.NoErrorf(t, err, "rule %q filter", rule.RuleID)
 		}
 		if rule.ValidateExpr != "" {
-			_, err = validationRuntime.CompileValidation(rule.ValidateExpr)
+			_, err = filterRuntime.CompileValidation(rule.ValidateExpr)
 			require.NoErrorf(t, err, "rule %q validation", rule.RuleID)
 		}
 	}
@@ -145,14 +146,14 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 func TestGenericRuleConfidence(t *testing.T) {
 	cfg, err := Default()
 	require.NoError(t, err)
-	for id, rule := range cfg.Rules {
-		require.NotEmptyf(t, rule.Confidence, "rule %q has no confidence", id)
+	for _, rule := range cfg.Rules {
+		require.NotEmptyf(t, rule.Confidence, "rule %q has no confidence", rule.RuleID)
 	}
-	require.Equal(t, "low", cfg.Rules["generic-api-key"].Confidence)
-	require.Equal(t, "medium", cfg.Rules["box-api-access-token"].Confidence)
-	require.Equal(t, "high", cfg.Rules["openai-api-key"].Confidence)
-	require.Contains(t, cfg.Rules["generic-api-key"].Filter, `\b[a-z0-9]+[_.-]+token\b`)
-	require.Contains(t, cfg.Rules["generic-api-key"].Filter, `]) ? "medium" : "low";`)
+	require.Equal(t, "low", requireRule(t, cfg, "generic-api-key").Confidence)
+	require.Equal(t, "medium", requireRule(t, cfg, "box-api-access-token").Confidence)
+	require.Equal(t, "high", requireRule(t, cfg, "openai-api-key").Confidence)
+	require.Contains(t, requireRule(t, cfg, "generic-api-key").Filter, `\b[a-z0-9]+[_.-]+token\b`)
+	require.Contains(t, requireRule(t, cfg, "generic-api-key").Filter, `]) ? "medium" : "low";`)
 }
 
 func TestRuleConfidence(t *testing.T) {
@@ -163,7 +164,7 @@ regex = "secret"
 confidence = "high"
 `, "")
 	require.NoError(t, err)
-	require.Equal(t, "high", cfg.Rules["test"].Confidence)
+	require.Equal(t, "high", requireRule(t, cfg, "test").Confidence)
 
 	_, err = ParseTOMLString(`
 [[rules]]
@@ -174,28 +175,50 @@ confidence = "certain"
 	require.ErrorContains(t, err, "invalid confidence")
 }
 
+func TestMinVersion(t *testing.T) {
+	cfg, err := ParseTOMLString(`
+minVersion = "v1.8.0"
+
+[[rules]]
+id = "test"
+regex = "secret"
+`, "")
+	require.NoError(t, err)
+	require.Equal(t, "v1.8.0", cfg.MinVersion)
+
+	_, err = ParseTOMLString(`
+minVersion = "not-a-version"
+
+[[rules]]
+id = "test"
+regex = "secret"
+`, "")
+	require.ErrorContains(t, err, "invalid minVersion")
+
+}
+
 func TestTranslateExtend(t *testing.T) {
 	tests := []translateCase{
 		// Valid
 		{
 			cfgName: "valid/extend",
 			cfg: &Config{
-				Rules: map[string]Rule{
-					"aws-access-key": {
+				Rules: []Rule{
+					{
 						RuleID:      "aws-access-key",
 						Description: "AWS Access Key",
 						Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
 					},
-					"aws-secret-key": {
+					{
 						RuleID:      "aws-secret-key",
 						Description: "AWS Secret Key",
 						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
 					},
-					"aws-secret-key-again": {
+					{
 						RuleID:      "aws-secret-key-again",
 						Description: "AWS Secret Key",
 						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
@@ -209,14 +232,14 @@ func TestTranslateExtend(t *testing.T) {
 			cfgName: "valid/extend_disabled",
 			cfg: &Config{
 				Title: "gitleaks extend disable",
-				Rules: map[string]Rule{
-					"aws-secret-key": {
+				Rules: []Rule{
+					{
 						RuleID:   "aws-secret-key",
 						Regex:    regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
 						Tags:     []string{"key", "AWS"},
 						Keywords: []string{},
 					},
-					"pypi-upload-token": {
+					{
 						RuleID:   "pypi-upload-token",
 						Regex:    regexp.MustCompile(`pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,1000}`),
 						Tags:     []string{},
@@ -228,8 +251,8 @@ func TestTranslateExtend(t *testing.T) {
 		{
 			cfgName: "valid/extend_rule_no_regexpath",
 			cfg: &Config{
-				Rules: map[string]Rule{
-					"aws-secret-key-again-again": {
+				Rules: []Rule{
+					{
 						RuleID:      "aws-secret-key-again-again",
 						Description: "AWS Secret Key",
 						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
@@ -245,7 +268,7 @@ func TestTranslateExtend(t *testing.T) {
 			rules:   []string{"aws-access-key"},
 			cfg: &Config{
 				Title: "override a built-in rule's description",
-				Rules: map[string]Rule{"aws-access-key": {
+				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "Puppy Doggy",
 					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
@@ -260,7 +283,7 @@ func TestTranslateExtend(t *testing.T) {
 			rules:   []string{"aws-access-key"},
 			cfg: &Config{
 				Title: "override a built-in rule's path",
-				Rules: map[string]Rule{"aws-access-key": {
+				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
@@ -276,7 +299,7 @@ func TestTranslateExtend(t *testing.T) {
 			rules:   []string{"aws-access-key"},
 			cfg: &Config{
 				Title: "override a built-in rule's regex",
-				Rules: map[string]Rule{"aws-access-key": {
+				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       regexp.MustCompile("(?:a)"),
@@ -291,7 +314,7 @@ func TestTranslateExtend(t *testing.T) {
 			rules:   []string{"aws-access-key"},
 			cfg: &Config{
 				Title: "override a built-in rule's secretGroup",
-				Rules: map[string]Rule{"aws-access-key": {
+				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       regexp.MustCompile("(a)(a)"),
@@ -307,7 +330,7 @@ func TestTranslateExtend(t *testing.T) {
 			rules:   []string{"aws-access-key"},
 			cfg: &Config{
 				Title: "override a built-in rule's filter",
-				Rules: map[string]Rule{"aws-access-key": {
+				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
@@ -323,7 +346,7 @@ func TestTranslateExtend(t *testing.T) {
 			rules:   []string{"aws-access-key"},
 			cfg: &Config{
 				Title: "override a built-in rule's keywords",
-				Rules: map[string]Rule{"aws-access-key": {
+				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
@@ -338,7 +361,7 @@ func TestTranslateExtend(t *testing.T) {
 			rules:   []string{"aws-access-key"},
 			cfg: &Config{
 				Title: "override a built-in rule's tags",
-				Rules: map[string]Rule{"aws-access-key": {
+				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
@@ -379,9 +402,9 @@ func testTranslate(t *testing.T, test translateCase) {
 	}
 
 	if len(test.rules) > 0 {
-		rules := make(map[string]Rule)
+		rules := make([]Rule, 0, len(test.rules))
 		for _, name := range test.rules {
-			rules[name] = cfg.Rules[name]
+			rules = append(rules, requireRule(t, cfg, name))
 		}
 		cfg.Rules = rules
 	}
@@ -411,8 +434,8 @@ regex = "fallback"
 specificity = 0
 `, "")
 	require.NoError(t, err)
-	assert.Equal(t, DefaultRuleSpecificity, cfg.Rules["default"].Specificity)
-	assert.Equal(t, 0, cfg.Rules["fallback"].Specificity)
+	assert.Equal(t, DefaultRuleSpecificity, requireRule(t, cfg, "default").Specificity)
+	assert.Equal(t, 0, requireRule(t, cfg, "fallback").Specificity)
 }
 
 func TestComponents(t *testing.T) {
@@ -435,7 +458,7 @@ id = "optional-component"
 regex = "optional"
 `, "")
 		require.NoError(t, err)
-		components := cfg.Rules["primary"].Components
+		components := requireRule(t, cfg, "primary").Components
 		require.Len(t, components, 2)
 		assert.False(t, components[0].Optional)
 		assert.Equal(t, "5L", components[0].Within)
@@ -443,59 +466,15 @@ regex = "optional"
 		assert.Equal(t, "-12C,+4C", components[1].Within)
 	})
 
-	t.Run("legacy required syntax", func(t *testing.T) {
-		cfg, err := ParseTOMLString(`
-[[rules]]
-id = "primary"
-regex = "primary"
-[[rules.required]]
-id = "component"
-withinLines = 3
-withinColumns = 12
-
-[[rules]]
-id = "component"
-regex = "component"
-`, "")
-		require.NoError(t, err)
-		require.Len(t, cfg.Rules["primary"].Components, 1)
-		component := cfg.Rules["primary"].Components[0]
-		assert.False(t, component.Optional)
-		assert.Equal(t, "3L,12C", component.Within)
-	})
-
-	t.Run("legacy proximity must be non-negative", func(t *testing.T) {
+	t.Run("removed required syntax is rejected", func(t *testing.T) {
 		_, err := ParseTOMLString(`
 [[rules]]
 id = "primary"
 regex = "primary"
 [[rules.required]]
 id = "component"
-withinColumns = -1
 `, "")
-		require.ErrorContains(t, err, "withinColumns must be non-negative")
-	})
-
-	t.Run("components supersede legacy syntax", func(t *testing.T) {
-		cfg, err := ParseTOMLString(`
-[[rules]]
-id = "primary"
-regex = "primary"
-components = [{ id = "optional-component", optional = true }]
-[[rules.required]]
-id = "legacy-component"
-
-[[rules]]
-id = "optional-component"
-regex = "optional"
-
-[[rules]]
-id = "legacy-component"
-regex = "legacy"
-`, "")
-		require.NoError(t, err)
-		require.Len(t, cfg.Rules["primary"].Components, 1)
-		assert.Equal(t, "optional-component", cfg.Rules["primary"].Components[0].RuleID)
+		require.ErrorContains(t, err, "[[rules.required]] is not supported; use rules.components")
 	})
 }
 
@@ -565,8 +544,8 @@ regex = "child"
 components = [{ id = "component" }]
 `, basePath), filepath.Join(tempDir, "child.toml"))
 	require.NoError(t, err)
-	assert.Empty(t, cfg.Rules["base-primary"].Components, "an explicit empty list should clear inherited components")
-	require.Len(t, cfg.Rules["child-primary"].Components, 1, "references should resolve after extension")
+	assert.Empty(t, requireRule(t, cfg, "base-primary").Components, "an explicit empty list should clear inherited components")
+	require.Len(t, requireRule(t, cfg, "child-primary").Components, 1, "references should resolve after extension")
 }
 
 func loadTestConfig(cfgName string) (*Config, error) {
@@ -588,7 +567,8 @@ unknownRuleKey = "ignored"
 
 	require.Equal(t, "custom", cfg.Title)
 	require.Equal(t, "/tmp/custom.toml", cfg.Path)
-	require.Contains(t, cfg.Rules, "test-rule")
+	_, exists := cfg.Rule("test-rule")
+	require.True(t, exists)
 }
 
 func TestExtendedRuleKeywordsAreDowncase(t *testing.T) {
@@ -614,8 +594,23 @@ func TestExtendedRuleKeywordsAreDowncase(t *testing.T) {
 			cfg, err := loadTestConfig(tt.cfgName)
 			require.NoError(t, err)
 
-			_, exists := cfg.Keywords[tt.expectedKeywords]
-			require.Truef(t, exists, "The expected keyword %s did not exist as a key of cfg.Keywords", tt.expectedKeywords)
+			found := false
+			for _, rule := range cfg.Rules {
+				for _, keyword := range rule.Keywords {
+					if keyword == tt.expectedKeywords {
+						found = true
+						break
+					}
+				}
+			}
+			require.Truef(t, found, "The expected keyword %s did not exist in any rule", tt.expectedKeywords)
 		})
 	}
+}
+
+func requireRule(t testing.TB, cfg *Config, id string) Rule {
+	t.Helper()
+	rule, ok := cfg.Rule(id)
+	require.Truef(t, ok, "rule %q not found", id)
+	return rule
 }

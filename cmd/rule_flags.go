@@ -46,7 +46,10 @@ func applyRuleSelection(flags *ScanFlags, cfg *config.Config) error {
 		return nil
 	}
 
-	availableRules := cfg.Rules
+	availableRules := make(map[string]config.Rule, len(cfg.Rules))
+	for _, rule := range cfg.Rules {
+		availableRules[rule.RuleID] = rule
+	}
 	disabledRuleIDs := make(map[string]struct{}, len(disableRules))
 	for _, ruleID := range disableRules {
 		if _, ok := availableRules[ruleID]; !ok {
@@ -108,25 +111,12 @@ func applyRuleSelection(flags *ScanFlags, cfg *config.Config) error {
 		logging.Info().Msg("Disabling rules: " + strings.Join(disableRules, ", "))
 	}
 
-	cfg.Rules = selectedRules
-	rebuildRuleDispatch(cfg)
-	return nil
-}
-
-// rebuildRuleDispatch drops keywords for rules removed by CLI selection and
-// refreshes the detector's keyword-to-rule indexes.
-func rebuildRuleDispatch(cfg *config.Config) {
-	cfg.Keywords = make(map[string]struct{})
-	cfg.KeywordToRules = make(map[string][]string)
-	cfg.NoKeywordRules = nil
-	for ruleID, rule := range cfg.Rules {
-		if len(rule.Keywords) == 0 {
-			cfg.NoKeywordRules = append(cfg.NoKeywordRules, ruleID)
-			continue
-		}
-		for _, keyword := range rule.Keywords {
-			cfg.Keywords[keyword] = struct{}{}
-			cfg.KeywordToRules[keyword] = append(cfg.KeywordToRules[keyword], ruleID)
+	selected := make([]config.Rule, 0, len(selectedRules))
+	for _, rule := range cfg.Rules {
+		if selectedRule, ok := selectedRules[rule.RuleID]; ok {
+			selected = append(selected, selectedRule)
 		}
 	}
+	cfg.Rules = selected
+	return nil
 }

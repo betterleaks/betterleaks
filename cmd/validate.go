@@ -72,7 +72,7 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 	if err != nil {
 		return err
 	}
-	rule, ok := resolved.cfg.Rules[ruleID]
+	rule, ok := resolved.cfg.Rule(ruleID)
 	if !ok {
 		return unknownValidationRuleError(resolved.cfg, ruleID)
 	}
@@ -83,12 +83,9 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 		return err
 	}
 
-	rt, err := resolved.cfg.CompileValidation()
+	rt, err := exprruntime.New(nil)
 	if err != nil {
 		return err
-	}
-	if rt == nil {
-		return fmt.Errorf("rule %q does not define validation", ruleID)
 	}
 	if err := configureCredentialRuntime(options.ValidationRuntimeFlags, rt); err != nil {
 		return err
@@ -157,13 +154,7 @@ func writeCredentialRuleList(runtime *commandRuntime, globals *GlobalFlags, cmd 
 
 func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 	result := report.CredentialRuleList{SchemaVersion: report.CredentialReportSchemaVersion}
-	seen := make(map[string]struct{}, len(cfg.Rules))
-	for _, id := range sortedRuleIDs(cfg) {
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		rule := cfg.Rules[id]
+	for _, rule := range cfg.Rules {
 		if strings.TrimSpace(rule.ValidateExpr) == "" {
 			continue
 		}
@@ -639,13 +630,8 @@ func validateComponents(rule configpkg.Rule, supplied map[string]struct{}) error
 func unknownValidationRuleError(cfg *configpkg.Config, ruleID string) error {
 	query := strings.ToLower(ruleID)
 	var matches []string
-	seen := make(map[string]struct{}, len(cfg.Rules))
-	for _, id := range sortedRuleIDs(cfg) {
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		rule := cfg.Rules[id]
+	for _, rule := range cfg.Rules {
+		id := rule.RuleID
 		if strings.TrimSpace(rule.ValidateExpr) != "" && strings.Contains(strings.ToLower(id), query) {
 			matches = append(matches, id)
 		}

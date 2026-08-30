@@ -7,6 +7,7 @@ import (
 	"iter"
 	"net/http"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,7 +30,6 @@ import (
 	"github.com/betterleaks/betterleaks/sources"
 
 	"github.com/rs/zerolog"
-	"golang.org/x/exp/maps"
 )
 
 // ValidationOptions controls secret validation behavior.
@@ -79,7 +79,8 @@ type ruleCandidates struct {
 
 // Detector is the main detector struct
 type Detector struct {
-	// Config is the configuration for the detector
+	// Config is retained for caller introspection. Detection uses the immutable
+	// runtime snapshot built during construction.
 	Config *config.Config
 
 	// MaxDecodeDepths limits how many recursive decoding passes are allowed
@@ -111,7 +112,10 @@ type Detector struct {
 
 	// prefilter is a ahocorasick struct used for doing efficient string
 	// matching given a set of words (keywords from the rules in the config)
-	prefilter *ahocorasick.Matcher
+	prefilter        *ahocorasick.Matcher
+	prefilterProgram exprruntime.Program
+	globalFilterExpr string
+	configPath       string
 
 	TotalBytes atomic.Uint64
 
@@ -136,10 +140,11 @@ type Detector struct {
 	filterProgramM     sync.Mutex
 	filterPrograms     map[string]exprruntime.Program
 
-	// rulesBySpecificity contains every configured rule ID in descending
+	// rulesBySpecificity contains an immutable snapshot of every configured rule in descending
 	// specificity order. Its positions are the shared index space used by the
 	// candidate slices below, so it must not change after detector construction.
-	rulesBySpecificity []string
+	rulesBySpecificity []config.Rule
+	ruleIndexByID      map[string]int
 
 	// keywordRuleIndexes maps each Aho-Corasick pattern ID to the positions in
 	// rulesBySpecificity of rules that use that keyword. Precomputing this avoids
@@ -166,10 +171,24 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Fatal().Msg("config is required to create detector")
 		return nil
 	}
-	// Compile validation programs (no-op if no rules have ValidateExpr).
-	validationRuntime, validationErr := cfg.CompileValidation()
-	if validationErr != nil {
-		logging.Fatal().Err(validationErr).Msg("failed to compile validation expressions")
+	rulesBySpecificity, ruleIndexByID, snapshotErr := snapshotDetectorRules(cfg)
+	if snapshotErr != nil {
+		logging.Fatal().Err(snapshotErr).Msg("invalid config")
+		return nil
+	}
+
+	var validationRuntime *exprruntime.Runtime
+	for _, rule := range rulesBySpecificity {
+		if rule.ValidateExpr == "" {
+			continue
+		}
+		var validationErr error
+		validationRuntime, validationErr = exprruntime.New(nil)
+		if validationErr != nil {
+			logging.Fatal().Err(validationErr).Msg("failed to create validation runtime")
+			return nil
+		}
+		break
 	}
 	if validationRuntime != nil {
 		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
@@ -179,51 +198,61 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		logging.Fatal().Err(exprErr).Msg("failed to create expr runtime")
 	}
 
-	keywords := maps.Keys(cfg.Keywords)
+	keywordToRuleIndexes := make(map[string][]int)
+	noKeywordIndexes := make([]int, 0)
+	for ruleIndex, rule := range rulesBySpecificity {
+		if len(rule.Keywords) == 0 {
+			noKeywordIndexes = append(noKeywordIndexes, ruleIndex)
+			continue
+		}
+		for _, keyword := range rule.Keywords {
+			keyword = strings.ToLower(keyword)
+			indexes := keywordToRuleIndexes[keyword]
+			// A rule may repeat a keyword with different casing. Dispatch it once.
+			if len(indexes) == 0 || indexes[len(indexes)-1] != ruleIndex {
+				keywordToRuleIndexes[keyword] = append(indexes, ruleIndex)
+			}
+		}
+	}
+	keywords := make([]string, 0, len(keywordToRuleIndexes))
+	for keyword := range keywordToRuleIndexes {
+		keywords = append(keywords, keyword)
+	}
+	sort.Strings(keywords)
+	keywordRuleIndexes := make([][]int, len(keywords))
+	for patternID, keyword := range keywords {
+		keywordRuleIndexes[patternID] = keywordToRuleIndexes[keyword]
+	}
 	d := &Detector{
 		ValidationCounts:       make(map[report.ValidationStatus]int),
 		Config:                 cfg,
+		configPath:             cfg.Path,
+		globalFilterExpr:       cfg.Filter,
 		prefilter:              ahocorasick.Compile(keywords, true),
 		exprRuntime:            exprRuntime,
 		validationRuntime:      validationRuntime,
 		validationPrograms:     make(map[string]exprruntime.Program),
 		filterPrograms:         make(map[string]exprruntime.Program),
+		rulesBySpecificity:     rulesBySpecificity,
+		ruleIndexByID:          ruleIndexByID,
+		keywordRuleIndexes:     keywordRuleIndexes,
+		noKeywordIndexes:       noKeywordIndexes,
 		ValidationExtractEmpty: valOpts.ExtractEmpty,
-	}
-	d.rulesBySpecificity = orderedRulesBySpecificity(cfg)
-	// The matcher returns stable keyword indexes. Resolve those to rule indexes
-	// once so the hot scan loop does not allocate strings or maps.
-	d.keywordRuleIndexes = make([][]int, len(keywords))
-	ruleIndexes := make(map[string]int, len(d.rulesBySpecificity))
-	for i, ruleID := range d.rulesBySpecificity {
-		ruleIndexes[ruleID] = i
-	}
-	for patternID, keyword := range keywords {
-		ruleIDs := cfg.KeywordToRules[keyword]
-		for _, ruleID := range ruleIDs {
-			ruleIndex, ok := ruleIndexes[ruleID]
-			if !ok {
-				continue
-			}
-			d.keywordRuleIndexes[patternID] = append(d.keywordRuleIndexes[patternID], ruleIndex)
-		}
-	}
-	for _, ruleID := range cfg.NoKeywordRules {
-		ruleIndex, ok := ruleIndexes[ruleID]
-		if !ok {
-			continue
-		}
-		d.noKeywordIndexes = append(d.noKeywordIndexes, ruleIndex)
 	}
 	d.candidatePool.New = func() any {
 		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
 	}
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
 
-	// Compile only global prefilter programs so they are available before scanning.
-	// Global finding filters and per-rule filters compile lazily on first candidate.
-	if compileErr := cfg.CompileFilters(nil); compileErr != nil {
-		logging.Fatal().Err(compileErr).Msg("failed to compile filters")
+	// Compile only the global prefilter so sources can use it before scanning.
+	// Finding filters and per-rule expressions compile lazily on first candidate.
+	if cfg.Prefilter != "" {
+		program, compileErr := exprRuntime.CompilePrefilter(cfg.Prefilter)
+		if compileErr != nil {
+			logging.Fatal().Err(compileErr).Msg("failed to compile prefilter")
+			return nil
+		}
+		d.prefilterProgram = program
 	}
 
 	// Set up validation pool when enabled.
@@ -278,7 +307,7 @@ func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
 }
 
 func (d *Detector) globalFilterProgram() (exprruntime.Program, bool, error) {
-	if d.Config.Filter == "" {
+	if d.globalFilterExpr == "" {
 		return nil, false, nil
 	}
 	d.filterProgramM.Lock()
@@ -286,7 +315,7 @@ func (d *Detector) globalFilterProgram() (exprruntime.Program, bool, error) {
 	if d.globalFilter != nil {
 		return d.globalFilter, true, nil
 	}
-	prg, err := d.exprRuntime.CompileFilter(d.Config.Filter, nil)
+	prg, err := d.exprRuntime.CompileFilter(d.globalFilterExpr, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling global filter: %w", err)
 	}
@@ -301,8 +330,12 @@ func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, 
 	d.validationProgramM.Lock()
 	defer d.validationProgramM.Unlock()
 
-	rule, ok := d.Config.Rules[ruleID]
-	if !ok || rule.ValidateExpr == "" {
+	ruleIndex, ok := d.ruleIndexByID[ruleID]
+	if !ok {
+		return nil, false, nil
+	}
+	rule := d.rulesBySpecificity[ruleIndex]
+	if rule.ValidateExpr == "" {
 		return nil, false, nil
 	}
 	if prg := d.validationPrograms[ruleID]; prg != nil {
@@ -320,30 +353,18 @@ func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, 
 	d.filterProgramM.Lock()
 	defer d.filterProgramM.Unlock()
 
-	rule := r
-	cacheable := false
-	if cfgRule, ok := d.Config.Rules[r.RuleID]; ok {
-		rule = cfgRule
-		cacheable = true
-	}
-	if rule.Filter == "" {
+	if r.Filter == "" {
 		return nil, false, nil
 	}
-	if cacheable {
-		if prg := d.filterPrograms[rule.RuleID]; prg != nil {
-			return prg, true, nil
-		}
-	}
-	if prg := rule.FilterProgram(); prg != nil {
+	cacheKey := r.RuleID + "\x00" + r.Filter
+	if prg := d.filterPrograms[cacheKey]; prg != nil {
 		return prg, true, nil
 	}
-	prg, err := d.exprRuntime.CompileFilter(rule.Filter, nil)
+	prg, err := d.exprRuntime.CompileFilter(r.Filter, nil)
 	if err != nil {
-		return nil, false, fmt.Errorf("compiling rule %s filter: %w", rule.RuleID, err)
+		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.RuleID, err)
 	}
-	if cacheable {
-		d.filterPrograms[rule.RuleID] = prg
-	}
+	d.filterPrograms[cacheKey] = prg
 	return prg, true, nil
 }
 
@@ -351,10 +372,7 @@ func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, 
 // prefilter program against fragment attributes. Returns nil when no prefilter
 // is configured (sources treat nil as "skip nothing").
 func (d *Detector) SkipFunc() sources.SkipFunc {
-	if d.Config == nil {
-		return nil
-	}
-	prg := d.Config.PrefilterProgram()
+	prg := d.prefilterProgram
 	if prg == nil {
 		return nil
 	}
@@ -607,7 +625,7 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 
 	// Skip the config file and baseline file to prevent self-scanning.
 	if path := fragment.Attr(sources.AttrPath); path != "" {
-		if samePath(path, d.Config.Path) {
+		if samePath(path, d.configPath) {
 			return nil
 		}
 	}
@@ -642,7 +660,7 @@ ScanLoop:
 				candidates.marked[ruleIndex] = true
 			}
 
-			for ruleIndex, ruleID := range d.rulesBySpecificity {
+			for ruleIndex, rule := range d.rulesBySpecificity {
 				if !candidates.marked[ruleIndex] {
 					continue
 				}
@@ -652,7 +670,6 @@ ScanLoop:
 					d.candidatePool.Put(candidates)
 					break ScanLoop
 				default:
-					rule := d.Config.Rules[ruleID]
 					// A path-only rule cannot produce a new result after decoding content
 					// or for later chunks of the same file. Keep missing attributes eligible
 					// so fragments from sources other than File retain their existing behavior.
@@ -705,26 +722,32 @@ func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,
 	return findings
 }
 
-func orderedRulesBySpecificity(cfg *config.Config) []string {
-	ruleIDs := make([]string, 0, len(cfg.Rules))
-	seen := make(map[string]struct{}, len(cfg.Rules))
-	for _, ruleID := range cfg.OrderedRules {
-		if _, ok := cfg.Rules[ruleID]; !ok {
-			continue
-		}
-		seen[ruleID] = struct{}{}
-		ruleIDs = append(ruleIDs, ruleID)
+func snapshotDetectorRules(cfg *config.Config) ([]config.Rule, map[string]int, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, nil, err
 	}
-	for ruleID := range cfg.Rules {
-		if _, ok := seen[ruleID]; ok {
-			continue
+	rules := make([]config.Rule, len(cfg.Rules))
+	for i, source := range cfg.Rules {
+		rule := source
+		rule.Keywords = slices.Clone(source.Keywords)
+		rule.Tags = slices.Clone(source.Tags)
+		if len(source.Components) > 0 {
+			rule.Components = make([]*config.Component, len(source.Components))
+			for componentIndex, component := range source.Components {
+				copy := *component
+				rule.Components[componentIndex] = &copy
+			}
 		}
-		ruleIDs = append(ruleIDs, ruleID)
+		rules[i] = rule
 	}
-	sort.SliceStable(ruleIDs, func(i, j int) bool {
-		return cfg.Rules[ruleIDs[i]].Specificity > cfg.Rules[ruleIDs[j]].Specificity
+	sort.SliceStable(rules, func(i, j int) bool {
+		return rules[i].Specificity > rules[j].Specificity
 	})
-	return ruleIDs
+	indexes := make(map[string]int, len(rules))
+	for i, rule := range rules {
+		indexes[rule.RuleID] = i
+	}
+	return rules, indexes, nil
 }
 
 // detectFragmentWithRule scans the given fragment for the given rule and returns a list of findings
@@ -897,10 +920,10 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 
 		entropy := shannonEntropy(finding.Secret)
 
-		hasGlobalFilter := d.Config.Filter != "" || d.Config.FilterProgram() != nil
-		hasRuleFilter := r.Filter != "" || r.FilterProgram() != nil
+		hasGlobalFilter := d.globalFilterExpr != ""
+		hasRuleFilter := r.Filter != ""
 		// Validation/filter expressions need context text in the finding map.
-		if r.ValidateExpr != "" || r.ValidationProgram() != nil || hasGlobalFilter || hasRuleFilter {
+		if r.ValidateExpr != "" || hasGlobalFilter || hasRuleFilter {
 			finding.SetExprContext(strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, contextwindow.Spec{
 				Mode:        contextwindow.ModeBox,
 				LinesBefore: 20,
@@ -1004,11 +1027,12 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 		}
 		componentWindows[component.RuleID] = window
 
-		rule, ok := d.Config.Rules[component.RuleID]
+		ruleIndex, ok := d.ruleIndexByID[component.RuleID]
 		if !ok {
 			logger.Error().Str("rule-id", component.RuleID).Msg("component rule not found in config")
 			continue
 		}
+		rule := d.rulesBySpecificity[ruleIndex]
 
 		// Mark fragment as inherited to prevent infinite recursion
 		inheritedFragment := fragment

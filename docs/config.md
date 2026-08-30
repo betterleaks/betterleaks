@@ -9,8 +9,7 @@ Every config can use these fields:
 
 - `prefilter`: global Expr expression that skips entire files, commits, or other source fragments before regex matching.
 - `filter`: global Expr expression that discards specific findings after regex matching.
-- `betterleaksMinVersion`: minimum Betterleaks binary version required.
-- `minVersion`: minimum Gitleaks config format version required for compatibility.
+- `minVersion`: minimum Betterleaks binary version required.
 - `[extend]`: inherit rules/settings from another config or from built-in defaults.
 - `[[rules]]`: secret detection rules.
 
@@ -329,12 +328,6 @@ let account = components["account-id"]?.secret ?? "";
 let session = components["session-token"]?.secret ?? "";
 let region = components["account-id"]?.captures?.region ?? "";
 ```
-
-The older `[[rules.required]]` syntax is deprecated and treated as required
-components when `components` is absent. Its `withinLines` and `withinColumns`
-fields are translated to `within`. If both forms are present on a rule,
-`components` takes precedence. Config display and generated configs emit only
-the new field.
 
 ### Overriding rule defaults with env vars
 

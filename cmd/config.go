@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	ahocorasick "github.com/rrethy/ahocorasick"
@@ -121,18 +120,22 @@ func getEnvWithName(primary, fallback string) (string, string) {
 }
 
 func validateConfig(cfg *configpkg.Config) error {
-	compileKeywordTrie(cfg)
-	if err := compileRuleRegexps(cfg); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	if err := cfg.CompileFilters(nil); err != nil {
+	compileKeywordTrie(cfg)
+	if err := compileRuleRegexps(cfg); err != nil {
 		return err
 	}
 	rt, err := exprruntime.New(nil)
 	if err != nil {
 		return err
 	}
-	if prg := cfg.PrefilterProgram(); prg != nil {
+	if cfg.Prefilter != "" {
+		prg, err := rt.CompilePrefilter(cfg.Prefilter)
+		if err != nil {
+			return fmt.Errorf("compiling global prefilter: %w", err)
+		}
 		if _, err := rt.EvalPrefilter(prg, fakeAttributes()); err != nil {
 			return fmt.Errorf("evaluating global prefilter: %w", err)
 		}
@@ -146,12 +149,8 @@ func validateConfig(cfg *configpkg.Config) error {
 			return fmt.Errorf("evaluating global filter: %w", err)
 		}
 	}
-	validationRT, err := cfg.CompileValidation()
-	if err != nil {
-		return err
-	}
-	for _, id := range sortedRuleIDs(cfg) {
-		rule := cfg.Rules[id]
+	for _, rule := range cfg.Rules {
+		id := rule.RuleID
 		if rule.Filter != "" {
 			prg, err := rt.CompileFilter(rule.Filter, nil)
 			if err != nil {
@@ -161,8 +160,8 @@ func validateConfig(cfg *configpkg.Config) error {
 				return fmt.Errorf("evaluating rule %s filter: %w", id, err)
 			}
 		}
-		if validationRT != nil && rule.ValidateExpr != "" {
-			if _, err := validationRT.CompileValidation(rule.ValidateExpr); err != nil {
+		if rule.ValidateExpr != "" {
+			if _, err := rt.CompileValidation(rule.ValidateExpr); err != nil {
 				return fmt.Errorf("compiling rule %s validation: %w", id, err)
 			}
 		}
@@ -209,16 +208,22 @@ func countValidationRules(cfg *configpkg.Config) (int, int) {
 }
 
 func compileKeywordTrie(cfg *configpkg.Config) {
-	keywords := make([]string, 0, len(cfg.Keywords))
-	for keyword := range cfg.Keywords {
+	unique := make(map[string]struct{})
+	for _, rule := range cfg.Rules {
+		for _, keyword := range rule.Keywords {
+			unique[strings.ToLower(keyword)] = struct{}{}
+		}
+	}
+	keywords := make([]string, 0, len(unique))
+	for keyword := range unique {
 		keywords = append(keywords, keyword)
 	}
 	_ = ahocorasick.CompileStrings(keywords)
 }
 
 func compileRuleRegexps(cfg *configpkg.Config) error {
-	for _, id := range sortedRuleIDs(cfg) {
-		rule := cfg.Rules[id]
+	for _, rule := range cfg.Rules {
+		id := rule.RuleID
 		if rule.Regex != nil {
 			if err := rule.Regex.Compile(); err != nil {
 				return fmt.Errorf("compiling rule %s regex: %w", id, err)
@@ -233,33 +238,13 @@ func compileRuleRegexps(cfg *configpkg.Config) error {
 	return nil
 }
 
-func sortedRuleIDs(cfg *configpkg.Config) []string {
-	ids := make([]string, 0, len(cfg.Rules))
-	seen := make(map[string]struct{}, len(cfg.Rules))
-	for _, id := range cfg.OrderedRules {
-		if _, ok := cfg.Rules[id]; ok {
-			ids = append(ids, id)
-			seen[id] = struct{}{}
-		}
-	}
-	var rest []string
-	for id := range cfg.Rules {
-		if _, ok := seen[id]; !ok {
-			rest = append(rest, id)
-		}
-	}
-	sort.Strings(rest)
-	return append(ids, rest...)
-}
-
 type configView struct {
-	Title                 string     `toml:"title,omitempty"`
-	Description           string     `toml:"description,omitempty"`
-	MinVersion            string     `toml:"minVersion,omitempty"`
-	BetterleaksMinVersion string     `toml:"betterleaksMinVersion,omitempty"`
-	Prefilter             string     `toml:"prefilter,omitempty"`
-	Filter                string     `toml:"filter,omitempty"`
-	Rules                 []ruleView `toml:"rules"`
+	Title       string     `toml:"title,omitempty"`
+	Description string     `toml:"description,omitempty"`
+	MinVersion  string     `toml:"minVersion,omitempty"`
+	Prefilter   string     `toml:"prefilter,omitempty"`
+	Filter      string     `toml:"filter,omitempty"`
+	Rules       []ruleView `toml:"rules"`
 }
 
 type ruleView struct {
@@ -286,15 +271,13 @@ type componentView struct {
 
 func renderConfig(cfg *configpkg.Config) configView {
 	view := configView{
-		Title:                 cfg.Title,
-		Description:           cfg.Description,
-		MinVersion:            cfg.MinVersion,
-		BetterleaksMinVersion: cfg.BetterleaksMinVersion,
-		Prefilter:             cfg.Prefilter,
-		Filter:                cfg.Filter,
+		Title:       cfg.Title,
+		Description: cfg.Description,
+		MinVersion:  cfg.MinVersion,
+		Prefilter:   cfg.Prefilter,
+		Filter:      cfg.Filter,
 	}
-	for _, id := range sortedRuleIDs(cfg) {
-		rule := cfg.Rules[id]
+	for _, rule := range cfg.Rules {
 		rv := ruleView{
 			ID:          rule.RuleID,
 			Description: rule.Description,
@@ -327,7 +310,6 @@ func renderConfigTOML(view configView) string {
 	writeString(&b, "title", view.Title)
 	writeString(&b, "description", view.Description)
 	writeString(&b, "minVersion", view.MinVersion)
-	writeString(&b, "betterleaksMinVersion", view.BetterleaksMinVersion)
 	writeString(&b, "prefilter", view.Prefilter)
 	writeString(&b, "filter", view.Filter)
 

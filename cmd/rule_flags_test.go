@@ -81,17 +81,17 @@ func TestApplyRuleSelection(t *testing.T) {
 			t.Parallel()
 
 			flags := newRuleSelectionTestFlags(t, tt.args)
-			originalRules := map[string]config.Rule{
-				"aws": {RuleID: "aws", Keywords: []string{"aws"}},
-				"github": {
+			originalRules := []config.Rule{
+				{RuleID: "aws", Keywords: []string{"aws"}},
+				{
 					RuleID:   "github",
 					Keywords: []string{"github"},
 					Components: []*config.Component{
 						{RuleID: "github-client-id"},
 					},
 				},
-				"github-client-id": {RuleID: "github-client-id", Keywords: []string{"client"}},
-				"slack":            {RuleID: "slack"},
+				{RuleID: "github-client-id", Keywords: []string{"client"}},
+				{RuleID: "slack"},
 			}
 			cfg := &config.Config{Rules: originalRules}
 
@@ -102,15 +102,10 @@ func TestApplyRuleSelection(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.ElementsMatch(t, tt.wantRules, ruleIDs(cfg.Rules))
-			assert.Len(t, originalRules, 4, "selection must not mutate the loaded config map")
+			assert.Len(t, originalRules, 4, "selection must not mutate the loaded config rules")
 			if tt.wantHiddenRule != "" {
-				assert.True(t, cfg.Rules[tt.wantHiddenRule].SkipReport)
-				assert.False(t, originalRules[tt.wantHiddenRule].SkipReport, "selection must not mutate component rules")
-			}
-			for keyword, ruleIDs := range cfg.KeywordToRules {
-				for _, ruleID := range ruleIDs {
-					assert.Contains(t, cfg.Rules, ruleID, "keyword %q references a removed rule", keyword)
-				}
+				assert.True(t, findRule(t, cfg.Rules, tt.wantHiddenRule).SkipReport)
+				assert.False(t, findRule(t, originalRules, tt.wantHiddenRule).SkipReport, "selection must not mutate component rules")
 			}
 		})
 	}
@@ -124,10 +119,21 @@ func newRuleSelectionTestFlags(t *testing.T, args []string) *ScanFlags {
 	return &cli.Directory.ScanFlags
 }
 
-func ruleIDs(rules map[string]config.Rule) []string {
+func ruleIDs(rules []config.Rule) []string {
 	ids := make([]string, 0, len(rules))
-	for id := range rules {
-		ids = append(ids, id)
+	for _, rule := range rules {
+		ids = append(ids, rule.RuleID)
 	}
 	return ids
+}
+
+func findRule(t testing.TB, rules []config.Rule, id string) config.Rule {
+	t.Helper()
+	for _, rule := range rules {
+		if rule.RuleID == id {
+			return rule
+		}
+	}
+	t.Fatalf("rule %q not found", id)
+	return config.Rule{}
 }

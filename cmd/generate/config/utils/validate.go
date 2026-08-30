@@ -114,21 +114,8 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 	testRule := *r
 	testRule.SkipReport = false
 	testRule.Components = nil
-	rules := map[string]config.Rule{
-		r.RuleID: testRule,
-	}
 	cfg := base.CreateGlobalConfig()
-	cfg.Rules = rules
-	cfg.Keywords = uniqueKeywords
-
-	cfg.KeywordToRules = make(map[string][]string)
-	if len(r.Keywords) == 0 {
-		cfg.NoKeywordRules = []string{r.RuleID}
-	} else {
-		for _, k := range r.Keywords {
-			cfg.KeywordToRules[k] = append(cfg.KeywordToRules[k], r.RuleID)
-		}
-	}
+	cfg.Rules = []config.Rule{testRule}
 
 	return detect.NewDetectorContext(context.Background(), cfg, detect.ValidationOptions{})
 }

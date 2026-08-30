@@ -542,7 +542,8 @@ func main() {
 	}
 
 	// ensure rules have unique ids
-	ruleLookUp := make(map[string]config.Rule, len(configRules))
+	ruleIDs := make(map[string]struct{}, len(configRules))
+	ruleList := make([]config.Rule, 0, len(configRules))
 	for _, rule := range configRules {
 		if err := rule.Validate(); err != nil {
 			logging.Fatal().Err(err).
@@ -551,15 +552,21 @@ func main() {
 		}
 
 		// check if rule is in ruleLookUp
-		if _, ok := ruleLookUp[rule.RuleID]; ok {
+		if _, ok := ruleIDs[rule.RuleID]; ok {
 			logging.Fatal().
 				Str("rule-id", rule.RuleID).
 				Msg("rule id is not unique")
 		}
 		// TODO: eventually change all the signatures to get ride of this
 		// nasty dereferencing.
-		ruleLookUp[rule.RuleID] = *rule
+		ruleIDs[rule.RuleID] = struct{}{}
+		ruleList = append(ruleList, *rule)
 	}
+	// The template previously ranged over a map, which emitted string keys in
+	// sorted order. Keep generated configs stable now that Rules is a slice.
+	sort.Slice(ruleList, func(i, j int) bool {
+		return ruleList[i].RuleID < ruleList[j].RuleID
+	})
 
 	funcMap := template.FuncMap{
 		"tomlQuote": tomlQuote,
@@ -605,7 +612,7 @@ func main() {
 	defer f.Close()
 
 	cfg := base.CreateGlobalConfig()
-	cfg.Rules = ruleLookUp
+	cfg.Rules = ruleList
 
 	if err = tmpl.Execute(f, cfg); err != nil {
 		logging.Fatal().Err(err).Msg("could not execute template")

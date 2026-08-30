@@ -63,6 +63,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 
 	// parse flags
 	workers, workerErr := resolveGitWorkers(options.SourceWorkers, options.GitWorkers)
+	fmt.Println("Using", workers, "workers for scanning Git repository")
 	if workerErr != nil {
 		logging.Fatal().Err(workerErr).Send()
 	}

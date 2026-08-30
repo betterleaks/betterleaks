@@ -720,20 +720,19 @@ func writeValidateTestConfig(t *testing.T, contents string) string {
 
 func TestUnknownValidationRuleErrorSuggestsProviderRules(t *testing.T) {
 	cfg := &configpkg.Config{
-		Rules: map[string]configpkg.Rule{
-			"github-pat": {
+		Rules: []configpkg.Rule{
+			{
 				RuleID:       "github-pat",
 				ValidateExpr: `{"result": "valid"}`,
 			},
-			"github-oauth": {
+			{
 				RuleID:       "github-oauth",
 				ValidateExpr: `{"result": "valid"}`,
 			},
-			"github-unvalidated": {
+			{
 				RuleID: "github-unvalidated",
 			},
 		},
-		OrderedRules: []string{"github-pat", "github-oauth", "github-unvalidated"},
 	}
 	err := unknownValidationRuleError(cfg, "github")
 	if err == nil || !strings.Contains(err.Error(), "github-pat") || !strings.Contains(err.Error(), "github-oauth") {

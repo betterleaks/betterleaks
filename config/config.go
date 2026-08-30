@@ -10,9 +10,7 @@ import (
 
 	gv "github.com/hashicorp/go-version"
 	"github.com/pelletier/go-toml/v2"
-	tiktoken "github.com/pkoukk/tiktoken-go"
 
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/version"
@@ -32,8 +30,7 @@ type rawConfig struct {
 	Extend      Extend    `toml:"extend"`
 	Rules       []rawRule `toml:"rules"`
 
-	MinVersion            string `toml:"minVersion"`
-	BetterleaksMinVersion string `toml:"betterleaksMinVersion"`
+	MinVersion string `toml:"minVersion"`
 
 	// Global filter expressions.
 	Prefilter string `toml:"prefilter"`
@@ -57,8 +54,9 @@ type rawRule struct {
 	// from an explicit empty list.
 	Components *[]*rawComponent `toml:"components"`
 
-	// Deprecated: translated to required components when Components is absent.
-	Required []*rawRequired `toml:"required"`
+	// Required exists only to reject the removed [[rules.required]] syntax
+	// explicitly instead of silently weakening a rule.
+	Required []struct{} `toml:"required"`
 
 	Validate   string `toml:"validate"`
 	SkipReport bool   `toml:"skipReport"`
@@ -66,12 +64,6 @@ type rawRule struct {
 	// Filter is an Expr expression evaluated per match (attributes + finding).
 	// Returns true = skip (discard this finding); false = keep.
 	Filter string `toml:"filter"`
-}
-
-type rawRequired struct {
-	ID            string `toml:"id"`
-	WithinLines   *int   `toml:"withinLines"`
-	WithinColumns *int   `toml:"withinColumns"`
 }
 
 type rawComponent struct {
@@ -83,22 +75,13 @@ type rawComponent struct {
 // Config is a configuration struct that contains detection rules and filters.
 type Config struct {
 	Title       string
-	Extend      Extend
 	Path        string
 	Description string
-	Rules       map[string]Rule
-	Keywords    map[string]struct{}
-	// KeywordToRules maps each lowercase keyword to the rule IDs that use it.
-	// This allows O(1) lookup from Aho-Corasick keyword matches to the rules
-	// that need to be checked, instead of iterating all rules.
-	KeywordToRules map[string][]string
-	// NoKeywordRules contains rule IDs that have no keywords and must always be checked.
-	NoKeywordRules []string
-	// used to keep sarif results consistent
-	OrderedRules []string
+	// Rules is the resolved rule set in deterministic configuration order.
+	// Detector construction derives all lookup and dispatch indexes from it.
+	Rules []Rule
 
-	MinVersion            string
-	BetterleaksMinVersion string
+	MinVersion string
 
 	// Prefilter is a global expression (attributes only) evaluated before any
 	// per-match work. Returns true = skip this fragment entirely; false = keep.
@@ -106,11 +89,6 @@ type Config struct {
 	// Filter is a global expression (attributes + finding) evaluated per match.
 	// Returns true = skip (discard) this finding; false = keep.
 	Filter string
-
-	// prefilterProgram and filterProgram hold global programs compiled by
-	// CompileFilters. Per-rule filter and validation compilation is lazy.
-	prefilterProgram exprruntime.Program
-	filterProgram    exprruntime.Program
 }
 
 // Extend is a struct that allows users to define how they want their
@@ -149,9 +127,9 @@ func Default() (*Config, error) {
 
 func (rc *rawConfig) translate(depth int) (*Config, error) {
 	var (
-		keywords     = make(map[string]struct{})
-		orderedRules []string
-		rulesMap     = make(map[string]Rule)
+		rules         = make([]Rule, 0, len(rc.Rules))
+		ruleIndexes   = make(map[string]int, len(rc.Rules))
+		componentsSet = make(map[string]struct{})
 	)
 
 	// Validate individual rules.
@@ -179,7 +157,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		} else {
 			for i, k := range vr.Keywords {
 				keyword := strings.ToLower(k)
-				keywords[keyword] = struct{}{}
 				vr.Keywords[i] = keyword
 			}
 		}
@@ -202,9 +179,12 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			Confidence:  vr.Confidence,
 			SkipReport:  vr.SkipReport,
 		}
+		if vr.Required != nil {
+			return nil, fmt.Errorf("%s: [[rules.required]] is not supported; use rules.components", cr.RuleID)
+		}
 
 		if vr.Components != nil {
-			cr.componentsSet = true
+			componentsSet[cr.RuleID] = struct{}{}
 			for _, component := range *vr.Components {
 				if component == nil {
 					component = &rawComponent{}
@@ -215,63 +195,52 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 					Within:   component.Within,
 				})
 			}
-		} else if vr.Required != nil {
-			cr.componentsSet = true
-			for _, required := range vr.Required {
-				if required == nil {
-					required = &rawRequired{}
-				}
-				if required.WithinLines != nil && *required.WithinLines < 0 {
-					return nil, fmt.Errorf("%s: [[rules.required]] withinLines must be non-negative", cr.RuleID)
-				}
-				if required.WithinColumns != nil && *required.WithinColumns < 0 {
-					return nil, fmt.Errorf("%s: [[rules.required]] withinColumns must be non-negative", cr.RuleID)
-				}
-				cr.Components = append(cr.Components, &Component{
-					RuleID: required.ID,
-					Within: legacyComponentWithin(required.WithinLines, required.WithinColumns),
-				})
-			}
 		}
 
 		cr.ValidateExpr = vr.Validate
 		cr.Filter = vr.Filter
 
-		orderedRules = append(orderedRules, cr.RuleID)
-		rulesMap[cr.RuleID] = cr
+		if index, exists := ruleIndexes[cr.RuleID]; exists {
+			// TOML configs historically used last-rule-wins semantics because
+			// rules were loaded into a map. Preserve that compatibility while
+			// keeping the resolved Config rule set canonical and unique.
+			rules[index] = cr
+			if vr.Components == nil {
+				delete(componentsSet, cr.RuleID)
+			}
+			continue
+		}
+		ruleIndexes[cr.RuleID] = len(rules)
+		rules = append(rules, cr)
 	}
 
 	// Assemble the config.
 	c := &Config{
-		Title:                 rc.Title,
-		Description:           rc.Description,
-		Extend:                rc.Extend,
-		Rules:                 rulesMap,
-		Keywords:              keywords,
-		OrderedRules:          orderedRules,
-		MinVersion:            rc.MinVersion,
-		BetterleaksMinVersion: rc.BetterleaksMinVersion,
-		Prefilter:             rc.Prefilter,
-		Filter:                rc.Filter,
+		Title:       rc.Title,
+		Description: rc.Description,
+		Rules:       rules,
+		MinVersion:  rc.MinVersion,
+		Prefilter:   rc.Prefilter,
+		Filter:      rc.Filter,
 	}
 
 	c.Path = rc.path
 
-	if err := validateMinVersion(c.MinVersion, c.BetterleaksMinVersion, c.Path); err != nil {
+	if err := validateMinVersion(c.MinVersion, c.Path); err != nil {
 		return nil, err
 	}
 
 	if maxExtendDepth != depth {
 		// disallow both usedefault and path from being set
-		if c.Extend.Path != "" && c.Extend.UseDefault {
+		if rc.Extend.Path != "" && rc.Extend.UseDefault {
 			return nil, errors.New("unable to load config due to extend.path and extend.useDefault being set")
 		}
-		if c.Extend.UseDefault {
-			if err := c.extendDefault(depth); err != nil {
+		if rc.Extend.UseDefault {
+			if err := c.extendDefault(depth, rc.Extend, componentsSet); err != nil {
 				return nil, err
 			}
-		} else if c.Extend.Path != "" {
-			if err := c.extendPath(depth); err != nil {
+		} else if rc.Extend.Path != "" {
+			if err := c.extendPath(depth, rc.Extend, componentsSet); err != nil {
 				return nil, err
 			}
 		}
@@ -279,174 +248,88 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 
 	// Validate the rules after everything has been assembled (including extended configs).
 	if depth == 0 {
-		for _, rule := range c.Rules {
-			if err := rule.Validate(); err != nil {
-				return nil, err
-			}
-			for _, component := range rule.Components {
-				if _, ok := c.Rules[component.RuleID]; !ok {
-					return nil, fmt.Errorf("%s: component rule ID %q does not exist", rule.RuleID, component.RuleID)
-				}
-			}
-		}
-
-	}
-
-	// Build keyword-to-rules lookup for efficient rule dispatch.
-	// This must be done after extends are resolved so all rules are present.
-	c.KeywordToRules = make(map[string][]string)
-	c.NoKeywordRules = nil
-	for ruleID, rule := range c.Rules {
-		if len(rule.Keywords) == 0 {
-			c.NoKeywordRules = append(c.NoKeywordRules, ruleID)
-		} else {
-			for _, k := range rule.Keywords {
-				c.KeywordToRules[k] = append(c.KeywordToRules[k], ruleID)
-			}
+		if err := c.Validate(); err != nil {
+			return nil, err
 		}
 	}
 
 	return c, nil
 }
 
-func legacyComponentWithin(lines, columns *int) string {
-	var parts []string
-	if lines != nil {
-		parts = append(parts, fmt.Sprintf("%dL", *lines))
-	}
-	if columns != nil {
-		parts = append(parts, fmt.Sprintf("%dC", *columns))
-	}
-	return strings.Join(parts, ",")
-}
-
-func validateMinVersion(gitleaksMinVer, betterleaksMinVer, configPath string) error {
-	isDev := version.Version == version.DefaultMsg
-
-	// Check gitleaks config format compatibility (minVersion field).
-	if gitleaksMinVer != "" {
-		if isDev {
-			logging.Debug().
-				Str("required", gitleaksMinVer).
-				Msg("dev build, skipping gitleaks minVersion check.")
-		} else {
-			minSemVer, err := gv.NewSemver(gitleaksMinVer)
-			if err != nil {
-				return fmt.Errorf("invalid minVersion '%s': %w", gitleaksMinVer, err)
-			}
-			compatSemVer, err := gv.NewSemver(version.GitleaksCompat)
-			if err != nil {
-				return fmt.Errorf("unable to parse gitleaks compat version: %w", err)
-			}
-			if compatSemVer.LessThan(minSemVer) {
-				logging.Warn().
-					Str("required", gitleaksMinVer).
-					Str("current", version.GitleaksCompat).
-					Str("config path", configPath).
-					Msg("config minVersion exceeds this build's gitleaks compatibility level")
-			}
-		}
-	}
-
-	// Check betterleaks version compatibility (betterleaksMinVersion field).
-	if betterleaksMinVer != "" {
-		if isDev {
-			logging.Debug().
-				Str("required", betterleaksMinVer).
-				Msg("dev build, skipping betterleaksMinVersion check.")
-		} else {
-			minSemVer, err := gv.NewSemver(betterleaksMinVer)
-			if err != nil {
-				return fmt.Errorf("invalid betterleaksMinVersion '%s': %w", betterleaksMinVer, err)
-			}
-			currentSemVer, err := gv.NewSemver(version.Version)
-			if err != nil {
-				return fmt.Errorf("unable to parse current version: %w", err)
-			}
-			if currentSemVer.LessThan(minSemVer) {
-				logging.Warn().
-					Str("required", betterleaksMinVer).
-					Str("current", version.Version).
-					Str("config path", configPath).
-					Msg("config requires a newer betterleaks version")
-			}
-		}
-	}
-
-	if gitleaksMinVer == "" && betterleaksMinVer == "" {
+func validateMinVersion(minVersion, configPath string) error {
+	if minVersion == "" {
 		logging.Debug().Str("config path", configPath).
 			Msg("no minVersion specified in config... consider adding minVersion to ensure compatibility.")
+		return nil
 	}
 
+	minimum, err := gv.NewSemver(minVersion)
+	if err != nil {
+		return fmt.Errorf("invalid minVersion %q: %w", minVersion, err)
+	}
+	if version.Version == version.DefaultMsg {
+		logging.Debug().
+			Str("required", minVersion).
+			Msg("dev build, skipping minVersion comparison")
+		return nil
+	}
+	current, err := gv.NewSemver(version.Version)
+	if err != nil {
+		return fmt.Errorf("unable to parse current betterleaks version: %w", err)
+	}
+	if current.LessThan(minimum) {
+		logging.Warn().
+			Str("required", minVersion).
+			Str("current", version.Version).
+			Str("config path", configPath).
+			Msg("config requires a newer betterleaks version")
+	}
 	return nil
 }
 
-// PrefilterProgram returns the compiled global prefilter program, or nil if not set.
-func (c *Config) PrefilterProgram() exprruntime.Program { return c.prefilterProgram }
-
-// SetPrefilterProgram stores a compiled global prefilter program.
-func (c *Config) SetPrefilterProgram(p exprruntime.Program) { c.prefilterProgram = p }
-
-// FilterProgram returns the compiled global filter program, or nil if not set.
-func (c *Config) FilterProgram() exprruntime.Program { return c.filterProgram }
-
-// SetFilterProgram stores a compiled global filter program.
-func (c *Config) SetFilterProgram(p exprruntime.Program) { c.filterProgram = p }
-
-// CompileFilters compiles only the global prefilter needed before scanning.
-// Global finding filters and per-rule filters compile lazily on first candidate.
-func (c *Config) CompileFilters(tokenizer *tiktoken.Tiktoken) error {
-	runtime, err := exprruntime.New(nil)
-	if err != nil {
-		return fmt.Errorf("creating expr runtime: %w", err)
+// Rule returns the rule with the requested ID.
+func (c *Config) Rule(id string) (Rule, bool) {
+	if c == nil {
+		return Rule{}, false
 	}
-
-	if c.Prefilter != "" {
-		prg, compileErr := runtime.CompilePrefilter(c.Prefilter)
-		if compileErr != nil {
-			return fmt.Errorf("compiling global prefilter: %w", compileErr)
+	for _, rule := range c.Rules {
+		if rule.RuleID == id {
+			return rule, true
 		}
-		c.prefilterProgram = prg
 	}
+	return Rule{}, false
+}
 
+// Validate checks the resolved declarative configuration without mutating it.
+func (c *Config) Validate() error {
+	if c == nil {
+		return errors.New("config is required")
+	}
+	ruleIDs := make(map[string]struct{}, len(c.Rules))
+	for i := range c.Rules {
+		rule := c.Rules[i]
+		if err := rule.Validate(); err != nil {
+			return err
+		}
+		if _, exists := ruleIDs[rule.RuleID]; exists {
+			return fmt.Errorf("duplicate rule ID %q", rule.RuleID)
+		}
+		ruleIDs[rule.RuleID] = struct{}{}
+	}
+	for _, rule := range c.Rules {
+		for _, component := range rule.Components {
+			if component == nil {
+				continue // Rule.Validate reports this with rule context.
+			}
+			if _, ok := ruleIDs[component.RuleID]; !ok {
+				return fmt.Errorf("%s: component rule ID %q does not exist", rule.RuleID, component.RuleID)
+			}
+		}
+	}
 	return nil
 }
 
-// CompileValidation returns a runtime for per-rule validation expressions.
-// Individual validation programs are compiled lazily by the detector.
-// Returns (nil, nil) when no rules have validation expressions.
-func (c *Config) CompileValidation() (*exprruntime.Runtime, error) {
-	// Quick check: skip environment creation if nothing to compile.
-	hasValidation := false
-	for _, r := range c.Rules {
-		if r.ValidateExpr != "" {
-			hasValidation = true
-			break
-		}
-	}
-	if !hasValidation {
-		return nil, nil
-	}
-
-	runtime, err := exprruntime.New(nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating validation env: %w", err)
-	}
-
-	return runtime, nil
-}
-
-func (c *Config) GetOrderedRules() []Rule {
-	var orderedRules []Rule
-	for _, id := range c.OrderedRules {
-		if _, ok := c.Rules[id]; ok {
-			orderedRules = append(orderedRules, c.Rules[id])
-		}
-	}
-	return orderedRules
-}
-
-func (c *Config) extendDefault(depth int) error {
+func (c *Config) extendDefault(depth int, extend Extend, componentsSet map[string]struct{}) error {
 	var defaultRawConfig rawConfig
 	if err := toml.Unmarshal([]byte(DefaultConfig), &defaultRawConfig); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
@@ -457,12 +340,12 @@ func (c *Config) extendDefault(depth int) error {
 
 	}
 	logging.Debug().Msg("extending config with default config")
-	c.extend(cfg)
+	c.extend(cfg, extend, componentsSet)
 	return nil
 }
 
-func (c *Config) extendPath(depth int) error {
-	data, err := os.ReadFile(c.Extend.Path)
+func (c *Config) extendPath(depth int, extend Extend, componentsSet map[string]struct{}) error {
+	data, err := os.ReadFile(extend.Path)
 	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}
@@ -470,28 +353,32 @@ func (c *Config) extendPath(depth int) error {
 	if err := toml.Unmarshal(data, &extensionRawConfig); err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}
-	extensionRawConfig.path = c.Extend.Path
-	logging.Debug().Msgf("extending config with %s", c.Extend.Path)
+	extensionRawConfig.path = extend.Path
+	logging.Debug().Msgf("extending config with %s", extend.Path)
 	cfg, err := extensionRawConfig.translate(depth + 1)
 	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}
-	c.extend(cfg)
+	c.extend(cfg, extend, componentsSet)
 	return nil
 }
 
-func (c *Config) extend(extensionConfig *Config) {
+func (c *Config) extend(extensionConfig *Config, extend Extend, componentsSet map[string]struct{}) {
 	// Get config name for helpful log messages.
 	var configName string
-	if c.Extend.Path != "" {
-		configName = c.Extend.Path
+	if extend.Path != "" {
+		configName = extend.Path
 	} else {
 		configName = "default"
 	}
 	// Convert |Config.DisabledRules| into a map for ease of access.
 	disabledRuleIDs := map[string]struct{}{}
-	for _, id := range c.Extend.DisabledRules {
-		if _, ok := extensionConfig.Rules[id]; !ok {
+	baseRules := make(map[string]Rule, len(extensionConfig.Rules))
+	for _, rule := range extensionConfig.Rules {
+		baseRules[rule.RuleID] = rule
+	}
+	for _, id := range extend.DisabledRules {
+		if _, ok := baseRules[id]; !ok {
 			logging.Warn().
 				Str("rule-id", id).
 				Str("config", configName).
@@ -500,7 +387,12 @@ func (c *Config) extend(extensionConfig *Config) {
 		disabledRuleIDs[id] = struct{}{}
 	}
 
-	for ruleID, baseRule := range extensionConfig.Rules {
+	currentRuleIndexes := make(map[string]int, len(c.Rules))
+	for i, rule := range c.Rules {
+		currentRuleIndexes[rule.RuleID] = i
+	}
+	for _, baseRule := range extensionConfig.Rules {
+		ruleID := baseRule.RuleID
 		// Skip the rule.
 		if _, ok := disabledRuleIDs[ruleID]; ok {
 			logging.Debug().
@@ -510,15 +402,13 @@ func (c *Config) extend(extensionConfig *Config) {
 			continue
 		}
 
-		currentRule, ok := c.Rules[ruleID]
+		currentIndex, ok := currentRuleIndexes[ruleID]
 		if !ok {
 			// Rule doesn't exist, add it to the config.
-			c.Rules[ruleID] = baseRule
-			for _, k := range baseRule.Keywords {
-				c.Keywords[k] = struct{}{}
-			}
-			c.OrderedRules = append(c.OrderedRules, ruleID)
+			c.Rules = append(c.Rules, baseRule)
+			currentRuleIndexes[ruleID] = len(c.Rules) - 1
 		} else {
+			currentRule := c.Rules[currentIndex]
 			// Rule exists, merge our changes into the base.
 			if currentRule.Description != "" {
 				baseRule.Description = currentRule.Description
@@ -544,15 +434,10 @@ func (c *Config) extend(extensionConfig *Config) {
 			}
 			baseRule.Tags = append(baseRule.Tags, currentRule.Tags...)
 			baseRule.Keywords = append(baseRule.Keywords, currentRule.Keywords...)
-			if currentRule.componentsSet {
+			if _, set := componentsSet[ruleID]; set {
 				baseRule.Components = currentRule.Components
-				baseRule.componentsSet = true
 			}
-			// The keywords from the base rule and the extended rule must be merged into the global keywords list
-			for _, k := range baseRule.Keywords {
-				c.Keywords[k] = struct{}{}
-			}
-			c.Rules[ruleID] = baseRule
+			c.Rules[currentIndex] = baseRule
 		}
 	}
 
@@ -564,6 +449,9 @@ func (c *Config) extend(extensionConfig *Config) {
 		c.Filter = extensionConfig.Filter
 	}
 
-	// sort to keep extended rules in order
-	sort.Strings(c.OrderedRules)
+	// Preserve the existing deterministic extended-config ordering without a
+	// second order index on Config.
+	sort.Slice(c.Rules, func(i, j int) bool {
+		return c.Rules[i].RuleID < c.Rules[j].RuleID
+	})
 }

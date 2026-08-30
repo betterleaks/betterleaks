@@ -196,9 +196,7 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 		Path:   regexp.MustCompile(`\.p12$`),
 	}
 	cfg := &config.Config{
-		Rules:          map[string]config.Rule{rule.RuleID: rule},
-		NoKeywordRules: []string{rule.RuleID},
-		OrderedRules:   []string{rule.RuleID},
+		Rules: []config.Rule{rule},
 	}
 	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 	detector.RuleTimings = NewRuleTimingCollector()
@@ -221,17 +219,14 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 }
 
 func TestCandidateBitmap(t *testing.T) {
-	rules := map[string]config.Rule{
-		"high":   {RuleID: "high", Specificity: 30, Keywords: []string{"shared", "alias"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
-		"low":    {RuleID: "low", Specificity: 20, Keywords: []string{"shared"}, Regex: regexp.MustCompile(`LOWSECRET`)},
-		"cancel": {RuleID: "cancel", Specificity: 10, Keywords: []string{"cancel"}, Regex: regexp.MustCompile(`ALWAYSSECRET`)},
-		"always": {RuleID: "always", Regex: regexp.MustCompile(`ALWAYSSECRET`)},
+	rules := []config.Rule{
+		{RuleID: "high", Specificity: 30, Keywords: []string{"shared", "alias"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
+		{RuleID: "low", Specificity: 20, Keywords: []string{"shared"}, Regex: regexp.MustCompile(`LOWSECRET`)},
+		{RuleID: "cancel", Specificity: 10, Keywords: []string{"cancel"}, Regex: regexp.MustCompile(`ALWAYSSECRET`)},
+		{RuleID: "always", Regex: regexp.MustCompile(`ALWAYSSECRET`)},
 	}
 	cfg := &config.Config{
-		Rules:          rules,
-		Keywords:       map[string]struct{}{"shared": {}, "alias": {}, "cancel": {}, "stale": {}},
-		KeywordToRules: map[string][]string{"shared": {"high", "low"}, "alias": {"high"}, "cancel": {"cancel"}, "stale": {"missing"}},
-		NoKeywordRules: []string{"always", "missing"},
+		Rules: rules,
 	}
 	d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 	require.Empty(t, d.DetectString("stale HIGHSECRET"))
@@ -244,6 +239,26 @@ func TestCandidateBitmap(t *testing.T) {
 	// rules without keywords always run, and specificity order is retained.
 	require.Equal(t, []string{"high", "low", "always"}, findingRuleIDs(d.DetectString("shared HIGHSECRET LOWSECRET ALWAYSSECRET")))
 	require.Equal(t, []string{"high", "always"}, findingRuleIDs(d.DetectString("alias HIGHSECRET ALWAYSSECRET")))
+}
+
+func TestNewDetectorSnapshotsConfigWithoutMutatingIt(t *testing.T) {
+	cfg := &config.Config{Rules: []config.Rule{
+		{RuleID: "low", Specificity: 10, Keywords: []string{"MiXeD"}, Regex: regexp.MustCompile(`LOWSECRET`)},
+		{RuleID: "high", Specificity: 20, Keywords: []string{"MiXeD"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
+	}}
+
+	d := NewDetectorContext(t.Context(), cfg, ValidationOptions{})
+	require.Equal(t, []string{"low", "high"}, []string{cfg.Rules[0].RuleID, cfg.Rules[1].RuleID})
+	require.Equal(t, "MiXeD", cfg.Rules[0].Keywords[0])
+	require.Equal(t, []string{"high", "low"}, []string{d.rulesBySpecificity[0].RuleID, d.rulesBySpecificity[1].RuleID})
+
+	// Detector behavior is isolated from later changes to the caller's config.
+	cfg.Rules[0].Keywords[0] = "changed"
+	cfg.Rules[0].Regex = regexp.MustCompile(`CHANGED`)
+	cfg.Rules[1] = config.Rule{RuleID: "replacement", Keywords: []string{"changed"}, Regex: regexp.MustCompile(`CHANGED`)}
+	cfg.Filter = "true"
+
+	require.Equal(t, []string{"high", "low"}, findingRuleIDs(d.DetectString("mixed HIGHSECRET LOWSECRET")))
 }
 
 func findingRuleIDs(findings []report.Finding) []string {
@@ -1257,11 +1272,8 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 		Filter: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; filter.matchesAny(matchContext, ["red-herring"])`,
 	}
 	cfg := &config.Config{
-		Rules:          map[string]config.Rule{rule.RuleID: rule},
-		NoKeywordRules: []string{rule.RuleID},
-		OrderedRules:   []string{rule.RuleID},
+		Rules: []config.Rule{rule},
 	}
-	require.NoError(t, cfg.CompileFilters(nil))
 
 	d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 	findings := d.detectFragment(context.Background(), sources.Fragment{Raw: "red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST"})
@@ -1274,11 +1286,8 @@ func TestConfidenceAttributeAndFilter(t *testing.T) {
 	low := config.Rule{RuleID: "specific-low", Regex: regexp.MustCompile(`[A-Z0-9]{20}`), Specificity: 1, Confidence: "low"}
 	promoted := config.Rule{RuleID: "promoted", Regex: regexp.MustCompile(`[A-Z0-9]{20}`), Confidence: "medium", Filter: `let _ = filter.setConfidence("high"); false`}
 	cfg := &config.Config{
-		Rules:          map[string]config.Rule{low.RuleID: low, promoted.RuleID: promoted},
-		NoKeywordRules: []string{low.RuleID, promoted.RuleID},
-		OrderedRules:   []string{low.RuleID, promoted.RuleID},
+		Rules: []config.Rule{low, promoted},
 	}
-	require.NoError(t, cfg.CompileFilters(nil))
 
 	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 	detector.MinConfidence = "high"
@@ -1307,9 +1316,7 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 				Filter: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; filter.containsAny(matchContext, ["provider"])`, tc.before),
 			}
 			cfg := &config.Config{
-				Rules:          map[string]config.Rule{rule.RuleID: rule},
-				NoKeywordRules: []string{rule.RuleID},
-				OrderedRules:   []string{rule.RuleID},
+				Rules: []config.Rule{rule},
 			}
 			d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
 			d.MaxDecodeDepth = 1
@@ -1326,9 +1333,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 		Filter: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; filter.matchesAny(matchContext, [`\\nSECRET$`])",
 	}
 	cfg := &config.Config{
-		Rules:          map[string]config.Rule{rule.RuleID: rule},
-		NoKeywordRules: []string{rule.RuleID},
-		OrderedRules:   []string{rule.RuleID},
+		Rules: []config.Rule{rule},
 	}
 
 	require.Empty(t, NewDetectorContext(context.Background(), cfg, ValidationOptions{}).detectFragment(context.Background(), sources.Fragment{Raw: "prefix\nSECRET"}))
@@ -1341,9 +1346,7 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 		Filter: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; filter.containsAny(matchContext, ["other-line"])`,
 	}
 	cfg := &config.Config{
-		Rules:          map[string]config.Rule{rule.RuleID: rule},
-		NoKeywordRules: []string{rule.RuleID},
-		OrderedRules:   []string{rule.RuleID},
+		Rules: []config.Rule{rule},
 	}
 
 	require.Len(t, NewDetectorContext(context.Background(), cfg, ValidationOptions{}).detectFragment(context.Background(), sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
