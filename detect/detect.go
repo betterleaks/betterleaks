@@ -71,6 +71,20 @@ type Result struct {
 	Err     error
 }
 
+type SecretMatcher interface {
+	Contains(secret string) bool
+}
+
+type Option func(*Detector)
+
+func WithIgnoredSecrets(matcher SecretMatcher) Option {
+	return func(d *Detector) { d.ignoredSecrets = matcher }
+}
+
+func WithExcludedPaths(paths ...string) Option {
+	return func(d *Detector) { d.excludedPaths = append(d.excludedPaths, paths...) }
+}
+
 type ruleCandidates struct {
 	// Indexes match rulesBySpecificity, preserving rule order without building
 	// a map and sorted slice for every fragment and decode pass.
@@ -116,6 +130,8 @@ type Detector struct {
 	prefilterProgram exprruntime.Program
 	globalFilterExpr string
 	configPath       string
+	ignoredSecrets   SecretMatcher
+	excludedPaths    []string
 
 	TotalBytes atomic.Uint64
 
@@ -164,7 +180,7 @@ type Detector struct {
 // NewDetectorContext creates a new Detector.
 // It compiles global expressions and, when valOpts.Enabled is true, creates the
 // validation worker pool. Per-rule expressions compile lazily on first use.
-func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) *Detector {
+func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions, options ...Option) *Detector {
 	if cfg == nil {
 		// TODO in v2 use NewDetector(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) (*Detector, error)
 		// Could be logging.Error?
@@ -241,6 +257,9 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	}
 	d.candidatePool.New = func() any {
 		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
+	}
+	for _, option := range options {
+		option(d)
 	}
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
 
@@ -373,17 +392,32 @@ func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, 
 // is configured (sources treat nil as "skip nothing").
 func (d *Detector) SkipFunc() sources.SkipFunc {
 	prg := d.prefilterProgram
-	if prg == nil {
+	if prg == nil && len(d.excludedPaths) == 0 {
 		return nil
 	}
 	return func(attrs map[string]string) bool {
-		skip, err := d.exprRuntime.EvalPrefilter(prg, attrs)
-		if err != nil {
-			logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
-			return false
+		if d.pathExcluded(attrs[sources.AttrPath]) {
+			return true
 		}
-		return skip
+		if prg != nil {
+			skip, err := d.exprRuntime.EvalPrefilter(prg, attrs)
+			if err != nil {
+				logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
+				return false
+			}
+			return skip
+		}
+		return false
 	}
+}
+
+func (d *Detector) pathExcluded(path string) bool {
+	for _, excluded := range d.excludedPaths {
+		if path != "" && samePath(path, excluded) {
+			return true
+		}
+	}
+	return false
 }
 
 func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragment) bool {
@@ -623,9 +657,9 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
-	// Skip the config file and baseline file to prevent self-scanning.
+	// Skip configuration and policy files to prevent self-scanning.
 	if path := fragment.Attr(sources.AttrPath); path != "" {
-		if samePath(path, d.configPath) {
+		if samePath(path, d.configPath) || d.pathExcluded(path) {
 			return nil
 		}
 	}
@@ -704,7 +738,17 @@ ScanLoop:
 			}
 		}
 	}
-	return filter(findings)
+	findings = filter(findings)
+	if d.ignoredSecrets == nil {
+		return findings
+	}
+	kept := findings[:0]
+	for _, finding := range findings {
+		if finding.Secret == "" || !d.ignoredSecrets.Contains(finding.Secret) {
+			kept = append(kept, finding)
+		}
+	}
+	return kept
 }
 
 func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,

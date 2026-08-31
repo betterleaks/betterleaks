@@ -16,6 +16,7 @@ Development is supported by
 | :--- | :--- |
 | **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. |
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using Expr. |
+| **Secret Fingerprints** | Suppress reviewed secret values globally with exact SHA-256 entries in `.betterleaksignore`. |
 | **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
@@ -153,6 +154,9 @@ through `components["rule-id"]?.secret ?? ""` or
 available through `finding["captures"]`.
 
 Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config. If you're using Betterleaks in production, it is recommended you maintain your own config instead of extending the upstream default config directly. This keeps your rule set stable across Betterleaks upgrades and lets you review new upstream rules before adopting them.
+
+See the [scanning guide](docs/scanning.md#ignore-exact-secret-values) for
+`.betterleaksignore`, `--ignore-file`, and `betterleaks fingerprint`.
 
 Test out your rules in the [Betterleaks Playground](https://betterleaks.com/playground)
 

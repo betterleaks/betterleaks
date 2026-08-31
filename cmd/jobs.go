@@ -13,7 +13,6 @@ const (
 )
 
 const (
-	maxAutomaticGitJobs       = 4
 	maxAutomaticProviderJobs  = 4
 	automaticFileJobsPerCPU   = 4
 	maxAutomaticFileJobs      = 40
@@ -28,8 +27,12 @@ type jobPlan struct {
 func resolveJobPlan(configured int, profile jobProfile) jobPlan {
 	processorJobs := max(runtime.GOMAXPROCS(0), 1)
 	if configured > 0 {
+		sourceJobs := configured
+		if profile == gitJobProfile {
+			sourceJobs = min(sourceJobs, processorJobs)
+		}
 		return jobPlan{
-			Source:   configured,
+			Source:   sourceJobs,
 			Detector: min(configured, processorJobs),
 		}
 	}
@@ -48,8 +51,7 @@ func resolveJobPlan(configured int, profile jobProfile) jobPlan {
 	case streamJobProfile:
 		return jobPlan{Source: processorJobs, Detector: processorJobs}
 	case gitJobProfile:
-		jobs := min(processorJobs, maxAutomaticGitJobs)
-		return jobPlan{Source: jobs, Detector: jobs}
+		return jobPlan{Source: processorJobs, Detector: processorJobs}
 	case providerJobProfile:
 		jobs := min(processorJobs, maxAutomaticProviderJobs)
 		return jobPlan{Source: jobs, Detector: jobs}

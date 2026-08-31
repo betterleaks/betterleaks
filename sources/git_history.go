@@ -13,12 +13,12 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 )
 
-// fragmentsFromRepo partitions Git history across at most four processes.
+// fragmentsFromRepo partitions Git history across at most GOMAXPROCS processes.
 // Each process consumes fragments serially; the detector provides the other
 // half of the bounded jobs pipeline.
 func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error {
-	jobs := jobsWithinBudget(s.Jobs, min(automaticJobs(), maxGitHistoryJobs), s.budget)
-	historyJobs := min(jobs, maxGitHistoryJobs)
+	jobs := jobsWithinBudget(s.Jobs, automaticJobs(), s.budget)
+	historyJobs := min(jobs, automaticJobs())
 
 	repoSource := *s
 	repoSource.Jobs = jobs

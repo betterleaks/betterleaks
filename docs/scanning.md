@@ -21,12 +21,11 @@ betterleaks github https://github.com/my-company -j 8
 For directories, automatic mode uses four I/O jobs per `GOMAXPROCS`, capped at
 40 unless `GOMAXPROCS` itself is higher. Object sources use twice `GOMAXPROCS`.
 Both use `GOMAXPROCS` for detection. For Git history, automatic mode uses up to
-four parallel Git processes and the same number of detector jobs. Explicit
-values remain upper bounds: detection is capped at `GOMAXPROCS`, while Git
-process and provider target concurrency are capped at four where additional
-parallelism has not improved throughput. `-j 1` provides a serial baseline for
-benchmarking. Validation retains its own worker and rate-limit controls because
-it performs external network requests.
+`GOMAXPROCS` parallel Git processes and the same number of detector jobs.
+Explicit values remain upper bounds: detection and Git process concurrency are
+capped at `GOMAXPROCS`, while provider target concurrency is capped at four.
+`-j 1` provides a serial baseline for benchmarking. Validation retains its own
+worker and rate-limit controls because it performs external network requests.
 
 ## Pick a target
 
@@ -41,6 +40,7 @@ it performs external network requests.
 | S3 (and S3-compatible: R2, MinIO, etc.) | `betterleaks s3 <url>` |
 | A known credential and rule | `betterleaks validate --rule-id <rule-id>` |
 | Piped content | `betterleaks stdin` |
+| An ignore-file entry | `betterleaks fingerprint` |
 
 ---
 
@@ -59,6 +59,53 @@ the closing bracket required for valid JSON.
 
 `--silent` suppresses terminal findings and the banner. An explicit report is
 still written. Use `--no-banner` when only the banner should be hidden.
+
+---
+
+## Ignore exact secret values
+
+`.betterleaksignore` suppresses a secret everywhere it appears, independent of
+rule, path, source, location, commit, or decoding. Each entry is the complete
+SHA-256 digest of the exact secret bytes:
+
+```text
+sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+```
+
+Blank lines and full-line `#` comments are allowed. Hex digits may be uppercase
+or lowercase. Invalid entries are reported with their file and line number and
+do not prevent valid entries from loading. Bare hashes, legacy location
+fingerprints, `.gitleaksignore`, HMAC, Argon2id, and shortened hashes are not
+accepted.
+
+Generate an entry without putting the secret in an argument:
+
+```sh
+# prompts without echo when stdin is a terminal
+betterleaks fingerprint
+
+# hashes piped bytes exactly, including whitespace and a trailing newline
+printf 'secret bytes' | betterleaks fingerprint
+```
+
+For external reproduction, use `printf`, not `echo`:
+
+```sh
+printf 'secret bytes' | sha256sum
+printf 'secret bytes' | shasum -a 256
+```
+
+An explicit `--ignore-file PATH` applies to every target. Otherwise `dir` and
+`git` use `<target>/.betterleaksignore` (or the parent directory for one file),
+while `stdin`, GitHub, GitLab, Hugging Face, and S3 use
+`./.betterleaksignore`. Git scans read only the current working-tree policy,
+never a historical version. The active policy file is excluded from scanning.
+A missing default is fine; a missing or unreadable explicit file is an error.
+
+Fingerprints are identifiers, not confidential storage. Weak secrets can be
+guessed offline from their SHA-256 values. Protect reviews of
+`.betterleaksignore`—for example with `CODEOWNERS`—and keep each entry subject to
+the same review as an ordinary allowlist exception.
 
 ---
 

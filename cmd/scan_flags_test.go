@@ -15,6 +15,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"confidence",
 		"max-target-megabytes",
 		"jobs",
+		"ignore-file",
 		"ignore-allow-comments",
 		"redact",
 		"no-banner",

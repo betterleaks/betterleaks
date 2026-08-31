@@ -18,6 +18,7 @@ import (
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
+	"github.com/betterleaks/betterleaks/internal/fingerprint"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	regexpre2 "github.com/betterleaks/betterleaks/regexp/re2"
@@ -59,6 +60,7 @@ type CLI struct {
 	HuggingFace HuggingFaceCmd `cmd:"" name:"huggingface" aliases:"hf" help:"Scan Hugging Face repositories and community resources for secrets."`
 	S3          S3Cmd          `cmd:"" name:"s3" help:"Scan an S3 or S3-compatible bucket for secrets."`
 	Stdin       StdinCmd       `cmd:"" help:"Detect secrets from stdin."`
+	Fingerprint FingerprintCmd `cmd:"" help:"Generate a secret fingerprint from stdin."`
 	Validate    ValidateCmd    `cmd:"" help:"Validate a known secret without running detection."`
 	ConfigCmd   ConfigCmd      `cmd:"" name:"config" help:"Validate and inspect betterleaks configs."`
 	VersionCmd  VersionCmd     `cmd:"" name:"version" help:"Display betterleaks version."`
@@ -385,7 +387,11 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 		Timeout:                 flags.ValidationTimeout,
 	}
 
-	detector := detect.NewDetectorContext(runtime.Context, cfg, valOpts)
+	detectorOptions, err := ignoreOptions(runtime, flags.IgnoreFile, source)
+	if err != nil {
+		logging.Fatal().Err(err).Msg("unable to load ignore file")
+	}
+	detector := detect.NewDetectorContext(runtime.Context, cfg, valOpts, detectorOptions...)
 	detector.Jobs = flags.Jobs
 	detector.MinConfidence, err = confidence.Parse(flags.Confidence)
 	if err != nil {
@@ -414,6 +420,74 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	}
 
 	return detector
+}
+
+func ignoreOptions(runtime *commandRuntime, explicitPath, source string) ([]detect.Option, error) {
+	path := explicitPath
+	explicit := path != ""
+	if !explicit {
+		path = filepath.Join(".", ".betterleaksignore")
+		if source != "" {
+			info, err := os.Stat(source)
+			if err != nil {
+				return nil, err
+			}
+			if info.IsDir() {
+				path = filepath.Join(source, ".betterleaksignore")
+			} else {
+				path = filepath.Join(filepath.Dir(source), ".betterleaksignore")
+			}
+		}
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		if !explicit && os.IsNotExist(err) {
+			return nil, nil
+		}
+		if explicit {
+			return nil, fmt.Errorf("open %q: %w", path, err)
+		}
+		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s: %v\n", path, err)
+		return nil, nil
+	}
+	defer file.Close()
+
+	set, diagnostics, readErr := fingerprint.Load(file)
+	for _, diagnostic := range diagnostics {
+		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s:%d: %s; entry ignored\n", path, diagnostic.Line, diagnostic.Reason)
+	}
+	if readErr != nil {
+		if explicit {
+			return nil, fmt.Errorf("read %q: %w", path, readErr)
+		}
+		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s: %v\n", path, readErr)
+	}
+
+	var excluded []string
+	if source != "" {
+		excluded = append(excluded, path)
+		ignorePath, ignoreErr := filepath.Abs(path)
+		if ignoreErr == nil {
+			excluded = append(excluded, ignorePath)
+		}
+		if info, err := os.Stat(source); err == nil && info.IsDir() {
+			sourcePath, sourceErr := filepath.Abs(source)
+			if sourceErr == nil && ignoreErr == nil {
+				if relative, err := filepath.Rel(sourcePath, ignorePath); err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+					excluded = append(excluded, relative)
+				}
+			}
+		}
+	}
+	var options []detect.Option
+	if len(excluded) > 0 {
+		options = append(options, detect.WithExcludedPaths(excluded...))
+	}
+	if set.Len() > 0 {
+		options = append(options, detect.WithIgnoredSecrets(set))
+	}
+	return options, nil
 }
 
 func bytesConvert(bytes uint64) string {

@@ -31,7 +31,7 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 	initDiagnostics(&options.ScanFlags)
 
 	cfg := Config()
-	detector := Detector(runtime, globals, &options.ScanFlags, cfg, ".")
+	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "")
 	jobs := resolveJobPlan(options.Jobs, objectJobProfile)
 	detector.Jobs = jobs.Detector
 

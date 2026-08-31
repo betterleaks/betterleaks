@@ -36,7 +36,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 	initDiagnostics(&options.ScanFlags)
 
 	cfg := Config()
-	detector := Detector(runtime, globals, &options.ScanFlags, cfg, ".")
+	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "")
 	jobs := resolveJobPlan(options.Jobs, providerJobProfile)
 	detector.Jobs = jobs.Detector
 

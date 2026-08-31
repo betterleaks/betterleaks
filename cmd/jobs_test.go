@@ -29,7 +29,7 @@ func TestResolveJobPlan(t *testing.T) {
 	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, directoryJobProfile))
 	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, objectJobProfile))
 	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, streamJobProfile))
-	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, gitJobProfile))
+	require.Equal(t, jobPlan{Source: cpus, Detector: cpus}, resolveJobPlan(explicitJobs, gitJobProfile))
 	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, providerJobProfile))
 
 	require.Equal(t,
@@ -41,8 +41,7 @@ func TestResolveJobPlan(t *testing.T) {
 		resolveJobPlan(0, objectJobProfile),
 	)
 	require.Equal(t, jobPlan{Source: cpus, Detector: cpus}, resolveJobPlan(0, streamJobProfile))
-	gitJobs := min(cpus, maxAutomaticGitJobs)
-	require.Equal(t, jobPlan{Source: gitJobs, Detector: gitJobs}, resolveJobPlan(0, gitJobProfile))
+	require.Equal(t, jobPlan{Source: cpus, Detector: cpus}, resolveJobPlan(0, gitJobProfile))
 	providerJobs := min(cpus, maxAutomaticProviderJobs)
 	require.Equal(t, jobPlan{Source: providerJobs, Detector: providerJobs}, resolveJobPlan(0, providerJobProfile))
 }

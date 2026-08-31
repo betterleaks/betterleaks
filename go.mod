@@ -22,6 +22,7 @@ require (
 	github.com/shurcooL/githubv4 v0.0.0-20260209031235-2402fdf4a9ed
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa
+	golang.org/x/term v0.44.0
 )
 
 require (

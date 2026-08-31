@@ -19,6 +19,7 @@ type ScanFlags struct {
 	Confidence          string     `help:"Minimum confidence to include (low, medium, high)."`
 	MaxTargetMegabytes  int        `name:"max-target-megabytes" help:"Files larger than this will be skipped."`
 	Jobs                int        `name:"jobs" short:"j" help:"Parallel scan jobs; CPU-bound stages cap at available processors (0 = automatic)."`
+	IgnoreFile          string     `name:"ignore-file" placeholder:"PATH" help:"Read secret fingerprints from PATH."`
 	IgnoreAllowComments bool       `name:"ignore-allow-comments" help:"Ignore allow comments."`
 	Redact              redactFlag `placeholder:"PERCENT" help:"Redact secrets from logs and stdout. With no value, redact 100%; otherwise specify 0..100."`
 	NoBanner            bool       `name:"no-banner" help:"Suppress banner."`

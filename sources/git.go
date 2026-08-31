@@ -25,8 +25,6 @@ import (
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
-const maxGitHistoryJobs = 4
-
 // GitCmd helps to work with Git's output.
 type GitCmd struct {
 	cmd         *exec.Cmd
