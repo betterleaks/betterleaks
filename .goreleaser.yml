@@ -48,7 +48,7 @@ dockers_v2:
       - "ghcr.io/betterleaks/betterleaks"
     tags:
       - "{{ .Tag }}"
-      - "{{ if not .IsNightly }}latest{{ end }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
     dockerfile: goreleaser.Dockerfile
     platforms:
       - linux/amd64
