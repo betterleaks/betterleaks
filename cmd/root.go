@@ -16,8 +16,6 @@ import (
 
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/internal/confidence"
-	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/internal/fingerprint"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
@@ -356,17 +354,14 @@ func Config() *config.Config {
 	return &cfg
 }
 
-func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, cfg *config.Config, source string) *detect.Detector {
+func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, cfg *config.Config, source string, extraOptions ...detect.Option) *detect.Detector {
 	var err error
 
-	// Apply rule overrides BEFORE constructing the detector so that
-	// NewDetectorContext compiles expression filters for the final rule set.
+	// Apply rule overrides before taking the detector's immutable rule snapshot.
 	if err := applyRuleSelection(flags, cfg); err != nil {
 		logging.Fatal().Err(err).Msg("unable to apply rule selection")
 	}
 
-	// Setup common detector. NewDetectorContext compiles all expression programs
-	// and sets up the validation pool, so the cfg must be fully prepared.
 	if err := validateValidationRPS(flags.ValidationRPS); err != nil {
 		logging.Fatal().Err(err).Msg("validation-rps")
 	}
@@ -374,34 +369,47 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	if err != nil {
 		logging.Fatal().Err(err).Msg("validation-rps-rule")
 	}
-	valOpts := detect.ValidationOptions{
-		Enabled:                 flags.Validation,
-		Debug:                   flags.ValidationDebug,
-		Workers:                 flags.ValidationWorkers,
-		ExtractEmpty:            flags.ValidationExtractEmpty,
-		StatusFilter:            flags.ValidationStatus,
-		MaxRequestsPerTarget:    flags.ValidationMaxRequests,
-		RequestsPerSecond:       flags.ValidationRPS,
-		RequestsPerSecondByRule: validationRPSByRule,
-		ValidationEnvVars:       flags.ValidationEnvVars,
-		Timeout:                 flags.ValidationTimeout,
-	}
-
 	detectorOptions, err := ignoreOptions(runtime, flags.IgnoreFile, source)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("unable to load ignore file")
 	}
-	detector := detect.NewDetectorContext(runtime.Context, cfg, valOpts, detectorOptions...)
-	detector.Jobs = flags.Jobs
-	detector.MinConfidence, err = confidence.Parse(flags.Confidence)
-	if err != nil {
-		logging.Fatal().Err(err).Send()
+	detectorOptions = append(detectorOptions,
+		detect.WithJobs(flags.Jobs),
+		detect.WithMaxDecodeDepth(flags.MaxDecodeDepth),
+		detect.WithMinimumConfidence(detect.Confidence(flags.Confidence)),
+		detect.WithIgnoreAllowComments(flags.IgnoreAllowComments),
+	)
+	if flags.MatchContext != "" {
+		detectorOptions = append(detectorOptions, detect.WithMatchContext(flags.MatchContext))
 	}
 	if diagnosticsManager != nil && diagnosticsManager.RuleTimings != nil {
-		detector.RuleTimings = diagnosticsManager.RuleTimings
+		detectorOptions = append(detectorOptions, detect.WithRuleTimings(diagnosticsManager.RuleTimings))
 	}
-
-	detector.MaxDecodeDepth = flags.MaxDecodeDepth
+	if flags.Validation {
+		statuses, statusErr := parseValidationStatuses(flags.ValidationStatus)
+		if statusErr != nil {
+			logging.Fatal().Err(statusErr).Msg("validation-status")
+		}
+		detectorOptions = append(detectorOptions, detect.WithValidation(detect.ValidationOptions{
+			Debug:                   flags.ValidationDebug,
+			Workers:                 flags.ValidationWorkers,
+			ExtractEmpty:            flags.ValidationExtractEmpty,
+			Statuses:                statuses,
+			MaxRequestsPerTarget:    flags.ValidationMaxRequests,
+			RequestsPerSecond:       flags.ValidationRPS,
+			RequestsPerSecondByRule: validationRPSByRule,
+			ValidationEnvVars:       flags.ValidationEnvVars,
+			Timeout:                 flags.ValidationTimeout,
+		}))
+	}
+	detectorOptions = append(detectorOptions, extraOptions...)
+	detector, err := detect.NewDetector(cfg, detectorOptions...)
+	if err != nil {
+		logging.Fatal().Err(err).Msg("unable to create detector")
+	}
+	if flags.Validation && !detector.ValidationEnabled() {
+		logging.Warn().Msg("validation enabled but no rules have validation expressions")
+	}
 
 	// set color flag at first
 	// also init logger again without color
@@ -412,14 +420,34 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 		}).Level(logLevel)
 	}
 
-	if flags.MatchContext != "" {
-		detector.MatchContext, err = contextwindow.Parse(flags.MatchContext)
-		if err != nil {
-			logging.Fatal().Err(err).Msg("invalid --match-context value")
+	return detector
+}
+
+func parseValidationStatuses(value string) ([]report.ValidationStatus, error) {
+	var statuses []report.ValidationStatus
+	for value := range strings.SplitSeq(value, ",") {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if value == "none" {
+			statuses = append(statuses, report.ValidationStatusNone)
+			continue
+		}
+		status := report.ValidationStatus(value)
+		switch status {
+		case report.ValidationStatusValid,
+			report.ValidationStatusNeedsValidation,
+			report.ValidationStatusInvalid,
+			report.ValidationStatusRevoked,
+			report.ValidationStatusUnknown,
+			report.ValidationStatusError:
+			statuses = append(statuses, status)
+		default:
+			return nil, fmt.Errorf("invalid validation status %q", value)
 		}
 	}
-
-	return detector
+	return statuses, nil
 }
 
 func ignoreOptions(runtime *commandRuntime, explicitPath, source string) ([]detect.Option, error) {
@@ -517,13 +545,18 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func collectFinding(findings *findingCollector, finding report.Finding) {
-	if err := findings.Add(finding); err != nil {
-		logging.Fatal().Err(err).Msg("failed to write finding")
+func addScanSummary(total *detect.ScanSummary, next detect.ScanSummary) {
+	total.BytesInspected += next.BytesInspected
+	total.Findings += next.Findings
+	if total.ValidationCounts == nil {
+		total.ValidationCounts = make(map[report.ValidationStatus]int)
+	}
+	for status, count := range next.ValidationCounts {
+		total.ValidationCounts[status] += count
 	}
 }
 
-func findingSummaryAndExit(runtime *commandRuntime, detector *detect.Detector, findings *findingCollector, exitCode int, start time.Time, err error) {
+func findingSummaryAndExit(runtime *commandRuntime, summary detect.ScanSummary, validationEnabled bool, findings *findingCollector, exitCode int, start time.Time, err error) {
 	// Finalize streaming reports first. In particular, JSON needs its closing
 	// bracket even when the command context was canceled by an interrupt.
 	if outputErr := findings.Close(); outputErr != nil {
@@ -538,18 +571,18 @@ func findingSummaryAndExit(runtime *commandRuntime, detector *detect.Detector, f
 		diagnosticsManager.StopDiagnostics()
 	}
 
-	if detector.ValidationPool != nil {
+	if validationEnabled {
 		logging.Info().
-			Int("valid", detector.ValidationCounts["valid"]).
-			Int("needs_validation", detector.ValidationCounts["needs_validation"]).
-			Int("invalid", detector.ValidationCounts["invalid"]).
-			Int("revoked", detector.ValidationCounts["revoked"]).
-			Int("unknown", detector.ValidationCounts["unknown"]).
-			Int("errors", detector.ValidationCounts["error"]).
+			Int("valid", summary.ValidationCounts[report.ValidationStatusValid]).
+			Int("needs_validation", summary.ValidationCounts[report.ValidationStatusNeedsValidation]).
+			Int("invalid", summary.ValidationCounts[report.ValidationStatusInvalid]).
+			Int("revoked", summary.ValidationCounts[report.ValidationStatusRevoked]).
+			Int("unknown", summary.ValidationCounts[report.ValidationStatusUnknown]).
+			Int("errors", summary.ValidationCounts[report.ValidationStatusError]).
 			Msg("validation complete")
 	}
 
-	totalBytes := detector.TotalBytes.Load()
+	totalBytes := summary.BytesInspected
 	bytesMsg := fmt.Sprintf("scanned ~%d bytes (%s)", totalBytes, bytesConvert(totalBytes))
 	if err == nil {
 		logging.Info().Msgf("%s in %s", bytesMsg, FormatDuration(time.Since(start)))

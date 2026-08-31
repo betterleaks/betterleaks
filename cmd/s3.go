@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"fmt"
 	"time"
 
+	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 )
@@ -31,9 +31,8 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 	initDiagnostics(&options.ScanFlags)
 
 	cfg := Config()
-	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "")
 	jobs := resolveJobPlan(options.Jobs, objectJobProfile)
-	detector.Jobs = jobs.Detector
+	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "", detect.WithJobs(jobs.Detector))
 
 	src := &sources.S3{
 		URL:             options.URL,
@@ -54,22 +53,9 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 
 	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
 
-	var scanErrs []error
-	for result := range detector.Run(runtime.Context, src) {
-		if result.Err != nil {
-			scanErrs = append(scanErrs, result.Err)
-			logging.Error().Err(result.Err).Msg("scan error")
-			continue
-		}
-		collectFinding(findings, result.Finding)
+	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)
+	if scanErr != nil {
+		logging.Error().Err(scanErr).Msg("scan error")
 	}
-
-	var scanErr error
-	if n := len(scanErrs); n > 0 {
-		scanErr = &multipleErrors{
-			msg:  fmt.Sprintf("%d error(s) during S3 scan", n),
-			errs: scanErrs,
-		}
-	}
-	findingSummaryAndExit(runtime, detector, findings, options.ExitCode, start, scanErr)
+	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
 }

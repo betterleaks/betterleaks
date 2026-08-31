@@ -108,7 +108,14 @@ func newDefaultTestDetector(t *testing.T) *Detector {
 	t.Helper()
 	cfg, err := config.Default()
 	require.NoError(t, err)
-	return NewDetectorContext(t.Context(), cfg, ValidationOptions{})
+	return mustNewDetector(t, cfg)
+}
+
+func mustNewDetector(t *testing.T, cfg *config.Config, options ...Option) *Detector {
+	t.Helper()
+	detector, err := NewDetector(cfg, options...)
+	require.NoError(t, err)
+	return detector
 }
 
 func collectSourceFindings(ctx context.Context, detector *Detector, source sources.Source) ([]report.Finding, error) {
@@ -127,7 +134,7 @@ func collectSourceFindings(ctx context.Context, detector *Detector, source sourc
 }
 
 func TestRunStreamsFindings(t *testing.T) {
-	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
+	detector := mustNewDetector(t, loadTestConfig(t, "simple"))
 	source := &sources.Stdin{
 		Content: strings.NewReader("ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
 	}
@@ -144,8 +151,7 @@ func TestRunStreamsFindings(t *testing.T) {
 func TestRunWithMultipleJobs(t *testing.T) {
 	const fragmentCount = 100
 
-	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
-	detector.Jobs = 4
+	detector := mustNewDetector(t, loadTestConfig(t, "simple"), WithJobs(4))
 
 	findings, err := collectSourceFindings(t.Context(), detector, repeatedFragmentSource{count: fragmentCount})
 	require.NoError(t, err)
@@ -153,8 +159,7 @@ func TestRunWithMultipleJobs(t *testing.T) {
 }
 
 func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
-	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
-	detector.Jobs = 2
+	detector := mustNewDetector(t, loadTestConfig(t, "simple"), WithJobs(2))
 	source := cancelAwareSource{stopped: make(chan struct{})}
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
@@ -173,8 +178,7 @@ func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
 }
 
 func TestRunCancellationDoesNotEmitErrors(t *testing.T) {
-	detector := NewDetectorContext(t.Context(), loadTestConfig(t, "simple"), ValidationOptions{})
-	detector.Jobs = 4
+	detector := mustNewDetector(t, loadTestConfig(t, "simple"), WithJobs(4))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -198,8 +202,8 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
 	}
-	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
-	detector.RuleTimings = NewRuleTimingCollector()
+	timingCollector := NewRuleTimingCollector()
+	detector := mustNewDetector(t, cfg, WithRuleTimings(timingCollector))
 	source := &sources.File{
 		Content: strings.NewReader("aa\n\nbb\n\n"),
 		Path:    "bundle.p12",
@@ -213,7 +217,7 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	}
 
 	require.Len(t, findings, 1)
-	timings := detector.RuleTimings.Snapshot()
+	timings := timingCollector.Snapshot()
 	require.Len(t, timings, 1)
 	require.Equal(t, uint64(1), timings[0].Hits)
 }
@@ -228,7 +232,7 @@ func TestCandidateBitmap(t *testing.T) {
 	cfg := &config.Config{
 		Rules: rules,
 	}
-	d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+	d := mustNewDetector(t, cfg)
 	require.Empty(t, d.DetectString("stale HIGHSECRET"))
 
 	// Cancellation after candidates are marked must not leak them into the next scan.
@@ -247,7 +251,7 @@ func TestNewDetectorSnapshotsConfigWithoutMutatingIt(t *testing.T) {
 		{RuleID: "high", Specificity: 20, Keywords: []string{"MiXeD"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
 	}}
 
-	d := NewDetectorContext(t.Context(), cfg, ValidationOptions{})
+	d := mustNewDetector(t, cfg)
 	require.Equal(t, []string{"low", "high"}, []string{cfg.Rules[0].RuleID, cfg.Rules[1].RuleID})
 	require.Equal(t, "MiXeD", cfg.Rules[0].Keywords[0])
 	require.Equal(t, []string{"high", "low"}, []string{d.rulesBySpecificity[0].RuleID, d.rulesBySpecificity[1].RuleID})
@@ -416,7 +420,7 @@ regex = '''optional=([a-z]+)'''
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+	detector := mustNewDetector(t, cfg)
 
 	t.Run("required component gates finding", func(t *testing.T) {
 		assert.Empty(t, detector.DetectString("primary=secret\noptional=session"))
@@ -459,7 +463,7 @@ specificity = 100
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+	detector := mustNewDetector(t, cfg)
 
 	findings := detector.DetectString("primary=secret")
 	require.Len(t, findings, 1)
@@ -1254,7 +1258,7 @@ regex = '''optional=([a-z]+)'''
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+	detector := mustNewDetector(t, cfg)
 
 	findings := detector.DetectString("optional=session\nprimary=secret")
 	require.Len(t, findings, 1)
@@ -1275,7 +1279,7 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 		Rules: []config.Rule{rule},
 	}
 
-	d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+	d := mustNewDetector(t, cfg)
 	findings := d.detectFragment(context.Background(), sources.Fragment{Raw: "red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST"})
 
 	require.Len(t, findings, 1)
@@ -1289,8 +1293,7 @@ func TestConfidenceAttributeAndFilter(t *testing.T) {
 		Rules: []config.Rule{low, promoted},
 	}
 
-	detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
-	detector.MinConfidence = "high"
+	detector := mustNewDetector(t, cfg, WithMinimumConfidence(ConfidenceHigh))
 	findings := detector.DetectString("ABCDEFGHIJKLMNOPQRST")
 	require.Len(t, findings, 1)
 	require.Equal(t, "promoted", findings[0].RuleID)
@@ -1318,8 +1321,7 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 			cfg := &config.Config{
 				Rules: []config.Rule{rule},
 			}
-			d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
-			d.MaxDecodeDepth = 1
+			d := mustNewDetector(t, cfg, WithMaxDecodeDepth(1))
 
 			require.Len(t, d.detectFragment(context.Background(), sources.Fragment{Raw: raw}), tc.findings)
 		})
@@ -1336,7 +1338,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 		Rules: []config.Rule{rule},
 	}
 
-	require.Empty(t, NewDetectorContext(context.Background(), cfg, ValidationOptions{}).detectFragment(context.Background(), sources.Fragment{Raw: "prefix\nSECRET"}))
+	require.Empty(t, mustNewDetector(t, cfg).detectFragment(context.Background(), sources.Fragment{Raw: "prefix\nSECRET"}))
 }
 
 func TestFilterContextCanStayOnMatchLine(t *testing.T) {
@@ -1349,7 +1351,7 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 		Rules: []config.Rule{rule},
 	}
 
-	require.Len(t, NewDetectorContext(context.Background(), cfg, ValidationOptions{}).detectFragment(context.Background(), sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
+	require.Len(t, mustNewDetector(t, cfg).detectFragment(context.Background(), sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
 }
 
 func TestDetect(t *testing.T) {
@@ -1964,8 +1966,7 @@ func TestDetect(t *testing.T) {
 			cfg := loadTestConfig(t, tt.cfgName)
 			cfg.Path = filepath.Join(configPath, tt.cfgName+".toml")
 			assert.Nil(t, tt.wantError)
-			d := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
-			d.MaxDecodeDepth = maxDecodeDepth
+			d := mustNewDetector(t, cfg, WithMaxDecodeDepth(maxDecodeDepth))
 			findings := d.detectFragment(context.Background(), tt.fragment)
 
 			compare(t, findings, tt.expectedFindings)
@@ -2341,7 +2342,7 @@ func TestFromGit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(strings.Join([]string{tt.cfgName, tt.source, tt.logOpts}, "/"), func(t *testing.T) {
 			cfg := loadTestConfig(t, "simple")
-			detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+			detector := mustNewDetector(t, cfg)
 
 			gitCmd, err := sources.NewGitLogCmd(tt.source, tt.logOpts)
 			require.NoError(t, err)
@@ -2407,7 +2408,7 @@ func TestFromGitStaged(t *testing.T) {
 	defer moveDotGit(t, ".git", "dotGit")
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
-		detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+		detector := mustNewDetector(t, cfg)
 		gitCmd, err := sources.NewGitDiffCmd(tt.source, true)
 		require.NoError(t, err)
 		platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
@@ -2514,7 +2515,7 @@ func TestFromFiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
 			cfg := loadTestConfig(t, tt.cfgName)
-			detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+			detector := mustNewDetector(t, cfg)
 
 			findings, err := collectSourceFindings(
 				t.Context(), detector,
@@ -3024,7 +3025,7 @@ func TestDetectWithArchives(t *testing.T) {
 			}
 
 			cfg := loadTestConfig(t, tt.cfgName)
-			detector := NewDetectorContext(ctx, cfg, ValidationOptions{})
+			detector := mustNewDetector(t, cfg)
 			findings, err := collectSourceFindings(
 				ctx, detector,
 				&sources.Files{
@@ -3083,7 +3084,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
-		detector := NewDetectorContext(context.Background(), cfg, ValidationOptions{})
+		detector := mustNewDetector(t, cfg)
 		findings, err := collectSourceFindings(
 			t.Context(), detector,
 

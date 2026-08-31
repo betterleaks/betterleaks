@@ -86,7 +86,9 @@ func writeIgnore(t *testing.T, dir, secret string) string {
 
 func detectorWithIgnoreOptions(t *testing.T, options []detect.Option) *detect.Detector {
 	t.Helper()
-	return detect.NewDetectorContext(t.Context(), ignoreTestConfig(), detect.ValidationOptions{}, options...)
+	detector, err := detect.NewDetector(ignoreTestConfig(), options...)
+	require.NoError(t, err)
+	return detector
 }
 
 func TestIgnoreFileDiscovery(t *testing.T) {

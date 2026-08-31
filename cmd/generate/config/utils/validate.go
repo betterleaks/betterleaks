@@ -117,7 +117,11 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 	cfg := base.CreateGlobalConfig()
 	cfg.Rules = []config.Rule{testRule}
 
-	return detect.NewDetectorContext(context.Background(), cfg, detect.ValidationOptions{})
+	detector, err := detect.NewDetector(cfg, detect.WithPrecompile())
+	if err != nil {
+		logging.Fatal().Err(err).Str("rule", r.RuleID).Msg("Failed to create rule detector.")
+	}
+	return detector
 }
 
 func countFindings(d *detect.Detector, fragment sources.Fragment) (int, error) {

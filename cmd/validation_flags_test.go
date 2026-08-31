@@ -2,8 +2,29 @@ package cmd
 
 import (
 	"math"
+	"reflect"
 	"testing"
+
+	"github.com/betterleaks/betterleaks/report"
 )
+
+func TestParseValidationStatuses(t *testing.T) {
+	got, err := parseValidationStatuses(" valid, NONE,needs_validation ")
+	if err != nil {
+		t.Fatalf("parseValidationStatuses: %v", err)
+	}
+	want := []report.ValidationStatus{
+		report.ValidationStatusValid,
+		report.ValidationStatusNone,
+		report.ValidationStatusNeedsValidation,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("statuses = %v, want %v", got, want)
+	}
+	if _, err := parseValidationStatuses("valid,surprising"); err == nil {
+		t.Fatal("invalid status returned no error")
+	}
+}
 
 func TestParseValidationRuleRPS(t *testing.T) {
 	got, err := parseValidationRuleRPS([]string{"github-pat=2", "gcp-service-account=0.5"})

@@ -37,18 +37,16 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
 
 	var (
-		lastDetector *detect.Detector
-		scanErrs     []error
+		summary           detect.ScanSummary
+		validationEnabled bool
+		scanErrs          []error
 	)
-
-	totalBytes := uint64(0)
 
 	for _, source := range sourcesList {
 		initConfig(runtime, globals, &options.ScanFlags, source)
 		cfg := Config()
-		detector := Detector(runtime, globals, &options.ScanFlags, cfg, source)
-		detector.Jobs = jobs.Detector
-		lastDetector = detector
+		detector := Detector(runtime, globals, &options.ScanFlags, cfg, source, detect.WithJobs(jobs.Detector))
+		validationEnabled = validationEnabled || detector.ValidationEnabled()
 
 		s := &sources.Files{
 			ShouldSkip:      findings.FileSkipFunc(detector.SkipFunc()),
@@ -59,20 +57,13 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 			Jobs:            jobs.Source,
 		}
 
-		for result := range detector.Run(runtime.Context, s) {
-			if result.Err != nil {
-				scanErrs = append(scanErrs, result.Err)
-				logging.Error().Err(result.Err).Msg("error scanning source")
-				continue
-			}
-
-			collectFinding(findings, result.Finding)
+		nextSummary, scanErr := detector.Scan(runtime.Context, s, findings.Add)
+		addScanSummary(&summary, nextSummary)
+		if scanErr != nil {
+			scanErrs = append(scanErrs, scanErr)
+			logging.Error().Err(scanErr).Msg("error scanning source")
 		}
-
-		totalBytes += detector.TotalBytes.Load()
 	}
-
-	lastDetector.TotalBytes.Swap(totalBytes)
 
 	var scanErr error
 	if n := len(scanErrs); n > 0 {
@@ -82,7 +73,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 		}
 	}
 
-	findingSummaryAndExit(runtime, lastDetector, findings, options.ExitCode, start, scanErr)
+	findingSummaryAndExit(runtime, summary, validationEnabled, findings, options.ExitCode, start, scanErr)
 }
 
 // removeNestedPaths filters out paths that are children of other paths in the

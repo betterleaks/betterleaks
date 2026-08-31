@@ -17,8 +17,9 @@ type SkipFunc func(attrs map[string]string) bool
 // Source is a thing that can yield fragments
 type Source interface {
 	// Fragments provides a filepath.WalkDir like interface for scanning the
-	// fragments in the source. A source must not mutate a fragment or its
-	// attributes after yield accepts it.
+	// fragments in the source. A source may call yield concurrently, but every
+	// call must finish before Fragments returns. It must not mutate a fragment or
+	// its attributes after yield accepts it.
 	Fragments(ctx context.Context, yield FragmentsFunc) error
 }
 

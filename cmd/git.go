@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"fmt"
 	"time"
 
+	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
@@ -53,9 +53,8 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	cfg := Config()
 
 	// create detector
-	detector := Detector(runtime, globals, &options.ScanFlags, cfg, source)
 	jobs := resolveJobPlan(options.Jobs, gitJobProfile)
-	detector.Jobs = jobs.Detector
+	detector := Detector(runtime, globals, &options.ScanFlags, cfg, source, detect.WithJobs(jobs.Detector))
 
 	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
 
@@ -95,24 +94,10 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		}
 	}
 
-	var scanErrs []error
-	for result := range detector.Run(runtime.Context, src) {
-		if result.Err != nil {
-			scanErrs = append(scanErrs, result.Err)
-			// don't exit on error, just log it
-			logging.Error().Err(result.Err).Msg("failed to scan Git repository")
-			continue
-		}
-
-		collectFinding(findings, result.Finding)
+	summary, err := detector.Scan(runtime.Context, src, findings.Add)
+	if err != nil {
+		logging.Error().Err(err).Msg("failed to scan Git repository")
 	}
 
-	if n := len(scanErrs); n > 0 {
-		err = &multipleErrors{
-			msg:  fmt.Sprintf("%d error(s) encountered during scan", n),
-			errs: scanErrs,
-		}
-	}
-
-	findingSummaryAndExit(runtime, detector, findings, options.ExitCode, start, err)
+	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, err)
 }

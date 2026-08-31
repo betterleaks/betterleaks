@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
 	"net/http"
 	"runtime"
 	"slices"
@@ -32,21 +33,27 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// ValidationOptions controls secret validation behavior.
-// Zero value means validation is disabled.
+// ValidationOptions controls secret validation behavior. Validation is enabled
+// when these options are passed to [WithValidation].
 type ValidationOptions struct {
-	Enabled                 bool
-	Debug                   bool
-	Workers                 int
-	Timeout                 time.Duration
-	ExtractEmpty            bool
-	StatusFilter            string // comma-separated list of statuses to include
-	MaxRequestsPerTarget    int
-	RequestsPerSecond       float64
+	// Debug includes validation HTTP metadata in findings.
+	Debug bool
+	// Workers is the number of validation workers. Zero uses 10.
+	Workers int
+	// Timeout is the per-request timeout. Zero uses the runtime default.
+	Timeout time.Duration
+	// ExtractEmpty preserves empty extractor values in validation metadata.
+	ExtractEmpty bool
+	// Statuses restricts findings delivered by a scan. Empty includes all.
+	Statuses []report.ValidationStatus
+	// MaxRequestsPerTarget limits requests to each provider target. Zero is unlimited.
+	MaxRequestsPerTarget int
+	// RequestsPerSecond is the global request rate. Zero is unlimited.
+	RequestsPerSecond float64
+	// RequestsPerSecondByRule overrides the request rate for individual rules.
 	RequestsPerSecondByRule map[string]float64
 	// ValidationEnvVars lists environment variable names the validation Expr
-	// env.get(...) binding may read (see --validation-env-vars). Parsed into
-	// exprruntime.Runtime.AllowedEnv when the validation env is created.
+	// env.get(...) binding may read. Names not listed are unavailable.
 	ValidationEnvVars []string
 }
 
@@ -66,23 +73,170 @@ const (
 	maxComponentSets = 100
 )
 
+// Result is one finding or recoverable error emitted by [Detector.Run].
 type Result struct {
+	// Finding is populated when Err is nil.
 	Finding report.Finding
-	Err     error
+	// Err is a recoverable source or pipeline error.
+	Err error
 }
 
+// ScanSummary describes the work completed by one scan.
+type ScanSummary struct {
+	// BytesInspected excludes fragments rejected by the detector prefilter.
+	BytesInspected uint64
+	// Findings is the number of findings that passed output filters.
+	Findings int
+	// ValidationCounts includes validation outcomes before status filtering.
+	ValidationCounts map[report.ValidationStatus]int
+}
+
+// Handler consumes one finding. Scan invokes handlers synchronously and never
+// concurrently. Returning an error stops the scan. A handler must not start
+// another scan on the same Detector because scans are sequential.
+type Handler func(report.Finding) error
+
+// SecretMatcher reports whether a secret should be ignored.
 type SecretMatcher interface {
 	Contains(secret string) bool
 }
 
-type Option func(*Detector)
+// Confidence is the minimum confidence classification accepted by a detector.
+type Confidence string
 
-func WithIgnoredSecrets(matcher SecretMatcher) Option {
-	return func(d *Detector) { d.ignoredSecrets = matcher }
+const (
+	ConfidenceAny    Confidence = ""
+	ConfidenceLow    Confidence = "low"
+	ConfidenceMedium Confidence = "medium"
+	ConfidenceHigh   Confidence = "high"
+)
+
+type detectorOptions struct {
+	jobs                int
+	maxDecodeDepth      int
+	matchContext        contextwindow.Spec
+	minimumConfidence   string
+	validation          *ValidationOptions
+	ignoreAllowComments bool
+	ignoredSecrets      SecretMatcher
+	excludedPaths       []string
+	ruleTimings         *RuleTimingCollector
+	precompile          bool
 }
 
+// Option configures a Detector during construction. Options are created by the
+// With... functions in this package.
+type Option struct {
+	apply func(*detectorOptions) error
+}
+
+// WithIgnoredSecrets suppresses secrets contained by matcher.
+func WithIgnoredSecrets(matcher SecretMatcher) Option {
+	return Option{apply: func(options *detectorOptions) error {
+		if matcher == nil {
+			return errors.New("ignored-secret matcher is nil")
+		}
+		options.ignoredSecrets = matcher
+		return nil
+	}}
+}
+
+// WithExcludedPaths suppresses fragments whose path equals one of paths.
 func WithExcludedPaths(paths ...string) Option {
-	return func(d *Detector) { d.excludedPaths = append(d.excludedPaths, paths...) }
+	paths = slices.Clone(paths)
+	return Option{apply: func(options *detectorOptions) error {
+		options.excludedPaths = append(options.excludedPaths, paths...)
+		return nil
+	}}
+}
+
+// WithJobs sets the maximum number of concurrent detector workers. Zero uses
+// GOMAXPROCS.
+func WithJobs(jobs int) Option {
+	return Option{apply: func(options *detectorOptions) error {
+		if jobs < 0 {
+			return errors.New("jobs must be non-negative")
+		}
+		options.jobs = jobs
+		return nil
+	}}
+}
+
+// WithMaxDecodeDepth limits recursive decoding passes. Zero disables decoding.
+func WithMaxDecodeDepth(depth int) Option {
+	return Option{apply: func(options *detectorOptions) error {
+		if depth < 0 {
+			return errors.New("maximum decode depth must be non-negative")
+		}
+		options.maxDecodeDepth = depth
+		return nil
+	}}
+}
+
+// WithMatchContext configures the context captured around each finding using
+// the same grammar as the CLI --match-context flag.
+func WithMatchContext(spec string) Option {
+	return Option{apply: func(options *detectorOptions) error {
+		parsed, err := contextwindow.Parse(spec)
+		if err != nil {
+			return fmt.Errorf("match context: %w", err)
+		}
+		options.matchContext = parsed
+		return nil
+	}}
+}
+
+// WithMinimumConfidence suppresses classified findings below confidence.
+func WithMinimumConfidence(value Confidence) Option {
+	return Option{apply: func(options *detectorOptions) error {
+		parsed, err := confidence.Parse(string(value))
+		if err != nil {
+			return err
+		}
+		options.minimumConfidence = parsed
+		return nil
+	}}
+}
+
+// WithValidation enables active-secret validation for every scan.
+func WithValidation(validation ValidationOptions) Option {
+	validation.Statuses = slices.Clone(validation.Statuses)
+	validation.RequestsPerSecondByRule = maps.Clone(validation.RequestsPerSecondByRule)
+	validation.ValidationEnvVars = slices.Clone(validation.ValidationEnvVars)
+	return Option{apply: func(options *detectorOptions) error {
+		copy := validation
+		options.validation = &copy
+		return nil
+	}}
+}
+
+// WithIgnoreAllowComments controls whether betterleaks:allow and
+// gitleaks:allow comments are ignored instead of suppressing findings.
+func WithIgnoreAllowComments(ignore bool) Option {
+	return Option{apply: func(options *detectorOptions) error {
+		options.ignoreAllowComments = ignore
+		return nil
+	}}
+}
+
+// WithRuleTimings records per-rule diagnostic timings in collector.
+func WithRuleTimings(collector *RuleTimingCollector) Option {
+	return Option{apply: func(options *detectorOptions) error {
+		if collector == nil {
+			return errors.New("rule timing collector is nil")
+		}
+		options.ruleTimings = collector
+		return nil
+	}}
+}
+
+// WithPrecompile forces every regex and expression to compile during
+// construction. Lazy compilation remains the default.
+func WithPrecompile() Option {
+	return Option{apply: func(options *detectorOptions) error {
+		options.precompile = true
+		return nil
+	}}
 }
 
 type ruleCandidates struct {
@@ -91,38 +245,18 @@ type ruleCandidates struct {
 	marked []bool
 }
 
-// Detector is the main detector struct
+// Detector is an immutable rule engine with thread-safe lazy compilation. A
+// Detector may be reused for multiple scans. Scan executions are serialized.
 type Detector struct {
-	// Config is retained for caller introspection. Detection uses the immutable
-	// runtime snapshot built during construction.
-	Config *config.Config
-
-	// MaxDecodeDepths limits how many recursive decoding passes are allowed
-	MaxDecodeDepth int
-
-	// MatchContext specifies how much context to extract around a match.
-	MatchContext contextwindow.Spec
-
-	// ValidationStatusFilter, when non-empty, restricts which findings Run emits.
-	ValidationStatusFilter map[string]struct{}
-
-	// MinConfidence suppresses classified findings below this level.
-	MinConfidence string
-
-	// ValidationPool is the expression validation worker pool.
-	ValidationPool *validate.Pool
-
-	// ValidationCounts tracks how many findings were returned for each
-	// ValidationStatus value. Populated by the Run/DetectSource consumer;
-	// safe to read after the scan returns.
-	ValidationCounts map[report.ValidationStatus]int
-
-	// ValidationExtractEmpty controls whether empty values from extractors
-	// are included in validation output.
-	ValidationExtractEmpty bool
-
-	// IgnoreGitleaksAllow is a flag to ignore gitleaks:allow comments.
-	IgnoreGitleaksAllow bool
+	maxDecodeDepth         int
+	matchContext           contextwindow.Spec
+	validationStatusFilter map[report.ValidationStatus]struct{}
+	minimumConfidence      string
+	validationExtractEmpty bool
+	ignoreAllowComments    bool
+	jobs                   int
+	ruleTimings            *RuleTimingCollector
+	scanMu                 sync.Mutex
 
 	// prefilter is a ahocorasick struct used for doing efficient string
 	// matching given a set of words (keywords from the rules in the config)
@@ -133,23 +267,15 @@ type Detector struct {
 	ignoredSecrets   SecretMatcher
 	excludedPaths    []string
 
-	TotalBytes atomic.Uint64
-
-	// RuleTimings records per-rule diagnostic timings when diagnostics are enabled.
-	RuleTimings *RuleTimingCollector
-
-	// Jobs limits concurrent fragment detection. Zero uses GOMAXPROCS.
-	Jobs int
-
 	tokenizer     *tiktoken.Tiktoken
 	tokenizerOnce sync.Once
 
 	exprRuntime *exprruntime.Runtime
 
-	// validationRuntime evaluates per-rule validation expressions. Created during
-	// construction; nil when no rules have ValidateExpr. The cmd layer may
-	// reconfigure the HTTP client/debug settings before evaluation begins.
+	// validationRuntime compiles and caches per-rule validation expressions. The
+	// workers and evaluation runtime are created separately for each scan.
 	validationRuntime  *exprruntime.Runtime
+	validationOptions  *ValidationOptions
 	validationProgramM sync.Mutex
 	validationPrograms map[string]exprruntime.Program
 	globalFilter       exprruntime.Program
@@ -171,26 +297,32 @@ type Detector struct {
 	// keyword prefilter. These rules are candidates on every scan and decode pass.
 	noKeywordIndexes []int
 
-	// candidatePool reuses one bitmap per active scan. A set bit means the rule at
-	// the same rulesBySpecificity position should run. Bitmaps must be cleared
-	// before they are returned because the pool is shared by concurrent scans.
+	// candidatePool reuses bitmaps across detector workers and repeated scans. A
+	// set bit means the rule at the same rulesBySpecificity position should run.
+	// Bitmaps must be cleared before they are returned.
 	candidatePool sync.Pool
 }
 
-// NewDetectorContext creates a new Detector.
-// It compiles global expressions and, when valOpts.Enabled is true, creates the
-// validation worker pool. Per-rule expressions compile lazily on first use.
-func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts ValidationOptions, options ...Option) *Detector {
+// NewDetector creates a Detector from cfg. The source prefilter compiles during
+// construction; rule regexes, finding filters, and validation expressions stay
+// lazy unless [WithPrecompile] is supplied. Construction never starts scan or
+// validation workers.
+func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 	if cfg == nil {
-		// TODO in v2 use NewDetector(ctx context.Context, cfg *config.Config, valOpts ValidationOptions) (*Detector, error)
-		// Could be logging.Error?
-		logging.Fatal().Msg("config is required to create detector")
-		return nil
+		return nil, errors.New("config is required to create detector")
+	}
+	settings := detectorOptions{}
+	for _, option := range options {
+		if option.apply == nil {
+			return nil, errors.New("detector option is invalid")
+		}
+		if err := option.apply(&settings); err != nil {
+			return nil, err
+		}
 	}
 	rulesBySpecificity, ruleIndexByID, snapshotErr := snapshotDetectorRules(cfg)
 	if snapshotErr != nil {
-		logging.Fatal().Err(snapshotErr).Msg("invalid config")
-		return nil
+		return nil, fmt.Errorf("invalid config: %w", snapshotErr)
 	}
 
 	var validationRuntime *exprruntime.Runtime
@@ -201,17 +333,21 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		var validationErr error
 		validationRuntime, validationErr = exprruntime.New(nil)
 		if validationErr != nil {
-			logging.Fatal().Err(validationErr).Msg("failed to create validation runtime")
-			return nil
+			return nil, fmt.Errorf("create validation runtime: %w", validationErr)
 		}
 		break
 	}
-	if validationRuntime != nil {
-		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(valOpts.ValidationEnvVars)
+	if settings.validation != nil {
+		if err := validateValidationOptions(*settings.validation, validationRuntime); err != nil {
+			return nil, err
+		}
+	}
+	if validationRuntime != nil && settings.validation != nil {
+		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(settings.validation.ValidationEnvVars)
 	}
 	exprRuntime, exprErr := exprruntime.New(nil)
 	if exprErr != nil {
-		logging.Fatal().Err(exprErr).Msg("failed to create expr runtime")
+		return nil, fmt.Errorf("create expression runtime: %w", exprErr)
 	}
 
 	keywordToRuleIndexes := make(map[string][]int)
@@ -240,26 +376,36 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 		keywordRuleIndexes[patternID] = keywordToRuleIndexes[keyword]
 	}
 	d := &Detector{
-		ValidationCounts:       make(map[report.ValidationStatus]int),
-		Config:                 cfg,
-		configPath:             cfg.Path,
-		globalFilterExpr:       cfg.Filter,
-		prefilter:              ahocorasick.Compile(keywords, true),
-		exprRuntime:            exprRuntime,
-		validationRuntime:      validationRuntime,
-		validationPrograms:     make(map[string]exprruntime.Program),
-		filterPrograms:         make(map[string]exprruntime.Program),
-		rulesBySpecificity:     rulesBySpecificity,
-		ruleIndexByID:          ruleIndexByID,
-		keywordRuleIndexes:     keywordRuleIndexes,
-		noKeywordIndexes:       noKeywordIndexes,
-		ValidationExtractEmpty: valOpts.ExtractEmpty,
+		maxDecodeDepth:      settings.maxDecodeDepth,
+		matchContext:        settings.matchContext,
+		minimumConfidence:   settings.minimumConfidence,
+		validationOptions:   settings.validation,
+		ignoreAllowComments: settings.ignoreAllowComments,
+		ignoredSecrets:      settings.ignoredSecrets,
+		excludedPaths:       slices.Clone(settings.excludedPaths),
+		jobs:                settings.jobs,
+		ruleTimings:         settings.ruleTimings,
+		configPath:          cfg.Path,
+		globalFilterExpr:    cfg.Filter,
+		prefilter:           ahocorasick.Compile(keywords, true),
+		exprRuntime:         exprRuntime,
+		validationRuntime:   validationRuntime,
+		validationPrograms:  make(map[string]exprruntime.Program),
+		filterPrograms:      make(map[string]exprruntime.Program),
+		rulesBySpecificity:  rulesBySpecificity,
+		ruleIndexByID:       ruleIndexByID,
+		keywordRuleIndexes:  keywordRuleIndexes,
+		noKeywordIndexes:    noKeywordIndexes,
+	}
+	if settings.validation != nil {
+		d.validationExtractEmpty = settings.validation.ExtractEmpty
+		d.validationStatusFilter = make(map[report.ValidationStatus]struct{}, len(settings.validation.Statuses))
+		for _, status := range settings.validation.Statuses {
+			d.validationStatusFilter[status] = struct{}{}
+		}
 	}
 	d.candidatePool.New = func() any {
 		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
-	}
-	for _, option := range options {
-		option(d)
 	}
 	exprRuntime.SetTokenizerProvider(d.Tokenizer)
 
@@ -268,46 +414,114 @@ func NewDetectorContext(ctx context.Context, cfg *config.Config, valOpts Validat
 	if cfg.Prefilter != "" {
 		program, compileErr := exprRuntime.CompilePrefilter(cfg.Prefilter)
 		if compileErr != nil {
-			logging.Fatal().Err(compileErr).Msg("failed to compile prefilter")
-			return nil
+			return nil, fmt.Errorf("compile global prefilter: %w", compileErr)
 		}
 		d.prefilterProgram = program
 	}
 
-	// Set up validation pool when enabled.
-	if valOpts.Enabled && validationRuntime != nil {
-		if valOpts.Timeout > 0 {
-			validationRuntime.SetHTTPClient(&http.Client{Timeout: valOpts.Timeout})
+	if settings.precompile {
+		if err := d.compileAll(); err != nil {
+			return nil, err
 		}
-		if err := validationRuntime.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
-			MaxRequestsPerTarget:    valOpts.MaxRequestsPerTarget,
-			RequestsPerSecond:       valOpts.RequestsPerSecond,
-			RequestsPerSecondByRule: valOpts.RequestsPerSecondByRule,
-		}); err != nil {
-			logging.Fatal().Err(err).Msg("invalid validation request limits")
-		}
-		workers := valOpts.Workers
-		if workers <= 0 {
-			workers = 10
-		}
-		d.ValidationPool = validate.NewPoolContext(ctx, workers, validationRuntime)
-		d.ValidationPool.Debug = valOpts.Debug
-
-		if valOpts.StatusFilter != "" {
-			d.ValidationStatusFilter = make(map[string]struct{})
-			for s := range strings.SplitSeq(valOpts.StatusFilter, ",") {
-				s = strings.TrimSpace(s)
-				s = strings.ToLower(s)
-				if s != "" {
-					d.ValidationStatusFilter[s] = struct{}{}
-				}
-			}
-		}
-	} else if valOpts.Enabled && validationRuntime == nil {
-		logging.Warn().Msg("validation enabled but no rules have validation expressions")
 	}
 
-	return d
+	return d, nil
+}
+
+func validateValidationOptions(options ValidationOptions, runtime *exprruntime.Runtime) error {
+	if options.Workers < 0 {
+		return errors.New("validation workers must be non-negative")
+	}
+	if options.Timeout < 0 {
+		return errors.New("validation timeout must be non-negative")
+	}
+	for _, status := range options.Statuses {
+		switch status {
+		case report.ValidationStatusNone,
+			report.ValidationStatusValid,
+			report.ValidationStatusNeedsValidation,
+			report.ValidationStatusInvalid,
+			report.ValidationStatusRevoked,
+			report.ValidationStatusUnknown,
+			report.ValidationStatusError:
+		default:
+			return fmt.Errorf("invalid validation status %q", status)
+		}
+	}
+	if runtime == nil {
+		var err error
+		runtime, err = exprruntime.New(nil)
+		if err != nil {
+			return fmt.Errorf("create validation runtime: %w", err)
+		}
+	}
+	if err := runtime.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
+		MaxRequestsPerTarget:    options.MaxRequestsPerTarget,
+		RequestsPerSecond:       options.RequestsPerSecond,
+		RequestsPerSecondByRule: options.RequestsPerSecondByRule,
+	}); err != nil {
+		return fmt.Errorf("invalid validation request limits: %w", err)
+	}
+	return nil
+}
+
+func (d *Detector) compileAll() error {
+	if _, _, err := d.globalFilterProgram(); err != nil {
+		return err
+	}
+	for _, rule := range d.rulesBySpecificity {
+		if rule.Regex != nil {
+			if err := rule.Regex.Compile(); err != nil {
+				return fmt.Errorf("compile rule %q regex: %w", rule.RuleID, err)
+			}
+		}
+		if rule.Path != nil {
+			if err := rule.Path.Compile(); err != nil {
+				return fmt.Errorf("compile rule %q path regex: %w", rule.RuleID, err)
+			}
+		}
+		if _, _, err := d.ruleFilterProgram(rule); err != nil {
+			return err
+		}
+		if _, _, err := d.validationProgram(rule.RuleID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *Detector) newValidationPool(ctx context.Context) (*validate.Pool, error) {
+	if !d.ValidationEnabled() {
+		return nil, nil
+	}
+	options := *d.validationOptions
+	runtime, err := exprruntime.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create validation runtime: %w", err)
+	}
+	runtime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(options.ValidationEnvVars)
+	if options.Timeout > 0 {
+		runtime.SetHTTPClient(&http.Client{Timeout: options.Timeout})
+	}
+	if err := runtime.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
+		MaxRequestsPerTarget:    options.MaxRequestsPerTarget,
+		RequestsPerSecond:       options.RequestsPerSecond,
+		RequestsPerSecondByRule: options.RequestsPerSecondByRule,
+	}); err != nil {
+		return nil, fmt.Errorf("configure validation request limits: %w", err)
+	}
+	workers := options.Workers
+	if workers <= 0 {
+		workers = 10
+	}
+	pool := validate.NewPoolContext(ctx, workers, runtime)
+	pool.Debug = options.Debug
+	return pool, nil
+}
+
+// ValidationEnabled reports whether scans will validate matching findings.
+func (d *Detector) ValidationEnabled() bool {
+	return d != nil && d.validationOptions != nil && d.validationRuntime != nil
 }
 
 // Tokenizer returns the BPE tokenizer used for token efficiency filtering.
@@ -388,8 +602,9 @@ func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, 
 }
 
 // SkipFunc returns a sources.SkipFunc callback that evaluates the config's
-// prefilter program against fragment attributes. Returns nil when no prefilter
-// is configured (sources treat nil as "skip nothing").
+// prefilter program against fragment attributes. Pass it to a source's
+// ShouldSkip field to filter fragments before their contents are loaded. It
+// returns nil when no prefilter is configured.
 func (d *Detector) SkipFunc() sources.SkipFunc {
 	prg := d.prefilterProgram
 	if prg == nil && len(d.excludedPaths) == 0 {
@@ -453,151 +668,178 @@ func promoteConfidence(finding *report.Finding, findingMap map[string]any) {
 	findingMap["confidence"] = value
 }
 
-// Run executes the pipeline on the given source and yields results as they are found.
-// Findings are not retained by the Detector; callers that need them after Run
-// must collect them while consuming the iterator.
-// It returns an iterator of Results, which can be consumed by the caller. We return an iterator to make the API clean.
-// You can do things like:
-//
-//		for result := range detector.Run(ctx, source) {
-//	    	// do something
-//		}
-//
-// The context can be used to cancel the scan.
-// Internally uses a channel to send results from the scanning goroutine to the caller,
-// allowing for concurrent processing of findings as they are discovered.
+// Run executes the pipeline and yields findings and recoverable source errors.
+// Findings are not retained. Result order is not guaranteed. Concurrent calls
+// on the same Detector are safe but execute sequentially.
 func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Result] {
 	return func(yield func(Result) bool) {
-		if source == nil {
-			_ = yield(Result{Err: fmt.Errorf("pipeline: nil source")})
+		if d == nil {
+			_ = yield(Result{Err: errors.New("detector is nil")})
 			return
 		}
+		_ = d.run(ctx, source, yield)
+	}
+}
 
-		runCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+// Scan executes the pipeline, passes each finding to handler, and returns a
+// per-call summary. Recoverable source errors are joined. Returning an error
+// from handler stops the scan. A nil handler discards findings.
+func (d *Detector) Scan(ctx context.Context, source sources.Source, handler Handler) (ScanSummary, error) {
+	if d == nil {
+		return ScanSummary{}, errors.New("detector is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var scanErr error
+	summary := d.run(ctx, source, func(result Result) bool {
+		if result.Err != nil {
+			scanErr = errors.Join(scanErr, result.Err)
+			return true
+		}
+		if handler != nil {
+			if err := handler(result.Finding); err != nil {
+				scanErr = errors.Join(scanErr, fmt.Errorf("handle finding: %w", err))
+				return false
+			}
+		}
+		return true
+	})
+	if err := ctx.Err(); err != nil && !errors.Is(scanErr, err) {
+		scanErr = errors.Join(scanErr, err)
+	}
+	return summary, scanErr
+}
 
-		workerCount := d.jobCount()
-		resultsCh := make(chan Result, workerCount)
+type scanState struct {
+	bytes   atomic.Uint64
+	summary ScanSummary
+}
 
-		if d.ValidationCounts == nil {
-			d.ValidationCounts = make(map[report.ValidationStatus]int)
-		} else {
-			clear(d.ValidationCounts)
+func (d *Detector) run(ctx context.Context, source sources.Source, yield func(Result) bool) (summary ScanSummary) {
+	d.scanMu.Lock()
+	defer d.scanMu.Unlock()
+
+	state := scanState{summary: ScanSummary{
+		ValidationCounts: make(map[report.ValidationStatus]int),
+	}}
+	if source == nil {
+		_ = yield(Result{Err: errors.New("pipeline: nil source")})
+		return state.summary
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	validationPool, err := d.newValidationPool(runCtx)
+	if err != nil {
+		cancel()
+		_ = yield(Result{Err: err})
+		return state.summary
+	}
+
+	workerCount := d.jobCount()
+	resultsCh := make(chan Result, workerCount)
+	defer func() {
+		cancel()
+		for range resultsCh {
+		}
+		state.summary.BytesInspected = state.bytes.Load()
+		summary = state.summary
+	}()
+
+	emit := func(result Result) error {
+		select {
+		case <-runCtx.Done():
+			return errStopIteration
+		case resultsCh <- result:
+			return nil
+		}
+	}
+	if validationPool != nil {
+		validationPool.Emit = func(finding report.Finding) {
+			_ = emit(Result{Finding: finding})
+		}
+	}
+	go func() {
+		defer close(resultsCh)
+
+		fragmentsCh := make(chan sources.Fragment, workerCount)
+		var workers sync.WaitGroup
+		workers.Add(workerCount)
+		for range workerCount {
+			go func() {
+				defer workers.Done()
+				for fragment := range fragmentsCh {
+					if err := d.scanFragment(runCtx, fragment, emit, validationPool, &state); err != nil {
+						if !isPipelineStop(err) {
+							_ = emit(Result{Err: err})
+						}
+						cancel()
+						return
+					}
+				}
+			}()
 		}
 
-		// This function is used to send results back to the caller.
-		// It checks for context cancellation and stops the pipeline if the context is done.
-		emit := func(res Result) error {
+		sourceErr := source.Fragments(runCtx, func(fragment sources.Fragment, fragmentErr error) error {
+			if fragmentErr != nil {
+				if isPipelineStop(fragmentErr) {
+					return errStopIteration
+				}
+				return emit(Result{Err: fragmentErr})
+			}
+			if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
+				return nil
+			}
 			select {
 			case <-runCtx.Done():
 				return errStopIteration
-			case resultsCh <- res:
+			case fragmentsCh <- fragment:
 				return nil
 			}
+		})
+		close(fragmentsCh)
+		workers.Wait()
+
+		if validationPool != nil {
+			validationPool.Close()
+			hits, misses := validationPool.Stats()
+			logging.Debug().
+				Uint64("http_requests", misses).
+				Uint64("cache_hits", hits).
+				Msg("validation cache stats")
 		}
-
-		// If ValidationPool is set, we want to emit findings from the pool instead of directly from addFinding, so we set the Emit function here.
-		if d.ValidationPool != nil {
-			d.ValidationPool.Emit = func(f report.Finding) {
-				_ = emit(Result{Finding: f})
-			}
+		if sourceErr != nil && !isPipelineStop(sourceErr) {
+			_ = emit(Result{Err: sourceErr})
 		}
+	}()
 
-		go func() {
-			defer close(resultsCh)
-
-			fragmentsCh := make(chan sources.Fragment, workerCount)
-			var workers sync.WaitGroup
-			workers.Add(workerCount)
-			for range workerCount {
-				go func() {
-					defer workers.Done()
-					for fragment := range fragmentsCh {
-						if err := d.scanFragment(runCtx, fragment, emit); err != nil {
-							if !isPipelineStop(err) {
-								_ = emit(Result{Err: err})
-							}
-							cancel()
-							return
-						}
-					}
-				}()
+	for result := range resultsCh {
+		if isPipelineStop(result.Err) {
+			continue
+		}
+		if result.Err == nil {
+			if !d.validationExtractEmpty {
+				result.Finding.Validation.Metadata = stripEmptyMeta(result.Finding.Validation.Metadata)
 			}
-
-			err := source.Fragments(runCtx, func(fragment sources.Fragment, err error) error {
-				if err != nil {
-					if isPipelineStop(err) {
-						return errStopIteration
-					}
-					return emit(Result{Err: err})
-				}
-
-				if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
-					return nil
-				}
-
-				select {
-				case <-runCtx.Done():
-					return errStopIteration
-				case fragmentsCh <- fragment:
-					return nil
-				}
-			})
-			close(fragmentsCh)
-			workers.Wait()
-
-			if d.ValidationPool != nil {
-				d.ValidationPool.Close()
-
-				hits, misses := d.ValidationPool.Stats()
-				logging.Debug().
-					Uint64("http_requests", misses).
-					Uint64("cache_hits", hits).
-					Msg("validation cache stats")
+			status := result.Finding.Validation.Status
+			if status != report.ValidationStatusNone {
+				state.summary.ValidationCounts[status]++
 			}
-
-			if err != nil && !isPipelineStop(err) {
-				_ = emit(Result{Err: err})
-			}
-		}()
-		defer func() {
-			cancel()
-			for range resultsCh {
-			}
-		}()
-
-		// consume results and send to caller via yield
-		for res := range resultsCh {
-			// Pipeline cancellation is control flow, not a scan error. Keep this
-			// check at the public boundary as a safeguard for every producer.
-			if isPipelineStop(res.Err) {
-				continue
-			}
-			if res.Err == nil {
-				if !d.ValidationExtractEmpty {
-					res.Finding.Validation.Metadata = stripEmptyMeta(res.Finding.Validation.Metadata)
-				}
-				if res.Finding.Validation.Status != "" {
-					d.ValidationCounts[res.Finding.Validation.Status]++
-				}
-
-				// Check validation status and if we should filter or not
-				if len(d.ValidationStatusFilter) > 0 {
-					if res.Finding.Validation.Status != "" {
-						if _, ok := d.ValidationStatusFilter[string(res.Finding.Validation.Status)]; !ok {
-							continue
-						}
-					} else if _, ok := d.ValidationStatusFilter["none"]; !ok {
-						continue
-					}
+			if len(d.validationStatusFilter) > 0 {
+				if _, ok := d.validationStatusFilter[status]; !ok {
+					continue
 				}
 			}
-
-			if !yield(res) {
-				return
-			}
+			state.summary.Findings++
+		}
+		if !yield(result) {
+			return state.summary
 		}
 	}
+	return state.summary
 }
 
 func isPipelineStop(err error) bool {
@@ -605,13 +847,19 @@ func isPipelineStop(err error) bool {
 }
 
 func (d *Detector) jobCount() int {
-	if d.Jobs > 0 {
-		return d.Jobs
+	if d.jobs > 0 {
+		return d.jobs
 	}
 	return max(runtime.GOMAXPROCS(0), 1)
 }
 
-func (d *Detector) scanFragment(ctx context.Context, fragment sources.Fragment, emit func(Result) error) error {
+func (d *Detector) scanFragment(
+	ctx context.Context,
+	fragment sources.Fragment,
+	emit func(Result) error,
+	validationPool *validate.Pool,
+	state *scanState,
+) error {
 	var timer *time.Timer
 	if logging.Logger.GetLevel() <= zerolog.DebugLevel {
 		logger := fragment.Logger()
@@ -625,12 +873,12 @@ func (d *Detector) scanFragment(ctx context.Context, fragment sources.Fragment, 
 		}
 	}()
 
-	for _, finding := range d.detectFragment(ctx, fragment) {
-		if d.ValidationPool != nil {
+	for _, finding := range d.detectFragmentWithState(ctx, fragment, state) {
+		if validationPool != nil {
 			if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
 				return err
 			} else if ok {
-				if err := d.ValidationPool.SubmitContext(ctx, finding, prg); err != nil {
+				if err := validationPool.SubmitContext(ctx, finding, prg); err != nil {
 					if errors.Is(err, context.Canceled) {
 						return errStopIteration
 					}
@@ -646,14 +894,24 @@ func (d *Detector) scanFragment(ctx context.Context, fragment sources.Fragment, 
 	return nil
 }
 
-// DetectString scans the given string and returns a list of findings
+// DetectString scans content and returns its findings. It is a convenience for
+// callers that do not need source errors, validation, or a scan summary.
 func (d *Detector) DetectString(content string) []report.Finding {
+	if d == nil {
+		return nil
+	}
+	d.scanMu.Lock()
+	defer d.scanMu.Unlock()
 	return d.detectFragment(context.Background(), sources.Fragment{
 		Raw: content,
 	})
 }
 
 func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	return d.detectFragmentWithState(ctx, fragment, nil)
+}
+
+func (d *Detector) detectFragmentWithState(ctx context.Context, fragment sources.Fragment, state *scanState) []report.Finding {
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
@@ -664,7 +922,9 @@ func (d *Detector) detectFragment(ctx context.Context, fragment sources.Fragment
 		}
 	}
 
-	d.TotalBytes.Add(uint64(len(fragment.Raw)))
+	if state != nil {
+		state.bytes.Add(uint64(len(fragment.Raw)))
+	}
 
 	findings := []report.Finding{}
 
@@ -711,7 +971,7 @@ ScanLoop:
 						continue
 					}
 					for _, finding := range d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings) {
-						if confidence.Meets(finding.Confidence, d.MinConfidence) {
+						if confidence.Meets(finding.Confidence, d.minimumConfidence) {
 							findings = append(findings, finding)
 						}
 					}
@@ -725,7 +985,7 @@ ScanLoop:
 			currentDecodeDepth++
 
 			// stop the loop if we've hit our max decoding depth
-			if currentDecodeDepth > d.MaxDecodeDepth {
+			if currentDecodeDepth > d.maxDecodeDepth {
 				break ScanLoop
 			}
 
@@ -756,13 +1016,13 @@ func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings []report.Finding) []report.Finding {
-	if d.RuleTimings == nil {
+	if d.ruleTimings == nil {
 		return d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
 	}
 
 	start := time.Now()
 	findings := d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
-	d.RuleTimings.Record(r.RuleID, time.Since(start))
+	d.ruleTimings.Record(r.RuleID, time.Since(start))
 	return findings
 }
 
@@ -915,7 +1175,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		}
 
 		// move to filter?
-		if !d.IgnoreGitleaksAllow && containsAllowSignature(finding.Line) {
+		if !d.ignoreAllowComments && containsAllowSignature(finding.Line) {
 			logger.Trace().
 				Str("finding", finding.Secret).
 				Msg("skipping finding: allow signature found")
@@ -1038,8 +1298,8 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 			}
 		}
 
-		if !d.MatchContext.IsZero() {
-			finding.MatchContext = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, d.MatchContext))
+		if !d.matchContext.IsZero() {
+			finding.MatchContext = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, d.matchContext))
 		}
 		findings = append(findings, finding)
 	}
