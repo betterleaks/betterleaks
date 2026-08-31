@@ -52,7 +52,7 @@ r.json?.login ?? ""
 
 | Name | Scope | Description |
 | :--- | :--- | :--- |
-| `attributes` | prefilter, filter, validate | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, `fs.symlink`, and the read-only `fs.first_fragment` (`"true"` for a file's first chunk and `"false"` thereafter). |
+| `attributes` | prefilter, filter, validate | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, and `fs.symlink`. |
 | `finding` | filter, validate | Matched secret data. Common keys include `secret`, `match`, `line`, `rule_id`, and `description`. In validation, `finding["captures"]` contains the primary rule's named regex groups. |
 | `components` | validate | Matched component findings, keyed by the referenced component rule ID. Each has `secret` and `captures` fields. |
 

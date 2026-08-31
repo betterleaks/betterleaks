@@ -533,6 +533,7 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 		// consume results and send to caller via yield
 		for res := range resultsCh {
 			if res.Err == nil {
+				delete(res.Finding.Attributes, sources.AttrFSFirstFragment)
 				if !d.ValidationExtractEmpty {
 					res.Finding.ValidationMeta = stripEmptyMeta(res.Finding.ValidationMeta)
 				}

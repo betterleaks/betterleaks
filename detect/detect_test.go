@@ -91,6 +91,7 @@ func TestRunStreamsFindings(t *testing.T) {
 	}
 
 	require.Len(t, findings, 1)
+	require.NotContains(t, findings[0].Attributes, sources.AttrFSFirstFragment)
 }
 
 func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
