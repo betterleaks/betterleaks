@@ -296,6 +296,23 @@ var compatExpressions = []struct {
 )`,
 	},
 	{
+		"voyageai-api-key",
+		`cel.bind(r,
+  http.post("https://api.voyageai.com/v1/embeddings", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Content-Type": "application/json"
+  }, "{\"input\":\"hi\",\"model\":\"nonexistent-model-xyz-12345\"}"),
+  let invalidResponse = (r.body contains "Provided API key is invalid") ||
+    (r.body contains "cannot access this endpoint");
+  r.status == 401 || invalidResponse ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : r.status in [200, 400, 403] ? {
+    "result": "valid"
+  } : validate.unknown(r)
+)`,
+	},
+	{
 		"polymarket-api-key",
 		`cel.bind(ts, time.now_unix(),
   cel.bind(sig,
