@@ -1457,6 +1457,39 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# castai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "castai-api-key"
+description = "Identified a pattern that may indicate a Cast AI API key."
+regex = '''\b(castai_v1_[a-z0-9]{64}_[a-z0-9]{8})\b'''
+keywords = ["castai_v1_"]
+validate = '''
+let us = http.get("https://api.cast.ai/v1/me", {
+    "X-API-Key": finding["secret"],
+    "Accept": "application/json"
+  }); us.status == 200 && (us.body contains "\"email\"") ? {
+    "result": "valid",
+    "email": (us.json?.email ?? "")
+  } : (let eu = http.get("https://api.eu.cast.ai/v1/me", {
+    "X-API-Key": finding["secret"],
+    "Accept": "application/json"
+  }); eu.status == 200 && (eu.body contains "\"email\"") ? {
+    "result": "valid",
+    "email": (eu.json?.email ?? "")
+  } : (let india = http.get("https://api.india.cast.ai/v1/me", {
+    "X-API-Key": finding["secret"],
+    "Accept": "application/json"
+  }); india.status == 200 && (india.body contains "\"email\"") ? {
+    "result": "valid",
+    "email": (india.json?.email ?? "")
+  } : us.status in [401, 403] && eu.status in [401, 403] && india.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(india)))
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # cerebras-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
