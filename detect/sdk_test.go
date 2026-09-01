@@ -67,6 +67,19 @@ func TestDetectorScanIsReusableWithValidation(t *testing.T) {
 	}
 }
 
+func TestValidationRequiresExplicitOption(t *testing.T) {
+	cfg := testConfig()
+	cfg.Rules[0].ValidateExpr = `{"result": "valid"}`
+
+	detector, err := detect.NewDetector(cfg)
+	require.NoError(t, err)
+	assert.False(t, detector.ValidationEnabled())
+
+	detector, err = detect.NewDetector(cfg, detect.WithValidation(detect.ValidationOptions{}))
+	require.NoError(t, err)
+	assert.True(t, detector.ValidationEnabled())
+}
+
 func TestDetectorSkipFunc(t *testing.T) {
 	cfg := testConfig()
 	cfg.Prefilter = `attributes["path"] == "ignored.txt"`

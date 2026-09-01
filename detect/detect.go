@@ -116,7 +116,8 @@ type detectorOptions struct {
 	maxDecodeDepth      int
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
-	validation          *ValidationOptions
+	validationEnabled   bool
+	validation          ValidationOptions
 	ignoreAllowComments bool
 	ignoredSecrets      SecretMatcher
 	excludedPaths       []string
@@ -204,8 +205,8 @@ func WithValidation(validation ValidationOptions) Option {
 	validation.RequestsPerSecondByRule = maps.Clone(validation.RequestsPerSecondByRule)
 	validation.ValidationEnvVars = slices.Clone(validation.ValidationEnvVars)
 	return Option{apply: func(options *detectorOptions) error {
-		copy := validation
-		options.validation = &copy
+		options.validationEnabled = true
+		options.validation = validation
 		return nil
 	}}
 }
@@ -275,7 +276,8 @@ type Detector struct {
 	// validationRuntime compiles and caches per-rule validation expressions. The
 	// workers and evaluation runtime are created separately for each scan.
 	validationRuntime  *exprruntime.Runtime
-	validationOptions  *ValidationOptions
+	validationEnabled  bool
+	validationOptions  ValidationOptions
 	validationProgramM sync.Mutex
 	validationPrograms map[string]exprruntime.Program
 	globalFilter       exprruntime.Program
@@ -337,12 +339,12 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		}
 		break
 	}
-	if settings.validation != nil {
-		if err := validateValidationOptions(*settings.validation, validationRuntime); err != nil {
+	if settings.validationEnabled {
+		if err := validateValidationOptions(settings.validation, validationRuntime); err != nil {
 			return nil, err
 		}
 	}
-	if validationRuntime != nil && settings.validation != nil {
+	if validationRuntime != nil && settings.validationEnabled {
 		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(settings.validation.ValidationEnvVars)
 	}
 	exprRuntime, exprErr := exprruntime.New(nil)
@@ -379,6 +381,7 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		maxDecodeDepth:      settings.maxDecodeDepth,
 		matchContext:        settings.matchContext,
 		minimumConfidence:   settings.minimumConfidence,
+		validationEnabled:   settings.validationEnabled,
 		validationOptions:   settings.validation,
 		ignoreAllowComments: settings.ignoreAllowComments,
 		ignoredSecrets:      settings.ignoredSecrets,
@@ -397,7 +400,7 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		keywordRuleIndexes:  keywordRuleIndexes,
 		noKeywordIndexes:    noKeywordIndexes,
 	}
-	if settings.validation != nil {
+	if settings.validationEnabled {
 		d.validationExtractEmpty = settings.validation.ExtractEmpty
 		d.validationStatusFilter = make(map[report.ValidationStatus]struct{}, len(settings.validation.Statuses))
 		for _, status := range settings.validation.Statuses {
@@ -494,7 +497,7 @@ func (d *Detector) newValidationPool(ctx context.Context) (*validate.Pool, error
 	if !d.ValidationEnabled() {
 		return nil, nil
 	}
-	options := *d.validationOptions
+	options := d.validationOptions
 	runtime, err := exprruntime.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("create validation runtime: %w", err)
@@ -521,7 +524,7 @@ func (d *Detector) newValidationPool(ctx context.Context) (*validate.Pool, error
 
 // ValidationEnabled reports whether scans will validate matching findings.
 func (d *Detector) ValidationEnabled() bool {
-	return d != nil && d.validationOptions != nil && d.validationRuntime != nil
+	return d != nil && d.validationEnabled && d.validationRuntime != nil
 }
 
 // Tokenizer returns the BPE tokenizer used for token efficiency filtering.
