@@ -900,8 +900,8 @@ func (d *Detector) DetectString(content string) []report.Finding {
 	if d == nil {
 		return nil
 	}
-	d.scanMu.Lock()
-	defer d.scanMu.Unlock()
+	// d.scanMu.Lock()
+	// defer d.scanMu.Unlock()
 	return d.detectFragment(context.Background(), sources.Fragment{
 		Raw: content,
 	})
