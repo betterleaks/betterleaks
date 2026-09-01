@@ -71,7 +71,10 @@ func runGit(cmd *cobra.Command, args []string) {
 	if workerErr != nil {
 		logging.Fatal().Err(workerErr).Send()
 	}
-	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
+	findings, collectorErr := newFindingCollector(cmd)
+	if collectorErr != nil {
+		logging.Fatal().Err(collectorErr).Msg("failed to configure report")
+	}
 
 	var (
 		err error

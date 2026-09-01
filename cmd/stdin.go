@@ -44,7 +44,10 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 		logging.Fatal().Err(err).Msg("invalid --set-attr value")
 	}
 
-	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
+	findings, collectorErr := newFindingCollector(cmd)
+	if collectorErr != nil {
+		logging.Fatal().Err(collectorErr).Msg("failed to configure report")
+	}
 	source := newStdinSource(os.Stdin, attrs, detector.SkipFunc(), mustGetIntFlag(cmd, "max-archive-depth"))
 	for result := range detector.Run(cmd.Context(), source) {
 		if result.Err != nil {
