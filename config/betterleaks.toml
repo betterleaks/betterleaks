@@ -1595,6 +1595,32 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# clearbit-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "clearbit-api-key"
+description = "Discovered a Clearbit API key, which could lead to unauthorized access to company and person enrichment data."
+regex = '''(?i)(?:clearbit)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9a-z_]{35})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["clearbit"]
+validate = '''
+let r = http.get("https://person.clearbit.com/v1/people/email/alex@alexmaccaw.com", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == 200 && (true) ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # clerk-secret-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -1983,6 +2009,32 @@ confidence = "medium"
 keywords = ["contentful"]
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# contentful-personal-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "contentful-personal-access-token"
+description = "Discovered a Contentful personal access token, posing a risk to content management systems and data integrity."
+regex = '''\b(CFPAT-[a-zA-Z0-9_\-]{43})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["cfpat-"]
+validate = '''
+let r = http.get("https://api.contentful.com/organizations", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == 200 && (true) ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+
+'''
+filter = '''
+entropy(finding["secret"]) <= 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2681,6 +2733,30 @@ description = "Detected a Dynatrace API token, potentially risking application p
 regex = '''dt0c01\.(?i)[a-z0-9]{24}\.[a-z0-9]{64}'''
 confidence = "high"
 keywords = ["dt0c01."]
+filter = '''
+entropy(finding["secret"]) <= 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# dyspatch-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "dyspatch-api-key"
+description = "Detected a Dyspatch API key, which could allow unauthorized access to transactional email templates and sending operations."
+regex = '''(?i)(?:dyspatch)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Z0-9]{52})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["dyspatch"]
+validate = '''
+let r = http.get("https://api.dyspatch.io/templates", {
+    "Accept": "application/vnd.dyspatch.2020.11+json",
+    "Authorization": "Bearer " + finding["secret"]
+  }); r.status == 200 && (r.body contains "\"limited_usage\"" || r.body contains "\"data\"") ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) <= 4.0
 '''
@@ -7543,6 +7619,32 @@ confidence = "high"
 keywords = ["npm_"]
 filter = '''
 entropy(finding["secret"]) <= 2.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# npm-legacy-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "npm-legacy-token"
+description = "Uncovered a legacy npm access token (UUID format), potentially compromising package management and code repository access."
+regex = '''(?i:npm)(?:.|[\n\r]){0,40}?\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
+confidence = "medium"
+keywords = ["npm"]
+validate = '''
+let r = http.get("https://registry.npmjs.org/-/whoami", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+r.status == 200 && (true) ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
