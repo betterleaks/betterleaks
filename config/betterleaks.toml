@@ -2577,9 +2577,26 @@ description = "Detected a Docker Hub organization access token, which may expose
 regex = '''\b(dckr_oat_[A-Za-z0-9_-]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["dckr_oat_"]
+validate = '''
+let user = lower(captures["dockerhub-username"]);
+  let r = http.post("https://hub.docker.com/v2/auth/token", {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  }, "{\"identifier\":" + json.string(user) + ",\"secret\":" + json.string(finding["secret"]) + "}");
+  r.status == 200 && (r.json?.access_token ?? "") != "" ? {
+    "result": "valid",
+    "profile": "https://hub.docker.com/u/" + user
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": (r.json?.message ?? "Unauthorized")
+  } : validate.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
+[[rules.required]]
+id = "dockerhub-username"
+withinLines = 5
 
 # ──────────────────────────────────────────────────────────────────────────────
 # dockerhub-personal-access-token
@@ -2590,8 +2607,46 @@ description = "Detected a Docker Hub personal access token, which may expose Doc
 regex = '''\b(dckr_pat_[A-Za-z0-9_-]{27})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["dckr_pat_"]
+validate = '''
+let user = lower(captures["dockerhub-username"]);
+  let r = http.post("https://hub.docker.com/v2/auth/token", {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  }, "{\"identifier\":" + json.string(user) + ",\"secret\":" + json.string(finding["secret"]) + "}");
+  r.status == 200 && (r.json?.access_token ?? "") != "" ? {
+    "result": "valid",
+    "profile": "https://hub.docker.com/u/" + user
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": (r.json?.message ?? "Unauthorized")
+  } : validate.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) < 3.5
+'''
+[[rules.required]]
+id = "dockerhub-username"
+withinLines = 5
+
+# ──────────────────────────────────────────────────────────────────────────────
+# dockerhub-username
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "dockerhub-username"
+description = "Detected a Docker Hub account identifier, used as a component of the Docker Hub access-token composite rules."
+regex = '''(?i)(?:(?:[^a-z]|\A)(?:user(?:name)?|usr|-u|id|e-?mail)\S{0,40}?[:=\s]{1,3}[ '"=]?([\w+-](?:[\w.+-]{0,62}[\w+-])?@[\w.-]+\.[a-z]{2,20}|[a-z0-9]{4,30})(?:[^a-z0-9@._+-]|\z)|([\w+-](?:[\w.+-]{0,62}[\w+-])?@[\w.-]+\.[a-z]{2,20}|[a-z0-9]{4,30}):dckr_(?:pat|oat)_)'''
+keywords = [
+    "user",
+    "usr",
+    "-u",
+    "id",
+    "email",
+    "dckr_pat_",
+    "dckr_oat_",
+]
+skipReport = true
+filter = '''
+matchesAny(finding["secret"], [`^(?i)(?:my|your|our|some|the)?(?:user(?:name)?|org(?:anization)?|account|namespace|repo(?:sitory)?|image|project|team|company|dockerid|dockeruser|example|test|demo|sample|placeholder|changeme|acme)\d{0,4}$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────

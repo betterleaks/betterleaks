@@ -193,6 +193,7 @@ func main() {
 		rules.Doppler(),
 		rules.DockerHubPersonalAccessToken(),
 		rules.DockerHubOrganizationAccessToken(),
+		rules.DockerHubUsername(),
 		rules.DockerSwarmJoinToken(),
 		rules.DockerSwarmUnlockKey(),
 		rules.DropBoxAPISecret(),
