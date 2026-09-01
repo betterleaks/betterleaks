@@ -779,10 +779,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings []report.Finding) []report.Finding {
-	var (
-		findings []report.Finding
-		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
-	)
+	var findings []report.Finding
 
 	if r.SkipReport && !fragment.InheritedFromFinding {
 		return findings
@@ -812,6 +809,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 	if len(matches) == 0 {
 		return findings
 	}
+	logger := fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
 
 	// Lazily compute line offsets — only when we actually need location info.
 	var lineOffsets []int
