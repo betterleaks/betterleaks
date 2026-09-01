@@ -5477,7 +5477,8 @@ entropy(finding["secret"]) <= 3.0
 [[rules]]
 id = "github-refresh-token"
 description = "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services."
-regex = '''ghr_[0-9a-zA-Z]{36}'''
+regex = '''(ghr_[0-9a-zA-Z]{76})(?:[^0-9a-zA-Z]|$)'''
+secretGroup = 1
 confidence = "high"
 keywords = ["ghr_"]
 validate = '''
