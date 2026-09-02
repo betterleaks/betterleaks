@@ -23,6 +23,7 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
+	"github.com/betterleaks/betterleaks/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
@@ -202,8 +203,8 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
 	}
-	timingCollector := NewRuleTimingCollector()
-	detector := mustNewDetector(t, cfg, WithRuleTimings(timingCollector))
+	timingCollector := ruletiming.NewCollector()
+	detector := mustNewDetector(t, cfg)
 	source := &sources.File{
 		Content: strings.NewReader("aa\n\nbb\n\n"),
 		Path:    "bundle.p12",
@@ -211,7 +212,7 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	}
 
 	var findings []report.Finding
-	for result := range detector.Run(t.Context(), source) {
+	for result := range detector.Run(ruletiming.WithCollector(t.Context(), timingCollector), source) {
 		require.NoError(t, result.Err)
 		findings = append(findings, result.Finding)
 	}
@@ -3238,7 +3239,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	d := newDefaultTestDetector(t)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			actual := d.detectFragmentWithRule(test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{}, nil)
+			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{}, nil)
 			compare(t, actual, test.expected)
 		})
 	}

@@ -33,7 +33,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 	start := time.Now()
 
 	initConfig(runtime, globals, &options.ScanFlags, ".")
-	initDiagnostics(&options.ScanFlags)
+	initDiagnostics(runtime, &options.ScanFlags)
 
 	cfg := Config()
 	jobs := resolveJobPlan(options.Jobs, providerJobProfile)

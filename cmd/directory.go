@@ -29,7 +29,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 	}
 	sourcesList = removeNestedPaths(sourcesList)
 
-	initDiagnostics(&options.ScanFlags)
+	initDiagnostics(runtime, &options.ScanFlags)
 	jobs := resolveJobPlan(options.Jobs, directoryJobProfile)
 
 	// start timer

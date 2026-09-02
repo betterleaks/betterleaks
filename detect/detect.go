@@ -24,6 +24,7 @@ import (
 	"github.com/betterleaks/betterleaks/internal/confidence"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	"github.com/betterleaks/betterleaks/logging"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
@@ -127,7 +128,6 @@ type detectorOptions struct {
 	ignoreAllowComments bool
 	ignoredSecrets      SecretMatcher
 	excludedPaths       []string
-	ruleTimings         *RuleTimingCollector
 	precompile          bool
 }
 
@@ -243,17 +243,6 @@ func WithIgnoreAllowComments(ignore bool) Option {
 	}}
 }
 
-// WithRuleTimings records per-rule diagnostic timings in collector.
-func WithRuleTimings(collector *RuleTimingCollector) Option {
-	return Option{apply: func(options *detectorOptions) error {
-		if collector == nil {
-			return errors.New("rule timing collector is nil")
-		}
-		options.ruleTimings = collector
-		return nil
-	}}
-}
-
 // WithPrecompile forces every regex and expression to compile during
 // construction. Lazy compilation remains the default.
 func WithPrecompile() Option {
@@ -279,7 +268,6 @@ type Detector struct {
 	validationExtractEmpty bool
 	ignoreAllowComments    bool
 	jobs                   int
-	ruleTimings            *RuleTimingCollector
 	scanMu                 sync.Mutex
 
 	// prefilter is a ahocorasick struct used for doing efficient string
@@ -414,7 +402,6 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		ignoredSecrets:      settings.ignoredSecrets,
 		excludedPaths:       slices.Clone(settings.excludedPaths),
 		jobs:                settings.jobs,
-		ruleTimings:         settings.ruleTimings,
 		configPath:          cfg.Path,
 		globalFilterExpr:    cfg.Filter,
 		prefilter:           ahocorasick.Compile(keywords, true),
@@ -785,8 +772,9 @@ func (d *Detector) Scan(ctx context.Context, source sources.Source, handler Hand
 }
 
 type scanState struct {
-	bytes   atomic.Uint64
-	summary ScanSummary
+	bytes       atomic.Uint64
+	summary     ScanSummary
+	ruleTimings *ruletiming.Collector
 }
 
 func (d *Detector) run(ctx context.Context, source sources.Source, yield func(Result) bool) (summary ScanSummary) {
@@ -803,6 +791,7 @@ func (d *Detector) run(ctx context.Context, source sources.Source, yield func(Re
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	state.ruleTimings = ruletiming.FromContext(ctx)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	validationPool, err := d.newValidationPool(runCtx)
@@ -1006,8 +995,10 @@ func (d *Detector) detectFragmentWithState(ctx context.Context, fragment sources
 		}
 	}
 
+	var ruleTimings *ruletiming.Collector
 	if state != nil {
 		state.bytes.Add(uint64(len(fragment.Raw)))
+		ruleTimings = state.ruleTimings
 	}
 
 	findings := []report.Finding{}
@@ -1054,7 +1045,7 @@ ScanLoop:
 					if rule.Regex == nil && (currentDecodeDepth > 0 || fragment.Attr(sources.AttrFSFirstFragment) == "false") {
 						continue
 					}
-					for _, finding := range d.detectFragmentWithRuleTimed(fragment, currentRaw, rule, encodedSegments, findings) {
+					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, findings) {
 						if confidence.Meets(finding.Confidence, d.minimumConfidence) {
 							findings = append(findings, finding)
 						}
@@ -1095,18 +1086,19 @@ ScanLoop:
 	return kept
 }
 
-func (d *Detector) detectFragmentWithRuleTimed(fragment sources.Fragment,
+func (d *Detector) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
+	fragment sources.Fragment,
 	currentRaw string,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings []report.Finding) []report.Finding {
-	if d.ruleTimings == nil {
-		return d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
+	if ruleTimings == nil {
+		return d.detectFragmentWithRule(nil, fragment, currentRaw, r, encodedSegments, priorFindings)
 	}
 
 	start := time.Now()
-	findings := d.detectFragmentWithRule(fragment, currentRaw, r, encodedSegments, priorFindings)
-	d.ruleTimings.Record(r.RuleID, time.Since(start))
+	findings := d.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings)
+	ruleTimings.Record(r.RuleID, time.Since(start))
 	return findings
 }
 
@@ -1139,7 +1131,8 @@ func snapshotDetectorRules(cfg *config.Config) ([]config.Rule, map[string]int, e
 }
 
 // detectFragmentWithRule scans the given fragment for the given rule and returns a list of findings
-func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
+func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
+	fragment sources.Fragment,
 	currentRaw string,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
@@ -1393,11 +1386,11 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		return findings
 	}
 
-	return d.processComponents(fragment, currentRaw, r, encodedSegments, findings, logger)
+	return d.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, logger)
 }
 
 // processComponents attaches nearby component matches and enforces required components.
-func (d *Detector) processComponents(fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
+func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
 	if len(primaryFindings) == 0 {
 		logger.Debug().Msg("no primary findings to process for components")
 		return primaryFindings
@@ -1426,7 +1419,7 @@ func (d *Detector) processComponents(fragment sources.Fragment, currentRaw strin
 		inheritedFragment := fragment
 		inheritedFragment.InheritedFromFinding = true
 
-		componentFindings := d.detectFragmentWithRuleTimed(inheritedFragment, currentRaw, rule, encodedSegments, nil)
+		componentFindings := d.detectFragmentWithRuleTimed(ruleTimings, inheritedFragment, currentRaw, rule, encodedSegments, nil)
 		allComponentFindings[component.RuleID] = componentFindings
 
 		logger.Debug().

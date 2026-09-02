@@ -28,7 +28,7 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 	start := time.Now()
 
 	initConfig(runtime, globals, &options.ScanFlags, ".")
-	initDiagnostics(&options.ScanFlags)
+	initDiagnostics(runtime, &options.ScanFlags)
 
 	cfg := Config()
 	jobs := resolveJobPlan(options.Jobs, objectJobProfile)

@@ -36,7 +36,7 @@ type ScanFlags struct {
 	ProviderDebug        bool   `name:"provider-debug" help:"Include provider HTTP debug metadata in output."`
 	ProviderRuntimeFlags `embed:""`
 
-	Diagnostics    string `help:"Enable diagnostics: http or a comma-separated list of cpu,mem,trace,rules,rules-csv."`
+	Diagnostics    string `help:"Enable diagnostics: http or a comma-separated list of cpu,mem,trace,rules."`
 	DiagnosticsDir string `name:"diagnostics-dir" help:"Directory for diagnostics output (default: ./diagnostics)."`
 }
 

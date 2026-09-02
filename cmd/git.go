@@ -48,7 +48,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 
 	// setup config (aka, the thing that defines rules)
 	initConfig(runtime, globals, &options.ScanFlags, source)
-	initDiagnostics(&options.ScanFlags)
+	initDiagnostics(runtime, &options.ScanFlags)
 
 	cfg := Config()
 

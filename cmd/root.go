@@ -229,7 +229,7 @@ func findConfigFile(source string) string {
 	return ""
 }
 
-func initDiagnostics(flags *ScanFlags) {
+func initDiagnostics(runtime *commandRuntime, flags *ScanFlags) {
 	var diagErr error
 	diagnosticsManager, diagErr = NewDiagnosticsManager(flags.Diagnostics, flags.DiagnosticsDir)
 	if diagErr != nil {
@@ -237,6 +237,7 @@ func initDiagnostics(flags *ScanFlags) {
 	}
 
 	if diagnosticsManager.Enabled {
+		runtime.Context = diagnosticsManager.withContext(runtime.Context)
 		logging.Info().Msg("Starting diagnostics...")
 		if diagErr := diagnosticsManager.StartDiagnostics(); diagErr != nil {
 			logging.Fatal().Err(diagErr).Msg("Failed to start diagnostics")
@@ -386,9 +387,6 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	)
 	if flags.MatchContext != "" {
 		detectorOptions = append(detectorOptions, detect.WithMatchContext(flags.MatchContext))
-	}
-	if diagnosticsManager != nil && diagnosticsManager.RuleTimings != nil {
-		detectorOptions = append(detectorOptions, detect.WithRuleTimings(diagnosticsManager.RuleTimings))
 	}
 	if flags.Validation || flags.Analysis {
 		statuses, statusErr := parseValidationStatuses(flags.ValidationStatus)

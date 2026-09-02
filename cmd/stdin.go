@@ -27,7 +27,7 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 
 	// setup config (aka, the thing that defines rules)
 	initConfig(runtime, globals, &options.ScanFlags, ".")
-	initDiagnostics(&options.ScanFlags)
+	initDiagnostics(runtime, &options.ScanFlags)
 
 	cfg := Config()
 
