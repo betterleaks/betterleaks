@@ -7,6 +7,7 @@ toolchain go1.25.12
 require (
 	github.com/alecthomas/kong v1.16.1
 	github.com/charlievieth/fastwalk v1.0.14
+	github.com/dlclark/regexp2 v1.11.5
 	github.com/expr-lang/expr v1.17.8
 	github.com/gitleaks/go-gitdiff v0.9.1
 	github.com/google/go-cmp v0.7.0
@@ -16,7 +17,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mholt/archives v0.1.6-0.20260429171216-ef71b7a32fae
 	github.com/pelletier/go-toml/v2 v2.3.1
-	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/rrethy/ahocorasick v1.0.0
 	github.com/shurcooL/githubv4 v0.0.0-20260209031235-2402fdf4a9ed
 	github.com/stretchr/testify v1.11.1
@@ -29,10 +29,8 @@ require (
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/sevenzip v1.6.2 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
-	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect

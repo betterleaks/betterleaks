@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	tiktoken "github.com/pkoukk/tiktoken-go"
+	"github.com/betterleaks/betterleaks/internal/tokenizer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -144,12 +144,12 @@ func TestFilterEvalUsesPerCallBindings(t *testing.T) {
 	require.False(t, skip)
 }
 
-func TestFilterCacheIncludesTokenizer(t *testing.T) {
+func TestFilterCacheIncludesTokenCounter(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
 
-	tokA := &tiktoken.Tiktoken{}
-	tokB := &tiktoken.Tiktoken{}
+	tokA := &tokenizer.Counter{}
+	tokB := &tokenizer.Counter{}
 	expr := `finding["secret"] == "x"`
 
 	prgA1, err := env.CompileFilter(expr, tokA)

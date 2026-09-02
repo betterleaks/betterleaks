@@ -3,16 +3,16 @@ package exprruntime_test
 import (
 	"testing"
 
-	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/internal/tokenizer"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTokenEfficiencyBindings(t *testing.T) {
 	env, err := exprruntime.New(nil)
 	require.NoError(t, err)
-	tokenizer := (&detect.Detector{}).Tokenizer()
-	require.NotNil(t, tokenizer)
+	counter, err := tokenizer.Default()
+	require.NoError(t, err)
 
 	for _, tc := range []struct {
 		name string
@@ -31,7 +31,7 @@ func TestTokenEfficiencyBindings(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			prg, err := env.CompileFilter(tc.expr, tokenizer)
+			prg, err := env.CompileFilter(tc.expr, counter)
 			require.NoError(t, err)
 
 			got, err := env.EvalFilter(prg, map[string]any{"secret": "linkedinX9qB2mK7pR4zT8"}, nil)
@@ -44,10 +44,10 @@ func TestTokenEfficiencyBindings(t *testing.T) {
 func TestTokenRatio(t *testing.T) {
 	env, err := exprruntime.New(nil)
 	require.NoError(t, err)
-	tokenizer := (&detect.Detector{}).Tokenizer()
-	require.NotNil(t, tokenizer)
+	counter, err := tokenizer.Default()
+	require.NoError(t, err)
 
-	prg, err := env.CompileFilter(`filter.tokenRatio(finding["secret"]) >= 2.5`, tokenizer)
+	prg, err := env.CompileFilter(`filter.tokenRatio(finding["secret"]) >= 2.5`, counter)
 	require.NoError(t, err)
 
 	got, err := env.EvalFilter(prg, map[string]any{"secret": "this-is-a-long-readable-placeholder-value"}, nil)

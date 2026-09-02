@@ -8,9 +8,9 @@ import (
 	"sync"
 
 	"github.com/betterleaks/betterleaks/internal/confidence"
+	"github.com/betterleaks/betterleaks/internal/tokenizer"
 	"github.com/betterleaks/betterleaks/internal/words"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
-	tiktoken "github.com/pkoukk/tiktoken-go"
 	ahocorasick "github.com/rrethy/ahocorasick"
 )
 
@@ -184,44 +184,44 @@ func shannonEntropy(s string) float64 {
 
 var newlineReplacer = strings.NewReplacer("\n", "", "\r", "")
 
-func (rt *runtimeBindings) tokenizerInstance() *tiktoken.Tiktoken {
-	if rt.tokenizer == nil {
-		if rt.tokenizerProvider == nil {
+func (rt *runtimeBindings) tokenCounterInstance() *tokenizer.Counter {
+	if rt.tokenCounter == nil {
+		if rt.tokenCounterProvider == nil {
 			return nil
 		}
-		rt.tokenizer = rt.tokenizerProvider()
+		rt.tokenCounter = rt.tokenCounterProvider()
 	}
-	return rt.tokenizer
+	return rt.tokenCounter
 }
 
 func (rt *runtimeBindings) failsTokenEfficiency(secret string) bool {
-	tke := rt.tokenizerInstance()
-	return tke != nil && failsTokenEfficiency(tke, secret)
+	counter := rt.tokenCounterInstance()
+	return counter != nil && failsTokenEfficiency(counter, secret)
 }
 
 func (rt *runtimeBindings) tokenRatio(secret string) float64 {
-	tke := rt.tokenizerInstance()
-	if tke == nil {
+	counter := rt.tokenCounterInstance()
+	if counter == nil {
 		return 0
 	}
-	_, ratio, _ := calculateTokenRatio(tke, secret)
+	_, ratio, _ := calculateTokenRatio(counter, secret)
 	return ratio
 }
 
-func calculateTokenRatio(tke *tiktoken.Tiktoken, secret string) (string, float64, bool) {
+func calculateTokenRatio(counter *tokenizer.Counter, secret string) (string, float64, bool) {
 	analyzed := secret
 	if len(analyzed) < 20 && strings.ContainsAny(analyzed, "\n\r") {
 		analyzed = newlineReplacer.Replace(analyzed)
 	}
-	tokens := tke.Encode(analyzed, nil, nil)
-	if len(tokens) == 0 {
+	tokenCount := counter.Count(analyzed)
+	if tokenCount == 0 {
 		return analyzed, 0, false
 	}
-	return analyzed, float64(len(analyzed)) / float64(len(tokens)), true
+	return analyzed, float64(len(analyzed)) / float64(tokenCount), true
 }
 
-func failsTokenEfficiency(tke *tiktoken.Tiktoken, secret string) bool {
-	analyzed, ratio, ok := calculateTokenRatio(tke, secret)
+func failsTokenEfficiency(counter *tokenizer.Counter, secret string) bool {
+	analyzed, ratio, ok := calculateTokenRatio(counter, secret)
 	if !ok {
 		return false
 	}

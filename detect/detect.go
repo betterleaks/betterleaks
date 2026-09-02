@@ -17,8 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pkoukk/tiktoken-go"
-
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/internal/ahocorasick"
@@ -26,6 +24,7 @@ import (
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/ruletiming"
+	"github.com/betterleaks/betterleaks/internal/tokenizer"
 	"github.com/betterleaks/betterleaks/internal/validate"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
@@ -299,8 +298,8 @@ type Detector struct {
 	ignoredSecrets   SecretMatcher
 	excludedPaths    []string
 
-	tokenizer     *tiktoken.Tiktoken
-	tokenizerOnce sync.Once
+	tokenCounter     *tokenizer.Counter
+	tokenCounterOnce sync.Once
 
 	exprRuntime *exprruntime.Runtime
 
@@ -446,7 +445,7 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 	d.candidatePool.New = func() any {
 		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
 	}
-	exprRuntime.SetTokenizerProvider(d.Tokenizer)
+	exprRuntime.SetTokenCounterProvider(d.tokenCounterInstance)
 
 	// Compile only the global prefilter so sources can use it before scanning.
 	// Finding filters and per-rule expressions compile lazily on first candidate.
@@ -579,19 +578,16 @@ func (d *Detector) AnalysisEnabled() bool {
 	return false
 }
 
-// Tokenizer returns the BPE tokenizer used for token efficiency filtering.
-// May be nil if the tokenizer failed to initialize.
-func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
-	d.tokenizerOnce.Do(func() {
-		tiktoken.SetBpeLoader(&TiktokenLoader{})
-		tke, err := tiktoken.GetEncoding("cl100k_base")
+func (d *Detector) tokenCounterInstance() *tokenizer.Counter {
+	d.tokenCounterOnce.Do(func() {
+		counter, err := tokenizer.Default()
 		if err != nil {
-			d.logger.Warn("Could not initialize cl100k_base tiktokenizer", "error", err)
+			d.logger.Warn("could not initialize cl100k_base tokenizer", "error", err)
 			return
 		}
-		d.tokenizer = tke
+		d.tokenCounter = counter
 	})
-	return d.tokenizer
+	return d.tokenCounter
 }
 
 func (d *Detector) globalFilterProgram() (exprruntime.Program, bool, error) {

@@ -13,7 +13,8 @@ import (
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
-	tiktoken "github.com/pkoukk/tiktoken-go"
+
+	"github.com/betterleaks/betterleaks/internal/tokenizer"
 )
 
 // Program is the compiled representation used by filter, validation, and
@@ -30,11 +31,11 @@ const (
 )
 
 type compiledProgram struct {
-	vm                *vm.Program
-	mode              compileMode
-	tokenizer         *tiktoken.Tiktoken
-	tokenizerProvider func() *tiktoken.Tiktoken
-	bindings          bindings
+	vm                   *vm.Program
+	mode                 compileMode
+	tokenCounter         *tokenizer.Counter
+	tokenCounterProvider func() *tokenizer.Counter
+	bindings             bindings
 }
 
 var emptyStringMap = map[string]string{}
@@ -128,7 +129,7 @@ type Runtime struct {
 	AzureServiceBusEndpoint string
 	AllowedEnv              map[string]struct{}
 
-	tokenizerProvider func() *tiktoken.Tiktoken
+	tokenCounterProvider func() *tokenizer.Counter
 }
 
 type bindings = map[string]any
@@ -154,8 +155,8 @@ func (e *Runtime) SetValidationRequestLimits(cfg ValidationRequestLimits) error 
 	return nil
 }
 
-func (e *Runtime) SetTokenizerProvider(provider func() *tiktoken.Tiktoken) {
-	e.tokenizerProvider = provider
+func (e *Runtime) SetTokenCounterProvider(provider func() *tokenizer.Counter) {
+	e.tokenCounterProvider = provider
 }
 
 func New(httpClient *http.Client) (*Runtime, error) {
@@ -168,8 +169,8 @@ func New(httpClient *http.Client) (*Runtime, error) {
 	}, nil
 }
 
-func (e *Runtime) CompileFilter(expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
-	return e.compile(modeFilter, expression, tokenizer)
+func (e *Runtime) CompileFilter(expression string, counter *tokenizer.Counter) (Program, error) {
+	return e.compile(modeFilter, expression, counter)
 }
 
 func (e *Runtime) CompilePrefilter(expression string) (Program, error) {
@@ -184,10 +185,10 @@ func (e *Runtime) CompileAnalysis(expression string) (Program, error) {
 	return e.compile(modeAnalysis, expression, nil)
 }
 
-func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
+func (e *Runtime) compile(mode compileMode, expression string, counter *tokenizer.Counter) (Program, error) {
 	// One Runtime compiles all expression types. The mode is part of the cache key
 	// because each expression kind exposes a different binding contract.
-	cacheKey := compileCacheKey(mode, expression, tokenizer)
+	cacheKey := compileCacheKey(mode, expression, counter)
 	e.mu.RLock()
 	if prg, ok := e.cache[cacheKey]; ok {
 		e.mu.RUnlock()
@@ -195,17 +196,17 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 	}
 	e.mu.RUnlock()
 
-	b, options := e.compileBindings(mode, tokenizer)
+	b, options := e.compileBindings(mode, counter)
 	vmPrg, err := expr.Compile(expression, append([]expr.Option{expr.Env(b)}, options...)...)
 	if err != nil {
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
 	prg := &compiledProgram{
-		vm:                vmPrg,
-		mode:              mode,
-		tokenizer:         tokenizer,
-		tokenizerProvider: e.tokenizerProvider,
-		bindings:          programBindings(mode, b),
+		vm:                   vmPrg,
+		mode:                 mode,
+		tokenCounter:         counter,
+		tokenCounterProvider: e.tokenCounterProvider,
+		bindings:             programBindings(mode, b),
 	}
 
 	e.mu.Lock()
@@ -214,10 +215,10 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 	return prg, nil
 }
 
-func compileCacheKey(mode compileMode, exprText string, tokenizer *tiktoken.Tiktoken) string {
+func compileCacheKey(mode compileMode, exprText string, counter *tokenizer.Counter) string {
 	key := string(mode) + "\x00" + exprText
 	if mode == modeFilter {
-		key += fmt.Sprintf("\x00%p", tokenizer)
+		key += fmt.Sprintf("\x00%p", counter)
 	}
 	return key
 }
@@ -231,10 +232,10 @@ func programBindings(mode compileMode, b bindings) bindings {
 	}
 }
 
-func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken) (bindings, []expr.Option) {
+func (e *Runtime) compileBindings(mode compileMode, counter *tokenizer.Counter) (bindings, []expr.Option) {
 	switch mode {
 	case modeFilter:
-		return filterBindings(tokenizer, emptyFilterFinding, emptyStringMap), []expr.Option{expr.AsBool()}
+		return filterBindings(counter, emptyFilterFinding, emptyStringMap), []expr.Option{expr.AsBool()}
 	case modePrefilter:
 		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
 	case modeValidation:
@@ -284,8 +285,8 @@ func (prg Program) evalBindings() bindings {
 		if rt, ok := b["__runtime"].(*runtimeBindings); ok {
 			rtCopy := *rt
 			rt = &rtCopy
-			rt.tokenizer = prg.tokenizer
-			rt.tokenizerProvider = prg.tokenizerProvider
+			rt.tokenCounter = prg.tokenCounter
+			rt.tokenCounterProvider = prg.tokenCounterProvider
 			b["__runtime"] = rt
 			b["filter"] = filterNamespace(rt)
 			b["failsTokenEfficiency"] = rt.failsTokenEfficiency
@@ -405,7 +406,6 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 	rt := &runtimeBindings{
 		validation: e,
 		ctx:        ctx,
-		tokenizer:  nil,
 		finding:    findingWithCaptures,
 		attrs:      attributes,
 		captures:   legacyCaptures,
@@ -479,15 +479,15 @@ func legacyValidationCaptures(primary map[string]string, components map[string]a
 }
 
 type runtimeBindings struct {
-	validation        *Runtime
-	ctx               context.Context
-	tokenizer         *tiktoken.Tiktoken
-	tokenizerProvider func() *tiktoken.Tiktoken
-	finding           any
-	attrs             any
-	captures          any
-	components        any
-	debug             *evalState
+	validation           *Runtime
+	ctx                  context.Context
+	tokenCounter         *tokenizer.Counter
+	tokenCounterProvider func() *tokenizer.Counter
+	finding              any
+	attrs                any
+	captures             any
+	components           any
+	debug                *evalState
 }
 
 func baseBindings(rt *runtimeBindings) bindings {
@@ -527,8 +527,8 @@ func nonNilStringMap(m map[string]string) map[string]string {
 	return m
 }
 
-func filterBindings(tokenizer *tiktoken.Tiktoken, finding map[string]any, attributes map[string]string) bindings {
-	rt := &runtimeBindings{tokenizer: tokenizer, attrs: attributes}
+func filterBindings(counter *tokenizer.Counter, finding map[string]any, attributes map[string]string) bindings {
+	rt := &runtimeBindings{tokenCounter: counter, attrs: attributes}
 	b := baseBindings(rt)
 	b["filter"].(map[string]any)["setConfidence"] = rt.setConfidence
 	b["finding"] = finding
