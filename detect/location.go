@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// Location represents a location in a file
-type Location struct {
+// matchLocation is the detector's internal position data for a regex match.
+type matchLocation struct {
 	startLine      int
 	endLine        int
 	startColumn    int
@@ -46,7 +46,7 @@ func offsetToLineNumber(lineOffsets []int, offset int) int {
 	}
 }
 
-func location(lineOffsets []int, raw string, matchIndex []int) Location {
+func location(lineOffsets []int, raw string, matchIndex []int) matchLocation {
 	startIndex := matchIndex[0]
 	startLine := offsetToLineNumber(lineOffsets, startIndex)
 	endIndex := matchIndex[1]
@@ -59,7 +59,7 @@ func location(lineOffsets []int, raw string, matchIndex []int) Location {
 		endLineIndex = lineOffsets[endLine]
 	}
 
-	return Location{
+	return matchLocation{
 		startColumn:    startIndex - lineOffsets[startLine-1] + 1,
 		startLine:      startLine,
 		startLineIndex: lineOffsets[startLine-1],

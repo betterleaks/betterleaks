@@ -314,7 +314,7 @@ func writeCredentialDotLeader(w io.Writer, key, value string, maxKey int) error 
 
 func formatCredentialStatus(status ValidationStatus, noColor bool) string {
 	text := strings.ToUpper(string(status))
-	return ValidationStyle(string(status), noColor).Render(text)
+	return validationStyle(string(status), noColor).Render(text)
 }
 
 func formatCredentialStatusIcon(status ValidationStatus, noColor bool) string {
@@ -331,7 +331,7 @@ func formatCredentialStatusIcon(status ValidationStatus, noColor bool) string {
 	default:
 		icon = "-"
 	}
-	return ValidationStyle(string(status), noColor).Render(icon)
+	return validationStyle(string(status), noColor).Render(icon)
 }
 
 func writeCredentialRuleListText(w io.Writer, result CredentialRuleList) error {

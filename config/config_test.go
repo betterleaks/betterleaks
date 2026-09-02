@@ -421,7 +421,7 @@ func TestExtendGlobalExpressions(t *testing.T) {
 		Filter:    currentFilter,
 	}
 
-	current.extend(base, Extend{}, nil)
+	current.extend(base, extendConfig{}, nil)
 
 	require.Equal(t, "(\n"+basePrefilter+"\n) || (\n"+currentPrefilter+"\n)", current.Prefilter)
 	require.Equal(t, "(\n"+baseFilter+"\n) || (\n"+currentFilter+"\n)", current.Filter)

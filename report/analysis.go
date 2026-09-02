@@ -88,8 +88,8 @@ func AnalysisSeverity(capabilities []Capability) Severity {
 	return severity
 }
 
-// SeverityStyle returns the terminal style used for an analysis severity.
-func SeverityStyle(severity Severity, noColor bool) color.Style {
+// severityStyle returns the terminal style used for an analysis severity.
+func severityStyle(severity Severity, noColor bool) color.Style {
 	if noColor {
 		return color.New()
 	}

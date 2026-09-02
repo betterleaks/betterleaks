@@ -70,9 +70,9 @@ var allowSignatures = []string{"betterleaks:allow", "gitleaks:allow"}
 var errStopIteration = errors.New("pipeline: stop iteration")
 
 const (
-	// SlowWarningThreshold is the amount of time to wait before logging that a file is slow.
+	// slowWarningThreshold is the amount of time to wait before logging that a file is slow.
 	// This is useful for identifying problematic files and tuning the prefilter.
-	SlowWarningThreshold = 5 * time.Second
+	slowWarningThreshold = 5 * time.Second
 
 	// maxComponentSets caps the Cartesian product of component-finding combinations
 	// to prevent excessive memory use with large multi-part rules.
@@ -932,8 +932,8 @@ func (d *Detector) scanFragment(
 	var timer *time.Timer
 	if logging.Logger.GetLevel() <= zerolog.DebugLevel {
 		logger := fragment.Logger()
-		timer = time.AfterFunc(SlowWarningThreshold, func() {
-			logger.Debug().Msgf("Taking longer than %s to inspect fragment", SlowWarningThreshold.String())
+		timer = time.AfterFunc(slowWarningThreshold, func() {
+			logger.Debug().Msgf("Taking longer than %s to inspect fragment", slowWarningThreshold.String())
 		})
 	}
 	defer func() {

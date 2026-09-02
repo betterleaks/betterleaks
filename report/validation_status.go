@@ -29,8 +29,8 @@ const (
 // String returns the underlying string value, satisfying fmt.Stringer.
 func (s ValidationStatus) String() string { return string(s) }
 
-// ValidationStyle returns the terminal style used for a validation status.
-func ValidationStyle(status string, noColor bool) color.Style {
+// validationStyle returns the terminal style used for a validation status.
+func validationStyle(status string, noColor bool) color.Style {
 	if noColor {
 		return color.New()
 	}

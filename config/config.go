@@ -18,17 +18,17 @@ import (
 
 var (
 	//go:embed betterleaks.toml
-	DefaultConfig string
+	defaultConfig string
 )
 
 const maxExtendDepth = 2
 const DefaultRuleSpecificity = 100
 
 type rawConfig struct {
-	Title       string    `toml:"title"`
-	Description string    `toml:"description"`
-	Extend      Extend    `toml:"extend"`
-	Rules       []rawRule `toml:"rules"`
+	Title       string       `toml:"title"`
+	Description string       `toml:"description"`
+	Extend      extendConfig `toml:"extend"`
+	Rules       []rawRule    `toml:"rules"`
 
 	MinVersion string `toml:"minVersion"`
 
@@ -92,9 +92,8 @@ type Config struct {
 	Filter string
 }
 
-// Extend is a struct that allows users to define how they want their
-// configuration extended by other configuration files.
-type Extend struct {
+// extendConfig describes the unresolved config extension requested by TOML.
+type extendConfig struct {
 	Path          string   `toml:"path"`
 	URL           string   `toml:"url"`
 	UseDefault    bool     `toml:"useDefault"`
@@ -123,7 +122,7 @@ func LoadFile(path string) (*Config, error) {
 }
 
 func Default() (*Config, error) {
-	return ParseTOMLString(DefaultConfig, "")
+	return ParseTOMLString(defaultConfig, "")
 }
 
 func (rc *rawConfig) translate(depth int) (*Config, error) {
@@ -331,9 +330,9 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func (c *Config) extendDefault(depth int, extend Extend, componentsSet map[string]struct{}) error {
+func (c *Config) extendDefault(depth int, extend extendConfig, componentsSet map[string]struct{}) error {
 	var defaultRawConfig rawConfig
-	if err := toml.Unmarshal([]byte(DefaultConfig), &defaultRawConfig); err != nil {
+	if err := toml.Unmarshal([]byte(defaultConfig), &defaultRawConfig); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 	}
 	cfg, err := defaultRawConfig.translate(depth + 1)
@@ -346,7 +345,7 @@ func (c *Config) extendDefault(depth int, extend Extend, componentsSet map[strin
 	return nil
 }
 
-func (c *Config) extendPath(depth int, extend Extend, componentsSet map[string]struct{}) error {
+func (c *Config) extendPath(depth int, extend extendConfig, componentsSet map[string]struct{}) error {
 	data, err := os.ReadFile(extend.Path)
 	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
@@ -365,7 +364,7 @@ func (c *Config) extendPath(depth int, extend Extend, componentsSet map[string]s
 	return nil
 }
 
-func (c *Config) extend(extensionConfig *Config, extend Extend, componentsSet map[string]struct{}) {
+func (c *Config) extend(extensionConfig *Config, extend extendConfig, componentsSet map[string]struct{}) {
 	// Get config name for helpful log messages.
 	var configName string
 	if extend.Path != "" {

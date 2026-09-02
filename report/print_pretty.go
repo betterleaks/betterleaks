@@ -653,7 +653,7 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 		}
 		vs := strings.ToUpper(string(f.Validation.Status))
 		if !noColor {
-			vs = ValidationStyle(string(f.Validation.Status), noColor).Render(vs)
+			vs = validationStyle(string(f.Validation.Status), noColor).Render(vs)
 		}
 		dotLeader("status", vs, maxVK)
 		if f.Validation.Reason != "" {
@@ -715,7 +715,7 @@ func appendAnalysisDetail(details, value string) string {
 
 func formatAnalysisSeverity(severity Severity, noColor bool) string {
 	text := strings.ToUpper(string(severity))
-	return SeverityStyle(severity, noColor).Render(text)
+	return severityStyle(severity, noColor).Render(text)
 }
 
 func capabilitiesText(capabilities []Capability) string {

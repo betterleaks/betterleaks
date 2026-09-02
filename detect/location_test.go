@@ -85,13 +85,13 @@ func TestLocation(t *testing.T) {
 			lineOffsets  []int
 			matchStart   int
 			matchEnd     int
-			wantLocation Location
+			wantLocation matchLocation
 		}{
 			{
 				lineOffsets: lineOffsets,
 				matchStart:  35,
 				matchEnd:    44,
-				wantLocation: Location{
+				wantLocation: matchLocation{
 					startLine:      1,
 					startColumn:    36,
 					endLine:        2,
@@ -104,7 +104,7 @@ func TestLocation(t *testing.T) {
 				lineOffsets: lineOffsets,
 				matchStart:  25,
 				matchEnd:    38,
-				wantLocation: Location{
+				wantLocation: matchLocation{
 					startLine:      1,
 					startColumn:    26,
 					endLine:        1,
@@ -117,7 +117,7 @@ func TestLocation(t *testing.T) {
 				lineOffsets: lineOffsets,
 				matchStart:  56,
 				matchEnd:    129,
-				wantLocation: Location{
+				wantLocation: matchLocation{
 					startLine:      3,
 					startColumn:    1,
 					endLine:        4,
