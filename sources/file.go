@@ -1,57 +1,20 @@
 package sources
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
 )
 
-const defaultBufferSize = 100 * 1_000 // 100kb
 const InnerPathSeparator = "!"
-
-var bufferPool = sync.Pool{
-	New: func() any {
-		buf := make([]byte, defaultBufferSize)
-		return &buf
-	},
-}
-
-func getBuffer() []byte {
-	return *bufferPool.Get().(*[]byte)
-}
-
-func putBuffer(buf []byte) {
-	buf = buf[:cap(buf)]
-	bufferPool.Put(&buf)
-}
-
-var readerPool = sync.Pool{
-	New: func() any {
-		// Use the same default size as bufio.NewReader (4096) to preserve
-		// chunk boundary behavior in readUntilSafeBoundary.
-		return bufio.NewReader(nil)
-	},
-}
-
-func getReader(r io.Reader) *bufio.Reader {
-	br := readerPool.Get().(*bufio.Reader)
-	br.Reset(r)
-	return br
-}
-
-func putReader(br *bufio.Reader) {
-	br.Reset(nil)
-	readerPool.Put(br)
-}
 
 type seekReaderAt interface {
 	io.ReaderAt
@@ -131,10 +94,8 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		loggerOrDiscard(s.Logger).Warn("skipping unknown archive type", "path", s.FullPath())
 	}
 
-	br := getReader(stream)
-	defer putReader(br)
 	isArchiveContent := s.archiveDepth > 0
-	return s.fileFragments(ctx, br, isArchiveContent, yield)
+	return s.fileFragments(ctx, stream, isArchiveContent, yield)
 }
 
 // extractorFragments recursively crawls archives and yields fragments
@@ -231,15 +192,16 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 		_ = innerReader.Close()
 	}()
 
-	br := getReader(innerReader)
-	defer putReader(br)
-	if err := s.fileFragments(ctx, br, true, yield); err != nil {
+	if err := s.fileFragments(ctx, innerReader, true, yield); err != nil {
 		loggerOrDiscard(s.Logger).Warn("error reading compressed file", "error", err, "path", s.FullPath())
 	}
 }
 
-// fileFragments reads the file into fragments to yield.
-func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiveContent bool, yield FragmentsFunc) error {
+var errStopFileFragments = errors.New("stop file fragments")
+
+// fileFragments adds filesystem policy and metadata to source-neutral reader
+// fragments.
+func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveContent bool, yield FragmentsFunc) error {
 	// Use a pooled buffer if the caller hasn't provided one.
 	if s.Buffer == nil {
 		s.Buffer = getBuffer()
@@ -249,120 +211,68 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 		}()
 	}
 
-	prevFragmentEndLine := 0
-	firstFragmentAttr := "true"
 	fullPath := s.FullPath()
-	fragPath := fullPath
+	fragmentPath := fullPath
 	if isWindows {
-		fragPath = filepath.ToSlash(fullPath)
+		fragmentPath = filepath.ToSlash(fullPath)
 	}
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			attr := map[string]string{
-				AttrPath:            fragPath,
-				AttrResource:        ResourceFileContent,
-				AttrFSFirstFragment: firstFragmentAttr,
-			}
-			fragment := Fragment{
-				Attributes: attr,
-			}
+	firstFragment := true
 
-			n, err := reader.Read(s.Buffer)
-			if n == 0 {
-				if err != nil && err != io.EOF {
-					if isArchiveContent {
-						loggerOrDiscard(s.Logger).Warn("could not read archive content", "error", err, "path", fullPath)
-						return nil
-					}
-					return yield(fragment, fmt.Errorf("could not read file: %w", err))
-				}
+	err := readerFragments(ctx, content, s.Buffer, func(chunk readerChunk, readErr error) error {
+		fragment := chunk.fragment
+		first := "false"
+		if firstFragment {
+			first = "true"
+		}
+		fragment.Attributes = map[string]string{
+			AttrPath:            fragmentPath,
+			AttrResource:        ResourceFileContent,
+			AttrFSFirstFragment: first,
+		}
 
+		if readErr != nil {
+			if isArchiveContent {
+				loggerOrDiscard(s.Logger).Warn("could not read archive content", "error", readErr, "path", fullPath)
 				return nil
 			}
+			return yield(fragment, fmt.Errorf("could not read file: %w", readErr))
+		}
 
-			// Only check the filetype at the start of file.
-			if firstFragmentAttr == "true" {
-				// TODO: could other optimizations be introduced here?
-				if mimetype, err := filetype.Match(s.Buffer[:n]); err != nil {
-					if isArchiveContent {
-						loggerOrDiscard(s.Logger).Warn("could not determine archive content type", "error", err, "path", fullPath)
-						return nil
-					}
-					return yield(
-						fragment,
-						fmt.Errorf("could not read file: could not determine type: %w", err),
-					)
-				} else if mimetype.MIME.Type == "application" {
-					loggerOrDiscard(s.Logger).Debug("skipping binary file", "mime_type", mimetype.MIME.Value, "path", fullPath)
-
-					return nil
-				}
-			}
-
-			// Try to split chunks across large areas of whitespace, if possible.
-			var peekBuf strings.Builder
-			fragmentCapacity := n
-			if n == len(s.Buffer) {
-				fragmentCapacity += maxPeekSize
-			}
-			peekBuf.Grow(fragmentCapacity)
-			_, _ = peekBuf.Write(s.Buffer[:n])
-			stopAfterYield := false
-			if err := readUntilSafeBoundary(reader, n, maxPeekSize, &peekBuf); err != nil {
+		// MIME detection is filesystem policy. Reader intentionally scans the
+		// text it is given without trying to classify the underlying resource.
+		if firstFragment {
+			mimetype, matchErr := filetype.Match(chunk.initial)
+			if matchErr != nil {
 				if isArchiveContent {
-					loggerOrDiscard(s.Logger).Warn("could not read archive content until safe boundary", "error", err, "path", fullPath)
-					stopAfterYield = true
-				} else {
-					return yield(
-						fragment,
-						fmt.Errorf("could not read file: could not read until safe boundary: %w", err),
-					)
+					loggerOrDiscard(s.Logger).Warn("could not determine archive content type", "error", matchErr, "path", fullPath)
+					return errStopFileFragments
 				}
-			}
-
-			fragment.Raw = peekBuf.String()
-			fragment.StartLine = prevFragmentEndLine + 1
-
-			// Count the number of newlines in this chunk to determine the end
-			// line for this fragment.
-			prevFragmentEndLine += strings.Count(fragment.Raw, "\n")
-
-			if s.Symlink != "" {
-				symlink := s.Symlink
-				if isWindows {
-					symlink = filepath.ToSlash(s.Symlink)
+				if err := yield(fragment, fmt.Errorf("could not read file: could not determine type: %w", matchErr)); err != nil {
+					return err
 				}
-				fragment.SetAttr(AttrFSSymlink, symlink)
+				return errStopFileFragments
 			}
-
-			// log errors but continue since there's content
-			if err != nil && err != io.EOF {
-				if isArchiveContent {
-					loggerOrDiscard(s.Logger).Warn("issue reading archive content", "error", err, "path", fullPath)
-					return yield(fragment, nil)
-				} else {
-					loggerOrDiscard(s.Logger).Warn("issue reading file", "error", err)
-				}
-			}
-
-			if stopAfterYield {
-				return yield(fragment, nil)
-			}
-
-			// Done with the file!
-			if err == io.EOF {
-				return yield(fragment, nil)
-			}
-
-			firstFragmentAttr = "false"
-			if err := yield(fragment, err); err != nil {
-				return err
+			if mimetype.MIME.Type == "application" {
+				loggerOrDiscard(s.Logger).Debug("skipping binary file", "mime_type", mimetype.MIME.Value, "path", fullPath)
+				return errStopFileFragments
 			}
 		}
+
+		if s.Symlink != "" {
+			symlink := s.Symlink
+			if isWindows {
+				symlink = filepath.ToSlash(symlink)
+			}
+			fragment.SetAttr(AttrFSSymlink, symlink)
+		}
+
+		firstFragment = false
+		return yield(fragment, nil)
+	})
+	if errors.Is(err, errStopFileFragments) {
+		return nil
 	}
+	return err
 }
 
 // FullPath returns the File.Path with any preceding outer paths

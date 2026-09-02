@@ -312,24 +312,6 @@ func TestNewDetectorValidatesOptions(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid validation status")
 }
 
-func ExampleDetector_Scan() {
-	cfg := testConfig()
-	detector, err := NewDetector(cfg, WithJobs(2))
-	if err != nil {
-		panic(err)
-	}
-	source := &sources.Stdin{Content: strings.NewReader("secret-alpha")}
-	summary, err := detector.Scan(context.Background(), source, func(finding report.Finding) error {
-		fmt.Println(finding.RuleID)
-		return nil
-	})
-	fmt.Println(summary.Findings, err)
-
-	// Output:
-	// test-secret
-	// 1 <nil>
-}
-
 func collectSourceFindings(ctx context.Context, detector *Detector, source sources.Source) ([]report.Finding, error) {
 	var (
 		findings []report.Finding
@@ -347,8 +329,9 @@ func collectSourceFindings(ctx context.Context, detector *Detector, source sourc
 
 func TestRunStreamsFindings(t *testing.T) {
 	detector := mustNewDetector(t, loadTestConfig(t, "simple"))
-	source := &sources.Stdin{
-		Content: strings.NewReader("ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+	const content = "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	source := &sources.Reader{
+		Content: strings.NewReader(content),
 	}
 
 	var findings []report.Finding
@@ -358,6 +341,14 @@ func TestRunStreamsFindings(t *testing.T) {
 	}
 
 	require.Len(t, findings, 1)
+	assert.Empty(t, findings[0].Attr(sources.AttrResource))
+	assert.Empty(t, findings[0].Attr(sources.AttrPath))
+	assert.Equal(t, report.Location{
+		StartLine:   1,
+		EndLine:     1,
+		StartColumn: 1,
+		EndColumn:   len(content),
+	}, findings[0].Location)
 }
 
 func TestRunWithMultipleJobs(t *testing.T) {
