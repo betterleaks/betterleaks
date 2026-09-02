@@ -405,6 +405,94 @@ func TestTranslateExtend(t *testing.T) {
 	}
 }
 
+func TestExtendGlobalExpressions(t *testing.T) {
+	const (
+		basePrefilter    = `let base = attributes["path"] == "base"; base`
+		currentPrefilter = `let current = attributes["path"] == "current"; current`
+		baseFilter       = `let base = finding["secret"] == "base"; base`
+		currentFilter    = `let current = finding["secret"] == "current"; current`
+	)
+	base := &Config{
+		Prefilter: basePrefilter,
+		Filter:    baseFilter,
+	}
+	current := &Config{
+		Prefilter: currentPrefilter,
+		Filter:    currentFilter,
+	}
+
+	current.extend(base, Extend{}, nil)
+
+	require.Equal(t, "(\n"+basePrefilter+"\n) || (\n"+currentPrefilter+"\n)", current.Prefilter)
+	require.Equal(t, "(\n"+baseFilter+"\n) || (\n"+currentFilter+"\n)", current.Filter)
+
+	env, err := exprruntime.New(nil)
+	require.NoError(t, err)
+
+	prefilter, err := env.CompilePrefilter(current.Prefilter)
+	require.NoError(t, err)
+	for _, path := range []string{"base", "current"} {
+		skip, err := env.EvalPrefilter(prefilter, map[string]string{"path": path})
+		require.NoError(t, err)
+		require.Truef(t, skip, "extended prefilter should suppress %q", path)
+	}
+	skip, err := env.EvalPrefilter(prefilter, map[string]string{"path": "other"})
+	require.NoError(t, err)
+	require.False(t, skip)
+
+	filter, err := env.CompileFilter(current.Filter, nil)
+	require.NoError(t, err)
+	for _, secret := range []string{"base", "current"} {
+		skip, err := env.EvalFilter(filter, map[string]any{"secret": secret}, nil)
+		require.NoError(t, err)
+		require.Truef(t, skip, "extended filter should suppress %q", secret)
+	}
+	skip, err = env.EvalFilter(filter, map[string]any{"secret": "other"}, nil)
+	require.NoError(t, err)
+	require.False(t, skip)
+}
+
+func TestExtendDefaultKeepsGlobalPrefilters(t *testing.T) {
+	cfg, err := ParseTOMLString(`
+prefilter = '''attributes["path"] == "local.ignore"'''
+
+[extend]
+useDefault = true
+`, "")
+	require.NoError(t, err)
+
+	env, err := exprruntime.New(nil)
+	require.NoError(t, err)
+	prefilter, err := env.CompilePrefilter(cfg.Prefilter)
+	require.NoError(t, err)
+
+	for _, path := range []string{"go.sum", "local.ignore"} {
+		skip, err := env.EvalPrefilter(prefilter, map[string]string{"path": path})
+		require.NoError(t, err)
+		require.Truef(t, skip, "extended default prefilter should suppress %q", path)
+	}
+	skip, err := env.EvalPrefilter(prefilter, map[string]string{"path": "main.go"})
+	require.NoError(t, err)
+	require.False(t, skip)
+}
+
+func TestExtendGlobalExpressionsWithEmptySide(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		base    string
+		current string
+		want    string
+	}{
+		{name: "neither", want: ""},
+		{name: "base only", base: "base", want: "base"},
+		{name: "current only", current: "current", want: "current"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, extendGlobalExpr(tt.base, tt.current))
+		})
+	}
+}
+
 func testTranslate(t *testing.T, test translateCase) {
 	t.Helper()
 	cfg, err := loadTestConfig(test.cfgName)

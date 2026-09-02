@@ -13,6 +13,13 @@ Every config can use these fields:
 - `[extend]`: inherit rules/settings from another config or from built-in defaults.
 - `[[rules]]`: secret detection rules.
 
+When a config extends another config, their global `prefilter` and `filter`
+expressions are additive. Betterleaks evaluates the extended expression first
+and skips the input when either expression returns `true`. The expressions stay
+independent; Betterleaks does not merge or rewrite their Expr programs.
+Rule-specific filters retain override semantics when a child config redefines
+the same rule.
+
 Each `[[rules]]` entry can use:
 
 - `id`: unique rule identifier.

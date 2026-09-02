@@ -446,17 +446,26 @@ func (c *Config) extend(extensionConfig *Config, extend Extend, componentsSet ma
 		}
 	}
 
-	// Current config's global Prefilter/Filter wins over extension's if set.
-	if c.Prefilter == "" {
-		c.Prefilter = extensionConfig.Prefilter
-	}
-	if c.Filter == "" {
-		c.Filter = extensionConfig.Filter
-	}
+	// Global filters are skip predicates, so extension is additive: either
+	// config may suppress the input. Keep each Expr program intact and compose
+	// them only at their boolean boundary.
+	c.Prefilter = extendGlobalExpr(extensionConfig.Prefilter, c.Prefilter)
+	c.Filter = extendGlobalExpr(extensionConfig.Filter, c.Filter)
 
 	// Preserve the existing deterministic extended-config ordering without a
 	// second order index on Config.
 	sort.Slice(c.Rules, func(i, j int) bool {
 		return c.Rules[i].RuleID < c.Rules[j].RuleID
 	})
+}
+
+func extendGlobalExpr(base, current string) string {
+	switch {
+	case base == "":
+		return current
+	case current == "":
+		return base
+	default:
+		return "(\n" + strings.TrimSpace(base) + "\n) || (\n" + strings.TrimSpace(current) + "\n)"
+	}
 }
