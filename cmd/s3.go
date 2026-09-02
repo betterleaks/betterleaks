@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -30,11 +29,12 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 	initConfig(runtime, globals, &options.ScanFlags, ".")
 	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config()
+	cfg := Config(runtime)
 	jobs := resolveJobPlan(options.Jobs, objectJobProfile)
 	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "", detect.WithJobs(jobs.Detector))
 
 	src := &sources.S3{
+		Logger:          runtime.Logger(),
 		URL:             options.URL,
 		Region:          options.Region,
 		Anonymous:       options.Anonymous,
@@ -48,14 +48,14 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 	}
 
 	if err := src.Validate(); err != nil {
-		logging.Fatal().Err(err).Msg("invalid S3 configuration")
+		runtime.fatal("invalid S3 configuration", "error", err)
 	}
 
-	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)
 	if scanErr != nil {
-		logging.Error().Err(scanErr).Msg("scan error")
+		runtime.Logger().Error("scan error", "error", scanErr)
 	}
 	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
 }

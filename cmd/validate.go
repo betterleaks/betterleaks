@@ -51,7 +51,7 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 		if err := validateListMode(options); err != nil {
 			return err
 		}
-		resolved, err := resolveConfig(globals.Config, "")
+		resolved, err := resolveConfig(runtime, globals.Config, "")
 		if err != nil {
 			return err
 		}
@@ -68,7 +68,7 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 		return err
 	}
 
-	resolved, err := resolveConfig(globals.Config, "")
+	resolved, err := resolveConfig(runtime, globals.Config, "")
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -19,7 +20,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/internal/httpclient"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
@@ -40,6 +40,8 @@ const (
 // GitHub enumerates repositories via the GitHub API and delegates scanning
 // to the Git source for each cloned repo.
 type GitHub struct {
+	// Logger receives source diagnostics. A nil logger disables logging.
+	Logger *slog.Logger
 	// Auth
 	Token string
 
@@ -160,10 +162,7 @@ var defaultScanResources = map[string][]GitHubResourceType{
 }
 
 func (s *GitHub) logScanStart() {
-	logging.Info().
-		Str("target", s.URL).
-		Stringer("resources", s.Resources).
-		Msg("starting GitHub scan")
+	loggerOrDiscard(s.Logger).Info("starting GitHub scan", "target", s.URL, "resources", s.Resources)
 }
 
 // Validate checks the GitHub source configuration and populates Resources if needed.
@@ -291,16 +290,10 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 		return combined
 	}
-	logging.Info().
-		Int64("repos", repoCount.Load()).
-		Dur("enumeration_ms", time.Since(start)).
-		Msg("enumeration complete, waiting for scans")
+	loggerOrDiscard(s.Logger).Info("enumeration complete, waiting for scans", "repos", repoCount.Load(), "duration", time.Since(start))
 
 	scanErr := scanGroup.Wait()
-	logging.Info().
-		Int64("repos", repoCount.Load()).
-		Dur("duration", time.Since(start)).
-		Msg("scan complete")
+	loggerOrDiscard(s.Logger).Info("scan complete", "repos", repoCount.Load(), "duration", time.Since(start))
 
 	return scanErr
 }
@@ -328,7 +321,7 @@ func (s *GitHub) dispatchURL(ctx context.Context, rawURL string) (*ParsedGitHubU
 		} else {
 			parsed.Resource = "user"
 		}
-		logging.Info().Str("owner", parsed.Owner).Str("type", ownerType).Msg("resolved target")
+		loggerOrDiscard(s.Logger).Info("resolved target", "owner", parsed.Owner, "type", ownerType)
 		return parsed, false, nil
 	case "repo":
 		return parsed, false, nil
@@ -356,7 +349,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 				return
 			}
 			if s.isExcluded(name) {
-				logging.Debug().Str("repo", name).Msg("excluding repo")
+				loggerOrDiscard(s.Logger).Debug("excluding repo", "repo", name)
 				return
 			}
 			seen[name] = true
@@ -369,7 +362,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 		switch target.Resource {
 		case "repo":
 			slug := target.Owner + "/" + target.Repo
-			logging.Debug().Str("repo", slug).Msg("fetching repo metadata")
+			loggerOrDiscard(s.Logger).Debug("fetching repo metadata", "repo", slug)
 			repo, err := s.fetchRepo(ctx, client, target.Owner, target.Repo)
 			if err != nil {
 				errCh <- fmt.Errorf("fetch repo %s: %w", slug, err)
@@ -377,7 +370,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 			}
 			send(repo)
 		case "org":
-			logging.Info().Str("org", target.Owner).Msg("enumerating org repos")
+			loggerOrDiscard(s.Logger).Info("enumerating org repos", "org", target.Owner)
 			err := s.streamRepos(target.Owner, func(page int) ([]*github.Repository, *github.Response, error) {
 				return client.Repositories.ListByOrg(ctx, target.Owner, &github.RepositoryListByOrgOptions{
 					Type: "all", ListOptions: github.ListOptions{PerPage: itemsPerPage, Page: page},
@@ -388,7 +381,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 				return
 			}
 		case "user":
-			logging.Info().Str("user", target.Owner).Msg("enumerating user repos")
+			loggerOrDiscard(s.Logger).Info("enumerating user repos", "user", target.Owner)
 			err := s.streamRepos(target.Owner, func(page int) ([]*github.Repository, *github.Response, error) {
 				return client.Repositories.ListByUser(ctx, target.Owner, &github.RepositoryListByUserOptions{
 					Type: "all", ListOptions: github.ListOptions{PerPage: itemsPerPage, Page: page},
@@ -417,11 +410,11 @@ func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *gith
 
 func (s *GitHub) scanRepoWithJobs(ctx context.Context, client *github.Client, repo *github.Repository, jobs int, yield FragmentsFunc) error {
 	name := repo.GetFullName()
-	logger := logging.With().Str("repo", name).Logger()
+	logger := loggerOrDiscard(s.Logger).With("repo", name)
 	repoAttrs := s.repoAttributes(repo, "")
 
 	if s.ShouldSkip != nil && s.ShouldSkip(s.repoAttributes(repo, ResourceGitHubRepo)) {
-		logger.Debug().Msg("skipping repository based on prefilter")
+		logger.Debug("skipping repository based on prefilter")
 		return nil
 	}
 
@@ -430,26 +423,25 @@ func (s *GitHub) scanRepoWithJobs(ctx context.Context, client *github.Client, re
 	// run wraps every resource scan: logs start/finish and propagates errors.
 	// Non-fatal callers (git) call run but discard the return value (C3).
 	run := func(label string, fn func() error) error {
-		logger.Info().Str("resource", label).Msg("scanning")
+		logger.Info("scanning", "resource", label)
 		if err := fn(); err != nil {
-			logger.Error().Err(err).Msg(label + " scan failed")
+			logger.Error("scan failed", "error", err, "resource", label)
 			return err
 		}
-		ev := logger.Info().Str("resource", label)
+		args := []any{"resource", label}
 		if remaining := s.gqlRemaining.Load(); remaining > 0 {
-			ev = ev.Int64("gql_remaining", remaining)
+			args = append(args, "gql_remaining", remaining)
 		}
 		if resetAt := s.gqlResetAt.Load(); resetAt > 0 {
-			// ev = ev.Time("gql_reset", time.Unix(resetAt, 0))
 			resetTime := time.Unix(resetAt, 0)
 			if d := time.Until(resetTime); d > 0 {
-				ev = ev.Str("gql_resets_in", d.Round(time.Second).String())
+				args = append(args, "gql_resets_in", d.Round(time.Second))
 			} else {
-				ev = ev.Str("gql_resets_in", "0s")
+				args = append(args, "gql_resets_in", time.Duration(0))
 			}
 
 		}
-		ev.Msg("completed")
+		logger.Info("completed", args...)
 		return nil
 	}
 
@@ -550,11 +542,12 @@ func (s *GitHub) streamRepos(label string,
 			send(r)
 		}
 		total += len(repos)
-		evt := logging.Info().Str("target", label).Int("page", page)
+		args := []any{"target", label, "page", page}
 		if resp.LastPage > 0 {
-			evt = evt.Int("total_pages", resp.LastPage)
+			args = append(args, "total_pages", resp.LastPage)
 		}
-		evt.Int("repos_so_far", total).Msg("enumerating repos")
+		args = append(args, "repos_so_far", total)
+		loggerOrDiscard(s.Logger).Info("enumerating repos", args...)
 		if resp.NextPage == 0 {
 			break
 		}
@@ -583,6 +576,7 @@ func (s *GitHub) downloadAndScan(ctx context.Context, rawURL string, reader io.R
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		ShouldSkip:      s.ShouldSkip,
 		TempPattern:     "betterleaks-download-*",
+		Logger:          s.Logger,
 	}, yield)
 }
 
@@ -613,7 +607,7 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 	if s.BaseURL != "" {
 		c, err := client.WithEnterpriseURLs(s.BaseURL, s.BaseURL)
 		if err != nil {
-			logging.Warn().Err(err).Str("url", s.BaseURL).Msg("could not configure GHE URL, using github.com")
+			loggerOrDiscard(s.Logger).Warn("could not configure GHE URL, using github.com", "error", err, "url", s.BaseURL)
 		} else {
 			client = c
 		}
@@ -625,6 +619,7 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, jobs int, yield FragmentsFunc) error {
 	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		src := &Git{
+			Logger:   s.Logger,
 			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 			Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
 			MaxArchiveDepth: s.MaxArchiveDepth,
@@ -673,14 +668,14 @@ func (s *GitHub) scanActionsWithJobs(ctx context.Context, client *github.Client,
 					err := s.budget.run(gctx, func() error {
 						if err := s.scanRunLogs(gctx, client, owner, repoName, run, yield); err != nil {
 							if !isGitHubGone(err) {
-								logging.Error().Err(err).Int64("run_id", run.GetID()).Msg("could not scan run logs")
+								loggerOrDiscard(s.Logger).Error("could not scan run logs", "error", err, "run_id", run.GetID())
 								return fmt.Errorf("scan run %d logs: %w", run.GetID(), err)
 							}
 						}
 						if s.Resources.Has(GitHubResourceTypeActionArtifacts) {
 							if err := s.scanRunArtifacts(gctx, client, owner, repoName, run, yield); err != nil {
 								if !isGitHubGone(err) {
-									logging.Error().Err(err).Int64("run_id", run.GetID()).Msg("could not scan run artifacts")
+									loggerOrDiscard(s.Logger).Error("could not scan run artifacts", "error", err, "run_id", run.GetID())
 									return fmt.Errorf("scan run %d artifacts: %w", run.GetID(), err)
 								}
 							}
@@ -794,12 +789,12 @@ func (s *GitHub) scanRunArtifacts(ctx context.Context, client *github.Client, ow
 			}
 			artifactURL, _, err := client.Actions.DownloadArtifact(ctx, owner, repo, artifact.GetID(), 3)
 			if err != nil {
-				logging.Error().Err(err).Str("artifact", artifact.GetName()).Msg("could not get artifact download URL")
+				loggerOrDiscard(s.Logger).Error("could not get artifact download URL", "error", err, "artifact", artifact.GetName())
 				continue
 			}
 			path := fmt.Sprintf("actions/artifacts/%s/run_%s.zip", artifact.GetName(), attrs[AttrGitHubActionsRunID])
 			if err := s.downloadAndScan(ctx, artifactURL.String(), nil, path, attrs, "", yield); err != nil {
-				logging.Error().Err(err).Str("artifact", artifact.GetName()).Msg("could not scan artifact")
+				loggerOrDiscard(s.Logger).Error("could not scan artifact", "error", err, "artifact", artifact.GetName())
 			}
 		}
 		if resp.NextPage == 0 {
@@ -949,7 +944,7 @@ func (s *GitHub) newGraphQLClient(ctx context.Context) *githubv4.Client {
 	// GHE: REST is at <host>/api/v3, GraphQL is at <host>/api/graphql.
 	u, err := url.Parse(s.BaseURL)
 	if err != nil {
-		logging.Warn().Err(err).Str("url", s.BaseURL).Msg("could not parse GHE URL for GraphQL, falling back to github.com")
+		loggerOrDiscard(s.Logger).Warn("could not parse GHE URL for GraphQL, falling back to github.com", "error", err, "url", s.BaseURL)
 		return githubv4.NewClient(httpClient)
 	}
 	before, _ := strings.CutSuffix(u.Path, "/api/v3")
@@ -1005,11 +1000,11 @@ func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any) error
 		// next RoundTrip call blocks in waitForResume for the same duration.
 		s.gqlRetry.PauseFor(wait)
 
-		logging.Warn().
-			Err(err).
-			Str("wait", wait.Round(time.Second).String()).
-			Time("resume_at", time.Now().Add(wait).Round(time.Second)).
-			Msg("GraphQL rate limited, pausing")
+		loggerOrDiscard(s.Logger).Warn("GraphQL rate limited, pausing",
+			"error", err,
+			"wait", wait.Round(time.Second),
+			"resume_at", time.Now().Add(wait).Round(time.Second),
+		)
 
 		// Sleep without holding a semaphore slot — there is nothing useful to
 		// do while we wait, and holding it would reduce available concurrency.
@@ -1383,10 +1378,10 @@ func (s *GitHub) emitRelease(ctx context.Context, client *github.Client, httpCli
 	}
 	if s.Resources.Has(GitHubResourceTypeReleaseAssets) {
 		if err := s.scanReleaseAssets(ctx, client, httpClient, owner, repo, rel, yield); err != nil {
-			logging.Warn().Err(err).Str("tag", tag).Msg("could not scan release assets")
+			loggerOrDiscard(s.Logger).Warn("could not scan release assets", "error", err, "tag", tag)
 		}
 		if err := s.scanReleaseSourceArchives(ctx, rel, yield); err != nil {
-			logging.Warn().Err(err).Str("tag", tag).Msg("could not scan release source archives")
+			loggerOrDiscard(s.Logger).Warn("could not scan release source archives", "error", err, "tag", tag)
 		}
 	}
 	return nil
@@ -1415,7 +1410,7 @@ func (s *GitHub) scanReleaseAssets(ctx context.Context, client *github.Client, h
 		for _, asset := range assets {
 			rc, _, err := client.Repositories.DownloadReleaseAsset(ctx, owner, repo, asset.GetID(), httpClient)
 			if err != nil {
-				logging.Error().Err(err).Str("tag", tag).Str("asset", asset.GetName()).Msg("could not download release asset")
+				loggerOrDiscard(s.Logger).Error("could not download release asset", "error", err, "tag", tag, "asset", asset.GetName())
 				continue
 			}
 			attrs := map[string]string{
@@ -1424,7 +1419,7 @@ func (s *GitHub) scanReleaseAssets(ctx context.Context, client *github.Client, h
 				AttrResource:               ResourceGitHubReleaseAsset,
 			}
 			if err := s.downloadAndScan(ctx, "", rc, fmt.Sprintf("releases/%s/%s", tag, asset.GetName()), attrs, "", yield); err != nil {
-				logging.Error().Err(err).Str("tag", tag).Str("asset", asset.GetName()).Msg("could not scan release asset")
+				loggerOrDiscard(s.Logger).Error("could not scan release asset", "error", err, "tag", tag, "asset", asset.GetName())
 			}
 		}
 		if resp.NextPage == 0 {
@@ -1452,7 +1447,7 @@ func (s *GitHub) scanReleaseSourceArchives(ctx context.Context, rel *github.Repo
 			AttrResource:               ResourceGitHubReleaseAsset,
 		}
 		if err := s.downloadAndScan(ctx, a.url, nil, fmt.Sprintf("releases/%s/%s", tag, a.name), attrs, s.Token, yield); err != nil {
-			logging.Error().Err(err).Str("tag", tag).Str("archive", a.name).Msg("could not scan release source archive")
+			loggerOrDiscard(s.Logger).Error("could not scan release source archive", "error", err, "tag", tag, "archive", a.name)
 		}
 	}
 	return nil
@@ -1483,7 +1478,7 @@ func (s *GitHub) scanUserGists(ctx context.Context, client *github.Client, user 
 			}
 			// Pass nil count — the local accumulator was never read (A7).
 			if err := s.emitGist(ctx, client, gist.GetID(), gist.GetOwner().GetLogin(), gist.GetHTMLURL(), yield); err != nil {
-				logging.Error().Err(err).Str("gist_id", gist.GetID()).Msg("could not scan gist")
+				loggerOrDiscard(s.Logger).Error("could not scan gist", "error", err, "gist_id", gist.GetID())
 			}
 		}
 		if resp.NextPage == 0 {

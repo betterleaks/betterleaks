@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -24,7 +24,6 @@ import (
 	"github.com/betterleaks/betterleaks/detect/codec"
 	"github.com/betterleaks/betterleaks/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/internal/ruletiming"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
@@ -46,6 +45,11 @@ type repeatedFragmentSource struct {
 	count int
 }
 
+type fragmentSource struct {
+	fragments []sources.Fragment
+	err       error
+}
+
 func (s repeatedFragmentSource) Fragments(_ context.Context, yield sources.FragmentsFunc) error {
 	for range s.count {
 		if err := yield(sources.Fragment{Raw: "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"}, nil); err != nil {
@@ -53,6 +57,18 @@ func (s repeatedFragmentSource) Fragments(_ context.Context, yield sources.Fragm
 		}
 	}
 	return nil
+}
+
+func (s fragmentSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
+	for _, fragment := range s.fragments {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := yield(fragment, nil); err != nil {
+			return err
+		}
+	}
+	return s.err
 }
 
 type cancelAwareSource struct {
@@ -117,6 +133,201 @@ func mustNewDetector(t *testing.T, cfg *config.Config, options ...Option) *Detec
 	detector, err := NewDetector(cfg, options...)
 	require.NoError(t, err)
 	return detector
+}
+
+func testConfig() *config.Config {
+	return &config.Config{Rules: []config.Rule{{
+		RuleID: "test-secret",
+		Regex:  regexp.MustCompile(`secret-[a-z]+`),
+	}}}
+}
+
+func TestDetectorLoggerIsOptIn(t *testing.T) {
+	cfg := &config.Config{
+		Filter: `missingFunction()`,
+		Rules: []config.Rule{{
+			RuleID: "test-secret",
+			Regex:  regexp.MustCompile(`secret-[a-z]+`),
+		}},
+	}
+
+	silent := mustNewDetector(t, cfg)
+	assert.Equal(t, slog.DiscardHandler, silent.logger.Handler())
+
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	detector := mustNewDetector(t, cfg, WithLogger(logger))
+	require.Len(t, detector.DetectString("secret-alpha"), 1)
+	assert.Contains(t, output.String(), "global filter compile error")
+}
+
+func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
+	detector := &Detector{logger: discardLogger}
+	fragment := sources.Fragment{Raw: "ordinary input"}
+	rule := config.Rule{RuleID: "test-secret", SkipReport: true}
+
+	var findings []report.Finding
+	allocations := testing.AllocsPerRun(1_000, func() {
+		findings = detector.detectFragmentWithRule(nil, fragment, fragment.Raw, rule, nil, nil)
+	})
+	runtime.KeepAlive(findings)
+	assert.Zero(t, allocations)
+}
+
+func TestDetectorScanIsReusableWithValidation(t *testing.T) {
+	cfg := testConfig()
+	cfg.Rules[0].ValidateExpr = `{"result": "valid"}`
+	detector, err := NewDetector(cfg, WithValidation(ValidationOptions{
+		Workers:  1,
+		Statuses: []report.ValidationStatus{report.ValidationStatusValid},
+	}))
+	require.NoError(t, err)
+	require.True(t, detector.ValidationEnabled())
+
+	const content = "secret-alpha"
+	for range 2 {
+		var findings []report.Finding
+		summary, scanErr := detector.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: content}}}, func(finding report.Finding) error {
+			findings = append(findings, finding)
+			return nil
+		})
+		require.NoError(t, scanErr)
+		require.Len(t, findings, 1)
+		assert.Equal(t, report.ValidationStatusValid, findings[0].Validation.Status)
+		assert.Equal(t, uint64(len(content)), summary.BytesInspected)
+		assert.Equal(t, 1, summary.Findings)
+		assert.Equal(t, 1, summary.ValidationCounts[report.ValidationStatusValid])
+	}
+}
+
+func TestValidationRequiresExplicitOption(t *testing.T) {
+	cfg := testConfig()
+	cfg.Rules[0].ValidateExpr = `{"result": "valid"}`
+
+	detector, err := NewDetector(cfg)
+	require.NoError(t, err)
+	assert.False(t, detector.ValidationEnabled())
+
+	detector, err = NewDetector(cfg, WithValidation(ValidationOptions{}))
+	require.NoError(t, err)
+	assert.True(t, detector.ValidationEnabled())
+}
+
+func TestAnalysisRequiresExplicitOptionAndImpliesValidation(t *testing.T) {
+	cfg := testConfig()
+	cfg.Rules[0].ValidateExpr = `{"result": "valid", "owner": "user-1"}`
+	cfg.Rules[0].AnalyzeExpr = `{
+		"identity": {"id": validation["metadata"]["owner"]},
+		"capabilities": ["read"]
+	}`
+
+	detector, err := NewDetector(cfg)
+	require.NoError(t, err)
+	assert.False(t, detector.ValidationEnabled())
+	assert.False(t, detector.AnalysisEnabled())
+
+	detector, err = NewDetector(cfg, WithValidation(ProviderOptions{}))
+	require.NoError(t, err)
+	assert.True(t, detector.ValidationEnabled())
+	assert.False(t, detector.AnalysisEnabled())
+
+	detector, err = NewDetector(cfg, WithAnalysis(ProviderOptions{Workers: 1}))
+	require.NoError(t, err)
+	assert.True(t, detector.ValidationEnabled())
+	assert.True(t, detector.AnalysisEnabled())
+
+	var findings []report.Finding
+	_, scanErr := detector.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(finding report.Finding) error {
+		findings = append(findings, finding)
+		return nil
+	})
+	require.NoError(t, scanErr)
+	require.Len(t, findings, 1)
+	assert.Equal(t, report.ValidationStatusValid, findings[0].Validation.Status)
+	assert.Equal(t, report.SeverityMedium, findings[0].Analysis.Severity)
+	require.NotNil(t, findings[0].Analysis.Identity)
+	assert.Equal(t, "user-1", findings[0].Analysis.Identity.ID)
+}
+
+func TestDetectorSkipFunc(t *testing.T) {
+	cfg := testConfig()
+	cfg.Prefilter = `attributes["path"] == "ignored.txt"`
+	detector, err := NewDetector(cfg)
+	require.NoError(t, err)
+
+	skip := detector.SkipFunc()
+	require.NotNil(t, skip)
+	assert.True(t, skip(map[string]string{sources.AttrPath: "ignored.txt"}))
+	assert.False(t, skip(map[string]string{sources.AttrPath: "kept.txt"}))
+}
+
+func TestDetectorScanReturnsHandlerAndSourceErrors(t *testing.T) {
+	detector, err := NewDetector(testConfig())
+	require.NoError(t, err)
+
+	handlerErr := errors.New("store finding")
+	summary, scanErr := detector.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(report.Finding) error {
+		return handlerErr
+	})
+	assert.ErrorIs(t, scanErr, handlerErr)
+	assert.Equal(t, 1, summary.Findings)
+
+	sourceErr := errors.New("read source")
+	_, scanErr = detector.Scan(t.Context(), fragmentSource{err: sourceErr}, nil)
+	assert.ErrorIs(t, scanErr, sourceErr)
+}
+
+func TestWithPrecompileIsTheEagerCompilationPath(t *testing.T) {
+	cfg := testConfig()
+	cfg.Filter = `missingFunction()`
+
+	_, err := NewDetector(cfg)
+	require.NoError(t, err, "expressions remain lazy by default")
+
+	_, err = NewDetector(cfg, WithPrecompile())
+	require.ErrorContains(t, err, "compiling global filter")
+
+	cfg = testConfig()
+	cfg.Rules[0].ValidateExpr = `missingFunction()`
+	_, err = NewDetector(cfg, WithPrecompile())
+	require.ErrorContains(t, err, "validation")
+}
+
+func TestNewDetectorValidatesOptions(t *testing.T) {
+	_, err := NewDetector(nil)
+	assert.Error(t, err)
+
+	_, err = NewDetector(testConfig(), WithJobs(-1))
+	assert.ErrorContains(t, err, "jobs")
+
+	_, err = NewDetector(testConfig(), WithMatchContext("bad"))
+	assert.ErrorContains(t, err, "match context")
+
+	_, err = NewDetector(testConfig(), WithLogger(nil))
+	assert.NoError(t, err)
+
+	_, err = NewDetector(testConfig(), WithValidation(ValidationOptions{
+		Statuses: []report.ValidationStatus{"surprising"},
+	}))
+	assert.ErrorContains(t, err, "invalid validation status")
+}
+
+func ExampleDetector_Scan() {
+	cfg := testConfig()
+	detector, err := NewDetector(cfg, WithJobs(2))
+	if err != nil {
+		panic(err)
+	}
+	source := &sources.Stdin{Content: strings.NewReader("secret-alpha")}
+	summary, err := detector.Scan(context.Background(), source, func(finding report.Finding) error {
+		fmt.Println(finding.RuleID)
+		return nil
+	})
+	fmt.Println(summary.Findings, err)
+
+	// Output:
+	// test-secret
+	// 1 <nil>
 }
 
 func collectSourceFindings(ctx context.Context, detector *Detector, source sources.Source) ([]report.Finding, error) {
@@ -1356,10 +1567,6 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 }
 
 func TestDetect(t *testing.T) {
-	// Set the logger for detect to trace for easier debugging and set it back at the end
-	defer func(original zerolog.Logger) { logging.Logger = original }(logging.Logger)
-	logging.Logger = logging.Logger.Level(zerolog.TraceLevel)
-
 	tests := map[string]struct {
 		cfgName  string
 		fragment sources.Fragment

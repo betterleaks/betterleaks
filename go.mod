@@ -18,10 +18,8 @@ require (
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/rrethy/ahocorasick v1.0.0
-	github.com/rs/zerolog v1.33.0
 	github.com/shurcooL/githubv4 v0.0.0-20260209031235-2402fdf4a9ed
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa
 	golang.org/x/term v0.44.0
 )
 
@@ -39,7 +37,6 @@ require (
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
-	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mikelolasagasti/xz v1.0.1 // indirect
 	github.com/minio/minlz v1.1.1 // indirect
 	github.com/nwaples/rardecode/v2 v2.2.2 // indirect

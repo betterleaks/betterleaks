@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/charlievieth/fastwalk"
 	"golang.org/x/sync/errgroup"
 )
@@ -21,6 +21,8 @@ type ScanTarget struct {
 
 // Files is a source for yielding fragments from a collection of files
 type Files struct {
+	// Logger receives source diagnostics. A nil logger disables logging.
+	Logger          *slog.Logger
 	ShouldSkip      SkipFunc
 	FollowSymlinks  bool
 	MaxFileSize     int
@@ -36,11 +38,11 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 	// symlink handling when the requested root is a single file or symlink.
 	rootInfo, err := os.Lstat(s.Path)
 	if err != nil {
-		logger := logging.With().Str("path", s.Path).Logger()
+		logger := loggerOrDiscard(s.Logger).With("path", s.Path)
 		if os.IsPermission(err) {
-			logger.Warn().Err(errors.New("permission denied")).Msg("skipping directory")
+			logger.Warn("skipping directory", "error", errors.New("permission denied"))
 		} else {
-			logger.Warn().Err(err).Msg("skipping")
+			logger.Warn("skipping", "error", err)
 		}
 		return nil
 	}
@@ -53,40 +55,40 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			return err
 		}
 		scanTarget := ScanTarget{Path: path}
-		logger := logging.With().Str("path", path).Logger()
+		logger := loggerOrDiscard(s.Logger).With("path", path)
 
 		if err != nil {
 			if os.IsPermission(err) {
 				// This seems to only fail on directories at this stage.
-				logger.Warn().Err(errors.New("permission denied")).Msg("skipping directory")
+				logger.Warn("skipping directory", "error", errors.New("permission denied"))
 				return filepath.SkipDir
 			}
-			logger.Warn().Err(err).Msg("skipping")
+			logger.Warn("skipping", "error", err)
 			return nil
 		}
 
 		info, err := d.Info()
 		if err != nil {
 			if d.IsDir() {
-				logger.Error().Err(err).Msg("skipping directory: could not get info")
+				logger.Error("skipping directory: could not get info", "error", err)
 				return filepath.SkipDir
 			}
-			logger.Error().Err(err).Msg("skipping file: could not get info")
+			logger.Error("skipping file: could not get info", "error", err)
 			return nil
 		}
 
 		if !d.IsDir() {
 			// Empty; nothing to do here.
 			if info.Size() == 0 {
-				logger.Debug().Msg("skipping empty file")
+				logger.Debug("skipping empty file")
 				return nil
 			}
 
 			// Too large; nothing to do here.
 			if s.MaxFileSize > 0 && info.Size() > int64(s.MaxFileSize) {
-				logger.Warn().Msgf(
-					"skipping file: too large max_size=%dMB, size=%dMB",
-					s.MaxFileSize/1_000_000, info.Size()/1_000_000,
+				logger.Warn("skipping file: too large",
+					"max_size_mb", s.MaxFileSize/1_000_000,
+					"size_mb", info.Size()/1_000_000,
 				)
 				return nil
 			}
@@ -95,16 +97,16 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 		// set the initial scan target values
 		if d.Type() == fs.ModeSymlink {
 			if !s.FollowSymlinks {
-				logger.Debug().Msg("skipping symlink: follow symlinks disabled")
+				logger.Debug("skipping symlink: follow symlinks disabled")
 				return nil
 			}
 			realPath, err := filepath.EvalSymlinks(path)
 			if err != nil {
-				logger.Error().Err(err).Msg("skipping symlink: could not evaluate")
+				logger.Error("skipping symlink: could not evaluate", "error", err)
 				return nil
 			}
 			if realPathFileInfo, _ := os.Stat(realPath); realPathFileInfo.IsDir() {
-				logger.Debug().Str("target", realPath).Msgf("skipping symlink: target is directory")
+				logger.Debug("skipping symlink: target is directory", "target", realPath)
 				return nil
 			}
 			scanTarget = ScanTarget{
@@ -116,14 +118,14 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 		// handle dir cases (mainly just see if it should be skipped
 		if info.IsDir() {
 			if shouldSkipPath(s.ShouldSkip, path) {
-				logger.Debug().Msg("skipping directory: global prefilter")
+				logger.Debug("skipping directory: global prefilter")
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
 		if shouldSkipPath(s.ShouldSkip, path) {
-			logger.Debug().Msg("skipping file: global prefilter")
+			logger.Debug("skipping file: global prefilter")
 			return nil
 		}
 
@@ -181,18 +183,19 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 }
 
 func (s *Files) scanFile(ctx context.Context, target ScanTarget, yield FragmentsFunc) error {
-	logger := logging.With().Str("path", target.Path).Logger()
-	logger.Trace().Msg("scanning path")
+	logger := loggerOrDiscard(s.Logger).With("path", target.Path)
+	logTrace(ctx, logger, "scanning path")
 
 	f, err := os.Open(target.Path)
 	if err != nil {
 		if os.IsPermission(err) {
-			logger.Warn().Msg("skipping file: permission denied")
+			logger.Warn("skipping file: permission denied")
 		}
 		return nil
 	}
 
 	file := File{
+		Logger:          s.Logger,
 		Content:         f,
 		Path:            target.Path,
 		Symlink:         target.Symlink,

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/mholt/archives"
 )
 
@@ -54,7 +54,6 @@ func shouldSkipAttrs(skip SkipFunc, attrs map[string]string) bool {
 // Also handles the Windows forward-slash path normalization workaround.
 func shouldSkipPath(skip SkipFunc, path string) bool {
 	if skip == nil {
-		logging.Trace().Str("path", path).Msg("not skipping path because skip func is nil")
 		return false
 	}
 	attrs := map[string]string{AttrPath: path}
@@ -150,6 +149,7 @@ type sourceDownloadOptions struct {
 	MaxArchiveDepth int
 	ShouldSkip      SkipFunc
 	TempPattern     string
+	Logger          *slog.Logger
 }
 
 // downloadAndScanSource downloads content from a URL or scans an existing reader via File.
@@ -208,6 +208,7 @@ func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yiel
 		Path:            opts.Path,
 		MaxArchiveDepth: max(1, opts.MaxArchiveDepth),
 		ShouldSkip:      opts.ShouldSkip,
+		Logger:          opts.Logger,
 	}
 	err = file.Fragments(ctx, func(fragment Fragment, err error) error {
 		if err == nil {
@@ -219,6 +220,6 @@ func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yiel
 		}
 		return yield(fragment, err)
 	})
-	logging.Debug().Str("path", opts.Path).Str("scan_ms", time.Since(start).Round(time.Millisecond).String()).Msg("download scan complete")
+	loggerOrDiscard(opts.Logger).Debug("download scan complete", "path", opts.Path, "scan_duration", time.Since(start).Round(time.Millisecond))
 	return err
 }

@@ -1,50 +1,50 @@
 package logging
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
 	"os"
-
-	"github.com/rs/zerolog"
 )
 
-var Logger zerolog.Logger
+const (
+	// LevelTrace is lower than slog.LevelDebug so verbose tracing remains
+	// separately selectable.
+	LevelTrace = slog.LevelDebug - 4
+	// LevelFatal is higher than slog.LevelError so --log-level=fatal continues
+	// to suppress non-fatal errors.
+	LevelFatal = slog.LevelError + 4
+)
 
-func init() {
-	// send all logs to stdout
-	Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
-		Level(zerolog.InfoLevel).
-		With().Timestamp().Logger()
-}
-
-func With() zerolog.Context {
-	return Logger.With()
-}
-
-func Trace() *zerolog.Event {
-	return Logger.Trace()
+func Trace(msg string, args ...any) {
+	slog.Default().Log(context.Background(), LevelTrace, msg, args...)
 }
 
-func Debug() *zerolog.Event {
-	return Logger.Debug()
-}
-func Info() *zerolog.Event {
-	return Logger.Info()
-}
-func Warn() *zerolog.Event {
-	return Logger.Warn()
+func Debug(msg string, args ...any) {
+	slog.Debug(msg, args...)
 }
 
-func Error() *zerolog.Event {
-	return Logger.Error()
+func Info(msg string, args ...any) {
+	slog.Info(msg, args...)
 }
 
-func Err(err error) *zerolog.Event {
-	return Logger.Err(err)
+func Warn(msg string, args ...any) {
+	slog.Warn(msg, args...)
 }
 
-func Fatal() *zerolog.Event {
-	return Logger.Fatal()
+func Error(msg string, args ...any) {
+	slog.Error(msg, args...)
 }
 
-func Panic() *zerolog.Event {
-	return Logger.Panic()
+// Fatal logs an error and terminates the process. It is intended for command
+// entry points; reusable packages should return errors instead.
+func Fatal(msg string, args ...any) {
+	slog.Default().Log(context.Background(), LevelFatal, msg, args...)
+	os.Exit(1)
+}
+
+// Panic logs an error and then panics with msg.
+func Panic(msg string, args ...any) {
+	slog.Error(msg, args...)
+	panic(fmt.Sprint(msg))
 }

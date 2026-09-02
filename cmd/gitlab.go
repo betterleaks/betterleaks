@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -35,7 +34,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 	initConfig(runtime, globals, &options.ScanFlags, ".")
 	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config()
+	cfg := Config(runtime)
 	jobs := resolveJobPlan(options.Jobs, providerJobProfile)
 	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "", detect.WithJobs(jobs.Detector))
 
@@ -51,17 +50,18 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 	if s := options.Since; s != "" {
 		since, err = parseDateFlag(s)
 		if err != nil {
-			logging.Fatal().Err(err).Msg("invalid --since value; use YYYY-MM-DD or RFC3339")
+			runtime.fatal("invalid --since value; use YYYY-MM-DD or RFC3339", "error", err)
 		}
 	}
 	if s := options.Until; s != "" {
 		until, err = parseDateFlag(s)
 		if err != nil {
-			logging.Fatal().Err(err).Msg("invalid --until value; use YYYY-MM-DD or RFC3339")
+			runtime.fatal("invalid --until value; use YYYY-MM-DD or RFC3339", "error", err)
 		}
 	}
 
 	src := &sources.GitLab{
+		Logger:           runtime.Logger(),
 		Token:            token,
 		URL:              targetURL,
 		BaseURL:          options.BaseURL,
@@ -81,14 +81,14 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 	}
 
 	if err := src.Validate(); err != nil {
-		logging.Fatal().Err(err).Msg("invalid GitLab configuration")
+		runtime.fatal("invalid GitLab configuration", "error", err)
 	}
 
-	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)
 	if scanErr != nil {
-		logging.Error().Err(scanErr).Msg("scan error")
+		runtime.Logger().Error("scan error", "error", scanErr)
 	}
 	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
 }

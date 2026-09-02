@@ -5,15 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/alecthomas/kong"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-
 	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/internal/fingerprint"
@@ -69,7 +67,32 @@ type commandRuntime struct {
 	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
+	logger *slog.Logger
 	exit   func(int)
+}
+
+var discardLogger = slog.New(slog.DiscardHandler)
+
+func (r *commandRuntime) Logger() *slog.Logger {
+	if r == nil || r.logger == nil {
+		return discardLogger
+	}
+	return r.logger
+}
+
+func (r *commandRuntime) logContext() context.Context {
+	if r == nil || r.Context == nil {
+		return context.Background()
+	}
+	return r.Context
+}
+
+func (r *commandRuntime) fatal(msg string, args ...any) {
+	r.Logger().Log(r.logContext(), logging.LevelFatal, msg, args...)
+	if r == nil || r.exit == nil {
+		panic("command runtime exit function is not configured")
+	}
+	r.exit(1)
 }
 
 // diagnostics manager is global to ensure it can be started before a scan
@@ -83,26 +106,33 @@ const (
 	GIGABYTE = MEGABYTE * 1000
 )
 
-var logLevel = zerolog.InfoLevel
-
-func initLog(globals *GlobalFlags, ctx *kong.Context) error {
+func initLog(globals *GlobalFlags, ctx *kong.Context, runtime *commandRuntime) error {
+	logLevel := slog.LevelInfo
+	var unknownLevel string
 	switch strings.ToLower(globals.LogLevel) {
 	case "trace":
-		logLevel = zerolog.TraceLevel
+		logLevel = logging.LevelTrace
 	case "debug":
-		logLevel = zerolog.DebugLevel
+		logLevel = slog.LevelDebug
 	case "info":
-		logLevel = zerolog.InfoLevel
+		logLevel = slog.LevelInfo
 	case "warn":
-		logLevel = zerolog.WarnLevel
+		logLevel = slog.LevelWarn
 	case "err", "error":
-		logLevel = zerolog.ErrorLevel
+		logLevel = slog.LevelError
 	case "fatal":
-		logLevel = zerolog.FatalLevel
+		logLevel = logging.LevelFatal
 	default:
-		logging.Warn().Msgf("unknown log level: %s", globals.LogLevel)
+		logLevel = slog.LevelInfo
+		unknownLevel = globals.LogLevel
 	}
-	logging.Logger = logging.Logger.Level(logLevel)
+	runtime.logger = logging.NewConsole(runtime.stderr, logging.ConsoleOptions{
+		Level:   logLevel,
+		NoColor: globals.NoColor,
+	})
+	if unknownLevel != "" {
+		runtime.Logger().Warn("unknown log level", "level", unknownLevel)
+	}
 
 	engineName := globals.RegexEngine
 	if !flagWasSet(ctx, "regex-engine") && flagWasSet(ctx, "regexp-engine") {
@@ -143,38 +173,40 @@ func initConfig(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags,
 		bannerPrinted = true
 	}
 
-	logging.Debug().Msgf("using %s regex engine", regexp.Version())
+	runtime.Logger().Debug("using regex engine", "version", regexp.Version())
 
 	cfgPath := globals.Config
 	if cfgPath != "" {
 		resolvedConfigPath = cfgPath
-		logging.Debug().Msgf("using config %s from `--config`", cfgPath)
-		loadedConfig = mustLoadConfigFile(cfgPath)
+		runtime.Logger().Debug("using config from --config", "path", cfgPath)
+		loadedConfig = mustLoadConfigFile(runtime, cfgPath)
 	} else if envPath := getEnvWithFallback("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
 		resolvedConfigPath = envPath
-		logging.Debug().Msgf("using config from env var: %s", envPath)
-		loadedConfig = mustLoadConfigFile(envPath)
+		runtime.Logger().Debug("using config from environment", "path", envPath)
+		loadedConfig = mustLoadConfigFile(runtime, envPath)
 	} else if configContent := getEnvWithFallback("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); configContent != "" {
-		cfg, err := config.ParseTOMLString(configContent, "")
+		cfg, err := config.ParseTOMLString(configContent, "", config.WithLogger(runtime.Logger()))
 		if err != nil {
-			logging.Fatal().Err(err).Str("content", configContent).Msg("unable to load config from env var")
+			runtime.fatal("unable to load config from environment", "error", err, "content", configContent)
 		}
-		logging.Debug().Str("content", configContent).Msg("using config from env var content")
+		runtime.Logger().Debug("using config from environment content", "content", configContent)
 		// resolvedConfigPath stays "" — inline content, no file to skip.
 		loadedConfig = cfg
 		return
 	} else {
 		fileInfo, err := os.Stat(source)
 		if err != nil {
-			logging.Fatal().Msg(err.Error())
+			runtime.fatal(err.Error())
 		}
 
 		if !fileInfo.IsDir() {
-			logging.Debug().Msgf("unable to load config from %s since --source=%s is a file, using default config",
-				filepath.Join(source, ".betterleaks.toml"), source)
-			loadedConfig, err = config.Default()
+			runtime.Logger().Debug("config search path is a file; using default config",
+				"config", filepath.Join(source, ".betterleaks.toml"),
+				"source", source,
+			)
+			loadedConfig, err = config.Default(config.WithLogger(runtime.Logger()))
 			if err != nil {
-				logging.Fatal().Msgf("err reading toml %s", err.Error())
+				runtime.fatal("error reading default config", "error", err)
 			}
 			// resolvedConfigPath stays "" — using embedded default config.
 			return
@@ -183,27 +215,27 @@ func initConfig(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags,
 		// Check for config file: .betterleaks.toml first, then .gitleaks.toml
 		configFile := findConfigFile(source)
 		if configFile == "" {
-			logging.Debug().Msgf("no config found in path %s, using default config", source)
+			runtime.Logger().Debug("no config found; using default config", "path", source)
 
-			loadedConfig, err = config.Default()
+			loadedConfig, err = config.Default(config.WithLogger(runtime.Logger()))
 			if err != nil {
-				logging.Fatal().Msgf("err reading default config toml %s", err.Error())
+				runtime.fatal("error reading default config", "error", err)
 			}
 			// resolvedConfigPath stays "" — using embedded default config.
 			return
 		} else {
 			resolvedConfigPath = configFile
-			logging.Debug().Msgf("using existing config %s", configFile)
+			runtime.Logger().Debug("using existing config", "path", configFile)
 		}
 
-		loadedConfig = mustLoadConfigFile(configFile)
+		loadedConfig = mustLoadConfigFile(runtime, configFile)
 	}
 }
 
-func mustLoadConfigFile(path string) *config.Config {
-	cfg, err := config.LoadFile(path)
+func mustLoadConfigFile(runtime *commandRuntime, path string) *config.Config {
+	cfg, err := config.LoadFile(path, config.WithLogger(runtime.Logger()))
 	if err != nil {
-		logging.Fatal().Msgf("unable to load config, err: %s", err)
+		runtime.fatal("unable to load config", "error", err)
 	}
 	return cfg
 }
@@ -231,16 +263,16 @@ func findConfigFile(source string) string {
 
 func initDiagnostics(runtime *commandRuntime, flags *ScanFlags) {
 	var diagErr error
-	diagnosticsManager, diagErr = NewDiagnosticsManager(flags.Diagnostics, flags.DiagnosticsDir)
+	diagnosticsManager, diagErr = NewDiagnosticsManager(flags.Diagnostics, flags.DiagnosticsDir, runtime.Logger())
 	if diagErr != nil {
-		logging.Fatal().Err(diagErr).Msg("Error initializing diagnostics")
+		runtime.fatal("Error initializing diagnostics", "error", diagErr)
 	}
 
 	if diagnosticsManager.Enabled {
 		runtime.Context = diagnosticsManager.withContext(runtime.Context)
-		logging.Info().Msg("Starting diagnostics...")
+		runtime.Logger().Info("Starting diagnostics...")
 		if diagErr := diagnosticsManager.StartDiagnostics(); diagErr != nil {
-			logging.Fatal().Err(diagErr).Msg("Failed to start diagnostics")
+			runtime.fatal("Failed to start diagnostics", "error", diagErr)
 		}
 	}
 
@@ -256,10 +288,13 @@ func ExecuteContext(ctx context.Context) {
 		stdin:   os.Stdin,
 		stdout:  os.Stdout,
 		stderr:  os.Stderr,
-		exit:    os.Exit,
+		logger: logging.NewConsole(os.Stderr, logging.ConsoleOptions{
+			Level: slog.LevelInfo,
+		}),
+		exit: os.Exit,
 	}
 	if err := runCLIWithErrorHandling(expandRuleFlagShorthands(os.Args[1:]), runtime); err != nil {
-		logging.Fatal().Msg(err.Error())
+		runtime.fatal(err.Error())
 	}
 }
 
@@ -316,7 +351,7 @@ func runCLIWithParser(args []string, runtime *commandRuntime, cli *CLI, parser *
 	if err != nil {
 		return err
 	}
-	if err := initLog(&cli.GlobalFlags, parsed); err != nil {
+	if err := initLog(&cli.GlobalFlags, parsed, runtime); err != nil {
 		return err
 	}
 	return parsed.Run(runtime)
@@ -350,9 +385,9 @@ func (versionFlag) BeforeApply(app *kong.Kong) error {
 	return nil
 }
 
-func Config() *config.Config {
+func Config(runtime *commandRuntime) *config.Config {
 	if loadedConfig == nil {
-		logging.Fatal().Msg("Failed to load config")
+		runtime.fatal("Failed to load config")
 	}
 	cfg := *loadedConfig
 	cfg.Path = resolvedConfigPath
@@ -364,20 +399,20 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	var err error
 
 	// Apply rule overrides before taking the detector's immutable rule snapshot.
-	if err := applyRuleSelection(flags, cfg); err != nil {
-		logging.Fatal().Err(err).Msg("unable to apply rule selection")
+	if err := applyRuleSelection(runtime.Logger(), flags, cfg); err != nil {
+		runtime.fatal("unable to apply rule selection", "error", err)
 	}
 
 	if err := validateProviderRPS(flags.ProviderRPS); err != nil {
-		logging.Fatal().Err(err).Msg("provider-rps")
+		runtime.fatal("provider-rps", "error", err)
 	}
 	providerRPSByRule, err := parseProviderRuleRPS(flags.ProviderRPSRule)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("provider-rps-rule")
+		runtime.fatal("provider-rps-rule", "error", err)
 	}
 	detectorOptions, err := ignoreOptions(runtime, flags.IgnoreFile, source)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("unable to load ignore file")
+		runtime.fatal("unable to load ignore file", "error", err)
 	}
 	detectorOptions = append(detectorOptions,
 		detect.WithJobs(flags.Jobs),
@@ -391,7 +426,7 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	if flags.Validation || flags.Analysis {
 		statuses, statusErr := parseValidationStatuses(flags.ValidationStatus)
 		if statusErr != nil {
-			logging.Fatal().Err(statusErr).Msg("validation-status")
+			runtime.fatal("validation-status", "error", statusErr)
 		}
 		providerOptions := detect.ProviderOptions{
 			Debug:                   flags.ProviderDebug,
@@ -410,25 +445,17 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 			detectorOptions = append(detectorOptions, detect.WithValidation(providerOptions))
 		}
 	}
+	detectorOptions = append(detectorOptions, detect.WithLogger(runtime.Logger()))
 	detectorOptions = append(detectorOptions, extraOptions...)
 	detector, err := detect.NewDetector(cfg, detectorOptions...)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("unable to create detector")
+		runtime.fatal("unable to create detector", "error", err)
 	}
 	if (flags.Validation || flags.Analysis) && !detector.ValidationEnabled() {
-		logging.Warn().Msg("validation enabled but no rules have validation expressions")
+		runtime.Logger().Warn("validation enabled but no rules have validation expressions")
 	}
 	if flags.Analysis && !detector.AnalysisEnabled() {
-		logging.Warn().Msg("analysis enabled but no rules have analysis expressions")
-	}
-
-	// set color flag at first
-	// also init logger again without color
-	if globals.NoColor {
-		logging.Logger = log.Output(zerolog.ConsoleWriter{
-			Out:     runtime.stderr,
-			NoColor: true,
-		}).Level(logLevel)
+		runtime.Logger().Warn("analysis enabled but no rules have analysis expressions")
 	}
 
 	return detector
@@ -571,44 +598,44 @@ func findingSummaryAndExit(runtime *commandRuntime, summary detect.ScanSummary, 
 	// Finalize streaming reports first. In particular, JSON needs its closing
 	// bracket even when the command context was canceled by an interrupt.
 	if outputErr := findings.Close(); outputErr != nil {
-		logging.Fatal().Err(outputErr).Msg("failed to finish finding output")
+		runtime.fatal("failed to finish finding output", "error", outputErr)
 	}
 	if err == nil {
 		err = runtime.Err()
 	}
 
 	if diagnosticsManager.Enabled {
-		logging.Debug().Msg("Finalizing diagnostics...")
+		runtime.Logger().Debug("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()
 	}
 
 	if validationEnabled {
-		logging.Info().
-			Int("valid", summary.ValidationCounts[report.ValidationStatusValid]).
-			Int("needs_validation", summary.ValidationCounts[report.ValidationStatusNeedsValidation]).
-			Int("invalid", summary.ValidationCounts[report.ValidationStatusInvalid]).
-			Int("revoked", summary.ValidationCounts[report.ValidationStatusRevoked]).
-			Int("unknown", summary.ValidationCounts[report.ValidationStatusUnknown]).
-			Int("errors", summary.ValidationCounts[report.ValidationStatusError]).
-			Msg("validation complete")
+		runtime.Logger().Info("validation complete",
+			"valid", summary.ValidationCounts[report.ValidationStatusValid],
+			"needs_validation", summary.ValidationCounts[report.ValidationStatusNeedsValidation],
+			"invalid", summary.ValidationCounts[report.ValidationStatusInvalid],
+			"revoked", summary.ValidationCounts[report.ValidationStatusRevoked],
+			"unknown", summary.ValidationCounts[report.ValidationStatusUnknown],
+			"errors", summary.ValidationCounts[report.ValidationStatusError],
+		)
 	}
 
 	totalBytes := summary.BytesInspected
 	bytesMsg := fmt.Sprintf("scanned ~%d bytes (%s)", totalBytes, bytesConvert(totalBytes))
 	if err == nil {
-		logging.Info().Msgf("%s in %s", bytesMsg, FormatDuration(time.Since(start)))
+		runtime.Logger().Info(fmt.Sprintf("%s in %s", bytesMsg, FormatDuration(time.Since(start))))
 		if findings.Count() != 0 {
-			logging.Warn().Msgf("leaks found: %d", findings.Count())
+			runtime.Logger().Warn(fmt.Sprintf("leaks found: %d", findings.Count()))
 		} else {
-			logging.Info().Msg("no leaks found")
+			runtime.Logger().Info("no leaks found")
 		}
 	} else {
-		logging.Warn().Msg(bytesMsg)
-		logging.Warn().Msgf("partial scan completed in %s", FormatDuration(time.Since(start)))
+		runtime.Logger().Warn(bytesMsg)
+		runtime.Logger().Warn(fmt.Sprintf("partial scan completed in %s", FormatDuration(time.Since(start))))
 		if findings.Count() != 0 {
-			logging.Warn().Msgf("%d leaks found in partial scan", findings.Count())
+			runtime.Logger().Warn(fmt.Sprintf("%d leaks found in partial scan", findings.Count()))
 		} else {
-			logging.Warn().Msg("no leaks found in partial scan")
+			runtime.Logger().Warn("no leaks found in partial scan")
 		}
 	}
 

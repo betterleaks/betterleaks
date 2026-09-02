@@ -14,7 +14,7 @@ import (
 
 func TestRuleTimingDiagnostics(t *testing.T) {
 	outputDir := t.TempDir()
-	manager, err := NewDiagnosticsManager("rules", outputDir)
+	manager, err := NewDiagnosticsManager("rules", outputDir, nil)
 	require.NoError(t, err)
 
 	collector := ruletiming.FromContext(manager.withContext(t.Context()))

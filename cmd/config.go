@@ -28,7 +28,7 @@ type ConfigCheckCmd struct {
 }
 
 func (cmd *ConfigCheckCmd) Run(cli *CLI, runtime *commandRuntime) error {
-	resolved, err := resolveConfig(cli.Config, cmd.Path)
+	resolved, err := resolveConfig(runtime, cli.Config, cmd.Path)
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ type ConfigShowCmd struct {
 }
 
 func (cmd *ConfigShowCmd) Run(cli *CLI, runtime *commandRuntime) error {
-	resolved, err := resolveConfig(cli.Config, cmd.Path)
+	resolved, err := resolveConfig(runtime, cli.Config, cmd.Path)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func (cmd *ConfigShowCmd) Run(cli *CLI, runtime *commandRuntime) error {
 type ConfigPathCmd struct{}
 
 func (*ConfigPathCmd) Run(cli *CLI, runtime *commandRuntime) error {
-	resolved, err := resolveConfig(cli.Config, "")
+	resolved, err := resolveConfig(runtime, cli.Config, "")
 	if err != nil {
 		return err
 	}
@@ -68,16 +68,17 @@ func (*ConfigPathCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	return nil
 }
 
-func resolveConfig(configPath, argumentPath string) (*resolvedConfig, error) {
+func resolveConfig(runtime *commandRuntime, configPath, argumentPath string) (*resolvedConfig, error) {
+	loadOption := configpkg.WithLogger(runtime.Logger())
 	if argumentPath != "" {
-		return loadConfigFile(argumentPath)
+		return loadConfigFile(argumentPath, loadOption)
 	}
 
 	if configPath != "" {
-		return loadConfigFile(configPath)
+		return loadConfigFile(configPath, loadOption)
 	}
 	if envPath, name := getEnvWithName("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
-		resolved, err := loadConfigFile(envPath)
+		resolved, err := loadConfigFile(envPath, loadOption)
 		if err != nil {
 			return nil, err
 		}
@@ -85,24 +86,24 @@ func resolveConfig(configPath, argumentPath string) (*resolvedConfig, error) {
 		return resolved, nil
 	}
 	if content, name := getEnvWithName("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); content != "" {
-		cfg, err := configpkg.ParseTOMLString(content, "")
+		cfg, err := configpkg.ParseTOMLString(content, "", loadOption)
 		if err != nil {
 			return nil, err
 		}
 		return &resolvedConfig{cfg: cfg, source: "env:" + name}, nil
 	}
 	if path := findConfigFile("."); path != "" {
-		return loadConfigFile(path)
+		return loadConfigFile(path, loadOption)
 	}
-	cfg, err := configpkg.Default()
+	cfg, err := configpkg.Default(loadOption)
 	if err != nil {
 		return nil, err
 	}
 	return &resolvedConfig{cfg: cfg, source: "default"}, nil
 }
 
-func loadConfigFile(path string) (*resolvedConfig, error) {
-	cfg, err := configpkg.LoadFile(path)
+func loadConfigFile(path string, options ...configpkg.LoadOption) (*resolvedConfig, error) {
+	cfg, err := configpkg.LoadFile(path, options...)
 	if err != nil {
 		return nil, err
 	}

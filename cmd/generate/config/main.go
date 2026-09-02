@@ -546,16 +546,12 @@ func main() {
 	ruleList := make([]config.Rule, 0, len(configRules))
 	for _, rule := range configRules {
 		if err := rule.Validate(); err != nil {
-			logging.Fatal().Err(err).
-				Str("rule-id", rule.RuleID).
-				Msg("Failed to validate rule")
+			logging.Fatal("Failed to validate rule", "error", err, "rule_id", rule.RuleID)
 		}
 
 		// check if rule is in ruleLookUp
 		if _, ok := ruleIDs[rule.RuleID]; ok {
-			logging.Fatal().
-				Str("rule-id", rule.RuleID).
-				Msg("rule id is not unique")
+			logging.Fatal("rule id is not unique", "rule_id", rule.RuleID)
 		}
 		// TODO: eventually change all the signatures to get ride of this
 		// nasty dereferencing.
@@ -602,12 +598,12 @@ func main() {
 	}
 	tmpl, err := template.New("config.tmpl").Funcs(funcMap).ParseFiles(templatePath)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("Failed to parse template")
+		logging.Fatal("Failed to parse template", "error", err)
 	}
 
 	f, err := os.Create(betterleaksConfigPath)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("Failed to create rules.toml")
+		logging.Fatal("Failed to create rules.toml", "error", err)
 	}
 	defer f.Close()
 
@@ -615,6 +611,6 @@ func main() {
 	cfg.Rules = ruleList
 
 	if err = tmpl.Execute(f, cfg); err != nil {
-		logging.Fatal().Err(err).Msg("could not execute template")
+		logging.Fatal("could not execute template", "error", err)
 	}
 }

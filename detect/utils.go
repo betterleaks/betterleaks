@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
@@ -143,7 +142,7 @@ func shannonEntropy(data string) (entropy float64) {
 }
 
 // filter will dedupe and redact findings
-func filter(findings []report.Finding) []report.Finding {
+func (d *Detector) filter(findings []report.Finding) []report.Finding {
 	// Collect every component finding's (rule, line, secret) identity so the
 	// corresponding top-level finding can be suppressed.
 	componentSet := make(map[string]struct{})
@@ -164,9 +163,9 @@ func filter(findings []report.Finding) []report.Finding {
 		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.Location.StartLine, f.Location.StartColumn, f.Location.EndLine, f.Location.EndColumn, f.Secret)]
 		if isComponent {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
-			logging.Trace().Msgf("skipping %s finding (%s), already a component of another finding", f.RuleID, redactedMatch)
+			logTrace(d.logger, "skipping finding already used as a component", "rule_id", f.RuleID, "finding", redactedMatch)
 			include = false
-		} else if isSuppressedByHigherSpecificityFinding(f, findings) {
+		} else if d.isSuppressedByHigherSpecificityFinding(f, findings) {
 			include = false
 		}
 
@@ -177,7 +176,7 @@ func filter(findings []report.Finding) []report.Finding {
 	return retFindings
 }
 
-func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.Finding) bool {
+func (d *Detector) isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.Finding) bool {
 	for _, fPrime := range findings {
 		if f.Location.StartLine == fPrime.Location.StartLine &&
 			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
@@ -186,7 +185,12 @@ func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.
 			fPrime.RuleSpecificity > f.RuleSpecificity {
 			genericMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 			betterMatch := strings.ReplaceAll(fPrime.Match, fPrime.Secret, "REDACTED")
-			logging.Debug().Msgf("skipping %s finding (%s), %s rule takes precedence (%s)", f.RuleID, genericMatch, fPrime.RuleID, betterMatch)
+			d.logger.Debug("skipping finding because a more specific rule takes precedence",
+				"rule_id", f.RuleID,
+				"finding", genericMatch,
+				"precedence_rule_id", fPrime.RuleID,
+				"precedence_finding", betterMatch,
+			)
 			return true
 		}
 		for _, set := range fPrime.ComponentSets {
@@ -198,7 +202,12 @@ func isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.
 					comp.RuleSpecificity > f.RuleSpecificity {
 					genericMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 					betterMatch := strings.ReplaceAll(comp.Match, comp.Secret, "REDACTED")
-					logging.Trace().Msgf("skipping %s finding (%s), %s component takes precedence (%s)", f.RuleID, genericMatch, comp.RuleID, betterMatch)
+					logTrace(d.logger, "skipping finding because a more specific component takes precedence",
+						"rule_id", f.RuleID,
+						"finding", genericMatch,
+						"precedence_rule_id", comp.RuleID,
+						"precedence_finding", betterMatch,
+					)
 					return true
 				}
 			}

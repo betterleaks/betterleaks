@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/logging"
 )
 
 // expandRuleFlagShorthands translates the multi-character aliases requested by
@@ -39,7 +39,10 @@ func expandRuleFlagShorthands(args []string) []string {
 	return expanded
 }
 
-func applyRuleSelection(flags *ScanFlags, cfg *config.Config) error {
+func applyRuleSelection(logger *slog.Logger, flags *ScanFlags, cfg *config.Config) error {
+	if logger == nil {
+		logger = discardLogger
+	}
 	isolateRules := flags.IsolateRule
 	disableRules := flags.DisableRule
 	if len(isolateRules) == 0 && len(disableRules) == 0 {
@@ -60,7 +63,7 @@ func applyRuleSelection(flags *ScanFlags, cfg *config.Config) error {
 
 	selectedRules := make(map[string]config.Rule, len(availableRules))
 	if len(isolateRules) > 0 {
-		logging.Info().Msg("Isolating rules: " + strings.Join(isolateRules, ", "))
+		logger.Info("Isolating rules", "rules", strings.Join(isolateRules, ", "))
 		for _, ruleID := range isolateRules {
 			rule, ok := availableRules[ruleID]
 			if !ok {
@@ -108,7 +111,7 @@ func applyRuleSelection(flags *ScanFlags, cfg *config.Config) error {
 	}
 
 	if len(disableRules) > 0 {
-		logging.Info().Msg("Disabling rules: " + strings.Join(disableRules, ", "))
+		logger.Info("Disabling rules", "rules", strings.Join(disableRules, ", "))
 	}
 
 	selected := make([]config.Rule, 0, len(selectedRules))

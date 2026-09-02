@@ -2,8 +2,6 @@ package codec
 
 import (
 	"bytes"
-
-	"github.com/betterleaks/betterleaks/logging"
 )
 
 // Decoder decodes various types of data in place
@@ -90,15 +88,6 @@ func (d *Decoder) findEncodedSegments(data string, predecessors []*EncodedSegmen
 		}
 
 		segments = append(segments, segment)
-		logging.Trace().
-			Str("decoder", m.encoding.kind.String()).
-			Msgf(
-				"segment found: original=%s pos=%s: %q -> %q",
-				segment.original,
-				segment.encoded,
-				encodedValue,
-				segment.decodedValue,
-			)
 	}
 
 	return segments

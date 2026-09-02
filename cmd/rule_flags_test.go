@@ -95,7 +95,7 @@ func TestApplyRuleSelection(t *testing.T) {
 			}
 			cfg := &config.Config{Rules: originalRules}
 
-			err := applyRuleSelection(flags, cfg)
+			err := applyRuleSelection(nil, flags, cfg)
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
 				return

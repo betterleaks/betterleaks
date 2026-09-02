@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
@@ -78,10 +77,10 @@ func newFindingCollector(flags *ScanFlags, noColor bool, stdout io.Writer) (*fin
 	return collector, nil
 }
 
-func mustNewFindingCollector(flags *ScanFlags, noColor bool, stdout io.Writer) *findingCollector {
-	collector, err := newFindingCollector(flags, noColor, stdout)
+func mustNewFindingCollector(runtime *commandRuntime, flags *ScanFlags, noColor bool) *findingCollector {
+	collector, err := newFindingCollector(flags, noColor, runtime.stdout)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("failed to configure finding output")
+		runtime.fatal("failed to configure finding output", "error", err)
 	}
 	return collector
 }

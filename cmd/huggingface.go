@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -31,7 +30,7 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 	initConfig(runtime, globals, &options.ScanFlags, ".")
 	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config()
+	cfg := Config(runtime)
 	jobs := resolveJobPlan(options.Jobs, providerJobProfile)
 	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "", detect.WithJobs(jobs.Detector))
 
@@ -44,6 +43,7 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 	}
 
 	src := &sources.HuggingFace{
+		Logger:              runtime.Logger(),
 		Token:               token,
 		URL:                 options.TargetURL,
 		Include:             options.Include,
@@ -57,14 +57,14 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 	}
 
 	if err := src.Validate(); err != nil {
-		logging.Fatal().Err(err).Msg("invalid Hugging Face configuration")
+		runtime.fatal("invalid Hugging Face configuration", "error", err)
 	}
 
-	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)
 	if scanErr != nil {
-		logging.Error().Err(scanErr).Msg("scan error")
+		runtime.Logger().Error("scan error", "error", scanErr)
 	}
 	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
 }

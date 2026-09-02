@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 )
 
@@ -34,7 +33,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 
 	// start timer
 	start := time.Now()
-	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	var (
 		summary           detect.ScanSummary
@@ -44,11 +43,12 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 
 	for _, source := range sourcesList {
 		initConfig(runtime, globals, &options.ScanFlags, source)
-		cfg := Config()
+		cfg := Config(runtime)
 		detector := Detector(runtime, globals, &options.ScanFlags, cfg, source, detect.WithJobs(jobs.Detector))
 		validationEnabled = validationEnabled || detector.ValidationEnabled()
 
 		s := &sources.Files{
+			Logger:          runtime.Logger(),
 			ShouldSkip:      findings.FileSkipFunc(detector.SkipFunc()),
 			FollowSymlinks:  options.FollowSymlinks,
 			MaxFileSize:     options.MaxTargetMegabytes * 1_000_000,
@@ -61,7 +61,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 		addScanSummary(&summary, nextSummary)
 		if scanErr != nil {
 			scanErrs = append(scanErrs, scanErr)
-			logging.Error().Err(scanErr).Msg("error scanning source")
+			runtime.Logger().Error("error scanning source", "error", scanErr)
 		}
 	}
 

@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +17,18 @@ import (
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/regexp"
 )
+
+func TestParseTOMLUsesInjectedLogger(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	_, err := ParseTOMLString(`
+title = "logger test"
+`, "test.toml", WithLogger(logger))
+	require.NoError(t, err)
+	assert.Contains(t, output.String(), "no minVersion specified")
+	assert.Contains(t, output.String(), "config_path=test.toml")
+}
 
 const configPath = "../testdata/config/"
 

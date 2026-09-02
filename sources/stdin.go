@@ -3,12 +3,15 @@ package sources
 import (
 	"context"
 	"io"
+	"log/slog"
 	"maps"
 )
 
 // Stdin yields fragments from stdin-like content and applies caller-provided
 // attributes before skip filtering and detection.
 type Stdin struct {
+	// Logger receives source diagnostics. A nil logger disables logging.
+	Logger          *slog.Logger
 	Content         io.Reader
 	Attributes      map[string]string
 	ShouldSkip      SkipFunc
@@ -17,6 +20,7 @@ type Stdin struct {
 
 func (s *Stdin) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	file := &File{
+		Logger:          s.Logger,
 		Content:         s.Content,
 		ShouldSkip:      s.ShouldSkip,
 		MaxArchiveDepth: s.MaxArchiveDepth,

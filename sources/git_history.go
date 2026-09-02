@@ -3,14 +3,13 @@ package sources
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/betterleaks/betterleaks/logging"
 )
 
 // fragmentsFromRepo partitions Git history across at most GOMAXPROCS processes.
@@ -50,11 +49,7 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 	}
 
 	chunkSize := (len(commits) + workers - 1) / workers
-	logging.Debug().
-		Int("commits", len(commits)).
-		Int("workers", workers).
-		Int("chunk_size", chunkSize).
-		Msg("parallel git scan")
+	loggerOrDiscard(s.Logger).Debug("parallel git scan", "commits", len(commits), "workers", workers, "chunk_size", chunkSize)
 
 	g, groupCtx := errgroup.WithContext(ctx)
 	for i := range workers {
@@ -74,7 +69,7 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 }
 
 func (s *Git) runFullHistory(ctx context.Context, yield FragmentsFunc) error {
-	cmd, err := NewGitLogCmdContext(ctx, s.RepoPath, s.LogOpts)
+	cmd, err := NewGitLogCmdContext(ctx, s.RepoPath, s.LogOpts, WithGitCmdLogger(s.Logger))
 	if err != nil {
 		return err
 	}
@@ -82,7 +77,7 @@ func (s *Git) runFullHistory(ctx context.Context, yield FragmentsFunc) error {
 }
 
 func (s *Git) runHistoryChunk(ctx context.Context, yield FragmentsFunc, commits []string) error {
-	cmd, err := newGitLogCommitsCmd(ctx, s.RepoPath, commits)
+	cmd, err := newGitLogCommitsCmd(ctx, s.RepoPath, commits, s.Logger)
 	if err != nil {
 		return err
 	}
@@ -101,13 +96,13 @@ func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *GitCmd) e
 
 // newGitLogCommitsCmd constructs a git log command for an exact set of
 // commits. --no-walk keeps worker partitions deterministic and non-overlapping.
-func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (*GitCmd, error) {
+func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, logger *slog.Logger) (*GitCmd, error) {
 	sourceClean := filepath.Clean(source)
 	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = gitConfigIsolationEnv()
-	logging.Debug().Msgf("executing: %s (%d commits via stdin)", cmd.String(), len(commits))
+	loggerOrDiscard(logger).Debug("executing git command", "command", cmd.String(), "commits", len(commits))
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -135,7 +130,7 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (
 	}()
 
 	errCh := make(chan error)
-	go listenForStdErr(stderr, errCh)
+	go listenForStdErr(stderr, errCh, logger)
 
 	gitdiffFiles, err := gitdiff.Parse(stdout)
 	if err != nil {

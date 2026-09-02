@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -21,7 +22,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/internal/httpclient"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
@@ -35,6 +35,8 @@ const (
 // GitLab enumerates projects via the GitLab REST API and delegates scanning
 // to the Git source for each cloned repo.
 type GitLab struct {
+	// Logger receives source diagnostics. A nil logger disables logging.
+	Logger *slog.Logger
 	// Auth
 	Token string
 
@@ -212,11 +214,7 @@ func (s *GitLab) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
-	logging.Info().
-		Str("target", s.URL).
-		Str("base", s.BaseURL).
-		Stringer("resources", s.Resources).
-		Msg("starting GitLab scan")
+	loggerOrDiscard(s.Logger).Info("starting GitLab scan", "target", s.URL, "base", s.BaseURL, "resources", s.Resources)
 
 	start := time.Now()
 	jobs, budget := ensureJobBudget(s.Jobs, automaticProviderJobs(), s.budget)
@@ -260,16 +258,10 @@ func (s *GitLab) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 		return combined
 	}
-	logging.Info().
-		Int64("projects", projCount.Load()).
-		Dur("enumeration_ms", time.Since(start)).
-		Msg("enumeration complete, waiting for scans")
+	loggerOrDiscard(s.Logger).Info("enumeration complete, waiting for scans", "projects", projCount.Load(), "duration", time.Since(start))
 
 	scanErr := scanGroup.Wait()
-	logging.Info().
-		Int64("projects", projCount.Load()).
-		Dur("duration", time.Since(start)).
-		Msg("scan complete")
+	loggerOrDiscard(s.Logger).Info("scan complete", "projects", projCount.Load(), "duration", time.Since(start))
 	return scanErr
 }
 
@@ -760,7 +752,7 @@ func (s *GitLab) enumerateProjects(ctx context.Context, target *gitlabTarget) (<
 				return
 			}
 			if s.isExcluded(p.PathWithNamespace) {
-				logging.Debug().Str("project", p.PathWithNamespace).Msg("excluding project")
+				loggerOrDiscard(s.Logger).Debug("excluding project", "project", p.PathWithNamespace)
 				return
 			}
 			seen[p.ID] = true
@@ -931,12 +923,12 @@ func (s *GitLab) scanProject(ctx context.Context, proj *gitlabProject, yield Fra
 }
 
 func (s *GitLab) scanProjectWithJobs(ctx context.Context, proj *gitlabProject, jobs int, yield FragmentsFunc) error {
-	logger := logging.With().Str("project", proj.PathWithNamespace).Logger()
+	logger := loggerOrDiscard(s.Logger).With("project", proj.PathWithNamespace)
 	projectAttrs := s.projectAttributes(proj, "")
 
 	// L1 — drop the whole project early.
 	if s.ShouldSkip != nil && s.ShouldSkip(s.projectAttributes(proj, ResourceGitLabProject)) {
-		logger.Debug().Msg("skipping project based on prefilter")
+		logger.Debug("skipping project based on prefilter")
 		return nil
 	}
 
@@ -944,16 +936,16 @@ func (s *GitLab) scanProjectWithJobs(ctx context.Context, proj *gitlabProject, j
 	glYield := wrapGitLabYield(s.ShouldSkip, projectAttrs, yield)
 
 	run := func(label string, fn func() error) error {
-		logger.Info().Str("resource", label).Msg("scanning")
+		logger.Info("scanning", "resource", label)
 		if err := fn(); err != nil {
-			logger.Error().Err(err).Msg(label + " scan failed")
+			logger.Error("scan failed", "error", err, "resource", label)
 			return err
 		}
-		ev := logger.Info().Str("resource", label)
+		args := []any{"resource", label}
 		if r := s.rateLimitRemaining(); r > 0 {
-			ev = ev.Int64("rl_remaining", r)
+			args = append(args, "rl_remaining", r)
 		}
-		ev.Msg("completed")
+		logger.Info("completed", args...)
 		return nil
 	}
 
@@ -992,6 +984,7 @@ func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, jobs i
 	}
 	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		src := &Git{
+			Logger:   s.Logger,
 			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 			Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
 			MaxArchiveDepth: s.MaxArchiveDepth,
@@ -1165,7 +1158,7 @@ func (s *GitLab) scanSnippets(ctx context.Context, proj *gitlabProject, yield Fr
 				return false, err
 			}
 			if err := s.downloadAndScan(ctx, raw.String(), snip.FileName, attrs, yield); err != nil {
-				logging.Error().Err(err).Str("snippet", snip.FileName).Msg("could not scan snippet")
+				loggerOrDiscard(s.Logger).Error("could not scan snippet", "error", err, "snippet", snip.FileName)
 			}
 		}
 		return len(page) == gitlabPerPage, nil
@@ -1278,7 +1271,7 @@ func (s *GitLab) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 	}
 	logPath := fmt.Sprintf("ci/jobs/%s/job_%d.log", safePath(job.Name), job.ID)
 	if err := s.downloadAndScan(ctx, traceURL.String(), logPath, attrs, yield); err != nil {
-		logging.Debug().Err(err).Int64("job", job.ID).Msg("could not scan job trace")
+		loggerOrDiscard(s.Logger).Debug("could not scan job trace", "error", err, "job", job.ID)
 	}
 	if !s.Resources.Has(GitLabResourceTypeCIArtifacts) || len(job.Artifacts) == 0 {
 		return nil
@@ -1299,7 +1292,7 @@ func (s *GitLab) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 	}
 	artifactPath := fmt.Sprintf("ci/artifacts/%s/job_%d.zip", safePath(job.Name), job.ID)
 	if err := s.downloadAndScan(ctx, artURL.String(), artifactPath, artifactAttrs, yield); err != nil {
-		logging.Debug().Err(err).Int64("job", job.ID).Msg("could not scan job artifacts")
+		loggerOrDiscard(s.Logger).Debug("could not scan job artifacts", "error", err, "job", job.ID)
 	}
 	return nil
 }
@@ -1482,7 +1475,7 @@ func (s *GitLab) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield
 			continue
 		}
 		if err := s.downloadAndScan(ctx, src.URL, "release/"+rel.TagName+"/"+name, assetAttrs, yield); err != nil {
-			logging.Error().Err(err).Str("tag", rel.TagName).Str("asset", name).Msg("could not scan release source archive")
+			loggerOrDiscard(s.Logger).Error("could not scan release source archive", "error", err, "tag", rel.TagName, "asset", name)
 		}
 	}
 	for _, link := range rel.Assets.Links {
@@ -1498,7 +1491,7 @@ func (s *GitLab) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield
 			continue
 		}
 		if err := s.downloadAndScan(ctx, link.URL, "release/"+rel.TagName+"/"+link.Name, assetAttrs, yield); err != nil {
-			logging.Error().Err(err).Str("tag", rel.TagName).Str("asset", link.Name).Msg("could not scan release asset")
+			loggerOrDiscard(s.Logger).Error("could not scan release asset", "error", err, "tag", rel.TagName, "asset", link.Name)
 		}
 	}
 	return nil
@@ -1523,6 +1516,7 @@ func (s *GitLab) downloadAndScan(ctx context.Context, rawURL, path string, attrs
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		ShouldSkip:      s.ShouldSkip,
 		TempPattern:     "betterleaks-gitlab-dl-*",
+		Logger:          s.Logger,
 	}, yield)
 }
 

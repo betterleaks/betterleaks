@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,7 +19,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/internal/sigv4"
-	"github.com/betterleaks/betterleaks/logging"
 )
 
 const (
@@ -38,6 +38,8 @@ const (
 // fragment for each object's content. The target is described by a single URL
 // passed via S3.URL.
 type S3 struct {
+	// Logger receives source diagnostics. A nil logger disables logging.
+	Logger *slog.Logger
 	// URL is the target bucket (and optional prefix). Required. Supported forms:
 	//
 	//   s3://bucket/prefix
@@ -189,11 +191,11 @@ func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
 // each matched bucket. Per-bucket failures (e.g. AccessDenied, region probe
 // errors) are logged and non-fatal.
 func (s *S3) scanEnumerated(ctx context.Context, client *http.Client, yield FragmentsFunc) error {
-	logging.Info().
-		Str("endpoint", s.parsed.Endpoint).
-		Str("bucket_glob", s.parsed.BucketGlob).
-		Str("region", s.parsed.Region).
-		Msg("enumerating buckets")
+	loggerOrDiscard(s.Logger).Info("enumerating buckets",
+		"endpoint", s.parsed.Endpoint,
+		"bucket_glob", s.parsed.BucketGlob,
+		"region", s.parsed.Region,
+	)
 
 	buckets, err := s3ListAllBuckets(ctx, client, s.parsed, s.creds)
 	if err != nil {
@@ -210,16 +212,16 @@ func (s *S3) scanEnumerated(ctx context.Context, client *http.Client, yield Frag
 			matched = append(matched, b)
 		}
 	}
-	logging.Info().Int("total", len(buckets)).Int("matched", len(matched)).Msg("bucket enumeration complete")
+	loggerOrDiscard(s.Logger).Info("bucket enumeration complete", "total", len(buckets), "matched", len(matched))
 
 	for _, b := range matched {
 		sub, err := s.bucketSubTarget(ctx, b)
 		if err != nil {
-			logging.Error().Err(err).Str("bucket", b).Msg("could not resolve bucket; skipping")
+			loggerOrDiscard(s.Logger).Error("could not resolve bucket; skipping", "error", err, "bucket", b)
 			continue
 		}
 		if err := s.scanBucket(ctx, client, sub, yield); err != nil {
-			logging.Error().Err(err).Str("bucket", b).Msg("bucket scan failed; continuing")
+			loggerOrDiscard(s.Logger).Error("bucket scan failed; continuing", "error", err, "bucket", b)
 		}
 	}
 	return nil
@@ -266,16 +268,16 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 		bucketAttrs[AttrS3Endpoint] = target.Endpoint
 	}
 	if s.ShouldSkip != nil && s.ShouldSkip(bucketAttrs) {
-		logging.Info().Str("bucket", target.Bucket).Msg("skipping bucket: filtered by prefilter")
+		loggerOrDiscard(s.Logger).Info("skipping bucket: filtered by prefilter", "bucket", target.Bucket)
 		return nil
 	}
 
-	logging.Info().
-		Str("bucket", target.Bucket).
-		Str("region", target.Region).
-		Str("prefix", target.Prefix).
-		Str("endpoint", target.Endpoint).
-		Msg("starting S3 scan")
+	loggerOrDiscard(s.Logger).Info("starting S3 scan",
+		"bucket", target.Bucket,
+		"region", target.Region,
+		"prefix", target.Prefix,
+		"endpoint", target.Endpoint,
+	)
 
 	start := time.Now()
 	var (
@@ -296,18 +298,18 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 		g.SetLimit(jobs)
 		for _, obj := range page.Contents {
 			if skipReason := s.skipReason(obj, maxSize); skipReason != "" {
-				logging.Trace().Str("key", obj.Key).Str("reason", skipReason).Msg("skipping object")
+				logTrace(gctx, s.Logger, "skipping object", "key", obj.Key, "reason", skipReason)
 				continue
 			}
 			attrs := s.objectAttributes(target, obj)
 			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
-				logging.Trace().Str("key", obj.Key).Msg("skipping object: filtered by prefilter")
+				logTrace(gctx, s.Logger, "skipping object: filtered by prefilter", "key", obj.Key)
 				continue
 			}
 			g.Go(func() error {
 				return s.budget.run(gctx, func() error {
 					if err := s.scanObject(gctx, client, target, obj, attrs, yield); err != nil {
-						logging.Error().Err(err).Str("key", obj.Key).Msg("could not scan S3 object")
+						loggerOrDiscard(s.Logger).Error("could not scan S3 object", "error", err, "key", obj.Key)
 						return nil
 					}
 					mu.Lock()
@@ -326,12 +328,12 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 		continuationToken = page.NextContinuationToken
 	}
 
-	logging.Info().
-		Str("bucket", target.Bucket).
-		Int("objects_listed", listedCount).
-		Int("objects_scanned", scannedCount).
-		Str("duration", time.Since(start).Round(time.Millisecond).String()).
-		Msg("S3 scan complete")
+	loggerOrDiscard(s.Logger).Info("S3 scan complete",
+		"bucket", target.Bucket,
+		"objects_listed", listedCount,
+		"objects_scanned", scannedCount,
+		"duration", time.Since(start).Round(time.Millisecond),
+	)
 	return nil
 }
 
@@ -388,6 +390,7 @@ func (s *S3) scanObject(ctx context.Context, client *http.Client, target s3Targe
 
 	stampedYield := s.wrapYieldWithAttrs(attrs, yield)
 	file := &File{
+		Logger:          s.Logger,
 		Content:         body,
 		Path:            obj.Key,
 		MaxArchiveDepth: s.MaxArchiveDepth,

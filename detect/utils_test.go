@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"log/slog"
 	"path/filepath"
 	"testing"
 
@@ -9,6 +10,11 @@ import (
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
 )
+
+func filterForTest(findings []report.Finding) []report.Finding {
+	detector := Detector{logger: slog.New(slog.DiscardHandler)}
+	return detector.filter(findings)
+}
 
 func TestSamePath(t *testing.T) {
 	// A native-separator config path and the forward-slash fragment path the
@@ -41,7 +47,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			},
 		}
 
-		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary}))
+		assert.Equal(t, []report.Finding{primary}, filterForTest([]report.Finding{primary}))
 	})
 
 	t.Run("suppresses a standalone finding owned by another primary", func(t *testing.T) {
@@ -64,7 +70,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			Secret: "invalid",
 		}
 
-		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary, standaloneComponent}))
+		assert.Equal(t, []report.Finding{primary}, filterForTest([]report.Finding{primary, standaloneComponent}))
 	})
 
 	t.Run("preserves the same value at a different location", func(t *testing.T) {
@@ -109,7 +115,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 
 		assert.Equal(t,
 			[]report.Finding{primary, unownedStandalone},
-			filter([]report.Finding{primary, ownedStandalone, unownedStandalone}),
+			filterForTest([]report.Finding{primary, ownedStandalone, unownedStandalone}),
 		)
 	})
 
@@ -142,7 +148,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			RuleSpecificity: 20,
 		}
 
-		assert.Equal(t, []report.Finding{primary}, filter([]report.Finding{primary, standalone}))
+		assert.Equal(t, []report.Finding{primary}, filterForTest([]report.Finding{primary, standalone}))
 	})
 
 	t.Run("suppresses a composite surfaced inside another primary", func(t *testing.T) {
@@ -174,7 +180,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			},
 		}
 
-		assert.Equal(t, []report.Finding{outerPrimary}, filter([]report.Finding{outerPrimary, nestedPrimary}))
+		assert.Equal(t, []report.Finding{outerPrimary}, filterForTest([]report.Finding{outerPrimary, nestedPrimary}))
 	})
 }
 

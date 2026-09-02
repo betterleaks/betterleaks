@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
@@ -50,13 +49,13 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	initConfig(runtime, globals, &options.ScanFlags, source)
 	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config()
+	cfg := Config(runtime)
 
 	// create detector
 	jobs := resolveJobPlan(options.Jobs, gitJobProfile)
 	detector := Detector(runtime, globals, &options.ScanFlags, cfg, source, detect.WithJobs(jobs.Detector))
 
-	findings := mustNewFindingCollector(&options.ScanFlags, globals.NoColor, runtime.stdout)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	var (
 		err error
@@ -64,12 +63,13 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	)
 
 	if options.PreCommit || options.Staged {
-		gitCmd, cmdErr := sources.NewGitDiffCmdContext(runtime.Context, source, options.Staged)
+		gitCmd, cmdErr := sources.NewGitDiffCmdContext(runtime.Context, source, options.Staged, sources.WithGitCmdLogger(runtime.Logger()))
 		if cmdErr != nil {
-			logging.Fatal().Err(cmdErr).Msg("could not create Git diff cmd")
+			runtime.fatal("could not create Git diff cmd", "error", cmdErr)
 		}
 		// Remote info + links are irrelevant for staged changes.
 		src = &sources.Git{
+			Logger:          runtime.Logger(),
 			Cmd:             gitCmd,
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        scm.NoPlatform,
@@ -79,11 +79,12 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	} else {
 		scmPlatform, platformErr := scm.PlatformFromString(options.Platform)
 		if platformErr != nil {
-			logging.Fatal().Err(platformErr).Send()
+			runtime.fatal("invalid platform", "error", platformErr)
 		}
 		resolvedPlatform, remoteURL := sources.ResolveRemote(runtime.Context, scmPlatform, source)
 
 		src = &sources.Git{
+			Logger:          runtime.Logger(),
 			RepoPath:        source,
 			ShouldSkip:      detector.SkipFunc(),
 			Platform:        resolvedPlatform,
@@ -96,7 +97,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 
 	summary, err := detector.Scan(runtime.Context, src, findings.Add)
 	if err != nil {
-		logging.Error().Err(err).Msg("failed to scan Git repository")
+		runtime.Logger().Error("failed to scan Git repository", "error", err)
 	}
 
 	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, err)

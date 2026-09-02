@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"log/slog"
 	"maps"
 	"net/http"
 	"runtime"
@@ -26,12 +27,9 @@ import (
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/internal/validate"
-	"github.com/betterleaks/betterleaks/logging"
 	blregexp "github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/report"
 	"github.com/betterleaks/betterleaks/sources"
-
-	"github.com/rs/zerolog"
 )
 
 // ValidationOptions controls secret validation behavior. Validation is enabled
@@ -69,15 +67,26 @@ var allowSignatures = []string{"betterleaks:allow", "gitleaks:allow"}
 
 var errStopIteration = errors.New("pipeline: stop iteration")
 
+var discardLogger = slog.New(slog.DiscardHandler)
+
 const (
-	// slowWarningThreshold is the amount of time to wait before logging that a file is slow.
-	// This is useful for identifying problematic files and tuning the prefilter.
-	slowWarningThreshold = 5 * time.Second
+	levelTrace = slog.LevelDebug - 4
 
 	// maxComponentSets caps the Cartesian product of component-finding combinations
 	// to prevent excessive memory use with large multi-part rules.
 	maxComponentSets = 100
 )
+
+func logTrace(logger *slog.Logger, msg string, args ...any) {
+	logger.Log(context.Background(), levelTrace, msg, args...)
+}
+
+func loggerOrDiscard(logger *slog.Logger) *slog.Logger {
+	if logger == nil {
+		return discardLogger
+	}
+	return logger
+}
 
 // Result is one finding or recoverable error emitted by [Detector.Run].
 type Result struct {
@@ -129,6 +138,7 @@ type detectorOptions struct {
 	ignoredSecrets      SecretMatcher
 	excludedPaths       []string
 	precompile          bool
+	logger              *slog.Logger
 }
 
 // Option configures a Detector during construction. Options are created by the
@@ -243,6 +253,15 @@ func WithIgnoreAllowComments(ignore bool) Option {
 	}}
 }
 
+// WithLogger directs detector diagnostics to logger. Detectors are silent
+// unless a logger is supplied.
+func WithLogger(logger *slog.Logger) Option {
+	return Option{apply: func(options *detectorOptions) error {
+		options.logger = loggerOrDiscard(logger)
+		return nil
+	}}
+}
+
 // WithPrecompile forces every regex and expression to compile during
 // construction. Lazy compilation remains the default.
 func WithPrecompile() Option {
@@ -268,6 +287,7 @@ type Detector struct {
 	validationExtractEmpty bool
 	ignoreAllowComments    bool
 	jobs                   int
+	logger                 *slog.Logger
 	scanMu                 sync.Mutex
 
 	// prefilter is a ahocorasick struct used for doing efficient string
@@ -327,7 +347,7 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required to create detector")
 	}
-	settings := detectorOptions{}
+	settings := detectorOptions{logger: discardLogger}
 	for _, option := range options {
 		if option.apply == nil {
 			return nil, errors.New("detector option is invalid")
@@ -402,6 +422,7 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		ignoredSecrets:      settings.ignoredSecrets,
 		excludedPaths:       slices.Clone(settings.excludedPaths),
 		jobs:                settings.jobs,
+		logger:              settings.logger,
 		configPath:          cfg.Path,
 		globalFilterExpr:    cfg.Filter,
 		prefilter:           ahocorasick.Compile(keywords, true),
@@ -565,7 +586,7 @@ func (d *Detector) Tokenizer() *tiktoken.Tiktoken {
 		tiktoken.SetBpeLoader(&TiktokenLoader{})
 		tke, err := tiktoken.GetEncoding("cl100k_base")
 		if err != nil {
-			logging.Warn().Err(err).Msg("Could not initialize cl100k_base tiktokenizer")
+			d.logger.Warn("Could not initialize cl100k_base tiktokenizer", "error", err)
 			return
 		}
 		d.tokenizer = tke
@@ -677,7 +698,7 @@ func (d *Detector) SkipFunc() sources.SkipFunc {
 		if prg != nil {
 			skip, err := d.exprRuntime.EvalPrefilter(prg, attrs)
 			if err != nil {
-				logging.Warn().Err(err).Msg("prefilter eval error; not skipping")
+				d.logger.Warn("prefilter eval error; not skipping", "error", err)
 				return false
 			}
 			return skip
@@ -868,16 +889,16 @@ func (d *Detector) run(ctx context.Context, source sources.Source, yield func(Re
 		if validationPool != nil {
 			validationPool.Close()
 			hits, misses := validationPool.Stats()
-			logging.Debug().
-				Uint64("http_requests", misses).
-				Uint64("cache_hits", hits).
-				Msg("validation cache stats")
+			d.logger.Debug("validation cache stats",
+				"http_requests", misses,
+				"cache_hits", hits,
+			)
 			if d.AnalysisEnabled() {
 				analysisHits, analysisMisses := validationPool.AnalysisStats()
-				logging.Debug().
-					Uint64("evaluations", analysisMisses).
-					Uint64("cache_hits", analysisHits).
-					Msg("analysis cache stats")
+				d.logger.Debug("analysis cache stats",
+					"evaluations", analysisMisses,
+					"cache_hits", analysisHits,
+				)
 			}
 		}
 		if sourceErr != nil && !isPipelineStop(sourceErr) {
@@ -929,19 +950,6 @@ func (d *Detector) scanFragment(
 	validationPool *validate.Pool,
 	state *scanState,
 ) error {
-	var timer *time.Timer
-	if logging.Logger.GetLevel() <= zerolog.DebugLevel {
-		logger := fragment.Logger()
-		timer = time.AfterFunc(slowWarningThreshold, func() {
-			logger.Debug().Msgf("Taking longer than %s to inspect fragment", slowWarningThreshold.String())
-		})
-	}
-	defer func() {
-		if timer != nil {
-			timer.Stop()
-		}
-	}()
-
 	for _, finding := range d.detectFragmentWithState(ctx, fragment, state) {
 		if validationPool != nil {
 			if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
@@ -1073,7 +1081,7 @@ ScanLoop:
 			}
 		}
 	}
-	findings = filter(findings)
+	findings = d.filter(findings)
 	if d.ignoredSecrets == nil {
 		return findings
 	}
@@ -1139,7 +1147,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	priorFindings []report.Finding) []report.Finding {
 	var (
 		findings []report.Finding
-		logger   = fragment.Logger().With().Str("rule_id", r.RuleID).Logger()
+		logger   = d.logger
 	)
 
 	if r.SkipReport && !fragment.InheritedFromFinding {
@@ -1253,9 +1261,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		// move to filter?
 		if !d.ignoreAllowComments && containsAllowSignature(finding.Line) {
-			logger.Trace().
-				Str("finding", finding.Secret).
-				Msg("skipping finding: allow signature found")
+			logTrace(logger, "skipping finding: allow signature found", "finding", finding.Secret)
 			continue
 		}
 		if currentLine == "" {
@@ -1295,7 +1301,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 		}
 
-		if len(priorFindings) > 0 && isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
+		if len(priorFindings) > 0 && d.isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
 			continue
 		}
 
@@ -1345,32 +1351,28 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 		// Global filter: Expr path (attributes + finding).
 		if prg, ok, err := d.globalFilterProgram(); err != nil {
-			logger.Warn().Err(err).Msg("global filter compile error")
+			logger.Warn("global filter compile error", "error", err)
 		} else if ok {
 			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
 			promoteConfidence(&finding, findingMap)
 			if err != nil {
-				logger.Warn().Err(err).Msg("global filter eval error")
+				logger.Warn("global filter eval error", "error", err)
 			} else if skip {
-				logger.Trace().
-					Str("finding", finding.Secret).
-					Msg("skipping finding: global filter")
+				logTrace(logger, "skipping finding: global filter", "finding", finding.Secret)
 				continue
 			}
 		}
 
 		// Rule filter: Expr path (includes entropy and token-efficiency checks).
 		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
-			logger.Warn().Err(err).Msg("rule filter compile error")
+			logger.Warn("rule filter compile error", "error", err)
 		} else if ok {
 			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
 			promoteConfidence(&finding, findingMap)
 			if err != nil {
-				logger.Warn().Err(err).Msg("rule filter eval error")
+				logger.Warn("rule filter eval error", "error", err)
 			} else if skip {
-				logger.Trace().
-					Str("finding", finding.Secret).
-					Msg("skipping finding: rule filter")
+				logTrace(logger, "skipping finding: rule filter", "finding", finding.Secret)
 				continue
 			}
 		}
@@ -1390,9 +1392,9 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 }
 
 // processComponents attaches nearby component matches and enforces required components.
-func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger zerolog.Logger) []report.Finding {
+func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger *slog.Logger) []report.Finding {
 	if len(primaryFindings) == 0 {
-		logger.Debug().Msg("no primary findings to process for components")
+		logger.Debug("no primary findings to process for components")
 		return primaryFindings
 	}
 
@@ -1403,14 +1405,14 @@ func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment
 	for _, component := range r.Components {
 		window, err := contextwindow.Parse(component.Within)
 		if err != nil {
-			logger.Error().Err(err).Str("rule-id", component.RuleID).Str("within", component.Within).Msg("invalid component within value")
+			logger.Error("invalid component within value", "error", err, "rule_id", component.RuleID, "within", component.Within)
 			continue
 		}
 		componentWindows[component.RuleID] = window
 
 		ruleIndex, ok := d.ruleIndexByID[component.RuleID]
 		if !ok {
-			logger.Error().Str("rule-id", component.RuleID).Msg("component rule not found in config")
+			logger.Error("component rule not found in config", "rule_id", component.RuleID)
 			continue
 		}
 		rule := d.rulesBySpecificity[ruleIndex]
@@ -1422,10 +1424,10 @@ func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment
 		componentFindings := d.detectFragmentWithRuleTimed(ruleTimings, inheritedFragment, currentRaw, rule, encodedSegments, nil)
 		allComponentFindings[component.RuleID] = componentFindings
 
-		logger.Debug().
-			Str("rule-id", component.RuleID).
-			Int("findings", len(componentFindings)).
-			Msg("collected component rule findings")
+		logger.Debug("collected component rule findings",
+			"rule_id", component.RuleID,
+			"findings", len(componentFindings),
+		)
 	}
 
 	var finalFindings []report.Finding
@@ -1462,11 +1464,11 @@ func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment
 			newFinding.BuildComponentSets(componentFindings, maxComponentSets)
 			finalFindings = append(finalFindings, newFinding)
 
-			logger.Debug().
-				Str("primary-rule", r.RuleID).
-				Int("primary-line", primaryFinding.Location.StartLine).
-				Int("component-count", len(componentFindings)).
-				Msg("multi-part rule satisfied")
+			logger.Debug("multi-part rule satisfied",
+				"primary_rule", r.RuleID,
+				"primary_line", primaryFinding.Location.StartLine,
+				"component_count", len(componentFindings),
+			)
 		}
 	}
 

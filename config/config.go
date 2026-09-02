@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	gv "github.com/hashicorp/go-version"
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/regexp"
 	"github.com/betterleaks/betterleaks/version"
 )
@@ -19,6 +19,7 @@ import (
 var (
 	//go:embed betterleaks.toml
 	defaultConfig string
+	discardLogger = slog.New(slog.DiscardHandler)
 )
 
 const maxExtendDepth = 2
@@ -36,7 +37,8 @@ type rawConfig struct {
 	Prefilter string `toml:"prefilter"`
 	Filter    string `toml:"filter"`
 
-	path string
+	path   string
+	logger *slog.Logger
 }
 
 type rawRule struct {
@@ -90,6 +92,36 @@ type Config struct {
 	// Filter is a global expression (attributes + finding) evaluated per match.
 	// Returns true = skip (discard) this finding; false = keep.
 	Filter string
+
+	logger *slog.Logger
+}
+
+// LoadOption configures a config loading operation.
+type LoadOption func(*loadOptions)
+
+type loadOptions struct {
+	logger *slog.Logger
+}
+
+// WithLogger sends config loading diagnostics to logger. A nil logger discards
+// diagnostics, which is also the default for library callers.
+func WithLogger(logger *slog.Logger) LoadOption {
+	return func(options *loadOptions) {
+		if logger == nil {
+			logger = discardLogger
+		}
+		options.logger = logger
+	}
+}
+
+func resolveLoadOptions(options []LoadOption) loadOptions {
+	resolved := loadOptions{logger: discardLogger}
+	for _, option := range options {
+		if option != nil {
+			option(&resolved)
+		}
+	}
+	return resolved
 }
 
 // extendConfig describes the unresolved config extension requested by TOML.
@@ -100,29 +132,31 @@ type extendConfig struct {
 	DisabledRules []string `toml:"disabledRules"`
 }
 
-func ParseTOML(data []byte, path string) (*Config, error) {
+func ParseTOML(data []byte, path string, options ...LoadOption) (*Config, error) {
+	loadOptions := resolveLoadOptions(options)
 	var rc rawConfig
 	if err := toml.Unmarshal(data, &rc); err != nil {
 		return nil, err
 	}
 	rc.path = path
+	rc.logger = loadOptions.logger
 	return rc.translate(0)
 }
 
-func ParseTOMLString(content, path string) (*Config, error) {
-	return ParseTOML([]byte(content), path)
+func ParseTOMLString(content, path string, options ...LoadOption) (*Config, error) {
+	return ParseTOML([]byte(content), path, options...)
 }
 
-func LoadFile(path string) (*Config, error) {
+func LoadFile(path string, options ...LoadOption) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return ParseTOML(data, path)
+	return ParseTOML(data, path, options...)
 }
 
-func Default() (*Config, error) {
-	return ParseTOMLString(defaultConfig, "")
+func Default(options ...LoadOption) (*Config, error) {
+	return ParseTOMLString(defaultConfig, "", options...)
 }
 
 func (rc *rawConfig) translate(depth int) (*Config, error) {
@@ -223,11 +257,12 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		MinVersion:  rc.MinVersion,
 		Prefilter:   rc.Prefilter,
 		Filter:      rc.Filter,
+		logger:      rc.logger,
 	}
 
 	c.Path = rc.path
 
-	if err := validateMinVersion(c.MinVersion, c.Path); err != nil {
+	if err := validateMinVersion(c.logger, c.MinVersion, c.Path); err != nil {
 		return nil, err
 	}
 
@@ -257,10 +292,12 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 	return c, nil
 }
 
-func validateMinVersion(minVersion, configPath string) error {
+func validateMinVersion(logger *slog.Logger, minVersion, configPath string) error {
+	if logger == nil {
+		logger = discardLogger
+	}
 	if minVersion == "" {
-		logging.Debug().Str("config path", configPath).
-			Msg("no minVersion specified in config... consider adding minVersion to ensure compatibility.")
+		logger.Debug("no minVersion specified in config; consider adding minVersion to ensure compatibility", "config_path", configPath)
 		return nil
 	}
 
@@ -269,9 +306,7 @@ func validateMinVersion(minVersion, configPath string) error {
 		return fmt.Errorf("invalid minVersion %q: %w", minVersion, err)
 	}
 	if version.Version == version.DefaultMsg {
-		logging.Debug().
-			Str("required", minVersion).
-			Msg("dev build, skipping minVersion comparison")
+		logger.Debug("dev build, skipping minVersion comparison", "required", minVersion)
 		return nil
 	}
 	current, err := gv.NewSemver(version.Version)
@@ -279,11 +314,11 @@ func validateMinVersion(minVersion, configPath string) error {
 		return fmt.Errorf("unable to parse current betterleaks version: %w", err)
 	}
 	if current.LessThan(minimum) {
-		logging.Warn().
-			Str("required", minVersion).
-			Str("current", version.Version).
-			Str("config path", configPath).
-			Msg("config requires a newer betterleaks version")
+		logger.Warn("config requires a newer betterleaks version",
+			"required", minVersion,
+			"current", version.Version,
+			"config_path", configPath,
+		)
 	}
 	return nil
 }
@@ -335,12 +370,13 @@ func (c *Config) extendDefault(depth int, extend extendConfig, componentsSet map
 	if err := toml.Unmarshal([]byte(defaultConfig), &defaultRawConfig); err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 	}
+	defaultRawConfig.logger = c.logger
 	cfg, err := defaultRawConfig.translate(depth + 1)
 	if err != nil {
 		return fmt.Errorf("failed to load extended default config, err: %w", err)
 
 	}
-	logging.Debug().Msg("extending config with default config")
+	c.logger.Debug("extending config with default config")
 	c.extend(cfg, extend, componentsSet)
 	return nil
 }
@@ -355,7 +391,8 @@ func (c *Config) extendPath(depth int, extend extendConfig, componentsSet map[st
 		return fmt.Errorf("failed to load extended config, err: %w", err)
 	}
 	extensionRawConfig.path = extend.Path
-	logging.Debug().Msgf("extending config with %s", extend.Path)
+	extensionRawConfig.logger = c.logger
+	c.logger.Debug("extending config", "path", extend.Path)
 	cfg, err := extensionRawConfig.translate(depth + 1)
 	if err != nil {
 		return fmt.Errorf("failed to load extended config, err: %w", err)
@@ -380,10 +417,7 @@ func (c *Config) extend(extensionConfig *Config, extend extendConfig, components
 	}
 	for _, id := range extend.DisabledRules {
 		if _, ok := baseRules[id]; !ok {
-			logging.Warn().
-				Str("rule-id", id).
-				Str("config", configName).
-				Msg("Disabled rule doesn't exist in extended config.")
+			c.logger.Warn("Disabled rule doesn't exist in extended config.", "rule_id", id, "config", configName)
 		}
 		disabledRuleIDs[id] = struct{}{}
 	}
@@ -396,10 +430,7 @@ func (c *Config) extend(extensionConfig *Config, extend extendConfig, components
 		ruleID := baseRule.RuleID
 		// Skip the rule.
 		if _, ok := disabledRuleIDs[ruleID]; ok {
-			logging.Debug().
-				Str("rule-id", ruleID).
-				Str("config", configName).
-				Msg("Ignoring rule from extended config.")
+			c.logger.Debug("Ignoring rule from extended config.", "rule_id", ruleID, "config", configName)
 			continue
 		}
 

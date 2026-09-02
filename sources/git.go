@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"net/url"
 	"os"
@@ -21,7 +22,6 @@ import (
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources/scm"
 )
 
@@ -31,6 +31,34 @@ type GitCmd struct {
 	diffFilesCh <-chan *gitdiff.File
 	errCh       <-chan error
 	repoPath    string
+}
+
+type gitCmdOptions struct {
+	logger *slog.Logger
+}
+
+// GitCmdOption configures a Git command before it starts. Options are created
+// by the WithGitCmd... functions in this package.
+type GitCmdOption struct {
+	apply func(*gitCmdOptions)
+}
+
+// WithGitCmdLogger directs Git command diagnostics to logger. A nil logger
+// disables logging.
+func WithGitCmdLogger(logger *slog.Logger) GitCmdOption {
+	return GitCmdOption{apply: func(options *gitCmdOptions) {
+		options.logger = loggerOrDiscard(logger)
+	}}
+}
+
+func resolveGitCmdOptions(options []GitCmdOption) gitCmdOptions {
+	resolved := gitCmdOptions{logger: discardLogger}
+	for _, option := range options {
+		if option.apply != nil {
+			option.apply(&resolved)
+		}
+	}
+	return resolved
 }
 
 // gitConfigIsolationEnv contains the standard Git configuration isolation environment variables.
@@ -103,7 +131,8 @@ func NewGitLogCmd(source string, logOpts string) (*GitCmd, error) {
 
 // NewGitLogCmdContext is the same as NewGitLogCmd but supports passing in a
 // context to use for timeouts
-func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*GitCmd, error) {
+func NewGitLogCmdContext(ctx context.Context, source string, logOpts string, options ...GitCmdOption) (*GitCmd, error) {
+	settings := resolveGitCmdOptions(options)
 	sourceClean := filepath.Clean(source)
 	var cmd *exec.Cmd
 	if logOpts != "" {
@@ -122,7 +151,7 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 	}
 	cmd.Env = gitConfigIsolationEnv()
 
-	logging.Debug().Msgf("executing: %s", cmd.String())
+	settings.logger.Debug("executing git command", "command", cmd.String())
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -137,7 +166,7 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 	}
 
 	errCh := make(chan error)
-	go listenForStdErr(stderr, errCh)
+	go listenForStdErr(stderr, errCh, settings.logger)
 
 	gitdiffFiles, err := gitdiff.Parse(stdout)
 	if err != nil {
@@ -221,7 +250,8 @@ func NewGitDiffCmd(source string, staged bool) (*GitCmd, error) {
 
 // NewGitDiffCmdContext is the same as NewGitDiffCmd but supports passing in a
 // context to use for timeouts
-func NewGitDiffCmdContext(ctx context.Context, source string, staged bool) (*GitCmd, error) {
+func NewGitDiffCmdContext(ctx context.Context, source string, staged bool, options ...GitCmdOption) (*GitCmd, error) {
+	settings := resolveGitCmdOptions(options)
 	sourceClean := filepath.Clean(source)
 	var cmd *exec.Cmd
 	cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff", ".")
@@ -230,7 +260,7 @@ func NewGitDiffCmdContext(ctx context.Context, source string, staged bool) (*Git
 			"--staged", ".")
 	}
 	cmd.Env = gitConfigIsolationEnv()
-	logging.Debug().Msgf("executing: %s", cmd.String())
+	settings.logger.Debug("executing git command", "command", cmd.String())
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -245,7 +275,7 @@ func NewGitDiffCmdContext(ctx context.Context, source string, staged bool) (*Git
 	}
 
 	errCh := make(chan error)
-	go listenForStdErr(stderr, errCh)
+	go listenForStdErr(stderr, errCh, settings.logger)
 
 	gitdiffFiles, err := gitdiff.Parse(stdout)
 	if err != nil {
@@ -336,7 +366,7 @@ func (c *GitCmd) NewBlobReaderContext(ctx context.Context, commit, path string) 
 
 // listenForStdErr listens for stderr output from git, prints it to stdout,
 // sends to errCh and closes it.
-func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
+func listenForStdErr(stderr io.ReadCloser, errCh chan<- error, logger *slog.Logger) {
 	defer close(errCh)
 
 	var errLines []string
@@ -370,10 +400,10 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 				"See \"git help gc\" for manual housekeeping") ||
 			strings.Contains(scanner.Text(),
 				"Auto packing the repository in background for optimum performance") {
-			logging.Warn().Msg(scanner.Text())
+			loggerOrDiscard(logger).Warn(scanner.Text())
 		} else {
 			line := scanner.Text()
-			logging.Error().Msgf("[git] %s", line)
+			loggerOrDiscard(logger).Error("git command error", "message", line)
 			errLines = append(errLines, line)
 		}
 	}
@@ -385,6 +415,8 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error) {
 
 // Git is a source for yielding fragments from a git repo
 type Git struct {
+	// Logger receives source diagnostics. A nil logger disables logging.
+	Logger *slog.Logger
 	// Cmd scans an already-started Git command. When Cmd is nil, Fragments
 	// starts a history scan for RepoPath.
 	Cmd      *GitCmd
@@ -417,7 +449,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 	defer func() {
 		if err := s.Cmd.Wait(); err != nil {
-			logging.Debug().Err(err).Str("cmd", s.Cmd.String()).Msg("command aborted")
+			loggerOrDiscard(s.Logger).Debug("command aborted", "error", err, "command", s.Cmd.String())
 		}
 	}()
 
@@ -486,10 +518,7 @@ func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 				}
 
 				if shouldSkipAttrs(s.ShouldSkip, commitAttrs) {
-					logging.Trace().
-						Str("commit", commitSHA).
-						Str("path", gitdiffFile.NewName).
-						Msg("skipping diff entry: global prefilter")
+					logTrace(groupCtx, s.Logger, "skipping diff entry: global prefilter", "commit", commitSHA, "path", gitdiffFile.NewName)
 					continue
 				}
 			}
@@ -502,11 +531,12 @@ func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 					if yieldAsArchive {
 						blob, err := s.Cmd.NewBlobReaderContext(groupCtx, commitSHA, gitdiffFile.NewName)
 						if err != nil {
-							logging.Error().Err(err).Msg("could not read archive blob")
+							loggerOrDiscard(s.Logger).Error("could not read archive blob", "error", err)
 							return nil
 						}
 
 						file := File{
+							Logger:          s.Logger,
 							Content:         blob,
 							Path:            gitdiffFile.NewName,
 							MaxArchiveDepth: s.MaxArchiveDepth,
@@ -526,7 +556,7 @@ func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
 
 						// Close the blob reader and log any issues
 						if err := blob.Close(); err != nil {
-							logging.Debug().Err(err).Msg("blobReader.Close() returned an error")
+							loggerOrDiscard(s.Logger).Debug("blobReader.Close() returned an error", "error", err)
 						}
 
 						return err
@@ -608,26 +638,13 @@ func ResolveRemote(ctx context.Context, platform scm.Platform, source string) (s
 	remoteUrl, err := getRemoteUrl(ctx, source)
 	if err != nil {
 		if strings.Contains(err.Error(), "No remote configured") {
-			logging.Debug().Msg("skipping finding links: repository has no configured remote.")
 			platform = scm.NoPlatform
-		} else {
-			logging.Error().Err(err).Msg("skipping finding links: unable to parse remote URL")
 		}
 		return platform, ""
 	}
 
 	if platform == scm.UnknownPlatform {
 		platform = platformFromHost(remoteUrl)
-		if platform == scm.UnknownPlatform {
-			logging.Info().
-				Str("host", remoteUrl.Hostname()).
-				Msg("Unknown SCM platform. Use --platform to include links in findings.")
-		} else {
-			logging.Debug().
-				Str("host", remoteUrl.Hostname()).
-				Str("platform", platform.String()).
-				Msg("SCM platform parsed from host")
-		}
 	}
 
 	return platform, remoteUrl.String()
