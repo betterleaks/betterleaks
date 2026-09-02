@@ -16,8 +16,8 @@ import (
 	tiktoken "github.com/pkoukk/tiktoken-go"
 )
 
-// Program is the compiled expression representation used by validation,
-// filters, and prefilters.
+// Program is the compiled representation used by filter, validation, and
+// analysis expressions.
 type Program = *compiledProgram
 
 type compileMode string
@@ -26,6 +26,7 @@ const (
 	modeFilter     compileMode = "filter"
 	modePrefilter  compileMode = "prefilter"
 	modeValidation compileMode = "validation"
+	modeAnalysis   compileMode = "analysis"
 )
 
 type compiledProgram struct {
@@ -107,7 +108,8 @@ func (s *evalState) validationLimitHit() *ValidationRequestLimitHit {
 // maxResponseBody is the maximum number of bytes read from an HTTP response body.
 const maxResponseBody = 1 << 20 // 1 MB
 
-// Runtime holds compiled Expr programs and validation services (if needed).
+// Runtime holds compiled Expr programs and the provider services used by
+// validation and analysis.
 type Runtime struct {
 	client *http.Client
 	// validationLimiter is applied to every request made through client,
@@ -178,9 +180,13 @@ func (e *Runtime) CompileValidation(expression string) (Program, error) {
 	return e.compile(modeValidation, expression, nil)
 }
 
+func (e *Runtime) CompileAnalysis(expression string) (Program, error) {
+	return e.compile(modeAnalysis, expression, nil)
+}
+
 func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
 	// One Runtime compiles all expression types. The mode is part of the cache key
-	// because filter, prefilter, and validation expose different bindings.
+	// because each expression kind exposes a different binding contract.
 	cacheKey := compileCacheKey(mode, expression, tokenizer)
 	e.mu.RLock()
 	if prg, ok := e.cache[cacheKey]; ok {
@@ -231,10 +237,17 @@ func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken
 		return filterBindings(tokenizer, emptyFilterFinding, emptyStringMap), []expr.Option{expr.AsBool()}
 	case modePrefilter:
 		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
-	default:
+	case modeValidation:
 		b := e.validationBindings(context.Background(), nil, nil, nil, nil, nil)
 		setCompileMaps(b)
 		return b, []expr.Option{expr.WithContext("ctx")}
+	case modeAnalysis:
+		b := e.validationBindings(context.Background(), nil, nil, nil, nil, nil)
+		setCompileMaps(b)
+		b["validation"] = emptyValidationMap()
+		return b, []expr.Option{expr.WithContext("ctx")}
+	default:
+		panic(fmt.Sprintf("unsupported expression mode %q", mode))
 	}
 }
 
@@ -329,6 +342,19 @@ func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, capt
 // EvalValidationWithComponents evaluates a validation program with structured
 // component findings isolated from the primary rule's named capture groups.
 func (e *Runtime) EvalValidationWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
+	return e.evalProviderProgram(ctx, prg, finding, captures, components, attributes, nil, opts)
+}
+
+// EvalAnalysisWithComponents evaluates an analysis program with the successful
+// validation result that authorized the analysis stage.
+func (e *Runtime) EvalAnalysisWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation map[string]any, opts EvalOptions) (EvalResult, error) {
+	if validation == nil {
+		validation = emptyValidationMap()
+	}
+	return e.evalProviderProgram(ctx, prg, finding, captures, components, attributes, validation, opts)
+}
+
+func (e *Runtime) evalProviderProgram(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation map[string]any, opts EvalOptions) (EvalResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -338,12 +364,23 @@ func (e *Runtime) EvalValidationWithComponents(ctx context.Context, prg Program,
 		state:  state,
 	})
 	b := e.validationBindings(ctx, finding, captures, components, attributes, state)
+	if validation != nil {
+		b["validation"] = validation
+	}
 	val, err := expr.Run(prg.vm, b)
 	return EvalResult{
 		Value:           val,
 		Debug:           state.meta,
 		RequestLimitHit: state.validationLimitHit(),
 	}, err
+}
+
+func emptyValidationMap() map[string]any {
+	return map[string]any{
+		"status":   "",
+		"reason":   "",
+		"metadata": map[string]any{},
+	}
 }
 
 func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[string]string, components map[string]any, attributes map[string]string, state *evalState) bindings {
@@ -467,6 +504,7 @@ func baseBindings(rt *runtimeBindings) bindings {
 		"filter":               filterNamespace(rt),
 		"matchesAny":           matchesAny,
 		"containsAny":          containsAny,
+		"startsWithAny":        startsWithAny,
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
 	}
@@ -576,13 +614,13 @@ func lookup(container any, key string) (any, bool) {
 func (rt *runtimeBindings) envGet(name string) (string, error) {
 	e := rt.validation
 	if e == nil {
-		return "", fmt.Errorf("env: validation environment unavailable")
+		return "", fmt.Errorf("env: provider environment unavailable")
 	}
 	if len(e.AllowedEnv) == 0 {
-		return "", fmt.Errorf("env: no validation env allowlist configured (use --validation-env-vars)")
+		return "", fmt.Errorf("env: no provider env allowlist configured (use --provider-env-vars)")
 	}
 	if _, ok := e.AllowedEnv[name]; !ok {
-		return "", fmt.Errorf("env: %q not in validation env allowlist", name)
+		return "", fmt.Errorf("env: %q not in provider env allowlist", name)
 	}
 	return os.Getenv(name), nil
 }

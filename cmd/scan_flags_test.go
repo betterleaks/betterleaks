@@ -25,9 +25,10 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"max-decode-depth",
 		"max-archive-depth",
 		"validation",
+		"analysis",
 		"validation-status",
-		"validation-workers",
-		"validation-debug",
+		"provider-workers",
+		"provider-debug",
 		"diagnostics",
 		"diagnostics-dir",
 	}
@@ -55,12 +56,12 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 
 	sharedWithValidate := []string{
 		"jsonl",
-		"validation-timeout",
-		"validation-max-requests",
-		"validation-rps",
-		"validation-rps-rule",
+		"provider-timeout",
+		"provider-max-requests",
+		"provider-rps",
+		"provider-rps-rule",
 		"validation-extract-empty",
-		"validation-env-vars",
+		"provider-env-vars",
 	}
 	for _, name := range sharedWithValidate {
 		require.False(t, nodeHasFlag(parser.Model.Node, name), name)
@@ -68,6 +69,17 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		require.True(t, nodeHasFlag(validateNode, name), name)
 		for _, node := range scanNodes {
 			require.True(t, nodeHasFlag(node, name), "%s: %s", node.Name, name)
+		}
+	}
+
+	for _, deprecated := range []string{
+		"validation-workers", "validation-debug", "validation-timeout",
+		"validation-max-requests", "validation-rps", "validation-rps-rule",
+		"validation-env-vars",
+	} {
+		require.False(t, nodeHasFlag(validateNode, deprecated), deprecated)
+		for _, node := range scanNodes {
+			require.False(t, nodeHasFlag(node, deprecated), "%s: %s", node.Name, deprecated)
 		}
 	}
 }

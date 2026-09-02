@@ -53,6 +53,10 @@ type Rule struct {
 	// ValidateExpr is the raw expression used for secret validation.
 	ValidateExpr string
 
+	// AnalyzeExpr is the raw expression used to enrich a valid credential with
+	// identity and provider-neutral capabilities.
+	AnalyzeExpr string
+
 	// Filter is an expression evaluated against attributes + finding per regex match.
 	// Returns true = skip (discard this finding); false = keep.
 	Filter string
@@ -106,6 +110,9 @@ func (r *Rule) Validate() error {
 	}
 	if r.Regex != nil && r.SecretGroup > r.Regex.NumSubexp() {
 		return fmt.Errorf("%s: invalid regex secret group %d, max regex secret group %d", r.RuleID, r.SecretGroup, r.Regex.NumSubexp())
+	}
+	if strings.TrimSpace(r.AnalyzeExpr) != "" && strings.TrimSpace(r.ValidateExpr) == "" {
+		return fmt.Errorf("%s: analyze expression requires a validate expression", r.RuleID)
 	}
 
 	seenComponents := make(map[string]struct{}, len(r.Components))

@@ -35,6 +35,7 @@ type Finding struct {
 
 	Location   Location   `json:"location"`
 	Validation Validation `json:"validation,omitzero"`
+	Analysis   Analysis   `json:"analysis,omitzero"`
 
 	// ComponentSets holds the Cartesian-product combinations of component findings.
 	// Each set is one complete group of components that can be validated independently.
@@ -50,8 +51,8 @@ type Finding struct {
 }
 
 // MarshalJSON omits attributes that exist only to coordinate the scanning
-// pipeline. They remain available on the in-memory finding for filters and
-// validation expressions, but are not part of the report schema.
+// pipeline. They remain available on the in-memory finding for filters,
+// validation, and analysis expressions, but are not part of the report schema.
 func (f Finding) MarshalJSON() ([]byte, error) {
 	type wireFinding Finding
 
@@ -98,6 +99,7 @@ func (v Validation) IsZero() bool {
 type ComponentSet struct {
 	Components []*ComponentFinding `json:"components"`
 	Validation Validation          `json:"validation,omitzero"`
+	Analysis   Analysis            `json:"analysis,omitzero"`
 }
 
 type ComponentFinding struct {
@@ -167,6 +169,15 @@ func cartesianFindings(ruleOrder []string, byRule map[string][]*ComponentFinding
 
 // Redact removes sensitive information from a finding.
 func (f *Finding) Redact(percent uint) {
+	analysisSecrets := []string{f.Secret}
+	for _, set := range f.ComponentSets {
+		for _, component := range set.Components {
+			if component != nil {
+				analysisSecrets = append(analysisSecrets, component.Secret)
+			}
+		}
+	}
+
 	secret := MaskSecret(f.Secret, percent)
 	if percent >= 100 {
 		secret = "REDACTED"
@@ -200,6 +211,11 @@ func (f *Finding) Redact(percent uint) {
 			}
 			comp.Secret = compSecret
 		}
+	}
+
+	f.Analysis = SanitizeAnalysis(f.Analysis, analysisSecrets)
+	for i := range f.ComponentSets {
+		f.ComponentSets[i].Analysis = SanitizeAnalysis(f.ComponentSets[i].Analysis, analysisSecrets)
 	}
 }
 
@@ -341,7 +357,7 @@ func (f *Finding) SetAttributes(attrs map[string]string) {
 }
 
 // ToExprMap returns the fixed-shape map[string]string used as the `finding`
-// variable in filter and validation expressions.
+// variable in filter, validation, and analysis expressions.
 func (f *Finding) ToExprMap() map[string]string {
 	return map[string]string{
 		"secret":      f.Secret,

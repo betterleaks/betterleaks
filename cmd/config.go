@@ -165,6 +165,11 @@ func validateConfig(cfg *configpkg.Config) error {
 				return fmt.Errorf("compiling rule %s validation: %w", id, err)
 			}
 		}
+		if rule.AnalyzeExpr != "" {
+			if _, err := rt.CompileAnalysis(rule.AnalyzeExpr); err != nil {
+				return fmt.Errorf("compiling rule %s analysis: %w", id, err)
+			}
+		}
 	}
 	return nil
 }
@@ -259,6 +264,7 @@ type ruleView struct {
 	Confidence  string          `toml:"confidence,omitempty"`
 	Components  []componentView `toml:"components,omitempty"`
 	Validate    string          `toml:"validate,omitempty"`
+	Analyze     string          `toml:"analyze,omitempty"`
 	SkipReport  bool            `toml:"skipReport,omitempty"`
 	Filter      string          `toml:"filter,omitempty"`
 }
@@ -289,6 +295,7 @@ func renderConfig(cfg *configpkg.Config) configView {
 			Specificity: renderedSpecificity(rule.Specificity),
 			Confidence:  rule.Confidence,
 			Validate:    rule.ValidateExpr,
+			Analyze:     rule.AnalyzeExpr,
 			SkipReport:  rule.SkipReport,
 			Filter:      rule.Filter,
 		}
@@ -328,6 +335,7 @@ func renderConfigTOML(view configView) string {
 		writeInt(&b, "specificity", rule.Specificity)
 		writeString(&b, "confidence", rule.Confidence)
 		writeString(&b, "validate", rule.Validate)
+		writeString(&b, "analyze", rule.Analyze)
 		writeBool(&b, "skipReport", rule.SkipReport)
 		writeString(&b, "filter", rule.Filter)
 		writeComponents(&b, rule.Components)

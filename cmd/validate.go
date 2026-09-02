@@ -23,14 +23,14 @@ import (
 const maxValidateCredentialInputBytes = 1 << 20
 
 type ValidateCmd struct {
-	ValidationRuntimeFlags `embed:""`
-	RuleID                 string   `name:"rule-id" help:"Rule whose validation expression should validate the secret."`
-	Component              []string `sep:"none" help:"Credential component as rule-id=secret (repeatable)."`
-	Capture                []string `sep:"none" help:"Validation capture as name=value; use rule-id:name=value for a component (repeatable)."`
-	List                   bool     `help:"List rules that support direct validation."`
-	Simple                 bool     `help:"Print only the validation status."`
-	JSONL                  bool     `name:"jsonl" help:"Print the validation result as JSONL."`
-	Secret                 string   `arg:"" optional:"" help:"Secret to validate; read from stdin when omitted."`
+	ProviderRuntimeFlags `embed:""`
+	RuleID               string   `name:"rule-id" help:"Rule whose validation expression should validate the secret."`
+	Component            []string `sep:"none" help:"Credential component as rule-id=secret (repeatable)."`
+	Capture              []string `sep:"none" help:"Validation capture as name=value; use rule-id:name=value for a component (repeatable)."`
+	List                 bool     `help:"List rules that support direct validation."`
+	Simple               bool     `help:"Print only the validation status."`
+	JSONL                bool     `name:"jsonl" help:"Print the validation result as JSONL."`
+	Secret               string   `arg:"" optional:"" help:"Secret to validate; read from stdin when omitted."`
 }
 
 func (*ValidateCmd) Help() string {
@@ -87,7 +87,7 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 	if err != nil {
 		return err
 	}
-	if err := configureCredentialRuntime(options.ValidationRuntimeFlags, rt); err != nil {
+	if err := configureCredentialRuntime(options.ProviderRuntimeFlags, rt); err != nil {
 		return err
 	}
 
@@ -372,29 +372,29 @@ func readLimitedValidateStdin(stdin io.Reader) ([]byte, error) {
 	return data, nil
 }
 
-func configureCredentialRuntime(flags ValidationRuntimeFlags, rt *exprruntime.Runtime) error {
-	rt.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(flags.ValidationEnvVars)
+func configureCredentialRuntime(flags ProviderRuntimeFlags, rt *exprruntime.Runtime) error {
+	rt.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(flags.ProviderEnvVars)
 
-	if flags.ValidationTimeout < 0 {
-		return errors.New("--validation-timeout must be non-negative")
+	if flags.ProviderTimeout < 0 {
+		return errors.New("--provider-timeout must be non-negative")
 	}
-	if flags.ValidationTimeout > 0 {
-		rt.SetHTTPClient(&http.Client{Timeout: flags.ValidationTimeout})
+	if flags.ProviderTimeout > 0 {
+		rt.SetHTTPClient(&http.Client{Timeout: flags.ProviderTimeout})
 	}
 
-	if flags.ValidationMaxRequests < 0 {
-		return errors.New("validation maximum requests: must be non-negative")
+	if flags.ProviderMaxRequests < 0 {
+		return errors.New("provider maximum requests: must be non-negative")
 	}
-	if err := validateValidationRPS(flags.ValidationRPS); err != nil {
-		return fmt.Errorf("--validation-rps: %w", err)
+	if err := validateProviderRPS(flags.ProviderRPS); err != nil {
+		return fmt.Errorf("--provider-rps: %w", err)
 	}
-	ruleRPS, err := parseValidationRuleRPS(flags.ValidationRPSRule)
+	ruleRPS, err := parseProviderRuleRPS(flags.ProviderRPSRule)
 	if err != nil {
-		return fmt.Errorf("--validation-rps-rule: %w", err)
+		return fmt.Errorf("--provider-rps-rule: %w", err)
 	}
 	if err := rt.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
-		MaxRequestsPerTarget:    flags.ValidationMaxRequests,
-		RequestsPerSecond:       flags.ValidationRPS,
+		MaxRequestsPerTarget:    flags.ProviderMaxRequests,
+		RequestsPerSecond:       flags.ProviderRPS,
 		RequestsPerSecondByRule: ruleRPS,
 	}); err != nil {
 		return err

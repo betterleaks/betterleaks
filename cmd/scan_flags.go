@@ -29,11 +29,12 @@ type ScanFlags struct {
 	MaxDecodeDepth      int        `name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
 	MaxArchiveDepth     int        `name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
 
-	Validation             bool   `help:"Enable validation of findings against live APIs."`
-	ValidationStatus       string `name:"validation-status" help:"Comma-separated validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none."`
-	ValidationWorkers      int    `name:"validation-workers" default:"10" help:"Number of concurrent validation workers."`
-	ValidationDebug        bool   `name:"validation-debug" help:"Include validation HTTP debug metadata in output."`
-	ValidationRuntimeFlags `embed:""`
+	Validation           bool   `help:"Enable validation of findings against live APIs."`
+	Analysis             bool   `help:"Validate findings and analyze valid credentials for identity and capabilities."`
+	ValidationStatus     string `name:"validation-status" help:"Comma-separated validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none."`
+	ProviderWorkers      int    `name:"provider-workers" default:"10" help:"Number of concurrent provider workers."`
+	ProviderDebug        bool   `name:"provider-debug" help:"Include provider HTTP debug metadata in output."`
+	ProviderRuntimeFlags `embed:""`
 
 	Diagnostics    string `help:"Enable diagnostics: http or a comma-separated list of cpu,mem,trace,rules,rules-csv."`
 	DiagnosticsDir string `name:"diagnostics-dir" help:"Directory for diagnostics output (default: ./diagnostics)."`
@@ -46,31 +47,32 @@ func (f ScanFlags) Validate() error {
 	if _, err := confidence.Parse(f.Confidence); err != nil {
 		return err
 	}
-	return f.ValidationRuntimeFlags.Validate()
+	return f.ProviderRuntimeFlags.Validate()
 }
 
-// ValidationRuntimeFlags are shared by scan-time validation and validate.
-type ValidationRuntimeFlags struct {
-	ValidationTimeout      time.Duration `name:"validation-timeout" default:"10s" help:"Per-request timeout for validation."`
-	ValidationMaxRequests  int           `name:"validation-max-requests" help:"Maximum validation requests sent to each provider target (0 = unlimited)."`
-	ValidationRPS          float64       `name:"validation-rps" help:"Global validation requests per second (0 = unlimited)."`
-	ValidationRPSRule      []string      `name:"validation-rps-rule" help:"Rule-specific validation request rate as RULE=RPS (repeatable)."`
+// ProviderRuntimeFlags bound active requests made by validation and analysis.
+// The validation-* aliases remain accepted for v1 CLI compatibility.
+type ProviderRuntimeFlags struct {
+	ProviderTimeout        time.Duration `name:"provider-timeout" default:"10s" help:"Per-request timeout for provider checks."`
+	ProviderMaxRequests    int           `name:"provider-max-requests" help:"Maximum requests sent to each provider target (0 = unlimited)."`
+	ProviderRPS            float64       `name:"provider-rps" help:"Global provider requests per second (0 = unlimited)."`
+	ProviderRPSRule        []string      `name:"provider-rps-rule" help:"Rule-specific provider request rate as RULE=RPS (repeatable)."`
 	ValidationExtractEmpty bool          `name:"validation-extract-empty" help:"Include empty values from extractors in output."`
-	ValidationEnvVars      []string      `name:"validation-env-vars" help:"Environment variable names the validation env.get(...) binding may read (repeatable)."`
+	ProviderEnvVars        []string      `name:"provider-env-vars" help:"Environment variable names provider Expr programs may read (repeatable)."`
 }
 
-func (f ValidationRuntimeFlags) Validate() error {
-	if f.ValidationTimeout < 0 {
-		return fmt.Errorf("--validation-timeout must be non-negative")
+func (f ProviderRuntimeFlags) Validate() error {
+	if f.ProviderTimeout < 0 {
+		return fmt.Errorf("--provider-timeout must be non-negative")
 	}
-	if f.ValidationMaxRequests < 0 {
-		return fmt.Errorf("--validation-max-requests must be non-negative")
+	if f.ProviderMaxRequests < 0 {
+		return fmt.Errorf("--provider-max-requests must be non-negative")
 	}
-	if err := validateValidationRPS(f.ValidationRPS); err != nil {
-		return fmt.Errorf("--validation-rps: %w", err)
+	if err := validateProviderRPS(f.ProviderRPS); err != nil {
+		return fmt.Errorf("--provider-rps: %w", err)
 	}
-	if _, err := parseValidationRuleRPS(f.ValidationRPSRule); err != nil {
-		return fmt.Errorf("--validation-rps-rule: %w", err)
+	if _, err := parseProviderRuleRPS(f.ProviderRPSRule); err != nil {
+		return fmt.Errorf("--provider-rps-rule: %w", err)
 	}
 	return nil
 }

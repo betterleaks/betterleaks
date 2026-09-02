@@ -306,6 +306,11 @@ func runCLIWithParser(args []string, runtime *commandRuntime, cli *CLI, parser *
 	if len(args) == 0 {
 		args = []string{"--help"}
 	}
+	var err error
+	args, err = normalizeProviderFlagAliases(args)
+	if err != nil {
+		return err
+	}
 	parsed, err := parser.Parse(args)
 	if err != nil {
 		return err
@@ -362,12 +367,12 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 		logging.Fatal().Err(err).Msg("unable to apply rule selection")
 	}
 
-	if err := validateValidationRPS(flags.ValidationRPS); err != nil {
-		logging.Fatal().Err(err).Msg("validation-rps")
+	if err := validateProviderRPS(flags.ProviderRPS); err != nil {
+		logging.Fatal().Err(err).Msg("provider-rps")
 	}
-	validationRPSByRule, err := parseValidationRuleRPS(flags.ValidationRPSRule)
+	providerRPSByRule, err := parseProviderRuleRPS(flags.ProviderRPSRule)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("validation-rps-rule")
+		logging.Fatal().Err(err).Msg("provider-rps-rule")
 	}
 	detectorOptions, err := ignoreOptions(runtime, flags.IgnoreFile, source)
 	if err != nil {
@@ -385,30 +390,38 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	if diagnosticsManager != nil && diagnosticsManager.RuleTimings != nil {
 		detectorOptions = append(detectorOptions, detect.WithRuleTimings(diagnosticsManager.RuleTimings))
 	}
-	if flags.Validation {
+	if flags.Validation || flags.Analysis {
 		statuses, statusErr := parseValidationStatuses(flags.ValidationStatus)
 		if statusErr != nil {
 			logging.Fatal().Err(statusErr).Msg("validation-status")
 		}
-		detectorOptions = append(detectorOptions, detect.WithValidation(detect.ValidationOptions{
-			Debug:                   flags.ValidationDebug,
-			Workers:                 flags.ValidationWorkers,
+		providerOptions := detect.ProviderOptions{
+			Debug:                   flags.ProviderDebug,
+			Workers:                 flags.ProviderWorkers,
 			ExtractEmpty:            flags.ValidationExtractEmpty,
 			Statuses:                statuses,
-			MaxRequestsPerTarget:    flags.ValidationMaxRequests,
-			RequestsPerSecond:       flags.ValidationRPS,
-			RequestsPerSecondByRule: validationRPSByRule,
-			ValidationEnvVars:       flags.ValidationEnvVars,
-			Timeout:                 flags.ValidationTimeout,
-		}))
+			MaxRequestsPerTarget:    flags.ProviderMaxRequests,
+			RequestsPerSecond:       flags.ProviderRPS,
+			RequestsPerSecondByRule: providerRPSByRule,
+			ValidationEnvVars:       flags.ProviderEnvVars,
+			Timeout:                 flags.ProviderTimeout,
+		}
+		if flags.Analysis {
+			detectorOptions = append(detectorOptions, detect.WithAnalysis(providerOptions))
+		} else {
+			detectorOptions = append(detectorOptions, detect.WithValidation(providerOptions))
+		}
 	}
 	detectorOptions = append(detectorOptions, extraOptions...)
 	detector, err := detect.NewDetector(cfg, detectorOptions...)
 	if err != nil {
 		logging.Fatal().Err(err).Msg("unable to create detector")
 	}
-	if flags.Validation && !detector.ValidationEnabled() {
+	if (flags.Validation || flags.Analysis) && !detector.ValidationEnabled() {
 		logging.Warn().Msg("validation enabled but no rules have validation expressions")
+	}
+	if flags.Analysis && !detector.AnalysisEnabled() {
+		logging.Warn().Msg("analysis enabled but no rules have analysis expressions")
 	}
 
 	// set color flag at first

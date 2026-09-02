@@ -250,11 +250,49 @@ validate = '''
 let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
-    "result": "valid"
+    "result": "valid",
+    "id": (r.json?.id ?? ""),
+    "email": (r.json?.email ?? ""),
+    "scopes": (r.json?.scopes ?? [])
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let scopes = metadata["scopes"] ?? [];
+let read_scopes = [
+  "data.records:read",
+  "data.recordComments:read",
+  "schema.bases:read",
+  "user.email:read",
+  "enterprise.user:read",
+  "enterprise.groups:read",
+  "enterprise.scim.usersAndGroups:read"
+];
+let write_scopes = [
+  "data.records:write",
+  "data.recordComments:write",
+  "schema.bases:write",
+  "webhook:manage"
+];
+let manage_user_scopes = [
+  "enterprise.user:write",
+  "enterprise.groups:manage",
+  "enterprise.scim.usersAndGroups:manage"
+];
+{
+  "identity": {
+    "id": metadata["id"] ?? "",
+    "email": metadata["email"] ?? ""
+  },
+  "capabilities": flatten([
+    any(scopes, {# in read_scopes}) ? ["read"] : [],
+    any(scopes, {# in write_scopes}) ? ["write"] : [],
+    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
+  ])
+}
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -273,11 +311,49 @@ validate = '''
 let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
-    "result": "valid"
+    "result": "valid",
+    "id": (r.json?.id ?? ""),
+    "email": (r.json?.email ?? ""),
+    "scopes": (r.json?.scopes ?? [])
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let scopes = metadata["scopes"] ?? [];
+let read_scopes = [
+  "data.records:read",
+  "data.recordComments:read",
+  "schema.bases:read",
+  "user.email:read",
+  "enterprise.user:read",
+  "enterprise.groups:read",
+  "enterprise.scim.usersAndGroups:read"
+];
+let write_scopes = [
+  "data.records:write",
+  "data.recordComments:write",
+  "schema.bases:write",
+  "webhook:manage"
+];
+let manage_user_scopes = [
+  "enterprise.user:write",
+  "enterprise.groups:manage",
+  "enterprise.scim.usersAndGroups:manage"
+];
+{
+  "identity": {
+    "id": metadata["id"] ?? "",
+    "email": metadata["email"] ?? ""
+  },
+  "capabilities": flatten([
+    any(scopes, {# in read_scopes}) ? ["read"] : [],
+    any(scopes, {# in write_scopes}) ? ["write"] : [],
+    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
+  ])
+}
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -5411,13 +5487,71 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
+      "id": string(r.json?.id ?? ""),
       "username": (r.json?.login ?? ""),
       "name": (r.json?.name ?? ""),
-      "scopes": (r.headers["x-oauth-scopes"] ?? "")
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? ""),
+      "sso": (r.headers["x-github-sso"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let raw_scopes = metadata["scopes"] ?? "";
+let scopes = map(split(raw_scopes, ","), trim(#));
+let read_scopes = [
+  "gist",
+  "notifications",
+  "project",
+  "public_repo",
+  "read:org",
+  "read:packages",
+  "read:project",
+  "read:public_key",
+  "read:repo_hook",
+  "read:ssh_signing_key",
+  "read:user",
+  "repo",
+  "repo:status",
+  "repo_deployment",
+  "security_events",
+  "user",
+  "user:email"
+];
+let write_scopes = [
+  "delete:packages",
+  "gist",
+  "notifications",
+  "project",
+  "public_repo",
+  "repo",
+  "repo:status",
+  "repo_deployment",
+  "workflow",
+  "write:packages"
+];
+let credential_scopes = [
+  "admin:gpg_key",
+  "admin:public_key",
+  "admin:ssh_signing_key"
+];
+{
+  "reason": raw_scopes == "" ? "GitHub did not return classic OAuth scope metadata" : "",
+  "identity": {
+    "id": metadata["id"] ?? "",
+    "username": metadata["username"] ?? "",
+    "name": metadata["name"] ?? "",
+    "email": metadata["email"] ?? ""
+  },
+  "capabilities": flatten([
+    any(scopes, {# in read_scopes}) ? ["read"] : [],
+    any(scopes, {# in write_scopes}) ? ["write"] : [],
+    any(scopes, {# in credential_scopes}) ? ["create_credentials"] : []
+  ])
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5438,13 +5572,71 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
+      "id": string(r.json?.id ?? ""),
       "username": (r.json?.login ?? ""),
       "name": (r.json?.name ?? ""),
-      "scopes": (r.headers["x-oauth-scopes"] ?? "")
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? ""),
+      "sso": (r.headers["x-github-sso"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let raw_scopes = metadata["scopes"] ?? "";
+let scopes = map(split(raw_scopes, ","), trim(#));
+let read_scopes = [
+  "gist",
+  "notifications",
+  "project",
+  "public_repo",
+  "read:org",
+  "read:packages",
+  "read:project",
+  "read:public_key",
+  "read:repo_hook",
+  "read:ssh_signing_key",
+  "read:user",
+  "repo",
+  "repo:status",
+  "repo_deployment",
+  "security_events",
+  "user",
+  "user:email"
+];
+let write_scopes = [
+  "delete:packages",
+  "gist",
+  "notifications",
+  "project",
+  "public_repo",
+  "repo",
+  "repo:status",
+  "repo_deployment",
+  "workflow",
+  "write:packages"
+];
+let credential_scopes = [
+  "admin:gpg_key",
+  "admin:public_key",
+  "admin:ssh_signing_key"
+];
+{
+  "reason": raw_scopes == "" ? "GitHub did not return classic OAuth scope metadata" : "",
+  "identity": {
+    "id": metadata["id"] ?? "",
+    "username": metadata["username"] ?? "",
+    "name": metadata["name"] ?? "",
+    "email": metadata["email"] ?? ""
+  },
+  "capabilities": flatten([
+    any(scopes, {# in read_scopes}) ? ["read"] : [],
+    any(scopes, {# in write_scopes}) ? ["write"] : [],
+    any(scopes, {# in credential_scopes}) ? ["create_credentials"] : []
+  ])
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5465,13 +5657,71 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
+      "id": string(r.json?.id ?? ""),
       "username": (r.json?.login ?? ""),
       "name": (r.json?.name ?? ""),
-      "scopes": (r.headers["x-oauth-scopes"] ?? "")
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? ""),
+      "sso": (r.headers["x-github-sso"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let raw_scopes = metadata["scopes"] ?? "";
+let scopes = map(split(raw_scopes, ","), trim(#));
+let read_scopes = [
+  "gist",
+  "notifications",
+  "project",
+  "public_repo",
+  "read:org",
+  "read:packages",
+  "read:project",
+  "read:public_key",
+  "read:repo_hook",
+  "read:ssh_signing_key",
+  "read:user",
+  "repo",
+  "repo:status",
+  "repo_deployment",
+  "security_events",
+  "user",
+  "user:email"
+];
+let write_scopes = [
+  "delete:packages",
+  "gist",
+  "notifications",
+  "project",
+  "public_repo",
+  "repo",
+  "repo:status",
+  "repo_deployment",
+  "workflow",
+  "write:packages"
+];
+let credential_scopes = [
+  "admin:gpg_key",
+  "admin:public_key",
+  "admin:ssh_signing_key"
+];
+{
+  "reason": raw_scopes == "" ? "GitHub did not return classic OAuth scope metadata" : "",
+  "identity": {
+    "id": metadata["id"] ?? "",
+    "username": metadata["username"] ?? "",
+    "name": metadata["name"] ?? "",
+    "email": metadata["email"] ?? ""
+  },
+  "capabilities": flatten([
+    any(scopes, {# in read_scopes}) ? ["read"] : [],
+    any(scopes, {# in write_scopes}) ? ["write"] : [],
+    any(scopes, {# in credential_scopes}) ? ["create_credentials"] : []
+  ])
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5493,9 +5743,12 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
+      "id": string(r.json?.id ?? ""),
       "username": (r.json?.login ?? ""),
       "name": (r.json?.name ?? ""),
-      "scopes": (r.headers["x-oauth-scopes"] ?? "")
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? ""),
+      "sso": (r.headers["x-github-sso"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
@@ -5640,15 +5893,66 @@ regex = '''glpat-[\w-]{20}'''
 confidence = "high"
 keywords = ["glpat-"]
 validate = '''
-let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+  let r = http.get(base_url + "/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "name": (r.json?.name ?? "")
+    "token_id": string(int(r.json?.id ?? 0)),
+    "token_name": (r.json?.name ?? ""),
+    "user_id": string(int(r.json?.user_id ?? 0)),
+    "scopes": (r.json?.scopes ?? []),
+    "granular": (r.json?.granular ?? false),
+    "granular_scopes": (r.json?.granular_scopes ?? [])
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let scopes = metadata["scopes"] ?? [];
+let granular_scopes =
+  size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
+  !((metadata["granular"] ?? false) || "granular" in scopes) || (metadata["token_id"] ?? "") in ["", "0"] ? [] : (
+  let headers = {"PRIVATE-TOKEN": finding["secret"]};
+  let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+  let token_id = metadata["token_id"];
+  let detail = http.get(base_url + "/api/v4/personal_access_tokens/" + token_id, headers);
+  let detail_scopes = detail.status == 200 ? (detail.json?.granular_scopes ?? []) : [];
+  size(detail_scopes) > 0 ? detail_scopes : (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
+    let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&per_page=100", headers);
+    let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
+    matching_token?.granular_scopes ?? []
+  )
+);
+let permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
+let can_read =
+  "api" in scopes ||
+  startsWithAny(scopes, ["read_", "write_"]) ||
+  startsWithAny(permissions, ["download_", "read_"]);
+let can_write =
+  "api" in scopes || "manage_runner" in scopes ||
+  startsWithAny(scopes, ["write_"]) ||
+  startsWithAny(permissions, [
+    "add_", "approve_", "archive_", "assign_", "cancel_", "create_",
+    "delete_", "disable_", "enable_", "execute_", "import_", "manage_",
+    "merge_", "move_", "publish_", "renew_", "restore_", "retry_",
+    "revoke_", "rotate_", "run_", "set_", "stop_", "transfer_",
+    "trigger_", "unarchive_", "update_", "upload_", "write_"
+  ]);
+{
+  "reason": ((metadata["granular"] ?? false) || "granular" in scopes) && size(granular_scopes) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "identity": {
+    "id": metadata["user_id"] ?? ""
+  },
+  "capabilities": flatten([
+    can_read ? ["read"] : [],
+    can_write ? ["write"] : [],
+    ("create_runner" in scopes || "self_rotate" in scopes) ? ["create_credentials"] : [],
+    ("sudo" in scopes || "admin_mode" in scopes) ? ["admin"] : []
+  ])
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5664,15 +5968,66 @@ regex = '''\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b'''
 confidence = "high"
 keywords = ["glpat-"]
 validate = '''
-let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+  let r = http.get(base_url + "/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "name": (r.json?.name ?? "")
+    "token_id": string(int(r.json?.id ?? 0)),
+    "token_name": (r.json?.name ?? ""),
+    "user_id": string(int(r.json?.user_id ?? 0)),
+    "scopes": (r.json?.scopes ?? []),
+    "granular": (r.json?.granular ?? false),
+    "granular_scopes": (r.json?.granular_scopes ?? [])
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let scopes = metadata["scopes"] ?? [];
+let granular_scopes =
+  size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
+  !((metadata["granular"] ?? false) || "granular" in scopes) || (metadata["token_id"] ?? "") in ["", "0"] ? [] : (
+  let headers = {"PRIVATE-TOKEN": finding["secret"]};
+  let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+  let token_id = metadata["token_id"];
+  let detail = http.get(base_url + "/api/v4/personal_access_tokens/" + token_id, headers);
+  let detail_scopes = detail.status == 200 ? (detail.json?.granular_scopes ?? []) : [];
+  size(detail_scopes) > 0 ? detail_scopes : (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
+    let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&per_page=100", headers);
+    let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
+    matching_token?.granular_scopes ?? []
+  )
+);
+let permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
+let can_read =
+  "api" in scopes ||
+  startsWithAny(scopes, ["read_", "write_"]) ||
+  startsWithAny(permissions, ["download_", "read_"]);
+let can_write =
+  "api" in scopes || "manage_runner" in scopes ||
+  startsWithAny(scopes, ["write_"]) ||
+  startsWithAny(permissions, [
+    "add_", "approve_", "archive_", "assign_", "cancel_", "create_",
+    "delete_", "disable_", "enable_", "execute_", "import_", "manage_",
+    "merge_", "move_", "publish_", "renew_", "restore_", "retry_",
+    "revoke_", "rotate_", "run_", "set_", "stop_", "transfer_",
+    "trigger_", "unarchive_", "update_", "upload_", "write_"
+  ]);
+{
+  "reason": ((metadata["granular"] ?? false) || "granular" in scopes) && size(granular_scopes) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "identity": {
+    "id": metadata["user_id"] ?? ""
+  },
+  "capabilities": flatten([
+    can_read ? ["read"] : [],
+    can_write ? ["write"] : [],
+    ("create_runner" in scopes || "self_rotate" in scopes) ? ["create_credentials"] : [],
+    ("sudo" in scopes || "admin_mode" in scopes) ? ["admin"] : []
+  ])
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -5688,15 +6043,66 @@ regex = '''\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}\.[0-9a-z]{9}\b'''
 confidence = "high"
 keywords = ["glpat-"]
 validate = '''
-let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+  let r = http.get(base_url + "/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "name": (r.json?.name ?? "")
+    "token_id": string(int(r.json?.id ?? 0)),
+    "token_name": (r.json?.name ?? ""),
+    "user_id": string(int(r.json?.user_id ?? 0)),
+    "scopes": (r.json?.scopes ?? []),
+    "granular": (r.json?.granular ?? false),
+    "granular_scopes": (r.json?.granular_scopes ?? [])
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let scopes = metadata["scopes"] ?? [];
+let granular_scopes =
+  size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
+  !((metadata["granular"] ?? false) || "granular" in scopes) || (metadata["token_id"] ?? "") in ["", "0"] ? [] : (
+  let headers = {"PRIVATE-TOKEN": finding["secret"]};
+  let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+  let token_id = metadata["token_id"];
+  let detail = http.get(base_url + "/api/v4/personal_access_tokens/" + token_id, headers);
+  let detail_scopes = detail.status == 200 ? (detail.json?.granular_scopes ?? []) : [];
+  size(detail_scopes) > 0 ? detail_scopes : (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
+    let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&per_page=100", headers);
+    let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
+    matching_token?.granular_scopes ?? []
+  )
+);
+let permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
+let can_read =
+  "api" in scopes ||
+  startsWithAny(scopes, ["read_", "write_"]) ||
+  startsWithAny(permissions, ["download_", "read_"]);
+let can_write =
+  "api" in scopes || "manage_runner" in scopes ||
+  startsWithAny(scopes, ["write_"]) ||
+  startsWithAny(permissions, [
+    "add_", "approve_", "archive_", "assign_", "cancel_", "create_",
+    "delete_", "disable_", "enable_", "execute_", "import_", "manage_",
+    "merge_", "move_", "publish_", "renew_", "restore_", "retry_",
+    "revoke_", "rotate_", "run_", "set_", "stop_", "transfer_",
+    "trigger_", "unarchive_", "update_", "upload_", "write_"
+  ]);
+{
+  "reason": ((metadata["granular"] ?? false) || "granular" in scopes) && size(granular_scopes) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "identity": {
+    "id": metadata["user_id"] ?? ""
+  },
+  "capabilities": flatten([
+    can_read ? ["read"] : [],
+    can_write ? ["write"] : [],
+    ("create_runner" in scopes || "self_rotate" in scopes) ? ["create_credentials"] : [],
+    ("sudo" in scopes || "admin_mode" in scopes) ? ["admin"] : []
+  ])
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -6125,7 +6531,12 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "username": (r.json?.name ?? "")
+    "id": (r.json?.id ?? ""),
+    "username": (r.json?.name ?? ""),
+    "name": (r.json?.fullname ?? ""),
+    "email": (r.json?.email ?? ""),
+    "orgs": (r.json?.orgs ?? []),
+    "auth": (r.json?.auth ?? {})
   } : r.status == 401 && (r.body contains "expired") ? {
     "result": "revoked",
     "reason": "Token expired"
@@ -6133,6 +6544,30 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let auth = metadata["auth"] ?? {};
+let access_token = auth["accessToken"] ?? {};
+let role = access_token["role"] ?? "";
+let orgs = metadata["orgs"] ?? [];
+{
+  "reason": role in ["read", "write"] ? "" : "Fine-grained or unknown token role was not expanded",
+  "identity": {
+    "id": string(metadata["id"] ?? ""),
+    "username": metadata["username"] ?? "",
+    "name": metadata["name"] ?? "",
+    "email": metadata["email"] ?? "",
+    "account": size(orgs) == 1 ? {
+      "id": string(orgs[0]?.id ?? ""),
+      "name": orgs[0]?.name ?? ""
+    } : {}
+  },
+  "capabilities": flatten([
+    role in ["read", "write"] ? ["read"] : [],
+    role == "write" ? ["write"] : []
+  ])
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 2.0
@@ -6152,7 +6587,12 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "username": (r.json?.name ?? "")
+    "id": (r.json?.id ?? ""),
+    "username": (r.json?.name ?? ""),
+    "name": (r.json?.fullname ?? ""),
+    "email": (r.json?.email ?? ""),
+    "orgs": (r.json?.orgs ?? []),
+    "auth": (r.json?.auth ?? {})
   } : r.status == 401 && (r.body contains "expired") ? {
     "result": "revoked",
     "reason": "Token expired"
@@ -6160,6 +6600,30 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let auth = metadata["auth"] ?? {};
+let access_token = auth["accessToken"] ?? {};
+let role = access_token["role"] ?? "";
+let orgs = metadata["orgs"] ?? [];
+{
+  "reason": role in ["read", "write"] ? "" : "Fine-grained or unknown token role was not expanded",
+  "identity": {
+    "id": string(metadata["id"] ?? ""),
+    "username": metadata["username"] ?? "",
+    "name": metadata["name"] ?? "",
+    "email": metadata["email"] ?? "",
+    "account": size(orgs) == 1 ? {
+      "id": string(orgs[0]?.id ?? ""),
+      "name": orgs[0]?.name ?? ""
+    } : {}
+  },
+  "capabilities": flatten([
+    role in ["read", "write"] ? ["read"] : [],
+    role == "write" ? ["write"] : []
+  ])
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 2.0
@@ -9410,6 +9874,82 @@ description = "Identified a Slack Bot token, which may compromise bot integratio
 regex = '''xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*'''
 confidence = "high"
 keywords = ["xoxb"]
+validate = '''
+let r = http.post("https://slack.com/api/auth.test", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+let provider_error = r.json?.error ?? "";
+r.status == 200 && (r.json?.ok ?? false) ? {
+  "result": "valid",
+  "team_id": (r.json?.team_id ?? ""),
+  "team": (r.json?.team ?? ""),
+  "enterprise_id": (r.json?.enterprise_id ?? ""),
+  "user_id": (r.json?.user_id ?? ""),
+  "user": (r.json?.user ?? ""),
+  "bot_id": (r.json?.bot_id ?? ""),
+  "scopes": (r.headers["x-oauth-scopes"] ?? "")
+} : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
+  "result": "revoked",
+  "reason": provider_error
+} : provider_error in ["invalid_auth", "not_authed"] || r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": provider_error == "" ? "Unauthorized" : provider_error
+} : {
+  "result": "unknown",
+  "reason": provider_error == "" ? "Unexpected provider response" : provider_error
+}
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let raw_scopes = metadata["scopes"] ?? "";
+let scopes = map(split(raw_scopes, ","), trim(#));
+let read_scopes = [
+  "channels:history",
+  "channels:read",
+  "files:read",
+  "groups:history",
+  "groups:read",
+  "im:history",
+  "mpim:history",
+  "reactions:read",
+  "search:read",
+  "users:read"
+];
+let write_scopes = [
+  "bookmarks:write",
+  "calls:write",
+  "channels:manage",
+  "chat:write",
+  "files:write",
+  "groups:write",
+  "reactions:write",
+  "reminders:write"
+];
+let manage_user_scopes = [
+  "admin.invites:write",
+  "admin.roles:write",
+  "admin.usergroups:write",
+  "admin.users:write",
+  "usergroups:write"
+];
+{
+  "reason": raw_scopes == "" ? "Slack did not return OAuth scope metadata" : "",
+  "identity": {
+    "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
+    "username": metadata["user"] ?? "",
+    "account": {
+      "id": metadata["team_id"] ?? "",
+      "name": metadata["team"] ?? ""
+    }
+  },
+  "capabilities": flatten([
+    any(scopes, {# in read_scopes}) ? ["read"] : [],
+    any(scopes, {# in write_scopes}) ? ["write"] : [],
+    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
+  ])
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
@@ -9452,6 +9992,82 @@ description = "Uncovered a Slack Legacy bot token, which could lead to compromis
 regex = '''xoxb-[0-9]{8,14}-[a-zA-Z0-9]{18,26}'''
 confidence = "high"
 keywords = ["xoxb"]
+validate = '''
+let r = http.post("https://slack.com/api/auth.test", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+let provider_error = r.json?.error ?? "";
+r.status == 200 && (r.json?.ok ?? false) ? {
+  "result": "valid",
+  "team_id": (r.json?.team_id ?? ""),
+  "team": (r.json?.team ?? ""),
+  "enterprise_id": (r.json?.enterprise_id ?? ""),
+  "user_id": (r.json?.user_id ?? ""),
+  "user": (r.json?.user ?? ""),
+  "bot_id": (r.json?.bot_id ?? ""),
+  "scopes": (r.headers["x-oauth-scopes"] ?? "")
+} : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
+  "result": "revoked",
+  "reason": provider_error
+} : provider_error in ["invalid_auth", "not_authed"] || r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": provider_error == "" ? "Unauthorized" : provider_error
+} : {
+  "result": "unknown",
+  "reason": provider_error == "" ? "Unexpected provider response" : provider_error
+}
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let raw_scopes = metadata["scopes"] ?? "";
+let scopes = map(split(raw_scopes, ","), trim(#));
+let read_scopes = [
+  "channels:history",
+  "channels:read",
+  "files:read",
+  "groups:history",
+  "groups:read",
+  "im:history",
+  "mpim:history",
+  "reactions:read",
+  "search:read",
+  "users:read"
+];
+let write_scopes = [
+  "bookmarks:write",
+  "calls:write",
+  "channels:manage",
+  "chat:write",
+  "files:write",
+  "groups:write",
+  "reactions:write",
+  "reminders:write"
+];
+let manage_user_scopes = [
+  "admin.invites:write",
+  "admin.roles:write",
+  "admin.usergroups:write",
+  "admin.users:write",
+  "usergroups:write"
+];
+{
+  "reason": raw_scopes == "" ? "Slack did not return OAuth scope metadata" : "",
+  "identity": {
+    "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
+    "username": metadata["user"] ?? "",
+    "account": {
+      "id": metadata["team_id"] ?? "",
+      "name": metadata["team"] ?? ""
+    }
+  },
+  "capabilities": flatten([
+    any(scopes, {# in read_scopes}) ? ["read"] : [],
+    any(scopes, {# in write_scopes}) ? ["write"] : [],
+    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
+  ])
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''
@@ -9526,6 +10142,82 @@ keywords = [
     "xoxp-",
     "xoxe-",
 ]
+validate = '''
+let r = http.post("https://slack.com/api/auth.test", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+let provider_error = r.json?.error ?? "";
+r.status == 200 && (r.json?.ok ?? false) ? {
+  "result": "valid",
+  "team_id": (r.json?.team_id ?? ""),
+  "team": (r.json?.team ?? ""),
+  "enterprise_id": (r.json?.enterprise_id ?? ""),
+  "user_id": (r.json?.user_id ?? ""),
+  "user": (r.json?.user ?? ""),
+  "bot_id": (r.json?.bot_id ?? ""),
+  "scopes": (r.headers["x-oauth-scopes"] ?? "")
+} : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
+  "result": "revoked",
+  "reason": provider_error
+} : provider_error in ["invalid_auth", "not_authed"] || r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": provider_error == "" ? "Unauthorized" : provider_error
+} : {
+  "result": "unknown",
+  "reason": provider_error == "" ? "Unexpected provider response" : provider_error
+}
+'''
+analyze = '''
+let metadata = validation["metadata"] ?? {};
+let raw_scopes = metadata["scopes"] ?? "";
+let scopes = map(split(raw_scopes, ","), trim(#));
+let read_scopes = [
+  "channels:history",
+  "channels:read",
+  "files:read",
+  "groups:history",
+  "groups:read",
+  "im:history",
+  "mpim:history",
+  "reactions:read",
+  "search:read",
+  "users:read"
+];
+let write_scopes = [
+  "bookmarks:write",
+  "calls:write",
+  "channels:manage",
+  "chat:write",
+  "files:write",
+  "groups:write",
+  "reactions:write",
+  "reminders:write"
+];
+let manage_user_scopes = [
+  "admin.invites:write",
+  "admin.roles:write",
+  "admin.usergroups:write",
+  "admin.users:write",
+  "usergroups:write"
+];
+{
+  "reason": raw_scopes == "" ? "Slack did not return OAuth scope metadata" : "",
+  "identity": {
+    "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
+    "username": metadata["user"] ?? "",
+    "account": {
+      "id": metadata["team_id"] ?? "",
+      "name": metadata["team"] ?? ""
+    }
+  },
+  "capabilities": flatten([
+    any(scopes, {# in read_scopes}) ? ["read"] : [],
+    any(scopes, {# in write_scopes}) ? ["write"] : [],
+    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
+  ])
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''

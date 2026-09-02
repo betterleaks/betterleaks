@@ -7,14 +7,14 @@ import (
 	"strings"
 )
 
-func validateValidationRPS(rps float64) error {
+func validateProviderRPS(rps float64) error {
 	if math.IsNaN(rps) || math.IsInf(rps, 0) || rps < 0 {
 		return fmt.Errorf("must be a finite non-negative number")
 	}
 	return nil
 }
 
-func parseValidationRuleRPS(values []string) (map[string]float64, error) {
+func parseProviderRuleRPS(values []string) (map[string]float64, error) {
 	rates := make(map[string]float64, len(values))
 	for _, value := range values {
 		rawRuleID, rawRPS, ok := strings.Cut(value, "=")
@@ -33,7 +33,7 @@ func parseValidationRuleRPS(values []string) (map[string]float64, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid rate for rule %q: %w", ruleID, err)
 		}
-		if err := validateValidationRPS(rps); err != nil || rps == 0 {
+		if err := validateProviderRPS(rps); err != nil || rps == 0 {
 			if err == nil {
 				err = fmt.Errorf("must be greater than zero")
 			}

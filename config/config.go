@@ -59,6 +59,7 @@ type rawRule struct {
 	Required []struct{} `toml:"required"`
 
 	Validate   string `toml:"validate"`
+	Analyze    string `toml:"analyze"`
 	SkipReport bool   `toml:"skipReport"`
 
 	// Filter is an Expr expression evaluated per match (attributes + finding).
@@ -198,6 +199,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		}
 
 		cr.ValidateExpr = vr.Validate
+		cr.AnalyzeExpr = vr.Analyze
 		cr.Filter = vr.Filter
 
 		if index, exists := ruleIndexes[cr.RuleID]; exists {
@@ -424,6 +426,9 @@ func (c *Config) extend(extensionConfig *Config, extend Extend, componentsSet ma
 			}
 			if currentRule.ValidateExpr != "" {
 				baseRule.ValidateExpr = currentRule.ValidateExpr
+			}
+			if currentRule.AnalyzeExpr != "" {
+				baseRule.AnalyzeExpr = currentRule.AnalyzeExpr
 			}
 			if currentRule.Confidence != "" {
 				baseRule.Confidence = currentRule.Confidence

@@ -641,7 +641,7 @@ validate = '''{"result": "valid"}'''
 		{
 			name: "validation debug",
 			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--validation-debug", "secret"},
-			want: "unknown flag --validation-debug",
+			want: "unknown flag --provider-debug",
 		},
 		{
 			name: "list with rule",
@@ -748,7 +748,7 @@ func TestConfigureCredentialRuntimeRejectsNegativeTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
-	err = configureCredentialRuntime(ValidationRuntimeFlags{ValidationTimeout: -time.Second}, runtime)
+	err = configureCredentialRuntime(ProviderRuntimeFlags{ProviderTimeout: -time.Second}, runtime)
 	if err == nil || !strings.Contains(err.Error(), "must be non-negative") {
 		t.Fatalf("error = %v", err)
 	}

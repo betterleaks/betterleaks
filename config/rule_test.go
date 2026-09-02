@@ -41,6 +41,18 @@ func TestRuleValidateRejectsInvalidSecretGroups(t *testing.T) {
 	}
 }
 
+func TestRuleValidateRequiresValidationForAnalysis(t *testing.T) {
+	rule := Rule{
+		RuleID:      "test",
+		Regex:       regexp.MustCompile(`secret`),
+		AnalyzeExpr: `{}`,
+	}
+	require.ErrorContains(t, rule.Validate(), "analyze expression requires a validate expression")
+
+	rule.ValidateExpr = `{"result": "valid"}`
+	require.NoError(t, rule.Validate())
+}
+
 func TestConfigValidateRejectsAmbiguousRuleGraph(t *testing.T) {
 	validRegex := regexp.MustCompile(`secret`)
 	tests := []struct {

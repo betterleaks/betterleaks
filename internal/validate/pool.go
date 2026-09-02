@@ -7,23 +7,27 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/betterleaks/betterleaks/internal/analyze"
+	internalcache "github.com/betterleaks/betterleaks/internal/cache"
 	"github.com/betterleaks/betterleaks/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/report"
 )
 
 // validationJob is the internal unit of work for the pool.
 type validationJob struct {
-	finding  report.Finding
-	program  exprruntime.Program
-	captures map[string]string
+	finding         report.Finding
+	program         exprruntime.Program
+	analysisProgram exprruntime.Program
+	captures        map[string]string
 }
 
 // Pool manages a set of workers that validate findings asynchronously.
 type Pool struct {
-	runtime *exprruntime.Runtime
-	cache   *Cache
-	ctx     context.Context
-	Debug   bool
+	runtime       *exprruntime.Runtime
+	cache         *internalcache.Cache[*Result]
+	analysisCache *internalcache.Cache[report.Analysis]
+	ctx           context.Context
+	Debug         bool
 
 	// one job per to-be-validated finding
 	jobs chan validationJob
@@ -51,9 +55,12 @@ func NewPoolContext(ctx context.Context, workers int, runtime *exprruntime.Runti
 	}
 	p := &Pool{
 		runtime: runtime,
-		cache:   NewCache(),
-		ctx:     ctx,
-		jobs:    make(chan validationJob, workers*10),
+		cache: internalcache.NewWithStorePolicy(func(result *Result) bool {
+			return result.Status != report.ValidationStatusError
+		}),
+		analysisCache: internalcache.New[report.Analysis](),
+		ctx:           ctx,
+		jobs:          make(chan validationJob, workers*10),
 	}
 
 	for i := 0; i < workers; i++ {
@@ -72,10 +79,17 @@ func (p *Pool) Submit(finding report.Finding, program exprruntime.Program) {
 // SubmitContext queues a job for validation unless the provided context has
 // already been canceled.
 func (p *Pool) SubmitContext(ctx context.Context, finding report.Finding, program exprruntime.Program) error {
+	return p.SubmitWithAnalysisContext(ctx, finding, program, nil)
+}
+
+// SubmitWithAnalysisContext queues validation and, when validation succeeds,
+// an optional analysis program. Both stages run in the same bounded worker.
+func (p *Pool) SubmitWithAnalysisContext(ctx context.Context, finding report.Finding, validationProgram, analysisProgram exprruntime.Program) error {
 	job := validationJob{
-		finding:  finding,
-		program:  program,
-		captures: finding.CaptureGroups,
+		finding:         finding,
+		program:         validationProgram,
+		analysisProgram: analysisProgram,
+		captures:        finding.CaptureGroups,
 	}
 
 	select {
@@ -98,6 +112,12 @@ func (p *Pool) Stats() (hits, misses uint64) {
 	return p.cache.Hits(), p.cache.Misses()
 }
 
+// AnalysisStats returns analysis cache hit/miss counts. Must be called after
+// Close.
+func (p *Pool) AnalysisStats() (hits, misses uint64) {
+	return p.analysisCache.Hits(), p.analysisCache.Misses()
+}
+
 func (p *Pool) worker() {
 	defer p.wg.Done()
 	for job := range p.jobs {
@@ -114,6 +134,11 @@ func (p *Pool) worker() {
 				f.Validation.Reason = result.Reason
 				f.Validation.Metadata = result.Metadata
 			}
+			if f.Validation.Status == report.ValidationStatusValid && job.analysisProgram != nil {
+				cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, job.captures, nil)
+				f.Analysis = p.evalAnalysisWithCacheKey(cacheKey, job.analysisProgram, f.ToExprMap(), job.captures, nil, f.Attributes, f.Validation)
+				f.Analysis = report.SanitizeAnalysis(f.Analysis, []string{f.Secret})
+			}
 			if p.Emit != nil {
 				p.Emit(f)
 			}
@@ -126,6 +151,7 @@ func (p *Pool) worker() {
 		var (
 			overallStatus report.ValidationStatus
 			bestResult    *Result
+			bestAnalysis  report.Analysis
 		)
 
 		for i := range f.ComponentSets {
@@ -167,6 +193,14 @@ func (p *Pool) worker() {
 			// Write status onto this set.
 			set.Validation.Status = result.Status
 			set.Validation.Reason = result.Reason
+			set.Validation.Metadata = result.Metadata
+			if result.Status == report.ValidationStatusValid && job.analysisProgram != nil {
+				set.Analysis = p.evalAnalysisWithCacheKey(cacheKey, job.analysisProgram, f.ToExprMap(), job.captures, components, f.Attributes, set.Validation)
+				set.Analysis = report.SanitizeAnalysis(set.Analysis, componentSetSecrets(f.Secret, set.Components))
+				if betterAnalysis(bestAnalysis, set.Analysis) {
+					bestAnalysis = set.Analysis
+				}
+			}
 
 			// Roll up finding-level status: pick the best (highest-priority) result.
 			newStatus := BetterStatus(overallStatus, result.Status)
@@ -182,6 +216,7 @@ func (p *Pool) worker() {
 			f.Validation.Reason = bestResult.Reason
 			f.Validation.Metadata = bestResult.Metadata
 		}
+		f.Analysis = bestAnalysis
 
 		// When at least one component set validates, keep only valid sets on the
 		// emitted finding so reports are not cluttered with failed combinations.
@@ -202,6 +237,105 @@ func (p *Pool) worker() {
 		if p.Emit != nil {
 			p.Emit(f)
 		}
+	}
+}
+
+func (p *Pool) evalAnalysisWithCacheKey(cacheKey string, program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation report.Validation) report.Analysis {
+	if p.Debug {
+		result, err := p.evalAnalysisProgram(program, finding, captures, components, attributes, validation)
+		if err != nil {
+			result.Reason = err.Error()
+			result.Severity = report.SeverityUnknown
+		}
+		return result
+	}
+	result, err := p.analysisCache.GetOrDo(cacheKey, func() (report.Analysis, error) {
+		return p.evalAnalysisProgram(program, finding, captures, components, attributes, validation)
+	})
+	if err != nil {
+		return report.Analysis{Reason: err.Error(), Severity: report.SeverityUnknown}
+	}
+	return result
+}
+
+func (p *Pool) evalAnalysisProgram(program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation report.Validation) (report.Analysis, error) {
+	result, evalErr := p.runtime.EvalAnalysisWithComponents(
+		p.ctx,
+		program,
+		finding,
+		captures,
+		components,
+		attributes,
+		map[string]any{
+			"status":   string(validation.Status),
+			"reason":   validation.Reason,
+			"metadata": validation.Metadata,
+		},
+		exprruntime.EvalOptions{Debug: p.Debug},
+	)
+	if result.RequestLimitHit != nil {
+		hit := result.RequestLimitHit
+		return report.Analysis{Debug: result.Debug}, fmt.Errorf(
+			"analysis request limit reached for %s after %d requests",
+			hit.Target,
+			hit.RequestsSent,
+		)
+	}
+	if evalErr != nil {
+		return report.Analysis{Debug: result.Debug}, evalErr
+	}
+	analysisResult, err := analyze.ParseResult(result.Value)
+	if err != nil {
+		return report.Analysis{Debug: result.Debug}, err
+	}
+	analysisResult.Debug = result.Debug
+	return analysisResult, nil
+}
+
+func componentSetSecrets(primary string, components []*report.ComponentFinding) []string {
+	secrets := make([]string, 0, len(components)+1)
+	secrets = append(secrets, primary)
+	for _, component := range components {
+		if component != nil {
+			secrets = append(secrets, component.Secret)
+		}
+	}
+	return secrets
+}
+
+func betterAnalysis(current, candidate report.Analysis) bool {
+	if candidate.IsZero() {
+		return false
+	}
+	if current.IsZero() {
+		return true
+	}
+	candidateSeverity := analysisSeverityRank(candidate.Severity)
+	currentSeverity := analysisSeverityRank(current.Severity)
+	if candidateSeverity != currentSeverity {
+		return candidateSeverity > currentSeverity
+	}
+	if (candidate.Reason == "") != (current.Reason == "") {
+		return candidate.Reason == ""
+	}
+	if len(candidate.Capabilities) != len(current.Capabilities) {
+		return len(candidate.Capabilities) > len(current.Capabilities)
+	}
+	return candidate.Identity != nil && current.Identity == nil
+}
+
+func analysisSeverityRank(severity report.Severity) int {
+	switch severity {
+	case report.SeverityCritical:
+		return 4
+	case report.SeverityHigh:
+		return 3
+	case report.SeverityMedium:
+		return 2
+	case report.SeverityUnknown:
+		return 1
+	default:
+		return 0
 	}
 }
 

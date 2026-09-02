@@ -37,8 +37,15 @@ func TestRedact_ComponentSets(t *testing.T) {
 	f := Finding{
 		Match:  "line containing secret",
 		Secret: "secret",
+		Analysis: Analysis{
+			Reason:   "primary=secret",
+			Identity: &AnalysisIdentity{ID: "comp-secret-1"},
+		},
 		ComponentSets: []ComponentSet{
 			{
+				Analysis: Analysis{
+					Debug: map[string]any{"echo": "comp-secret-2"},
+				},
 				Components: []*ComponentFinding{
 					{
 						RuleID: "rule-a", Secret: "comp-secret-1", Line: "line comp-secret-1 here", Match: "match comp-secret-1 here",
@@ -58,6 +65,10 @@ func TestRedact_ComponentSets(t *testing.T) {
 	assert.Equal(t, "safe", f.ComponentSets[0].Components[0].CaptureGroups["label"])
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[1].Secret)
 	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[1].Match)
+	assert.Equal(t, "primary=[redacted]", f.Analysis.Reason)
+	require.NotNil(t, f.Analysis.Identity)
+	assert.Equal(t, "[redacted]", f.Analysis.Identity.ID)
+	assert.Equal(t, "[redacted]", f.ComponentSets[0].Analysis.Debug["echo"])
 }
 
 func TestRedact_SharedPointerDedup(t *testing.T) {
@@ -259,6 +270,11 @@ func TestFindingJSONSchema(t *testing.T) {
 			Reason:   "The provider accepted the credential.",
 			Metadata: map[string]any{"account": "example"},
 		},
+		Analysis: Analysis{
+			Severity:     SeverityCritical,
+			Identity:     &AnalysisIdentity{ID: "user-1", Username: "octocat"},
+			Capabilities: []Capability{CapabilityRead, CapabilityManageUsers},
+		},
 		Tags: []string{},
 	}
 
@@ -280,6 +296,11 @@ func TestFindingJSONSchema(t *testing.T) {
 		"reason":   "The provider accepted the credential.",
 		"metadata": map[string]any{"account": "example"},
 	}, got["validation"])
+	assert.Equal(t, map[string]any{
+		"severity":     "critical",
+		"identity":     map[string]any{"id": "user-1", "username": "octocat"},
+		"capabilities": []any{"read", "manage_users"},
+	}, got["analysis"])
 	assert.NotContains(t, got["attributes"], "confidence")
 	assert.NotContains(t, got, "StartLine")
 	assert.NotContains(t, got, "ValidationStatus")

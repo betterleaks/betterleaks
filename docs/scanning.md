@@ -747,13 +747,13 @@ matching value is replaced with `[redacted]`. Attributes are sanitized the same
 way. Validation metadata may still contain sensitive identity or account
 information.
 
-`--validation-debug` is not supported by `validate` because raw debug request
+`--provider-debug` is not supported by `validate` because raw debug request
 and response bodies can contain transformed credentials or newly issued
 tokens.
 
 `validate` honors the remaining outbound request controls from scan-time validation:
-`--validation-timeout`, `--validation-max-requests`, `--validation-rps`,
-`--validation-rps-rule`, `--validation-env-vars`, and
+`--provider-timeout`, `--provider-max-requests`, `--provider-rps`,
+`--provider-rps-rule`, `--provider-env-vars`, and
 `--validation-extract-empty`. A completed validation—including `invalid`,
 `revoked`, `unknown`, or `error`—is a successful command result represented by
 the reported status; input, configuration, I/O, and cancellation failures
@@ -796,11 +796,14 @@ betterleaks git . --disable-rule generic-api-key
 # enable live validation
 betterleaks dir . --validation --validation-status valid,unknown
 
+# validate and analyze live credentials
+betterleaks dir . --analysis --validation-status valid
+
 # cap and rate-limit outbound validation requests
 betterleaks dir . --validation \
-	--validation-max-requests 1000 \
-	--validation-rps 10 \
-	--validation-rps-rule github-pat=2
+	--provider-max-requests 1000 \
+	--provider-rps 10 \
+	--provider-rps-rule github-pat=2
 
 # redact output
 betterleaks git . --redact

@@ -36,9 +36,9 @@ import (
 // ValidationOptions controls secret validation behavior. Validation is enabled
 // when these options are passed to [WithValidation].
 type ValidationOptions struct {
-	// Debug includes validation HTTP metadata in findings.
+	// Debug includes provider HTTP metadata in findings.
 	Debug bool
-	// Workers is the number of validation workers. Zero uses 10.
+	// Workers is the number of provider workers. Zero uses 10.
 	Workers int
 	// Timeout is the per-request timeout. Zero uses the runtime default.
 	Timeout time.Duration
@@ -52,10 +52,15 @@ type ValidationOptions struct {
 	RequestsPerSecond float64
 	// RequestsPerSecondByRule overrides the request rate for individual rules.
 	RequestsPerSecondByRule map[string]float64
-	// ValidationEnvVars lists environment variable names the validation Expr
-	// env.get(...) binding may read. Names not listed are unavailable.
+	// ValidationEnvVars lists environment variable names that provider Expr
+	// programs may read through env.get(...). Names not listed are unavailable.
 	ValidationEnvVars []string
 }
+
+// ProviderOptions is the shared request environment used by validation and
+// credential analysis. ValidationOptions remains as an alias for SDK
+// compatibility.
+type ProviderOptions = ValidationOptions
 
 // allowSignatures are comment tags that can be used to ignore findings.
 // betterleaks:allow is checked first (preferred), followed by gitleaks:allow for backwards compatibility.
@@ -117,6 +122,7 @@ type detectorOptions struct {
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
 	validationEnabled   bool
+	analysisEnabled     bool
 	validation          ValidationOptions
 	ignoreAllowComments bool
 	ignoredSecrets      SecretMatcher
@@ -201,14 +207,31 @@ func WithMinimumConfidence(value Confidence) Option {
 
 // WithValidation enables active-secret validation for every scan.
 func WithValidation(validation ValidationOptions) Option {
-	validation.Statuses = slices.Clone(validation.Statuses)
-	validation.RequestsPerSecondByRule = maps.Clone(validation.RequestsPerSecondByRule)
-	validation.ValidationEnvVars = slices.Clone(validation.ValidationEnvVars)
+	validation = cloneValidationOptions(validation)
 	return Option{apply: func(options *detectorOptions) error {
 		options.validationEnabled = true
 		options.validation = validation
 		return nil
 	}}
+}
+
+// WithAnalysis enables validation followed by credential analysis. Analysis is
+// only evaluated for rules with an analyze expression and a valid credential.
+func WithAnalysis(provider ProviderOptions) Option {
+	provider = cloneValidationOptions(provider)
+	return Option{apply: func(options *detectorOptions) error {
+		options.validationEnabled = true
+		options.analysisEnabled = true
+		options.validation = provider
+		return nil
+	}}
+}
+
+func cloneValidationOptions(options ValidationOptions) ValidationOptions {
+	options.Statuses = slices.Clone(options.Statuses)
+	options.RequestsPerSecondByRule = maps.Clone(options.RequestsPerSecondByRule)
+	options.ValidationEnvVars = slices.Clone(options.ValidationEnvVars)
+	return options
 }
 
 // WithIgnoreAllowComments controls whether betterleaks:allow and
@@ -273,13 +296,16 @@ type Detector struct {
 
 	exprRuntime *exprruntime.Runtime
 
-	// validationRuntime compiles and caches per-rule validation expressions. The
+	// validationRuntime compiles and caches per-rule provider expressions. The
 	// workers and evaluation runtime are created separately for each scan.
 	validationRuntime  *exprruntime.Runtime
 	validationEnabled  bool
+	analysisEnabled    bool
 	validationOptions  ValidationOptions
 	validationProgramM sync.Mutex
 	validationPrograms map[string]exprruntime.Program
+	analysisProgramM   sync.Mutex
+	analysisPrograms   map[string]exprruntime.Program
 	globalFilter       exprruntime.Program
 	filterProgramM     sync.Mutex
 	filterPrograms     map[string]exprruntime.Program
@@ -306,7 +332,7 @@ type Detector struct {
 }
 
 // NewDetector creates a Detector from cfg. The source prefilter compiles during
-// construction; rule regexes, finding filters, and validation expressions stay
+// construction; rule regexes, finding filters, and provider expressions stay
 // lazy unless [WithPrecompile] is supplied. Construction never starts scan or
 // validation workers.
 func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
@@ -382,6 +408,7 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		matchContext:        settings.matchContext,
 		minimumConfidence:   settings.minimumConfidence,
 		validationEnabled:   settings.validationEnabled,
+		analysisEnabled:     settings.analysisEnabled,
 		validationOptions:   settings.validation,
 		ignoreAllowComments: settings.ignoreAllowComments,
 		ignoredSecrets:      settings.ignoredSecrets,
@@ -394,6 +421,7 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		exprRuntime:         exprRuntime,
 		validationRuntime:   validationRuntime,
 		validationPrograms:  make(map[string]exprruntime.Program),
+		analysisPrograms:    make(map[string]exprruntime.Program),
 		filterPrograms:      make(map[string]exprruntime.Program),
 		rulesBySpecificity:  rulesBySpecificity,
 		ruleIndexByID:       ruleIndexByID,
@@ -489,6 +517,9 @@ func (d *Detector) compileAll() error {
 		if _, _, err := d.validationProgram(rule.RuleID); err != nil {
 			return err
 		}
+		if _, _, err := d.analysisProgram(rule.RuleID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -525,6 +556,19 @@ func (d *Detector) newValidationPool(ctx context.Context) (*validate.Pool, error
 // ValidationEnabled reports whether scans will validate matching findings.
 func (d *Detector) ValidationEnabled() bool {
 	return d != nil && d.validationEnabled && d.validationRuntime != nil
+}
+
+// AnalysisEnabled reports whether scans will analyze valid credentials.
+func (d *Detector) AnalysisEnabled() bool {
+	if d == nil || !d.analysisEnabled || d.validationRuntime == nil {
+		return false
+	}
+	for _, rule := range d.rulesBySpecificity {
+		if rule.AnalyzeExpr != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Tokenizer returns the BPE tokenizer used for token efficiency filtering.
@@ -582,6 +626,32 @@ func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, 
 		return nil, false, fmt.Errorf("compiling rule %s validation: %w", ruleID, err)
 	}
 	d.validationPrograms[ruleID] = prg
+	return prg, true, nil
+}
+
+func (d *Detector) analysisProgram(ruleID string) (exprruntime.Program, bool, error) {
+	if !d.AnalysisEnabled() {
+		return nil, false, nil
+	}
+	d.analysisProgramM.Lock()
+	defer d.analysisProgramM.Unlock()
+
+	ruleIndex, ok := d.ruleIndexByID[ruleID]
+	if !ok {
+		return nil, false, nil
+	}
+	rule := d.rulesBySpecificity[ruleIndex]
+	if rule.AnalyzeExpr == "" {
+		return nil, false, nil
+	}
+	if prg := d.analysisPrograms[ruleID]; prg != nil {
+		return prg, true, nil
+	}
+	prg, err := d.validationRuntime.CompileAnalysis(rule.AnalyzeExpr)
+	if err != nil {
+		return nil, false, fmt.Errorf("compiling rule %s analysis: %w", ruleID, err)
+	}
+	d.analysisPrograms[ruleID] = prg
 	return prg, true, nil
 }
 
@@ -813,6 +883,13 @@ func (d *Detector) run(ctx context.Context, source sources.Source, yield func(Re
 				Uint64("http_requests", misses).
 				Uint64("cache_hits", hits).
 				Msg("validation cache stats")
+			if d.AnalysisEnabled() {
+				analysisHits, analysisMisses := validationPool.AnalysisStats()
+				logging.Debug().
+					Uint64("evaluations", analysisMisses).
+					Uint64("cache_hits", analysisHits).
+					Msg("analysis cache stats")
+			}
 		}
 		if sourceErr != nil && !isPipelineStop(sourceErr) {
 			_ = emit(Result{Err: sourceErr})
@@ -881,7 +958,11 @@ func (d *Detector) scanFragment(
 			if prg, ok, err := d.validationProgram(finding.RuleID); err != nil {
 				return err
 			} else if ok {
-				if err := validationPool.SubmitContext(ctx, finding, prg); err != nil {
+				analysisProgram, _, analysisErr := d.analysisProgram(finding.RuleID)
+				if analysisErr != nil {
+					return analysisErr
+				}
+				if err := validationPool.SubmitWithAnalysisContext(ctx, finding, prg, analysisProgram); err != nil {
 					if errors.Is(err, context.Canceled) {
 						return errStopIteration
 					}
@@ -1230,7 +1311,7 @@ func (d *Detector) detectFragmentWithRule(fragment sources.Fragment,
 		hasGlobalFilter := d.globalFilterExpr != ""
 		hasRuleFilter := r.Filter != ""
 		// Validation/filter expressions need context text in the finding map.
-		if r.ValidateExpr != "" || hasGlobalFilter || hasRuleFilter {
+		if r.ValidateExpr != "" || r.AnalyzeExpr != "" || hasGlobalFilter || hasRuleFilter {
 			finding.SetExprContext(strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, contextwindow.Spec{
 				Mode:        contextwindow.ModeBox,
 				LinesBefore: 20,

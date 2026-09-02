@@ -55,6 +55,8 @@ tags = [
 skipReport = true{{ end }}
 {{- with $rule.ValidateExpr }}
 validate = {{ tomlExpr . }}{{ end }}
+{{- with $rule.AnalyzeExpr }}
+analyze = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Filter }}
 filter = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Components }}

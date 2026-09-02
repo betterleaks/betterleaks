@@ -80,6 +80,42 @@ func TestValidationRequiresExplicitOption(t *testing.T) {
 	assert.True(t, detector.ValidationEnabled())
 }
 
+func TestAnalysisRequiresExplicitOptionAndImpliesValidation(t *testing.T) {
+	cfg := testConfig()
+	cfg.Rules[0].ValidateExpr = `{"result": "valid", "owner": "user-1"}`
+	cfg.Rules[0].AnalyzeExpr = `{
+		"identity": {"id": validation["metadata"]["owner"]},
+		"capabilities": ["read"]
+	}`
+
+	detector, err := detect.NewDetector(cfg)
+	require.NoError(t, err)
+	assert.False(t, detector.ValidationEnabled())
+	assert.False(t, detector.AnalysisEnabled())
+
+	detector, err = detect.NewDetector(cfg, detect.WithValidation(detect.ProviderOptions{}))
+	require.NoError(t, err)
+	assert.True(t, detector.ValidationEnabled())
+	assert.False(t, detector.AnalysisEnabled())
+
+	detector, err = detect.NewDetector(cfg, detect.WithAnalysis(detect.ProviderOptions{Workers: 1}))
+	require.NoError(t, err)
+	assert.True(t, detector.ValidationEnabled())
+	assert.True(t, detector.AnalysisEnabled())
+
+	var findings []report.Finding
+	_, scanErr := detector.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(finding report.Finding) error {
+		findings = append(findings, finding)
+		return nil
+	})
+	require.NoError(t, scanErr)
+	require.Len(t, findings, 1)
+	assert.Equal(t, report.ValidationStatusValid, findings[0].Validation.Status)
+	assert.Equal(t, report.SeverityMedium, findings[0].Analysis.Severity)
+	require.NotNil(t, findings[0].Analysis.Identity)
+	assert.Equal(t, "user-1", findings[0].Analysis.Identity.ID)
+}
+
 func TestDetectorSkipFunc(t *testing.T) {
 	cfg := testConfig()
 	cfg.Prefilter = `attributes["path"] == "ignored.txt"`

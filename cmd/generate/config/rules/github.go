@@ -12,13 +12,70 @@ const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "htt
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
+      "id": string(r.json?.id ?? ""),
       "username": (r.json?.login ?? ""),
       "name": (r.json?.name ?? ""),
-      "scopes": (r.headers["x-oauth-scopes"] ?? "")
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.headers["x-oauth-scopes"] ?? ""),
+      "sso": (r.headers["x-github-sso"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))`
+
+const githubTokenAnalyzeExpr = `let metadata = validation["metadata"] ?? {};
+let raw_scopes = metadata["scopes"] ?? "";
+let scopes = map(split(raw_scopes, ","), trim(#));
+let read_scopes = [
+  "gist",
+  "notifications",
+  "project",
+  "public_repo",
+  "read:org",
+  "read:packages",
+  "read:project",
+  "read:public_key",
+  "read:repo_hook",
+  "read:ssh_signing_key",
+  "read:user",
+  "repo",
+  "repo:status",
+  "repo_deployment",
+  "security_events",
+  "user",
+  "user:email"
+];
+let write_scopes = [
+  "delete:packages",
+  "gist",
+  "notifications",
+  "project",
+  "public_repo",
+  "repo",
+  "repo:status",
+  "repo_deployment",
+  "workflow",
+  "write:packages"
+];
+let credential_scopes = [
+  "admin:gpg_key",
+  "admin:public_key",
+  "admin:ssh_signing_key"
+];
+{
+  "reason": raw_scopes == "" ? "GitHub did not return classic OAuth scope metadata" : "",
+  "identity": {
+    "id": metadata["id"] ?? "",
+    "username": metadata["username"] ?? "",
+    "name": metadata["name"] ?? "",
+    "email": metadata["email"] ?? ""
+  },
+  "capabilities": flatten([
+    any(scopes, {# in read_scopes}) ? ["read"] : [],
+    any(scopes, {# in write_scopes}) ? ["write"] : [],
+    any(scopes, {# in credential_scopes}) ? ["create_credentials"] : []
+  ])
+}`
 
 var githubPathFilter = "matchesAny(attributes[\"path\"], [`(?:^|/)@octokit/auth-token/README\\.md$`])"
 
@@ -31,6 +88,7 @@ func GitHubPat() *config.Rule {
 		Regex:        regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
 		Keywords:     []string{"ghp_"},
 		ValidateExpr: githubTokenExpr,
+		AnalyzeExpr:  githubTokenAnalyzeExpr,
 		Filter: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	}
@@ -52,6 +110,7 @@ func GitHubFineGrainedPat() *config.Rule {
 		Regex:        regexp.MustCompile(`github_pat_\w{82}`),
 		Keywords:     []string{"github_pat_"},
 		ValidateExpr: githubTokenExpr,
+		AnalyzeExpr:  githubTokenAnalyzeExpr,
 		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
@@ -72,6 +131,7 @@ func GitHubOauth() *config.Rule {
 		Regex:        regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
 		Keywords:     []string{"gho_"},
 		ValidateExpr: githubTokenExpr,
+		AnalyzeExpr:  githubTokenAnalyzeExpr,
 		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 

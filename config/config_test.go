@@ -140,6 +140,26 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 			_, err = filterRuntime.CompileValidation(rule.ValidateExpr)
 			require.NoErrorf(t, err, "rule %q validation", rule.RuleID)
 		}
+		if rule.AnalyzeExpr != "" {
+			_, err = filterRuntime.CompileAnalysis(rule.AnalyzeExpr)
+			require.NoErrorf(t, err, "rule %q analysis", rule.RuleID)
+		}
+	}
+}
+
+func TestDefaultConfigIncludesCredentialAnalysisProviders(t *testing.T) {
+	cfg, err := Default()
+	require.NoError(t, err)
+	for _, ruleID := range []string{
+		"airtable-personnal-access-token",
+		"gitlab-pat",
+		"huggingface-access-token",
+		"slack-bot-token",
+		"github-pat",
+	} {
+		rule := requireRule(t, cfg, ruleID)
+		require.NotEmptyf(t, rule.ValidateExpr, "%s validation", ruleID)
+		require.NotEmptyf(t, rule.AnalyzeExpr, "%s analysis", ruleID)
 	}
 }
 

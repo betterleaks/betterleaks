@@ -8,6 +8,47 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+const huggingFaceValidateExpr = `let r = http.get("https://huggingface.co/api/whoami-v2", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); r.status == 200 ? {
+    "result": "valid",
+    "id": (r.json?.id ?? ""),
+    "username": (r.json?.name ?? ""),
+    "name": (r.json?.fullname ?? ""),
+    "email": (r.json?.email ?? ""),
+    "orgs": (r.json?.orgs ?? []),
+    "auth": (r.json?.auth ?? {})
+  } : r.status == 401 && (r.body contains "expired") ? {
+    "result": "revoked",
+    "reason": "Token expired"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`
+
+const huggingFaceAnalyzeExpr = `let metadata = validation["metadata"] ?? {};
+let auth = metadata["auth"] ?? {};
+let access_token = auth["accessToken"] ?? {};
+let role = access_token["role"] ?? "";
+let orgs = metadata["orgs"] ?? [];
+{
+  "reason": role in ["read", "write"] ? "" : "Fine-grained or unknown token role was not expanded",
+  "identity": {
+    "id": string(metadata["id"] ?? ""),
+    "username": metadata["username"] ?? "",
+    "name": metadata["name"] ?? "",
+    "email": metadata["email"] ?? "",
+    "account": size(orgs) == 1 ? {
+      "id": string(orgs[0]?.id ?? ""),
+      "name": orgs[0]?.name ?? ""
+    } : {}
+  },
+  "capabilities": flatten([
+    role in ["read", "write"] ? ["read"] : [],
+    role == "write" ? ["write"] : []
+  ])
+}`
+
 // Reference: https://huggingface.co/docs/hub/security-tokens
 //
 // Old tokens have the prefix `api_`, however, I am not sure it's worth detecting them as that would be high noise.
@@ -22,19 +63,9 @@ func HuggingFaceAccessToken() *config.Rule {
 		Keywords: []string{
 			"hf_",
 		},
-		ValidateExpr: `let r = http.get("https://huggingface.co/api/whoami-v2", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 ? {
-    "result": "valid",
-    "username": (r.json?.name ?? "")
-  } : r.status == 401 && (r.body contains "expired") ? {
-    "result": "revoked",
-    "reason": "Token expired"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		ValidateExpr: huggingFaceValidateExpr,
+		AnalyzeExpr:  huggingFaceAnalyzeExpr,
+		Filter:       `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -90,19 +121,9 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 		Keywords: []string{
 			"api_org_",
 		},
-		ValidateExpr: `let r = http.get("https://huggingface.co/api/whoami-v2", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 ? {
-    "result": "valid",
-    "username": (r.json?.name ?? "")
-  } : r.status == 401 && (r.body contains "expired") ? {
-    "result": "revoked",
-    "reason": "Token expired"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		ValidateExpr: huggingFaceValidateExpr,
+		AnalyzeExpr:  huggingFaceAnalyzeExpr,
+		Filter:       `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

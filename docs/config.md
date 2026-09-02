@@ -95,11 +95,13 @@ filter expression evaluates to `true`, the item is skipped.
 
 | Function | Description |
 | :--- | :--- |
-| `filter.matchesAny(string, list)` | Returns `true` if the string matches any regex pattern in the list. |
-| `matchesAny(string, list)` | Equivalent to `filter.matchesAny(string, list)`. |
+| `filter.matchesAny(string-or-list, patterns)` | Returns `true` if the string, or any string in the list, matches any regex pattern. |
+| `matchesAny(string-or-list, patterns)` | Equivalent to `filter.matchesAny(string-or-list, patterns)`. |
 | `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. |
-| `filter.containsAny(string, list)` | Returns `true` if the string contains any listed term. Uses an efficient Aho-Corasick substring match. |
-| `containsAny(string, list)` | Equivalent to `filter.containsAny(string, list)`. |
+| `filter.containsAny(string-or-list, terms)` | Returns `true` if the string, or any string in the list, contains a term. Uses an efficient Aho-Corasick substring match. |
+| `containsAny(string-or-list, terms)` | Equivalent to `filter.containsAny(string-or-list, terms)`. |
+| `filter.startsWithAny(string-or-list, prefixes)` | Returns `true` if the string, or any string in the list, starts with a prefix. |
+| `startsWithAny(string-or-list, prefixes)` | Equivalent to `filter.startsWithAny(string-or-list, prefixes)`. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `entropy(string)` | Equivalent to `filter.entropy(string)`; useful for concise rule filters. |
 | `filter.tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
@@ -157,11 +159,18 @@ false
 `--confidence low|medium|high` keeps findings at or above that level. Findings
 without a recognized confidence attribute remain included.
 
-## Validation
+## Validation and credential analysis
 
 Validation verifies whether a detected secret is live by evaluating the rule's
 `validate` Expr expression. By default, validation is disabled. Enable it with
 the `--validation` flag.
+
+Credential analysis evaluates a rule's `analyze` expression after validation
+returns `valid`. Enable it with `--analysis`, which also enables validation.
+Analysis returns a small identity and positive-only capability model; severity
+is derived by Betterleaks rather than assigned by the rule. See the
+[credential access analysis design](credential-access-analysis.md) for the
+result schema and provider mappings.
 
 Validation runs asynchronously, and responses are cached in memory so duplicate
 secrets only trigger one network request.
@@ -173,16 +182,16 @@ credentials, captures, request controls, and reporting.
 
 ### Request limits
 
-Live validation can send many authentication requests when a scan finds
+Live validation and analysis can send many authentication requests when a scan finds
 different candidate credentials for the same provider. The following flags
 limit the actual outbound requests made by generic HTTP validators and the
 built-in AWS, GCP, and Azure validators:
 
 | Flag | Description |
 | :--- | :--- |
-| `--validation-max-requests N` | Sends at most `N` requests to each provider target origin during the scan. `0` means unlimited. The singular `--validation-max-request` spelling is accepted as an alias. |
-| `--validation-rps N` | Limits all validation requests to `N` requests per second. Fractional values are accepted; `0` means unlimited. |
-| `--validation-rps-rule RULE=N` | Limits one exact rule ID to `N` requests per second. Repeat the flag for additional rules. |
+| `--provider-max-requests N` | Sends at most `N` validation and analysis requests to each provider target origin during the scan. `0` means unlimited. |
+| `--provider-rps N` | Limits all provider requests to `N` requests per second. Fractional values are accepted; `0` means unlimited. |
+| `--provider-rps-rule RULE=N` | Limits one exact rule ID to `N` provider requests per second. Repeat the flag for additional rules. |
 
 The global and rule-specific rates compose: a request must satisfy both limits.
 Rate limits use strict spacing with no initial burst. A provider target is an
@@ -190,7 +199,7 @@ HTTP origin such as `https://api.github.com`; multiple rules that use the same
 origin share its maximum-request budget. Redirects and multi-request validation
 expressions count each actual outbound request. Validation cache hits do not
 count. Time spent waiting for an RPS slot does not consume
-`--validation-timeout`; that timeout begins when the provider request starts and
+`--provider-timeout`; that timeout begins when the provider request starts and
 remains active while its response body is read. Redirect hops share that one
 provider-time budget, while each hop still counts as an outbound request for RPS
 and maximum-request enforcement.
@@ -199,13 +208,13 @@ For example:
 
 ```sh
 betterleaks dir . --validation \
-  --validation-max-requests 1000 \
-  --validation-rps 10 \
-  --validation-rps-rule github-pat=2 \
-  --validation-rps-rule github-fine-grained-pat=2
+  --provider-max-requests 1000 \
+  --provider-rps 10 \
+  --provider-rps-rule github-pat=2 \
+  --provider-rps-rule github-fine-grained-pat=2
 ```
 
-Once a provider target reaches `--validation-max-requests`, further validations
+Once a provider target reaches `--provider-max-requests`, further provider checks
 that need to call it return `needs_validation` without sending the request. The
 finding includes `betterleaks_max_requests_hit`,
 `betterleaks_validation_target`, `betterleaks_validation_max_requests`, and
@@ -233,7 +242,7 @@ Any additional keys are attached to the finding as validation metadata, such as
 | `http.get(url, headers)` | Sends a GET request. |
 | `http.post(url, headers, body)` | Sends a POST request. |
 | `validate.unknown(response)` | Returns `{"result": "unknown", "reason": "HTTP <status>"}` for unexpected HTTP responses. |
-| `env.get(name)` | Reads an allowlisted environment variable. Requires `--validation-env-vars`. |
+| `env.get(name)` | Reads an allowlisted environment variable. Requires `--provider-env-vars`. |
 | `env.getOrDefault(name, default)` | Reads an allowlisted environment variable, or returns `default` when env access is disabled, the name is not allowlisted, or the variable is unset. |
 | `strings.obfuscate(secret)` | Returns a same-length, shape-preserving stand-in for a secret. Useful before sending context to third-party APIs. |
 | `json.string(value)` | Returns a quoted JSON string literal. Useful when hand-building JSON request bodies. |
@@ -344,7 +353,7 @@ let r = http.get(base_url + "/whoami", { ... });
 ```
 
 To override the default, the variable must be passed via
-`--validation-env-vars`. Unlike `env.get`, missing allowlist configuration does
+`--provider-env-vars`. Unlike `env.get`, missing allowlist configuration does
 not produce a validation error for `env.getOrDefault`; it just returns the
 provided default. If the variable is allowlisted and explicitly set to an empty
 string, `env.getOrDefault` returns `""`.
@@ -354,7 +363,7 @@ the same rules validate against GitHub Enterprise Server:
 
 ```sh
 export GITHUB_BASE_URL=https://github.example.com/api/v3
-betterleaks github --validation --validation-env-vars GITHUB_BASE_URL https://github.example.com/owner
+betterleaks github --validation --provider-env-vars GITHUB_BASE_URL https://github.example.com/owner
 ```
 
 Use `env.get` instead when the env var is required for the validator to be
@@ -366,7 +375,7 @@ returns an Expr error when env access is disabled or the name is not allowlisted
 For generic high-entropy matches that no live API can adjudicate, a validation
 expression can ask an LLM whether the candidate looks like a real secret. Use
 `json.string(...)` for quoted/escaped prompt fragments, `env.get(...)` plus
-`--validation-env-vars` for provider API keys, and `strings.obfuscate(...)`
+`--provider-env-vars` for provider API keys, and `strings.obfuscate(...)`
 when you want to avoid sending the raw candidate to a third-party API.
 
 Treat positive model output as `"needs_validation"` unless the credential was

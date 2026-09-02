@@ -55,7 +55,7 @@ func TestEnvBinding_notAllowlisted(t *testing.T) {
 	require.NoError(t, err)
 	_, err = env.Eval(prg, nil, nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not in validation env allowlist")
+	require.Contains(t, err.Error(), "not in provider env allowlist")
 }
 
 func TestEnvBinding_nilAllowlistDisables(t *testing.T) {
@@ -66,7 +66,7 @@ func TestEnvBinding_nilAllowlistDisables(t *testing.T) {
 	require.NoError(t, err)
 	_, err = env.Eval(prg, nil, nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "validation env allowlist")
+	require.Contains(t, err.Error(), "provider env allowlist")
 }
 
 func TestEnvBinding_emptyAllowlistDisables(t *testing.T) {

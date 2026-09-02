@@ -24,6 +24,7 @@ func filterNamespace(rt *runtimeBindings) map[string]any {
 		"matchesAny":           matchesAny,
 		"findMatch":            findMatch,
 		"containsAny":          containsAny,
+		"startsWithAny":        startsWithAny,
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
 		"tokenRatio":           rt.tokenRatio,
@@ -84,9 +85,9 @@ func getOrBuildTrie(terms []string) *ahocorasick.Matcher {
 	return trie
 }
 
-func matchesAny(s string, patterns any) bool {
+func matchesAny(values, patterns any) bool {
 	re := getOrCompileJoinedRegex(toStringSlice(patterns))
-	return re != nil && re.MatchString(s)
+	return re != nil && anyString(values, re.MatchString)
 }
 
 func findMatch(s, pattern string) string {
@@ -97,9 +98,50 @@ func findMatch(s, pattern string) string {
 	return re.FindString(s)
 }
 
-func containsAny(s string, terms any) bool {
+func containsAny(values, terms any) bool {
 	trie := getOrBuildTrie(toStringSlice(terms))
-	return trie != nil && len(trie.FindAllString(strings.ToLower(s))) > 0
+	return trie != nil && anyString(values, func(value string) bool {
+		return len(trie.FindAllString(strings.ToLower(value))) > 0
+	})
+}
+
+func startsWithAny(values, prefixes any) bool {
+	prefixesList := toStringSlice(prefixes)
+	return len(prefixesList) > 0 && anyString(values, func(value string) bool {
+		for _, prefix := range prefixesList {
+			if strings.HasPrefix(value, prefix) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// anyString applies match to a string or every string in a list. Returning
+// false for mixed-type lists keeps malformed dynamic Expr values conservative.
+func anyString(value any, match func(string) bool) bool {
+	switch value := value.(type) {
+	case string:
+		return match(value)
+	case []string:
+		for _, item := range value {
+			if match(item) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range value {
+			if _, ok := item.(string); !ok {
+				return false
+			}
+		}
+		for _, item := range value {
+			if match(item.(string)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func toStringSlice(v any) []string {

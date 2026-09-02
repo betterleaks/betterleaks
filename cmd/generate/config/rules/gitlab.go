@@ -26,15 +26,65 @@ const (
   } : validate.unknown(r)`
 
 	// gitlabPatExpr validates PATs via the self-inspection endpoint (glpat- tokens).
-	gitlabPatExpr = `let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+	gitlabPatExpr = `let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+  let r = http.get(base_url + "/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "name": (r.json?.name ?? "")
+    "token_id": string(int(r.json?.id ?? 0)),
+    "token_name": (r.json?.name ?? ""),
+    "user_id": string(int(r.json?.user_id ?? 0)),
+    "scopes": (r.json?.scopes ?? []),
+    "granular": (r.json?.granular ?? false),
+    "granular_scopes": (r.json?.granular_scopes ?? [])
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`
+
+	gitlabPatAnalyzeExpr = `let metadata = validation["metadata"] ?? {};
+let scopes = metadata["scopes"] ?? [];
+let granular_scopes =
+  size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
+  !((metadata["granular"] ?? false) || "granular" in scopes) || (metadata["token_id"] ?? "") in ["", "0"] ? [] : (
+  let headers = {"PRIVATE-TOKEN": finding["secret"]};
+  let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+  let token_id = metadata["token_id"];
+  let detail = http.get(base_url + "/api/v4/personal_access_tokens/" + token_id, headers);
+  let detail_scopes = detail.status == 200 ? (detail.json?.granular_scopes ?? []) : [];
+  size(detail_scopes) > 0 ? detail_scopes : (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
+    let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&per_page=100", headers);
+    let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
+    matching_token?.granular_scopes ?? []
+  )
+);
+let permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
+let can_read =
+  "api" in scopes ||
+  startsWithAny(scopes, ["read_", "write_"]) ||
+  startsWithAny(permissions, ["download_", "read_"]);
+let can_write =
+  "api" in scopes || "manage_runner" in scopes ||
+  startsWithAny(scopes, ["write_"]) ||
+  startsWithAny(permissions, [
+    "add_", "approve_", "archive_", "assign_", "cancel_", "create_",
+    "delete_", "disable_", "enable_", "execute_", "import_", "manage_",
+    "merge_", "move_", "publish_", "renew_", "restore_", "retry_",
+    "revoke_", "rotate_", "run_", "set_", "stop_", "transfer_",
+    "trigger_", "unarchive_", "update_", "upload_", "write_"
+  ]);
+{
+  "reason": ((metadata["granular"] ?? false) || "granular" in scopes) && size(granular_scopes) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "identity": {
+    "id": metadata["user_id"] ?? ""
+  },
+  "capabilities": flatten([
+    can_read ? ["read"] : [],
+    can_write ? ["write"] : [],
+    ("create_runner" in scopes || "self_rotate" in scopes) ? ["create_credentials"] : [],
+    ("sudo" in scopes || "admin_mode" in scopes) ? ["admin"] : []
+  ])
+}`
 
 	// gitlabRunnerRegistrationExpr validates runner registration tokens via POST.
 	gitlabRunnerRegistrationExpr = `let r = http.post("https://gitlab.com/api/v4/runners/verify", {
@@ -174,6 +224,7 @@ func GitlabPat() *config.Rule {
 		Regex:        regexp.MustCompile(`glpat-[\w-]{20}`),
 		Keywords:     []string{"glpat-"},
 		ValidateExpr: gitlabPatExpr,
+		AnalyzeExpr:  gitlabPatAnalyzeExpr,
 		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
@@ -193,6 +244,7 @@ func GitlabPatRoutable() *config.Rule {
 		Regex:        regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`),
 		Keywords:     []string{"glpat-"},
 		ValidateExpr: gitlabPatExpr,
+		AnalyzeExpr:  gitlabPatAnalyzeExpr,
 		Filter:       `entropy(finding["secret"]) <= 4.0`,
 	}
 
@@ -212,6 +264,7 @@ func GitlabPatRoutableVersioned() *config.Rule {
 		Regex:        regexp.MustCompile(`\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}\.[0-9a-z]{9}\b`),
 		Keywords:     []string{"glpat-"},
 		ValidateExpr: gitlabPatExpr,
+		AnalyzeExpr:  gitlabPatAnalyzeExpr,
 		Filter:       `entropy(finding["secret"]) <= 4.0`,
 	}
 

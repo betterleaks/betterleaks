@@ -34,8 +34,8 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			name: "filter",
 			fns:  functionNames(filterBindings(nil, emptyFilterFinding, emptyStringMap)),
 			current: []string{
-				"matchesAny", "containsAny", "entropy",
-				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.entropy",
+				"matchesAny", "containsAny", "startsWithAny", "entropy",
+				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.startsWithAny", "filter.entropy",
 				"filter.failsTokenEfficiency", "filter.tokenRatio", "filter.setConfidence",
 			},
 			deprecated: []string{"failsTokenEfficiency"},
@@ -44,8 +44,8 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			name: "prefilter",
 			fns:  functionNames(prefilterBindings(emptyStringMap)),
 			current: []string{
-				"matchesAny", "containsAny", "entropy",
-				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.entropy",
+				"matchesAny", "containsAny", "startsWithAny", "entropy",
+				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.startsWithAny", "filter.entropy",
 				"filter.failsTokenEfficiency", "filter.tokenRatio",
 			},
 			deprecated: []string{"failsTokenEfficiency"},
