@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/betterleaks/betterleaks/internal/tokenizer"
+	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 	"github.com/stretchr/testify/require"
 )
 

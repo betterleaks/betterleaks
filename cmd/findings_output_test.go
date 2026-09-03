@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {

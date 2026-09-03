@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/betterleaks/betterleaks/internal/confidence"
-	"github.com/betterleaks/betterleaks/internal/tokenizer"
-	"github.com/betterleaks/betterleaks/internal/words"
-	blregexp "github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/internal/confidence"
+	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
+	"github.com/betterleaks/betterleaks/v2/internal/words"
+	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
 	ahocorasick "github.com/rrethy/ahocorasick"
 )
 

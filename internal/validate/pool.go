@@ -7,10 +7,10 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/betterleaks/betterleaks/internal/analyze"
-	internalcache "github.com/betterleaks/betterleaks/internal/cache"
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/report"
+	"github.com/betterleaks/betterleaks/v2/internal/analyze"
+	internalcache "github.com/betterleaks/betterleaks/v2/internal/cache"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/report"
 )
 
 // validationJob is the internal unit of work for the pool.

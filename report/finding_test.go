@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

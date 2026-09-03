@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/betterleaks/betterleaks/report"
+	"github.com/betterleaks/betterleaks/v2/report"
 )
 
 func TestParseValidationStatuses(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func TestExpandRuleFlagShorthands(t *testing.T) {

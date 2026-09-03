@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func TestRuleValidateRechecksCurrentData(t *testing.T) {

@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/betterleaks/betterleaks/version"
+	"github.com/betterleaks/betterleaks/v2/version"
 )
 
 type VersionCmd struct{}

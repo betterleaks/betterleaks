@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func TestParseTOMLUsesInjectedLogger(t *testing.T) {

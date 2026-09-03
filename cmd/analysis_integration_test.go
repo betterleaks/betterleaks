@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/report"
+	"github.com/betterleaks/betterleaks/v2/report"
 )
 
 func TestAnalysisFlagValidatesAndEnrichesFindings(t *testing.T) {

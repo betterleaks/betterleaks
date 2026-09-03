@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 // expandRuleFlagShorthands translates the multi-character aliases requested by

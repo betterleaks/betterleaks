@@ -7,10 +7,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func Example() {

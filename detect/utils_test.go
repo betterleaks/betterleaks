@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func filterForTest(findings []report.Finding) []report.Finding {

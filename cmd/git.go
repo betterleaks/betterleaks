@@ -3,9 +3,9 @@ package cmd
 import (
 	"time"
 
-	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/sources"
-	"github.com/betterleaks/betterleaks/sources/scm"
+	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
 // multipleErrors wraps multiple scan errors into a single error that supports

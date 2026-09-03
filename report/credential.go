@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 const CredentialReportSchemaVersion = 1

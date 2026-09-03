@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/report"
+	"github.com/betterleaks/betterleaks/v2/report"
 )
 
 // validStatuses is the set of recognised validation statuses.

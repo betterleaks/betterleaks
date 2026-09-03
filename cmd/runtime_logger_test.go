@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/v2/logging"
 )
 
 func TestInitLogConfiguresOnlyCommandRuntime(t *testing.T) {

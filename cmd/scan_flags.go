@@ -7,7 +7,7 @@ import (
 
 	"github.com/alecthomas/kong"
 
-	"github.com/betterleaks/betterleaks/internal/confidence"
+	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 )
 
 // ScanFlags are shared by commands that detect findings from a source.

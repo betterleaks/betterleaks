@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/internal/ruletiming"
+	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 )
 
 func TestRuleTimingDiagnostics(t *testing.T) {

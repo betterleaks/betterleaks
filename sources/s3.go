@@ -18,7 +18,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/betterleaks/betterleaks/internal/sigv4"
+	"github.com/betterleaks/betterleaks/v2/internal/sigv4"
 )
 
 const (

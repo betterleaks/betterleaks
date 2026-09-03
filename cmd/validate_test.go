@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	configpkg "github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
+	configpkg "github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func TestValidateCommandJSONL(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 	"runtime/trace"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/internal/ruletiming"
+	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 )
 
 const defaultDiagnosticsDir = "diagnostics"

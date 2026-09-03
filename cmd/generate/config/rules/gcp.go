@@ -1,10 +1,10 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=" + finding["secret"], {}); k.status == 400 ? {

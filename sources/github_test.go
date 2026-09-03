@@ -22,8 +22,8 @@ import (
 	"github.com/google/go-github/v72/github"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
 )
 
 func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {

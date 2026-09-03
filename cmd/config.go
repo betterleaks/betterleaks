@@ -7,9 +7,9 @@ import (
 
 	ahocorasick "github.com/rrethy/ahocorasick"
 
-	configpkg "github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/regexp"
+	configpkg "github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 type resolvedConfig struct {

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/internal/confidence"
-	"github.com/betterleaks/betterleaks/internal/contextwindow"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/internal/confidence"
+	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // Rules contain information that define details on how to detect secrets

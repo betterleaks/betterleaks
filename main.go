@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/betterleaks/betterleaks/cmd"
+	"github.com/betterleaks/betterleaks/v2/cmd"
 )
 
 func main() {

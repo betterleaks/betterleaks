@@ -1,6 +1,6 @@
 package base
 
-import "github.com/betterleaks/betterleaks/config"
+import "github.com/betterleaks/betterleaks/v2/config"
 
 const GlobalPrefilter = `matchesAny(attributes["path"], [
   ` + "`gitleaks\\.toml`" + `,

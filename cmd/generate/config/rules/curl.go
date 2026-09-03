@@ -3,9 +3,9 @@ package rules
 import (
 	"fmt"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // https://curl.se/docs/manpage.html#-u

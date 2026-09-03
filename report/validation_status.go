@@ -1,6 +1,6 @@
 package report
 
-import "github.com/betterleaks/betterleaks/internal/color"
+import "github.com/betterleaks/betterleaks/v2/internal/color"
 
 // ValidationStatus describes the liveness state of a finding's secret as
 // determined by the validation engine. It is a string-backed type so that it

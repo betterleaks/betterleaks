@@ -7,10 +7,10 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
-	"github.com/betterleaks/betterleaks/cmd/generate/config/rules"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/rules"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/logging"
 )
 
 const (

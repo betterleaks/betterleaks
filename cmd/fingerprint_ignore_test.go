@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/detect"
-	blfingerprint "github.com/betterleaks/betterleaks/internal/fingerprint"
-	"github.com/betterleaks/betterleaks/regexp"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/detect"
+	blfingerprint "github.com/betterleaks/betterleaks/v2/internal/fingerprint"
+	"github.com/betterleaks/betterleaks/v2/regexp"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 type fakeTerminal struct{ io.Reader }

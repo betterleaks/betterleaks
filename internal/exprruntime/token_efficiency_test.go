@@ -3,8 +3,8 @@ package exprruntime_test
 import (
 	"testing"
 
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/internal/tokenizer"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 	"github.com/stretchr/testify/require"
 )
 

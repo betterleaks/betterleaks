@@ -8,11 +8,11 @@ import (
 	"context"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func Validate(rule config.Rule, truePositives []string, falsePositives []string) *config.Rule {

@@ -1,10 +1,10 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/user", {

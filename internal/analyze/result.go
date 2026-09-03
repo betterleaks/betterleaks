@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/report"
+	"github.com/betterleaks/betterleaks/v2/report"
 )
 
 var validCapabilities = map[report.Capability]struct{}{

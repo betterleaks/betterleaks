@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/v2/logging"
 )
 
 var discardLogger = slog.New(slog.DiscardHandler)

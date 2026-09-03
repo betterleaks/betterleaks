@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/internal/confidence"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/internal/confidence"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 // Finding describes a secret found by a rule.

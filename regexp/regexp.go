@@ -4,7 +4,7 @@ import (
 	"regexp/syntax"
 	"sync"
 
-	"github.com/betterleaks/betterleaks/regexp/internal"
+	"github.com/betterleaks/betterleaks/v2/regexp/internal"
 )
 
 type Engine interface {

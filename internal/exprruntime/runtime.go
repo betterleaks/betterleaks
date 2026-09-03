@@ -14,7 +14,7 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
 
-	"github.com/betterleaks/betterleaks/internal/tokenizer"
+	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 )
 
 // Program is the compiled representation used by filter, validation, and

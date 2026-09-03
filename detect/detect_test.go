@@ -20,14 +20,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/detect/codec"
-	"github.com/betterleaks/betterleaks/internal/contextwindow"
-	"github.com/betterleaks/betterleaks/internal/ruletiming"
-	"github.com/betterleaks/betterleaks/regexp"
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
-	"github.com/betterleaks/betterleaks/sources/scm"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/detect/codec"
+	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
+	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
+	"github.com/betterleaks/betterleaks/v2/regexp"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
 const maxDecodeDepth = 8

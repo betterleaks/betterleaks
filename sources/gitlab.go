@@ -21,8 +21,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/betterleaks/betterleaks/internal/httpclient"
-	"github.com/betterleaks/betterleaks/sources/scm"
+	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
 const (

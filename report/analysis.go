@@ -1,6 +1,6 @@
 package report
 
-import "github.com/betterleaks/betterleaks/internal/color"
+import "github.com/betterleaks/betterleaks/v2/internal/color"
 
 // Severity is a provider-neutral lower bound derived from observed
 // capabilities. Rules cannot assign it directly.

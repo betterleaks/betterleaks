@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 type StdinCmd struct {

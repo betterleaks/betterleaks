@@ -22,7 +22,7 @@ import (
 	"github.com/gitleaks/go-gitdiff/gitdiff"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/betterleaks/betterleaks/sources/scm"
+	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
 // GitCmd helps to work with Git's output.

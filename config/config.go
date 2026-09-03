@@ -12,8 +12,8 @@ import (
 	gv "github.com/hashicorp/go-version"
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/betterleaks/betterleaks/regexp"
-	"github.com/betterleaks/betterleaks/version"
+	"github.com/betterleaks/betterleaks/v2/regexp"
+	"github.com/betterleaks/betterleaks/v2/version"
 )
 
 var (

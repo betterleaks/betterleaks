@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/internal/analyze"
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
-	validatepkg "github.com/betterleaks/betterleaks/internal/validate"
-	"github.com/betterleaks/betterleaks/report"
+	"github.com/betterleaks/betterleaks/v2/internal/analyze"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	validatepkg "github.com/betterleaks/betterleaks/v2/internal/validate"
+	"github.com/betterleaks/betterleaks/v2/report"
 )
 
 type analysisFixtureTransport func(*http.Request) (*http.Response, error)

@@ -13,11 +13,11 @@ import (
 	"github.com/expr-lang/expr/ast"
 	exprparser "github.com/expr-lang/expr/parser"
 
-	configpkg "github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
-	validatepkg "github.com/betterleaks/betterleaks/internal/validate"
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
+	configpkg "github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	validatepkg "github.com/betterleaks/betterleaks/v2/internal/validate"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 const maxValidateCredentialInputBytes = 1 << 20

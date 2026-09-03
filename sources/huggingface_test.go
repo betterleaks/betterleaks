@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/betterleaks/betterleaks/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
 )
 
 func TestParseHuggingFaceURL(t *testing.T) {

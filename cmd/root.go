@@ -12,14 +12,14 @@ import (
 	"time"
 
 	"github.com/alecthomas/kong"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/internal/fingerprint"
-	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/regexp"
-	regexpre2 "github.com/betterleaks/betterleaks/regexp/re2"
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/version"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/internal/fingerprint"
+	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/regexp"
+	regexpre2 "github.com/betterleaks/betterleaks/v2/regexp/re2"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/version"
 )
 
 var banner = fmt.Sprintf(`

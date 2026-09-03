@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func TestCredentialReportRedactsOverlappingSecretsAndMetadataKeys(t *testing.T) {

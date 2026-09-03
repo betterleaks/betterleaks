@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 )
 
 func TestPublicAPIKeyProviderUsesLineClampedContext(t *testing.T) {

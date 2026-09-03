@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 )
 
 var (
