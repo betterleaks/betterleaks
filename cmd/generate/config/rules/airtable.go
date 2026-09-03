@@ -11,21 +11,24 @@ const airtableValidateExpr = `let r = http.get("https://api.airtable.com/v0/meta
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "id": (r.json?.id ?? ""),
-    "email": (r.json?.email ?? ""),
-    "scopes": (r.json?.scopes ?? [])
+    "analysis": {
+      "id": (r.json?.id ?? ""),
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.json?.scopes ?? [])
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`
 
-const airtableAnalyzeExpr = `let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+const airtableAnalyzeExpr = `let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "identity": {
-    "id": metadata["id"] ?? "",
-    "email": metadata["email"] ?? ""
+    "id": input["id"] ?? "",
+    "email": input["email"] ?? ""
   },
+  "metadata": size(scopes) > 0 ? {"scopes": scopes} : {},
   "capabilities": analysis.capabilities({
     "read": filter.matchesAny(scopes, [":read$"]),
     "write": filter.matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),

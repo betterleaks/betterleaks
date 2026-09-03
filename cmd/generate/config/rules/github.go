@@ -12,26 +12,32 @@ const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "htt
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "id": string(r.json?.id ?? ""),
-      "username": (r.json?.login ?? ""),
-      "name": (r.json?.name ?? ""),
-      "email": (r.json?.email ?? ""),
-      "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
-      "sso": (r.headers["x-github-sso"] ?? "")
+      "analysis": {
+        "id": string(r.json?.id ?? ""),
+        "username": (r.json?.login ?? ""),
+        "name": (r.json?.name ?? ""),
+        "email": (r.json?.email ?? ""),
+        "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
+        "sso": (r.headers["x-github-sso"] ?? "")
+      }
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))`
 
-const githubTokenAnalyzeExpr = `let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+const githubTokenAnalyzeExpr = `let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
+  "metadata": {
+    "scopes": scopes,
+    "sso": input["sso"] ?? ""
+  },
   "identity": {
-    "id": metadata["id"] ?? "",
-    "username": metadata["username"] ?? "",
-    "name": metadata["name"] ?? "",
-    "email": metadata["email"] ?? ""
+    "id": input["id"] ?? "",
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? ""
   },
   "capabilities": analysis.capabilities({
     "read": filter.matchesAny(scopes, [

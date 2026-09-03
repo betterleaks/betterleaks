@@ -215,9 +215,9 @@ func TestValidationRequiresExplicitOption(t *testing.T) {
 
 func TestAnalysisRequiresExplicitOptionAndImpliesValidation(t *testing.T) {
 	cfg := testConfig()
-	cfg.Rules[0].ValidateExpr = `{"result": "valid", "owner": "user-1"}`
+	cfg.Rules[0].ValidateExpr = `{"result": "valid", "analysis": {"owner": "user-1"}}`
 	cfg.Rules[0].AnalyzeExpr = `{
-		"identity": {"id": validation["metadata"]["owner"]},
+		"identity": {"id": validation["analysis"]["owner"]},
 		"capabilities": ["read"]
 	}`
 
@@ -244,6 +244,7 @@ func TestAnalysisRequiresExplicitOptionAndImpliesValidation(t *testing.T) {
 	require.NoError(t, scanErr)
 	require.Len(t, findings, 1)
 	assert.Equal(t, report.ValidationStatusValid, findings[0].Validation.Status)
+	assert.Empty(t, findings[0].Validation.Metadata)
 	assert.Equal(t, report.SeverityMedium, findings[0].Analysis.Severity)
 	require.NotNil(t, findings[0].Analysis.Identity)
 	assert.Equal(t, "user-1", findings[0].Analysis.Identity.ID)

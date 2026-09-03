@@ -383,6 +383,7 @@ func emptyValidationMap() map[string]any {
 		"status":   "",
 		"reason":   "",
 		"metadata": map[string]any{},
+		"analysis": map[string]any{},
 	}
 }
 

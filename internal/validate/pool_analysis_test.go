@@ -15,12 +15,12 @@ func TestPoolAnalyzesValidCredential(t *testing.T) {
 	require.NoError(t, err)
 	validationProgram, err := runtime.CompileValidation(`{
 		"result": "valid",
-		"owner": "credential=" + finding["secret"]
+		"analysis": {"owner": "credential=" + finding["secret"]}
 	}`)
 	require.NoError(t, err)
 	analysisProgram, err := runtime.CompileAnalysis(`{
-		"reason": validation["metadata"]["owner"],
-		"identity": {"id": validation["metadata"]["owner"]},
+		"reason": validation["analysis"]["owner"],
+		"identity": {"id": validation["analysis"]["owner"]},
 		"capabilities": ["write", "read", "write"]
 	}`)
 	require.NoError(t, err)
@@ -40,6 +40,7 @@ func TestPoolAnalyzesValidCredential(t *testing.T) {
 	for range 2 {
 		result := <-results
 		assert.Equal(t, report.ValidationStatusValid, result.Validation.Status)
+		assert.Empty(t, result.Validation.Metadata)
 		assert.Equal(t, report.SeverityHigh, result.Analysis.Severity)
 		assert.Equal(t, []report.Capability{report.CapabilityRead, report.CapabilityWrite}, result.Analysis.Capabilities)
 		require.NotNil(t, result.Analysis.Identity)
@@ -110,12 +111,12 @@ func TestPoolAnalyzesValidComponentSets(t *testing.T) {
 	require.NoError(t, err)
 	validationProgram, err := runtime.CompileValidation(`{
 		"result": components["account"]?.secret == "account-secret" ? "valid" : "invalid",
-		"owner": "user-1"
+		"analysis": {"owner": "user-1"}
 	}`)
 	require.NoError(t, err)
 	analysisProgram, err := runtime.CompileAnalysis(`{
 		"identity": {
-			"id": validation["metadata"]["owner"],
+			"id": validation["analysis"]["owner"],
 			"account": {"id": components["account"].secret}
 		},
 		"capabilities": ["read"]

@@ -136,7 +136,7 @@ func (p *Pool) worker() {
 			}
 			if f.Validation.Status == report.ValidationStatusValid && job.analysisProgram != nil {
 				cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, job.captures, nil)
-				f.Analysis = p.evalAnalysisWithCacheKey(cacheKey, job.analysisProgram, f.ToExprMap(), job.captures, nil, f.Attributes, f.Validation)
+				f.Analysis = p.evalAnalysisWithCacheKey(cacheKey, job.analysisProgram, f.ToExprMap(), job.captures, nil, f.Attributes, result)
 				f.Analysis = report.SanitizeAnalysis(f.Analysis, []string{f.Secret})
 			}
 			if p.Emit != nil {
@@ -195,7 +195,7 @@ func (p *Pool) worker() {
 			set.Validation.Reason = result.Reason
 			set.Validation.Metadata = result.Metadata
 			if result.Status == report.ValidationStatusValid && job.analysisProgram != nil {
-				set.Analysis = p.evalAnalysisWithCacheKey(cacheKey, job.analysisProgram, f.ToExprMap(), job.captures, components, f.Attributes, set.Validation)
+				set.Analysis = p.evalAnalysisWithCacheKey(cacheKey, job.analysisProgram, f.ToExprMap(), job.captures, components, f.Attributes, result)
 				set.Analysis = report.SanitizeAnalysis(set.Analysis, componentSetSecrets(f.Secret, set.Components))
 				if betterAnalysis(bestAnalysis, set.Analysis) {
 					bestAnalysis = set.Analysis
@@ -240,7 +240,7 @@ func (p *Pool) worker() {
 	}
 }
 
-func (p *Pool) evalAnalysisWithCacheKey(cacheKey string, program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation report.Validation) report.Analysis {
+func (p *Pool) evalAnalysisWithCacheKey(cacheKey string, program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation *Result) report.Analysis {
 	if p.Debug {
 		result, err := p.evalAnalysisProgram(program, finding, captures, components, attributes, validation)
 		if err != nil {
@@ -258,7 +258,17 @@ func (p *Pool) evalAnalysisWithCacheKey(cacheKey string, program exprruntime.Pro
 	return result
 }
 
-func (p *Pool) evalAnalysisProgram(program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation report.Validation) (report.Analysis, error) {
+func (p *Pool) evalAnalysisProgram(program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation *Result) (report.Analysis, error) {
+	metadata := map[string]any{}
+	analysis := map[string]any{}
+	status := report.ValidationStatusNone
+	reason := ""
+	if validation != nil {
+		metadata = validation.Metadata
+		analysis = validation.Analysis
+		status = validation.Status
+		reason = validation.Reason
+	}
 	result, evalErr := p.runtime.EvalAnalysisWithComponents(
 		p.ctx,
 		program,
@@ -267,9 +277,10 @@ func (p *Pool) evalAnalysisProgram(program exprruntime.Program, finding, capture
 		components,
 		attributes,
 		map[string]any{
-			"status":   string(validation.Status),
-			"reason":   validation.Reason,
-			"metadata": validation.Metadata,
+			"status":   string(status),
+			"reason":   reason,
+			"metadata": metadata,
+			"analysis": analysis,
 		},
 		exprruntime.EvalOptions{Debug: p.Debug},
 	)

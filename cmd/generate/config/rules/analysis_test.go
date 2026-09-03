@@ -95,11 +95,12 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 			require.NoError(t, err)
 			validationResult := validatepkg.ParseResult(validationValue.Value)
 			require.Equal(t, report.ValidationStatusValid, validationResult.Status)
+			assert.Empty(t, validationResult.Metadata)
 			if test.wantTokenID != "" {
-				assert.Equal(t, test.wantTokenID, validationResult.Metadata["token_id"])
-				assert.Equal(t, false, validationResult.Metadata["granular"])
-				assert.Equal(t, []any{"api"}, validationResult.Metadata["scopes"])
-				assert.NotContains(t, validationResult.Metadata, "granular_scopes")
+				assert.Equal(t, test.wantTokenID, validationResult.Analysis["token_id"])
+				assert.Equal(t, false, validationResult.Analysis["granular"])
+				assert.Equal(t, []any{"api"}, validationResult.Analysis["scopes"])
+				assert.NotContains(t, validationResult.Analysis, "granular_scopes")
 			}
 
 			analysisProgram, err := runtime.CompileAnalysis(test.analysis)
@@ -110,6 +111,7 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 					"status":   string(validationResult.Status),
 					"reason":   validationResult.Reason,
 					"metadata": validationResult.Metadata,
+					"analysis": validationResult.Analysis,
 				},
 				exprruntime.EvalOptions{},
 			)
@@ -117,6 +119,7 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 			analysisResult, err := analyze.ParseResult(analysisValue.Value)
 			require.NoError(t, err)
 			assert.Equal(t, test.wantCapabilities, analysisResult.Capabilities)
+			assert.NotEmpty(t, analysisResult.Metadata)
 			require.NotNil(t, analysisResult.Identity)
 			assert.Equal(t, test.wantIdentity, analysisResult.Identity.ID)
 		})
@@ -127,7 +130,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 	tests := []struct {
 		name         string
 		expression   string
-		metadata     map[string]any
+		input        map[string]any
 		severity     report.Severity
 		capabilities []report.Capability
 		identityID   string
@@ -136,7 +139,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 		{
 			name:       "airtable",
 			expression: airtableAnalyzeExpr,
-			metadata: map[string]any{
+			input: map[string]any{
 				"id": "usrAirtable", "email": "owner@example.com",
 				"scopes": []any{"data.records:read", "schema.bases:write", "enterprise.user:write"},
 			},
@@ -147,7 +150,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 		{
 			name:       "gitlab",
 			expression: gitlabPatAnalyzeExpr,
-			metadata: map[string]any{
+			input: map[string]any{
 				"user_id": "42",
 				"scopes":  []any{"api", "self_rotate"},
 				"granular_scopes": []any{
@@ -161,7 +164,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 		{
 			name:       "hugging-face",
 			expression: huggingFaceAnalyzeExpr,
-			metadata: map[string]any{
+			input: map[string]any{
 				"id": "userHF", "username": "octo", "name": "Octo Cat",
 				"auth": map[string]any{"accessToken": map[string]any{"role": "write"}},
 				"orgs": []any{map[string]any{"id": "orgHF", "name": "Acme"}},
@@ -173,7 +176,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 		{
 			name:       "slack",
 			expression: slackAnalyzeExpr,
-			metadata: map[string]any{
+			input: map[string]any{
 				"user_id": "U123", "user": "octo", "team_id": "T123", "team": "Acme",
 				"scopes": []any{"channels:history", "chat:write", "admin.users:write"},
 			},
@@ -184,7 +187,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 		{
 			name:       "github",
 			expression: githubTokenAnalyzeExpr,
-			metadata: map[string]any{
+			input: map[string]any{
 				"id": "7", "username": "octocat", "scopes": []any{"repo", "admin:public_key"},
 			},
 			severity:     report.SeverityCritical,
@@ -195,7 +198,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := evaluateProviderAnalysis(t, test.expression, test.metadata)
+			result := evaluateProviderAnalysis(t, test.expression, test.input)
 			assert.Equal(t, test.severity, result.Severity)
 			assert.Equal(t, test.capabilities, result.Capabilities)
 			require.NotNil(t, result.Identity)
@@ -294,6 +297,7 @@ func TestGitLabAnalysisClassifiesGranularPermissionActions(t *testing.T) {
 
 	assert.Equal(t, report.SeverityHigh, result.Severity)
 	assert.Equal(t, []report.Capability{report.CapabilityRead, report.CapabilityWrite}, result.Capabilities)
+	assert.Equal(t, []any{"read_future_resource", "write_future_resource"}, result.Metadata["permissions"])
 }
 
 func TestGitLabAnalysisExplainsMissingFineGrainedPermissionDetails(t *testing.T) {
@@ -310,7 +314,7 @@ func TestGitLabAnalysisExplainsMissingFineGrainedPermissionDetails(t *testing.T)
 	assert.Empty(t, result.Capabilities)
 }
 
-func TestGitLabValidationOmitsGranularScopeSentinel(t *testing.T) {
+func TestGitLabValidationKeepsGranularInputPrivate(t *testing.T) {
 	runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -335,8 +339,9 @@ func TestGitLabValidationOmitsGranularScopeSentinel(t *testing.T) {
 	result := validatepkg.ParseResult(value.Value)
 
 	assert.Equal(t, report.ValidationStatusValid, result.Status)
-	assert.Equal(t, true, result.Metadata["granular"])
-	assert.Nil(t, result.Metadata["scopes"])
+	assert.Empty(t, result.Metadata)
+	assert.Equal(t, true, result.Analysis["granular"])
+	assert.Nil(t, result.Analysis["scopes"])
 }
 
 func TestGitLabAnalysisLooksUpMissingFineGrainedPermissionDetails(t *testing.T) {
@@ -365,9 +370,10 @@ func TestGitLabAnalysisLooksUpMissingFineGrainedPermissionDetails(t *testing.T) 
 		nil,
 		nil,
 		map[string]any{
-			"status": "valid",
-			"reason": "",
-			"metadata": map[string]any{
+			"status":   "valid",
+			"reason":   "",
+			"metadata": map[string]any{},
+			"analysis": map[string]any{
 				"token_id": "27109975",
 				"user_id":  "1140645",
 				"scopes":   []any{"granular"},
@@ -386,7 +392,7 @@ func TestGitLabAnalysisLooksUpMissingFineGrainedPermissionDetails(t *testing.T) 
 	assert.Equal(t, []string{"/api/v4/personal_access_tokens?user_id=1140645&state=active&per_page=100"}, requests)
 }
 
-func evaluateProviderAnalysis(t *testing.T, expression string, metadata map[string]any) report.Analysis {
+func evaluateProviderAnalysis(t *testing.T, expression string, input map[string]any) report.Analysis {
 	t.Helper()
 	runtime, err := exprruntime.New(nil)
 	require.NoError(t, err)
@@ -399,7 +405,7 @@ func evaluateProviderAnalysis(t *testing.T, expression string, metadata map[stri
 		nil,
 		nil,
 		nil,
-		map[string]any{"status": "valid", "reason": "", "metadata": metadata},
+		map[string]any{"status": "valid", "reason": "", "metadata": map[string]any{}, "analysis": input},
 		exprruntime.EvalOptions{},
 	)
 	require.NoError(t, err)

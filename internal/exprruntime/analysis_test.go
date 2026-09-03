@@ -10,8 +10,8 @@ import (
 func TestAnalysisReceivesValidationBinding(t *testing.T) {
 	runtime, err := New(nil)
 	require.NoError(t, err)
-	program, err := runtime.CompileAnalysis(`let scopes = validation.metadata["scopes"] ?? []; {
-		"identity": {"id": validation.metadata["owner"]},
+	program, err := runtime.CompileAnalysis(`let scopes = validation.analysis["scopes"] ?? []; {
+		"identity": {"id": validation.analysis["owner"]},
 		"capabilities": analysis.capabilities({
 			"read": validation["status"] == "valid" && filter.matchesAny(scopes, ["^read_"]),
 			"write": filter.intersects(scopes, ["write_api"])
@@ -29,7 +29,8 @@ func TestAnalysisReceivesValidationBinding(t *testing.T) {
 		map[string]any{
 			"status":   "valid",
 			"reason":   "",
-			"metadata": map[string]any{"owner": "user-1", "scopes": []string{"read_api", "write_api"}},
+			"metadata": map[string]any{},
+			"analysis": map[string]any{"owner": "user-1", "scopes": []string{"read_api", "write_api"}},
 		},
 		EvalOptions{},
 	)

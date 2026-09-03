@@ -21,7 +21,8 @@ var validStatuses = map[report.ValidationStatus]bool{
 type Result struct {
 	Status   report.ValidationStatus // valid, invalid, revoked, unknown, error
 	Reason   string                  // human-readable explanation
-	Metadata map[string]any          // extra fields from the validation result map
+	Metadata map[string]any          // public fields from the validation result map
+	Analysis map[string]any          // private fields passed only to credential analysis
 }
 
 // ParseResult interprets the expression output value into a Result.
@@ -71,7 +72,7 @@ func BetterStatus(a, b report.ValidationStatus) report.ValidationStatus {
 
 // reservedKeys are map keys consumed by parseResultMap and excluded from metadata.
 var reservedKeys = map[string]bool{
-	"result": true, "reason": true,
+	"result": true, "reason": true, "analysis": true,
 }
 
 // parseResultMap interprets a map result from a validation expression.
@@ -98,6 +99,27 @@ func parseResultMap(m map[string]any) *Result {
 	if r, ok := m["reason"]; ok {
 		if s, ok := r.(string); ok {
 			result.Reason = s
+		}
+	}
+
+	// Analysis input is deliberately separate from validation metadata. It
+	// carries facts discovered by validation to a subsequent analysis program
+	// without exposing those implementation details in reports.
+	if value, ok := m["analysis"]; ok {
+		switch analysis := value.(type) {
+		case map[string]any:
+			result.Analysis = analysis
+		case map[any]any:
+			result.Analysis = make(map[string]any, len(analysis))
+			for key, value := range analysis {
+				if key, ok := key.(string); ok {
+					result.Analysis[key] = value
+				}
+			}
+		case nil:
+		default:
+			result.Status = report.ValidationStatusError
+			result.Reason = fmt.Sprintf("validation analysis must be an object, got %T", value)
 		}
 	}
 

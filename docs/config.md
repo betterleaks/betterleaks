@@ -192,8 +192,9 @@ validation expressions. They also receive an `analysis` namespace:
 | `analysis.capabilities(conditions)` | Converts a map of capability names to boolean predicates into the canonical positive-only capability list. Unknown names and non-boolean values fail evaluation. |
 
 The successful validation result remains available through `validation`.
-Analysis expressions should read provider evidence through
-`validation.metadata`, preserving its origin explicitly.
+Validation expressions can place provider evidence in the reserved `analysis`
+object. Analysis expressions read that private, cached value through
+`validation.analysis`; it is never included in validation reports.
 Providers that return a delimited scope header can normalize it once in their
 validation expression with `strings.splitTrim(value, separator)`.
 
@@ -257,8 +258,11 @@ statuses are:
 - `"unknown"`
 - `"error"`
 
-Any additional keys are attached to the finding as validation metadata, such as
-`username`, `email`, `scopes`, or `reason`.
+Any additional keys are attached to the finding as validation metadata. The
+reserved `analysis` key is the exception: it must contain an object and is
+available only to a subsequent analysis expression as `validation.analysis`.
+This lets validation reports stay focused on credential status while analysis
+reuses identity, scope, and permission data from the validation request.
 
 ### Validation functions
 

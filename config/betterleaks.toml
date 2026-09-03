@@ -251,22 +251,25 @@ let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "id": (r.json?.id ?? ""),
-    "email": (r.json?.email ?? ""),
-    "scopes": (r.json?.scopes ?? [])
+    "analysis": {
+      "id": (r.json?.id ?? ""),
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.json?.scopes ?? [])
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "identity": {
-    "id": metadata["id"] ?? "",
-    "email": metadata["email"] ?? ""
+    "id": input["id"] ?? "",
+    "email": input["email"] ?? ""
   },
+  "metadata": size(scopes) > 0 ? {"scopes": scopes} : {},
   "capabilities": analysis.capabilities({
     "read": filter.matchesAny(scopes, [":read$"]),
     "write": filter.matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
@@ -292,22 +295,25 @@ let r = http.get("https://api.airtable.com/v0/meta/whoami", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "id": (r.json?.id ?? ""),
-    "email": (r.json?.email ?? ""),
-    "scopes": (r.json?.scopes ?? [])
+    "analysis": {
+      "id": (r.json?.id ?? ""),
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.json?.scopes ?? [])
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "identity": {
-    "id": metadata["id"] ?? "",
-    "email": metadata["email"] ?? ""
+    "id": input["id"] ?? "",
+    "email": input["email"] ?? ""
   },
+  "metadata": size(scopes) > 0 ? {"scopes": scopes} : {},
   "capabilities": analysis.capabilities({
     "read": filter.matchesAny(scopes, [":read$"]),
     "write": filter.matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
@@ -5447,27 +5453,33 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "id": string(r.json?.id ?? ""),
-      "username": (r.json?.login ?? ""),
-      "name": (r.json?.name ?? ""),
-      "email": (r.json?.email ?? ""),
-      "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
-      "sso": (r.headers["x-github-sso"] ?? "")
+      "analysis": {
+        "id": string(r.json?.id ?? ""),
+        "username": (r.json?.login ?? ""),
+        "name": (r.json?.name ?? ""),
+        "email": (r.json?.email ?? ""),
+        "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
+        "sso": (r.headers["x-github-sso"] ?? "")
+      }
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
+  "metadata": {
+    "scopes": scopes,
+    "sso": input["sso"] ?? ""
+  },
   "identity": {
-    "id": metadata["id"] ?? "",
-    "username": metadata["username"] ?? "",
-    "name": metadata["name"] ?? "",
-    "email": metadata["email"] ?? ""
+    "id": input["id"] ?? "",
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? ""
   },
   "capabilities": analysis.capabilities({
     "read": filter.matchesAny(scopes, [
@@ -5502,27 +5514,33 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "id": string(r.json?.id ?? ""),
-      "username": (r.json?.login ?? ""),
-      "name": (r.json?.name ?? ""),
-      "email": (r.json?.email ?? ""),
-      "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
-      "sso": (r.headers["x-github-sso"] ?? "")
+      "analysis": {
+        "id": string(r.json?.id ?? ""),
+        "username": (r.json?.login ?? ""),
+        "name": (r.json?.name ?? ""),
+        "email": (r.json?.email ?? ""),
+        "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
+        "sso": (r.headers["x-github-sso"] ?? "")
+      }
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
+  "metadata": {
+    "scopes": scopes,
+    "sso": input["sso"] ?? ""
+  },
   "identity": {
-    "id": metadata["id"] ?? "",
-    "username": metadata["username"] ?? "",
-    "name": metadata["name"] ?? "",
-    "email": metadata["email"] ?? ""
+    "id": input["id"] ?? "",
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? ""
   },
   "capabilities": analysis.capabilities({
     "read": filter.matchesAny(scopes, [
@@ -5557,27 +5575,33 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "id": string(r.json?.id ?? ""),
-      "username": (r.json?.login ?? ""),
-      "name": (r.json?.name ?? ""),
-      "email": (r.json?.email ?? ""),
-      "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
-      "sso": (r.headers["x-github-sso"] ?? "")
+      "analysis": {
+        "id": string(r.json?.id ?? ""),
+        "username": (r.json?.login ?? ""),
+        "name": (r.json?.name ?? ""),
+        "email": (r.json?.email ?? ""),
+        "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
+        "sso": (r.headers["x-github-sso"] ?? "")
+      }
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
+  "metadata": {
+    "scopes": scopes,
+    "sso": input["sso"] ?? ""
+  },
   "identity": {
-    "id": metadata["id"] ?? "",
-    "username": metadata["username"] ?? "",
-    "name": metadata["name"] ?? "",
-    "email": metadata["email"] ?? ""
+    "id": input["id"] ?? "",
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? ""
   },
   "capabilities": analysis.capabilities({
     "read": filter.matchesAny(scopes, [
@@ -5613,12 +5637,14 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "Authorization": "token " + finding["secret"]
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
-      "id": string(r.json?.id ?? ""),
-      "username": (r.json?.login ?? ""),
-      "name": (r.json?.name ?? ""),
-      "email": (r.json?.email ?? ""),
-      "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
-      "sso": (r.headers["x-github-sso"] ?? "")
+      "analysis": {
+        "id": string(r.json?.id ?? ""),
+        "username": (r.json?.login ?? ""),
+        "name": (r.json?.name ?? ""),
+        "email": (r.json?.email ?? ""),
+        "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
+        "sso": (r.headers["x-github-sso"] ?? "")
+      }
     } : r.status in [401, 403] ? {
       "result": "invalid",
       "reason": "Unauthorized"
@@ -5768,44 +5794,46 @@ let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "token_id": string(int(r.json?.id ?? 0)),
-    "token_name": (r.json?.name ?? ""),
-    "user_id": string(int(r.json?.user_id ?? 0)),
-    "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
-    "granular": (r.json?.granular ?? false)
+    "analysis": {
+      "token_id": string(int(r.json?.id ?? 0)),
+      "token_name": (r.json?.name ?? ""),
+      "user_id": string(int(r.json?.user_id ?? 0)),
+      "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
+      "granular": (r.json?.granular ?? false)
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
-let granular = metadata["granular"] ?? false;
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let granular = input["granular"] ?? false;
 let granular_scopes =
-  size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
-  !granular || (metadata["token_id"] ?? "") in ["", "0"] || (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
+  size(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
+  !granular || (input["token_id"] ?? "") in ["", "0"] || (input["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
-  let token_id = metadata["token_id"];
-  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&state=active&per_page=100", headers);
+  let token_id = input["token_id"];
+  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + input["user_id"] + "&state=active&per_page=100", headers);
   let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
   matching_token?.granular_scopes ?? []
 );
 let granular_permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
 let grants = flatten([
-  scopes,
+  granular ? [] : scopes,
   granular_permissions
 ]);
 let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
 let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
 {
   "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" : "",
-  "metadata": size(granular_permissions) > 0 ? {
-    "permissions": granular_permissions
+  "metadata": size(grants) > 0 ? {
+    "permissions": grants
   } : {},
   "identity": {
-    "id": metadata["user_id"] ?? ""
+    "id": input["user_id"] ?? ""
   },
   "capabilities": analysis.capabilities({
     "read": can_read,
@@ -5834,44 +5862,46 @@ let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "token_id": string(int(r.json?.id ?? 0)),
-    "token_name": (r.json?.name ?? ""),
-    "user_id": string(int(r.json?.user_id ?? 0)),
-    "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
-    "granular": (r.json?.granular ?? false)
+    "analysis": {
+      "token_id": string(int(r.json?.id ?? 0)),
+      "token_name": (r.json?.name ?? ""),
+      "user_id": string(int(r.json?.user_id ?? 0)),
+      "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
+      "granular": (r.json?.granular ?? false)
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
-let granular = metadata["granular"] ?? false;
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let granular = input["granular"] ?? false;
 let granular_scopes =
-  size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
-  !granular || (metadata["token_id"] ?? "") in ["", "0"] || (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
+  size(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
+  !granular || (input["token_id"] ?? "") in ["", "0"] || (input["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
-  let token_id = metadata["token_id"];
-  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&state=active&per_page=100", headers);
+  let token_id = input["token_id"];
+  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + input["user_id"] + "&state=active&per_page=100", headers);
   let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
   matching_token?.granular_scopes ?? []
 );
 let granular_permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
 let grants = flatten([
-  scopes,
+  granular ? [] : scopes,
   granular_permissions
 ]);
 let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
 let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
 {
   "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" : "",
-  "metadata": size(granular_permissions) > 0 ? {
-    "permissions": granular_permissions
+  "metadata": size(grants) > 0 ? {
+    "permissions": grants
   } : {},
   "identity": {
-    "id": metadata["user_id"] ?? ""
+    "id": input["user_id"] ?? ""
   },
   "capabilities": analysis.capabilities({
     "read": can_read,
@@ -5900,44 +5930,46 @@ let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "token_id": string(int(r.json?.id ?? 0)),
-    "token_name": (r.json?.name ?? ""),
-    "user_id": string(int(r.json?.user_id ?? 0)),
-    "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
-    "granular": (r.json?.granular ?? false)
+    "analysis": {
+      "token_id": string(int(r.json?.id ?? 0)),
+      "token_name": (r.json?.name ?? ""),
+      "user_id": string(int(r.json?.user_id ?? 0)),
+      "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
+      "granular": (r.json?.granular ?? false)
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
-let granular = metadata["granular"] ?? false;
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let granular = input["granular"] ?? false;
 let granular_scopes =
-  size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
-  !granular || (metadata["token_id"] ?? "") in ["", "0"] || (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
+  size(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
+  !granular || (input["token_id"] ?? "") in ["", "0"] || (input["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
-  let token_id = metadata["token_id"];
-  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&state=active&per_page=100", headers);
+  let token_id = input["token_id"];
+  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + input["user_id"] + "&state=active&per_page=100", headers);
   let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
   matching_token?.granular_scopes ?? []
 );
 let granular_permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
 let grants = flatten([
-  scopes,
+  granular ? [] : scopes,
   granular_permissions
 ]);
 let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
 let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
 {
   "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" : "",
-  "metadata": size(granular_permissions) > 0 ? {
-    "permissions": granular_permissions
+  "metadata": size(grants) > 0 ? {
+    "permissions": grants
   } : {},
   "identity": {
-    "id": metadata["user_id"] ?? ""
+    "id": input["user_id"] ?? ""
   },
   "capabilities": analysis.capabilities({
     "read": can_read,
@@ -6374,12 +6406,14 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "id": (r.json?.id ?? ""),
-    "username": (r.json?.name ?? ""),
-    "name": (r.json?.fullname ?? ""),
-    "email": (r.json?.email ?? ""),
-    "orgs": (r.json?.orgs ?? []),
-    "auth": (r.json?.auth ?? {})
+    "analysis": {
+      "id": (r.json?.id ?? ""),
+      "username": (r.json?.name ?? ""),
+      "name": (r.json?.fullname ?? ""),
+      "email": (r.json?.email ?? ""),
+      "orgs": (r.json?.orgs ?? []),
+      "auth": (r.json?.auth ?? {})
+    }
   } : r.status == 401 && (r.body contains "expired") ? {
     "result": "revoked",
     "reason": "Token expired"
@@ -6389,18 +6423,19 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation.metadata;
-let auth = metadata["auth"] ?? {};
+let input = validation.analysis;
+let auth = input["auth"] ?? {};
 let access_token = auth["accessToken"] ?? {};
 let role = access_token["role"] ?? "";
-let orgs = metadata["orgs"] ?? [];
+let orgs = input["orgs"] ?? [];
 {
   "reason": role in ["read", "write"] ? "" : "Fine-grained or unknown token role was not expanded",
+  "metadata": role == "" ? {} : {"role": role},
   "identity": {
-    "id": string(metadata["id"] ?? ""),
-    "username": metadata["username"] ?? "",
-    "name": metadata["name"] ?? "",
-    "email": metadata["email"] ?? "",
+    "id": string(input["id"] ?? ""),
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? "",
     "account": size(orgs) == 1 ? {
       "id": string(orgs[0]?.id ?? ""),
       "name": orgs[0]?.name ?? ""
@@ -6430,12 +6465,14 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "id": (r.json?.id ?? ""),
-    "username": (r.json?.name ?? ""),
-    "name": (r.json?.fullname ?? ""),
-    "email": (r.json?.email ?? ""),
-    "orgs": (r.json?.orgs ?? []),
-    "auth": (r.json?.auth ?? {})
+    "analysis": {
+      "id": (r.json?.id ?? ""),
+      "username": (r.json?.name ?? ""),
+      "name": (r.json?.fullname ?? ""),
+      "email": (r.json?.email ?? ""),
+      "orgs": (r.json?.orgs ?? []),
+      "auth": (r.json?.auth ?? {})
+    }
   } : r.status == 401 && (r.body contains "expired") ? {
     "result": "revoked",
     "reason": "Token expired"
@@ -6445,18 +6482,19 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation.metadata;
-let auth = metadata["auth"] ?? {};
+let input = validation.analysis;
+let auth = input["auth"] ?? {};
 let access_token = auth["accessToken"] ?? {};
 let role = access_token["role"] ?? "";
-let orgs = metadata["orgs"] ?? [];
+let orgs = input["orgs"] ?? [];
 {
   "reason": role in ["read", "write"] ? "" : "Fine-grained or unknown token role was not expanded",
+  "metadata": role == "" ? {} : {"role": role},
   "identity": {
-    "id": string(metadata["id"] ?? ""),
-    "username": metadata["username"] ?? "",
-    "name": metadata["name"] ?? "",
-    "email": metadata["email"] ?? "",
+    "id": string(input["id"] ?? ""),
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? "",
     "account": size(orgs) == 1 ? {
       "id": string(orgs[0]?.id ?? ""),
       "name": orgs[0]?.name ?? ""
@@ -9725,13 +9763,15 @@ let r = http.post("https://slack.com/api/auth.test", {
 let provider_error = r.json?.error ?? "";
 r.status == 200 && (r.json?.ok ?? false) ? {
   "result": "valid",
-  "team_id": (r.json?.team_id ?? ""),
-  "team": (r.json?.team ?? ""),
-  "enterprise_id": (r.json?.enterprise_id ?? ""),
-  "user_id": (r.json?.user_id ?? ""),
-  "user": (r.json?.user ?? ""),
-  "bot_id": (r.json?.bot_id ?? ""),
-  "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
+  "analysis": {
+    "team_id": (r.json?.team_id ?? ""),
+    "team": (r.json?.team ?? ""),
+    "enterprise_id": (r.json?.enterprise_id ?? ""),
+    "user_id": (r.json?.user_id ?? ""),
+    "user": (r.json?.user ?? ""),
+    "bot_id": (r.json?.bot_id ?? ""),
+    "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
+  }
 } : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
   "result": "revoked",
   "reason": provider_error
@@ -9744,16 +9784,20 @@ r.status == 200 && (r.json?.ok ?? false) ? {
 }
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
+  "metadata": {
+    "enterprise_id": input["enterprise_id"] ?? "",
+    "scopes": scopes
+  },
   "identity": {
-    "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
-    "username": metadata["user"] ?? "",
+    "id": input["user_id"] ?? input["bot_id"] ?? "",
+    "username": input["user"] ?? "",
     "account": {
-      "id": metadata["team_id"] ?? "",
-      "name": metadata["team"] ?? ""
+      "id": input["team_id"] ?? "",
+      "name": input["team"] ?? ""
     }
   },
   "capabilities": analysis.capabilities({
@@ -9813,13 +9857,15 @@ let r = http.post("https://slack.com/api/auth.test", {
 let provider_error = r.json?.error ?? "";
 r.status == 200 && (r.json?.ok ?? false) ? {
   "result": "valid",
-  "team_id": (r.json?.team_id ?? ""),
-  "team": (r.json?.team ?? ""),
-  "enterprise_id": (r.json?.enterprise_id ?? ""),
-  "user_id": (r.json?.user_id ?? ""),
-  "user": (r.json?.user ?? ""),
-  "bot_id": (r.json?.bot_id ?? ""),
-  "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
+  "analysis": {
+    "team_id": (r.json?.team_id ?? ""),
+    "team": (r.json?.team ?? ""),
+    "enterprise_id": (r.json?.enterprise_id ?? ""),
+    "user_id": (r.json?.user_id ?? ""),
+    "user": (r.json?.user ?? ""),
+    "bot_id": (r.json?.bot_id ?? ""),
+    "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
+  }
 } : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
   "result": "revoked",
   "reason": provider_error
@@ -9832,16 +9878,20 @@ r.status == 200 && (r.json?.ok ?? false) ? {
 }
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
+  "metadata": {
+    "enterprise_id": input["enterprise_id"] ?? "",
+    "scopes": scopes
+  },
   "identity": {
-    "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
-    "username": metadata["user"] ?? "",
+    "id": input["user_id"] ?? input["bot_id"] ?? "",
+    "username": input["user"] ?? "",
     "account": {
-      "id": metadata["team_id"] ?? "",
-      "name": metadata["team"] ?? ""
+      "id": input["team_id"] ?? "",
+      "name": input["team"] ?? ""
     }
   },
   "capabilities": analysis.capabilities({
@@ -9933,13 +9983,15 @@ let r = http.post("https://slack.com/api/auth.test", {
 let provider_error = r.json?.error ?? "";
 r.status == 200 && (r.json?.ok ?? false) ? {
   "result": "valid",
-  "team_id": (r.json?.team_id ?? ""),
-  "team": (r.json?.team ?? ""),
-  "enterprise_id": (r.json?.enterprise_id ?? ""),
-  "user_id": (r.json?.user_id ?? ""),
-  "user": (r.json?.user ?? ""),
-  "bot_id": (r.json?.bot_id ?? ""),
-  "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
+  "analysis": {
+    "team_id": (r.json?.team_id ?? ""),
+    "team": (r.json?.team ?? ""),
+    "enterprise_id": (r.json?.enterprise_id ?? ""),
+    "user_id": (r.json?.user_id ?? ""),
+    "user": (r.json?.user ?? ""),
+    "bot_id": (r.json?.bot_id ?? ""),
+    "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
+  }
 } : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
   "result": "revoked",
   "reason": provider_error
@@ -9952,16 +10004,20 @@ r.status == 200 && (r.json?.ok ?? false) ? {
 }
 '''
 analyze = '''
-let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
+  "metadata": {
+    "enterprise_id": input["enterprise_id"] ?? "",
+    "scopes": scopes
+  },
   "identity": {
-    "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
-    "username": metadata["user"] ?? "",
+    "id": input["user_id"] ?? input["bot_id"] ?? "",
+    "username": input["user"] ?? "",
     "account": {
-      "id": metadata["team_id"] ?? "",
-      "name": metadata["team"] ?? ""
+      "id": input["team_id"] ?? "",
+      "name": input["team"] ?? ""
     }
   },
   "capabilities": analysis.capabilities({

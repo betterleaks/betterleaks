@@ -16,13 +16,15 @@ const slackValidateExpr = `let r = http.post("https://slack.com/api/auth.test", 
 let provider_error = r.json?.error ?? "";
 r.status == 200 && (r.json?.ok ?? false) ? {
   "result": "valid",
-  "team_id": (r.json?.team_id ?? ""),
-  "team": (r.json?.team ?? ""),
-  "enterprise_id": (r.json?.enterprise_id ?? ""),
-  "user_id": (r.json?.user_id ?? ""),
-  "user": (r.json?.user ?? ""),
-  "bot_id": (r.json?.bot_id ?? ""),
-  "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
+  "analysis": {
+    "team_id": (r.json?.team_id ?? ""),
+    "team": (r.json?.team ?? ""),
+    "enterprise_id": (r.json?.enterprise_id ?? ""),
+    "user_id": (r.json?.user_id ?? ""),
+    "user": (r.json?.user ?? ""),
+    "bot_id": (r.json?.bot_id ?? ""),
+    "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
+  }
 } : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
   "result": "revoked",
   "reason": provider_error
@@ -34,16 +36,20 @@ r.status == 200 && (r.json?.ok ?? false) ? {
   "reason": provider_error == "" ? "Unexpected provider response" : provider_error
 }`
 
-const slackAnalyzeExpr = `let metadata = validation.metadata;
-let scopes = metadata["scopes"] ?? [];
+const slackAnalyzeExpr = `let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
 {
   "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
+  "metadata": {
+    "enterprise_id": input["enterprise_id"] ?? "",
+    "scopes": scopes
+  },
   "identity": {
-    "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
-    "username": metadata["user"] ?? "",
+    "id": input["user_id"] ?? input["bot_id"] ?? "",
+    "username": input["user"] ?? "",
     "account": {
-      "id": metadata["team_id"] ?? "",
-      "name": metadata["team"] ?? ""
+      "id": input["team_id"] ?? "",
+      "name": input["team"] ?? ""
     }
   },
   "capabilities": analysis.capabilities({

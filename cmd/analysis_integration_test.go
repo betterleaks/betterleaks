@@ -23,11 +23,11 @@ func TestAnalysisFlagValidatesAndEnrichesFindings(t *testing.T) {
 id = "test-token"
 regex = '''(secret-[a-z]+)'''
 validate = '''
-{"result": "valid", "owner": "user-1"}
+{"result": "valid", "analysis": {"owner": "user-1"}}
 '''
 analyze = '''
 {
-  "identity": {"id": validation["metadata"]["owner"]},
+  "identity": {"id": validation["analysis"]["owner"]},
   "capabilities": ["write", "read"]
 }
 '''
@@ -54,6 +54,7 @@ analyze = '''
 	var finding report.Finding
 	require.NoError(t, json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &finding))
 	assert.Equal(t, report.ValidationStatusValid, finding.Validation.Status)
+	assert.Empty(t, finding.Validation.Metadata)
 	assert.Equal(t, report.SeverityHigh, finding.Analysis.Severity)
 	assert.Equal(t, []report.Capability{report.CapabilityRead, report.CapabilityWrite}, finding.Analysis.Capabilities)
 	require.NotNil(t, finding.Analysis.Identity)

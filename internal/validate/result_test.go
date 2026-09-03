@@ -28,7 +28,12 @@ func TestBetterStatusPriority(t *testing.T) {
 }
 
 func TestParseResultMapNormalizesStatus(t *testing.T) {
-	got := parseResultMap(map[string]any{"result": "VALID", "reason": "ok", "extra": "m"})
+	got := parseResultMap(map[string]any{
+		"result":   "VALID",
+		"reason":   "ok",
+		"extra":    "m",
+		"analysis": map[string]any{"owner": "user-1"},
+	})
 	if got.Status != report.ValidationStatusValid {
 		t.Errorf("status: got %q want valid", got.Status)
 	}
@@ -38,9 +43,25 @@ func TestParseResultMapNormalizesStatus(t *testing.T) {
 	if got.Metadata["extra"] != "m" {
 		t.Errorf("metadata not captured: %v", got.Metadata)
 	}
+	if _, exists := got.Metadata["analysis"]; exists {
+		t.Errorf("analysis input leaked into metadata: %v", got.Metadata)
+	}
+	if got.Analysis["owner"] != "user-1" {
+		t.Errorf("analysis input not captured: %v", got.Analysis)
+	}
 
 	// An unrecognized status falls back to "unknown".
 	if s := parseResultMap(map[string]any{"result": "bogus"}).Status; s != report.ValidationStatusUnknown {
 		t.Errorf("unrecognized status should fall back to unknown, got %q", s)
+	}
+}
+
+func TestParseResultMapRejectsInvalidAnalysisInput(t *testing.T) {
+	got := parseResultMap(map[string]any{"result": "valid", "analysis": []string{"read"}})
+	if got.Status != report.ValidationStatusError {
+		t.Fatalf("status: got %q want error", got.Status)
+	}
+	if got.Reason != "validation analysis must be an object, got []string" {
+		t.Fatalf("reason: got %q", got.Reason)
 	}
 }

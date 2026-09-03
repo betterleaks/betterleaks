@@ -12,12 +12,14 @@ const huggingFaceValidateExpr = `let r = http.get("https://huggingface.co/api/wh
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "id": (r.json?.id ?? ""),
-    "username": (r.json?.name ?? ""),
-    "name": (r.json?.fullname ?? ""),
-    "email": (r.json?.email ?? ""),
-    "orgs": (r.json?.orgs ?? []),
-    "auth": (r.json?.auth ?? {})
+    "analysis": {
+      "id": (r.json?.id ?? ""),
+      "username": (r.json?.name ?? ""),
+      "name": (r.json?.fullname ?? ""),
+      "email": (r.json?.email ?? ""),
+      "orgs": (r.json?.orgs ?? []),
+      "auth": (r.json?.auth ?? {})
+    }
   } : r.status == 401 && (r.body contains "expired") ? {
     "result": "revoked",
     "reason": "Token expired"
@@ -26,18 +28,19 @@ const huggingFaceValidateExpr = `let r = http.get("https://huggingface.co/api/wh
     "reason": "Unauthorized"
   } : validate.unknown(r)`
 
-const huggingFaceAnalyzeExpr = `let metadata = validation.metadata;
-let auth = metadata["auth"] ?? {};
+const huggingFaceAnalyzeExpr = `let input = validation.analysis;
+let auth = input["auth"] ?? {};
 let access_token = auth["accessToken"] ?? {};
 let role = access_token["role"] ?? "";
-let orgs = metadata["orgs"] ?? [];
+let orgs = input["orgs"] ?? [];
 {
   "reason": role in ["read", "write"] ? "" : "Fine-grained or unknown token role was not expanded",
+  "metadata": role == "" ? {} : {"role": role},
   "identity": {
-    "id": string(metadata["id"] ?? ""),
-    "username": metadata["username"] ?? "",
-    "name": metadata["name"] ?? "",
-    "email": metadata["email"] ?? "",
+    "id": string(input["id"] ?? ""),
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? "",
     "account": size(orgs) == 1 ? {
       "id": string(orgs[0]?.id ?? ""),
       "name": orgs[0]?.name ?? ""
