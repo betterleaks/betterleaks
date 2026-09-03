@@ -71,10 +71,21 @@ func TestMatchesAnyStringOrList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := matchesAny(tt.input, tt.patterns); got != tt.want {
+			got, err := matchesAny(tt.input, tt.patterns)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
 				t.Errorf("matchesAny(%v, %q) = %v, want %v", tt.input, tt.patterns, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMatchesAnyRejectsInvalidPattern(t *testing.T) {
+	_, err := matchesAny("read_repository", []string{"*read"})
+	if err == nil {
+		t.Fatal("matchesAny accepted an invalid regular expression")
 	}
 }
 
@@ -95,6 +106,28 @@ func TestStartsWithAnyStringOrList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := startsWithAny(tt.input, tt.prefixes); got != tt.want {
 				t.Errorf("startsWithAny(%v, %q) = %v, want %v", tt.input, tt.prefixes, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIntersectsStringOrList(t *testing.T) {
+	tests := []struct {
+		name       string
+		values     any
+		candidates any
+		want       bool
+	}{
+		{name: "string", values: "api", candidates: []string{"api", "sudo"}, want: true},
+		{name: "list match", values: []any{"read_api", "write_repository"}, candidates: []string{"write_repository"}, want: true},
+		{name: "exact", values: []string{"read_api"}, candidates: []string{"read"}, want: false},
+		{name: "mixed values", values: []any{"read_api", 42}, candidates: []string{"read_api"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := intersects(tt.values, tt.candidates); got != tt.want {
+				t.Errorf("intersects(%v, %v) = %v, want %v", tt.values, tt.candidates, got, tt.want)
 			}
 		})
 	}

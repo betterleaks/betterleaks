@@ -45,12 +45,14 @@ type Analysis struct {
 	Severity     Severity          `json:"severity,omitempty"`
 	Identity     *AnalysisIdentity `json:"identity,omitempty"`
 	Capabilities []Capability      `json:"capabilities,omitempty"`
+	Metadata     map[string]any    `json:"metadata,omitempty"`
 	Debug        map[string]any    `json:"debug,omitempty"`
 }
 
 func (a Analysis) IsZero() bool {
 	return a.Reason == "" && a.Severity == "" &&
-		a.Identity == nil && len(a.Capabilities) == 0 && len(a.Debug) == 0
+		a.Identity == nil && len(a.Capabilities) == 0 &&
+		len(a.Metadata) == 0 && len(a.Debug) == 0
 }
 
 // AnalysisIdentity identifies the principal that owns a credential.
@@ -105,6 +107,7 @@ func severityStyle(severity Severity, noColor bool) color.Style {
 func SanitizeAnalysis(analysis Analysis, secrets []string) Analysis {
 	secrets = credentialSecretsForRedaction(secrets)
 	analysis.Reason = sanitizeCredentialString(analysis.Reason, secrets)
+	analysis.Metadata = sanitizeCredentialMetadata(analysis.Metadata, secrets, false)
 	analysis.Debug = sanitizeCredentialMetadata(analysis.Debug, secrets, true)
 	if analysis.Identity == nil {
 		return analysis

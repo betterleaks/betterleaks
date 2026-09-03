@@ -10,6 +10,8 @@ import (
 
 func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	validName := regexp.MustCompile(`^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)?$`)
+	runtime := &Runtime{}
+	analysisBindings, _ := runtime.compileBindings(modeAnalysis, nil)
 
 	for _, env := range []struct {
 		name       string
@@ -19,16 +21,25 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	}{
 		{
 			name: "validation",
-			fns:  functionNames((&Runtime{}).validationBindings(nil, nil, nil, nil, nil, nil)),
+			fns:  functionNames(runtime.validationBindings(nil, nil, nil, nil, nil, nil)),
 			current: []string{
 				"http.get", "http.post", "env.get", "env.getOrDefault", "strings.obfuscate",
-				"strings.urlQueryEscape", "validate.unknown", "json.string",
+				"strings.splitTrim", "strings.urlQueryEscape", "validate.unknown", "json.string",
 				"crypto.md5", "crypto.sha1", "crypto.hmacSha1",
 				"crypto.hmacSha256", "hex.encode", "time.nowUnix",
 				"time.nowRFC3339", "aws.validate", "gcp.validate",
-				"base64.encode", "base64.decode",
+				"base64.encode", "base64.decode", "filter.matchesAny",
+				"filter.containsAny", "filter.startsWithAny", "filter.intersects",
 			},
 			deprecated: []string{"obfuscate", "unknown", "crypto.hmac_sha256", "time.now_unix"},
+		},
+		{
+			name: "analysis",
+			fns:  functionNames(analysisBindings),
+			current: []string{
+				"analysis.capabilities", "strings.splitTrim",
+				"filter.matchesAny", "filter.containsAny", "filter.startsWithAny", "filter.intersects",
+			},
 		},
 		{
 			name: "filter",
@@ -36,7 +47,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			current: []string{
 				"matchesAny", "containsAny", "startsWithAny", "entropy",
 				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.startsWithAny", "filter.entropy",
-				"filter.failsTokenEfficiency", "filter.tokenRatio", "filter.setConfidence",
+				"filter.intersects", "filter.failsTokenEfficiency", "filter.tokenRatio", "filter.setConfidence",
 			},
 			deprecated: []string{"failsTokenEfficiency"},
 		},
@@ -46,7 +57,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			current: []string{
 				"matchesAny", "containsAny", "startsWithAny", "entropy",
 				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.startsWithAny", "filter.entropy",
-				"filter.failsTokenEfficiency", "filter.tokenRatio",
+				"filter.intersects", "filter.failsTokenEfficiency", "filter.tokenRatio",
 			},
 			deprecated: []string{"failsTokenEfficiency"},
 		},

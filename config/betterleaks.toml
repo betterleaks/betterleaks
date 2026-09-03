@@ -260,38 +260,18 @@ let r = http.get("https://api.airtable.com/v0/meta/whoami", {
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
+let metadata = validation.metadata;
 let scopes = metadata["scopes"] ?? [];
-let read_scopes = [
-  "data.records:read",
-  "data.recordComments:read",
-  "schema.bases:read",
-  "user.email:read",
-  "enterprise.user:read",
-  "enterprise.groups:read",
-  "enterprise.scim.usersAndGroups:read"
-];
-let write_scopes = [
-  "data.records:write",
-  "data.recordComments:write",
-  "schema.bases:write",
-  "webhook:manage"
-];
-let manage_user_scopes = [
-  "enterprise.user:write",
-  "enterprise.groups:manage",
-  "enterprise.scim.usersAndGroups:manage"
-];
 {
   "identity": {
     "id": metadata["id"] ?? "",
     "email": metadata["email"] ?? ""
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [":read$"]),
+    "write": filter.matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
+    "manage_users": filter.matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
+  })
 }
 '''
 filter = '''
@@ -321,38 +301,18 @@ let r = http.get("https://api.airtable.com/v0/meta/whoami", {
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
+let metadata = validation.metadata;
 let scopes = metadata["scopes"] ?? [];
-let read_scopes = [
-  "data.records:read",
-  "data.recordComments:read",
-  "schema.bases:read",
-  "user.email:read",
-  "enterprise.user:read",
-  "enterprise.groups:read",
-  "enterprise.scim.usersAndGroups:read"
-];
-let write_scopes = [
-  "data.records:write",
-  "data.recordComments:write",
-  "schema.bases:write",
-  "webhook:manage"
-];
-let manage_user_scopes = [
-  "enterprise.user:write",
-  "enterprise.groups:manage",
-  "enterprise.scim.usersAndGroups:manage"
-];
 {
   "identity": {
     "id": metadata["id"] ?? "",
     "email": metadata["email"] ?? ""
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [":read$"]),
+    "write": filter.matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
+    "manage_users": filter.matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
+  })
 }
 '''
 filter = '''
@@ -5491,7 +5451,7 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "username": (r.json?.login ?? ""),
       "name": (r.json?.name ?? ""),
       "email": (r.json?.email ?? ""),
-      "scopes": (r.headers["x-oauth-scopes"] ?? ""),
+      "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
       "sso": (r.headers["x-github-sso"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
@@ -5499,58 +5459,28 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
     } : validate.unknown(r))
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
-let raw_scopes = metadata["scopes"] ?? "";
-let scopes = map(split(raw_scopes, ","), trim(#));
-let read_scopes = [
-  "gist",
-  "notifications",
-  "project",
-  "public_repo",
-  "read:org",
-  "read:packages",
-  "read:project",
-  "read:public_key",
-  "read:repo_hook",
-  "read:ssh_signing_key",
-  "read:user",
-  "repo",
-  "repo:status",
-  "repo_deployment",
-  "security_events",
-  "user",
-  "user:email"
-];
-let write_scopes = [
-  "delete:packages",
-  "gist",
-  "notifications",
-  "project",
-  "public_repo",
-  "repo",
-  "repo:status",
-  "repo_deployment",
-  "workflow",
-  "write:packages"
-];
-let credential_scopes = [
-  "admin:gpg_key",
-  "admin:public_key",
-  "admin:ssh_signing_key"
-];
+let metadata = validation.metadata;
+let scopes = metadata["scopes"] ?? [];
 {
-  "reason": raw_scopes == "" ? "GitHub did not return classic OAuth scope metadata" : "",
+  "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "identity": {
     "id": metadata["id"] ?? "",
     "username": metadata["username"] ?? "",
     "name": metadata["name"] ?? "",
     "email": metadata["email"] ?? ""
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in credential_scopes}) ? ["create_credentials"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [
+      "^read:",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
+    ]),
+    "write": filter.matchesAny(scopes, [
+      "^write:",
+      "^delete:packages$",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
+    ]),
+    "create_credentials": filter.matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
+  })
 }
 '''
 filter = '''
@@ -5576,7 +5506,7 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "username": (r.json?.login ?? ""),
       "name": (r.json?.name ?? ""),
       "email": (r.json?.email ?? ""),
-      "scopes": (r.headers["x-oauth-scopes"] ?? ""),
+      "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
       "sso": (r.headers["x-github-sso"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
@@ -5584,58 +5514,28 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
     } : validate.unknown(r))
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
-let raw_scopes = metadata["scopes"] ?? "";
-let scopes = map(split(raw_scopes, ","), trim(#));
-let read_scopes = [
-  "gist",
-  "notifications",
-  "project",
-  "public_repo",
-  "read:org",
-  "read:packages",
-  "read:project",
-  "read:public_key",
-  "read:repo_hook",
-  "read:ssh_signing_key",
-  "read:user",
-  "repo",
-  "repo:status",
-  "repo_deployment",
-  "security_events",
-  "user",
-  "user:email"
-];
-let write_scopes = [
-  "delete:packages",
-  "gist",
-  "notifications",
-  "project",
-  "public_repo",
-  "repo",
-  "repo:status",
-  "repo_deployment",
-  "workflow",
-  "write:packages"
-];
-let credential_scopes = [
-  "admin:gpg_key",
-  "admin:public_key",
-  "admin:ssh_signing_key"
-];
+let metadata = validation.metadata;
+let scopes = metadata["scopes"] ?? [];
 {
-  "reason": raw_scopes == "" ? "GitHub did not return classic OAuth scope metadata" : "",
+  "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "identity": {
     "id": metadata["id"] ?? "",
     "username": metadata["username"] ?? "",
     "name": metadata["name"] ?? "",
     "email": metadata["email"] ?? ""
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in credential_scopes}) ? ["create_credentials"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [
+      "^read:",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
+    ]),
+    "write": filter.matchesAny(scopes, [
+      "^write:",
+      "^delete:packages$",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
+    ]),
+    "create_credentials": filter.matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
+  })
 }
 '''
 filter = '''
@@ -5661,7 +5561,7 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "username": (r.json?.login ?? ""),
       "name": (r.json?.name ?? ""),
       "email": (r.json?.email ?? ""),
-      "scopes": (r.headers["x-oauth-scopes"] ?? ""),
+      "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
       "sso": (r.headers["x-github-sso"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
@@ -5669,58 +5569,28 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
     } : validate.unknown(r))
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
-let raw_scopes = metadata["scopes"] ?? "";
-let scopes = map(split(raw_scopes, ","), trim(#));
-let read_scopes = [
-  "gist",
-  "notifications",
-  "project",
-  "public_repo",
-  "read:org",
-  "read:packages",
-  "read:project",
-  "read:public_key",
-  "read:repo_hook",
-  "read:ssh_signing_key",
-  "read:user",
-  "repo",
-  "repo:status",
-  "repo_deployment",
-  "security_events",
-  "user",
-  "user:email"
-];
-let write_scopes = [
-  "delete:packages",
-  "gist",
-  "notifications",
-  "project",
-  "public_repo",
-  "repo",
-  "repo:status",
-  "repo_deployment",
-  "workflow",
-  "write:packages"
-];
-let credential_scopes = [
-  "admin:gpg_key",
-  "admin:public_key",
-  "admin:ssh_signing_key"
-];
+let metadata = validation.metadata;
+let scopes = metadata["scopes"] ?? [];
 {
-  "reason": raw_scopes == "" ? "GitHub did not return classic OAuth scope metadata" : "",
+  "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "identity": {
     "id": metadata["id"] ?? "",
     "username": metadata["username"] ?? "",
     "name": metadata["name"] ?? "",
     "email": metadata["email"] ?? ""
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in credential_scopes}) ? ["create_credentials"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [
+      "^read:",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
+    ]),
+    "write": filter.matchesAny(scopes, [
+      "^write:",
+      "^delete:packages$",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
+    ]),
+    "create_credentials": filter.matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
+  })
 }
 '''
 filter = '''
@@ -5747,7 +5617,7 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "username": (r.json?.login ?? ""),
       "name": (r.json?.name ?? ""),
       "email": (r.json?.email ?? ""),
-      "scopes": (r.headers["x-oauth-scopes"] ?? ""),
+      "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
       "sso": (r.headers["x-github-sso"] ?? "")
     } : r.status in [401, 403] ? {
       "result": "invalid",
@@ -5901,57 +5771,48 @@ let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
     "token_id": string(int(r.json?.id ?? 0)),
     "token_name": (r.json?.name ?? ""),
     "user_id": string(int(r.json?.user_id ?? 0)),
-    "scopes": (r.json?.scopes ?? []),
-    "granular": (r.json?.granular ?? false),
-    "granular_scopes": (r.json?.granular_scopes ?? [])
+    "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
+    "granular": (r.json?.granular ?? false)
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
+let metadata = validation.metadata;
 let scopes = metadata["scopes"] ?? [];
+let granular = metadata["granular"] ?? false;
 let granular_scopes =
   size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
-  !((metadata["granular"] ?? false) || "granular" in scopes) || (metadata["token_id"] ?? "") in ["", "0"] ? [] : (
+  !granular || (metadata["token_id"] ?? "") in ["", "0"] || (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
   let token_id = metadata["token_id"];
-  let detail = http.get(base_url + "/api/v4/personal_access_tokens/" + token_id, headers);
-  let detail_scopes = detail.status == 200 ? (detail.json?.granular_scopes ?? []) : [];
-  size(detail_scopes) > 0 ? detail_scopes : (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
-    let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&per_page=100", headers);
-    let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
-    matching_token?.granular_scopes ?? []
-  )
+  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&state=active&per_page=100", headers);
+  let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
+  matching_token?.granular_scopes ?? []
 );
-let permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
-let can_read =
-  "api" in scopes ||
-  startsWithAny(scopes, ["read_", "write_"]) ||
-  startsWithAny(permissions, ["download_", "read_"]);
-let can_write =
-  "api" in scopes || "manage_runner" in scopes ||
-  startsWithAny(scopes, ["write_"]) ||
-  startsWithAny(permissions, [
-    "add_", "approve_", "archive_", "assign_", "cancel_", "create_",
-    "delete_", "disable_", "enable_", "execute_", "import_", "manage_",
-    "merge_", "move_", "publish_", "renew_", "restore_", "retry_",
-    "revoke_", "rotate_", "run_", "set_", "stop_", "transfer_",
-    "trigger_", "unarchive_", "update_", "upload_", "write_"
-  ]);
+let granular_permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
+let grants = flatten([
+  scopes,
+  granular_permissions
+]);
+let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
+let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
 {
-  "reason": ((metadata["granular"] ?? false) || "granular" in scopes) && size(granular_scopes) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "metadata": size(granular_permissions) > 0 ? {
+    "permissions": granular_permissions
+  } : {},
   "identity": {
     "id": metadata["user_id"] ?? ""
   },
-  "capabilities": flatten([
-    can_read ? ["read"] : [],
-    can_write ? ["write"] : [],
-    ("create_runner" in scopes || "self_rotate" in scopes) ? ["create_credentials"] : [],
-    ("sudo" in scopes || "admin_mode" in scopes) ? ["admin"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": can_read,
+    "write": can_write,
+    "create_credentials": filter.intersects(grants, ["create_runner", "self_rotate"]),
+    "admin": filter.intersects(grants, ["sudo", "admin_mode"])
+  })
 }
 '''
 filter = '''
@@ -5976,57 +5837,48 @@ let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
     "token_id": string(int(r.json?.id ?? 0)),
     "token_name": (r.json?.name ?? ""),
     "user_id": string(int(r.json?.user_id ?? 0)),
-    "scopes": (r.json?.scopes ?? []),
-    "granular": (r.json?.granular ?? false),
-    "granular_scopes": (r.json?.granular_scopes ?? [])
+    "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
+    "granular": (r.json?.granular ?? false)
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
+let metadata = validation.metadata;
 let scopes = metadata["scopes"] ?? [];
+let granular = metadata["granular"] ?? false;
 let granular_scopes =
   size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
-  !((metadata["granular"] ?? false) || "granular" in scopes) || (metadata["token_id"] ?? "") in ["", "0"] ? [] : (
+  !granular || (metadata["token_id"] ?? "") in ["", "0"] || (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
   let token_id = metadata["token_id"];
-  let detail = http.get(base_url + "/api/v4/personal_access_tokens/" + token_id, headers);
-  let detail_scopes = detail.status == 200 ? (detail.json?.granular_scopes ?? []) : [];
-  size(detail_scopes) > 0 ? detail_scopes : (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
-    let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&per_page=100", headers);
-    let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
-    matching_token?.granular_scopes ?? []
-  )
+  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&state=active&per_page=100", headers);
+  let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
+  matching_token?.granular_scopes ?? []
 );
-let permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
-let can_read =
-  "api" in scopes ||
-  startsWithAny(scopes, ["read_", "write_"]) ||
-  startsWithAny(permissions, ["download_", "read_"]);
-let can_write =
-  "api" in scopes || "manage_runner" in scopes ||
-  startsWithAny(scopes, ["write_"]) ||
-  startsWithAny(permissions, [
-    "add_", "approve_", "archive_", "assign_", "cancel_", "create_",
-    "delete_", "disable_", "enable_", "execute_", "import_", "manage_",
-    "merge_", "move_", "publish_", "renew_", "restore_", "retry_",
-    "revoke_", "rotate_", "run_", "set_", "stop_", "transfer_",
-    "trigger_", "unarchive_", "update_", "upload_", "write_"
-  ]);
+let granular_permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
+let grants = flatten([
+  scopes,
+  granular_permissions
+]);
+let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
+let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
 {
-  "reason": ((metadata["granular"] ?? false) || "granular" in scopes) && size(granular_scopes) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "metadata": size(granular_permissions) > 0 ? {
+    "permissions": granular_permissions
+  } : {},
   "identity": {
     "id": metadata["user_id"] ?? ""
   },
-  "capabilities": flatten([
-    can_read ? ["read"] : [],
-    can_write ? ["write"] : [],
-    ("create_runner" in scopes || "self_rotate" in scopes) ? ["create_credentials"] : [],
-    ("sudo" in scopes || "admin_mode" in scopes) ? ["admin"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": can_read,
+    "write": can_write,
+    "create_credentials": filter.intersects(grants, ["create_runner", "self_rotate"]),
+    "admin": filter.intersects(grants, ["sudo", "admin_mode"])
+  })
 }
 '''
 filter = '''
@@ -6051,57 +5903,48 @@ let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
     "token_id": string(int(r.json?.id ?? 0)),
     "token_name": (r.json?.name ?? ""),
     "user_id": string(int(r.json?.user_id ?? 0)),
-    "scopes": (r.json?.scopes ?? []),
-    "granular": (r.json?.granular ?? false),
-    "granular_scopes": (r.json?.granular_scopes ?? [])
+    "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
+    "granular": (r.json?.granular ?? false)
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
+let metadata = validation.metadata;
 let scopes = metadata["scopes"] ?? [];
+let granular = metadata["granular"] ?? false;
 let granular_scopes =
   size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
-  !((metadata["granular"] ?? false) || "granular" in scopes) || (metadata["token_id"] ?? "") in ["", "0"] ? [] : (
+  !granular || (metadata["token_id"] ?? "") in ["", "0"] || (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
   let token_id = metadata["token_id"];
-  let detail = http.get(base_url + "/api/v4/personal_access_tokens/" + token_id, headers);
-  let detail_scopes = detail.status == 200 ? (detail.json?.granular_scopes ?? []) : [];
-  size(detail_scopes) > 0 ? detail_scopes : (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
-    let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&per_page=100", headers);
-    let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
-    matching_token?.granular_scopes ?? []
-  )
+  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&state=active&per_page=100", headers);
+  let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
+  matching_token?.granular_scopes ?? []
 );
-let permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
-let can_read =
-  "api" in scopes ||
-  startsWithAny(scopes, ["read_", "write_"]) ||
-  startsWithAny(permissions, ["download_", "read_"]);
-let can_write =
-  "api" in scopes || "manage_runner" in scopes ||
-  startsWithAny(scopes, ["write_"]) ||
-  startsWithAny(permissions, [
-    "add_", "approve_", "archive_", "assign_", "cancel_", "create_",
-    "delete_", "disable_", "enable_", "execute_", "import_", "manage_",
-    "merge_", "move_", "publish_", "renew_", "restore_", "retry_",
-    "revoke_", "rotate_", "run_", "set_", "stop_", "transfer_",
-    "trigger_", "unarchive_", "update_", "upload_", "write_"
-  ]);
+let granular_permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
+let grants = flatten([
+  scopes,
+  granular_permissions
+]);
+let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
+let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
 {
-  "reason": ((metadata["granular"] ?? false) || "granular" in scopes) && size(granular_scopes) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "metadata": size(granular_permissions) > 0 ? {
+    "permissions": granular_permissions
+  } : {},
   "identity": {
     "id": metadata["user_id"] ?? ""
   },
-  "capabilities": flatten([
-    can_read ? ["read"] : [],
-    can_write ? ["write"] : [],
-    ("create_runner" in scopes || "self_rotate" in scopes) ? ["create_credentials"] : [],
-    ("sudo" in scopes || "admin_mode" in scopes) ? ["admin"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": can_read,
+    "write": can_write,
+    "create_credentials": filter.intersects(grants, ["create_runner", "self_rotate"]),
+    "admin": filter.intersects(grants, ["sudo", "admin_mode"])
+  })
 }
 '''
 filter = '''
@@ -6546,7 +6389,7 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
+let metadata = validation.metadata;
 let auth = metadata["auth"] ?? {};
 let access_token = auth["accessToken"] ?? {};
 let role = access_token["role"] ?? "";
@@ -6563,10 +6406,10 @@ let orgs = metadata["orgs"] ?? [];
       "name": orgs[0]?.name ?? ""
     } : {}
   },
-  "capabilities": flatten([
-    role in ["read", "write"] ? ["read"] : [],
-    role == "write" ? ["write"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": role in ["read", "write"],
+    "write": role == "write"
+  })
 }
 '''
 filter = '''
@@ -6602,7 +6445,7 @@ let r = http.get("https://huggingface.co/api/whoami-v2", {
   } : validate.unknown(r)
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
+let metadata = validation.metadata;
 let auth = metadata["auth"] ?? {};
 let access_token = auth["accessToken"] ?? {};
 let role = access_token["role"] ?? "";
@@ -6619,10 +6462,10 @@ let orgs = metadata["orgs"] ?? [];
       "name": orgs[0]?.name ?? ""
     } : {}
   },
-  "capabilities": flatten([
-    role in ["read", "write"] ? ["read"] : [],
-    role == "write" ? ["write"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": role in ["read", "write"],
+    "write": role == "write"
+  })
 }
 '''
 filter = '''
@@ -9888,7 +9731,7 @@ r.status == 200 && (r.json?.ok ?? false) ? {
   "user_id": (r.json?.user_id ?? ""),
   "user": (r.json?.user ?? ""),
   "bot_id": (r.json?.bot_id ?? ""),
-  "scopes": (r.headers["x-oauth-scopes"] ?? "")
+  "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
 } : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
   "result": "revoked",
   "reason": provider_error
@@ -9901,40 +9744,10 @@ r.status == 200 && (r.json?.ok ?? false) ? {
 }
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
-let raw_scopes = metadata["scopes"] ?? "";
-let scopes = map(split(raw_scopes, ","), trim(#));
-let read_scopes = [
-  "channels:history",
-  "channels:read",
-  "files:read",
-  "groups:history",
-  "groups:read",
-  "im:history",
-  "mpim:history",
-  "reactions:read",
-  "search:read",
-  "users:read"
-];
-let write_scopes = [
-  "bookmarks:write",
-  "calls:write",
-  "channels:manage",
-  "chat:write",
-  "files:write",
-  "groups:write",
-  "reactions:write",
-  "reminders:write"
-];
-let manage_user_scopes = [
-  "admin.invites:write",
-  "admin.roles:write",
-  "admin.usergroups:write",
-  "admin.users:write",
-  "usergroups:write"
-];
+let metadata = validation.metadata;
+let scopes = metadata["scopes"] ?? [];
 {
-  "reason": raw_scopes == "" ? "Slack did not return OAuth scope metadata" : "",
+  "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "identity": {
     "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
     "username": metadata["user"] ?? "",
@@ -9943,11 +9756,11 @@ let manage_user_scopes = [
       "name": metadata["team"] ?? ""
     }
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [":(?:history|read)$"]),
+    "write": filter.matchesAny(scopes, [":write$", "^channels:manage$"]),
+    "manage_users": filter.matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
+  })
 }
 '''
 filter = '''
@@ -10006,7 +9819,7 @@ r.status == 200 && (r.json?.ok ?? false) ? {
   "user_id": (r.json?.user_id ?? ""),
   "user": (r.json?.user ?? ""),
   "bot_id": (r.json?.bot_id ?? ""),
-  "scopes": (r.headers["x-oauth-scopes"] ?? "")
+  "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
 } : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
   "result": "revoked",
   "reason": provider_error
@@ -10019,40 +9832,10 @@ r.status == 200 && (r.json?.ok ?? false) ? {
 }
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
-let raw_scopes = metadata["scopes"] ?? "";
-let scopes = map(split(raw_scopes, ","), trim(#));
-let read_scopes = [
-  "channels:history",
-  "channels:read",
-  "files:read",
-  "groups:history",
-  "groups:read",
-  "im:history",
-  "mpim:history",
-  "reactions:read",
-  "search:read",
-  "users:read"
-];
-let write_scopes = [
-  "bookmarks:write",
-  "calls:write",
-  "channels:manage",
-  "chat:write",
-  "files:write",
-  "groups:write",
-  "reactions:write",
-  "reminders:write"
-];
-let manage_user_scopes = [
-  "admin.invites:write",
-  "admin.roles:write",
-  "admin.usergroups:write",
-  "admin.users:write",
-  "usergroups:write"
-];
+let metadata = validation.metadata;
+let scopes = metadata["scopes"] ?? [];
 {
-  "reason": raw_scopes == "" ? "Slack did not return OAuth scope metadata" : "",
+  "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "identity": {
     "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
     "username": metadata["user"] ?? "",
@@ -10061,11 +9844,11 @@ let manage_user_scopes = [
       "name": metadata["team"] ?? ""
     }
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [":(?:history|read)$"]),
+    "write": filter.matchesAny(scopes, [":write$", "^channels:manage$"]),
+    "manage_users": filter.matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
+  })
 }
 '''
 filter = '''
@@ -10156,7 +9939,7 @@ r.status == 200 && (r.json?.ok ?? false) ? {
   "user_id": (r.json?.user_id ?? ""),
   "user": (r.json?.user ?? ""),
   "bot_id": (r.json?.bot_id ?? ""),
-  "scopes": (r.headers["x-oauth-scopes"] ?? "")
+  "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
 } : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
   "result": "revoked",
   "reason": provider_error
@@ -10169,40 +9952,10 @@ r.status == 200 && (r.json?.ok ?? false) ? {
 }
 '''
 analyze = '''
-let metadata = validation["metadata"] ?? {};
-let raw_scopes = metadata["scopes"] ?? "";
-let scopes = map(split(raw_scopes, ","), trim(#));
-let read_scopes = [
-  "channels:history",
-  "channels:read",
-  "files:read",
-  "groups:history",
-  "groups:read",
-  "im:history",
-  "mpim:history",
-  "reactions:read",
-  "search:read",
-  "users:read"
-];
-let write_scopes = [
-  "bookmarks:write",
-  "calls:write",
-  "channels:manage",
-  "chat:write",
-  "files:write",
-  "groups:write",
-  "reactions:write",
-  "reminders:write"
-];
-let manage_user_scopes = [
-  "admin.invites:write",
-  "admin.roles:write",
-  "admin.usergroups:write",
-  "admin.users:write",
-  "usergroups:write"
-];
+let metadata = validation.metadata;
+let scopes = metadata["scopes"] ?? [];
 {
-  "reason": raw_scopes == "" ? "Slack did not return OAuth scope metadata" : "",
+  "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "identity": {
     "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
     "username": metadata["user"] ?? "",
@@ -10211,11 +9964,11 @@ let manage_user_scopes = [
       "name": metadata["team"] ?? ""
     }
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [":(?:history|read)$"]),
+    "write": filter.matchesAny(scopes, [":write$", "^channels:manage$"]),
+    "manage_users": filter.matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
+  })
 }
 '''
 filter = '''

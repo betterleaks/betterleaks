@@ -660,7 +660,7 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 			dotLeader("reason", f.Validation.Reason, maxVK)
 		}
 		for _, k := range vk {
-			dotLeader(k, fmt.Sprintf("%v", f.Validation.Metadata[k]), maxVK)
+			dotLeader(k, formatMetadataValue(f.Validation.Metadata[k]), maxVK)
 		}
 	}
 	if !f.Analysis.IsZero() {
@@ -688,6 +688,16 @@ func (f *Finding) printPrettyAnalysis(noColor bool) {
 	}
 	for key, value := range f.Analysis.Debug {
 		values["debug."+key] = fmt.Sprintf("%v", value)
+	}
+	for key, value := range f.Analysis.Metadata {
+		displayKey := key
+		for {
+			if _, exists := values[displayKey]; !exists {
+				break
+			}
+			displayKey = "metadata." + displayKey
+		}
+		values[displayKey] = formatMetadataValue(value)
 	}
 
 	keys := make([]string, 0, len(values))

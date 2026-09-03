@@ -44,7 +44,7 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 			name:             "gitlab",
 			validation:       gitlabPatExpr,
 			analysis:         gitlabPatAnalyzeExpr,
-			body:             `{"id":9,"name":"automation","user_id":1140645,"scopes":["api"],"granular":false,"granular_scopes":[]}`,
+			body:             `{"id":9,"name":"automation","user_id":1140645,"scopes":["api"],"granular":false}`,
 			wantCapabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite},
 			wantIdentity:     "1140645",
 			wantTokenID:      "9",
@@ -97,6 +97,9 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 			require.Equal(t, report.ValidationStatusValid, validationResult.Status)
 			if test.wantTokenID != "" {
 				assert.Equal(t, test.wantTokenID, validationResult.Metadata["token_id"])
+				assert.Equal(t, false, validationResult.Metadata["granular"])
+				assert.Equal(t, []any{"api"}, validationResult.Metadata["scopes"])
+				assert.NotContains(t, validationResult.Metadata, "granular_scopes")
 			}
 
 			analysisProgram, err := runtime.CompileAnalysis(test.analysis)
@@ -172,7 +175,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 			expression: slackAnalyzeExpr,
 			metadata: map[string]any{
 				"user_id": "U123", "user": "octo", "team_id": "T123", "team": "Acme",
-				"scopes": "channels:history, chat:write, admin.users:write",
+				"scopes": []any{"channels:history", "chat:write", "admin.users:write"},
 			},
 			severity:     report.SeverityCritical,
 			capabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite, report.CapabilityManageUsers},
@@ -182,7 +185,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 			name:       "github",
 			expression: githubTokenAnalyzeExpr,
 			metadata: map[string]any{
-				"id": "7", "username": "octocat", "scopes": "repo, admin:public_key",
+				"id": "7", "username": "octocat", "scopes": []any{"repo", "admin:public_key"},
 			},
 			severity:     report.SeverityCritical,
 			capabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite, report.CapabilityCreateCredentials},
@@ -224,6 +227,41 @@ func TestCredentialAnalysisUnknownGrantsStayUnknown(t *testing.T) {
 	assert.Empty(t, result.Capabilities)
 }
 
+func TestCredentialAnalysisRegexScopeFamilies(t *testing.T) {
+	tests := []struct {
+		name       string
+		expression string
+		scopes     any
+		want       []report.Capability
+	}{
+		{
+			name:       "airtable read suffix",
+			expression: airtableAnalyzeExpr,
+			scopes:     []any{"future.resource:read"},
+			want:       []report.Capability{report.CapabilityRead},
+		},
+		{
+			name:       "github read and write prefixes",
+			expression: githubTokenAnalyzeExpr,
+			scopes:     []any{"read:future_resource", "write:future_resource"},
+			want:       []report.Capability{report.CapabilityRead, report.CapabilityWrite},
+		},
+		{
+			name:       "slack read and write suffixes",
+			expression: slackAnalyzeExpr,
+			scopes:     []any{"canvas:read", "canvas:write"},
+			want:       []report.Capability{report.CapabilityRead, report.CapabilityWrite},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := evaluateProviderAnalysis(t, test.expression, map[string]any{"scopes": test.scopes})
+			assert.Equal(t, test.want, result.Capabilities)
+		})
+	}
+}
+
 func TestGitLabAnalysisClassifiesGranularPermissionActions(t *testing.T) {
 	result := evaluateProviderAnalysis(t, gitlabPatAnalyzeExpr, map[string]any{
 		"user_id": "42",
@@ -242,6 +280,12 @@ func TestGitLabAnalysisClassifiesGranularPermissionActions(t *testing.T) {
 
 	assert.Equal(t, report.SeverityHigh, result.Severity)
 	assert.Equal(t, []report.Capability{report.CapabilityRead, report.CapabilityWrite}, result.Capabilities)
+	assert.Equal(t, []any{
+		"create_access_request",
+		"read_personal_access_token",
+		"read_deploy_key",
+		"create_email",
+	}, result.Metadata["permissions"])
 
 	result = evaluateProviderAnalysis(t, gitlabPatAnalyzeExpr, map[string]any{
 		"user_id": "42",
@@ -254,10 +298,9 @@ func TestGitLabAnalysisClassifiesGranularPermissionActions(t *testing.T) {
 
 func TestGitLabAnalysisExplainsMissingFineGrainedPermissionDetails(t *testing.T) {
 	result := evaluateProviderAnalysis(t, gitlabPatAnalyzeExpr, map[string]any{
-		"user_id":         "1140645",
-		"scopes":          []any{"granular"},
-		"granular":        true,
-		"granular_scopes": []any{},
+		"user_id":  "1140645",
+		"scopes":   []any{"granular"},
+		"granular": true,
 	})
 
 	assert.Equal(t, report.SeverityUnknown, result.Severity)
@@ -267,79 +310,80 @@ func TestGitLabAnalysisExplainsMissingFineGrainedPermissionDetails(t *testing.T)
 	assert.Empty(t, result.Capabilities)
 }
 
+func TestGitLabValidationOmitsGranularScopeSentinel(t *testing.T) {
+	runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(
+				`{"id":27109975,"name":"granular","user_id":1140645,"scopes":["granular"],"granular":true}`,
+			)),
+		}, nil
+	})})
+	require.NoError(t, err)
+
+	program, err := runtime.CompileValidation(gitlabPatExpr)
+	require.NoError(t, err)
+	value, err := runtime.EvalValidation(
+		t.Context(),
+		program,
+		map[string]string{"rule_id": "gitlab-pat", "secret": "fixture-secret"},
+		nil,
+		nil,
+		exprruntime.EvalOptions{},
+	)
+	require.NoError(t, err)
+	result := validatepkg.ParseResult(value.Value)
+
+	assert.Equal(t, report.ValidationStatusValid, result.Status)
+	assert.Equal(t, true, result.Metadata["granular"])
+	assert.Nil(t, result.Metadata["scopes"])
+}
+
 func TestGitLabAnalysisLooksUpMissingFineGrainedPermissionDetails(t *testing.T) {
-	tests := []struct {
-		name         string
-		responses    map[string]string
-		wantRequests []string
-	}{
-		{
-			name: "token detail",
-			responses: map[string]string{
-				"/api/v4/personal_access_tokens/27109975": `{"id":27109975,"granular_scopes":[{"permissions":["read_job"]}]}`,
+	var requests []string
+	runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(request *http.Request) (*http.Response, error) {
+		requestURI := request.URL.RequestURI()
+		requests = append(requests, requestURI)
+		assert.Equal(t, "/api/v4/personal_access_tokens?user_id=1140645&state=active&per_page=100", requestURI)
+		assert.Equal(t, "fixture-secret", request.Header.Get("PRIVATE-TOKEN"))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(
+				`[{"id":7,"granular_scopes":[{"permissions":["future_permission"]}]},{"id":27109975,"granular_scopes":[{"permissions":["read_job"]}]}]`,
+			)),
+		}, nil
+	})})
+	require.NoError(t, err)
+
+	program, err := runtime.CompileAnalysis(gitlabPatAnalyzeExpr)
+	require.NoError(t, err)
+	value, err := runtime.EvalAnalysisWithComponents(
+		t.Context(),
+		program,
+		map[string]string{"rule_id": "gitlab-pat", "secret": "fixture-secret"},
+		nil,
+		nil,
+		nil,
+		map[string]any{
+			"status": "valid",
+			"reason": "",
+			"metadata": map[string]any{
+				"token_id": "27109975",
+				"user_id":  "1140645",
+				"scopes":   []any{"granular"},
+				"granular": true,
 			},
-			wantRequests: []string{"/api/v4/personal_access_tokens/27109975"},
 		},
-		{
-			name: "token list fallback",
-			responses: map[string]string{
-				"/api/v4/personal_access_tokens/27109975":                     `{"id":27109975,"granular_scopes":[]}`,
-				"/api/v4/personal_access_tokens?user_id=1140645&per_page=100": `[{"id":7,"granular_scopes":[{"permissions":["future_permission"]}]},{"id":27109975,"granular_scopes":[{"permissions":["read_job"]}]}]`,
-			},
-			wantRequests: []string{
-				"/api/v4/personal_access_tokens/27109975",
-				"/api/v4/personal_access_tokens?user_id=1140645&per_page=100",
-			},
-		},
-	}
+		exprruntime.EvalOptions{},
+	)
+	require.NoError(t, err)
+	result, err := analyze.ParseResult(value.Value)
+	require.NoError(t, err)
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var requests []string
-			runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(request *http.Request) (*http.Response, error) {
-				requestURI := request.URL.RequestURI()
-				requests = append(requests, requestURI)
-				body, ok := test.responses[requestURI]
-				require.Truef(t, ok, "unexpected request %s", requestURI)
-				assert.Equal(t, "fixture-secret", request.Header.Get("PRIVATE-TOKEN"))
-				return &http.Response{
-					StatusCode: http.StatusOK,
-					Body:       io.NopCloser(strings.NewReader(body)),
-				}, nil
-			})})
-			require.NoError(t, err)
-
-			program, err := runtime.CompileAnalysis(gitlabPatAnalyzeExpr)
-			require.NoError(t, err)
-			value, err := runtime.EvalAnalysisWithComponents(
-				t.Context(),
-				program,
-				map[string]string{"rule_id": "gitlab-pat", "secret": "fixture-secret"},
-				nil,
-				nil,
-				nil,
-				map[string]any{
-					"status": "valid",
-					"reason": "",
-					"metadata": map[string]any{
-						"token_id":        "27109975",
-						"user_id":         "1140645",
-						"scopes":          []any{"granular"},
-						"granular":        true,
-						"granular_scopes": []any{},
-					},
-				},
-				exprruntime.EvalOptions{},
-			)
-			require.NoError(t, err)
-			result, err := analyze.ParseResult(value.Value)
-			require.NoError(t, err)
-
-			assert.Equal(t, []report.Capability{report.CapabilityRead}, result.Capabilities)
-			assert.Empty(t, result.Reason)
-			assert.Equal(t, test.wantRequests, requests)
-		})
-	}
+	assert.Equal(t, []report.Capability{report.CapabilityRead}, result.Capabilities)
+	assert.Empty(t, result.Reason)
+	assert.Equal(t, []any{"read_job"}, result.Metadata["permissions"])
+	assert.Equal(t, []string{"/api/v4/personal_access_tokens?user_id=1140645&state=active&per_page=100"}, requests)
 }
 
 func evaluateProviderAnalysis(t *testing.T, expression string, metadata map[string]any) report.Analysis {

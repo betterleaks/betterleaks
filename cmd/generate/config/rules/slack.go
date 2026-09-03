@@ -22,7 +22,7 @@ r.status == 200 && (r.json?.ok ?? false) ? {
   "user_id": (r.json?.user_id ?? ""),
   "user": (r.json?.user ?? ""),
   "bot_id": (r.json?.bot_id ?? ""),
-  "scopes": (r.headers["x-oauth-scopes"] ?? "")
+  "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ",")
 } : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
   "result": "revoked",
   "reason": provider_error
@@ -34,40 +34,10 @@ r.status == 200 && (r.json?.ok ?? false) ? {
   "reason": provider_error == "" ? "Unexpected provider response" : provider_error
 }`
 
-const slackAnalyzeExpr = `let metadata = validation["metadata"] ?? {};
-let raw_scopes = metadata["scopes"] ?? "";
-let scopes = map(split(raw_scopes, ","), trim(#));
-let read_scopes = [
-  "channels:history",
-  "channels:read",
-  "files:read",
-  "groups:history",
-  "groups:read",
-  "im:history",
-  "mpim:history",
-  "reactions:read",
-  "search:read",
-  "users:read"
-];
-let write_scopes = [
-  "bookmarks:write",
-  "calls:write",
-  "channels:manage",
-  "chat:write",
-  "files:write",
-  "groups:write",
-  "reactions:write",
-  "reminders:write"
-];
-let manage_user_scopes = [
-  "admin.invites:write",
-  "admin.roles:write",
-  "admin.usergroups:write",
-  "admin.users:write",
-  "usergroups:write"
-];
+const slackAnalyzeExpr = `let metadata = validation.metadata;
+let scopes = metadata["scopes"] ?? [];
 {
-  "reason": raw_scopes == "" ? "Slack did not return OAuth scope metadata" : "",
+  "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "identity": {
     "id": metadata["user_id"] ?? metadata["bot_id"] ?? "",
     "username": metadata["user"] ?? "",
@@ -76,11 +46,11 @@ let manage_user_scopes = [
       "name": metadata["team"] ?? ""
     }
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [":(?:history|read)$"]),
+    "write": filter.matchesAny(scopes, [":write$", "^channels:manage$"]),
+    "manage_users": filter.matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
+  })
 }`
 
 // https://api.slack.com/authentication/token-types#bot

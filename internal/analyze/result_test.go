@@ -19,6 +19,12 @@ func TestParseResultNormalizesCapabilitiesAndIdentity(t *testing.T) {
 			},
 		},
 		"capabilities": []any{"admin", "read", "write", "read"},
+		"metadata": map[string]any{
+			"permissions": []any{map[string]any{
+				"access":      "user",
+				"permissions": []any{"read_job"},
+			}},
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, report.SeverityCritical, result.Severity)
@@ -27,6 +33,10 @@ func TestParseResultNormalizesCapabilitiesAndIdentity(t *testing.T) {
 		report.CapabilityWrite,
 		report.CapabilityAdmin,
 	}, result.Capabilities)
+	assert.Equal(t, []any{map[string]any{
+		"access":      "user",
+		"permissions": []any{"read_job"},
+	}}, result.Metadata["permissions"])
 	require.NotNil(t, result.Identity)
 	assert.Equal(t, "user-1", result.Identity.ID)
 	require.NotNil(t, result.Identity.Account)
@@ -67,4 +77,7 @@ func TestParseResultRejectsUnknownSchema(t *testing.T) {
 
 	_, err = ParseResult(map[string]any{"status": "complete"})
 	require.ErrorContains(t, err, `unknown field "status"`)
+
+	_, err = ParseResult(map[string]any{"metadata": []any{"scope"}})
+	require.ErrorContains(t, err, "analysis metadata must be an object")
 }

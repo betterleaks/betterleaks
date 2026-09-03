@@ -246,6 +246,7 @@ func (e *Runtime) compileBindings(mode compileMode, counter *tokenizer.Counter) 
 		b := e.validationBindings(context.Background(), nil, nil, nil, nil, nil)
 		setCompileMaps(b)
 		b["validation"] = emptyValidationMap()
+		b["analysis"] = analysisNamespace()
 		return b, []expr.Option{expr.WithContext("ctx")}
 	default:
 		panic(fmt.Sprintf("unsupported expression mode %q", mode))
@@ -367,6 +368,7 @@ func (e *Runtime) evalProviderProgram(ctx context.Context, prg Program, finding,
 	b := e.validationBindings(ctx, finding, captures, components, attributes, state)
 	if validation != nil {
 		b["validation"] = validation
+		b["analysis"] = analysisNamespace()
 	}
 	val, err := expr.Run(prg.vm, b)
 	return EvalResult{

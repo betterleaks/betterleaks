@@ -2,6 +2,7 @@ package exprruntime
 
 import (
 	"crypto/rand"
+	"fmt"
 	"io"
 	"math/big"
 	"net/url"
@@ -27,12 +28,29 @@ var obfuscateRand io.Reader = rand.Reader
 func stringsNamespace() map[string]any {
 	return map[string]any{
 		"obfuscate":        func(s string) (string, error) { return obfuscate(s), nil },
+		"splitTrim":        splitTrim,
 		"urlQueryEscape":   urlQueryEscape,
 		"url_query_escape": urlQueryEscape,
 	}
 }
 
 func urlQueryEscape(s string) string { return url.QueryEscape(s) }
+
+func splitTrim(value, separator string) ([]string, error) {
+	if separator == "" {
+		return nil, fmt.Errorf("strings.splitTrim: separator must not be empty")
+	}
+
+	parts := strings.Split(value, separator)
+	result := parts[:0]
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result, nil
+}
 
 // obfuscate returns a same-length, class-preserving perturbation of secret.
 // Each rune is replaced with probability obfuscateRate by a different rune

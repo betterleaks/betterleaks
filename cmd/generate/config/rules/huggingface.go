@@ -26,7 +26,7 @@ const huggingFaceValidateExpr = `let r = http.get("https://huggingface.co/api/wh
     "reason": "Unauthorized"
   } : validate.unknown(r)`
 
-const huggingFaceAnalyzeExpr = `let metadata = validation["metadata"] ?? {};
+const huggingFaceAnalyzeExpr = `let metadata = validation.metadata;
 let auth = metadata["auth"] ?? {};
 let access_token = auth["accessToken"] ?? {};
 let role = access_token["role"] ?? "";
@@ -43,10 +43,10 @@ let orgs = metadata["orgs"] ?? [];
       "name": orgs[0]?.name ?? ""
     } : {}
   },
-  "capabilities": flatten([
-    role in ["read", "write"] ? ["read"] : [],
-    role == "write" ? ["write"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": role in ["read", "write"],
+    "write": role == "write"
+  })
 }`
 
 // Reference: https://huggingface.co/docs/hub/security-tokens

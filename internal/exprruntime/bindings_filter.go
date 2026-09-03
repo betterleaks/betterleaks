@@ -25,6 +25,7 @@ func filterNamespace(rt *runtimeBindings) map[string]any {
 		"findMatch":            findMatch,
 		"containsAny":          containsAny,
 		"startsWithAny":        startsWithAny,
+		"intersects":           intersects,
 		"entropy":              shannonEntropy,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
 		"tokenRatio":           rt.tokenRatio,
@@ -48,13 +49,13 @@ func sortedKey(ss []string) string {
 	return strings.Join(cp, "\x00")
 }
 
-func getOrCompileJoinedRegex(patterns []string) *blregexp.Regexp {
+func getOrCompileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
 	if len(patterns) == 0 {
-		return nil
+		return nil, nil
 	}
 	key := orderedKey(patterns)
 	if v, ok := regexCache.Load(key); ok {
-		return v.(*blregexp.Regexp)
+		return v.(*blregexp.Regexp), nil
 	}
 	parts := make([]string, len(patterns))
 	for i, p := range patterns {
@@ -62,10 +63,15 @@ func getOrCompileJoinedRegex(patterns []string) *blregexp.Regexp {
 	}
 	re, err := blregexp.Compile(strings.Join(parts, "|"))
 	if err != nil {
-		return nil
+		for _, pattern := range patterns {
+			if _, patternErr := blregexp.Compile(pattern); patternErr != nil {
+				return nil, fmt.Errorf("invalid regex pattern %q: %w", pattern, patternErr)
+			}
+		}
+		return nil, fmt.Errorf("compile regex patterns: %w", err)
 	}
 	regexCache.Store(key, re)
-	return re
+	return re, nil
 }
 
 func getOrBuildTrie(terms []string) *ahocorasick.Matcher {
@@ -85,17 +91,20 @@ func getOrBuildTrie(terms []string) *ahocorasick.Matcher {
 	return trie
 }
 
-func matchesAny(values, patterns any) bool {
-	re := getOrCompileJoinedRegex(toStringSlice(patterns))
-	return re != nil && anyString(values, re.MatchString)
+func matchesAny(values, patterns any) (bool, error) {
+	re, err := getOrCompileJoinedRegex(toStringSlice(patterns))
+	if err != nil || re == nil {
+		return false, err
+	}
+	return anyString(values, re.MatchString), nil
 }
 
-func findMatch(s, pattern string) string {
-	re := getOrCompileJoinedRegex([]string{pattern})
-	if re == nil {
-		return ""
+func findMatch(s, pattern string) (string, error) {
+	re, err := getOrCompileJoinedRegex([]string{pattern})
+	if err != nil || re == nil {
+		return "", err
 	}
-	return re.FindString(s)
+	return re.FindString(s), nil
 }
 
 func containsAny(values, terms any) bool {
@@ -110,6 +119,18 @@ func startsWithAny(values, prefixes any) bool {
 	return len(prefixesList) > 0 && anyString(values, func(value string) bool {
 		for _, prefix := range prefixesList {
 			if strings.HasPrefix(value, prefix) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func intersects(values, candidates any) bool {
+	candidateList := toStringSlice(candidates)
+	return len(candidateList) > 0 && anyString(values, func(value string) bool {
+		for _, candidate := range candidateList {
+			if value == candidate {
 				return true
 			}
 		}

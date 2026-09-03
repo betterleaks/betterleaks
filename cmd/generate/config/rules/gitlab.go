@@ -34,56 +34,47 @@ const (
     "token_id": string(int(r.json?.id ?? 0)),
     "token_name": (r.json?.name ?? ""),
     "user_id": string(int(r.json?.user_id ?? 0)),
-    "scopes": (r.json?.scopes ?? []),
-    "granular": (r.json?.granular ?? false),
-    "granular_scopes": (r.json?.granular_scopes ?? [])
+    "scopes": (r.json?.granular ?? false) ? nil : (r.json?.scopes ?? []),
+    "granular": (r.json?.granular ?? false)
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`
 
-	gitlabPatAnalyzeExpr = `let metadata = validation["metadata"] ?? {};
+	gitlabPatAnalyzeExpr = `let metadata = validation.metadata;
 let scopes = metadata["scopes"] ?? [];
+let granular = metadata["granular"] ?? false;
 let granular_scopes =
   size(metadata["granular_scopes"] ?? []) > 0 ? metadata["granular_scopes"] :
-  !((metadata["granular"] ?? false) || "granular" in scopes) || (metadata["token_id"] ?? "") in ["", "0"] ? [] : (
+  !granular || (metadata["token_id"] ?? "") in ["", "0"] || (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
   let token_id = metadata["token_id"];
-  let detail = http.get(base_url + "/api/v4/personal_access_tokens/" + token_id, headers);
-  let detail_scopes = detail.status == 200 ? (detail.json?.granular_scopes ?? []) : [];
-  size(detail_scopes) > 0 ? detail_scopes : (metadata["user_id"] ?? "") in ["", "0"] ? [] : (
-    let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&per_page=100", headers);
-    let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
-    matching_token?.granular_scopes ?? []
-  )
+  let tokens = http.get(base_url + "/api/v4/personal_access_tokens?user_id=" + metadata["user_id"] + "&state=active&per_page=100", headers);
+  let matching_token = tokens.status == 200 ? find(tokens.json ?? [], {#.id == int(token_id)}) : nil;
+  matching_token?.granular_scopes ?? []
 );
-let permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
-let can_read =
-  "api" in scopes ||
-  startsWithAny(scopes, ["read_", "write_"]) ||
-  startsWithAny(permissions, ["download_", "read_"]);
-let can_write =
-  "api" in scopes || "manage_runner" in scopes ||
-  startsWithAny(scopes, ["write_"]) ||
-  startsWithAny(permissions, [
-    "add_", "approve_", "archive_", "assign_", "cancel_", "create_",
-    "delete_", "disable_", "enable_", "execute_", "import_", "manage_",
-    "merge_", "move_", "publish_", "renew_", "restore_", "retry_",
-    "revoke_", "rotate_", "run_", "set_", "stop_", "transfer_",
-    "trigger_", "unarchive_", "update_", "upload_", "write_"
-  ]);
+let granular_permissions = flatten(map(granular_scopes, {#.permissions ?? []}));
+let grants = flatten([
+  scopes,
+  granular_permissions
+]);
+let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
+let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
 {
-  "reason": ((metadata["granular"] ?? false) || "granular" in scopes) && size(granular_scopes) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "metadata": size(granular_permissions) > 0 ? {
+    "permissions": granular_permissions
+  } : {},
   "identity": {
     "id": metadata["user_id"] ?? ""
   },
-  "capabilities": flatten([
-    can_read ? ["read"] : [],
-    can_write ? ["write"] : [],
-    ("create_runner" in scopes || "self_rotate" in scopes) ? ["create_credentials"] : [],
-    ("sudo" in scopes || "admin_mode" in scopes) ? ["admin"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": can_read,
+    "write": can_write,
+    "create_credentials": filter.intersects(grants, ["create_runner", "self_rotate"]),
+    "admin": filter.intersects(grants, ["sudo", "admin_mode"])
+  })
 }`
 
 	// gitlabRunnerRegistrationExpr validates runner registration tokens via POST.

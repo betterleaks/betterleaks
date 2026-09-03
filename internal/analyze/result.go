@@ -25,7 +25,7 @@ func ParseResult(value any) (report.Analysis, error) {
 	if !ok {
 		return report.Analysis{}, fmt.Errorf("analysis expression returned unexpected type: %T", value)
 	}
-	if err := rejectUnknownFields(result, "analysis", "reason", "identity", "capabilities"); err != nil {
+	if err := rejectUnknownFields(result, "analysis", "reason", "identity", "capabilities", "metadata"); err != nil {
 		return report.Analysis{}, err
 	}
 
@@ -52,6 +52,14 @@ func ParseResult(value any) (report.Analysis, error) {
 			return report.Analysis{}, err
 		}
 		analysis.Capabilities = capabilities
+	}
+
+	if rawMetadata, exists := result["metadata"]; exists && rawMetadata != nil {
+		metadata, ok := stringMap(rawMetadata)
+		if !ok {
+			return report.Analysis{}, fmt.Errorf("analysis metadata must be an object")
+		}
+		analysis.Metadata = metadata
 	}
 
 	analysis.Severity = report.AnalysisSeverity(analysis.Capabilities)

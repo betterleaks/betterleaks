@@ -19,38 +19,18 @@ const airtableValidateExpr = `let r = http.get("https://api.airtable.com/v0/meta
     "reason": "Unauthorized"
   } : validate.unknown(r)`
 
-const airtableAnalyzeExpr = `let metadata = validation["metadata"] ?? {};
+const airtableAnalyzeExpr = `let metadata = validation.metadata;
 let scopes = metadata["scopes"] ?? [];
-let read_scopes = [
-  "data.records:read",
-  "data.recordComments:read",
-  "schema.bases:read",
-  "user.email:read",
-  "enterprise.user:read",
-  "enterprise.groups:read",
-  "enterprise.scim.usersAndGroups:read"
-];
-let write_scopes = [
-  "data.records:write",
-  "data.recordComments:write",
-  "schema.bases:write",
-  "webhook:manage"
-];
-let manage_user_scopes = [
-  "enterprise.user:write",
-  "enterprise.groups:manage",
-  "enterprise.scim.usersAndGroups:manage"
-];
 {
   "identity": {
     "id": metadata["id"] ?? "",
     "email": metadata["email"] ?? ""
   },
-  "capabilities": flatten([
-    any(scopes, {# in read_scopes}) ? ["read"] : [],
-    any(scopes, {# in write_scopes}) ? ["write"] : [],
-    any(scopes, {# in manage_user_scopes}) ? ["manage_users"] : []
-  ])
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [":read$"]),
+    "write": filter.matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
+    "manage_users": filter.matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
+  })
 }`
 
 func AirtableApiKey() *config.Rule {

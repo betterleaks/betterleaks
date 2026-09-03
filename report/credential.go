@@ -276,7 +276,7 @@ func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) err
 		}
 	}
 	for _, key := range sortedAnyMapKeys(result.Validation.Metadata) {
-		if err := writeCredentialDotLeader(w, key, formatCredentialValue(result.Validation.Metadata[key]), maxKey); err != nil {
+		if err := writeCredentialDotLeader(w, key, formatMetadataValue(result.Validation.Metadata[key]), maxKey); err != nil {
 			return err
 		}
 	}
@@ -368,7 +368,25 @@ func sortedAnyMapKeys(values map[string]any) []string {
 	return keys
 }
 
-func formatCredentialValue(value any) string {
+func formatMetadataValue(value any) string {
+	switch values := value.(type) {
+	case []string:
+		return "[" + strings.Join(values, ", ") + "]"
+	case []any:
+		items := make([]string, len(values))
+		allStrings := true
+		for i, value := range values {
+			text, ok := value.(string)
+			if !ok {
+				allStrings = false
+				break
+			}
+			items[i] = text
+		}
+		if allStrings {
+			return "[" + strings.Join(items, ", ") + "]"
+		}
+	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Sprint(value)

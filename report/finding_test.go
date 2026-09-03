@@ -40,6 +40,7 @@ func TestRedact_ComponentSets(t *testing.T) {
 		Analysis: Analysis{
 			Reason:   "primary=secret",
 			Identity: &AnalysisIdentity{ID: "comp-secret-1"},
+			Metadata: map[string]any{"scope": "comp-secret-2"},
 		},
 		ComponentSets: []ComponentSet{
 			{
@@ -66,6 +67,7 @@ func TestRedact_ComponentSets(t *testing.T) {
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[1].Secret)
 	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[1].Match)
 	assert.Equal(t, "primary=[redacted]", f.Analysis.Reason)
+	assert.Equal(t, "[redacted]", f.Analysis.Metadata["scope"])
 	require.NotNil(t, f.Analysis.Identity)
 	assert.Equal(t, "[redacted]", f.Analysis.Identity.ID)
 	assert.Equal(t, "[redacted]", f.ComponentSets[0].Analysis.Debug["echo"])
@@ -274,6 +276,7 @@ func TestFindingJSONSchema(t *testing.T) {
 			Severity:     SeverityCritical,
 			Identity:     &AnalysisIdentity{ID: "user-1", Username: "octocat"},
 			Capabilities: []Capability{CapabilityRead, CapabilityManageUsers},
+			Metadata:     map[string]any{"permissions": []any{"read_job"}},
 		},
 		Tags: []string{},
 	}
@@ -300,6 +303,7 @@ func TestFindingJSONSchema(t *testing.T) {
 		"severity":     "critical",
 		"identity":     map[string]any{"id": "user-1", "username": "octocat"},
 		"capabilities": []any{"read", "manage_users"},
+		"metadata":     map[string]any{"permissions": []any{"read_job"}},
 	}, got["analysis"])
 	assert.NotContains(t, got["attributes"], "confidence")
 	assert.NotContains(t, got, "StartLine")

@@ -102,13 +102,14 @@ filter expression evaluates to `true`, the item is skipped.
 
 | Function | Description |
 | :--- | :--- |
-| `filter.matchesAny(string-or-list, patterns)` | Returns `true` if the string, or any string in the list, matches any regex pattern. |
+| `filter.matchesAny(string-or-list, patterns)` | Returns `true` if the string, or any string in the list, matches any regex pattern. Invalid patterns fail expression evaluation. |
 | `matchesAny(string-or-list, patterns)` | Equivalent to `filter.matchesAny(string-or-list, patterns)`. |
-| `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. |
+| `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. Invalid patterns fail expression evaluation. |
 | `filter.containsAny(string-or-list, terms)` | Returns `true` if the string, or any string in the list, contains a term. Uses an efficient Aho-Corasick substring match. |
 | `containsAny(string-or-list, terms)` | Equivalent to `filter.containsAny(string-or-list, terms)`. |
 | `filter.startsWithAny(string-or-list, prefixes)` | Returns `true` if the string, or any string in the list, starts with a prefix. |
 | `startsWithAny(string-or-list, prefixes)` | Equivalent to `filter.startsWithAny(string-or-list, prefixes)`. |
+| `filter.intersects(string-or-list, candidates)` | Returns `true` if at least one input string exactly equals a candidate. Matching is case-sensitive. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `entropy(string)` | Equivalent to `filter.entropy(string)`; useful for concise rule filters. |
 | `filter.tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
@@ -179,6 +180,23 @@ is derived by Betterleaks rather than assigned by the rule. See the
 [credential access analysis design](credential-access-analysis.md) for the
 result schema and provider mappings.
 
+Analysis results may also include a `metadata` object for provider-specific
+evidence discovered during analysis, such as permission names.
+Unlike opt-in HTTP debug data, analysis metadata is part of normal JSON output.
+
+Analysis expressions can use the same pure `filter` matching helpers as
+validation expressions. They also receive an `analysis` namespace:
+
+| Value or function | Description |
+| :--- | :--- |
+| `analysis.capabilities(conditions)` | Converts a map of capability names to boolean predicates into the canonical positive-only capability list. Unknown names and non-boolean values fail evaluation. |
+
+The successful validation result remains available through `validation`.
+Analysis expressions should read provider evidence through
+`validation.metadata`, preserving its origin explicitly.
+Providers that return a delimited scope header can normalize it once in their
+validation expression with `strings.splitTrim(value, separator)`.
+
 Validation runs asynchronously, and responses are cached in memory so duplicate
 secrets only trigger one network request.
 
@@ -244,6 +262,10 @@ Any additional keys are attached to the finding as validation metadata, such as
 
 ### Validation functions
 
+Validation and analysis expressions can also use the pure `filter` functions
+listed above. `filter.setConfidence` is available only to finding filters
+because it mutates finding output.
+
 | Function | Description |
 | :--- | :--- |
 | `http.get(url, headers)` | Sends a GET request. |
@@ -252,6 +274,7 @@ Any additional keys are attached to the finding as validation metadata, such as
 | `env.get(name)` | Reads an allowlisted environment variable. Requires `--provider-env-vars`. |
 | `env.getOrDefault(name, default)` | Reads an allowlisted environment variable, or returns `default` when env access is disabled, the name is not allowlisted, or the variable is unset. |
 | `strings.obfuscate(secret)` | Returns a same-length, shape-preserving stand-in for a secret. Useful before sending context to third-party APIs. |
+| `strings.splitTrim(value, separator)` | Splits a string, trims each part, and removes empty parts. The separator must not be empty. |
 | `json.string(value)` | Returns a quoted JSON string literal. Useful when hand-building JSON request bodies. |
 | `strings.urlQueryEscape(value)` | URL-query escapes a string. Useful when building signed validation request URLs. |
 | `crypto.md5(bytes)` | Returns the MD5 hash as bytes. |
