@@ -88,6 +88,50 @@ printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat --simp
 
 For more advanced scanning examples check out the [scanning doc](docs/scanning.md).
 
+### Go SDK
+
+Betterleaks can also be embedded as a Go library. Detectors are silent by
+default and safe to reuse across scans.
+
+```sh
+go get github.com/betterleaks/betterleaks/v2
+```
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/detect"
+)
+
+func main() {
+	cfg, err := config.Default()
+	if err != nil {
+		panic(err)
+	}
+	detector, err := detect.NewDetector(cfg)
+	if err != nil {
+		panic(err)
+	}
+
+	const token = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5" // betterleaks:allow
+	for _, finding := range detector.DetectString("GITHUB_TOKEN=" + token) {
+		fmt.Println(finding.RuleID)
+	}
+}
+```
+
+Use `config.LoadFile` to load an application-owned `betterleaks.toml`,
+`detect.WithAnalysis` to enable provider validation and analysis, and
+`detect.WithLogger` to attach an application-owned `slog.Logger`. For streaming
+input, pass a `sources.Reader` to `Detector.Scan`.
+
+See the [`detect` package documentation](https://pkg.go.dev/github.com/betterleaks/betterleaks/v2/detect)
+for complete default-config and custom-config examples.
+
 ### Configuration
 
 Betterleaks' strength comes from its expressive configuration. Filtering and validation logic are defined as [Expr](https://expr-lang.org). `prefilter`s run before any regex matching occurs and only have access to the `attributes` map. `attributes` describe a resource like a git patch. Use `prefilter`s to quickly bail out before more expensive scanning happens. `filter`s, on the other hand, get evaluated post-regex match and have access to the `attributes` map and candidate `finding` data like `finding["secret"]` or `finding["match"]`.
