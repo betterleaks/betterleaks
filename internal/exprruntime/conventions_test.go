@@ -45,7 +45,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			name: "filter",
 			fns:  functionNames(filterBindings(nil, emptyFilterFinding, emptyStringMap)),
 			current: []string{
-				"matchesAny", "containsAny", "startsWithAny", "entropy",
+				"matchesAny", "containsAny", "startsWithAny", "entropy", "sha256",
 				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.startsWithAny", "filter.entropy",
 				"filter.intersects", "filter.failsTokenEfficiency", "filter.tokenRatio", "filter.setConfidence",
 			},
@@ -125,6 +125,19 @@ func TestFilterEntropy(t *testing.T) {
 		}, nil)
 		require.NoError(t, err)
 		require.True(t, skip)
+	}
+}
+
+func TestFilterSHA256(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	prg, err := env.CompileFilter("sha256(finding[\"secret\"]) in [\"sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"]", nil)
+	require.NoError(t, err)
+
+	for secret, want := range map[string]bool{"abc": true, "ABC": false} {
+		skip, err := env.EvalFilter(prg, map[string]any{"secret": secret}, nil)
+		require.NoError(t, err)
+		require.Equal(t, want, skip)
 	}
 }
 

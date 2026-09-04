@@ -72,6 +72,22 @@ SHA-256 digest of the exact secret bytes:
 sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 ```
 
+Ignore files are repository-local shorthand for a global filter. Betterleaks
+loads their valid entries and composes the equivalent expression with the
+configured filter:
+
+```toml
+filter = '''
+sha256(finding["secret"]) in [
+    "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+]
+'''
+```
+
+Projects may put fingerprints directly in their configuration when that is
+more convenient. Both forms use the same filter runtime and exact-byte
+matching semantics.
+
 Blank lines and full-line `#` comments are allowed. Hex digits may be uppercase
 or lowercase. Invalid entries are reported with their file and line number and
 do not prevent valid entries from loading. Bare hashes, legacy location

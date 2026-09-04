@@ -36,22 +36,29 @@ func Parse(s string) (Hash, error) {
 	return hash, nil
 }
 
-// Set is immutable after construction and safe for concurrent reads.
-type Set struct{ hashes map[Hash]struct{} }
+// List is an ordered, deduplicated collection of secret fingerprints.
+type List struct{ hashes []Hash }
 
-func (s *Set) Len() int {
-	if s == nil {
+func (l *List) Len() int {
+	if l == nil {
 		return 0
 	}
-	return len(s.hashes)
+	return len(l.hashes)
 }
 
-func (s *Set) Contains(secret string) bool {
-	if s == nil || len(s.hashes) == 0 {
-		return false
+// FilterExpression returns the global finding filter represented by the list.
+// Expr compiles a constant string list used with "in" into a map lookup.
+func (l *List) FilterExpression() string {
+	if l == nil || len(l.hashes) == 0 {
+		return ""
 	}
-	_, ok := s.hashes[Sum([]byte(secret))]
-	return ok
+	var expression strings.Builder
+	expression.WriteString("sha256(finding[\"secret\"]) in [\n")
+	for _, hash := range l.hashes {
+		_, _ = fmt.Fprintf(&expression, "  %q,\n", Format(hash))
+	}
+	expression.WriteByte(']')
+	return expression.String()
 }
 
 type Diagnostic struct {
@@ -60,8 +67,9 @@ type Diagnostic struct {
 }
 
 // Load parses an ignore file, retaining valid entries when other lines are bad.
-func Load(r io.Reader) (*Set, []Diagnostic, error) {
-	hashes := make(map[Hash]struct{})
+func Load(r io.Reader) (*List, []Diagnostic, error) {
+	seen := make(map[Hash]struct{})
+	var hashes []Hash
 	var diagnostics []Diagnostic
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(nil, 1024*1024)
@@ -75,7 +83,11 @@ func Load(r io.Reader) (*Set, []Diagnostic, error) {
 			diagnostics = append(diagnostics, Diagnostic{Line: line, Reason: err.Error()})
 			continue
 		}
-		hashes[hash] = struct{}{}
+		if _, exists := seen[hash]; exists {
+			continue
+		}
+		seen[hash] = struct{}{}
+		hashes = append(hashes, hash)
 	}
-	return &Set{hashes: hashes}, diagnostics, scanner.Err()
+	return &List{hashes: hashes}, diagnostics, scanner.Err()
 }

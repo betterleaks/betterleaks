@@ -20,7 +20,7 @@ func TestFingerprint(t *testing.T) {
 
 func TestLoad(t *testing.T) {
 	entry := Format(Sum([]byte("secret")))
-	set, diagnostics, err := Load(strings.NewReader(strings.Join([]string{
+	list, diagnostics, err := Load(strings.NewReader(strings.Join([]string{
 		"",
 		"  # comment",
 		entry,
@@ -32,9 +32,8 @@ func TestLoad(t *testing.T) {
 	}, "\n")))
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, set.Len())
-	assert.True(t, set.Contains("secret"))
-	assert.False(t, set.Contains("Secret"))
+	assert.Equal(t, 1, list.Len())
+	assert.Equal(t, "sha256(finding[\"secret\"]) in [\n  \""+entry+"\",\n]", list.FilterExpression())
 	require.Len(t, diagnostics, 4)
 	assert.Equal(t, []int{5, 6, 7, 8}, []int{diagnostics[0].Line, diagnostics[1].Line, diagnostics[2].Line, diagnostics[3].Line})
 }
@@ -48,13 +47,5 @@ func TestParseRejectsUnsupportedForms(t *testing.T) {
 	} {
 		_, err := Parse(entry)
 		assert.Error(t, err, entry)
-	}
-}
-
-func BenchmarkSetContains(b *testing.B) {
-	set, _, _ := Load(strings.NewReader(Format(Sum([]byte("secret")))))
-	b.ReportAllocs()
-	for b.Loop() {
-		set.Contains("secret")
 	}
 }

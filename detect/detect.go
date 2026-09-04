@@ -108,11 +108,6 @@ type ScanSummary struct {
 // another scan on the same Detector because scans are sequential.
 type Handler func(report.Finding) error
 
-// SecretMatcher reports whether a secret should be ignored.
-type SecretMatcher interface {
-	Contains(secret string) bool
-}
-
 // Confidence is the minimum confidence classification accepted by a detector.
 type Confidence string
 
@@ -132,7 +127,6 @@ type detectorOptions struct {
 	analysisEnabled     bool
 	validation          ValidationOptions
 	ignoreAllowComments bool
-	ignoredSecrets      SecretMatcher
 	excludedPaths       []string
 	precompile          bool
 	logger              *slog.Logger
@@ -142,17 +136,6 @@ type detectorOptions struct {
 // With... functions in this package.
 type Option struct {
 	apply func(*detectorOptions) error
-}
-
-// WithIgnoredSecrets suppresses secrets contained by matcher.
-func WithIgnoredSecrets(matcher SecretMatcher) Option {
-	return Option{apply: func(options *detectorOptions) error {
-		if matcher == nil {
-			return errors.New("ignored-secret matcher is nil")
-		}
-		options.ignoredSecrets = matcher
-		return nil
-	}}
 }
 
 // WithExcludedPaths suppresses fragments whose path equals one of paths.
@@ -292,7 +275,6 @@ type Detector struct {
 	prefilterProgram exprruntime.Program
 	globalFilterExpr string
 	configPath       string
-	ignoredSecrets   SecretMatcher
 	excludedPaths    []string
 
 	tokenCounter     *tokenizer.Counter
@@ -415,7 +397,6 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		analysisEnabled:     settings.analysisEnabled,
 		validationOptions:   settings.validation,
 		ignoreAllowComments: settings.ignoreAllowComments,
-		ignoredSecrets:      settings.ignoredSecrets,
 		excludedPaths:       slices.Clone(settings.excludedPaths),
 		jobs:                settings.jobs,
 		logger:              settings.logger,
@@ -1072,16 +1053,7 @@ ScanLoop:
 		}
 	}
 	findings = d.filter(findings)
-	if d.ignoredSecrets == nil {
-		return findings
-	}
-	kept := findings[:0]
-	for _, finding := range findings {
-		if finding.Secret == "" || !d.ignoredSecrets.Contains(finding.Secret) {
-			kept = append(kept, finding)
-		}
-	}
-	return kept
+	return findings
 }
 
 func (d *Detector) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,

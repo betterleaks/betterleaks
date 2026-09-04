@@ -410,7 +410,7 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	if err != nil {
 		runtime.fatal("provider-rps-rule", "error", err)
 	}
-	detectorOptions, err := ignoreOptions(runtime, flags.IgnoreFile, source)
+	detectorOptions, err := applyIgnorePolicy(runtime, flags.IgnoreFile, source, cfg)
 	if err != nil {
 		runtime.fatal("unable to load ignore file", "error", err)
 	}
@@ -489,7 +489,7 @@ func parseValidationStatuses(value string) ([]report.ValidationStatus, error) {
 	return statuses, nil
 }
 
-func ignoreOptions(runtime *commandRuntime, explicitPath, source string) ([]detect.Option, error) {
+func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string, cfg *config.Config) ([]detect.Option, error) {
 	path := explicitPath
 	explicit := path != ""
 	if !explicit {
@@ -520,7 +520,7 @@ func ignoreOptions(runtime *commandRuntime, explicitPath, source string) ([]dete
 	}
 	defer file.Close()
 
-	set, diagnostics, readErr := fingerprint.Load(file)
+	list, diagnostics, readErr := fingerprint.Load(file)
 	for _, diagnostic := range diagnostics {
 		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s:%d: %s; entry ignored\n", path, diagnostic.Line, diagnostic.Reason)
 	}
@@ -551,8 +551,12 @@ func ignoreOptions(runtime *commandRuntime, explicitPath, source string) ([]dete
 	if len(excluded) > 0 {
 		options = append(options, detect.WithExcludedPaths(excluded...))
 	}
-	if set.Len() > 0 {
-		options = append(options, detect.WithIgnoredSecrets(set))
+	if expression := list.FilterExpression(); expression != "" {
+		if cfg.Filter == "" {
+			cfg.Filter = expression
+		} else {
+			cfg.Filter = "(\n" + strings.TrimSpace(cfg.Filter) + "\n) || (\n" + expression + "\n)"
+		}
 	}
 	return options, nil
 }

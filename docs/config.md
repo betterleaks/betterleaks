@@ -110,6 +110,7 @@ filter expression evaluates to `true`, the item is skipped.
 | `filter.startsWithAny(string-or-list, prefixes)` | Returns `true` if the string, or any string in the list, starts with a prefix. |
 | `startsWithAny(string-or-list, prefixes)` | Equivalent to `filter.startsWithAny(string-or-list, prefixes)`. |
 | `filter.intersects(string-or-list, candidates)` | Returns `true` if at least one input string exactly equals a candidate. Matching is case-sensitive. |
+| `sha256(string)` | Returns the canonical `sha256:` fingerprint of the exact string bytes as lowercase hexadecimal. Available in finding filters. |
 | `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `entropy(string)` | Equivalent to `filter.entropy(string)`; useful for concise rule filters. |
 | `filter.tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
@@ -124,6 +125,20 @@ readable-looking candidates:
 filter.entropy(finding["secret"]) < 3.0 ||
 filter.tokenRatio(finding["secret"]) >= 2.5
 ```
+
+Exact secret values can be filtered without storing the plaintext:
+
+```toml
+filter = '''
+sha256(finding["secret"]) in [
+    "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+]
+'''
+```
+
+The constant list on the right side of `in` is compiled into a lookup map.
+Repository-local `.betterleaksignore` entries are translated into this same
+global-filter form.
 
 Example:
 

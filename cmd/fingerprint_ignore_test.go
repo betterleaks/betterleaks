@@ -84,9 +84,9 @@ func writeIgnore(t *testing.T, dir, secret string) string {
 	return path
 }
 
-func detectorWithIgnoreOptions(t *testing.T, options []detect.Option) *detect.Detector {
+func detectorWithIgnoreOptions(t *testing.T, cfg *config.Config, options []detect.Option) *detect.Detector {
 	t.Helper()
-	detector, err := detect.NewDetector(ignoreTestConfig(), options...)
+	detector, err := detect.NewDetector(cfg, options...)
 	require.NoError(t, err)
 	return detector
 }
@@ -95,9 +95,10 @@ func TestIgnoreFileDiscovery(t *testing.T) {
 	t.Run("target root", func(t *testing.T) {
 		dir := t.TempDir()
 		writeIgnore(t, dir, "secret-root")
-		options, err := ignoreOptions(&commandRuntime{stderr: io.Discard}, "", dir)
+		cfg := ignoreTestConfig()
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir, cfg)
 		require.NoError(t, err)
-		assert.Empty(t, detectorWithIgnoreOptions(t, options).DetectString("secret-root"))
+		assert.Empty(t, detectorWithIgnoreOptions(t, cfg, options).DetectString("secret-root"))
 	})
 
 	t.Run("single file parent", func(t *testing.T) {
@@ -105,26 +106,30 @@ func TestIgnoreFileDiscovery(t *testing.T) {
 		file := filepath.Join(dir, "input.txt")
 		require.NoError(t, os.WriteFile(file, []byte("secret-file"), 0o600))
 		writeIgnore(t, dir, "secret-file")
-		options, err := ignoreOptions(&commandRuntime{stderr: io.Discard}, "", file)
+		cfg := ignoreTestConfig()
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", file, cfg)
 		require.NoError(t, err)
-		assert.Empty(t, detectorWithIgnoreOptions(t, options).DetectString("secret-file"))
+		assert.Empty(t, detectorWithIgnoreOptions(t, cfg, options).DetectString("secret-file"))
 	})
 
 	t.Run("cwd", func(t *testing.T) {
 		dir := t.TempDir()
 		writeIgnore(t, dir, "secret-cwd")
 		t.Chdir(dir)
-		options, err := ignoreOptions(&commandRuntime{stderr: io.Discard}, "", "")
+		cfg := ignoreTestConfig()
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", "", cfg)
 		require.NoError(t, err)
-		assert.Empty(t, detectorWithIgnoreOptions(t, options).DetectString("secret-cwd"))
+		assert.Empty(t, detectorWithIgnoreOptions(t, cfg, options).DetectString("secret-cwd"))
 	})
 
 	t.Run("absent default", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitleaksignore"), []byte("ignored"), 0o600))
-		options, err := ignoreOptions(&commandRuntime{stderr: io.Discard}, "", dir)
+		cfg := ignoreTestConfig()
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir, cfg)
 		require.NoError(t, err)
 		assert.Empty(t, options)
+		assert.Empty(t, cfg.Filter)
 	})
 }
 
@@ -137,16 +142,32 @@ func TestExplicitIgnoreOverridesEveryTarget(t *testing.T) {
 	explicit := writeIgnore(t, explicitDir, "secret-shared")
 
 	for _, target := range []string{one, two} {
-		options, err := ignoreOptions(&commandRuntime{stderr: io.Discard}, explicit, target)
+		cfg := ignoreTestConfig()
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, explicit, target, cfg)
 		require.NoError(t, err)
-		detector := detectorWithIgnoreOptions(t, options)
+		detector := detectorWithIgnoreOptions(t, cfg, options)
 		assert.Empty(t, detector.DetectString("secret-shared"))
 		assert.NotEmpty(t, detector.DetectString("secret-one secret-two"))
 	}
 }
 
+func TestIgnoreFileComposesWithGlobalFilter(t *testing.T) {
+	dir := t.TempDir()
+	writeIgnore(t, dir, "secret-fingerprint")
+	cfg := ignoreTestConfig()
+	cfg.Filter = "finding[\"secret\"] == \"secret-config\""
+
+	options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir, cfg)
+	require.NoError(t, err)
+	detector := detectorWithIgnoreOptions(t, cfg, options)
+
+	assert.Empty(t, detector.DetectString("secret-config secret-fingerprint"))
+	assert.NotEmpty(t, detector.DetectString("secret-visible"))
+	assert.Contains(t, cfg.Filter, "sha256(finding[\"secret\"]) in [")
+}
+
 func TestIgnoreFileErrorsAndDiagnostics(t *testing.T) {
-	_, err := ignoreOptions(&commandRuntime{stderr: io.Discard}, filepath.Join(t.TempDir(), "missing"), "")
+	_, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, filepath.Join(t.TempDir(), "missing"), "", ignoreTestConfig())
 	require.ErrorContains(t, err, "open")
 
 	dir := t.TempDir()
@@ -158,16 +179,17 @@ func TestIgnoreFileErrorsAndDiagnostics(t *testing.T) {
 	require.NoError(t, file.Close())
 
 	stderr := new(bytes.Buffer)
-	options, err := ignoreOptions(&commandRuntime{stderr: stderr}, path, dir)
+	cfg := ignoreTestConfig()
+	options, err := applyIgnorePolicy(&commandRuntime{stderr: stderr}, path, dir, cfg)
 	require.NoError(t, err)
 	assert.Contains(t, stderr.String(), path+":2:")
-	assert.Empty(t, detectorWithIgnoreOptions(t, options).DetectString("secret-valid"))
+	assert.Empty(t, detectorWithIgnoreOptions(t, cfg, options).DetectString("secret-valid"))
 
 	if runtime.GOOS != "windows" {
 		unreadable := filepath.Join(t.TempDir(), "ignore")
 		require.NoError(t, os.WriteFile(unreadable, []byte("ignored"), 0o000))
 		defer os.Chmod(unreadable, 0o600)
-		_, err = ignoreOptions(&commandRuntime{stderr: io.Discard}, unreadable, "")
+		_, err = applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, unreadable, "", ignoreTestConfig())
 		assert.Error(t, err)
 	}
 }
@@ -175,14 +197,16 @@ func TestIgnoreFileErrorsAndDiagnostics(t *testing.T) {
 func TestActiveIgnoreFileIsExcluded(t *testing.T) {
 	dir := t.TempDir()
 	path := writeIgnore(t, dir, "secret-value")
-	options, err := ignoreOptions(&commandRuntime{stderr: io.Discard}, "", dir)
+	cfg := ignoreTestConfig()
+	options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir, cfg)
 	require.NoError(t, err)
-	detector := detectorWithIgnoreOptions(t, options)
+	detector := detectorWithIgnoreOptions(t, cfg, options)
 
 	assert.True(t, detector.SkipFunc()(map[string]string{sources.AttrPath: path}))
 	assert.True(t, detector.SkipFunc()(map[string]string{sources.AttrPath: ".betterleaksignore"}))
 
-	remoteOptions, err := ignoreOptions(&commandRuntime{stderr: io.Discard}, path, "")
+	remoteCfg := ignoreTestConfig()
+	remoteOptions, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, path, "", remoteCfg)
 	require.NoError(t, err)
-	assert.Nil(t, detectorWithIgnoreOptions(t, remoteOptions).SkipFunc())
+	assert.Nil(t, detectorWithIgnoreOptions(t, remoteCfg, remoteOptions).SkipFunc())
 }

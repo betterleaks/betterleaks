@@ -535,6 +535,7 @@ func filterBindings(counter *tokenizer.Counter, finding map[string]any, attribut
 	b := baseBindings(rt)
 	b["filter"].(map[string]any)["setConfidence"] = rt.setConfidence
 	b["finding"] = finding
+	b["sha256"] = sha256Fingerprint
 	return b
 }
 
