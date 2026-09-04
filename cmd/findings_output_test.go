@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -166,12 +167,9 @@ func TestFindingCollectorSkipsReportBeforeFilesOpenIt(t *testing.T) {
 	reportPath := filepath.Join(directory, "findings.json")
 	require.NoError(t, os.WriteFile(inputPath, []byte("input"), 0o600))
 	require.NoError(t, os.WriteFile(blockedPath, []byte("blocked"), 0o600))
-	workingDirectory, err := os.Getwd()
-	require.NoError(t, err)
-	relativeReportPath, err := filepath.Rel(workingDirectory, reportPath)
-	require.NoError(t, err)
+	t.Chdir(directory)
 
-	flags, output := newFindingOutputCommand(false, relativeReportPath, true, 0)
+	flags, output := newFindingOutputCommand(false, "findings.json", true, 0)
 	collector, err := newFindingCollector(flags, true, output)
 	require.NoError(t, err)
 
@@ -206,7 +204,7 @@ func TestFindingCollectorRejectsUnknownOutputExtension(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "findings.txt")
 	flags, output := newFindingOutputCommand(false, path, false, 0)
 	_, err := newFindingCollector(flags, true, output)
-	require.EqualError(t, err, "output path \""+path+"\" must end in .json or .jsonl")
+	require.EqualError(t, err, fmt.Sprintf("output path %q must end in .json or .jsonl", path))
 }
 
 func TestScanOutputFlags(t *testing.T) {

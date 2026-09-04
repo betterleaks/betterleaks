@@ -62,6 +62,13 @@ still written. Use `--no-banner` when only the banner should be hidden.
 
 ---
 
+## Allow comments
+
+Add `betterleaks:allow` or `gitleaks:allow` to a finding's line to suppress it.
+Use `--ignore-allow-comments` to report these findings anyway.
+
+---
+
 ## Ignore exact secret values
 
 `.betterleaksignore` suppresses a secret everywhere it appears, independent of

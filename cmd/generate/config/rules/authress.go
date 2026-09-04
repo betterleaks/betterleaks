@@ -8,7 +8,7 @@ import (
 
 func Authress() *config.Rule {
 	// Rule Definition
-	// (Note: When changes are made to this, rerun `go generate ./...` and commit the config/gitleaks.toml file
+	// When changes are made to this rule, regenerate and commit config/betterleaks.toml.
 	r := config.Rule{
 		RuleID:      "authress-service-client-access-key",
 		Confidence:  "high",

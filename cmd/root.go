@@ -32,9 +32,9 @@ var banner = fmt.Sprintf(`
 const configDescription = `config file path
 order of precedence:
 1. --config/-c
-2. env var BETTERLEAKS_CONFIG or GITLEAKS_CONFIG
-3. env var BETTERLEAKS_CONFIG_TOML or GITLEAKS_CONFIG_TOML with the file content
-4. (target path)/.betterleaks.toml or .gitleaks.toml
+2. env var BETTERLEAKS_CONFIG
+3. env var BETTERLEAKS_CONFIG_TOML with the file content
+4. (target path)/.betterleaks.toml
 If none of the four options are used, then the default config will be used.`
 
 type GlobalFlags struct {
@@ -180,11 +180,11 @@ func initConfig(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags,
 		resolvedConfigPath = cfgPath
 		runtime.Logger().Debug("using config from --config", "path", cfgPath)
 		loadedConfig = mustLoadConfigFile(runtime, cfgPath)
-	} else if envPath := getEnvWithFallback("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
+	} else if envPath := os.Getenv("BETTERLEAKS_CONFIG"); envPath != "" {
 		resolvedConfigPath = envPath
 		runtime.Logger().Debug("using config from environment", "path", envPath)
 		loadedConfig = mustLoadConfigFile(runtime, envPath)
-	} else if configContent := getEnvWithFallback("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); configContent != "" {
+	} else if configContent := os.Getenv("BETTERLEAKS_CONFIG_TOML"); configContent != "" {
 		cfg, err := config.ParseTOMLString(configContent, "", config.WithLogger(runtime.Logger()))
 		if err != nil {
 			runtime.fatal("unable to load config from environment", "error", err, "content", configContent)
@@ -212,7 +212,6 @@ func initConfig(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags,
 			return
 		}
 
-		// Check for config file: .betterleaks.toml first, then .gitleaks.toml
 		configFile := findConfigFile(source)
 		if configFile == "" {
 			runtime.Logger().Debug("no config found; using default config", "path", source)
@@ -240,23 +239,11 @@ func mustLoadConfigFile(runtime *commandRuntime, path string) *config.Config {
 	return cfg
 }
 
-// getEnvWithFallback returns the value of the first environment variable that is set.
-// This allows betterleaks env vars to take precedence over gitleaks env vars.
-func getEnvWithFallback(primary, fallback string) string {
-	if val := os.Getenv(primary); val != "" {
-		return val
-	}
-	return os.Getenv(fallback)
-}
-
-// findConfigFile looks for a config file in the given directory.
-// It checks for .betterleaks.toml first, then .gitleaks.toml for backwards compatibility.
+// findConfigFile looks for .betterleaks.toml in source.
 func findConfigFile(source string) string {
-	for _, name := range []string{".betterleaks.toml", ".gitleaks.toml"} {
-		path := filepath.Join(source, name)
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
+	path := filepath.Join(source, ".betterleaks.toml")
+	if _, err := os.Stat(path); err == nil {
+		return path
 	}
 	return ""
 }

@@ -26,7 +26,7 @@ func EasyPost() *config.Rule {
 	)
 	fps := []string{
 		// random base64 encoded string
-		`...6wqX6fNUXA/rYqRvfQ+EZAKGqQRiRyqAFRQshGPWOIAwNWGORfKHSBnVNFtVmWYoW6PH23lkqbbDWep95C/3VmWq/edti6...`, // gitleaks:allow
+		`...6wqX6fNUXA/rYqRvfQ+EZAKGqQRiRyqAFRQshGPWOIAwNWGORfKHSBnVNFtVmWYoW6PH23lkqbbDWep95C/3VmWq/edti6...`, // betterleaks:allow
 	}
 	return utils.Validate(r, tps, fps)
 }
@@ -51,7 +51,7 @@ func EasyPostTestAPI() *config.Rule {
 	)
 	fps := []string{
 		// random base64 encoded string
-		`...6wqX6fNUXA/rYqRvfQ+EZTKGqQRiRyqAFRQshGPWOIAwNWGORfKHSBnVNFtVmWYoW6PH23lkqbbDWep95C/3VmWq/edti6...`, // gitleaks:allow
+		`...6wqX6fNUXA/rYqRvfQ+EZTKGqQRiRyqAFRQshGPWOIAwNWGORfKHSBnVNFtVmWYoW6PH23lkqbbDWep95C/3VmWq/edti6...`, // betterleaks:allow
 	}
 	return utils.Validate(r, tps, fps)
 }

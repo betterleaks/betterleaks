@@ -85,15 +85,15 @@ let can_write = can_crud || filter.matchesAny(permissions, ["(?: Revoke| Send)$"
 }`
 
 var cloudflareGlobalAPIKeySamples = []string{
-	`cloudflare_global_api_key = "d3d1443e0adc9c24564c6c5676d679d47e2ca"`, // gitleaks:allow
-	`CLOUDFLARE_GLOBAL_API_KEY: 674538c7ecac77d064958a04a83d9e9db068c`,    // gitleaks:allow
-	`cloudflare: "0574b9f43978174cc2cb9a1068681225433c4"`,                 // gitleaks:allow
+	`cloudflare_global_api_key = "d3d1443e0adc9c24564c6c5676d679d47e2ca"`, // betterleaks:allow
+	`CLOUDFLARE_GLOBAL_API_KEY: 674538c7ecac77d064958a04a83d9e9db068c`,    // betterleaks:allow
+	`cloudflare: "0574b9f43978174cc2cb9a1068681225433c4"`,                 // betterleaks:allow
 }
 
 var cloudflareLegacyAPITokenSamples = []string{
-	`cloudflare_api_key = "Bu0rrK-lerk6y0Suqo1qSqlDDajOk61wZchCkje4"`, // gitleaks:allow
-	`CLOUDFLARE_API_KEY: 5oK0U90ME14yU6CVxV90crvfqVlNH2wRKBwcLWDc`,    // gitleaks:allow
-	`cloudflare: "oj9Yoyq0zmOyWmPPob1aoY5YSNNuJ0fbZSOURBlX"`,          // gitleaks:allow
+	`cloudflare_api_key = "Bu0rrK-lerk6y0Suqo1qSqlDDajOk61wZchCkje4"`, // betterleaks:allow
+	`CLOUDFLARE_API_KEY: 5oK0U90ME14yU6CVxV90crvfqVlNH2wRKBwcLWDc`,    // betterleaks:allow
+	`cloudflare: "oj9Yoyq0zmOyWmPPob1aoY5YSNNuJ0fbZSOURBlX"`,          // betterleaks:allow
 }
 
 var cloudflareOriginCAKeySamples = []string{

@@ -133,7 +133,7 @@ func GCPAPIKey() *config.Rule {
 	tps := utils.GenerateSampleSecrets("gcp", secrets.NewSecretWithEntropy(`AIza[\w-]{35}`, 4))
 	tps = append(tps,
 		// non-word character at end
-		`AIzaSyNHxIf32IQ1a1yjl3ZJIqKZqzLAK1XhDk-`, // gitleaks:allow
+		`AIzaSyNHxIf32IQ1a1yjl3ZJIqKZqzLAK1XhDk-`, // betterleaks:allow
 	)
 	fps := []string{
 		`GWw4hjABFzZCGiRpmlDyDdo87Jn9BN9THUA47muVRNunLxsa82tMAdvmrhOqNkRKiYMEAFbTJAIzaTesb6Tscfcni8vIpWZqNCXFDFslJtVSvFDq`, // text boundary start

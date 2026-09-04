@@ -24,7 +24,7 @@ func TeamsWebhook() *config.Rule {
 
 	// validate
 	tps := []string{
-		"https://mycompany.webhook.office.com/webhookb2/" + secrets.NewSecret(`[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}@[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}\/IncomingWebhook\/[a-z0-9]{32}\/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}`), // gitleaks:allow
+		"https://mycompany.webhook.office.com/webhookb2/" + secrets.NewSecret(`[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}@[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}\/IncomingWebhook\/[a-z0-9]{32}\/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}`), // betterleaks:allow
 	}
 	return utils.Validate(r, tps, nil)
 }

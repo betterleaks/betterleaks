@@ -3,7 +3,6 @@ package base
 import "github.com/betterleaks/betterleaks/v2/config"
 
 const GlobalPrefilter = `matchesAny(attributes["path"], [
-  ` + "`gitleaks\\.toml`" + `,
   ` + "`(?i)\\.(?:bmp|gif|jpe?g|png|svg|tiff?)$`" + `,
   ` + "`(?i)\\.(?:eot|[ot]tf|woff2?)$`" + `,
   ` + "`(?i)\\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|dll|pdb|exe|gltf)$`" + `,

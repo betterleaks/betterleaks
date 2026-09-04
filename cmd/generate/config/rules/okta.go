@@ -22,8 +22,8 @@ func OktaAccessToken() *config.Rule {
 	// validate
 	tps := utils.GenerateSampleSecrets("okta", secrets.NewSecretWithEntropy(`00[\w=\-]{40}`, 4))
 	tps = append(tps,
-		`"oktaApiToken": "00ebObu4zSNkyc6dimLvUwq4KpTEop-PCEnnfSTpD3",`,       // gitleaks:allow
-		`			var OktaApiToken = "00fWkOjwwL9xiFd-Vfgm_ePATIRxVj852Iblbb1DS_";`, // gitleaks:allow
+		`"oktaApiToken": "00ebObu4zSNkyc6dimLvUwq4KpTEop-PCEnnfSTpD3",`,       // betterleaks:allow
+		`			var OktaApiToken = "00fWkOjwwL9xiFd-Vfgm_ePATIRxVj852Iblbb1DS_";`, // betterleaks:allow
 	)
 	fps := []string{
 		`oktaKey = 00000000000000000000000000000000000TUVWXYZ`,   // low entropy

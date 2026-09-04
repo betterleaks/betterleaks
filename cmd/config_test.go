@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +12,21 @@ import (
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/regexp"
 )
+
+func TestResolveConfigIgnoresGitleaksCompatibility(t *testing.T) {
+	dir := t.TempDir()
+	legacyConfig := filepath.Join(dir, ".gitleaks.toml")
+	require.NoError(t, os.WriteFile(legacyConfig, []byte(`title = "legacy"`), 0o600))
+	t.Chdir(dir)
+	t.Setenv("BETTERLEAKS_CONFIG", "")
+	t.Setenv("BETTERLEAKS_CONFIG_TOML", "")
+	t.Setenv("GITLEAKS_CONFIG", legacyConfig)
+	t.Setenv("GITLEAKS_CONFIG_TOML", `title = "legacy environment"`)
+
+	resolved, err := resolveConfig(&commandRuntime{stderr: io.Discard}, "", "")
+	require.NoError(t, err)
+	assert.Equal(t, "default", resolved.source)
+}
 
 func TestRenderConfigTOMLComponents(t *testing.T) {
 	cfg := &configpkg.Config{

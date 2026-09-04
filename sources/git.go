@@ -388,7 +388,7 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error, logger *slog.Logg
 		//
 		// we skip exiting the program as git log -p/git diff will continue
 		// to send data to stdout and finish executing. This next bit of
-		// code prevents gitleaks from stopping mid scan if this error is
+		// code prevents Betterleaks from stopping mid scan if this error is
 		// encountered
 		if strings.Contains(scanner.Text(),
 			"exhaustive rename detection was skipped") ||

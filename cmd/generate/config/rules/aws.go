@@ -47,7 +47,7 @@ func AWS() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("AWS", "AKIALALEMEL33243OLIB") // gitleaks:allow
+	tps := utils.GenerateSampleSecrets("AWS", "AKIALALEMEL33243OLIB") // betterleaks:allow
 	// current AWS tokens cannot contain [0,1,8,9], so their entropy is slightly lower than expected.
 	tps = append(tps, utils.GenerateSampleSecrets("AWS", "AKIA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))...)
 	tps = append(tps, utils.GenerateSampleSecrets("AWS", "ASIA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))...)

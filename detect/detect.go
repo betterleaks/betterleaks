@@ -53,9 +53,7 @@ type ProviderOptions struct {
 	EnvVars []string
 }
 
-// allowSignatures are comment tags that can be used to ignore findings.
-// betterleaks:allow is checked first (preferred), followed by gitleaks:allow for backwards compatibility.
-var allowSignatures = []string{"betterleaks:allow", "gitleaks:allow"}
+var allowSignatures = [...]string{"betterleaks:allow", "gitleaks:allow"}
 
 var errStopIteration = errors.New("pipeline: stop iteration")
 
@@ -221,8 +219,8 @@ func cloneProviderOptions(options ProviderOptions) ProviderOptions {
 	return options
 }
 
-// WithIgnoreAllowComments controls whether betterleaks:allow and
-// gitleaks:allow comments are ignored instead of suppressing findings.
+// WithIgnoreAllowComments controls whether allow comments are ignored instead
+// of suppressing findings.
 func WithIgnoreAllowComments(ignore bool) Option {
 	return Option{apply: func(options *detectorOptions) error {
 		options.ignoreAllowComments = ignore

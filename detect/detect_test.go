@@ -174,6 +174,11 @@ func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
 	assert.Zero(t, allocations)
 }
 
+func TestGitleaksAllowCommentSuppressesFinding(t *testing.T) {
+	detector := mustNewDetector(t, testConfig())
+	require.Empty(t, detector.DetectString("secret-alpha // gitleaks:allow"))
+}
+
 func TestDetectorScanIsReusableWithValidation(t *testing.T) {
 	cfg := testConfig()
 	cfg.Rules[0].ValidateExpr = `{"result": "valid"}`
@@ -1575,7 +1580,7 @@ func TestDetect(t *testing.T) {
 		"valid allow comment (1)": {
 			cfgName: "simple",
 			fragment: sources.Fragment{
-				Raw: `awsToken := \"AKIALALEMEL33243OKIA\ // gitleaks:allow"`,
+				Raw: `awsToken := \"AKIALALEMEL33243OKIA\ // betterleaks:allow"`,
 				Attributes: map[string]string{
 					sources.AttrPath: "tmp.go",
 				},
@@ -1586,7 +1591,7 @@ func TestDetect(t *testing.T) {
 			fragment: sources.Fragment{
 				Raw: `awsToken := \
 
-		        \"AKIALALEMEL33243OKIA\ // gitleaks:allow"
+		        \"AKIALALEMEL33243OKIA\ // betterleaks:allow"
 
 		        `,
 				Attributes: map[string]string{
@@ -1599,7 +1604,7 @@ func TestDetect(t *testing.T) {
 			fragment: sources.Fragment{
 				Raw: `awsToken := \"AKIALALEMEL33243OKIA\"
 
-		                // gitleaks:allow"
+		                // betterleaks:allow"
 
 		                `,
 				Attributes: map[string]string{

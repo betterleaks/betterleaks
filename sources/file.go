@@ -115,7 +115,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 	if _, isSeekReaderAt := reader.(seekReaderAt); !isSeekReaderAt {
 		switch extractor.(type) {
 		case archives.SevenZip, archives.Zip:
-			tmpfile, err := os.CreateTemp("", "gitleaks-archive-")
+			tmpfile, err := os.CreateTemp("", "betterleaks-archive-")
 			if err != nil {
 				loggerOrDiscard(s.Logger).Warn("could not create archive tmp file", "error", err, "path", s.FullPath())
 				return

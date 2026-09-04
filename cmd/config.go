@@ -77,20 +77,20 @@ func resolveConfig(runtime *commandRuntime, configPath, argumentPath string) (*r
 	if configPath != "" {
 		return loadConfigFile(configPath, loadOption)
 	}
-	if envPath, name := getEnvWithName("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
+	if envPath := os.Getenv("BETTERLEAKS_CONFIG"); envPath != "" {
 		resolved, err := loadConfigFile(envPath, loadOption)
 		if err != nil {
 			return nil, err
 		}
-		resolved.source = "env:" + name + ":" + envPath
+		resolved.source = "env:BETTERLEAKS_CONFIG:" + envPath
 		return resolved, nil
 	}
-	if content, name := getEnvWithName("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); content != "" {
+	if content := os.Getenv("BETTERLEAKS_CONFIG_TOML"); content != "" {
 		cfg, err := configpkg.ParseTOMLString(content, "", loadOption)
 		if err != nil {
 			return nil, err
 		}
-		return &resolvedConfig{cfg: cfg, source: "env:" + name}, nil
+		return &resolvedConfig{cfg: cfg, source: "env:BETTERLEAKS_CONFIG_TOML"}, nil
 	}
 	if path := findConfigFile("."); path != "" {
 		return loadConfigFile(path, loadOption)
@@ -108,16 +108,6 @@ func loadConfigFile(path string, options ...configpkg.LoadOption) (*resolvedConf
 		return nil, err
 	}
 	return &resolvedConfig{cfg: cfg, source: path}, nil
-}
-
-func getEnvWithName(primary, fallback string) (string, string) {
-	if val := os.Getenv(primary); val != "" {
-		return val, primary
-	}
-	if val := os.Getenv(fallback); val != "" {
-		return val, fallback
-	}
-	return "", ""
 }
 
 func validateConfig(cfg *configpkg.Config) error {

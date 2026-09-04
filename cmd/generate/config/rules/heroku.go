@@ -20,8 +20,8 @@ func Heroku() *config.Rule {
 	// validate
 	tps := utils.GenerateSampleSecrets("heroku", secrets.NewSecret(utils.Hex8_4_4_4_12()))
 	tps = append(tps,
-		`const HEROKU_KEY = "12345678-ABCD-ABCD-ABCD-1234567890AB"`, // gitleaks:allow
-		`heroku_api_key = "832d2129-a846-4e27-99f4-7004b6ad53ef"`,   // gitleaks:allow
+		`const HEROKU_KEY = "12345678-ABCD-ABCD-ABCD-1234567890AB"`, // betterleaks:allow
+		`heroku_api_key = "832d2129-a846-4e27-99f4-7004b6ad53ef"`,   // betterleaks:allow
 	)
 	return utils.Validate(r, tps, nil)
 }

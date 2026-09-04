@@ -30,7 +30,7 @@ yxR5MsXFu9PRsrYQA7/4UTPHiC4y2sAVCBg4C2yyBpUEtMQjyCESi6Y=
 lQWGBGSVV4YBDAClvRnxezIRy2Yv7SFlzC0iFiRF/O/jePSw+XYhvcrTaqSYTGic
 =8xQN
 -----END PGP PRIVATE KEY BLOCK-----`,
-	} // gitleaks:allow
+	} // betterleaks:allow
 	fps := []string{
 		`-----BEGIN PRIVATE KEY-----
 anything

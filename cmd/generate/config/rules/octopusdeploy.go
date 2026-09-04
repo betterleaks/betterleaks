@@ -20,7 +20,7 @@ func OctopusDeployApiKey() *config.Rule {
 	// validate
 	tps := []string{
 		utils.GenerateSampleSecret("octopus", secrets.NewSecretWithEntropy(`API-[A-Z0-9]{26}`, 3)),
-		`set apikey="API-ZNRMR7SL6L3ATMOIK7GKJDKLPY"`, // gitleaks:allow
+		`set apikey="API-ZNRMR7SL6L3ATMOIK7GKJDKLPY"`, // betterleaks:allow
 	}
 	fps := []string{
 		// Invalid start

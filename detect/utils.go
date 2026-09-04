@@ -234,10 +234,10 @@ func stripEmptyMeta(m map[string]any) map[string]any {
 	return out
 }
 
-// containsAllowSignature checks if the line contains any of the allow signatures
+// containsAllowSignature checks whether the line contains an allow comment.
 func containsAllowSignature(line string) bool {
-	for _, sig := range allowSignatures {
-		if strings.Contains(line, sig) {
+	for _, signature := range allowSignatures {
+		if strings.Contains(line, signature) {
 			return true
 		}
 	}
