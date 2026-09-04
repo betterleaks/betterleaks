@@ -16,6 +16,7 @@ Development is supported by
 | :--- | :--- |
 | **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. |
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using Expr. |
+| **Credential Analysis** | Enrich valid credentials with provider-neutral identity, account, capability, and severity information. |
 | **Secret Fingerprints** | Suppress reviewed secret values globally with exact SHA-256 entries in `.betterleaksignore`. |
 | **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
@@ -134,7 +135,14 @@ for complete default-config and custom-config examples.
 
 ### Configuration
 
-Betterleaks' strength comes from its expressive configuration. Filtering and validation logic are defined as [Expr](https://expr-lang.org). `prefilter`s run before any regex matching occurs and only have access to the `attributes` map. `attributes` describe a resource like a git patch. Use `prefilter`s to quickly bail out before more expensive scanning happens. `filter`s, on the other hand, get evaluated post-regex match and have access to the `attributes` map and candidate `finding` data like `finding["secret"]` or `finding["match"]`.
+Betterleaks' strength comes from its expressive configuration. Filtering,
+validation, and analysis logic are defined as [Expr](https://expr-lang.org).
+`prefilter`s run before any regex matching occurs and only have access to the
+`attributes` map. `attributes` describe a resource like a git patch. Use
+`prefilter`s to quickly bail out before more expensive scanning happens.
+`filter`s, on the other hand, get evaluated post-regex match and have access to
+the `attributes` map and candidate `finding` data like `finding["secret"]` or
+`finding["match"]`.
 
 ```toml
 # Global prefilter, it runs before expensive regex calls
@@ -159,10 +167,10 @@ filter.containsAny(finding["secret"], [
 
 # An array of tables that contain data on how to detect secrets
 [[rules]]
-id = "github-fine-grained-pat"
-description = "GitHub Fine-Grained Personal Access Token, risking unauthorized repo access."
-regex = '''github_pat_\w{82}'''
-keywords = ["github_pat_"]
+id = "github-pat"
+description = "GitHub Personal Access Token, risking unauthorized repository access."
+regex = '''ghp_[0-9a-zA-Z]{36}'''
+keywords = ["ghp_"]
 
 # Rule-level filter
 filter = '''
@@ -182,13 +190,42 @@ let r = http.get("https://api.github.com/user", {
   });
 r.status == 200 && (r.json?.login ?? "") != "" ? {
     "result": "valid",
-    "username": r.json?.login ?? "",
-    "name": r.json?.name ?? "",
-    "scopes": get(r.headers, "x-oauth-scopes", "")
+    "analysis": {
+      "id": string(r.json?.id ?? ""),
+      "username": r.json?.login ?? "",
+      "scopes": strings.splitTrim(r.headers["x-oauth-scopes"] ?? "", ",")
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+
+# Analyze valid credentials using data returned by validation
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "username": input["username"] ?? ""
+  },
+  "metadata": {"scopes": scopes},
+  "capabilities": analysis.capabilities({
+    "read": filter.matchesAny(scopes, [
+      "^read:",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
+    ]),
+    "write": filter.matchesAny(scopes, [
+      "^write:",
+      "^delete:packages$",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
+    ]),
+    "create_credentials": filter.matchesAny(scopes, [
+      "^admin:(?:gpg_key|public_key|ssh_signing_key)$"
+    ])
+  })
+}
 '''
 ```
 
