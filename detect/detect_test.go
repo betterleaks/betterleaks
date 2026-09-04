@@ -177,7 +177,7 @@ func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
 func TestDetectorScanIsReusableWithValidation(t *testing.T) {
 	cfg := testConfig()
 	cfg.Rules[0].ValidateExpr = `{"result": "valid"}`
-	detector, err := NewDetector(cfg, WithValidation(ValidationOptions{
+	detector, err := NewDetector(cfg, WithValidation(ProviderOptions{
 		Workers:  1,
 		Statuses: []report.ValidationStatus{report.ValidationStatusValid},
 	}))
@@ -208,7 +208,7 @@ func TestValidationRequiresExplicitOption(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, detector.ValidationEnabled())
 
-	detector, err = NewDetector(cfg, WithValidation(ValidationOptions{}))
+	detector, err = NewDetector(cfg, WithValidation(ProviderOptions{}))
 	require.NoError(t, err)
 	assert.True(t, detector.ValidationEnabled())
 }
@@ -307,7 +307,7 @@ func TestNewDetectorValidatesOptions(t *testing.T) {
 	_, err = NewDetector(testConfig(), WithLogger(nil))
 	assert.NoError(t, err)
 
-	_, err = NewDetector(testConfig(), WithValidation(ValidationOptions{
+	_, err = NewDetector(testConfig(), WithValidation(ProviderOptions{
 		Statuses: []report.ValidationStatus{"surprising"},
 	}))
 	assert.ErrorContains(t, err, "invalid validation status")

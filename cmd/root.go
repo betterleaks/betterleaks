@@ -437,7 +437,7 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 			MaxRequestsPerTarget:    flags.ProviderMaxRequests,
 			RequestsPerSecond:       flags.ProviderRPS,
 			RequestsPerSecondByRule: providerRPSByRule,
-			ValidationEnvVars:       flags.ProviderEnvVars,
+			EnvVars:                 flags.ProviderEnvVars,
 			Timeout:                 flags.ProviderTimeout,
 		}
 		if analysisEnabled {

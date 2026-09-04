@@ -31,9 +31,9 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-// ValidationOptions controls secret validation behavior. Validation is enabled
-// when these options are passed to [WithValidation].
-type ValidationOptions struct {
+// ProviderOptions controls the request environment shared by credential
+// validation and analysis.
+type ProviderOptions struct {
 	// Debug includes provider HTTP metadata in findings.
 	Debug bool
 	// Workers is the number of provider workers. Zero uses 10.
@@ -48,15 +48,10 @@ type ValidationOptions struct {
 	RequestsPerSecond float64
 	// RequestsPerSecondByRule overrides the request rate for individual rules.
 	RequestsPerSecondByRule map[string]float64
-	// ValidationEnvVars lists environment variable names that provider Expr
+	// EnvVars lists environment variable names that provider Expr
 	// programs may read through env.get(...). Names not listed are unavailable.
-	ValidationEnvVars []string
+	EnvVars []string
 }
-
-// ProviderOptions is the shared request environment used by validation and
-// credential analysis. ValidationOptions remains as an alias for SDK
-// compatibility.
-type ProviderOptions = ValidationOptions
 
 // allowSignatures are comment tags that can be used to ignore findings.
 // betterleaks:allow is checked first (preferred), followed by gitleaks:allow for backwards compatibility.
@@ -125,7 +120,7 @@ type detectorOptions struct {
 	minimumConfidence   string
 	validationEnabled   bool
 	analysisEnabled     bool
-	validation          ValidationOptions
+	providerOptions     ProviderOptions
 	ignoreAllowComments bool
 	excludedPaths       []string
 	precompile          bool
@@ -196,31 +191,33 @@ func WithMinimumConfidence(value Confidence) Option {
 }
 
 // WithValidation enables active-secret validation for every scan.
-func WithValidation(validation ValidationOptions) Option {
-	validation = cloneValidationOptions(validation)
+func WithValidation(po ProviderOptions) Option {
+	po = cloneProviderOptions(po)
 	return Option{apply: func(options *detectorOptions) error {
 		options.validationEnabled = true
-		options.validation = validation
+		options.providerOptions = po
 		return nil
 	}}
 }
 
 // WithAnalysis enables validation followed by credential analysis. Analysis is
 // only evaluated for rules with an analyze expression and a valid credential.
-func WithAnalysis(provider ProviderOptions) Option {
-	provider = cloneValidationOptions(provider)
+func WithAnalysis(po ProviderOptions) Option {
+	po = cloneProviderOptions(po)
 	return Option{apply: func(options *detectorOptions) error {
 		options.validationEnabled = true
 		options.analysisEnabled = true
-		options.validation = provider
+		options.providerOptions = po
 		return nil
 	}}
 }
 
-func cloneValidationOptions(options ValidationOptions) ValidationOptions {
+// cloneProviderOptions returns a copy of options with slices and maps cloned
+// to avoid sharing mutable state between detectors.
+func cloneProviderOptions(options ProviderOptions) ProviderOptions {
 	options.Statuses = slices.Clone(options.Statuses)
 	options.RequestsPerSecondByRule = maps.Clone(options.RequestsPerSecondByRule)
-	options.ValidationEnvVars = slices.Clone(options.ValidationEnvVars)
+	options.EnvVars = slices.Clone(options.EnvVars)
 	return options
 }
 
@@ -287,7 +284,7 @@ type Detector struct {
 	validationRuntime  *exprruntime.Runtime
 	validationEnabled  bool
 	analysisEnabled    bool
-	validationOptions  ValidationOptions
+	providerOptions    ProviderOptions
 	validationProgramM sync.Mutex
 	validationPrograms map[string]exprruntime.Program
 	analysisProgramM   sync.Mutex
@@ -320,7 +317,7 @@ type Detector struct {
 // NewDetector creates a Detector from cfg. The source prefilter compiles during
 // construction; rule regexes, finding filters, and provider expressions stay
 // lazy unless [WithPrecompile] is supplied. Construction never starts scan or
-// validation workers.
+// provider workers.
 func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required to create detector")
@@ -352,12 +349,12 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		break
 	}
 	if settings.validationEnabled {
-		if err := validateValidationOptions(settings.validation, validationRuntime); err != nil {
+		if err := validateProviderOptions(settings.providerOptions, validationRuntime); err != nil {
 			return nil, err
 		}
 	}
 	if validationRuntime != nil && settings.validationEnabled {
-		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(settings.validation.ValidationEnvVars)
+		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(settings.providerOptions.EnvVars)
 	}
 	exprRuntime, exprErr := exprruntime.New(nil)
 	if exprErr != nil {
@@ -395,7 +392,7 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		minimumConfidence:   settings.minimumConfidence,
 		validationEnabled:   settings.validationEnabled,
 		analysisEnabled:     settings.analysisEnabled,
-		validationOptions:   settings.validation,
+		providerOptions:     settings.providerOptions,
 		ignoreAllowComments: settings.ignoreAllowComments,
 		excludedPaths:       slices.Clone(settings.excludedPaths),
 		jobs:                settings.jobs,
@@ -414,8 +411,8 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		noKeywordIndexes:    noKeywordIndexes,
 	}
 	if settings.validationEnabled {
-		d.validationStatusFilter = make(map[report.ValidationStatus]struct{}, len(settings.validation.Statuses))
-		for _, status := range settings.validation.Statuses {
+		d.validationStatusFilter = make(map[report.ValidationStatus]struct{}, len(settings.providerOptions.Statuses))
+		for _, status := range settings.providerOptions.Statuses {
 			d.validationStatusFilter[status] = struct{}{}
 		}
 	}
@@ -443,12 +440,12 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 	return d, nil
 }
 
-func validateValidationOptions(options ValidationOptions, runtime *exprruntime.Runtime) error {
+func validateProviderOptions(options ProviderOptions, runtime *exprruntime.Runtime) error {
 	if options.Workers < 0 {
-		return errors.New("validation workers must be non-negative")
+		return errors.New("provider workers must be non-negative")
 	}
 	if options.Timeout < 0 {
-		return errors.New("validation timeout must be non-negative")
+		return errors.New("provider timeout must be non-negative")
 	}
 	for _, status := range options.Statuses {
 		switch status {
@@ -467,7 +464,7 @@ func validateValidationOptions(options ValidationOptions, runtime *exprruntime.R
 		var err error
 		runtime, err = exprruntime.New(nil)
 		if err != nil {
-			return fmt.Errorf("create validation runtime: %w", err)
+			return fmt.Errorf("create provider runtime: %w", err)
 		}
 	}
 	if err := runtime.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
@@ -475,7 +472,7 @@ func validateValidationOptions(options ValidationOptions, runtime *exprruntime.R
 		RequestsPerSecond:       options.RequestsPerSecond,
 		RequestsPerSecondByRule: options.RequestsPerSecondByRule,
 	}); err != nil {
-		return fmt.Errorf("invalid validation request limits: %w", err)
+		return fmt.Errorf("invalid provider request limits: %w", err)
 	}
 	return nil
 }
@@ -512,12 +509,12 @@ func (d *Detector) newValidationPool(ctx context.Context) (*validate.Pool, error
 	if !d.ValidationEnabled() {
 		return nil, nil
 	}
-	options := d.validationOptions
+	options := d.providerOptions
 	runtime, err := exprruntime.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("create validation runtime: %w", err)
 	}
-	runtime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(options.ValidationEnvVars)
+	runtime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(options.EnvVars)
 	if options.Timeout > 0 {
 		runtime.SetHTTPClient(&http.Client{Timeout: options.Timeout})
 	}
@@ -526,7 +523,7 @@ func (d *Detector) newValidationPool(ctx context.Context) (*validate.Pool, error
 		RequestsPerSecond:       options.RequestsPerSecond,
 		RequestsPerSecondByRule: options.RequestsPerSecondByRule,
 	}); err != nil {
-		return nil, fmt.Errorf("configure validation request limits: %w", err)
+		return nil, fmt.Errorf("configure provider request limits: %w", err)
 	}
 	workers := options.Workers
 	if workers <= 0 {
