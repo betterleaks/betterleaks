@@ -170,15 +170,20 @@ without a recognized confidence attribute remain included.
 ## Validation and credential analysis
 
 Validation verifies whether a detected secret is live by evaluating the rule's
-`validate` Expr expression. By default, validation is disabled. Enable it with
-the `--validation` flag.
+`validate` Expr expression. Validation is enabled by default. Disable it with
+`--no-validation`, which also disables credential analysis.
 
 Credential analysis evaluates a rule's `analyze` expression after validation
-returns `valid`. Enable it with `--analysis`, which also enables validation.
-Analysis returns a small identity and positive-only capability model; severity
-is derived by Betterleaks rather than assigned by the rule. See the
+returns `valid` and is also enabled by default. Use `--no-analysis` to retain
+validation without analysis, or `--offline` to disable both. Analysis returns a
+small identity and positive-only capability model; severity is derived by
+Betterleaks rather than assigned by the rule. See the
 [credential access analysis design](credential-access-analysis.md) for the
 result schema and provider mappings.
+
+Validation and analysis expressions can make outbound requests and should be
+loaded only from trusted configuration. `--offline` disables these provider
+requests; commands that fetch a remote scan source may still use the network.
 
 Analysis results may also include a `metadata` object for provider-specific
 evidence discovered during analysis, such as permission names.
@@ -200,6 +205,11 @@ validation expression with `strings.splitTrim(value, separator)`.
 
 Validation runs asynchronously, and responses are cached in memory so duplicate
 secrets only trigger one network request.
+
+Rule authors should target five or fewer analysis requests per credential and
+reuse `validation.analysis` whenever possible. Prefer `GET` for validation;
+use `POST` only when it cannot create or modify provider resources. See the
+[rule contribution safety requirements](../.github/CONTRIBUTING.md#provider-safety-for-validation-and-analysis).
 
 To revalidate one known credential without scanning or re-running a rule's
 detection regex, use `betterleaks validate --rule-id <rule-id>`. See the
@@ -233,7 +243,7 @@ and maximum-request enforcement.
 For example:
 
 ```sh
-betterleaks dir . --validation \
+betterleaks dir . \
   --provider-max-requests 1000 \
   --provider-rps 10 \
   --provider-rps-rule github-pat=2 \
@@ -397,7 +407,7 @@ the same rules validate against GitHub Enterprise Server:
 
 ```sh
 export GITHUB_BASE_URL=https://github.example.com/api/v3
-betterleaks github --validation --provider-env-vars GITHUB_BASE_URL https://github.example.com/owner
+betterleaks github --provider-env-vars GITHUB_BASE_URL https://github.example.com/owner
 ```
 
 Use `env.get` instead when the env var is required for the validator to be

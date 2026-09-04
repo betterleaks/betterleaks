@@ -106,7 +106,7 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 		return err
 	}
 
-	result := report.NewCredentialReport(validated, suppliedSecrets, options.ValidationExtractEmpty)
+	result := report.NewCredentialReport(validated, suppliedSecrets)
 	return writeCredentialReport(runtime, globals, options, result)
 }
 

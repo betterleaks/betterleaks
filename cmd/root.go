@@ -423,7 +423,9 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	if flags.MatchContext != "" {
 		detectorOptions = append(detectorOptions, detect.WithMatchContext(flags.MatchContext))
 	}
-	if flags.Validation || flags.Analysis {
+	validationEnabled := flags.validationEnabled()
+	analysisEnabled := flags.analysisEnabled()
+	if validationEnabled {
 		statuses, statusErr := parseValidationStatuses(flags.ValidationStatus)
 		if statusErr != nil {
 			runtime.fatal("validation-status", "error", statusErr)
@@ -431,7 +433,6 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 		providerOptions := detect.ProviderOptions{
 			Debug:                   flags.ProviderDebug,
 			Workers:                 flags.ProviderWorkers,
-			ExtractEmpty:            flags.ValidationExtractEmpty,
 			Statuses:                statuses,
 			MaxRequestsPerTarget:    flags.ProviderMaxRequests,
 			RequestsPerSecond:       flags.ProviderRPS,
@@ -439,7 +440,7 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 			ValidationEnvVars:       flags.ProviderEnvVars,
 			Timeout:                 flags.ProviderTimeout,
 		}
-		if flags.Analysis {
+		if analysisEnabled {
 			detectorOptions = append(detectorOptions, detect.WithAnalysis(providerOptions))
 		} else {
 			detectorOptions = append(detectorOptions, detect.WithValidation(providerOptions))
@@ -451,11 +452,11 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	if err != nil {
 		runtime.fatal("unable to create detector", "error", err)
 	}
-	if (flags.Validation || flags.Analysis) && !detector.ValidationEnabled() {
-		runtime.Logger().Warn("validation enabled but no rules have validation expressions")
+	if validationEnabled && !detector.ValidationEnabled() {
+		runtime.Logger().Debug("no enabled rules have validation expressions")
 	}
-	if flags.Analysis && !detector.AnalysisEnabled() {
-		runtime.Logger().Warn("analysis enabled but no rules have analysis expressions")
+	if analysisEnabled && !detector.AnalysisEnabled() {
+		runtime.Logger().Debug("no enabled rules have analysis expressions")
 	}
 
 	return detector

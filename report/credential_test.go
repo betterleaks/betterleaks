@@ -21,7 +21,7 @@ func TestCredentialReportRedactsOverlappingSecretsAndMetadataKeys(t *testing.T) 
 				"credential-abcdef": "abcdef abc",
 			},
 		},
-	}, []string{"abc", "abcdef"}, false)
+	}, []string{"abc", "abcdef"})
 
 	value, ok := got.Validation.Metadata["credential-[redacted]"]
 	if !ok {
@@ -42,13 +42,38 @@ func TestCredentialReportOmitsInternalAttributes(t *testing.T) {
 			sources.AttrPath:            "secrets.txt",
 			sources.AttrFSFirstFragment: "true",
 		},
-	}, nil, false)
+	}, nil)
 
 	if _, ok := got.Attributes[sources.AttrFSFirstFragment]; ok {
 		t.Fatalf("internal attribute included in credential report: %#v", got.Attributes)
 	}
 	if got.Attributes[sources.AttrPath] != "secrets.txt" {
 		t.Fatalf("report attributes = %#v", got.Attributes)
+	}
+}
+
+func TestCredentialReportOmitsEmptyValidationMetadata(t *testing.T) {
+	got := NewCredentialReport(Finding{
+		RuleID: "test",
+		Validation: Validation{
+			Status: ValidationStatusValid,
+			Metadata: map[string]any{
+				"empty": "",
+				"nil":   nil,
+				"false": false,
+				"zero":  0,
+			},
+		},
+	}, nil)
+
+	if _, ok := got.Validation.Metadata["empty"]; ok {
+		t.Fatalf("empty string included in metadata: %#v", got.Validation.Metadata)
+	}
+	if _, ok := got.Validation.Metadata["nil"]; ok {
+		t.Fatalf("nil included in metadata: %#v", got.Validation.Metadata)
+	}
+	if got.Validation.Metadata["false"] != false || got.Validation.Metadata["zero"] != 0 {
+		t.Fatalf("meaningful zero values omitted from metadata: %#v", got.Validation.Metadata)
 	}
 }
 
@@ -107,7 +132,7 @@ func TestCredentialReportUsesComponentSchema(t *testing.T) {
 				{RuleID: "optional-component", Optional: true},
 			},
 		}},
-	}, nil, false)
+	}, nil)
 
 	data, err := json.Marshal(result)
 	if err != nil {

@@ -16,7 +16,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/report"
 )
 
-func TestAnalysisFlagValidatesAndEnrichesFindings(t *testing.T) {
+func TestScanProviderModesEndToEnd(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "betterleaks.toml")
 	configContents := `
 [[rules]]
@@ -34,29 +34,57 @@ analyze = '''
 `
 	require.NoError(t, os.WriteFile(configPath, []byte(strings.TrimSpace(configContents)+"\n"), 0o600))
 
-	stdout := new(bytes.Buffer)
-	runtime := &commandRuntime{
-		Context: context.Background(),
-		stdin:   strings.NewReader("token = secret-alpha\n"),
-		stdout:  stdout,
-		stderr:  io.Discard,
-		exit:    func(int) {},
+	tests := []struct {
+		name           string
+		flags          []string
+		wantValidation bool
+		wantAnalysis   bool
+	}{
+		{name: "enabled by default", wantValidation: true, wantAnalysis: true},
+		{name: "no analysis", flags: []string{"--no-analysis"}, wantValidation: true},
+		{name: "no validation", flags: []string{"--no-validation"}},
+		{name: "offline", flags: []string{"--offline"}},
 	}
-	require.NoError(t, runCLI([]string{
-		"stdin",
-		"--config", configPath,
-		"--analysis",
-		"--jsonl",
-		"--no-banner",
-		"--exit-code", "0",
-	}, runtime))
 
-	var finding report.Finding
-	require.NoError(t, json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &finding))
-	assert.Equal(t, report.ValidationStatusValid, finding.Validation.Status)
-	assert.Empty(t, finding.Validation.Metadata)
-	assert.Equal(t, report.SeverityHigh, finding.Analysis.Severity)
-	assert.Equal(t, []report.Capability{report.CapabilityRead, report.CapabilityWrite}, finding.Analysis.Capabilities)
-	require.NotNil(t, finding.Analysis.Identity)
-	assert.Equal(t, "user-1", finding.Analysis.Identity.ID)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout := new(bytes.Buffer)
+			runtime := &commandRuntime{
+				Context: context.Background(),
+				stdin:   strings.NewReader("token = secret-alpha\n"),
+				stdout:  stdout,
+				stderr:  io.Discard,
+				exit:    func(int) {},
+			}
+			args := []string{
+				"stdin",
+				"--config", configPath,
+				"--jsonl",
+				"--no-banner",
+				"--exit-code", "0",
+			}
+			args = append(args, test.flags...)
+			require.NoError(t, runCLI(args, runtime))
+
+			var finding report.Finding
+			require.NoError(t, json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &finding))
+			if !test.wantValidation {
+				assert.Empty(t, finding.Validation.Status)
+				assert.True(t, finding.Analysis.IsZero())
+				return
+			}
+
+			assert.Equal(t, report.ValidationStatusValid, finding.Validation.Status)
+			assert.Empty(t, finding.Validation.Metadata)
+			if !test.wantAnalysis {
+				assert.True(t, finding.Analysis.IsZero())
+				return
+			}
+
+			assert.Equal(t, report.SeverityHigh, finding.Analysis.Severity)
+			assert.Equal(t, []report.Capability{report.CapabilityRead, report.CapabilityWrite}, finding.Analysis.Capabilities)
+			require.NotNil(t, finding.Analysis.Identity)
+			assert.Equal(t, "user-1", finding.Analysis.Identity.ID)
+		})
+	}
 }

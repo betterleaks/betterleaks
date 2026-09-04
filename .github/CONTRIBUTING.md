@@ -122,12 +122,31 @@ r.status == 200 && (r.json?.slug ?? "") != "" ? {
    secrets from `components["rule-id"]?.secret ?? ""`, and component named
    groups from `components["rule-id"]?.captures?.group ?? ""`.
 
-4. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
+4. When the provider exposes identity, scope, or permission information, add an
+   `AnalyzeExpr`. Pass data already returned by validation through its reserved
+   `analysis` object and read it from `validation.analysis`. Do not repeat a
+   provider request merely to obtain data validation already had.
+
+### Provider safety for validation and analysis
+
+Validation and analysis run against real provider APIs. Be polite:
+
+- Target five or fewer analysis requests per credential. Reuse
+  `validation.analysis` whenever possible.
+- Prefer `GET` for validation. Use `POST` only when it is non-stateful and
+  cannot create or modify provider resources.
+- Avoid broad resource enumeration and unbounded pagination.
+- Document the endpoints used. Tests should verify request methods, paths, and
+  counts with an injected HTTP transport.
+
+If a provider cannot be checked safely, omit validation or analysis.
+
+5. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
    the `rules.Beamer(),` in `main()`. Try and keep
    this alphabetically pretty please.
 
-5. Run `make config/betterleaks.toml`
+6. Run `make config/betterleaks.toml`
 
-6. Check out your new rules in `config/betterleaks.toml` and see if everything looks good.
+7. Check out your new rules in `config/betterleaks.toml` and see if everything looks good.
 
-7. Open a PR
+8. Open a PR

@@ -29,8 +29,9 @@ type ScanFlags struct {
 	MaxDecodeDepth      int        `name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
 	MaxArchiveDepth     int        `name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
 
-	Validation           bool   `help:"Enable validation of findings against live APIs."`
-	Analysis             bool   `help:"Validate findings and analyze valid credentials for identity and capabilities."`
+	NoValidation         bool   `name:"no-validation" help:"Disable validation and analysis of findings."`
+	NoAnalysis           bool   `name:"no-analysis" help:"Disable credential analysis while retaining validation."`
+	Offline              bool   `help:"Disable validation and analysis provider requests; source fetching may still use the network."`
 	ValidationStatus     string `name:"validation-status" help:"Comma-separated validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none."`
 	ProviderWorkers      int    `name:"provider-workers" default:"10" help:"Number of concurrent provider workers."`
 	ProviderDebug        bool   `name:"provider-debug" help:"Include provider HTTP debug metadata in output."`
@@ -50,15 +51,21 @@ func (f ScanFlags) Validate() error {
 	return f.ProviderRuntimeFlags.Validate()
 }
 
+func (f ScanFlags) validationEnabled() bool {
+	return !f.NoValidation && !f.Offline
+}
+
+func (f ScanFlags) analysisEnabled() bool {
+	return f.validationEnabled() && !f.NoAnalysis
+}
+
 // ProviderRuntimeFlags bound active requests made by validation and analysis.
-// The validation-* aliases remain accepted for v1 CLI compatibility.
 type ProviderRuntimeFlags struct {
-	ProviderTimeout        time.Duration `name:"provider-timeout" default:"10s" help:"Per-request timeout for provider checks."`
-	ProviderMaxRequests    int           `name:"provider-max-requests" help:"Maximum requests sent to each provider target (0 = unlimited)."`
-	ProviderRPS            float64       `name:"provider-rps" help:"Global provider requests per second (0 = unlimited)."`
-	ProviderRPSRule        []string      `name:"provider-rps-rule" help:"Rule-specific provider request rate as RULE=RPS (repeatable)."`
-	ValidationExtractEmpty bool          `name:"validation-extract-empty" help:"Include empty values from extractors in output."`
-	ProviderEnvVars        []string      `name:"provider-env-vars" help:"Environment variable names provider Expr programs may read (repeatable)."`
+	ProviderTimeout     time.Duration `name:"provider-timeout" default:"10s" help:"Per-request timeout for provider checks."`
+	ProviderMaxRequests int           `name:"provider-max-requests" help:"Maximum requests sent to each provider target (0 = unlimited)."`
+	ProviderRPS         float64       `name:"provider-rps" help:"Global provider requests per second (0 = unlimited)."`
+	ProviderRPSRule     []string      `name:"provider-rps-rule" help:"Rule-specific provider request rate as RULE=RPS (repeatable)."`
+	ProviderEnvVars     []string      `name:"provider-env-vars" help:"Environment variable names provider Expr programs may read (repeatable)."`
 }
 
 func (f ProviderRuntimeFlags) Validate() error {

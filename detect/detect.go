@@ -40,8 +40,6 @@ type ValidationOptions struct {
 	Workers int
 	// Timeout is the per-request timeout. Zero uses the runtime default.
 	Timeout time.Duration
-	// ExtractEmpty preserves empty extractor values in validation metadata.
-	ExtractEmpty bool
 	// Statuses restricts findings delivered by a scan. Empty includes all.
 	Statuses []report.ValidationStatus
 	// MaxRequestsPerTarget limits requests to each provider target. Zero is unlimited.
@@ -283,7 +281,6 @@ type Detector struct {
 	matchContext           contextwindow.Spec
 	validationStatusFilter map[report.ValidationStatus]struct{}
 	minimumConfidence      string
-	validationExtractEmpty bool
 	ignoreAllowComments    bool
 	jobs                   int
 	logger                 *slog.Logger
@@ -436,7 +433,6 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		noKeywordIndexes:    noKeywordIndexes,
 	}
 	if settings.validationEnabled {
-		d.validationExtractEmpty = settings.validation.ExtractEmpty
 		d.validationStatusFilter = make(map[report.ValidationStatus]struct{}, len(settings.validation.Statuses))
 		for _, status := range settings.validation.Statuses {
 			d.validationStatusFilter[status] = struct{}{}
@@ -907,9 +903,7 @@ func (d *Detector) run(ctx context.Context, source sources.Source, yield func(Re
 			continue
 		}
 		if result.Err == nil {
-			if !d.validationExtractEmpty {
-				result.Finding.Validation.Metadata = stripEmptyMeta(result.Finding.Validation.Metadata)
-			}
+			result.Finding.Validation.Metadata = stripEmptyMeta(result.Finding.Validation.Metadata)
 			status := result.Finding.Validation.Status
 			if status != report.ValidationStatusNone {
 				state.summary.ValidationCounts[status]++

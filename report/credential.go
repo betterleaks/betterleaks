@@ -60,9 +60,9 @@ type CredentialRuleSummary struct {
 }
 
 // NewCredentialReport builds a redacted report from a validated finding.
-func NewCredentialReport(finding Finding, secrets []string, includeEmpty bool) CredentialReport {
+func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 	secrets = credentialSecretsForRedaction(secrets)
-	metadata := sanitizeCredentialMetadata(finding.Validation.Metadata, secrets, includeEmpty)
+	metadata := sanitizeCredentialMetadata(finding.Validation.Metadata, secrets, false)
 	result := CredentialReport{
 		SchemaVersion: CredentialReportSchemaVersion,
 		RuleID:        finding.RuleID,

@@ -753,8 +753,7 @@ tokens.
 
 `validate` honors the remaining outbound request controls from scan-time validation:
 `--provider-timeout`, `--provider-max-requests`, `--provider-rps`,
-`--provider-rps-rule`, `--provider-env-vars`, and
-`--validation-extract-empty`. A completed validation—including `invalid`,
+`--provider-rps-rule`, and `--provider-env-vars`. A completed validation—including `invalid`,
 `revoked`, `unknown`, or `error`—is a successful command result represented by
 the reported status; input, configuration, I/O, and cancellation failures
 return command errors.
@@ -793,14 +792,17 @@ betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-key
 # disable selected rules
 betterleaks git . --disable-rule generic-api-key
 
-# enable live validation
-betterleaks dir . --validation --validation-status valid,unknown
+# retain only selected validation results
+betterleaks dir . --validation-status valid,unknown
 
-# validate and analyze live credentials
-betterleaks dir . --analysis --validation-status valid
+# validate without credential analysis
+betterleaks dir . --no-analysis --validation-status valid
 
-# cap and rate-limit outbound validation requests
-betterleaks dir . --validation \
+# disable all validation and analysis provider requests
+betterleaks dir . --offline
+
+# cap and rate-limit outbound provider requests
+betterleaks dir . \
 	--provider-max-requests 1000 \
 	--provider-rps 10 \
 	--provider-rps-rule github-pat=2

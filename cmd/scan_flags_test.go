@@ -24,8 +24,9 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"match-context",
 		"max-decode-depth",
 		"max-archive-depth",
-		"validation",
-		"analysis",
+		"no-validation",
+		"no-analysis",
+		"offline",
 		"validation-status",
 		"provider-workers",
 		"provider-debug",
@@ -60,7 +61,6 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"provider-max-requests",
 		"provider-rps",
 		"provider-rps-rule",
-		"validation-extract-empty",
 		"provider-env-vars",
 	}
 	for _, name := range sharedWithValidate {
@@ -81,6 +81,37 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		for _, node := range scanNodes {
 			require.False(t, nodeHasFlag(node, deprecated), "%s: %s", node.Name, deprecated)
 		}
+	}
+}
+
+func TestScanProviderModes(t *testing.T) {
+	tests := []struct {
+		name              string
+		flags             []string
+		validationEnabled bool
+		analysisEnabled   bool
+	}{
+		{name: "default", validationEnabled: true, analysisEnabled: true},
+		{name: "analysis disabled", flags: []string{"--no-analysis"}, validationEnabled: true},
+		{name: "validation disabled", flags: []string{"--no-validation"}},
+		{name: "offline", flags: []string{"--offline"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"dir"}, test.flags...)
+			cli, err := parseCLIForTest(t, args...)
+			require.NoError(t, err)
+			require.Equal(t, test.validationEnabled, cli.Directory.validationEnabled())
+			require.Equal(t, test.analysisEnabled, cli.Directory.analysisEnabled())
+		})
+	}
+}
+
+func TestRemovedProviderFlagsAreRejected(t *testing.T) {
+	for _, flag := range []string{"--validation", "--analysis", "--validation-extract-empty"} {
+		_, err := parseCLIForTest(t, "dir", flag)
+		require.Error(t, err, flag)
 	}
 }
 
