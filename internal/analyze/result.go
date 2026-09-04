@@ -63,6 +63,9 @@ func ParseResult(value any) (report.Analysis, error) {
 	}
 
 	analysis.Severity = report.AnalysisSeverity(analysis.Capabilities)
+	if len(analysis.Capabilities) == 0 && analysis.Reason != "" {
+		analysis.Severity = report.SeverityUnknown
+	}
 	return analysis, nil
 }
 

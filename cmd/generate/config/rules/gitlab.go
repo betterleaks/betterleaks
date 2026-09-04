@@ -63,8 +63,11 @@ let grants = flatten([
 ]);
 let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
 let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
+let can_create_credentials = filter.intersects(grants, ["create_runner", "self_rotate"]);
+let can_admin = filter.intersects(grants, ["sudo", "admin_mode"]);
 {
-  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" : "",
+  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
+    size(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
   "metadata": size(grants) > 0 ? {
     "permissions": grants
   } : {},
@@ -74,8 +77,8 @@ let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve
   "capabilities": analysis.capabilities({
     "read": can_read,
     "write": can_write,
-    "create_credentials": filter.intersects(grants, ["create_runner", "self_rotate"]),
-    "admin": filter.intersects(grants, ["sudo", "admin_mode"])
+    "create_credentials": can_create_credentials,
+    "admin": can_admin
   })
 }`
 

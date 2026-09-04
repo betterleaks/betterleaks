@@ -401,19 +401,6 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 				fmt.Printf("│      %s %s %s\n", key, dots, val)
 			}
 		}
-		if !set.Analysis.IsZero() {
-			details := ""
-			if set.Analysis.Severity != "" {
-				details = formatAnalysisSeverity(set.Analysis.Severity, noColor)
-			}
-			if len(set.Analysis.Capabilities) > 0 {
-				details = appendAnalysisDetail(details, capabilitiesText(set.Analysis.Capabilities))
-			}
-			if set.Analysis.Reason != "" {
-				details = appendAnalysisDetail(details, set.Analysis.Reason)
-			}
-			fmt.Printf("│      analysis %s\n", details)
-		}
 	}
 
 	if invalidCount > 0 {
@@ -714,13 +701,6 @@ func (f *Finding) printPrettyAnalysis(noColor bool) {
 	for _, key := range keys {
 		dotLeader(key, values[key], maxKey)
 	}
-}
-
-func appendAnalysisDetail(details, value string) string {
-	if details == "" {
-		return value
-	}
-	return details + " · " + value
 }
 
 func formatAnalysisSeverity(severity Severity, noColor bool) string {

@@ -75,6 +75,14 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 			wantCapabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite},
 			wantIdentity:     "7",
 		},
+		{
+			name:             "fastly",
+			validation:       fastlyValidateExpr,
+			analysis:         fastlyAnalyzeExpr,
+			body:             `{"id":"tok_123","user_id":"usr_123","name":"deploy","scope":"global:read purge_select","services":["svc_a","svc_b"],"expires_at":"2026-12-31T00:00:00Z"}`,
+			wantCapabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite},
+			wantIdentity:     "usr_123",
+		},
 	}
 
 	for _, test := range tests {
@@ -143,7 +151,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 				"id": "usrAirtable", "email": "owner@example.com",
 				"scopes": []any{"data.records:read", "schema.bases:write", "enterprise.user:write"},
 			},
-			severity:     report.SeverityCritical,
+			severity:     report.SeverityHigh,
 			capabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite, report.CapabilityManageUsers},
 			identityID:   "usrAirtable",
 		},
@@ -157,7 +165,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 					map[string]any{"permissions": []any{"read_job"}},
 				},
 			},
-			severity:     report.SeverityCritical,
+			severity:     report.SeverityHigh,
 			capabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite, report.CapabilityCreateCredentials},
 			identityID:   "42",
 		},
@@ -180,7 +188,7 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 				"user_id": "U123", "user": "octo", "team_id": "T123", "team": "Acme",
 				"scopes": []any{"channels:history", "chat:write", "admin.users:write"},
 			},
-			severity:     report.SeverityCritical,
+			severity:     report.SeverityHigh,
 			capabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite, report.CapabilityManageUsers},
 			identityID:   "U123", accountID: "T123",
 		},
@@ -190,9 +198,20 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 			input: map[string]any{
 				"id": "7", "username": "octocat", "scopes": []any{"repo", "admin:public_key"},
 			},
-			severity:     report.SeverityCritical,
+			severity:     report.SeverityHigh,
 			capabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite, report.CapabilityCreateCredentials},
 			identityID:   "7",
+		},
+		{
+			name:       "fastly",
+			expression: fastlyAnalyzeExpr,
+			input: map[string]any{
+				"token_id": "tok_123", "user_id": "usr_123", "token_name": "deploy",
+				"scopes": []any{"global:read", "purge_select"}, "services": []any{"svc_a"},
+			},
+			severity:     report.SeverityHigh,
+			capabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite},
+			identityID:   "usr_123",
 		},
 	}
 
@@ -211,7 +230,142 @@ func TestCredentialAnalysisMappings(t *testing.T) {
 	}
 }
 
-func TestCredentialAnalysisUnknownGrantsStayUnknown(t *testing.T) {
+func TestFastlyAnalysisScopeCapabilities(t *testing.T) {
+	tests := []struct {
+		name         string
+		scopes       []any
+		severity     report.Severity
+		capabilities []report.Capability
+	}{
+		{
+			name:         "global",
+			scopes:       []any{"global"},
+			severity:     report.SeverityHigh,
+			capabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite},
+		},
+		{
+			name:         "global read",
+			scopes:       []any{"global:read"},
+			severity:     report.SeverityMedium,
+			capabilities: []report.Capability{report.CapabilityRead},
+		},
+		{
+			name:         "selective purge",
+			scopes:       []any{"purge_select"},
+			severity:     report.SeverityHigh,
+			capabilities: []report.Capability{report.CapabilityWrite},
+		},
+		{
+			name:         "purge all",
+			scopes:       []any{"purge_all"},
+			severity:     report.SeverityHigh,
+			capabilities: []report.Capability{report.CapabilityWrite},
+		},
+		{
+			name:         "unknown scope",
+			scopes:       []any{"future_scope"},
+			severity:     report.SeverityUnknown,
+			capabilities: []report.Capability{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := evaluateProviderAnalysis(t, fastlyAnalyzeExpr, map[string]any{
+				"user_id": "usr_123",
+				"scopes":  test.scopes,
+			})
+			assert.Equal(t, test.severity, result.Severity)
+			assert.Equal(t, test.capabilities, result.Capabilities)
+		})
+	}
+}
+
+func TestFastlyAnalysisReportsServicePerimeter(t *testing.T) {
+	restricted := evaluateProviderAnalysis(t, fastlyAnalyzeExpr, map[string]any{
+		"scopes":   []any{"global:read"},
+		"services": []any{"svc_a", "svc_b"},
+	})
+	assert.Equal(t, false, restricted.Metadata["all_services"])
+	assert.Equal(t, []any{"svc_a", "svc_b"}, restricted.Metadata["service_ids"])
+
+	unrestricted := evaluateProviderAnalysis(t, fastlyAnalyzeExpr, map[string]any{
+		"scopes": []any{"global:read"},
+	})
+	assert.Equal(t, true, unrestricted.Metadata["all_services"])
+	assert.Equal(t, []any{}, unrestricted.Metadata["service_ids"])
+}
+
+func TestFastlyValidationUsesTokenIntrospection(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		status     report.ValidationStatus
+		reason     string
+	}{
+		{
+			name:       "valid",
+			statusCode: http.StatusOK,
+			body:       `{"id":"tok_123","user_id":"usr_123","name":"deploy","scope":"global:read purge_select","services":["svc_a"],"expires_at":"2026-12-31T00:00:00Z"}`,
+			status:     report.ValidationStatusValid,
+		},
+		{
+			name:       "expired",
+			statusCode: http.StatusUnauthorized,
+			body:       `{}`,
+			status:     report.ValidationStatusRevoked,
+			reason:     "Token expired",
+		},
+		{
+			name:       "invalid",
+			statusCode: http.StatusForbidden,
+			body:       `{}`,
+			status:     report.ValidationStatusInvalid,
+			reason:     "Unauthorized",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(request *http.Request) (*http.Response, error) {
+				assert.Equal(t, "/tokens/self", request.URL.Path)
+				assert.Equal(t, "fixture-secret", request.Header.Get("Fastly-Key"))
+				assert.Equal(t, "application/json", request.Header.Get("Accept"))
+				return &http.Response{
+					StatusCode: test.statusCode,
+					Body:       io.NopCloser(strings.NewReader(test.body)),
+				}, nil
+			})})
+			require.NoError(t, err)
+
+			program, err := runtime.CompileValidation(fastlyValidateExpr)
+			require.NoError(t, err)
+			value, err := runtime.EvalValidation(
+				t.Context(),
+				program,
+				map[string]string{"rule_id": "fastly-api-token", "secret": "fixture-secret"},
+				nil,
+				nil,
+				exprruntime.EvalOptions{},
+			)
+			require.NoError(t, err)
+			result := validatepkg.ParseResult(value.Value)
+
+			assert.Equal(t, test.status, result.Status)
+			assert.Equal(t, test.reason, result.Reason)
+			assert.Empty(t, result.Metadata)
+			if test.status == report.ValidationStatusValid {
+				assert.Equal(t, "tok_123", result.Analysis["token_id"])
+				assert.Equal(t, "usr_123", result.Analysis["user_id"])
+				assert.Equal(t, []string{"global:read", "purge_select"}, result.Analysis["scopes"])
+				assert.Equal(t, []any{"svc_a"}, result.Analysis["services"])
+			}
+		})
+	}
+}
+
+func TestCredentialAnalysisUnknownGrantsDoNotAddCapabilities(t *testing.T) {
 	result := evaluateProviderAnalysis(t, gitlabPatAnalyzeExpr, map[string]any{
 		"user_id": "42",
 		"granular_scopes": []any{
@@ -219,6 +373,7 @@ func TestCredentialAnalysisUnknownGrantsStayUnknown(t *testing.T) {
 		},
 	})
 	assert.Equal(t, report.SeverityUnknown, result.Severity)
+	assert.Equal(t, "GitLab returned no recognized permission grants", result.Reason)
 	assert.Empty(t, result.Capabilities)
 
 	result = evaluateProviderAnalysis(t, huggingFaceAnalyzeExpr, map[string]any{

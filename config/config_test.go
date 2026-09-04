@@ -170,6 +170,9 @@ func TestDefaultConfigIncludesCredentialAnalysisProviders(t *testing.T) {
 		"huggingface-access-token",
 		"slack-bot-token",
 		"github-pat",
+		"fastly-api-token",
+		"cloudflare-api-key.1",
+		"cloudflare-api-key.2",
 	} {
 		rule := requireRule(t, cfg, ruleID)
 		require.NotEmptyf(t, rule.ValidateExpr, "%s validation", ruleID)

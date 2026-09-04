@@ -27,7 +27,7 @@ func TestParseResultNormalizesCapabilitiesAndIdentity(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, report.SeverityCritical, result.Severity)
+	assert.Equal(t, report.SeverityHigh, result.Severity)
 	assert.Equal(t, []report.Capability{
 		report.CapabilityRead,
 		report.CapabilityWrite,
@@ -47,20 +47,23 @@ func TestParseResultNormalizesCapabilitiesAndIdentity(t *testing.T) {
 func TestParseResultDerivesSeverity(t *testing.T) {
 	tests := []struct {
 		name         string
+		reason       string
 		capabilities []any
 		want         report.Severity
 	}{
-		{name: "none", want: report.SeverityUnknown},
+		{name: "none", want: report.SeverityLow},
+		{name: "incomplete", reason: "Permissions unavailable", want: report.SeverityUnknown},
 		{name: "read", capabilities: []any{"read"}, want: report.SeverityMedium},
 		{name: "write", capabilities: []any{"write"}, want: report.SeverityHigh},
-		{name: "secrets", capabilities: []any{"read_secrets"}, want: report.SeverityCritical},
-		{name: "credentials", capabilities: []any{"create_credentials"}, want: report.SeverityCritical},
-		{name: "users", capabilities: []any{"manage_users"}, want: report.SeverityCritical},
+		{name: "secrets", capabilities: []any{"read_secrets"}, want: report.SeverityHigh},
+		{name: "credentials", capabilities: []any{"create_credentials"}, want: report.SeverityHigh},
+		{name: "users", capabilities: []any{"manage_users"}, want: report.SeverityHigh},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := ParseResult(map[string]any{
 				"capabilities": test.capabilities,
+				"reason":       test.reason,
 			})
 			require.NoError(t, err)
 			assert.Equal(t, test.want, result.Severity)
@@ -69,7 +72,7 @@ func TestParseResultDerivesSeverity(t *testing.T) {
 }
 
 func TestParseResultRejectsUnknownSchema(t *testing.T) {
-	_, err := ParseResult(map[string]any{"severity": "critical"})
+	_, err := ParseResult(map[string]any{"severity": "high"})
 	require.ErrorContains(t, err, `unknown field "severity"`)
 
 	_, err = ParseResult(map[string]any{"capabilities": []any{"delete_everything"}})

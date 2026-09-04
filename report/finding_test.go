@@ -273,7 +273,7 @@ func TestFindingJSONSchema(t *testing.T) {
 			Metadata: map[string]any{"account": "example"},
 		},
 		Analysis: Analysis{
-			Severity:     SeverityCritical,
+			Severity:     SeverityHigh,
 			Identity:     &AnalysisIdentity{ID: "user-1", Username: "octocat"},
 			Capabilities: []Capability{CapabilityRead, CapabilityManageUsers},
 			Metadata:     map[string]any{"permissions": []any{"read_job"}},
@@ -300,7 +300,7 @@ func TestFindingJSONSchema(t *testing.T) {
 		"metadata": map[string]any{"account": "example"},
 	}, got["validation"])
 	assert.Equal(t, map[string]any{
-		"severity":     "critical",
+		"severity":     "high",
 		"identity":     map[string]any{"id": "user-1", "username": "octocat"},
 		"capabilities": []any{"read", "manage_users"},
 		"metadata":     map[string]any{"permissions": []any{"read_job"}},

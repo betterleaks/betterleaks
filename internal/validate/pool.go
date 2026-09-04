@@ -337,13 +337,11 @@ func betterAnalysis(current, candidate report.Analysis) bool {
 
 func analysisSeverityRank(severity report.Severity) int {
 	switch severity {
-	case report.SeverityCritical:
-		return 4
 	case report.SeverityHigh:
 		return 3
 	case report.SeverityMedium:
 		return 2
-	case report.SeverityUnknown:
+	case report.SeverityLow:
 		return 1
 	default:
 		return 0

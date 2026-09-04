@@ -81,7 +81,7 @@ func TestPoolAnalysisFailurePreservesValidCredential(t *testing.T) {
 	require.NoError(t, err)
 	validationProgram, err := runtime.CompileValidation(`{"result": "valid"}`)
 	require.NoError(t, err)
-	analysisProgram, err := runtime.CompileAnalysis(`{"severity": "critical"}`)
+	analysisProgram, err := runtime.CompileAnalysis(`{"severity": "high"}`)
 	require.NoError(t, err)
 
 	pool := NewPoolContext(t.Context(), 1, runtime)

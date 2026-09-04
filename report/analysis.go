@@ -7,11 +7,11 @@ import "github.com/betterleaks/betterleaks/v2/internal/color"
 type Severity string
 
 const (
-	SeverityNone     Severity = ""
-	SeverityUnknown  Severity = "unknown"
-	SeverityMedium   Severity = "medium"
-	SeverityHigh     Severity = "high"
-	SeverityCritical Severity = "critical"
+	SeverityNone    Severity = ""
+	SeverityUnknown Severity = "unknown"
+	SeverityLow     Severity = "low"
+	SeverityMedium  Severity = "medium"
+	SeverityHigh    Severity = "high"
 )
 
 // Capability is a security-relevant grant that an analysis program has
@@ -74,15 +74,16 @@ type AnalysisAccount struct {
 
 // AnalysisSeverity derives severity from positive capability evidence.
 func AnalysisSeverity(capabilities []Capability) Severity {
-	severity := SeverityUnknown
+	severity := SeverityLow
 	for _, capability := range capabilities {
 		switch capability {
 		case CapabilityAdmin, CapabilityCreateCredentials, CapabilityManageUsers, CapabilityReadSecrets:
-			return SeverityCritical
+			return SeverityHigh
 		case CapabilityWrite:
 			severity = SeverityHigh
+		// TODO handle low and medium
 		case CapabilityRead:
-			if severity == SeverityUnknown {
+			if severity == SeverityLow {
 				severity = SeverityMedium
 			}
 		}
