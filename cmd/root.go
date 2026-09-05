@@ -279,7 +279,10 @@ func initConfig(source string) {
 
 func cachedConfig(key string, load func() *config.Config) *config.Config {
 	if configCache == nil {
-		configCache = make(map[string]*config.Config)
+		// Caching is enabled explicitly by runDirectory for the lifetime of a
+		// single directory scan. Other commands must not retain configs across
+		// same-process invocations.
+		return load()
 	}
 
 	if cfg, ok := configCache[key]; ok {
