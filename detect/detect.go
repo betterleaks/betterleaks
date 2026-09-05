@@ -289,7 +289,10 @@ type Detector struct {
 	analysisPrograms   map[string]exprruntime.Program
 	globalFilter       exprruntime.Program
 	filterProgramM     sync.Mutex
-	filterPrograms     map[string]exprruntime.Program
+	// filterPrograms is keyed by the immutable, config-unique rule ID. Using
+	// the rule's existing ID avoids allocating a RuleID+Filter cache key for
+	// every candidate finding.
+	filterPrograms map[string]exprruntime.Program
 
 	// rulesBySpecificity contains an immutable snapshot of every configured rule in descending
 	// specificity order. Its positions are the shared index space used by the
@@ -638,15 +641,14 @@ func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, 
 	if r.Filter == "" {
 		return nil, false, nil
 	}
-	cacheKey := r.RuleID + "\x00" + r.Filter
-	if prg := d.filterPrograms[cacheKey]; prg != nil {
+	if prg := d.filterPrograms[r.RuleID]; prg != nil {
 		return prg, true, nil
 	}
 	prg, err := d.exprRuntime.CompileFilter(r.Filter, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.RuleID, err)
 	}
-	d.filterPrograms[cacheKey] = prg
+	d.filterPrograms[r.RuleID] = prg
 	return prg, true, nil
 }
 

@@ -53,20 +53,18 @@ func Test_readUntilSafeBoundary(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			buf := make([]byte, 5)
+			buf := make([]byte, 5, 25)
 			n, err := c.r.Read(buf)
 			require.NoError(t, err)
 
 			// Act
 			reader := bufio.NewReader(c.r)
-			var peekBuf strings.Builder
-			_, _ = peekBuf.Write(buf[:n])
-			err = readUntilSafeBoundary(reader, n, 20, &peekBuf)
+			peekBuf, err := readUntilSafeBoundary(reader, buf[:n], n, 20)
 			require.NoError(t, err)
 
 			// Assert
-			t.Log(peekBuf.String())
-			require.Equal(t, c.expected, peekBuf.String())
+			t.Log(string(peekBuf))
+			require.Equal(t, c.expected, string(peekBuf))
 		})
 	}
 }

@@ -16,7 +16,10 @@ const defaultBufferSize = 100 * 1_000 // 100 KB
 var (
 	bufferPool = sync.Pool{
 		New: func() any {
-			buffer := make([]byte, defaultBufferSize)
+			// Keep lookahead in the same reusable backing array as the initial
+			// read. Fragment.Raw receives one exact-sized string copy before the
+			// buffer returns to the pool.
+			buffer := make([]byte, defaultBufferSize, defaultBufferSize+maxPeekSize)
 			return &buffer
 		},
 	}
@@ -98,28 +101,23 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 			return nil
 		}
 
-		var raw strings.Builder
-		fragmentCapacity := n
-		if n == len(buffer) {
-			fragmentCapacity += maxPeekSize
-		}
-		raw.Grow(fragmentCapacity)
-		_, _ = raw.Write(buffer[:n])
+		initial := buffer[:n]
+		chunk := initial
 
 		var boundaryErr error
 		if readErr == nil {
-			boundaryErr = readUntilSafeBoundary(reader, n, maxPeekSize, &raw)
+			chunk, boundaryErr = readUntilSafeBoundary(reader, chunk, n, maxPeekSize)
 			if boundaryErr != nil {
 				boundaryErr = fmt.Errorf("could not read until safe boundary: %w", boundaryErr)
 			}
 		}
 
 		fragment := Fragment{
-			Raw:       raw.String(),
+			Raw:       string(chunk),
 			StartLine: nextLine,
 		}
 		nextLine += strings.Count(fragment.Raw, "\n")
-		if err := yield(readerChunk{fragment: fragment, initial: buffer[:n]}, nil); err != nil {
+		if err := yield(readerChunk{fragment: fragment, initial: initial}, nil); err != nil {
 			return err
 		}
 
@@ -140,7 +138,7 @@ func getBuffer() []byte {
 }
 
 func putBuffer(buffer []byte) {
-	buffer = buffer[:cap(buffer)]
+	buffer = buffer[:defaultBufferSize]
 	bufferPool.Put(&buffer)
 }
 
