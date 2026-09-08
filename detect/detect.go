@@ -1005,10 +1005,11 @@ ScanLoop:
 				candidates.marked[ruleIndex] = true
 			}
 
-			for ruleIndex, rule := range d.rulesBySpecificity {
+			for ruleIndex := range d.rulesBySpecificity {
 				if !candidates.marked[ruleIndex] {
 					continue
 				}
+				rule := d.rulesBySpecificity[ruleIndex]
 				select {
 				case <-ctx.Done():
 					clear(candidates.marked)
