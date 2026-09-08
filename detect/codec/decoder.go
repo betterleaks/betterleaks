@@ -1,7 +1,7 @@
 package codec
 
 import (
-	"bytes"
+	"strings"
 )
 
 // Decoder decodes various types of data in place
@@ -22,7 +22,8 @@ func (d *Decoder) Decode(data string, predecessors []*EncodedSegment) (string, [
 	segments := d.findEncodedSegments(data, predecessors)
 
 	if len(segments) > 0 {
-		result := bytes.NewBuffer(make([]byte, 0, len(data)))
+		var result strings.Builder
+		result.Grow(len(data))
 		encodedStart := 0
 		for _, segment := range segments {
 			result.WriteString(data[encodedStart:segment.encoded.start])

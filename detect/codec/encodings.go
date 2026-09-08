@@ -8,7 +8,6 @@ import (
 var (
 	isHexChar    [256]bool // 0-9, A-F, a-f
 	isB64Char    [256]bool // 0-9, A-Z, a-z, _, /, +, -  (matches [\w\/+-])
-	isB64NotHex  [256]bool // b64 chars that are NOT hex (G-Z, g-z, _, /, +, -)
 	isWhitespace [256]bool // space, tab, \n, \r, etc.
 )
 
@@ -27,20 +26,14 @@ func init() {
 	}
 	for c := 'G'; c <= 'Z'; c++ {
 		isB64Char[c] = true
-		isB64NotHex[c] = true
 	}
 	for c := 'g'; c <= 'z'; c++ {
 		isB64Char[c] = true
-		isB64NotHex[c] = true
 	}
 	isB64Char['_'] = true
-	isB64NotHex['_'] = true
 	isB64Char['/'] = true
-	isB64NotHex['/'] = true
 	isB64Char['+'] = true
-	isB64NotHex['+'] = true
 	isB64Char['-'] = true
-	isB64NotHex['-'] = true
 
 	isWhitespace[' '] = true
 	isWhitespace['\t'] = true
@@ -304,13 +297,20 @@ func findEncodingMatches(data string) []encodingMatch {
 		// --- Hex / Base64 runs ---
 		if isB64Char[c] {
 			start := i
-			allHex := !isB64NotHex[c]
+			allHex := isHexChar[c]
 			i++
-			for i < n && isB64Char[data[i]] {
-				if isB64NotHex[data[i]] {
-					allHex = false
+			// Hex is a subset of Base64. Once a non-hex byte occurs,
+			// only Base64 membership matters for the rest of the run.
+			if allHex {
+				for i < n && isHexChar[data[i]] {
+					i++
 				}
-				i++
+			}
+			if i < n && isB64Char[data[i]] {
+				allHex = false
+				for i < n && isB64Char[data[i]] {
+					i++
+				}
 			}
 			runLen := i - start
 			end := i
