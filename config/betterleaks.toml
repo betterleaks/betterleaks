@@ -20,7 +20,6 @@ minVersion = "v1.8.0"
 
 prefilter = '''
 matchesAny(attributes["path"], [
-  `gitleaks\.toml`,
   `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$`,
   `(?i)\.(?:eot|[ot]tf|woff2?)$`,
   `(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|dll|pdb|exe|gltf)$`,
@@ -359,21 +358,52 @@ regex = '''(?i)(?:algolia)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["algolia"]
 validate = '''
-let r = http.get("https://" + (components["algolia-application-id"]?.secret ?? "") + ".algolia.net/1/keys/" + finding["secret"], {
-    "Accept": "application/json",
-    "X-Algolia-API-Key": finding["secret"],
-    "X-Algolia-Application-Id": (components["algolia-application-id"]?.secret ?? "")
-  }); let acl = r.json?.acl ?? [];
-  let public_acls = ["search", "browse", "listIndexes", "settings"];
-  let has_sensitive_acl = any(acl, {# not in public_acls});
-  r.status == 200 && has_sensitive_acl ? {
-    "result": "valid",
-    "acl": acl
-  } : r.status == 200 && "search" in acl ? {
-    "result": "invalid",
-    "reason": "Public Algolia Search API key",
-    "acl": acl
-  } : validate.unknown(r)
+let application_id = components["algolia-application-id"]?.secret ?? "";
+let r = http.get("https://" + application_id + ".algolia.net/1/keys/" + finding["secret"], {
+  "Accept": "application/json",
+  "X-Algolia-API-Key": finding["secret"],
+  "X-Algolia-Application-Id": application_id
+}); let acl = r.json?.acl ?? [];
+let public_acls = ["search", "browse", "listIndexes", "settings"];
+let has_sensitive_acl = any(acl, {# not in public_acls});
+r.status == 200 && has_sensitive_acl ? {
+  "result": "valid",
+  "analysis": {
+    "application_id": application_id,
+    "acl": acl,
+    "indexes": r.json?.indexes ?? []
+  }
+} : r.status == 200 && "search" in acl ? {
+  "result": "invalid",
+  "reason": "Public Algolia Search API key",
+  "acl": acl
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let acl = input["acl"] ?? [];
+let indexes = input["indexes"] ?? [];
+let can_read = filter.intersects(acl, [
+  "search", "browse", "listIndexes", "settings", "analytics", "logs", "usage",
+  "nluReadProject", "nluReadEntity", "nluReadIntent", "nluReadAnswers"
+]);
+let can_write = filter.intersects(acl, [
+  "addObject", "deleteObject", "deleteIndex", "editSettings",
+  "nluWriteProject", "nluWriteEntity", "nluWriteIntent"
+]);
+{
+  "reason": size(acl) == 0 ? "Algolia did not return API key ACLs" :
+    !can_read && !can_write ? "Algolia returned no recognized permission grants" : "",
+  "identity": {"account": {"id": input["application_id"] ?? ""}},
+  "metadata": size(indexes) > 0 ? {
+    "acl": acl,
+    "indexes": indexes
+  } : {
+    "acl": acl,
+    "all_indexes": true
+  },
+  "capabilities": analysis.capabilities({"read": can_read, "write": can_write})
+}
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -1388,16 +1418,55 @@ confidence = "high"
 keywords = ["bkua_"]
 validate = '''
 let r = http.get("https://api.buildkite.com/v2/access-token", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  });
-r.status == 200 && ((r.body contains "\"scopes\"")) ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+}); r.status == 200 && r.json?.scopes != nil ? {
+  "result": "valid",
+  "analysis": {
+    "token_id": r.json?.uuid ?? "",
+    "token_name": r.json?.description ?? "",
+    "scopes": r.json?.scopes ?? [],
+    "name": r.json?.user?.name ?? "",
+    "email": r.json?.user?.email ?? "",
+    "created_at": r.json?.created_at ?? "",
+    "expires_at": r.json?.expires_at ?? ""
+  }
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let can_read = filter.matchesAny(scopes, [
+  "^read_(?:pipelines|builds|build_logs|job_env|artifacts|agents|clusters|pipeline_templates|rules|organizations|organization_invitations|organization_settings|organization_repository_connections|notification_services|teams|user|audit_events|secrets_details|suites|test_plan|registries|packages|portals)$"
+]);
+let can_write = filter.matchesAny(scopes, [
+  "^write_(?:pipelines|builds|build_logs|artifacts|agents|clusters|pipeline_templates|rules|organizations|organization_invitations|organization_settings|notification_services|teams|secrets|suites|test_plan|registries|packages|portals)$",
+  "^delete_(?:registries|packages)$"
+]);
+{
+  "reason": "graphql" in scopes ? "Buildkite GraphQL permissions were not expanded" :
+    size(scopes) == 0 ? "Buildkite did not return token scopes" :
+    !can_read && !can_write ? "Buildkite returned no recognized REST permission grants" : "",
+  "identity": {
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? ""
+  },
+  "metadata": {
+    "token_id": input["token_id"] ?? "",
+    "token_name": input["token_name"] ?? "",
+    "scopes": scopes,
+    "created_at": input["created_at"] ?? "",
+    "expires_at": input["expires_at"] ?? ""
+  },
+  "capabilities": analysis.capabilities({
+    "read": can_read,
+    "write": can_write,
+    "manage_users": filter.intersects(scopes, ["write_organizations", "write_organization_invitations", "write_teams"])
+  })
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -6599,14 +6668,49 @@ confidence = "medium"
 keywords = ["honeycomb"]
 validate = '''
 let r = http.get("https://api.honeycomb.io/1/auth", {
-    "X-Honeycomb-Team": finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"team\"") ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "X-Honeycomb-Team": finding["secret"],
+  "Accept": "application/json"
+}); r.status == 200 && r.json?.team != nil ? {
+  "result": "valid",
+  "analysis": {
+    "key_id": r.json?.id ?? "",
+    "key_type": r.json?.type ?? "",
+    "permissions": r.json?.api_key_access ?? {},
+    "team_name": r.json?.team?.name ?? "",
+    "team_slug": r.json?.team?.slug ?? "",
+    "environment_name": r.json?.environment?.name ?? "",
+    "environment_slug": r.json?.environment?.slug ?? ""
+  }
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let permissions = input["permissions"] ?? {};
+let can_read = (permissions["queries"] ?? false) == true;
+let can_write = any([
+  "events", "markers", "triggers", "boards", "columns", "createDatasets", "slos", "recipients", "privateBoards"
+], {(permissions[#] ?? false) == true});
+{
+  "reason": size(permissions) == 0 ? "Honeycomb did not return API key permission metadata" :
+    !can_read && !can_write ? "Honeycomb returned no recognized enabled permissions" : "",
+  "identity": {
+    "account": {
+      "id": input["team_slug"] ?? "",
+      "name": input["team_name"] ?? ""
+    }
+  },
+  "metadata": {
+    "key_id": input["key_id"] ?? "",
+    "key_type": input["key_type"] ?? "",
+    "permissions": permissions,
+    "environment_name": input["environment_name"] ?? "",
+    "environment_slug": input["environment_slug"] ?? ""
+  },
+  "capabilities": analysis.capabilities({"read": can_read, "write": can_write})
+}
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -11052,16 +11156,57 @@ confidence = "high"
 keywords = ["vercel"]
 validate = '''
 let r = http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
-    "result": "valid",
-    "email": (r.json?.user?.email ?? ""),
-    "username": (r.json?.user?.username ?? ""),
-    "user_id": (r.json?.user?.id ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"]
+}); r.status == 200 && (r.json?.user?.id ?? "") != "" ? {
+  "result": "valid",
+  "analysis": {
+    "user_id": r.json?.user?.id ?? "",
+    "email": r.json?.user?.email ?? "",
+    "username": r.json?.user?.username ?? "",
+    "name": r.json?.user?.name ?? ""
+  }
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let r = http.get("https://api.vercel.com/v5/user/tokens/current", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+let details_ok = r.status == 200 && (r.json?.token?.id ?? "") != "";
+let token = details_ok ? (r.json?.token ?? {}) : {};
+let scopes = token["scopes"] ?? [];
+{
+  "reason": !details_ok ? "Vercel token metadata could not be retrieved" :
+    size(scopes) == 0 ? "Vercel did not return token scope metadata" :
+    "Vercel token scopes do not establish resource permissions",
+  "identity": {
+    "id": input["user_id"] ?? "",
+    "email": input["email"] ?? "",
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "account": size(scopes) == 1 && (scopes[0]?.type ?? "") == "team" ? {
+      "id": scopes[0]?.teamId ?? ""
+    } : {}
+  },
+  "metadata": {
+    "token_id": token["id"] ?? "",
+    "token_name": token["name"] ?? "",
+    "token_type": token["type"] ?? "",
+    "scopes": map(scopes, {{
+      "type": #.type ?? "",
+      "team_id": #.teamId ?? "",
+      "created_at": #.createdAt ?? nil,
+      "expires_at": #.expiresAt ?? nil
+    }}),
+    "created_at": token["createdAt"] ?? nil,
+    "expires_at": token["expiresAt"] ?? nil
+  },
+  "capabilities": []
+}
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -11155,16 +11300,57 @@ confidence = "high"
 keywords = ["vcp_"]
 validate = '''
 let r = http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
-    "result": "valid",
-    "email": (r.json?.user?.email ?? ""),
-    "username": (r.json?.user?.username ?? ""),
-    "user_id": (r.json?.user?.id ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"]
+}); r.status == 200 && (r.json?.user?.id ?? "") != "" ? {
+  "result": "valid",
+  "analysis": {
+    "user_id": r.json?.user?.id ?? "",
+    "email": r.json?.user?.email ?? "",
+    "username": r.json?.user?.username ?? "",
+    "name": r.json?.user?.name ?? ""
+  }
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let r = http.get("https://api.vercel.com/v5/user/tokens/current", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+let details_ok = r.status == 200 && (r.json?.token?.id ?? "") != "";
+let token = details_ok ? (r.json?.token ?? {}) : {};
+let scopes = token["scopes"] ?? [];
+{
+  "reason": !details_ok ? "Vercel token metadata could not be retrieved" :
+    size(scopes) == 0 ? "Vercel did not return token scope metadata" :
+    "Vercel token scopes do not establish resource permissions",
+  "identity": {
+    "id": input["user_id"] ?? "",
+    "email": input["email"] ?? "",
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "account": size(scopes) == 1 && (scopes[0]?.type ?? "") == "team" ? {
+      "id": scopes[0]?.teamId ?? ""
+    } : {}
+  },
+  "metadata": {
+    "token_id": token["id"] ?? "",
+    "token_name": token["name"] ?? "",
+    "token_type": token["type"] ?? "",
+    "scopes": map(scopes, {{
+      "type": #.type ?? "",
+      "team_id": #.teamId ?? "",
+      "created_at": #.createdAt ?? nil,
+      "expires_at": #.expiresAt ?? nil
+    }}),
+    "created_at": token["createdAt"] ?? nil,
+    "expires_at": token["expiresAt"] ?? nil
+  },
+  "capabilities": []
+}
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5

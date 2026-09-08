@@ -127,6 +127,10 @@ r.status == 200 && (r.json?.slug ?? "") != "" ? {
    `analysis` object and read it from `validation.analysis`. Do not repeat a
    provider request merely to obtain data validation already had.
 
+   Keep analysis metadata focused on triage: credential ownership, actionable
+   permissions, and affected resources. Omit empty/default values and routine
+   provider settings that do not help assess or remediate the finding.
+
 ### Provider safety for validation and analysis
 
 Validation and analysis run against real provider APIs. Be polite:
