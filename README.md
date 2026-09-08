@@ -50,8 +50,12 @@ make build
 # Scan Git
 betterleaks git /path/to/repo -v -j 4
 
-# Scan local filesystem
-betterleaks dir /path/to/file/or/dir -v
+# Scan the filesystem
+betterleaks /path/to/target
+# Equivalent explicit command
+betterleaks filesystem /path/to/target
+# Short command alias
+betterleaks fs /path/to/target
 
 # Scan GitHub org
 betterleaks github https://github.com/betterleaks

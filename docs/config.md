@@ -258,7 +258,7 @@ and maximum-request enforcement.
 For example:
 
 ```sh
-betterleaks dir . \
+betterleaks filesystem . \
   --provider-max-requests 1000 \
   --provider-rps 10 \
   --provider-rps-rule github-pat=2 \

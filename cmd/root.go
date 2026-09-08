@@ -49,7 +49,7 @@ type GlobalFlags struct {
 type CLI struct {
 	GlobalFlags `embed:""`
 
-	Directory   DirectoryCmd   `cmd:"" name:"dir" aliases:"file,directory" help:"Scan directories or files for secrets."`
+	Directory   DirectoryCmd   `cmd:"" name:"filesystem" aliases:"fs,dir,directory,file,files" default:"withargs" help:"Scan the filesystem for secrets (filesystem may be omitted before a path)."`
 	Git         GitCmd         `cmd:"" help:"Scan Git repositories for secrets."`
 	GitHub      GitHubCmd      `cmd:"" name:"github" help:"Scan GitHub repositories and resources for secrets."`
 	GitLab      GitLabCmd      `cmd:"" name:"gitlab" help:"Scan GitLab projects and resources for secrets."`

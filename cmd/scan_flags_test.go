@@ -36,7 +36,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 
 	_, parser := newCLIParserForTest(t)
 	scanNodes := []*kong.Node{
-		commandNode(t, parser.Model.Node, "dir"),
+		commandNode(t, parser.Model.Node, "filesystem"),
 		commandNode(t, parser.Model.Node, "git"),
 		commandNode(t, parser.Model.Node, "github"),
 		commandNode(t, parser.Model.Node, "gitlab"),

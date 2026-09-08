@@ -12,13 +12,13 @@ selects source-aware automatic widths.
 
 ```sh
 # use up to eight scan jobs
-betterleaks dir . -j 8
+betterleaks filesystem . -j 8
 
 # limit repository and nested content scanning
 betterleaks github https://github.com/my-company -j 8
 ```
 
-For directories, automatic mode uses four I/O jobs per `GOMAXPROCS`, capped at
+For filesystem scans, automatic mode uses four I/O jobs per `GOMAXPROCS`, capped at
 40 unless `GOMAXPROCS` itself is higher. Object sources use twice `GOMAXPROCS`.
 Both use `GOMAXPROCS` for detection. For Git history, automatic mode uses up to
 `GOMAXPROCS` parallel Git processes and the same number of detector jobs.
@@ -31,7 +31,7 @@ worker and rate-limit controls because it performs external network requests.
 
 | Want to scan | Use |
 | :--- | :--- |
-| Files on disk | `betterleaks dir` |
+| Filesystem | `betterleaks <path>` or `betterleaks filesystem <path>` |
 | Git history | `betterleaks git` |
 | Staged or pre-commit diffs | `betterleaks git --pre-commit [--staged]` |
 | GitHub repos, Issues, PRs, Actions, Releases, Discussions, Gists | `betterleaks github <url>` |
@@ -41,6 +41,12 @@ worker and rate-limit controls because it performs external network requests.
 | A known credential and rule | `betterleaks validate --rule-id <rule-id>` |
 | Piped content | `betterleaks stdin` |
 | An ignore-file entry | `betterleaks fingerprint` |
+
+For filesystem scanning, `filesystem` (or `fs`) is optional before one or more
+file or directory paths:
+`betterleaks . --offline` and `betterleaks filesystem . --offline` are equivalent.
+Command names take precedence, so use `./git` or `filesystem git` to scan a directory
+named `git`. Running `betterleaks` without arguments shows help.
 
 ---
 
@@ -118,7 +124,7 @@ printf 'secret bytes' | sha256sum
 printf 'secret bytes' | shasum -a 256
 ```
 
-An explicit `--ignore-file PATH` applies to every target. Otherwise `dir` and
+An explicit `--ignore-file PATH` applies to every target. Otherwise `filesystem` and
 `git` use `<target>/.betterleaksignore` (or the parent directory for one file),
 while `stdin`, GitHub, GitLab, Hugging Face, and S3 use
 `./.betterleaksignore`. Git scans read only the current working-tree policy,
@@ -132,34 +138,34 @@ the same review as an ordinary allowlist exception.
 
 ---
 
-## `dir`
+## Filesystem scanning
 
-Use `dir` for current filesystem state.
+Use `filesystem` (or `fs`) to scan files and directories in their current state.
 
 ```sh
 # current directory
-betterleaks dir .
+betterleaks filesystem .
 
 # multiple paths
-betterleaks dir services/api infra/terraform
+betterleaks filesystem services/api infra/terraform
 
 # triage with context
-betterleaks dir . --match-context 3L
+betterleaks filesystem . --match-context 3L
 
 # follow file symlinks
-betterleaks dir /mnt/data --follow-symlinks
+betterleaks filesystem /mnt/data --follow-symlinks
 
 # skip large files
-betterleaks dir . --max-target-megabytes 20
+betterleaks filesystem . --max-target-megabytes 20
 
 # scan inside archives
-betterleaks dir ./release-bundles --max-archive-depth 2
+betterleaks filesystem ./release-bundles --max-archive-depth 2
 
 # JSON report
-betterleaks dir . --output findings.json
+betterleaks filesystem . --output findings.json
 
 # JSONL report
-betterleaks dir . --output findings.jsonl
+betterleaks filesystem . --output findings.jsonl
 ```
 
 ---
@@ -807,7 +813,7 @@ some-command | betterleaks stdin --output -
 
 ```sh
 # use a specific config
-betterleaks dir . --config .betterleaks.toml
+betterleaks filesystem . --config .betterleaks.toml
 
 # only run selected rules
 betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-key
@@ -816,16 +822,16 @@ betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-key
 betterleaks git . --disable-rule generic-api-key
 
 # retain only selected validation results
-betterleaks dir . --validation-status valid,unknown
+betterleaks filesystem . --validation-status valid,unknown
 
 # validate without credential analysis
-betterleaks dir . --no-analysis --validation-status valid
+betterleaks filesystem . --no-analysis --validation-status valid
 
 # disable all validation and analysis provider requests
-betterleaks dir . --offline
+betterleaks filesystem . --offline
 
 # cap and rate-limit outbound provider requests
-betterleaks dir . \
+betterleaks filesystem . \
 	--provider-max-requests 1000 \
 	--provider-rps 10 \
 	--provider-rps-rule github-pat=2
@@ -834,10 +840,10 @@ betterleaks dir . \
 betterleaks git . --redact
 
 # show clipped context
-betterleaks dir . --match-context 5L,40C
+betterleaks filesystem . --match-context 5L,40C
 
 # scan archives and decoded content together
-betterleaks dir ./artifacts --max-archive-depth 2 --max-decode-depth 5
+betterleaks filesystem ./artifacts --max-archive-depth 2 --max-decode-depth 5
 ```
 
 ---

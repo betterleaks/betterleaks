@@ -224,8 +224,12 @@ func TestScanOutputFlags(t *testing.T) {
 
 func TestDeprecatedScanCommandsRemoved(t *testing.T) {
 	for _, command := range []string{"detect", "protect"} {
-		_, err := parseCLIForTest(t, command)
-		require.Error(t, err)
+		// Removed command names are now ordinary paths for the filesystem shorthand.
+		cli, parser := newCLIParserForTest(t)
+		parsed, err := parser.Parse([]string{command})
+		require.NoError(t, err)
+		require.Equal(t, "filesystem <path>", parsed.Command())
+		require.Equal(t, []string{command}, cli.Directory.Paths)
 	}
 }
 
