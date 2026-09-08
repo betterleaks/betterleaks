@@ -16,12 +16,12 @@ Development is supported by
 | :--- | :--- |
 | **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. |
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using Expr. |
-| **Credential Analysis** | Enrich valid credentials with provider-neutral identity, account, capability, and severity information. |
-| **Secret Fingerprints** | Suppress reviewed secret values globally with exact SHA-256 entries in `.betterleaksignore`. |
-| **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
+| **Secrets Analysis** | Enrich valid credentials with provider-neutral identity, account, capability, and severity information. |
+| **BPE filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
+| **Secrets Fingerprints** | Suppress reviewed secret values globally with exact SHA-256 entries in `.betterleaksignore`. |
 
 
 ### Installation
