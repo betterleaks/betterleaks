@@ -205,6 +205,12 @@ betterleaks git . --include=tag-messages
 
 # scan both kinds of messages alongside file history
 betterleaks git . --include=commit-messages,tag-messages
+
+# also scan local reflog messages and the history retained by reflogs
+betterleaks git . --include=reflogs
+
+# include commit messages from that expanded history too
+betterleaks git . --include=reflogs,commit-messages
 ```
 
 `--include=commit-messages` adds message scanning to the default patch scan.
@@ -232,11 +238,27 @@ the same annotation are scanned once. Tagger identity appears in
 Line numbers are relative to the message, and there is no file path. GitHub,
 GitLab, and Gitea links point to the tag page when a direct tag ref is available.
 
+`--include=reflogs` adds commits referenced by local reflogs to the history
+selection. This can recover coverage of commits abandoned by amend, reset, or
+rebase. Git traverses the combined selection once, so overlapping refs and
+reflog entries do not duplicate commit scans. `--log-opts` limits and revision
+exclusions apply to that combined history. Add `commit-messages` to scan the
+full messages of those commits as well.
+
+The same option scans the entry messages exposed by Git's reflog walk as
+`resource=git.reflog_message`, independently of `--log-opts`. Findings carry
+`git.reflog_ref`, a timestamp-based `git.reflog_selector`, and the ref updater's
+identity in `git.reflog_actor_name` and `git.reflog_actor_email`. `git.date` is
+the reflog entry time, and `git.sha` identifies its referenced commit. Each
+entry is a separate resource, including entries for the same action in HEAD
+and a branch reflog. Message line numbers start at one, and these local records
+have no file path or web link. Reflog scanning stays within the `--jobs` limit.
+
 Reports show only the first line of `git.message` for these resources, appending
 `...` when further message text is omitted. The full message remains available
 for scanning and filtering.
 
-Message inclusion applies to repository history scans; it cannot be
+These additional resources apply to repository history scans; they cannot be
 combined with `--pre-commit` or `--staged`.
 
 ---

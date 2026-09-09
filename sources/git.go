@@ -37,7 +37,8 @@ type Git struct {
 	RepoPath string
 	LogOpts  string
 	// Include adds resources to the default patch scan. Supported values:
-	// commit-messages, tag-messages. Additional resources require RepoPath rather than Cmd.
+	// commit-messages, tag-messages, reflogs. Additional resources require
+	// RepoPath rather than Cmd.
 	Include []string
 
 	ShouldSkip      SkipFunc
@@ -55,13 +56,14 @@ type Git struct {
 const (
 	GitResourceTypeCommitMessages = "commit-messages"
 	GitResourceTypeTagMessages    = "tag-messages"
+	GitResourceTypeReflogs        = "reflogs"
 )
 
 // Validate checks additional Git resource selections before starting a scan.
 func (s *Git) Validate() error {
 	for _, name := range s.Include {
-		if name != GitResourceTypeCommitMessages && name != GitResourceTypeTagMessages {
-			return fmt.Errorf("unknown Git resource type %q (supported: commit-messages, tag-messages)", name)
+		if name != GitResourceTypeCommitMessages && name != GitResourceTypeTagMessages && name != GitResourceTypeReflogs {
+			return fmt.Errorf("unknown Git resource type %q (supported: commit-messages, tag-messages, reflogs)", name)
 		}
 	}
 	if len(s.Include) > 0 && s.Cmd != nil {
@@ -81,6 +83,13 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 		if err := s.fragmentsFromRepo(ctx, yield); err != nil {
 			return err
+		}
+		if slices.Contains(s.Include, GitResourceTypeReflogs) {
+			if err := s.budget.run(ctx, func() error {
+				return s.fragmentsFromReflogs(ctx, yield)
+			}); err != nil {
+				return err
+			}
 		}
 		if slices.Contains(s.Include, GitResourceTypeTagMessages) {
 			return s.budget.run(ctx, func() error {
@@ -103,7 +112,8 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 	repoSource.Jobs = jobs
 
 	includeMessages := slices.Contains(s.Include, GitResourceTypeCommitMessages)
-	if historyJobs <= 1 && !includeMessages {
+	includeReflogs := slices.Contains(s.Include, GitResourceTypeReflogs)
+	if historyJobs <= 1 && !includeMessages && !includeReflogs {
 		return s.budget.run(ctx, func() error {
 			return repoSource.runFullHistory(ctx, yield)
 		})
@@ -112,7 +122,7 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 	var commits []string
 	err := s.budget.run(ctx, func() error {
 		var err error
-		commits, err = listCommits(ctx, s.RepoPath, s.LogOpts)
+		commits, err = listCommits(ctx, s.RepoPath, s.LogOpts, includeReflogs)
 		return err
 	})
 	if err != nil {
@@ -123,7 +133,7 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 	}
 
 	workers := min(historyJobs, len(commits))
-	if workers == 1 && !includeMessages {
+	if workers == 1 && !includeMessages && !includeReflogs {
 		return s.budget.run(ctx, func() error {
 			return repoSource.runFullHistory(ctx, yield)
 		})
@@ -441,6 +451,102 @@ func readGitTagMessage(reader *bufio.Reader) (Fragment, string, error) {
 		nestedTag = target
 	}
 	return Fragment{Raw: message, StartLine: 1, Attributes: attrs}, nestedTag, nil
+}
+
+// fragmentsFromReflogs scans the entry messages exposed by Git's reflog walk.
+// These are separate records from commit messages, with the ref updater's
+// identity and timestamp. LogOpts selects commit history, not entry messages.
+func (s *Git) fragmentsFromReflogs(ctx context.Context, yield FragmentsFunc) (scanErr error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", s.RepoPath, "log",
+		"--walk-reflogs", "--all", "--no-patch", "--no-color", "--no-decorate",
+		"--no-notes", "--no-show-signature", "-z", "--date=raw",
+		"--format=%H%x00%gD%x00%gn%x00%ge%x00%gs")
+	cmd.Env = gitConfigIsolationEnv()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	defer func() {
+		if scanErr != nil {
+			cancel()
+		}
+		waitErr := cmd.Wait()
+		if scanErr == nil && waitErr != nil {
+			scanErr = fmt.Errorf("read Git reflogs: %w", waitErr)
+		}
+		if scanErr != nil && stderr.Len() > 0 {
+			scanErr = fmt.Errorf("%w: %s", scanErr, strings.TrimSpace(stderr.String()))
+		}
+	}()
+
+	reader := bufio.NewReader(stdout)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		fragment, err := readGitReflogMessage(reader)
+		if err == io.EOF {
+			return ctx.Err()
+		}
+		if err != nil {
+			return fmt.Errorf("read Git reflog entry: %w", err)
+		}
+		if s.RemoteURL != "" {
+			fragment.SetAttr(AttrGitRemoteURL, s.RemoteURL)
+			fragment.SetAttr(AttrGitPlatform, s.Platform.String())
+		}
+		if fragment.Raw == "" || shouldSkipAttrs(s.ShouldSkip, fragment.Attributes) {
+			continue
+		}
+		if err := yield(fragment, nil); err != nil {
+			return err
+		}
+	}
+}
+
+func readGitReflogMessage(reader *bufio.Reader) (Fragment, error) {
+	// Git normalizes reflog messages as C strings. NUL framing separates
+	// fields without treating tabs, newlines, or long messages as records.
+	var fields [5]string
+	for i := range fields {
+		value, err := reader.ReadString(0)
+		if err != nil {
+			if err == io.EOF && (i > 0 || len(value) > 0) {
+				err = io.ErrUnexpectedEOF
+			}
+			return Fragment{}, err
+		}
+		fields[i] = strings.TrimSuffix(value, "\x00")
+	}
+	selector := fields[1]
+	dateStart := strings.LastIndex(selector, "@{")
+	if fields[0] == "" || dateStart <= 0 || !strings.HasSuffix(selector, "}") {
+		return Fragment{}, fmt.Errorf("invalid reflog selector %q", selector)
+	}
+	// %gD with --date=raw contains the reflog timestamp. Commit date
+	// placeholders would incorrectly report the referenced commit's date.
+	date, err := gitdiff.ParsePatchDate(selector[dateStart+2 : len(selector)-1])
+	if err != nil {
+		return Fragment{}, fmt.Errorf("parse reflog date: %w", err)
+	}
+	attrs := map[string]string{
+		AttrResource:            ResourceGitReflogMessage,
+		AttrGitSHA:              fields[0],
+		AttrGitReflogSelector:   selector,
+		AttrGitReflogRef:        selector[:dateStart],
+		AttrGitReflogActorName:  fields[2],
+		AttrGitReflogActorEmail: fields[3],
+		AttrGitDate:             date.UTC().Format(time.RFC3339),
+		AttrGitMessage:          fields[4],
+	}
+	return Fragment{Raw: fields[4], StartLine: 1, Attributes: attrs}, nil
 }
 
 func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *GitCmd) error {
@@ -1089,9 +1195,14 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, l
 }
 
 // listCommits returns the commits selected by logOpts in deterministic order.
-func listCommits(ctx context.Context, source string, logOpts string) ([]string, error) {
+// Reflog roots join the same walk as ordinary refs, so Git visits each commit
+// once even when multiple refs and reflog entries refer to it.
+func listCommits(ctx context.Context, source string, logOpts string, includeReflogs bool) ([]string, error) {
 	sourceClean := filepath.Clean(source)
 	args := []string{"-C", sourceClean, "rev-list"}
+	if includeReflogs {
+		args = append(args, "--reflog")
+	}
 
 	if logOpts != "" {
 		userArgs, err := splitGitLogOpts(logOpts)

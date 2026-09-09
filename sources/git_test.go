@@ -152,11 +152,12 @@ func newGitTestRepo(t *testing.T, commits int) string {
 	return repo
 }
 
-func runGitTestCommand(t *testing.T, repo string, args ...string) {
+func runGitTestCommand(t *testing.T, repo string, args ...string) string {
 	t.Helper()
 	cmdArgs := append([]string{"-C", repo}, args...)
 	output, err := exec.Command("git", cmdArgs...).CombinedOutput()
 	require.NoError(t, err, string(output))
+	return strings.TrimSpace(string(output))
 }
 
 func TestGitCancellationPreservesPendingStderr(t *testing.T) {
@@ -577,6 +578,160 @@ func TestGitTagMessagesWithoutAnnotations(t *testing.T) {
 				require.NotEqual(t, ResourceGitTagMessage, f.Attr(AttrResource))
 				return err
 			}))
+		}
+	}
+}
+
+func TestGitReflogsCoverage(t *testing.T) {
+	repo := newGitTestRepo(t, 1)
+	base := runGitTestCommand(t, repo, "rev-parse", "HEAD")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "lost.txt"), []byte("secret-reset\n"), 0600))
+	runGitTestCommand(t, repo, "add", ".")
+	runGitTestCommand(t, repo, "commit", "-qm", "old subject\n\nsecret-body")
+	original := runGitTestCommand(t, repo, "rev-parse", "HEAD")
+	runGitTestCommand(t, repo, "commit", "--amend", "-qm", "amended subject")
+	amended := runGitTestCommand(t, repo, "rev-parse", "HEAD")
+	cmd := exec.Command("git", "-C", repo, "-c", "user.name=Reflog Actor", "-c", "user.email=actor@example.com", "reset", "--hard", base)
+	cmd.Env = append(gitConfigIsolationEnv(), "GIT_REFLOG_ACTION=secret-reflog", "GIT_COMMITTER_DATE=2001-02-03T04:05:06+00:00")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", out)
+
+	for _, jobs := range []int{1, 2, 0} {
+		for _, test := range []struct {
+			name, logOpts                         string
+			include                               []string
+			wantPatches, wantCommits, wantReflogs int
+		}{
+			{name: "default", wantPatches: 1},
+			{name: "commit messages", include: []string{GitResourceTypeCommitMessages}, wantPatches: 1, wantCommits: 1},
+			{name: "reflogs", include: []string{GitResourceTypeReflogs}, wantPatches: 3, wantReflogs: 8},
+			{name: "both", include: []string{GitResourceTypeReflogs, GitResourceTypeCommitMessages}, wantPatches: 3, wantCommits: 3, wantReflogs: 8},
+			{name: "duplicate include", include: []string{GitResourceTypeReflogs, GitResourceTypeReflogs}, wantPatches: 3, wantReflogs: 8},
+			{name: "limited history", logOpts: "--all --max-count=1", include: []string{GitResourceTypeReflogs, GitResourceTypeCommitMessages}, wantPatches: 1, wantCommits: 1, wantReflogs: 8},
+			{name: "empty history", logOpts: "--all --max-count=0", include: []string{GitResourceTypeReflogs, GitResourceTypeCommitMessages}, wantReflogs: 8},
+			{name: "excluded history", logOpts: "--all ^" + original + " ^" + amended, include: []string{GitResourceTypeReflogs}, wantReflogs: 8},
+		} {
+			t.Run(fmt.Sprintf("jobs=%d/%s", jobs, test.name), func(t *testing.T) {
+				var mu sync.Mutex
+				var fragments []Fragment
+				source := &Git{RepoPath: repo, Jobs: jobs, Include: test.include, LogOpts: test.logOpts}
+				require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+					mu.Lock()
+					defer mu.Unlock()
+					fragments = append(fragments, f)
+					return err
+				}))
+				patches, commits := make(map[string]bool), make(map[string]bool)
+				reflogs, actions := 0, 0
+				for _, f := range fragments {
+					switch f.Attr(AttrResource) {
+					case ResourceGitPatchContent:
+						key := f.Attr(AttrGitSHA) + ":" + f.Attr(AttrPath)
+						require.NotContains(t, patches, key, "history must deduplicate overlapping refs and reflogs")
+						patches[key] = true
+					case ResourceGitCommitMessage:
+						require.NotContains(t, commits, f.Attr(AttrGitSHA))
+						commits[f.Attr(AttrGitSHA)] = true
+						if f.Attr(AttrGitSHA) == original {
+							require.Contains(t, f.Raw, "secret-body")
+						}
+					case ResourceGitReflogMessage:
+						reflogs++
+						require.Equal(t, 1, f.StartLine)
+						require.Equal(t, f.Raw, f.Attr(AttrGitMessage))
+						require.NotEmpty(t, f.Attr(AttrGitReflogSelector))
+						require.NotEmpty(t, f.Attr(AttrGitReflogRef))
+						require.NotContains(t, f.Attributes, AttrGitAuthorName)
+						require.NotContains(t, f.Attributes, AttrPath)
+						if strings.Contains(f.Raw, "secret-reflog") {
+							actions++
+							require.Equal(t, base, f.Attr(AttrGitSHA))
+							require.Equal(t, "Reflog Actor", f.Attr(AttrGitReflogActorName))
+							require.Equal(t, "actor@example.com", f.Attr(AttrGitReflogActorEmail))
+							require.Equal(t, "2001-02-03T04:05:06Z", f.Attr(AttrGitDate))
+						}
+					default:
+						t.Fatalf("unexpected resource %q", f.Attr(AttrResource))
+					}
+				}
+				require.Len(t, patches, test.wantPatches)
+				require.Len(t, commits, test.wantCommits)
+				require.Equal(t, test.wantReflogs, reflogs)
+				if test.wantReflogs > 0 {
+					require.Equal(t, 2, actions, "HEAD and the branch have separate reflog entries")
+				}
+				if test.wantPatches == 3 {
+					require.Contains(t, patches, original+":lost.txt")
+					require.Contains(t, patches, amended+":lost.txt")
+				}
+			})
+		}
+	}
+}
+
+func TestGitReflogsFilteringAndStop(t *testing.T) {
+	repo := newGitTestRepo(t, 2)
+	source := &Git{RepoPath: repo, Jobs: 1, Include: []string{GitResourceTypeReflogs}}
+	source.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitReflogMessage }
+	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+		require.NotEqual(t, ResourceGitReflogMessage, f.Attr(AttrResource))
+		return err
+	}))
+	source.ShouldSkip = nil
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	stop := errors.New("stop on reflog")
+	err := source.Fragments(ctx, func(f Fragment, err error) error {
+		if f.Attr(AttrResource) == ResourceGitReflogMessage {
+			return stop
+		}
+		return err
+	})
+	require.ErrorIs(t, err, stop)
+	require.NoError(t, ctx.Err(), "reflog reader must stop promptly after callback failure")
+	err = source.Fragments(ctx, func(f Fragment, err error) error {
+		if f.Attr(AttrResource) == ResourceGitReflogMessage {
+			cancel()
+		}
+		return err
+	})
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestGitReflogMessageFraming(t *testing.T) {
+	message := "update: " + strings.Repeat("body\t", 20000) + "\nsecond line"
+	record := "abc\x00HEAD@{981173106 +0230}\x00Actor\x00actor@example.com\x00" + message + "\x00"
+	reader := bufio.NewReader(strings.NewReader(record + record))
+	for range 2 {
+		f, err := readGitReflogMessage(reader)
+		require.NoError(t, err)
+		require.Equal(t, message, f.Raw)
+		require.Equal(t, "abc", f.Attr(AttrGitSHA))
+		require.Equal(t, "HEAD", f.Attr(AttrGitReflogRef))
+		require.Equal(t, "2001-02-03T04:05:06Z", f.Attr(AttrGitDate))
+	}
+	_, err := readGitReflogMessage(reader)
+	require.ErrorIs(t, err, io.EOF)
+	for _, input := range []string{"abc", "abc\x00", strings.TrimSuffix(record, "\x00"), "abc\x00HEAD@{bad}\x00Actor\x00email\x00message\x00", "abc\x00HEAD\x00Actor\x00email\x00message\x00"} {
+		_, err := readGitReflogMessage(bufio.NewReader(strings.NewReader(input)))
+		require.Error(t, err)
+		require.NotErrorIs(t, err, io.EOF, "partial records must not be treated as a completed stream")
+	}
+}
+
+func TestGitWithoutReflogs(t *testing.T) {
+	for _, commits := range []int{0, 1} {
+		repo := newGitTestRepo(t, commits)
+		runGitTestCommand(t, repo, "reflog", "expire", "--expire=all", "--all")
+		for _, jobs := range []int{1, 2} {
+			patches := 0
+			source := &Git{RepoPath: repo, Jobs: jobs, Include: []string{GitResourceTypeReflogs}}
+			require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+				require.Equal(t, ResourceGitPatchContent, f.Attr(AttrResource))
+				patches++
+				return err
+			}))
+			require.Equal(t, commits, patches)
 		}
 	}
 }
