@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/betterleaks/betterleaks/config"
 	"github.com/betterleaks/betterleaks/detect"
 	"github.com/betterleaks/betterleaks/logging"
 	"github.com/betterleaks/betterleaks/sources"
@@ -26,6 +27,12 @@ var directoryCmd = &cobra.Command{
 }
 
 func runDirectory(cmd *cobra.Command, args []string) {
+	// A directory scan can receive thousands of individual file paths. Keep
+	// config discovery per source, but reuse each resolved config for the
+	// duration of this invocation.
+	configCache = make(map[string]*config.Config)
+	defer func() { configCache = nil }()
+
 	sourcesList := args
 	if len(sourcesList) == 0 {
 		sourcesList = []string{"."}
