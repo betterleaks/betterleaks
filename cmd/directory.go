@@ -40,7 +40,10 @@ func runDirectory(cmd *cobra.Command, args []string) {
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
 	exitCode := mustGetIntFlag(cmd, "exit-code")
-	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
+	findings, collectorErr := newFindingCollector(cmd)
+	if collectorErr != nil {
+		logging.Fatal().Err(collectorErr).Msg("failed to configure report")
+	}
 
 	var (
 		lastDetector *detect.Detector
@@ -56,7 +59,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		lastDetector = detector
 
 		s := &sources.Files{
-			ShouldSkip:      detector.SkipFunc(),
+			ShouldSkip:      findings.FileScanSkipFunc(detector.SkipFunc()),
 			FollowSymlinks:  followSymlinks,
 			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
 			Path:            source,

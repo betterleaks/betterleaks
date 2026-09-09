@@ -1,9 +1,11 @@
 package report
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -82,4 +84,74 @@ func TestWriteJSON(t *testing.T) {
 			assert.Equal(t, wantJSON, gotJSON)
 		})
 	}
+}
+
+func TestJSONFindingWriterStreams(t *testing.T) {
+	var output bytes.Buffer
+	reporter := JsonReporter{}
+	w, err := reporter.NewWriter(&output)
+	require.NoError(t, err)
+
+	first := simpleFinding
+	first.RuleID = "first"
+	require.NoError(t, w.WriteFinding(first))
+	assert.Contains(t, output.String(), `"RuleID": "first"`)
+
+	second := simpleFinding
+	second.RuleID = "second"
+	require.NoError(t, w.WriteFinding(second))
+	require.NoError(t, w.Close())
+
+	var got []Finding
+	require.NoError(t, json.Unmarshal(output.Bytes(), &got))
+	require.Len(t, got, 2)
+	assert.Equal(t, "first", got[0].RuleID)
+	assert.Equal(t, "second", got[1].RuleID)
+}
+
+func TestJSONFindingWriterEmptyReport(t *testing.T) {
+	var output bytes.Buffer
+	w, err := (&JsonReporter{}).NewWriter(&output)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	assert.Equal(t, "[]\n", output.String())
+}
+
+func TestWriteJSONL(t *testing.T) {
+	first := simpleFinding
+	first.RuleID = "first"
+	first.Secret = "one"
+	second := simpleFinding
+	second.RuleID = "second"
+	second.Secret = "two"
+	findings := []Finding{first, second}
+	var output bytes.Buffer
+	require.NoError(t, (&JsonlReporter{}).Write(testWriter{&output}, findings))
+
+	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
+	require.Len(t, lines, 2)
+	for i, line := range lines {
+		var got Finding
+		require.NoError(t, json.Unmarshal([]byte(line), &got))
+		assert.Equal(t, findings[i].RuleID, got.RuleID)
+		assert.Equal(t, findings[i].Secret, got.Secret)
+	}
+}
+
+func TestWriteEmptyJSONL(t *testing.T) {
+	var output bytes.Buffer
+	require.NoError(t, (&JsonlReporter{}).Write(testWriter{&output}, nil))
+	assert.Empty(t, output.String())
+}
+
+func TestWriteJSONLWithEmbeddedNewlines(t *testing.T) {
+	finding := simpleFinding
+	finding.Message = "first line\nsecond line\nthird line"
+	var output bytes.Buffer
+	require.NoError(t, (&JsonlReporter{}).Write(testWriter{&output}, []Finding{finding}))
+	require.Equal(t, 1, strings.Count(output.String(), "\n"))
+
+	var got Finding
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(output.String())), &got))
+	assert.Equal(t, finding.Message, got.Message)
 }

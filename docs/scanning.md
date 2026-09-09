@@ -66,9 +66,20 @@ betterleaks dir ./release-bundles --max-archive-depth 2
 # JSON report
 betterleaks dir . --report-path findings.json --report-format json
 
+# JSON Lines report (one finding per line)
+betterleaks dir . --report-path findings.jsonl --report-format jsonl
+
+# NDJSON is accepted as an alias (including the .ndjson extension)
+betterleaks dir . --report-path findings.ndjson --report-format ndjson
+
 # SARIF for code scanning platforms
 betterleaks dir . --report-path findings.sarif --report-format sarif
 ```
+
+JSON and JSONL reports stream findings as the scan runs. Filesystem scans exclude
+the streamed report file, including symlink and hard-link aliases. When streaming
+a report to stdout (`--report-path -`), verbose finding output is suppressed to
+keep the report parseable.
 
 ---
 
