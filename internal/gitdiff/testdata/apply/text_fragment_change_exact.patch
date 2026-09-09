@@ -1,0 +1,12 @@
+diff --git a/gitdiff/testdata/apply/text_fragment_change_exact.src b/gitdiff/testdata/apply/text_fragment_change_exact.src
+--- a/gitdiff/testdata/apply/text_fragment_change_exact.src
++++ b/gitdiff/testdata/apply/text_fragment_change_exact.src
+@@ -13,7 +13,7 @@ line
+ line
+ line
+ line
+-line
++new line a
+ line
+ line
+ line

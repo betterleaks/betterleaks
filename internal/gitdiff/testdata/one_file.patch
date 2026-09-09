@@ -1,0 +1,28 @@
+commit 5d9790fec7d95aa223f3d20936340bf55ff3dcbe
+Author: Morton Haypenny <mhaypenny@example.com>
+Date:   Tue Apr 2 22:55:40 2019 -0700
+
+    A file with multiple fragments.
+
+    The content is arbitrary.
+
+diff --git a/dir/file1.txt b/dir/file1.txt
+index ebe9fa54..fe103e1d 100644
+--- a/dir/file1.txt
++++ b/dir/file1.txt
+@@ -3,6 +3,8 @@ fragment 1
+ context line
+-old line 1
+-old line 2
+ context line
++new line 1
++new line 2
++new line 3
+ context line
+-old line 3
++new line 4
++new line 5
+@@ -31,2 +33,2 @@ fragment 2
+ context line
+-old line 4
++new line 6

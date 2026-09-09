@@ -1,0 +1,12 @@
+diff --git a/gitdiff/testdata/apply/text_fragment_error.src b/gitdiff/testdata/apply/text_fragment_error.src
+--- a/gitdiff/testdata/apply/text_fragment_error.src
++++ b/gitdiff/testdata/apply/text_fragment_error.src
+@@ -9,7 +9,7 @@ line 8
+ line 9
+ line 10
+ line 11
+-line 12
++new line a
+ line 13
+ line 14
+ line 15

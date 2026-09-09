@@ -1,0 +1,9 @@
+diff --git a/gitdiff/testdata/apply/text_fragment_change_start.src b/gitdiff/testdata/apply/text_fragment_change_start.src
+--- a/gitdiff/testdata/apply/text_fragment_change_start.src
++++ b/gitdiff/testdata/apply/text_fragment_change_start.src
+@@ -1,4 +1,4 @@
+-line 1
++new line a
+ line 2
+ line 3
+ line 4

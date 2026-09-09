@@ -1,21 +1,27 @@
 package sources
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/gitleaks/go-gitdiff/gitdiff"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
 )
 
 func TestGitRepoJobsHaveSameCoverage(t *testing.T) {
@@ -196,159 +202,135 @@ func TestWaitForGitWorkersReturnsGroupCancellation(t *testing.T) {
 	require.ErrorIs(t, waitForGitWorkers(g, groupCtx, nil), context.Canceled)
 }
 
-// TODO: commenting out this test for now because it's flaky. Alternatives to consider to get this working:
-// -- use `git stash` instead of `restore()`
+func TestGitStreamMatchesLegacy(t *testing.T) {
+	repo := newGitTestRepo(t, 1)
+	files := map[string]string{
+		"space name.txt":    "first\nsecond\nthird\nfourth\nfifth\nlast\n",
+		"quoted\"\t日本語.txt": "old without newline",
+		"large.txt":         strings.Repeat("ordinary content\n", 20000),
+		"binary.dat":        "\x00\x01\x02",
+	}
+	for name, content := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(repo, name), []byte(content), 0o600))
+	}
+	runGitTestCommand(t, repo, "add", ".")
+	runGitTestCommand(t, repo, "commit", "-qm", "multiple files\n\ncommit message body")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "space name.txt"), []byte("first\nchanged\nthird\nfourth\nfifth\nlast changed\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "quoted\"\t日本語.txt"), []byte("new without newline"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "large.txt"), []byte(strings.Repeat("x", 200000)+"\n"), 0o600))
+	runGitTestCommand(t, repo, "mv", "file-0.txt", "renamed.txt")
+	runGitTestCommand(t, repo, "add", ".")
+	runGitTestCommand(t, repo, "commit", "-qm", "edits and rename")
+	runGitTestCommand(t, repo, "rm", "space name.txt")
+	runGitTestCommand(t, repo, "commit", "-qm", "delete")
 
-// const repoBasePath = "../../testdata/repos/"
+	for _, opts := range []string{"", "--all -U3", "--all --format=fuller", "--all --format=email", "--all --oneline", "--all --binary"} {
+		t.Run(opts, func(t *testing.T) {
+			legacy, err := NewGitLogCmdContext(t.Context(), repo, opts)
+			require.NoError(t, err)
+			collect := func(source *Git) []Fragment {
+				var mu sync.Mutex
+				var fragments []Fragment
+				require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
+					if err != nil {
+						return err
+					}
+					mu.Lock()
+					fragments = append(fragments, fragment)
+					mu.Unlock()
+					return nil
+				}))
+				return fragments
+			}
+			want := collect(&Git{Cmd: legacy, Jobs: 1})
+			got := collect(&Git{RepoPath: repo, LogOpts: opts, Jobs: 1})
+			require.Equal(t, want, got)
+			if opts == "" {
+				require.ElementsMatch(t, want, collect(&Git{RepoPath: repo, Jobs: 2}))
+			}
+		})
+	}
+}
 
-// const expectPath = "../../testdata/expected/"
+func TestGitStreamCallbackFailureStopsCommand(t *testing.T) {
+	repo := newGitTestRepo(t, 4)
+	want := errors.New("stop scan")
+	for _, jobs := range []int{1, 2} {
+		err := (&Git{RepoPath: repo, Jobs: jobs}).Fragments(t.Context(), func(Fragment, error) error { return want })
+		require.ErrorIs(t, err, want)
+	}
+}
 
-// func TestGitLog(t *testing.T) {
-// 	tests := []struct {
-// 		source   string
-// 		logOpts  string
-// 		expected string
-// 	}{
-// 		{
-// 			source:   filepath.Join(repoBasePath, "small"),
-// 			expected: filepath.Join(expectPath, "git", "small.txt"),
-// 		},
-// 		{
-// 			source:   filepath.Join(repoBasePath, "small"),
-// 			expected: filepath.Join(expectPath, "git", "small-branch-foo.txt"),
-// 			logOpts:  "--all foo...",
-// 		},
-// 	}
+func TestGitStreamReportsCommandFailure(t *testing.T) {
+	repo := newGitTestRepo(t, 1)
+	err := (&Git{RepoPath: repo, LogOpts: "invalid-revision", Jobs: 1}).Fragments(t.Context(), func(Fragment, error) error { return nil })
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr)
+}
 
-// 	err := moveDotGit("dotGit", ".git")
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	defer func() {
-// 		if err = moveDotGit(".git", "dotGit"); err != nil {
-// 			t.Fatal(err)
-// 		}
-// 	}()
+func TestGitStreamOmitsCleanupSignal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix signal exit status")
+	}
+	for _, withStderr := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stderr=%t", withStderr), func(t *testing.T) {
+			// Keep Git alive waiting for stdin while the supplied patch fails.
+			// This makes the cleanup kill deterministic without sleeps.
+			cmd := exec.CommandContext(t.Context(), "git", "hash-object", "--stdin")
+			stdin, err := cmd.StdinPipe()
+			require.NoError(t, err)
+			defer stdin.Close()
+			require.NoError(t, cmd.Start())
+			stderrErr := errors.New("git stderr")
+			errCh := make(chan error, 1)
+			if withStderr {
+				errCh <- stderrErr
+			}
+			close(errCh)
+			source := &Git{Cmd: &GitCmd{
+				cmd: cmd, stdout: strings.NewReader("diff --git malformed\n"), errCh: errCh,
+			}}
+			err = source.Fragments(t.Context(), func(Fragment, error) error { return nil })
+			require.ErrorContains(t, err, "invalid Git file header")
+			require.ErrorContains(t, err, "missing filename information")
+			require.NotContains(t, err.Error(), "signal:")
+			var exitErr *exec.ExitError
+			require.False(t, errors.As(err, &exitErr))
+			if withStderr {
+				require.ErrorIs(t, err, stderrErr)
+			} else {
+				require.NotContains(t, err.Error(), "\n")
+			}
+		})
+	}
+}
 
-// 	for _, tt := range tests {
-// 		files, err := git.GitLog(tt.source, tt.logOpts)
-// 		if err != nil {
-// 			t.Error(err)
-// 		}
-
-// 		var diffSb strings.Builder
-// 		for f := range files {
-// 			for _, tf := range f.TextFragments {
-// 				diffSb.WriteString(tf.Raw(gitdiff.OpAdd))
-// 			}
-// 		}
-
-// 		expectedBytes, err := os.ReadFile(tt.expected)
-// 		if err != nil {
-// 			t.Error(err)
-// 		}
-// 		expected := string(expectedBytes)
-// 		if expected != diffSb.String() {
-// 			// write string builder to .got file using os.Create
-// 			err = os.WriteFile(strings.Replace(tt.expected, ".txt", ".got.txt", 1), []byte(diffSb.String()), 0644)
-// 			if err != nil {
-// 				t.Error(err)
-// 			}
-// 			t.Error("expected: ", expected, "got: ", diffSb.String())
-// 		}
-// 	}
-// }
-
-// func TestGitDiff(t *testing.T) {
-// 	tests := []struct {
-// 		source    string
-// 		expected  string
-// 		additions string
-// 		target    string
-// 	}{
-// 		{
-// 			source:    filepath.Join(repoBasePath, "small"),
-// 			expected:  "this line is added\nand another one",
-// 			additions: "this line is added\nand another one",
-// 			target:    filepath.Join(repoBasePath, "small", "main.go"),
-// 		},
-// 	}
-
-// 	err := moveDotGit("dotGit", ".git")
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	defer func() {
-// 		if err = moveDotGit(".git", "dotGit"); err != nil {
-// 			t.Fatal(err)
-// 		}
-// 	}()
-
-// 	for _, tt := range tests {
-// 		noChanges, err := os.ReadFile(tt.target)
-// 		if err != nil {
-// 			t.Error(err)
-// 		}
-// 		err = os.WriteFile(tt.target, []byte(tt.additions), 0644)
-// 		if err != nil {
-// 			restore(tt.target, noChanges, t)
-// 			t.Error(err)
-// 		}
-
-// 		files, err := git.GitDiff(tt.source, false)
-// 		if err != nil {
-// 			restore(tt.target, noChanges, t)
-// 			t.Error(err)
-// 		}
-
-// 		for f := range files {
-// 			sb := strings.Builder{}
-// 			for _, tf := range f.TextFragments {
-// 				sb.WriteString(tf.Raw(gitdiff.OpAdd))
-// 			}
-// 			if sb.String() != tt.expected {
-// 				restore(tt.target, noChanges, t)
-// 				t.Error("expected: ", tt.expected, "got: ", sb.String())
-// 			}
-// 		}
-// 		restore(tt.target, noChanges, t)
-// 	}
-// }
-
-// func restore(path string, data []byte, t *testing.T) {
-// 	err := os.WriteFile(path, data, 0644)
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// }
-
-// func moveDotGit(from, to string) error {
-// 	repoDirs, err := os.ReadDir("../../testdata/repos")
-// 	if err != nil {
-// 		return err
-// 	}
-// 	for _, dir := range repoDirs {
-// 		if to == ".git" {
-// 			_, err := os.Stat(fmt.Sprintf("%s/%s/%s", repoBasePath, dir.Name(), "dotGit"))
-// 			if os.IsNotExist(err) {
-// 				// dont want to delete the only copy of .git accidentally
-// 				continue
-// 			}
-// 			os.RemoveAll(fmt.Sprintf("%s/%s/%s", repoBasePath, dir.Name(), ".git"))
-// 		}
-// 		if !dir.IsDir() {
-// 			continue
-// 		}
-// 		_, err := os.Stat(fmt.Sprintf("%s/%s/%s", repoBasePath, dir.Name(), from))
-// 		if os.IsNotExist(err) {
-// 			continue
-// 		}
-
-// 		err = os.Rename(fmt.Sprintf("%s/%s/%s", repoBasePath, dir.Name(), from),
-// 			fmt.Sprintf("%s/%s/%s", repoBasePath, dir.Name(), to))
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
-// 	return nil
-// }
+func TestGitStreamArchives(t *testing.T) {
+	repo := newGitTestRepo(t, 0)
+	var data bytes.Buffer
+	archive := zip.NewWriter(&data)
+	entry, err := archive.Create("inner.txt")
+	require.NoError(t, err)
+	_, err = io.WriteString(entry, "synthetic archive example\n")
+	require.NoError(t, err)
+	require.NoError(t, archive.Close())
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "archive.zip"), data.Bytes(), 0o600))
+	runGitTestCommand(t, repo, "add", ".")
+	runGitTestCommand(t, repo, "commit", "-qm", "archive")
+	for _, depth := range []int{0, 1} {
+		var fragments []Fragment
+		err := (&Git{RepoPath: repo, Jobs: 1, MaxArchiveDepth: depth}).Fragments(t.Context(), func(fragment Fragment, err error) error {
+			fragments = append(fragments, fragment)
+			return err
+		})
+		require.NoError(t, err)
+		if depth == 0 {
+			require.Empty(t, fragments)
+		} else {
+			require.Len(t, fragments, 1)
+			require.Equal(t, "synthetic archive example\n", fragments[0].Raw)
+			require.Equal(t, "archive.zip"+InnerPathSeparator+"inner.txt", fragments[0].Attr(AttrPath))
+			require.NotEmpty(t, fragments[0].Attr(AttrGitSHA))
+		}
+	}
+}

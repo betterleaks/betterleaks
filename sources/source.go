@@ -34,6 +34,12 @@ func automaticJobs() int {
 	return max(runtime.GOMAXPROCS(0), 1)
 }
 
+func automaticGitJobs() int {
+	// Each history worker owns a Git process as well as a patch reader. Keep
+	// their memory and CPU overhead independent of the detector's CPU count.
+	return min(automaticJobs(), 4)
+}
+
 func automaticFileJobs() int {
 	processorJobs := automaticJobs()
 	return max(processorJobs, min(processorJobs*4, 40))

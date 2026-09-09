@@ -1,0 +1,62 @@
+diff --git a/gitdiff/testdata/apply/file_text.src b/gitdiff/testdata/apply/file_text.src
+--- a/gitdiff/testdata/apply/file_text.src
++++ b/gitdiff/testdata/apply/file_text.src
+@@ -1,4 +1,4 @@
+-this is line 1
++the first line is different
+ this is line 2
+ this is line 3
+ this is line 4
+@@ -17,10 +17,10 @@ this is line 16
+ this is line 17
+ this is line 18
+ this is line 19
++this line offsets all the line numbers!
+ this is line 20
+ this is line 21
+-this is line 22
+-this is line 23
++until here, now we're back on track!
+ this is line 24
+ this is line 25
+ this is line 26
+@@ -53,10 +53,10 @@ this is line 52
+ this is line 53
+ this is line 54
+ this is line 55
+-this is line 56
+-this is line 57
+-this is line 58
+-this is line 59
++once upon a time, a line
++  in a text
++    file
++  changed
+ this is line 60
+ this is line 61
+ this is line 62
+@@ -130,8 +130,8 @@ this is line 129
+ this is line 130
+ this is line 131
+ this is line 132
+-this is line 133
+-this is line 134
++this line was bad and has been removed
++this line was REDACTED and has been REDACTED
+ this is line 135
+ this is line 136
+ this is line 137
+@@ -161,12 +161,7 @@ this is line 160
+ this is line 161
+ this is line 162
+ this is line 163
+-this is line 164
+-this is line 165
+-this is line 166
+-this is line 167
+-this is line 168
+-this is line 169
++the number on the remaining lines is 5 ahead of their actual position in the file
+ this is line 170
+ this is line 171
+ this is line 172

@@ -9,7 +9,6 @@ require (
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/dlclark/regexp2 v1.11.5
 	github.com/expr-lang/expr v1.17.8
-	github.com/gitleaks/go-gitdiff v0.9.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-github/v72 v72.0.0
 	github.com/h2non/filetype v1.1.3

@@ -14,6 +14,7 @@ const (
 
 const (
 	maxAutomaticProviderJobs  = 4
+	maxAutomaticGitJobs       = 4
 	automaticFileJobsPerCPU   = 4
 	maxAutomaticFileJobs      = 40
 	automaticObjectJobsPerCPU = 2
@@ -51,7 +52,7 @@ func resolveJobPlan(configured int, profile jobProfile) jobPlan {
 	case streamJobProfile:
 		return jobPlan{Source: processorJobs, Detector: processorJobs}
 	case gitJobProfile:
-		return jobPlan{Source: processorJobs, Detector: processorJobs}
+		return jobPlan{Source: min(processorJobs, maxAutomaticGitJobs), Detector: processorJobs}
 	case providerJobProfile:
 		jobs := min(processorJobs, maxAutomaticProviderJobs)
 		return jobPlan{Source: jobs, Detector: jobs}

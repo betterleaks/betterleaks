@@ -1,0 +1,8 @@
+diff --git a/gitdiff/testdata/apply/text_fragment_change_single_noeol.src b/gitdiff/testdata/apply/text_fragment_change_single_noeol.src
+--- a/gitdiff/testdata/apply/text_fragment_change_single_noeol.src
++++ b/gitdiff/testdata/apply/text_fragment_change_single_noeol.src
+@@ -1 +1 @@
+-line 1
+\ No newline at end of file
++new line a
+\ No newline at end of file

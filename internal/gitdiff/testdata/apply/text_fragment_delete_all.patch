@@ -1,0 +1,8 @@
+diff --git a/gitdiff/testdata/apply/fragment_delete_all.src b/gitdiff/testdata/apply/fragment_delete_all.src
+--- a/gitdiff/testdata/apply/fragment_delete_all.src
++++ b/gitdiff/testdata/apply/fragment_delete_all.src
+@@ -1,4 +0,0 @@
+-line a
+-line b
+-line c
+-line d

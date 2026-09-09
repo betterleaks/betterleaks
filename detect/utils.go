@@ -143,6 +143,10 @@ func shannonEntropy(data string) (entropy float64) {
 
 // filter will dedupe and redact findings
 func (d *Detector) filter(findings []report.Finding) []report.Finding {
+	return d.filterIndexed(findings, newFindingIndex(findings))
+}
+
+func (d *Detector) filterIndexed(findings []report.Finding, index *findingIndex) []report.Finding {
 	// Collect every component finding's (rule, line, secret) identity so the
 	// corresponding top-level finding can be suppressed.
 	componentSet := make(map[string]struct{})
@@ -165,7 +169,7 @@ func (d *Detector) filter(findings []report.Finding) []report.Finding {
 			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
 			logTrace(d.logger, "skipping finding already used as a component", "rule_id", f.RuleID, "finding", redactedMatch)
 			include = false
-		} else if d.isSuppressedByHigherSpecificityFinding(f, findings) {
+		} else if d.isSuppressedByHigherSpecificityFinding(f, index) {
 			include = false
 		}
 
@@ -176,8 +180,49 @@ func (d *Detector) filter(findings []report.Finding) []report.Finding {
 	return retFindings
 }
 
-func (d *Detector) isSuppressedByHigherSpecificityFinding(f report.Finding, findings []report.Finding) bool {
-	for _, fPrime := range findings {
+// findingIndex limits specificity comparisons to owners with a primary or
+// component on the candidate's line. Component locations can differ from their
+// owner's location, so indexing only the primary would change suppression.
+type findingIndex struct {
+	findings []report.Finding
+	byLine   map[int][]int
+}
+
+func newFindingIndex(findings []report.Finding) *findingIndex {
+	index := &findingIndex{findings: findings}
+	for i := range findings {
+		index.add(i)
+	}
+	return index
+}
+
+func (index *findingIndex) add(i int) {
+	if index.byLine == nil {
+		index.byLine = make(map[int][]int)
+	}
+	addLine := func(line int) {
+		owners := index.byLine[line]
+		// An owner can have several components on the same line. Insert it
+		// once, preserving the original order of specificity comparisons.
+		if len(owners) == 0 || owners[len(owners)-1] != i {
+			index.byLine[line] = append(owners, i)
+		}
+	}
+	f := &index.findings[i]
+	addLine(f.Location.StartLine)
+	for _, set := range f.ComponentSets {
+		for _, component := range set.Components {
+			addLine(component.Location.StartLine)
+		}
+	}
+}
+
+func (d *Detector) isSuppressedByHigherSpecificityFinding(f report.Finding, index *findingIndex) bool {
+	if index == nil {
+		return false
+	}
+	for _, i := range index.byLine[f.Location.StartLine] {
+		fPrime := &index.findings[i]
 		if f.Location.StartLine == fPrime.Location.StartLine &&
 			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
 			f.RuleID != fPrime.RuleID &&

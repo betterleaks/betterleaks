@@ -21,7 +21,8 @@ betterleaks github https://github.com/my-company -j 8
 For filesystem scans, automatic mode uses four I/O jobs per `GOMAXPROCS`, capped at
 40 unless `GOMAXPROCS` itself is higher. Object sources use twice `GOMAXPROCS`.
 Both use `GOMAXPROCS` for detection. For Git history, automatic mode uses up to
-`GOMAXPROCS` parallel Git processes and the same number of detector jobs.
+four parallel Git processes (or `GOMAXPROCS` if lower), while detection still uses
+`GOMAXPROCS`. This limits concurrent patch buffers and Git process memory.
 Explicit values remain upper bounds: detection and Git process concurrency are
 capped at `GOMAXPROCS`, while provider target concurrency is capped at four.
 `-j 1` provides a serial baseline for benchmarking. Validation retains its own

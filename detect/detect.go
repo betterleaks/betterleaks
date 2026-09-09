@@ -978,6 +978,7 @@ func (d *Detector) detectFragmentWithState(ctx context.Context, fragment sources
 	}
 
 	findings := []report.Finding{}
+	priorFindings := &findingIndex{}
 
 	// setup variables to handle different decoding passes
 	currentRaw := fragment.Raw
@@ -1022,9 +1023,11 @@ ScanLoop:
 					if rule.Regex == nil && (currentDecodeDepth > 0 || fragment.Attr(sources.AttrFSFirstFragment) == "false") {
 						continue
 					}
-					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, findings) {
+					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings) {
 						if confidence.Meets(finding.Confidence, d.minimumConfidence) {
 							findings = append(findings, finding)
+							priorFindings.findings = findings
+							priorFindings.add(len(findings) - 1)
 						}
 					}
 				}
@@ -1050,7 +1053,7 @@ ScanLoop:
 			}
 		}
 	}
-	findings = d.filter(findings)
+	findings = d.filterIndexed(findings, priorFindings)
 	return findings
 }
 
@@ -1059,7 +1062,7 @@ func (d *Detector) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector
 	currentRaw string,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
-	priorFindings []report.Finding) []report.Finding {
+	priorFindings *findingIndex) []report.Finding {
 	if ruleTimings == nil {
 		return d.detectFragmentWithRule(nil, fragment, currentRaw, r, encodedSegments, priorFindings)
 	}
@@ -1104,7 +1107,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	currentRaw string,
 	r config.Rule,
 	encodedSegments []*codec.EncodedSegment,
-	priorFindings []report.Finding) []report.Finding {
+	priorFindings *findingIndex) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = d.logger
@@ -1261,7 +1264,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 		}
 
-		if len(priorFindings) > 0 && d.isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
+		if d.isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
 			continue
 		}
 

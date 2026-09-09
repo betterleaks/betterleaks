@@ -1,0 +1,2 @@
+# Expected binary/text output fixtures are test inputs, not compiled binaries.
+!*.out
