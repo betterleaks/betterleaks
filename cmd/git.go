@@ -97,7 +97,7 @@ func runGit(cmd *cobra.Command, args []string) {
 		if parseErr != nil {
 			logging.Fatal().Err(parseErr).Msg("could not read pre-receive input")
 		}
-		logArgs := sources.PreReceiveLogArgs(updates)
+		logArgs := sources.PreReceiveLogArgs(updates, sources.NewGitCommitResolver(cmd.Context(), source))
 		if len(logArgs) == 0 {
 			// Nothing to scan (e.g. only ref deletions). Report cleanly.
 			logging.Info().Msg("pre-receive: no new commits to scan")

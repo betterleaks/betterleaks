@@ -2,7 +2,10 @@ package sources
 
 import (
 	"bufio"
+	"context"
 	"io"
+	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -71,6 +74,12 @@ func ParsePreReceiveInput(r io.Reader) ([]PreReceiveRefUpdate, error) {
 	return updates, nil
 }
 
+// CommitResolver peels a ref object id to the commit it points at. It returns
+// the resolved commit id and true when the object is (or peels to) a commit,
+// and false when it does not — for example a tag that points directly at a
+// tree or blob, which has no commit history to scan.
+type CommitResolver func(oid string) (string, bool)
+
 // PreReceiveLogArgs converts ref updates into `git log` revision arguments that
 // select only the newly pushed commits.
 //
@@ -80,9 +89,14 @@ func ParsePreReceiveInput(r io.Reader) ([]PreReceiveRefUpdate, error) {
 //     single trailing "--not --all", which excludes every commit already
 //     reachable from an existing ref so only genuinely new commits are scanned.
 //
+// resolve peels each new value to a commit; ref updates whose new value does
+// not resolve to a commit (for example a tag pointing at a tree or blob) are
+// skipped so their object ids are never handed to `git log`. When resolve is
+// nil the new values are used verbatim.
+//
 // The returned slice is empty when there is nothing to scan (for example a
 // push that only deletes refs).
-func PreReceiveLogArgs(updates []PreReceiveRefUpdate) []string {
+func PreReceiveLogArgs(updates []PreReceiveRefUpdate, resolve CommitResolver) []string {
 	var (
 		args      []string
 		hasCreate bool
@@ -91,12 +105,24 @@ func PreReceiveLogArgs(updates []PreReceiveRefUpdate) []string {
 		if u.IsDelete() {
 			continue
 		}
+
+		newValue := u.NewValue
+		if resolve != nil {
+			commit, ok := resolve(u.NewValue)
+			if !ok {
+				// The pushed ref does not point at a commit; there is no
+				// history to scan.
+				continue
+			}
+			newValue = commit
+		}
+
 		if u.IsCreate() {
-			args = append(args, u.NewValue)
+			args = append(args, newValue)
 			hasCreate = true
 			continue
 		}
-		args = append(args, u.OldValue+".."+u.NewValue)
+		args = append(args, u.OldValue+".."+newValue)
 	}
 	if hasCreate {
 		// Exclude commits already present in the repository so a newly created
@@ -104,4 +130,27 @@ func PreReceiveLogArgs(updates []PreReceiveRefUpdate) []string {
 		args = append(args, "--not", "--all")
 	}
 	return args
+}
+
+// NewGitCommitResolver returns a CommitResolver backed by `git rev-parse` in
+// the given repository. An object id resolves when it peels to a commit
+// (`<oid>^{commit}`), which handles both plain commits and annotated tags that
+// target a commit. Tags that point directly at a tree or blob do not peel and
+// are reported as non-commits.
+func NewGitCommitResolver(ctx context.Context, repoPath string) CommitResolver {
+	sourceClean := filepath.Clean(repoPath)
+	return func(oid string) (string, bool) {
+		cmd := exec.CommandContext(ctx, "git", "-C", sourceClean,
+			"rev-parse", "--verify", "--quiet", oid+"^{commit}")
+		cmd.Env = gitConfigIsolationEnv()
+		out, err := cmd.Output()
+		if err != nil {
+			return "", false
+		}
+		commit := strings.TrimSpace(string(out))
+		if commit == "" {
+			return "", false
+		}
+		return commit, true
+	}
 }

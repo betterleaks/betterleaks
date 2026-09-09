@@ -111,6 +111,8 @@ which makes Git reject the push.
 - Updated refs are scanned as the `<old>..<new>` range.
 - Newly created refs are scanned excluding history already in the repository
   (so a new branch or tag is not re-scanned back to the root commit).
+- Annotated tags are peeled to the commit they target; refs that do not point
+  at a commit (for example a tag on a blob or tree) are skipped.
 - Deleted refs contribute nothing; a push that only deletes refs is allowed.
 
 `--pre-receive` cannot be combined with `--pre-commit`, `--staged`, or
