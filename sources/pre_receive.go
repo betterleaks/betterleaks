@@ -111,10 +111,13 @@ type CommitResolver func(oid string) (string, bool)
 //     single trailing "--not --all", which excludes every commit already
 //     reachable from an existing ref so only genuinely new commits are scanned.
 //
-// resolve peels each new value to a commit; ref updates whose new value does
-// not resolve to a commit (for example a tag pointing at a tree or blob) are
-// skipped so their object ids are never handed to `git log`. When resolve is
-// nil the new values are used verbatim.
+// resolve peels each old and new value to a commit. Ref updates whose new value
+// does not resolve to a commit (for example a tag pointing at a tree or blob)
+// are skipped so their object ids are never handed to `git log`. If only the
+// old value fails to resolve — a ref retagged from a non-commit target to a
+// commit — the update is scanned like a create ("<new>" bounded by
+// "--not --all") rather than emitting an invalid "<old>..<new>" range. When
+// resolve is nil the values are used verbatim.
 //
 // The returned slice is empty when there is nothing to scan (for example a
 // push that only deletes refs).
@@ -148,12 +151,31 @@ func PreReceiveLogArgs(updates []PreReceiveRefUpdate, resolve CommitResolver) []
 			newValue = commit
 		}
 
+		// A create has no old commit to bound the range, so scan the new
+		// commit and exclude existing history below via "--not --all".
 		if u.IsCreate() {
 			args = append(args, newValue)
 			hasCreate = true
 			continue
 		}
-		args = append(args, u.OldValue+".."+newValue)
+
+		// For an update, bound the scan with "<old>..<new>". The old value
+		// must also peel to a commit — a ref retagged from a non-commit
+		// (blob/tree) target to a commit would otherwise hand a non-commit id
+		// to git log and fail the scan. When the old value is not a commit,
+		// fall back to scanning just the new commit excluding existing
+		// history, exactly as for a create.
+		oldValue := u.OldValue
+		if resolve != nil {
+			commit, ok := resolve(u.OldValue)
+			if !ok {
+				args = append(args, newValue)
+				hasCreate = true
+				continue
+			}
+			oldValue = commit
+		}
+		args = append(args, oldValue+".."+newValue)
 	}
 	if hasCreate {
 		// Exclude commits already present in the repository so a newly created

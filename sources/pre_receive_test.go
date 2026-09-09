@@ -104,6 +104,21 @@ func TestPreReceiveLogArgs(t *testing.T) {
 			},
 			want: []string{oldSHA + ".." + newSHA},
 		},
+		{
+			name: "update from non-commit old value scans new like a create",
+			updates: []PreReceiveRefUpdate{
+				{OldValue: blobSHA, NewValue: newSHA, RefName: "refs/tags/retagged"},
+			},
+			want: []string{newSHA, "--not", "--all"},
+		},
+		{
+			name: "update from non-commit old value alongside a real update",
+			updates: []PreReceiveRefUpdate{
+				{OldValue: oldSHA, NewValue: newSHA, RefName: "refs/heads/main"},
+				{OldValue: blobSHA, NewValue: newSHA, RefName: "refs/tags/retagged"},
+			},
+			want: []string{oldSHA + ".." + newSHA, newSHA, "--not", "--all"},
+		},
 	}
 
 	for _, tt := range tests {
