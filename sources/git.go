@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -36,7 +37,7 @@ type Git struct {
 	RepoPath string
 	LogOpts  string
 	// Include adds resources to the default patch scan. Supported values:
-	// commit-messages. Additional resources require RepoPath rather than Cmd.
+	// commit-messages, tag-messages. Additional resources require RepoPath rather than Cmd.
 	Include []string
 
 	ShouldSkip      SkipFunc
@@ -51,13 +52,16 @@ type Git struct {
 	jobOwned bool
 }
 
-const GitResourceTypeCommitMessages = "commit-messages"
+const (
+	GitResourceTypeCommitMessages = "commit-messages"
+	GitResourceTypeTagMessages    = "tag-messages"
+)
 
 // Validate checks additional Git resource selections before starting a scan.
 func (s *Git) Validate() error {
 	for _, name := range s.Include {
-		if name != GitResourceTypeCommitMessages {
-			return fmt.Errorf("unknown Git resource type %q (supported: commit-messages)", name)
+		if name != GitResourceTypeCommitMessages && name != GitResourceTypeTagMessages {
+			return fmt.Errorf("unknown Git resource type %q (supported: commit-messages, tag-messages)", name)
 		}
 	}
 	if len(s.Include) > 0 && s.Cmd != nil {
@@ -75,7 +79,15 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		if s.RepoPath == "" {
 			return errors.New("git source requires Cmd or RepoPath")
 		}
-		return s.fragmentsFromRepo(ctx, yield)
+		if err := s.fragmentsFromRepo(ctx, yield); err != nil {
+			return err
+		}
+		if slices.Contains(s.Include, GitResourceTypeTagMessages) {
+			return s.budget.run(ctx, func() error {
+				return s.fragmentsFromTagMessages(ctx, yield)
+			})
+		}
+		return nil
 	}
 	return s.fragmentsFromCmd(ctx, yield)
 }
@@ -157,6 +169,278 @@ func (s *Git) runHistoryChunk(ctx context.Context, yield FragmentsFunc, commits 
 		return s.fragmentsFromCommitMessages(ctx, commits, yield)
 	}
 	return nil
+}
+
+// fragmentsFromCommitMessages reads one commit object per selected revision.
+// Batch framing preserves message bytes, including blank lines and text that
+// resembles a patch header. The caller already owns a source job, so this does
+// not multiply the Git process budget.
+func (s *Git) fragmentsFromCommitMessages(ctx context.Context, commits []string, yield FragmentsFunc) (scanErr error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", s.RepoPath, "cat-file", "--batch")
+	cmd.Env = gitConfigIsolationEnv()
+	cmd.Stdin = strings.NewReader(strings.Join(commits, "\n") + "\n")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	defer func() {
+		if scanErr != nil {
+			cancel()
+		}
+		waitErr := cmd.Wait()
+		if scanErr == nil && waitErr != nil {
+			scanErr = fmt.Errorf("read Git commit messages: %w", waitErr)
+		}
+		if scanErr != nil && stderr.Len() > 0 {
+			scanErr = fmt.Errorf("%w: %s", scanErr, strings.TrimSpace(stderr.String()))
+		}
+	}()
+
+	reader := bufio.NewReader(stdout)
+	for range commits {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		fragment, err := readGitCommitMessage(reader)
+		if err != nil {
+			return fmt.Errorf("read Git commit message: %w", err)
+		}
+		if s.RemoteURL != "" {
+			fragment.SetAttr(AttrGitRemoteURL, s.RemoteURL)
+			fragment.SetAttr(AttrGitPlatform, s.Platform.String())
+		}
+		if fragment.Raw == "" || shouldSkipAttrs(s.ShouldSkip, fragment.Attributes) {
+			continue
+		}
+		if err := yield(fragment, nil); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func readGitCommitMessage(reader *bufio.Reader) (Fragment, error) {
+	oid, data, err := readGitMessageObject(reader, "commit")
+	if err != nil {
+		return Fragment{}, err
+	}
+	headers, message, ok := strings.Cut(string(data), "\n\n")
+	if !ok {
+		return Fragment{}, fmt.Errorf("commit %s has no message separator", oid)
+	}
+	attrs := map[string]string{
+		AttrResource:   ResourceGitCommitMessage,
+		AttrGitSHA:     oid,
+		AttrGitMessage: message,
+	}
+	for _, line := range strings.Split(headers, "\n") {
+		author, ok := strings.CutPrefix(line, "author ")
+		if !ok {
+			continue
+		}
+		if err := setGitMessageIdentity(attrs, author, AttrGitAuthorName, AttrGitAuthorEmail); err != nil {
+			return Fragment{}, fmt.Errorf("parse commit %s author: %w", oid, err)
+		}
+		break
+	}
+	return Fragment{Raw: message, StartLine: 1, Attributes: attrs}, nil
+}
+
+// readGitMessageObject uses cat-file's byte counts rather than delimiters in
+// message text, so multiline messages and embedded NUL bytes remain intact.
+func readGitMessageObject(reader *bufio.Reader, objectType string) (string, []byte, error) {
+	header, err := reader.ReadString('\n')
+	if err != nil {
+		return "", nil, err
+	}
+	fields := strings.Fields(header)
+	if len(fields) != 3 || fields[1] != objectType {
+		return "", nil, fmt.Errorf("expected a %s object, received %q", objectType, strings.TrimSpace(header))
+	}
+	size, err := strconv.Atoi(fields[2])
+	if err != nil || size < 0 {
+		return "", nil, fmt.Errorf("invalid %s object size %q", objectType, fields[2])
+	}
+	data := make([]byte, size)
+	if _, err := io.ReadFull(reader, data); err != nil {
+		return "", nil, err
+	}
+	separator, err := reader.ReadByte()
+	if err != nil {
+		return "", nil, err
+	}
+	if separator != '\n' {
+		return "", nil, fmt.Errorf("invalid %s object separator", objectType)
+	}
+	return fields[0], data, nil
+}
+
+func setGitMessageIdentity(attrs map[string]string, value, nameKey, emailKey string) error {
+	end := strings.LastIndex(value, "> ")
+	if end < 0 {
+		return fmt.Errorf("invalid identity")
+	}
+	identity, err := gitdiff.ParsePatchIdentity(value[:end+1])
+	if err != nil {
+		return err
+	}
+	date, err := gitdiff.ParsePatchDate(value[end+2:])
+	if err != nil {
+		return err
+	}
+	attrs[nameKey] = identity.Name
+	attrs[emailKey] = identity.Email
+	attrs[AttrGitDate] = date.UTC().Format(time.RFC3339)
+	return nil
+}
+
+type gitTagRef struct {
+	oid string
+	ref string
+}
+
+// fragmentsFromTagMessages scans each distinct annotation reachable from local
+// tag refs. Tags select their own objects independently of commit LogOpts. The
+// caller holds a source job; one cat-file process handles all tag objects,
+// including annotations reached through other annotated tags.
+func (s *Git) fragmentsFromTagMessages(ctx context.Context, yield FragmentsFunc) (scanErr error) {
+	list := exec.CommandContext(ctx, "git", "-C", s.RepoPath, "for-each-ref",
+		"--format=%(objecttype) %(objectname) %(refname)", "refs/tags/")
+	list.Env = gitConfigIsolationEnv()
+	var stderr bytes.Buffer
+	list.Stderr = &stderr
+	out, err := list.Output()
+	if err != nil {
+		return fmt.Errorf("list Git tags: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	var tags []gitTagRef
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[0] == "tag" {
+			tags = append(tags, gitTagRef{oid: fields[1], ref: fields[2]})
+		}
+	}
+	if len(tags) == 0 {
+		return ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", s.RepoPath, "cat-file", "--batch")
+	cmd.Env = gitConfigIsolationEnv()
+	stderr.Reset()
+	cmd.Stderr = &stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	defer stdin.Close()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	defer func() {
+		_ = stdin.Close()
+		if scanErr != nil {
+			cancel()
+		}
+		waitErr := cmd.Wait()
+		if scanErr == nil && waitErr != nil {
+			scanErr = fmt.Errorf("read Git tag messages: %w", waitErr)
+		}
+		if scanErr != nil && stderr.Len() > 0 {
+			scanErr = fmt.Errorf("%w: %s", scanErr, strings.TrimSpace(stderr.String()))
+		}
+	}()
+
+	reader := bufio.NewReader(stdout)
+	seen := make(map[string]bool, len(tags))
+	for i := 0; i < len(tags); i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		tag := tags[i]
+		if seen[tag.oid] {
+			continue
+		}
+		seen[tag.oid] = true
+		if _, err := fmt.Fprintln(stdin, tag.oid); err != nil {
+			return fmt.Errorf("request Git tag object: %w", err)
+		}
+		fragment, nestedTag, err := readGitTagMessage(reader)
+		if err != nil {
+			return fmt.Errorf("read Git tag message: %w", err)
+		}
+		if nestedTag != "" {
+			tags = append(tags, gitTagRef{oid: nestedTag})
+		}
+		if tag.ref != "" {
+			fragment.SetAttr(AttrGitTagRef, tag.ref)
+		}
+		if s.RemoteURL != "" {
+			fragment.SetAttr(AttrGitRemoteURL, s.RemoteURL)
+			fragment.SetAttr(AttrGitPlatform, s.Platform.String())
+		}
+		if fragment.Raw == "" || shouldSkipAttrs(s.ShouldSkip, fragment.Attributes) {
+			continue
+		}
+		if err := yield(fragment, nil); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+// readGitTagMessage returns a nested tag's OID when the annotation tags another
+// tag. Non-commit targets are valid, so attribution uses the tag object itself.
+func readGitTagMessage(reader *bufio.Reader) (Fragment, string, error) {
+	oid, data, err := readGitMessageObject(reader, "tag")
+	if err != nil {
+		return Fragment{}, "", err
+	}
+	headers, message, ok := strings.Cut(string(data), "\n\n")
+	if !ok {
+		return Fragment{}, "", fmt.Errorf("tag %s has no message separator", oid)
+	}
+	attrs := map[string]string{
+		AttrResource:   ResourceGitTagMessage,
+		AttrGitSHA:     oid,
+		AttrGitMessage: message,
+	}
+	var target, targetType string
+	for line := range strings.SplitSeq(headers, "\n") {
+		key, value, _ := strings.Cut(line, " ")
+		switch key {
+		case "object":
+			target = value
+		case "type":
+			targetType = value
+		case "tag":
+			attrs[AttrGitTagName] = value
+		case "tagger":
+			if err := setGitMessageIdentity(attrs, value, AttrGitTaggerName, AttrGitTaggerEmail); err != nil {
+				return Fragment{}, "", fmt.Errorf("parse tag %s tagger: %w", oid, err)
+			}
+		}
+	}
+	if target == "" || targetType == "" || attrs[AttrGitTagName] == "" {
+		return Fragment{}, "", fmt.Errorf("tag %s has incomplete headers", oid)
+	}
+	var nestedTag string
+	if targetType == "tag" {
+		nestedTag = target
+	}
+	return Fragment{Raw: message, StartLine: 1, Attributes: attrs}, nestedTag, nil
 }
 
 func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *GitCmd) error {

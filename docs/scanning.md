@@ -199,6 +199,12 @@ betterleaks git . -j 8 --output findings.json
 
 # also scan commit subjects and bodies
 betterleaks git . --include=commit-messages
+
+# also scan annotated tag messages
+betterleaks git . --include=tag-messages
+
+# scan both kinds of messages alongside file history
+betterleaks git . --include=commit-messages,tag-messages
 ```
 
 `--include=commit-messages` adds message scanning to the default patch scan.
@@ -212,11 +218,25 @@ link points to the commit, and they have no file path. Patch findings continue
 to use `resource=git.patch_content`. Resource attributes can be used in the
 same prefilters and finding filters as other sources.
 
-Reports show only the first line of `git.message` for both resources, appending
+`--include=tag-messages` scans each distinct annotated tag object reachable from
+local tag refs, including nested annotations and tags targeting trees or blobs.
+Lightweight tags have no message. All local tags are included independently of
+`--log-opts`, which continues to select commit history. Tag scanning also stays
+within the `--jobs` process limit.
+
+Tag findings use `resource=git.tag_message`. Their `git.sha` identifies the tag
+object, `git.tag_name` is the name stored in the annotation, and `git.tag_ref`
+identifies a local tag ref when one points directly to that object. Aliases of
+the same annotation are scanned once. Tagger identity appears in
+`git.tagger_name` and `git.tagger_email`, with the tagger timestamp in `git.date`.
+Line numbers are relative to the message, and there is no file path. GitHub,
+GitLab, and Gitea links point to the tag page when a direct tag ref is available.
+
+Reports show only the first line of `git.message` for these resources, appending
 `...` when further message text is omitted. The full message remains available
 for scanning and filtering.
 
-Commit-message inclusion applies to repository history scans; it cannot be
+Message inclusion applies to repository history scans; it cannot be
 combined with `--pre-commit` or `--staged`.
 
 ---

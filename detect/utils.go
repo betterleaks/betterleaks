@@ -4,6 +4,7 @@ import (
 	// "encoding/json"
 	"fmt"
 	"math"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -33,6 +34,21 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 	location := finding.Location
 	if p == scm.UnknownPlatform || p == scm.NoPlatform || commitSha == "" {
 		return ""
+	}
+	if finding.Attr(sources.AttrResource) == sources.ResourceGitTagMessage {
+		tag, ok := strings.CutPrefix(finding.Attr(sources.AttrGitTagRef), "refs/tags/")
+		if !ok || tag == "" {
+			return ""
+		}
+		tag = url.PathEscape(tag)
+		switch p {
+		case scm.GitHubPlatform, scm.GiteaPlatform:
+			return fmt.Sprintf("%s/releases/tag/%s", remoteURL, tag)
+		case scm.GitLabPlatform:
+			return fmt.Sprintf("%s/-/tags/%s", remoteURL, tag)
+		default:
+			return ""
+		}
 	}
 	if finding.Attr(sources.AttrResource) == sources.ResourceGitCommitMessage {
 		switch p {

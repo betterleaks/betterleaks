@@ -14,6 +14,7 @@ const (
 	ResourceFileContent        = "fs.content"
 	ResourceGitPatchContent    = "git.patch_content"
 	ResourceGitCommitMessage   = "git.commit_message"
+	ResourceGitTagMessage      = "git.tag_message"
 	ResourceGitHubRepo         = "github.repository"
 	ResourceGitHubIssue        = "github.issue"
 	ResourceGitHubPR           = "github.pr"
@@ -48,6 +49,10 @@ const (
 	AttrGitMessage     = "git.message"
 	AttrGitRemoteURL   = "git.remote_url"
 	AttrGitPlatform    = "git.platform"
+	AttrGitTagName     = "git.tag_name"
+	AttrGitTagRef      = "git.tag_ref"
+	AttrGitTaggerName  = "git.tagger_name"
+	AttrGitTaggerEmail = "git.tagger_email"
 
 	// Filesystem
 	AttrFSSymlink       = "fs.symlink"

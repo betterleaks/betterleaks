@@ -25,7 +25,7 @@ type GitCmd struct {
 	Staged    bool     `help:"Scan staged commits (for pre-commit)."`
 	PreCommit bool     `name:"pre-commit" help:"Scan using git diff."`
 	LogOpts   string   `name:"log-opts" help:"Git log options."`
-	Include   []string `help:"Additional Git resources to scan: commit-messages."`
+	Include   []string `help:"Additional Git resources to scan: commit-messages, tag-messages."`
 	Repo      string   `arg:"" optional:"" help:"Repository to scan."`
 }
 

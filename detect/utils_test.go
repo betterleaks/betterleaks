@@ -318,3 +318,22 @@ func TestCommitMessageSCMLinks(t *testing.T) {
 	}
 	assert.Empty(t, createScmLink("none", "https://example.com/repo", finding))
 }
+
+func TestTagMessageSCMLinks(t *testing.T) {
+	finding := scmLinkFinding("abc123", "", 3, 5)
+	finding.SetAttr(sources.AttrResource, sources.ResourceGitTagMessage)
+	finding.SetAttr(sources.AttrGitTagName, "original-name")
+	finding.SetAttr(sources.AttrGitTagRef, "refs/tags/release/v1#100%")
+	for platform, suffix := range map[string]string{
+		"github": "/releases/tag/release%2Fv1%23100%25",
+		"gitlab": "/-/tags/release%2Fv1%23100%25",
+		"gitea":  "/releases/tag/release%2Fv1%23100%25",
+	} {
+		assert.Equal(t, "https://example.com/repo"+suffix, createScmLink(platform, "https://example.com/repo", finding), platform)
+	}
+	for _, platform := range []string{"none", "unknown", "bitbucket", "azuredevops"} {
+		assert.Empty(t, createScmLink(platform, "https://example.com/repo", finding))
+	}
+	delete(finding.Attributes, sources.AttrGitTagRef)
+	assert.Empty(t, createScmLink("github", "https://example.com/repo", finding), "nested tags without a ref have no tag page")
+}

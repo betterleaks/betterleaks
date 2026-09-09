@@ -2,6 +2,7 @@ package sources
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -331,6 +332,251 @@ func TestGitStreamArchives(t *testing.T) {
 			require.Equal(t, "synthetic archive example\n", fragments[0].Raw)
 			require.Equal(t, "archive.zip"+InnerPathSeparator+"inner.txt", fragments[0].Attr(AttrPath))
 			require.NotEmpty(t, fragments[0].Attr(AttrGitSHA))
+		}
+	}
+}
+
+func TestGitCommitMessagesCoverage(t *testing.T) {
+	repo := newGitTestRepo(t, 0)
+	for _, name := range []string{"one.txt", "two.txt"} {
+		require.NoError(t, os.WriteFile(filepath.Join(repo, name), []byte("file content\n"), 0600))
+	}
+	runGitTestCommand(t, repo, "add", ".")
+	message := "subject secret-message\n\n  indented body\ndiff --git a/fake b/fake\ncommit fake\n\n"
+	runGitTestCommand(t, repo, "commit", "-q", "--cleanup=verbatim", "-m", message, "--author", "Message Author <message@example.com>", "--date", "2001-02-03T04:05:06+00:00")
+	runGitTestCommand(t, repo, "branch", "message-main")
+	runGitTestCommand(t, repo, "checkout", "-qb", "message-side")
+	runGitTestCommand(t, repo, "commit", "-q", "--allow-empty", "-m", "side message")
+	runGitTestCommand(t, repo, "checkout", "-q", "message-main")
+	runGitTestCommand(t, repo, "commit", "-q", "--allow-empty", "-m", "empty message")
+	runGitTestCommand(t, repo, "merge", "--quiet", "--no-ff", "message-side", "-m", "merge message")
+
+	for _, jobs := range []int{1, 2, 0} {
+		for _, test := range []struct {
+			name, logOpts             string
+			include                   []string
+			wantMessages, wantPatches int
+		}{
+			{name: "default", wantPatches: 2},
+			{name: "all", include: []string{GitResourceTypeCommitMessages}, wantMessages: 4, wantPatches: 2},
+			{name: "duplicate include", include: []string{GitResourceTypeCommitMessages, GitResourceTypeCommitMessages}, wantMessages: 4, wantPatches: 2},
+			{name: "latest merge", logOpts: "--max-count=1 HEAD", include: []string{GitResourceTypeCommitMessages}, wantMessages: 1},
+			{name: "no merges", logOpts: "--all --no-merges", include: []string{GitResourceTypeCommitMessages}, wantMessages: 3, wantPatches: 2},
+		} {
+			t.Run(fmt.Sprintf("jobs=%d/%s", jobs, test.name), func(t *testing.T) {
+				var mu sync.Mutex
+				var fragments []Fragment
+				source := &Git{RepoPath: repo, Jobs: jobs, Include: test.include, LogOpts: test.logOpts}
+				require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+					if err != nil {
+						return err
+					}
+					mu.Lock()
+					fragments = append(fragments, f)
+					mu.Unlock()
+					return nil
+				}))
+				messages := make(map[string]string)
+				patches := 0
+				for _, f := range fragments {
+					if f.Attr(AttrResource) == ResourceGitPatchContent {
+						patches++
+						continue
+					}
+					require.Equal(t, ResourceGitCommitMessage, f.Attr(AttrResource))
+					require.NotEmpty(t, f.Attr(AttrGitSHA))
+					require.NotContains(t, messages, f.Attr(AttrGitSHA), "one message per commit, regardless of changed-file count")
+					messages[f.Attr(AttrGitSHA)] = f.Raw
+					require.NotContains(t, f.Attributes, AttrPath)
+					require.Equal(t, 1, f.StartLine)
+					require.Equal(t, f.Raw, f.Attr(AttrGitMessage))
+					if strings.HasPrefix(f.Raw, "subject") {
+						require.Equal(t, message, f.Raw)
+						require.Equal(t, "Message Author", f.Attr(AttrGitAuthorName))
+						require.Equal(t, "message@example.com", f.Attr(AttrGitAuthorEmail))
+						require.Equal(t, "2001-02-03T04:05:06Z", f.Attr(AttrGitDate))
+					}
+				}
+				require.Len(t, messages, test.wantMessages)
+				require.Equal(t, test.wantPatches, patches)
+			})
+		}
+	}
+}
+
+func TestGitCommitMessagesFilteringAndStop(t *testing.T) {
+	repo := newGitTestRepo(t, 3)
+	source := &Git{RepoPath: repo, Jobs: 1, Include: []string{GitResourceTypeCommitMessages}}
+	source.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitCommitMessage }
+	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+		require.NotEqual(t, ResourceGitCommitMessage, f.Attr(AttrResource))
+		return err
+	}))
+	source.ShouldSkip = nil
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	stop := errors.New("stop on message")
+	err := source.Fragments(ctx, func(f Fragment, err error) error {
+		if f.Attr(AttrResource) == ResourceGitCommitMessage {
+			return stop
+		}
+		return err
+	})
+	require.ErrorIs(t, err, stop)
+	require.NoError(t, ctx.Err(), "message reader must stop promptly after callback failure")
+}
+
+func TestGitCommitMessageBatchFraming(t *testing.T) {
+	// Large messages and embedded NUL bytes must not split batch records.
+	message := "subject\n\n" + strings.Repeat("body\x00\n", 20000)
+	object := "tree abc\nauthor Test <test@example.com> 0 +0000\n\n" + message
+	batch := fmt.Sprintf("abc commit %d\n%s\n", len(object), object)
+	reader := bufio.NewReader(strings.NewReader(batch + batch))
+	for range 2 {
+		f, err := readGitCommitMessage(reader)
+		require.NoError(t, err)
+		require.Equal(t, message, f.Raw)
+	}
+	for _, input := range []string{"abc missing\n", "abc blob 3\nfoo\n", "abc commit -1\n", "abc commit 5\nshort", "abc commit 2\n\n\nx", "abc commit 3\nabc\n"} {
+		_, err := readGitCommitMessage(bufio.NewReader(strings.NewReader(input)))
+		require.Error(t, err, input)
+	}
+}
+
+func TestGitTagMessagesCoverage(t *testing.T) {
+	repo := newGitTestRepo(t, 2)
+	runGitTestCommand(t, repo, "config", "user.name", "Tagger")
+	runGitTestCommand(t, repo, "config", "user.email", "tagger@example.com")
+	message := "release subject\n\n  secret-tag\ndiff --git a/fake b/fake\ncommit fake\n\n"
+	runGitTestCommand(t, repo, "tag", "-a", "release/v1", "--cleanup=verbatim", "-m", message)
+	runGitTestCommand(t, repo, "tag", "release/v1-alias", "release/v1")
+	runGitTestCommand(t, repo, "tag", "lightweight")
+	runGitTestCommand(t, repo, "tag", "-a", "inner", "-m", "inner message")
+	runGitTestCommand(t, repo, "tag", "-a", "outer", "-m", "outer message", "inner")
+	runGitTestCommand(t, repo, "tag", "-d", "inner")
+	runGitTestCommand(t, repo, "tag", "-a", "blob", "-m", "blob annotation", "HEAD:file-0.txt")
+	runGitTestCommand(t, repo, "tag", "-a", "tree", "-m", "tree annotation", "HEAD^{tree}")
+
+	for _, jobs := range []int{1, 2, 0} {
+		for _, test := range []struct {
+			name, logOpts                      string
+			include                            []string
+			wantTags, wantCommits, wantPatches int
+		}{
+			{name: "default", wantPatches: 2},
+			{name: "tags", include: []string{GitResourceTypeTagMessages}, wantTags: 5, wantPatches: 2},
+			{name: "both", include: []string{GitResourceTypeTagMessages, GitResourceTypeCommitMessages}, wantTags: 5, wantCommits: 2, wantPatches: 2},
+			{name: "duplicate include", include: []string{GitResourceTypeTagMessages, GitResourceTypeTagMessages}, wantTags: 5, wantPatches: 2},
+			{name: "empty commit selection", logOpts: "HEAD..HEAD", include: []string{GitResourceTypeTagMessages, GitResourceTypeCommitMessages}, wantTags: 5},
+		} {
+			t.Run(fmt.Sprintf("jobs=%d/%s", jobs, test.name), func(t *testing.T) {
+				var mu sync.Mutex
+				var fragments []Fragment
+				source := &Git{RepoPath: repo, Jobs: jobs, Include: test.include, LogOpts: test.logOpts}
+				require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+					mu.Lock()
+					defer mu.Unlock()
+					fragments = append(fragments, f)
+					return err
+				}))
+				tags := make(map[string]string)
+				commits, patches := 0, 0
+				for _, f := range fragments {
+					switch f.Attr(AttrResource) {
+					case ResourceGitPatchContent:
+						patches++
+					case ResourceGitCommitMessage:
+						commits++
+					case ResourceGitTagMessage:
+						require.NotContains(t, tags, f.Attr(AttrGitSHA), "aliases and nested refs must not duplicate annotations")
+						tags[f.Attr(AttrGitSHA)] = f.Attr(AttrGitTagName)
+						require.Equal(t, "Tagger", f.Attr(AttrGitTaggerName))
+						require.Equal(t, "tagger@example.com", f.Attr(AttrGitTaggerEmail))
+						require.NotEmpty(t, f.Attr(AttrGitDate))
+						require.NotContains(t, f.Attributes, AttrGitAuthorName)
+						require.NotContains(t, f.Attributes, AttrPath)
+						require.Equal(t, 1, f.StartLine)
+						require.Equal(t, f.Raw, f.Attr(AttrGitMessage))
+						if f.Attr(AttrGitTagName) == "release/v1" {
+							require.Equal(t, message, f.Raw)
+							require.Equal(t, "refs/tags/release/v1", f.Attr(AttrGitTagRef))
+						}
+						if f.Attr(AttrGitTagName) == "inner" {
+							require.Equal(t, "inner message\n", f.Raw)
+							require.NotContains(t, f.Attributes, AttrGitTagRef)
+						}
+					default:
+						t.Fatalf("unexpected resource %q", f.Attr(AttrResource))
+					}
+				}
+				require.Len(t, tags, test.wantTags)
+				require.Equal(t, test.wantCommits, commits)
+				require.Equal(t, test.wantPatches, patches)
+			})
+		}
+	}
+}
+
+func TestGitTagMessagesFilteringAndStop(t *testing.T) {
+	repo := newGitTestRepo(t, 1)
+	runGitTestCommand(t, repo, "tag", "-a", "first", "-m", "first message")
+	runGitTestCommand(t, repo, "tag", "-a", "second", "-m", "second message")
+	source := &Git{RepoPath: repo, Jobs: 1, Include: []string{GitResourceTypeTagMessages}}
+	source.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitTagMessage }
+	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+		require.NotEqual(t, ResourceGitTagMessage, f.Attr(AttrResource))
+		return err
+	}))
+	source.ShouldSkip = nil
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	stop := errors.New("stop on tag")
+	err := source.Fragments(ctx, func(f Fragment, err error) error {
+		if f.Attr(AttrResource) == ResourceGitTagMessage {
+			return stop
+		}
+		return err
+	})
+	require.ErrorIs(t, err, stop)
+	require.NoError(t, ctx.Err(), "tag reader must stop promptly after callback failure")
+	cancel()
+	require.Error(t, source.Fragments(ctx, func(Fragment, error) error {
+		t.Fatal("canceled scan yielded a fragment")
+		return nil
+	}))
+}
+
+func TestGitTagMessageBatchFraming(t *testing.T) {
+	message := "subject\n\n" + strings.Repeat("body\x00\n", 20000) + "-----BEGIN PGP SIGNATURE-----\nsignature\n-----END PGP SIGNATURE-----\n"
+	object := "object abc\ntype tag\ntag nested\ntagger Test <test@example.com> 981173106 +0230\n\n" + message
+	batch := fmt.Sprintf("def tag %d\n%s\n", len(object), object)
+	reader := bufio.NewReader(strings.NewReader(batch + batch))
+	for range 2 {
+		f, nested, err := readGitTagMessage(reader)
+		require.NoError(t, err)
+		require.Equal(t, message, f.Raw)
+		require.Equal(t, "abc", nested)
+		require.Equal(t, "def", f.Attr(AttrGitSHA))
+		require.Equal(t, "2001-02-03T04:05:06Z", f.Attr(AttrGitDate))
+	}
+	for _, input := range []string{"abc missing\n", "abc commit 3\nfoo\n", "abc tag -1\n", "abc tag 5\nshort", "abc tag 2\n\n\nx", "abc tag 3\nabc\n"} {
+		_, _, err := readGitTagMessage(bufio.NewReader(strings.NewReader(input)))
+		require.Error(t, err, input)
+	}
+}
+
+func TestGitTagMessagesWithoutAnnotations(t *testing.T) {
+	for _, commits := range []int{0, 1} {
+		repo := newGitTestRepo(t, commits)
+		if commits > 0 {
+			runGitTestCommand(t, repo, "tag", "lightweight")
+		}
+		for _, jobs := range []int{1, 2} {
+			source := &Git{RepoPath: repo, Jobs: jobs, Include: []string{GitResourceTypeTagMessages}}
+			require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+				require.NotEqual(t, ResourceGitTagMessage, f.Attr(AttrResource))
+				return err
+			}))
 		}
 	}
 }
