@@ -126,6 +126,7 @@ func main() {
 		rules.AzureServiceBusConnectionString(),
 		rules.BitBucketClientID(),
 		rules.BitBucketClientSecret(),
+		rules.BitBucketDataCenterToken(),
 		rules.BitriseAccessToken(),
 		rules.BitlyAccessToken(),
 		rules.BittrexAccessKey(),

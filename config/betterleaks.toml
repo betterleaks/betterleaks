@@ -1144,6 +1144,19 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# bitbucket-data-center-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "bitbucket-data-center-token"
+description = "Discovered a Bitbucket Data Center HTTP access token, risking unauthorized repository and project access."
+regex = '''\b(BBDC-[A-Za-z0-9+/=]{32,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["bbdc"]
+filter = '''
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # bitly-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
