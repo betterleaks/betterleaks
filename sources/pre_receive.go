@@ -38,6 +38,28 @@ func isZeroOID(value string) bool {
 	return true
 }
 
+// isHexOID reports whether value is a syntactically valid git object id: a
+// lowercase or uppercase hex string of SHA-1 (40) or SHA-256 (64) length.
+// Ref updates read from hook stdin are untrusted, so validating them before
+// they are passed to git rejects option- or revision-injection attempts (for
+// example a value beginning with "-" or containing ".." or "^") and any other
+// non-object-id input.
+func isHexOID(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // IsDelete reports whether the update deletes the ref (new value is zero).
 func (u PreReceiveRefUpdate) IsDelete() bool { return isZeroOID(u.NewValue) }
 
@@ -105,6 +127,15 @@ func PreReceiveLogArgs(updates []PreReceiveRefUpdate, resolve CommitResolver) []
 		if u.IsDelete() {
 			continue
 		}
+		// Reject updates whose object ids are not syntactically valid so no
+		// attacker-controlled value from hook stdin can reach git as an
+		// option or revision expression.
+		if !isHexOID(u.NewValue) {
+			continue
+		}
+		if !u.IsCreate() && !isHexOID(u.OldValue) {
+			continue
+		}
 
 		newValue := u.NewValue
 		if resolve != nil {
@@ -137,11 +168,18 @@ func PreReceiveLogArgs(updates []PreReceiveRefUpdate, resolve CommitResolver) []
 // (`<oid>^{commit}`), which handles both plain commits and annotated tags that
 // target a commit. Tags that point directly at a tree or blob do not peel and
 // are reported as non-commits.
+//
+// The object id is validated as hex before use, so the value handed to git can
+// never be interpreted as an option or a broader revision expression even
+// though it originates from untrusted hook stdin.
 func NewGitCommitResolver(ctx context.Context, repoPath string) CommitResolver {
 	sourceClean := filepath.Clean(repoPath)
 	return func(oid string) (string, bool) {
+		if !isHexOID(oid) {
+			return "", false
+		}
 		cmd := exec.CommandContext(ctx, "git", "-C", sourceClean,
-			"rev-parse", "--verify", "--quiet", oid+"^{commit}")
+			"rev-parse", "--verify", "--quiet", "--end-of-options", oid+"^{commit}")
 		cmd.Env = gitConfigIsolationEnv()
 		out, err := cmd.Output()
 		if err != nil {

@@ -134,6 +134,35 @@ func TestIsZeroOID(t *testing.T) {
 	require.False(t, isZeroOID("0000000000000000000000000000000000000001"))
 }
 
+func TestIsHexOID(t *testing.T) {
+	require.True(t, isHexOID(strings.Repeat("a", 40)), "sha-1 length")
+	require.True(t, isHexOID(strings.Repeat("A", 40)), "uppercase hex")
+	require.True(t, isHexOID(strings.Repeat("f", 64)), "sha-256 length")
+
+	require.False(t, isHexOID(""), "empty")
+	require.False(t, isHexOID(strings.Repeat("a", 39)), "too short")
+	require.False(t, isHexOID(strings.Repeat("a", 41)), "wrong length")
+	require.False(t, isHexOID("--all"), "option-like value")
+	require.False(t, isHexOID(strings.Repeat("g", 40)), "non-hex char")
+	require.False(t, isHexOID("HEAD"), "revision expression")
+}
+
+func TestPreReceiveLogArgsRejectsNonOIDInput(t *testing.T) {
+	const newSHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	// A malicious/malformed new value must never reach git.
+	got := PreReceiveLogArgs([]PreReceiveRefUpdate{
+		{OldValue: zeroOID, NewValue: "--all", RefName: "refs/heads/evil"},
+	}, nil)
+	require.Nil(t, got, "option-like new value is dropped")
+
+	// A malformed old value on an update is dropped too.
+	got = PreReceiveLogArgs([]PreReceiveRefUpdate{
+		{OldValue: "$(rm -rf /)", NewValue: newSHA, RefName: "refs/heads/main"},
+	}, nil)
+	require.Nil(t, got, "malformed old value is dropped")
+}
+
 func TestNewGitCommitResolver(t *testing.T) {
 	repo := newGitTestRepo(t, 1)
 
