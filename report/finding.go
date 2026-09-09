@@ -50,9 +50,9 @@ type Finding struct {
 	exprContext string
 }
 
-// MarshalJSON omits attributes that exist only to coordinate the scanning
-// pipeline. They remain available on the in-memory finding for filters,
-// validation, and analysis expressions, but are not part of the report schema.
+// MarshalJSON omits internal attributes and limits Git message metadata to its
+// first line. Full attributes remain available on the in-memory finding for
+// filters, validation, and analysis expressions.
 func (f Finding) MarshalJSON() ([]byte, error) {
 	type wireFinding Finding
 
@@ -62,12 +62,21 @@ func (f Finding) MarshalJSON() ([]byte, error) {
 }
 
 func reportAttributes(attributes map[string]string) map[string]string {
-	if _, internal := attributes[sources.AttrFSFirstFragment]; !internal {
+	_, internal := attributes[sources.AttrFSFirstFragment]
+	message := attributes[sources.AttrGitMessage]
+	lineEnd := strings.IndexAny(message, "\r\n")
+	if !internal && lineEnd < 0 {
 		return attributes
 	}
 
 	visible := maps.Clone(attributes)
 	delete(visible, sources.AttrFSFirstFragment)
+	if lineEnd >= 0 {
+		visible[sources.AttrGitMessage] = message[:lineEnd]
+		if strings.TrimSpace(message[lineEnd:]) != "" {
+			visible[sources.AttrGitMessage] += "..."
+		}
+	}
 	if len(visible) == 0 {
 		return nil
 	}

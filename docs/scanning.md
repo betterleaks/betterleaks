@@ -196,7 +196,28 @@ betterleaks git . --platform github
 
 # history scan with JSON output
 betterleaks git . -j 8 --output findings.json
+
+# also scan commit subjects and bodies
+betterleaks git . --include=commit-messages
 ```
+
+`--include=commit-messages` adds message scanning to the default patch scan.
+Each selected commit's full message is scanned once, including empty commits
+and merge commits with no patch. `--log-opts` selects the history for both
+resources, and `--jobs` bounds their Git processes.
+
+Message findings use `resource=git.commit_message`, carry the commit SHA and
+author metadata, and have line numbers relative to the message. Their source
+link points to the commit, and they have no file path. Patch findings continue
+to use `resource=git.patch_content`. Resource attributes can be used in the
+same prefilters and finding filters as other sources.
+
+Reports show only the first line of `git.message` for both resources, appending
+`...` when further message text is omitted. The full message remains available
+for scanning and filtering.
+
+Commit-message inclusion applies to repository history scans; it cannot be
+combined with `--pre-commit` or `--staged`.
 
 ---
 

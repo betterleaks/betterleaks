@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/detect"
@@ -20,11 +21,22 @@ func (e *multipleErrors) Unwrap() []error { return e.errs }
 
 type GitCmd struct {
 	ScanFlags `embed:""`
-	Platform  string `help:"Target platform used to generate links: github or gitlab."`
-	Staged    bool   `help:"Scan staged commits (for pre-commit)."`
-	PreCommit bool   `name:"pre-commit" help:"Scan using git diff."`
-	LogOpts   string `name:"log-opts" help:"Git log options."`
-	Repo      string `arg:"" optional:"" help:"Repository to scan."`
+	Platform  string   `help:"Target platform used to generate links: github or gitlab."`
+	Staged    bool     `help:"Scan staged commits (for pre-commit)."`
+	PreCommit bool     `name:"pre-commit" help:"Scan using git diff."`
+	LogOpts   string   `name:"log-opts" help:"Git log options."`
+	Include   []string `help:"Additional Git resources to scan: commit-messages."`
+	Repo      string   `arg:"" optional:"" help:"Repository to scan."`
+}
+
+func (cmd GitCmd) Validate() error {
+	if err := cmd.ScanFlags.Validate(); err != nil {
+		return err
+	}
+	if len(cmd.Include) > 0 && (cmd.Staged || cmd.PreCommit) {
+		return errors.New("--include requires a Git history scan; it cannot be combined with --staged or --pre-commit")
+	}
+	return (&sources.Git{Include: cmd.Include}).Validate()
 }
 
 func (cmd *GitCmd) Run(cli *CLI, runtime *commandRuntime) error {
@@ -91,6 +103,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 			RemoteURL:       remoteURL,
 			MaxArchiveDepth: options.MaxArchiveDepth,
 			LogOpts:         options.LogOpts,
+			Include:         options.Include,
 			Jobs:            jobs.Source,
 		}
 	}

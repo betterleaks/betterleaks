@@ -31,7 +31,22 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 	commitSha := finding.Attr(sources.AttrGitSHA)
 	path := finding.Attr(sources.AttrPath)
 	location := finding.Location
-	if p == scm.UnknownPlatform || p == scm.NoPlatform || commitSha == "" || path == "" {
+	if p == scm.UnknownPlatform || p == scm.NoPlatform || commitSha == "" {
+		return ""
+	}
+	if finding.Attr(sources.AttrResource) == sources.ResourceGitCommitMessage {
+		switch p {
+		case scm.GitHubPlatform, scm.AzureDevOpsPlatform, scm.GiteaPlatform:
+			return fmt.Sprintf("%s/commit/%s", remoteURL, commitSha)
+		case scm.GitLabPlatform:
+			return fmt.Sprintf("%s/-/commit/%s", remoteURL, commitSha)
+		case scm.BitbucketPlatform:
+			return fmt.Sprintf("%s/commits/%s", remoteURL, commitSha)
+		default:
+			return ""
+		}
+	}
+	if path == "" {
 		return ""
 	}
 

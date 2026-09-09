@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -34,6 +35,9 @@ type Git struct {
 	Cmd      *GitCmd
 	RepoPath string
 	LogOpts  string
+	// Include adds resources to the default patch scan. Supported values:
+	// commit-messages. Additional resources require RepoPath rather than Cmd.
+	Include []string
 
 	ShouldSkip      SkipFunc
 	Platform        scm.Platform
@@ -47,8 +51,26 @@ type Git struct {
 	jobOwned bool
 }
 
+const GitResourceTypeCommitMessages = "commit-messages"
+
+// Validate checks additional Git resource selections before starting a scan.
+func (s *Git) Validate() error {
+	for _, name := range s.Include {
+		if name != GitResourceTypeCommitMessages {
+			return fmt.Errorf("unknown Git resource type %q (supported: commit-messages)", name)
+		}
+	}
+	if len(s.Include) > 0 && s.Cmd != nil {
+		return errors.New("additional Git resources require RepoPath rather than Cmd")
+	}
+	return nil
+}
+
 // Fragments yields fragments from a git repo
 func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
 	if s.Cmd == nil {
 		if s.RepoPath == "" {
 			return errors.New("git source requires Cmd or RepoPath")
@@ -68,7 +90,8 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 	repoSource := *s
 	repoSource.Jobs = jobs
 
-	if historyJobs <= 1 {
+	includeMessages := slices.Contains(s.Include, GitResourceTypeCommitMessages)
+	if historyJobs <= 1 && !includeMessages {
 		return s.budget.run(ctx, func() error {
 			return repoSource.runFullHistory(ctx, yield)
 		})
@@ -88,7 +111,7 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 	}
 
 	workers := min(historyJobs, len(commits))
-	if workers == 1 {
+	if workers == 1 && !includeMessages {
 		return s.budget.run(ctx, func() error {
 			return repoSource.runFullHistory(ctx, yield)
 		})
@@ -127,7 +150,13 @@ func (s *Git) runHistoryChunk(ctx context.Context, yield FragmentsFunc, commits 
 	if err != nil {
 		return err
 	}
-	return s.runGitCmd(ctx, yield, cmd)
+	if err := s.runGitCmd(ctx, yield, cmd); err != nil {
+		return err
+	}
+	if slices.Contains(s.Include, GitResourceTypeCommitMessages) {
+		return s.fragmentsFromCommitMessages(ctx, commits, yield)
+	}
+	return nil
 }
 
 func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *GitCmd) error {

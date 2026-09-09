@@ -305,3 +305,16 @@ func Test_createScmLink(t *testing.T) {
 		})
 	}
 }
+
+func TestCommitMessageSCMLinks(t *testing.T) {
+	finding := scmLinkFinding("abc123", "", 3, 5)
+	finding.SetAttr(sources.AttrResource, sources.ResourceGitCommitMessage)
+	for platform, suffix := range map[string]string{
+		"github": "/commit/abc123", "gitlab": "/-/commit/abc123",
+		"azuredevops": "/commit/abc123", "gitea": "/commit/abc123",
+		"bitbucket": "/commits/abc123",
+	} {
+		assert.Equal(t, "https://example.com/repo"+suffix, createScmLink(platform, "https://example.com/repo", finding), platform)
+	}
+	assert.Empty(t, createScmLink("none", "https://example.com/repo", finding))
+}

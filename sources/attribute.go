@@ -13,6 +13,7 @@ const (
 	// Resource values — what kind of thing the fragment is.
 	ResourceFileContent        = "fs.content"
 	ResourceGitPatchContent    = "git.patch_content"
+	ResourceGitCommitMessage   = "git.commit_message"
 	ResourceGitHubRepo         = "github.repository"
 	ResourceGitHubIssue        = "github.issue"
 	ResourceGitHubPR           = "github.pr"
