@@ -68,6 +68,10 @@ func runDetect(cmd *cobra.Command, args []string) {
 	exitCode := mustGetIntFlag(cmd, "exit-code")
 	noGit := mustGetBoolFlag(cmd, "no-git")
 	fromPipe := mustGetBoolFlag(cmd, "pipe")
+	findings, collectorErr := newFindingCollector(cmd)
+	if collectorErr != nil {
+		logging.Fatal().Err(collectorErr).Msg("failed to configure report")
+	}
 	// determine what type of scan:
 	// - git: scan the history of the repo
 	// - no-git: scan files by treating the repo as a plain directory
@@ -77,7 +81,7 @@ func runDetect(cmd *cobra.Command, args []string) {
 	)
 	if noGit {
 		src = &sources.Files{
-			ShouldSkip:      detector.SkipFunc(),
+			ShouldSkip:      findings.FileScanSkipFunc(detector.SkipFunc()),
 			FollowSymlinks:  followSymlinks,
 			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
 			Path:            sourcePath,
@@ -110,10 +114,6 @@ func runDetect(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findings, collectorErr := newFindingCollector(cmd)
-	if collectorErr != nil {
-		logging.Fatal().Err(collectorErr).Msg("failed to configure report")
-	}
 	var scanErrs []error
 	for result := range detector.Run(cmd.Context(), src) {
 		if result.Err != nil {

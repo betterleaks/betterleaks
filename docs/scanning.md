@@ -76,6 +76,11 @@ betterleaks dir . --report-path findings.ndjson --report-format ndjson
 betterleaks dir . --report-path findings.sarif --report-format sarif
 ```
 
+JSON and JSONL reports stream findings as the scan runs. Filesystem scans exclude
+the streamed report file, including symlink and hard-link aliases. When streaming
+a report to stdout (`--report-path -`), verbose finding output is suppressed to
+keep the report parseable.
+
 ---
 
 ## `git`

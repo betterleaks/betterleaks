@@ -508,7 +508,7 @@ func collectFinding(cmd *cobra.Command, findings *findingCollector, finding repo
 	if err := findings.Add(finding); err != nil {
 		logging.Fatal().Err(err).Msg("failed to write report")
 	}
-	if !mustGetBoolFlag(cmd, "verbose") {
+	if !mustGetBoolFlag(cmd, "verbose") || (findings.StreamsReport() && findings.reportPath == report.StdoutReportPath) {
 		return
 	}
 	noColor := mustGetBoolFlag(cmd, "no-color")

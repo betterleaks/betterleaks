@@ -59,7 +59,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		lastDetector = detector
 
 		s := &sources.Files{
-			ShouldSkip:      detector.SkipFunc(),
+			ShouldSkip:      findings.FileScanSkipFunc(detector.SkipFunc()),
 			FollowSymlinks:  followSymlinks,
 			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
 			Path:            source,

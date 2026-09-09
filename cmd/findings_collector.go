@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/betterleaks/betterleaks/report"
+	"github.com/betterleaks/betterleaks/sources"
 )
 
 // findingCollector counts findings and optionally buffers them for a report.
@@ -85,6 +86,28 @@ func (c *findingCollector) ReportFindings() []report.Finding {
 
 func (c *findingCollector) StreamsReport() bool {
 	return c.streamReporter != nil
+}
+
+// FileScanSkipFunc excludes streamed report files before filesystem inputs are
+// opened. Keep this separate from virtual paths in git history and remote sources.
+func (c *findingCollector) FileScanSkipFunc(skip sources.SkipFunc) sources.SkipFunc {
+	if !c.StreamsReport() || c.reportPath == report.StdoutReportPath {
+		return skip
+	}
+	reportPath := c.reportPath
+	return func(attrs map[string]string) bool {
+		if skip != nil && skip(attrs) {
+			return true
+		}
+		// Stat on each visit: the report may not exist until the first finding.
+		// File identity also covers relative paths, symlinks, and hard links.
+		outputInfo, err := os.Stat(reportPath)
+		if err != nil || outputInfo.IsDir() {
+			return false
+		}
+		inputInfo, err := os.Stat(attrs[sources.AttrPath])
+		return err == nil && os.SameFile(outputInfo, inputInfo)
+	}
 }
 
 // Close completes a streaming report and closes an owned output file. It is a
