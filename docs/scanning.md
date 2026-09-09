@@ -31,6 +31,7 @@ historical defaults.
 | Files on disk | `betterleaks dir` |
 | Git history | `betterleaks git` |
 | Staged or pre-commit diffs | `betterleaks git --pre-commit [--staged]` |
+| Commits pushed to a server (pre-receive hook) | `betterleaks git --pre-receive` |
 | GitHub repos, Issues, PRs, Actions, Releases, Discussions, Gists | `betterleaks github <url>` |
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
@@ -98,6 +99,36 @@ betterleaks git . --platform github
 # history scan with JSON output
 betterleaks git . --source-workers 8 --report-path findings.json --report-format json
 ```
+
+### Pre-receive hook
+
+Use `--pre-receive` to run betterleaks as a server-side [Git `pre-receive`
+hook](https://git-scm.com/docs/githooks#pre-receive). The hook reads the ref
+updates Git supplies on stdin (`<old-value> <new-value> <ref-name>` per line),
+scans only the newly pushed commits, and exits non-zero when leaks are found,
+which makes Git reject the push.
+
+- Updated refs are scanned as the `<old>..<new>` range.
+- Newly created refs are scanned excluding history already in the repository
+  (so a new branch or tag is not re-scanned back to the root commit).
+- Deleted refs contribute nothing; a push that only deletes refs is allowed.
+
+`--pre-receive` cannot be combined with `--pre-commit`, `--staged`, or
+`--log-opts`.
+
+Install it by placing an executable `hooks/pre-receive` in the (bare) server
+repository:
+
+```sh
+#!/bin/sh
+exec betterleaks git --pre-receive --no-banner \
+	--pre-receive-error-message "Push rejected on ${CI_PROJECT}: secrets detected. Contact ${SECURITY_TEAM}."
+```
+
+`--pre-receive-error-message` is printed to stderr (visible to the pushing
+client as `remote:` output) only when leaks are found. `$VAR` and `${VAR}`
+references in the message are expanded from the hook process environment, so you
+can surface repository, project, or contact details configured for the server.
 
 ---
 

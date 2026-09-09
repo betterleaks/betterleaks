@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -26,6 +28,10 @@ func init() {
 	gitCmd.Flags().String("platform", "", "the target platform used to generate links (github, gitlab)")
 	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
 	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
+	gitCmd.Flags().Bool("pre-receive", false, "run as a git pre-receive hook, scanning pushed commits read from stdin")
+	gitCmd.Flags().String("pre-receive-error-message", "",
+		"error message printed to stderr when the pre-receive hook finds leaks; "+
+			"$VAR and ${VAR} are expanded from the environment")
 	gitCmd.Flags().String("log-opts", "", "git log options")
 	gitCmd.Flags().Int("git-workers", 0, "alias for --source-workers when scanning Git")
 }
@@ -64,6 +70,7 @@ func runGit(cmd *cobra.Command, args []string) {
 	logOpts := mustGetStringFlag(cmd, "log-opts")
 	staged := mustGetBoolFlag(cmd, "staged")
 	preCommit := mustGetBoolFlag(cmd, "pre-commit")
+	preReceive := mustGetBoolFlag(cmd, "pre-receive")
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 	gitWorkers := mustGetIntFlag(cmd, "git-workers")
 	sourceWorkers := mustGetIntFlag(cmd, "source-workers")
@@ -73,12 +80,40 @@ func runGit(cmd *cobra.Command, args []string) {
 	}
 	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
 
+	if preReceive && (preCommit || staged) {
+		logging.Fatal().Msg("--pre-receive cannot be combined with --pre-commit or --staged")
+	}
+	if preReceive && logOpts != "" {
+		logging.Fatal().Msg("--log-opts cannot be combined with --pre-receive")
+	}
+
 	var (
 		err error
 		src sources.Source
 	)
 
-	if preCommit || staged {
+	if preReceive {
+		updates, parseErr := sources.ParsePreReceiveInput(cmd.InOrStdin())
+		if parseErr != nil {
+			logging.Fatal().Err(parseErr).Msg("could not read pre-receive input")
+		}
+		logArgs := sources.PreReceiveLogArgs(updates)
+		if len(logArgs) == 0 {
+			// Nothing to scan (e.g. only ref deletions). Report cleanly.
+			logging.Info().Msg("pre-receive: no new commits to scan")
+			findingSummaryAndExit(cmd, detector, findings, exitCode, start, nil)
+			return
+		}
+		// Remote info + links are irrelevant for server-side hook scans.
+		src = &sources.Git{
+			RepoPath:        source,
+			ShouldSkip:      detector.SkipFunc(),
+			Platform:        scm.NoPlatform,
+			MaxArchiveDepth: maxArchiveDepth,
+			LogOpts:         strings.Join(logArgs, " "),
+			Workers:         workers,
+		}
+	} else if preCommit || staged {
 		gitCmd, cmdErr := sources.NewGitDiffCmdContext(cmd.Context(), source, staged)
 		if cmdErr != nil {
 			logging.Fatal().Err(cmdErr).Msg("could not create Git diff cmd")
@@ -125,6 +160,14 @@ func runGit(cmd *cobra.Command, args []string) {
 		err = &multipleErrors{
 			msg:  fmt.Sprintf("%d error(s) encountered during scan", n),
 			errs: scanErrs,
+		}
+	}
+
+	// When running as a pre-receive hook, print the custom error message
+	// (with environment variables expanded) so the pushing client sees it.
+	if preReceive && findings.Count() != 0 {
+		if msg := mustGetStringFlag(cmd, "pre-receive-error-message"); msg != "" {
+			fmt.Fprintln(os.Stderr, os.ExpandEnv(msg))
 		}
 	}
 
