@@ -1024,7 +1024,7 @@ ScanLoop:
 					if rule.regex == nil && (currentDecodeDepth > 0 || fragment.Attr(sources.AttrFSFirstFragment) == "false") {
 						continue
 					}
-					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings) {
+					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, detectionState{}) {
 						if confidence.Meets(finding.Confidence, d.minimumConfidence) {
 							findings = append(findings, finding)
 							priorFindings.findings = findings
@@ -1058,18 +1058,26 @@ ScanLoop:
 	return findings
 }
 
+// detectionState is local to a rule evaluation, never part of source metadata.
+// Component matches may use skipReport rules, but do not expand components again.
+// The zero value describes a normal top-level match.
+type detectionState struct {
+	component bool
+}
+
 func (d *Detector) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
 	fragment sources.Fragment,
 	currentRaw string,
 	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
-	priorFindings *findingIndex) []report.Finding {
+	priorFindings *findingIndex,
+	state detectionState) []report.Finding {
 	if ruleTimings == nil {
-		return d.detectFragmentWithRule(nil, fragment, currentRaw, r, encodedSegments, priorFindings)
+		return d.detectFragmentWithRule(nil, fragment, currentRaw, r, encodedSegments, priorFindings, state)
 	}
 
 	start := time.Now()
-	findings := d.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings)
+	findings := d.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings, state)
 	ruleTimings.Record(r.rule.ID, time.Since(start))
 	return findings
 }
@@ -1123,13 +1131,14 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	currentRaw string,
 	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
-	priorFindings *findingIndex) []report.Finding {
+	priorFindings *findingIndex,
+	state detectionState) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = d.logger
 	)
 
-	if r.rule.SkipReport && !fragment.InheritedFromFinding {
+	if r.rule.SkipReport && !state.component {
 		return findings
 	}
 
@@ -1363,7 +1372,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	}
 
 	// Handle component rules (multi-part rules).
-	if fragment.InheritedFromFinding || len(r.rule.Components) == 0 {
+	if state.component || len(r.rule.Components) == 0 {
 		return findings
 	}
 
@@ -1396,11 +1405,7 @@ func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment
 		}
 		rule := &d.rulesBySpecificity[ruleIndex]
 
-		// Mark fragment as inherited to prevent infinite recursion
-		inheritedFragment := fragment
-		inheritedFragment.InheritedFromFinding = true
-
-		componentFindings := d.detectFragmentWithRuleTimed(ruleTimings, inheritedFragment, currentRaw, rule, encodedSegments, nil)
+		componentFindings := d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, detectionState{component: true})
 		allComponentFindings[component.RuleID] = componentFindings
 
 		logger.Debug("collected component rule findings",

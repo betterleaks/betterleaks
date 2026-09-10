@@ -168,7 +168,7 @@ func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
 
 	var findings []report.Finding
 	allocations := testing.AllocsPerRun(1_000, func() {
-		findings = detector.detectFragmentWithRule(nil, fragment, fragment.Raw, rule, nil, nil)
+		findings = detector.detectFragmentWithRule(nil, fragment, fragment.Raw, rule, nil, nil, detectionState{})
 	})
 	runtime.KeepAlive(findings)
 	assert.Zero(t, allocations)
@@ -655,6 +655,46 @@ skipReport = true
 			assert.True(t, set.Components[1].Optional)
 		}
 	})
+}
+
+// A component's own required components do not gate its use by a primary rule.
+// This also ensures component mode does not leak into other fragments or scans.
+func TestComponentMatchingDoesNotExpandNestedComponents(t *testing.T) {
+	cfg := &config.Config{Rules: []config.Rule{
+		{ID: "primary", Regex: `primary=([a-z]+)`, Components: []*config.Component{{RuleID: "component"}}},
+		{ID: "component", Regex: `component=([a-z]+)`, SkipReport: true, Components: []*config.Component{{RuleID: "nested"}}},
+		{ID: "nested", Regex: `nested=([a-z]+)`, SkipReport: true},
+	}}
+	detector := mustNewDetector(t, cfg, WithJobs(4))
+	for _, timed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("timed=%t", timed), func(t *testing.T) {
+			ctx := t.Context()
+			if timed {
+				ctx = ruletiming.WithCollector(ctx, ruletiming.NewCollector())
+			}
+			for range 2 {
+				source := fragmentSource{fragments: []sources.Fragment{
+					{Raw: "primary=secret\ncomponent=account"},
+					{Raw: "component=standalone"},
+					{Raw: "primary=unpaired"},
+				}}
+				var findings []report.Finding
+				summary, err := detector.Scan(ctx, source, func(finding report.Finding) error {
+					findings = append(findings, finding)
+					return nil
+				})
+				require.NoError(t, err)
+				require.Equal(t, 1, summary.Findings)
+				require.Len(t, findings, 1)
+				require.Equal(t, "primary", findings[0].RuleID)
+				require.Len(t, findings[0].ComponentSets, 1)
+				require.Len(t, findings[0].ComponentSets[0].Components, 1)
+				component := findings[0].ComponentSets[0].Components[0]
+				require.Equal(t, "component", component.RuleID)
+				require.Equal(t, "account", component.Secret)
+			}
+		})
+	}
 }
 
 func TestOptionalOnlyComponents(t *testing.T) {
@@ -3445,7 +3485,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rules, _, err := snapshotDetectorRules(&config.Config{Rules: []config.Rule{test.rule}})
 			require.NoError(t, err)
-			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, &rules[0], []*codec.EncodedSegment{}, nil)
+			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, &rules[0], []*codec.EncodedSegment{}, nil, detectionState{})
 			compare(t, actual, test.expected)
 		})
 	}

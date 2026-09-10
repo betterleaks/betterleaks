@@ -5,9 +5,6 @@ type Fragment struct {
 	// Raw is the raw content of the fragment
 	Raw string
 
-	// Indicates if this fragment is inherited from a finding
-	InheritedFromFinding bool
-
 	// StartLine is the line number this fragment starts on (SetDefaults sets it to 1 if unset)
 	StartLine int
 
