@@ -1,0 +1,16 @@
+*
+!.git
+!cmd
+!config
+!detect
+!go.mod
+!go.sum
+!internal
+!logging
+!regexp
+!report
+!report_templates
+!sources
+!version
+!main.go
+*_test.go
