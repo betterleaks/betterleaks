@@ -10,14 +10,19 @@ import (
 	"strings"
 )
 
+// Prefix identifies the supported SHA-256 fingerprint format.
 const Prefix = "sha256:"
 
+// Hash identifies the exact secret bytes, independent of rule or location.
 type Hash [sha256.Size]byte
 
+// Sum hashes exact secret bytes, including any whitespace.
 func Sum(secret []byte) Hash { return sha256.Sum256(secret) }
 
+// Format returns the canonical sha256: prefix and lowercase hexadecimal digest.
 func Format(hash Hash) string { return Prefix + hex.EncodeToString(hash[:]) }
 
+// Parse accepts a sha256: prefix followed by a full hexadecimal digest.
 func Parse(s string) (Hash, error) {
 	var hash Hash
 	prefix, digest, ok := strings.Cut(s, ":")
@@ -36,38 +41,16 @@ func Parse(s string) (Hash, error) {
 	return hash, nil
 }
 
-// List is an ordered, deduplicated collection of secret fingerprints.
-type List struct{ hashes []Hash }
-
-func (l *List) Len() int {
-	if l == nil {
-		return 0
-	}
-	return len(l.hashes)
-}
-
-// FilterExpression returns the global finding filter represented by the list.
-// Expr compiles a constant string list used with "in" into a map lookup.
-func (l *List) FilterExpression() string {
-	if l == nil || len(l.hashes) == 0 {
-		return ""
-	}
-	var expression strings.Builder
-	expression.WriteString("sha256(finding[\"secret\"]) in [\n")
-	for _, hash := range l.hashes {
-		_, _ = fmt.Fprintf(&expression, "  %q,\n", Format(hash))
-	}
-	expression.WriteByte(']')
-	return expression.String()
-}
-
+// Diagnostic describes an invalid entry in an ignore file. Line numbers start at one.
 type Diagnostic struct {
 	Line   int
 	Reason string
 }
 
 // Load parses an ignore file, retaining valid entries when other lines are bad.
-func Load(r io.Reader) (*List, []Diagnostic, error) {
+// Hashes are deduplicated in input order. On a read error, it returns the entries
+// and diagnostics collected before that error.
+func Load(r io.Reader) ([]Hash, []Diagnostic, error) {
 	seen := make(map[Hash]struct{})
 	var hashes []Hash
 	var diagnostics []Diagnostic
@@ -89,5 +72,5 @@ func Load(r io.Reader) (*List, []Diagnostic, error) {
 		seen[hash] = struct{}{}
 		hashes = append(hashes, hash)
 	}
-	return &List{hashes: hashes}, diagnostics, scanner.Err()
+	return hashes, diagnostics, scanner.Err()
 }

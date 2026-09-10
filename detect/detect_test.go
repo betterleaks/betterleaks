@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +25,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/detect/codec"
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/v2/regexp"
@@ -140,6 +144,114 @@ func testConfig() *config.Config {
 		ID:    "test-secret",
 		Regex: `secret-[a-z]+`,
 	}}}
+}
+
+func TestIgnoredFingerprintsUseExtractedSecret(t *testing.T) {
+	cfg := &config.Config{Rules: []config.Rule{{
+		ID: "token", Regex: `token=(secret-[a-z]+)`, SecretGroup: 1,
+	}}}
+	ignored := fingerprint.Sum([]byte("secret-ignored"))
+	for _, input := range []string{
+		"token=secret-ignored token=secret-visible",
+		base64.StdEncoding.EncodeToString([]byte("token=secret-ignored token=secret-visible")),
+	} {
+		baseline := mustNewDetector(t, cfg, WithMaxDecodeDepth(2))
+		require.Len(t, baseline.DetectString(input), 2)
+		detector := mustNewDetector(t, cfg, WithMaxDecodeDepth(2), WithIgnoredFingerprints(ignored))
+		findings := detector.DetectString(input)
+		require.Len(t, findings, 1)
+		assert.Equal(t, "secret-visible", findings[0].Secret)
+	}
+	// A fingerprint of the entire regex match must not suppress its capture.
+	detector := mustNewDetector(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("token=secret-ignored"))))
+	require.Len(t, detector.DetectString("token=secret-ignored"), 1)
+}
+
+func TestIgnoredFingerprintsPreserveComponents(t *testing.T) {
+	for _, optional := range []bool{false, true} {
+		for _, skipReport := range []bool{false, true} {
+			cfg := &config.Config{Rules: []config.Rule{
+				{ID: "primary", Regex: `primary-token`, Components: []*config.Component{{RuleID: "component", Within: "2L", Optional: optional}}},
+				{ID: "component", Regex: `companion-token`, SkipReport: skipReport},
+			}}
+			detector := mustNewDetector(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("companion-token"))))
+			findings := detector.DetectString("primary-token companion-token")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "primary", findings[0].RuleID)
+			require.Len(t, findings[0].ComponentSets, 1)
+			require.Len(t, findings[0].ComponentSets[0].Components, 1)
+			assert.Equal(t, "companion-token", findings[0].ComponentSets[0].Components[0].Secret)
+			assert.Empty(t, detector.DetectString("companion-token"))
+			// An ignored primary suppresses the assembled finding itself.
+			detector = mustNewDetector(t, cfg, WithIgnoredFingerprints(
+				fingerprint.Sum([]byte("primary-token")), fingerprint.Sum([]byte("companion-token")),
+			))
+			assert.Empty(t, detector.DetectString("primary-token companion-token"))
+		}
+	}
+	// Explicit global filters retain their original component filtering semantics.
+	cfg := &config.Config{
+		Filter: `finding["secret"] == "companion-token"`,
+		Rules: []config.Rule{
+			{ID: "primary", Regex: `primary-token`, Components: []*config.Component{{RuleID: "component", Within: "2L"}}},
+			{ID: "component", Regex: `companion-token`, SkipReport: true},
+		},
+	}
+	assert.Empty(t, mustNewDetector(t, cfg).DetectString("primary-token companion-token"))
+}
+
+func TestIgnoredFingerprintsSnapshotAndReuse(t *testing.T) {
+	hashes := []fingerprint.Hash{fingerprint.Sum([]byte("secret-alpha"))}
+	option := WithIgnoredFingerprints(hashes...)
+	hashes[0] = fingerprint.Sum([]byte("secret-beta"))
+	for range 2 {
+		detector := mustNewDetector(t, testConfig(), option, option, WithIgnoredFingerprints(), WithIgnoredFingerprints(hashes...))
+		for range 2 {
+			findings := detector.DetectString("secret-alpha secret-beta secret-gamma")
+			require.Len(t, findings, 1)
+			assert.Equal(t, "secret-gamma", findings[0].Secret)
+		}
+	}
+	assert.Len(t, mustNewDetector(t, testConfig(), WithIgnoredFingerprints()).DetectString("secret-alpha secret-beta"), 2)
+	assert.Len(t, mustNewDetector(t, testConfig()).DetectString("secret-alpha secret-beta"), 2)
+}
+
+func TestIgnoredFingerprintsSkipProviderRequests(t *testing.T) {
+	var requests, ignoredRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Query().Get("secret") == "secret-ignored" {
+			ignoredRequests.Add(1)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	cfg := testConfig()
+	cfg.Rules[0].ValidateExpr = fmt.Sprintf(`let r = http.get(%q + "?secret=" + finding["secret"], {}); {"result": r.status == 200 ? "valid" : "error"}`, server.URL)
+	cfg.Rules[0].AnalyzeExpr = fmt.Sprintf(`let r = http.get(%q + "?secret=" + finding["secret"], {}); {"capabilities": r.status == 200 ? ["read"] : []}`, server.URL)
+	detector := mustNewDetector(t, cfg, WithAnalysis(ProviderOptions{Workers: 1}), WithIgnoredFingerprints(fingerprint.Sum([]byte("secret-ignored"))))
+	source := fragmentSource{fragments: []sources.Fragment{{Raw: "secret-ignored secret-visible", Attributes: map[string]string{sources.AttrPath: "one.txt"}}, {Raw: "secret-ignored", Attributes: map[string]string{sources.AttrPath: "two.txt"}}}}
+	var findings []report.Finding
+	summary, err := detector.Scan(t.Context(), source, func(f report.Finding) error {
+		findings = append(findings, f)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "secret-visible", findings[0].Secret)
+	assert.Equal(t, report.SeverityMedium, findings[0].Analysis.Severity)
+	assert.Equal(t, 1, summary.Findings)
+	assert.Equal(t, map[report.ValidationStatus]int{report.ValidationStatusValid: 1}, summary.ValidationCounts)
+	assert.Equal(t, int32(2), requests.Load())
+	count := 0
+	for result := range detector.Run(t.Context(), source) {
+		require.NoError(t, result.Err)
+		assert.Equal(t, "secret-visible", result.Finding.Secret)
+		count++
+	}
+	assert.Equal(t, 1, count)
+	assert.Equal(t, int32(4), requests.Load())
+	assert.Zero(t, ignoredRequests.Load())
 }
 
 func TestDetectorLoggerIsOptIn(t *testing.T) {

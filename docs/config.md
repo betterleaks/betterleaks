@@ -137,8 +137,10 @@ sha256(finding["secret"]) in [
 ```
 
 The constant list on the right side of `in` is compiled into a lookup map.
-Repository-local `.betterleaksignore` entries are translated into this same
-global-filter form.
+This explicit global filter also applies to internal component matches.
+`.betterleaksignore` entries are handled separately by the detector after
+component assembly, so ignoring a component secret does not prevent other
+credentials from using it. Ignore files do not modify the configured filter.
 
 Example:
 

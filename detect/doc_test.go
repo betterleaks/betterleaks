@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
@@ -30,6 +32,23 @@ func Example() {
 
 	// Output:
 	// github-pat
+}
+
+func ExampleWithIgnoredFingerprints() {
+	policy := fingerprint.Format(fingerprint.Sum([]byte("secret-fixture"))) + "\n"
+	hashes, diagnostics, err := fingerprint.Load(strings.NewReader(policy))
+	if err != nil || len(diagnostics) != 0 {
+		panic("invalid ignore policy")
+	}
+	cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: `secret-[a-z]+`}}}
+	detector, err := detect.NewDetector(cfg, detect.WithIgnoredFingerprints(hashes...))
+	if err != nil {
+		panic(err)
+	}
+	for _, finding := range detector.DetectString("secret-fixture secret-live") {
+		fmt.Println(finding.Secret)
+	}
+	// Output: secret-live
 }
 
 func Example_customConfig() {

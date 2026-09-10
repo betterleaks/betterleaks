@@ -14,7 +14,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/detect"
-	"github.com/betterleaks/betterleaks/v2/internal/fingerprint"
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/regexp"
 	regexpre2 "github.com/betterleaks/betterleaks/v2/regexp/re2"
@@ -397,7 +397,7 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	if err != nil {
 		runtime.fatal("provider-rps-rule", "error", err)
 	}
-	detectorOptions, err := applyIgnorePolicy(runtime, flags.IgnoreFile, source, cfg)
+	detectorOptions, err := applyIgnorePolicy(runtime, flags.IgnoreFile, source)
 	if err != nil {
 		runtime.fatal("unable to load ignore file", "error", err)
 	}
@@ -476,7 +476,7 @@ func parseValidationStatuses(value string) ([]report.ValidationStatus, error) {
 	return statuses, nil
 }
 
-func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string, cfg *config.Config) ([]detect.Option, error) {
+func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string) ([]detect.Option, error) {
 	path := explicitPath
 	explicit := path != ""
 	if !explicit {
@@ -507,7 +507,7 @@ func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string, cfg
 	}
 	defer file.Close()
 
-	list, diagnostics, readErr := fingerprint.Load(file)
+	hashes, diagnostics, readErr := fingerprint.Load(file)
 	for _, diagnostic := range diagnostics {
 		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s:%d: %s; entry ignored\n", path, diagnostic.Line, diagnostic.Reason)
 	}
@@ -538,12 +538,8 @@ func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string, cfg
 	if len(excluded) > 0 {
 		options = append(options, detect.WithExcludedPaths(excluded...))
 	}
-	if expression := list.FilterExpression(); expression != "" {
-		if cfg.Filter == "" {
-			cfg.Filter = expression
-		} else {
-			cfg.Filter = "(\n" + strings.TrimSpace(cfg.Filter) + "\n) || (\n" + expression + "\n)"
-		}
+	if len(hashes) > 0 {
+		options = append(options, detect.WithIgnoredFingerprints(hashes...))
 	}
 	return options, nil
 }

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
-	"github.com/betterleaks/betterleaks/v2/internal/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 	"github.com/betterleaks/betterleaks/v2/internal/words"
 	blregexp "github.com/betterleaks/betterleaks/v2/regexp"

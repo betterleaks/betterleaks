@@ -96,9 +96,15 @@ SHA-256 digest of the exact secret bytes:
 sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 ```
 
-Ignore files are repository-local shorthand for a global filter. Betterleaks
-loads their valid entries and composes the equivalent expression with the
-configured filter:
+The detector checks ignore fingerprints against each completed finding's primary
+secret after assembling components and before validation or analysis. Ignoring a
+component secret suppresses its standalone finding, but the component remains
+available to assemble other credentials. Ignoring a primary secret suppresses
+every completed finding with that primary, regardless of its component values.
+
+Ignore files do not modify the configured filter. Projects can still write an
+explicit global filter when they want filtering to apply to internal component
+matches as well:
 
 ```toml
 filter = '''
@@ -108,9 +114,14 @@ sha256(finding["secret"]) in [
 '''
 ```
 
-Projects may put fingerprints directly in their configuration when that is
-more convenient. Both forms use the same filter runtime and exact-byte
-matching semantics.
+Both forms hash exact secret bytes, but an explicit global filter runs before
+component assembly and can therefore prevent a multipart finding from forming.
+
+SDK callers can pass hashes directly to `detect.WithIgnoredFingerprints(hashes...)`.
+The public `fingerprint` package provides `Sum`, `Parse`, `Format`, and `Load`.
+`Load` accepts an `io.Reader` and returns deduplicated hashes, line diagnostics,
+and a read error. The detector copies supplied hashes and performs no ignore-file
+discovery; callers control which policy to load.
 
 Blank lines and full-line `#` comments are allowed. Hex digits may be uppercase
 or lowercase. Invalid entries are reported with their file and line number and

@@ -1,8 +1,11 @@
 package fingerprint
 
 import (
+	"errors"
+	"io"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,10 +35,27 @@ func TestLoad(t *testing.T) {
 	}, "\n")))
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, list.Len())
-	assert.Equal(t, "sha256(finding[\"secret\"]) in [\n  \""+entry+"\",\n]", list.FilterExpression())
+	assert.Equal(t, []Hash{Sum([]byte("secret"))}, list)
 	require.Len(t, diagnostics, 4)
 	assert.Equal(t, []int{5, 6, 7, 8}, []int{diagnostics[0].Line, diagnostics[1].Line, diagnostics[2].Line, diagnostics[3].Line})
+}
+
+func TestLoadPreservesOrderAndReadErrors(t *testing.T) {
+	first, second := Sum([]byte("first")), Sum([]byte("second"))
+	input := "  " + Format(first) + " \r\n# comment\n" + Format(second) + "\n" + Format(first) + "\n"
+	hashes, diagnostics, err := Load(strings.NewReader(input))
+	require.NoError(t, err)
+	assert.Empty(t, diagnostics)
+	assert.Equal(t, []Hash{first, second}, hashes)
+	readErr := errors.New("read failed")
+	hashes, diagnostics, err = Load(io.MultiReader(strings.NewReader(input), iotest.ErrReader(readErr)))
+	require.ErrorIs(t, err, readErr)
+	assert.Empty(t, diagnostics)
+	assert.Equal(t, []Hash{first, second}, hashes)
+	hashes, diagnostics, err = Load(strings.NewReader("\n# empty policy\n"))
+	require.NoError(t, err)
+	assert.Empty(t, hashes)
+	assert.Empty(t, diagnostics)
 }
 
 func TestParseRejectsUnsupportedForms(t *testing.T) {

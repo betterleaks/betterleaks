@@ -15,7 +15,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/detect"
-	blfingerprint "github.com/betterleaks/betterleaks/v2/internal/fingerprint"
+	blfingerprint "github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
@@ -95,7 +95,7 @@ func TestIgnoreFileDiscovery(t *testing.T) {
 		dir := t.TempDir()
 		writeIgnore(t, dir, "secret-root")
 		cfg := ignoreTestConfig()
-		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir, cfg)
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir)
 		require.NoError(t, err)
 		assert.Empty(t, detectorWithIgnoreOptions(t, cfg, options).DetectString("secret-root"))
 	})
@@ -106,7 +106,7 @@ func TestIgnoreFileDiscovery(t *testing.T) {
 		require.NoError(t, os.WriteFile(file, []byte("secret-file"), 0o600))
 		writeIgnore(t, dir, "secret-file")
 		cfg := ignoreTestConfig()
-		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", file, cfg)
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", file)
 		require.NoError(t, err)
 		assert.Empty(t, detectorWithIgnoreOptions(t, cfg, options).DetectString("secret-file"))
 	})
@@ -116,7 +116,7 @@ func TestIgnoreFileDiscovery(t *testing.T) {
 		writeIgnore(t, dir, "secret-cwd")
 		t.Chdir(dir)
 		cfg := ignoreTestConfig()
-		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", "", cfg)
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", "")
 		require.NoError(t, err)
 		assert.Empty(t, detectorWithIgnoreOptions(t, cfg, options).DetectString("secret-cwd"))
 	})
@@ -125,7 +125,7 @@ func TestIgnoreFileDiscovery(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitleaksignore"), []byte("ignored"), 0o600))
 		cfg := ignoreTestConfig()
-		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir, cfg)
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir)
 		require.NoError(t, err)
 		assert.Empty(t, options)
 		assert.Empty(t, cfg.Filter)
@@ -142,7 +142,7 @@ func TestExplicitIgnoreOverridesEveryTarget(t *testing.T) {
 
 	for _, target := range []string{one, two} {
 		cfg := ignoreTestConfig()
-		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, explicit, target, cfg)
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, explicit, target)
 		require.NoError(t, err)
 		detector := detectorWithIgnoreOptions(t, cfg, options)
 		assert.Empty(t, detector.DetectString("secret-shared"))
@@ -156,17 +156,35 @@ func TestIgnoreFileComposesWithGlobalFilter(t *testing.T) {
 	cfg := ignoreTestConfig()
 	cfg.Filter = "finding[\"secret\"] == \"secret-config\""
 
-	options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir, cfg)
+	options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir)
 	require.NoError(t, err)
 	detector := detectorWithIgnoreOptions(t, cfg, options)
 
 	assert.Empty(t, detector.DetectString("secret-config secret-fingerprint"))
 	assert.NotEmpty(t, detector.DetectString("secret-visible"))
-	assert.Contains(t, cfg.Filter, "sha256(finding[\"secret\"]) in [")
+	assert.Equal(t, "finding[\"secret\"] == \"secret-config\"", cfg.Filter)
+}
+
+func TestIgnorePoliciesDoNotLeakBetweenDetectors(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	writeIgnore(t, first, "secret-first")
+	writeIgnore(t, second, "secret-second")
+	cfg := ignoreTestConfig()
+	for _, target := range []struct{ path, ignored, visible string }{
+		{first, "secret-first", "secret-second"},
+		{second, "secret-second", "secret-first"},
+	} {
+		options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", target.path)
+		require.NoError(t, err)
+		detector := detectorWithIgnoreOptions(t, cfg, options)
+		assert.Empty(t, detector.DetectString(target.ignored))
+		assert.Len(t, detector.DetectString(target.visible), 1)
+		assert.Empty(t, cfg.Filter)
+	}
 }
 
 func TestIgnoreFileErrorsAndDiagnostics(t *testing.T) {
-	_, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, filepath.Join(t.TempDir(), "missing"), "", ignoreTestConfig())
+	_, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, filepath.Join(t.TempDir(), "missing"), "")
 	require.ErrorContains(t, err, "open")
 
 	dir := t.TempDir()
@@ -179,7 +197,7 @@ func TestIgnoreFileErrorsAndDiagnostics(t *testing.T) {
 
 	stderr := new(bytes.Buffer)
 	cfg := ignoreTestConfig()
-	options, err := applyIgnorePolicy(&commandRuntime{stderr: stderr}, path, dir, cfg)
+	options, err := applyIgnorePolicy(&commandRuntime{stderr: stderr}, path, dir)
 	require.NoError(t, err)
 	assert.Contains(t, stderr.String(), path+":2:")
 	assert.Empty(t, detectorWithIgnoreOptions(t, cfg, options).DetectString("secret-valid"))
@@ -188,7 +206,7 @@ func TestIgnoreFileErrorsAndDiagnostics(t *testing.T) {
 		unreadable := filepath.Join(t.TempDir(), "ignore")
 		require.NoError(t, os.WriteFile(unreadable, []byte("ignored"), 0o000))
 		defer os.Chmod(unreadable, 0o600)
-		_, err = applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, unreadable, "", ignoreTestConfig())
+		_, err = applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, unreadable, "")
 		assert.Error(t, err)
 	}
 }
@@ -197,7 +215,7 @@ func TestActiveIgnoreFileIsExcluded(t *testing.T) {
 	dir := t.TempDir()
 	path := writeIgnore(t, dir, "secret-value")
 	cfg := ignoreTestConfig()
-	options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir, cfg)
+	options, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, "", dir)
 	require.NoError(t, err)
 	detector := detectorWithIgnoreOptions(t, cfg, options)
 
@@ -205,7 +223,7 @@ func TestActiveIgnoreFileIsExcluded(t *testing.T) {
 	assert.True(t, detector.SkipFunc()(map[string]string{sources.AttrPath: ".betterleaksignore"}))
 
 	remoteCfg := ignoreTestConfig()
-	remoteOptions, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, path, "", remoteCfg)
+	remoteOptions, err := applyIgnorePolicy(&commandRuntime{stderr: io.Discard}, path, "")
 	require.NoError(t, err)
 	assert.Nil(t, detectorWithIgnoreOptions(t, remoteCfg, remoteOptions).SkipFunc())
 }

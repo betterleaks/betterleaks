@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/betterleaks/betterleaks/v2/internal/fingerprint"
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"golang.org/x/term"
 )
 

@@ -19,6 +19,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/detect/codec"
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/ahocorasick"
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
@@ -121,6 +122,7 @@ type detectorOptions struct {
 	providerOptions     ProviderOptions
 	ignoreAllowComments bool
 	excludedPaths       []string
+	ignoredFingerprints []fingerprint.Hash
 	precompile          bool
 	logger              *slog.Logger
 }
@@ -136,6 +138,19 @@ func WithExcludedPaths(paths ...string) Option {
 	paths = slices.Clone(paths)
 	return Option{apply: func(options *detectorOptions) error {
 		options.excludedPaths = append(options.excludedPaths, paths...)
+		return nil
+	}}
+}
+
+// WithIgnoredFingerprints suppresses completed findings whose primary secret
+// matches a hash, independent of rule, source, or location. Component matches
+// remain available to assemble other findings. Suppression precedes validation
+// and analysis and applies to Run, Scan, and DetectString.
+// The hashes are copied; repeated options add to the ignored set.
+func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {
+	hashes = slices.Clone(hashes)
+	return Option{apply: func(options *detectorOptions) error {
+		options.ignoredFingerprints = append(options.ignoredFingerprints, hashes...)
 		return nil
 	}}
 }
@@ -255,6 +270,7 @@ type ruleCandidates struct {
 // Detector is an immutable rule engine with thread-safe lazy compilation. A
 // Detector may be reused for multiple scans. Scan executions are serialized.
 type Detector struct {
+	ignoredFingerprints    map[fingerprint.Hash]struct{}
 	maxDecodeDepth         int
 	matchContext           contextwindow.Spec
 	validationStatusFilter map[report.ValidationStatus]struct{}
@@ -410,6 +426,12 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 		ruleIndexByID:       ruleIndexByID,
 		keywordRuleIndexes:  keywordRuleIndexes,
 		noKeywordIndexes:    noKeywordIndexes,
+	}
+	if len(settings.ignoredFingerprints) > 0 {
+		d.ignoredFingerprints = make(map[fingerprint.Hash]struct{}, len(settings.ignoredFingerprints))
+		for _, hash := range settings.ignoredFingerprints {
+			d.ignoredFingerprints[hash] = struct{}{}
+		}
 	}
 	if settings.validationEnabled {
 		d.validationStatusFilter = make(map[report.ValidationStatus]struct{}, len(settings.providerOptions.Statuses))
@@ -1025,6 +1047,13 @@ ScanLoop:
 						continue
 					}
 					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, detectionState{}) {
+						// These findings have their components assembled. Recursive
+						// component matching never applies fingerprint suppression.
+						if len(d.ignoredFingerprints) > 0 {
+							if _, ignored := d.ignoredFingerprints[fingerprint.Sum([]byte(finding.Secret))]; ignored {
+								continue
+							}
+						}
 						if confidence.Meets(finding.Confidence, d.minimumConfidence) {
 							findings = append(findings, finding)
 							priorFindings.findings = findings
