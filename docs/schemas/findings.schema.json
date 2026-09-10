@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Betterleaks v2 JSON findings report",
+  "description": "The JSON array emitted by --output findings.json or --output -. For JSONL, validate each parsed line against finding.schema.json instead. Keep both schema files together so the relative reference can resolve.",
+  "type": "array",
+  "items": {"$ref": "finding.schema.json"},
+  "examples": [[]]
+}

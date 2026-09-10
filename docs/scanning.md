@@ -56,6 +56,16 @@ named `git`. Running `betterleaks` without arguments shows help.
 Scan commands print findings in the human-readable format by default. Use
 `--jsonl` to emit one compact JSON finding per line instead.
 
+JSON Schema definitions are available for [one finding](schemas/finding.schema.json)
+and [a JSON report array](schemas/findings.schema.json), using
+[Draft 2020-12](https://json-schema.org/draft/2020-12). Validate each parsed JSONL
+line with the single-finding schema. Keep both schema files together when
+validating an array report so the relative reference resolves. These schemas
+describe scan output, not the separate `validate` command report. Fixed objects
+reject unknown fields; source attributes and provider metadata are extensible.
+Unclassified confidence is an empty string, and `tags` may be `null` when the
+underlying Go slice is nil.
+
 `-o, --output <path>` writes a second, streaming report. The filename selects the
 format: `.json` writes a JSON array and `.jsonl` writes JSON Lines. Use
 `--output -` to write the report to stdout; it writes JSON by default and JSONL
