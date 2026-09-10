@@ -738,50 +738,61 @@ func TestGitWithoutReflogs(t *testing.T) {
 }
 
 func TestGitSourcesShareInheritedJobBudget(t *testing.T) {
-	repo := newGitTestRepo(t, 4)
-	ctx := sourcejobs.WithBudget(t.Context(), sourcejobs.NewBudget(1))
-	started := make(chan struct{}, 32)
-	release := make(chan struct{})
-	var releaseOnce sync.Once
-	releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
-	defer releaseAll()
-	done := make(chan error, 2)
-	gitSources := []*Git{{RepoPath: repo, Jobs: 4}, {RepoPath: repo, Jobs: 4}}
-	for _, source := range gitSources {
-		go func() {
-			done <- source.Fragments(ctx, func(_ Fragment, err error) error {
-				if err != nil {
-					return err
+	for _, command := range []bool{false, true} {
+		t.Run(fmt.Sprintf("command=%t", command), func(t *testing.T) {
+			repo := newGitTestRepo(t, 4)
+			ctx := sourcejobs.WithBudget(t.Context(), sourcejobs.NewBudget(1))
+			started := make(chan struct{}, 32)
+			release := make(chan struct{})
+			var releaseOnce sync.Once
+			releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
+			defer releaseAll()
+			done := make(chan error, 2)
+			gitSources := []*Git{{RepoPath: repo, Jobs: 4}, {RepoPath: repo, Jobs: 4}}
+			for _, source := range gitSources {
+				if command {
+					cmd, err := NewGitLogCmdContext(ctx, repo, "")
+					require.NoError(t, err)
+					source.Cmd = cmd
 				}
-				started <- struct{}{}
-				<-release
-				return nil
-			})
-		}()
-	}
-	select {
-	case <-started:
-	case err := <-done:
-		require.NoError(t, err)
-		t.Fatal("Git scan completed before yielding a fragment")
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for budgeted Git work")
-	}
-	select {
-	case <-started:
-		t.Fatal("nested Git scans exceeded their shared job budget")
-	case <-time.After(100 * time.Millisecond):
-	}
-	releaseAll()
-	for range gitSources {
-		select {
-		case err := <-done:
-			require.NoError(t, err)
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out completing budgeted Git scans")
-		}
-	}
-	for _, source := range gitSources {
-		require.Nil(t, source.budget, "context budget must not persist on the caller's source")
+			}
+			for _, source := range gitSources {
+				go func() {
+					done <- source.Fragments(ctx, func(_ Fragment, err error) error {
+						if err != nil {
+							return err
+						}
+						started <- struct{}{}
+						<-release
+						return nil
+					})
+				}()
+			}
+			select {
+			case <-started:
+			case err := <-done:
+				require.NoError(t, err)
+				t.Fatal("Git scan completed before yielding a fragment")
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for budgeted Git work")
+			}
+			select {
+			case <-started:
+				t.Fatal("nested Git scans exceeded their shared job budget")
+			case <-time.After(100 * time.Millisecond):
+			}
+			releaseAll()
+			for range gitSources {
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("timed out completing budgeted Git scans")
+				}
+			}
+			for _, source := range gitSources {
+				require.Equal(t, Git{RepoPath: repo, Jobs: 4, Cmd: source.Cmd}, *source, "scan must not mutate source configuration")
+			}
+		})
 	}
 }

@@ -50,9 +50,6 @@ type Git struct {
 	// Jobs bounds concurrent Git history processes for RepoPath scans and
 	// fragment processing for an explicitly supplied Cmd. Zero is automatic.
 	Jobs int
-
-	budget   *sourcejobs.Budget
-	jobOwned bool
 }
 
 const (
@@ -76,12 +73,7 @@ func (s *Git) Validate() error {
 
 // Fragments yields fragments from a git repo
 func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	if budget := sourcejobs.FromContext(ctx); budget != nil {
-		// Keep the inherited budget local to this execution.
-		copy := *s
-		copy.budget = budget
-		s = &copy
-	}
+	budget := sourcejobs.FromContext(ctx)
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -89,46 +81,43 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		if s.RepoPath == "" {
 			return errors.New("git source requires Cmd or RepoPath")
 		}
-		if err := s.fragmentsFromRepo(ctx, yield); err != nil {
+		if err := s.fragmentsFromRepo(ctx, yield, budget); err != nil {
 			return err
 		}
 		if slices.Contains(s.Include, GitResourceTypeReflogs) {
-			if err := s.budget.Run(ctx, func() error {
+			if err := budget.Run(ctx, func() error {
 				return s.fragmentsFromReflogs(ctx, yield)
 			}); err != nil {
 				return err
 			}
 		}
 		if slices.Contains(s.Include, GitResourceTypeTagMessages) {
-			return s.budget.Run(ctx, func() error {
+			return budget.Run(ctx, func() error {
 				return s.fragmentsFromTagMessages(ctx, yield)
 			})
 		}
 		return nil
 	}
-	return s.fragmentsFromCmd(ctx, yield)
+	return s.fragmentsFromCmd(ctx, yield, budget)
 }
 
 // fragmentsFromRepo partitions Git history across at most GOMAXPROCS processes.
 // Each process consumes fragments serially; the detector provides the other
 // half of the bounded jobs pipeline.
-func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error {
-	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.AutomaticGit(), s.budget)
+func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc, budget *sourcejobs.Budget) error {
+	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.AutomaticGit(), budget)
 	historyJobs := min(jobs, sourcejobs.Automatic())
-
-	repoSource := *s
-	repoSource.Jobs = jobs
 
 	includeMessages := slices.Contains(s.Include, GitResourceTypeCommitMessages)
 	includeReflogs := slices.Contains(s.Include, GitResourceTypeReflogs)
 	if historyJobs <= 1 && !includeMessages && !includeReflogs {
-		return s.budget.Run(ctx, func() error {
-			return repoSource.runFullHistory(ctx, yield)
+		return budget.Run(ctx, func() error {
+			return s.runFullHistory(ctx, yield)
 		})
 	}
 
 	var commits []string
-	err := s.budget.Run(ctx, func() error {
+	err := budget.Run(ctx, func() error {
 		var err error
 		commits, err = listCommits(ctx, s.RepoPath, s.LogOpts, includeReflogs)
 		return err
@@ -142,8 +131,8 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 
 	workers := min(historyJobs, len(commits))
 	if workers == 1 && !includeMessages && !includeReflogs {
-		return s.budget.Run(ctx, func() error {
-			return repoSource.runFullHistory(ctx, yield)
+		return budget.Run(ctx, func() error {
+			return s.runFullHistory(ctx, yield)
 		})
 	}
 
@@ -159,8 +148,8 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error 
 		end := min(start+chunkSize, len(commits))
 		chunk := commits[start:end]
 		g.Go(func() error {
-			return s.budget.Run(groupCtx, func() error {
-				return repoSource.runHistoryChunk(groupCtx, yield, chunk)
+			return budget.Run(groupCtx, func() error {
+				return s.runHistoryChunk(groupCtx, yield, chunk)
 			})
 		})
 	}
@@ -560,18 +549,15 @@ func readGitReflogMessage(reader *bufio.Reader) (Fragment, error) {
 func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *GitCmd) error {
 	commandSource := *s
 	commandSource.Cmd = cmd
-	commandSource.RepoPath = ""
-	commandSource.LogOpts = ""
-	commandSource.Jobs = 1
-	commandSource.jobOwned = true
-	return commandSource.fragmentsFromCmd(ctx, yield)
+	// History commands use the streaming reader; the caller owns the job slot.
+	return commandSource.fragmentsFromStream(ctx, yield)
 }
 
-func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc) error {
+func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc, budget *sourcejobs.Budget) error {
 	if s.Cmd.stdout != nil {
 		return s.fragmentsFromStream(ctx, yield)
 	}
-	return s.fragmentsFromDiffFiles(ctx, yield)
+	return s.fragmentsFromDiffFiles(ctx, yield, budget)
 }
 
 func (s *Git) fragmentsFromStream(ctx context.Context, yield FragmentsFunc) error {
@@ -617,7 +603,7 @@ func (s *Git) fragmentsFromStream(ctx context.Context, yield FragmentsFunc) erro
 }
 
 // fragmentsFromDiffFiles supports callers using the complete DiffFilesCh API.
-func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc) error {
+func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc, budget *sourcejobs.Budget) error {
 	defer func() {
 		if err := s.Cmd.Wait(); err != nil {
 			sourceutil.LoggerOrDiscard(s.Logger).Debug("command aborted", "error", err, "command", s.Cmd.String())
@@ -625,7 +611,7 @@ func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc) e
 	}()
 
 	g, groupCtx := errgroup.WithContext(ctx)
-	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.Automatic(), s.budget)
+	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.Automatic(), budget)
 	g.SetLimit(jobs)
 
 	var (
@@ -702,10 +688,7 @@ func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc) e
 
 					return nil
 				}
-				if s.jobOwned {
-					return run()
-				}
-				return s.budget.Run(groupCtx, run)
+				return budget.Run(groupCtx, run)
 			})
 		case err, open := <-errCh:
 			if !open {
