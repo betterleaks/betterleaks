@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func LinearAPIToken() *config.Rule {
@@ -13,7 +12,7 @@ func LinearAPIToken() *config.Rule {
 		RuleID:      "linear-api-key",
 		Confidence:  "high",
 		Description: "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
-		Regex:       regexp.MustCompile(`lin_api_(?i)[a-z0-9]{40}`),
+		Regex:       `lin_api_(?i)[a-z0-9]{40}`,
 		Keywords:    []string{"lin_api_"},
 		ValidateExpr: `let r = http.post("https://api.linear.app/graphql", {
     "Authorization": finding["secret"],

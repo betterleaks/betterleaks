@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func AWS() *config.Rule {
@@ -13,7 +12,7 @@ func AWS() *config.Rule {
 		RuleID:      "aws-access-token",
 		Confidence:  "high",
 		Description: "Identified an AWS access key ID paired with a secret access key, which together can provide full access to AWS services.",
-		Regex:       regexp.MustCompile(`\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b`),
+		Regex:       `\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b`,
 		Keywords: []string{
 			// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-unique-ids
 			"A3T",  // todo: might not be a valid AWS token
@@ -127,7 +126,7 @@ func AmazonBedrockAPIKeyShortLived() *config.Rule {
 		RuleID:      "aws-amazon-bedrock-api-key-short-lived",
 		Confidence:  "high",
 		Description: "Identified a pattern that may indicate short-lived Amazon Bedrock API keys, risking unauthorized Amazon Bedrock usage",
-		Regex:       regexp.MustCompile(`bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t`),
+		Regex:       `bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t`,
 		Keywords: []string{
 			"bedrock-api-key-", // Amazon Bedrock API Key (short lived)
 		},

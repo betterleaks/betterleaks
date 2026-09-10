@@ -6,7 +6,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 const slackValidateExpr = `let r = http.post("https://slack.com/api/auth.test", {
@@ -66,7 +65,7 @@ func SlackBotToken() *config.Rule {
 		RuleID:      "slack-bot-token",
 		Confidence:  "high",
 		Description: "Identified a Slack Bot token, which may compromise bot integrations and communication channel security.",
-		Regex:       regexp.MustCompile(`xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`),
+		Regex:       `xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`,
 		Keywords: []string{
 			"xoxb",
 		},
@@ -102,7 +101,7 @@ func SlackUserToken() *config.Rule {
 		Confidence:  "high",
 		Description: "Found a Slack User token, posing a risk of unauthorized user impersonation and data access within Slack workspaces.",
 		// The last segment seems to be consistently 32 characters. I've made it 28-34 just in case.
-		Regex:        regexp.MustCompile(`xox[pe](?:-[0-9]{10,13}){3}-[a-zA-Z0-9-]{28,34}`),
+		Regex:        `xox[pe](?:-[0-9]{10,13}){3}-[a-zA-Z0-9-]{28,34}`,
 		Keywords:     []string{"xoxp-", "xoxe-"},
 		ValidateExpr: slackValidateExpr,
 		AnalyzeExpr:  slackAnalyzeExpr,
@@ -121,7 +120,7 @@ func SlackUserToken() *config.Rule {
 		// https://github.com/evanyeung/terminal-slack/blob/b068f77808de72424d08b525d6cbf814849acd08/readme.md?plain=1#L66
 		`"user_token4": "xoxp-254112160503-252950188691-252375361712-6cbf56aada30951a9d310a5f23d032a0"`,    // betterleaks:allow
 		`"user_token5": "xoxp-4614724432022-4621207627011-5182682871568-1ddad9823e8528ad0f4944dfa3c6fc6c"`, // betterleaks:allow
-		`"user_token6": `+secrets.NewSecretWithEntropy(r.Regex.String(), 2),
+		`"user_token6": `+secrets.NewSecretWithEntropy(r.Regex, 2),
 		// It's unclear what the `xoxe-` token means in this context, however, the format is similar to a user token.
 		`"url_private": "https:\/\/files.slack.com\/files-pri\/T04MCQMEXQ9-F04MAA1PKE3\/image.png?t=xoxe-4726837507825-4848681849303-4856614048758-e0b1f3d4cb371f92260edb0d9444d206"`,
 	)
@@ -145,7 +144,7 @@ func SlackAppLevelToken() *config.Rule {
 		Confidence:  "high",
 		Description: "Detected a Slack App-level token, risking unauthorized access to Slack applications and workspace data.",
 		// This regex is based on a limited number of examples and may not be 100% accurate.
-		Regex:    regexp.MustCompile(`(?i)xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+`),
+		Regex:    `(?i)xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+`,
 		Keywords: []string{"xapp"},
 		Filter:   `entropy(finding["secret"]) <= 2.0`,
 	}
@@ -167,7 +166,7 @@ func SlackConfigurationToken() *config.Rule {
 		RuleID:      "slack-config-access-token",
 		Confidence:  "high",
 		Description: "Found a Slack Configuration access token, posing a risk to workspace configuration and sensitive data access.",
-		Regex:       regexp.MustCompile(`(?i)xoxe.xox[bp]-\d-[A-Z0-9]{163,166}`),
+		Regex:       `(?i)xoxe.xox[bp]-\d-[A-Z0-9]{163,166}`,
 		Keywords:    []string{"xoxe.xoxb-", "xoxe.xoxp-"},
 		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
@@ -193,7 +192,7 @@ func SlackConfigurationRefreshToken() *config.Rule {
 		RuleID:      "slack-config-refresh-token",
 		Confidence:  "high",
 		Description: "Discovered a Slack Configuration refresh token, potentially allowing prolonged unauthorized access to configuration settings.",
-		Regex:       regexp.MustCompile(`(?i)xoxe-\d-[A-Z0-9]{146}`),
+		Regex:       `(?i)xoxe-\d-[A-Z0-9]{146}`,
 		Keywords:    []string{"xoxe-"},
 		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
@@ -215,7 +214,7 @@ func SlackLegacyBotToken() *config.Rule {
 		Confidence:  "high",
 		Description: "Uncovered a Slack Legacy bot token, which could lead to compromised legacy bot operations and data exposure.",
 		// This rule is based off the limited information I could find and may not be 100% accurate.
-		Regex: regexp.MustCompile(`xoxb-[0-9]{8,14}-[a-zA-Z0-9]{18,26}`),
+		Regex: `xoxb-[0-9]{8,14}-[a-zA-Z0-9]{18,26}`,
 		Keywords: []string{
 			"xoxb",
 		},
@@ -262,7 +261,7 @@ func SlackLegacyWorkspaceToken() *config.Rule {
 		Confidence:  "high",
 		Description: "Identified a Slack Legacy Workspace token, potentially compromising access to workspace data and legacy features.",
 		// This is by far the least confident pattern.
-		Regex: regexp.MustCompile(`xox[ar]-(?:\d-)?[0-9a-zA-Z]{8,48}`),
+		Regex: `xox[ar]-(?:\d-)?[0-9a-zA-Z]{8,48}`,
 		Keywords: []string{
 			"xoxa",
 			"xoxr",
@@ -298,7 +297,7 @@ func SlackLegacyToken() *config.Rule {
 		RuleID:      "slack-legacy-token",
 		Confidence:  "high",
 		Description: "Detected a Slack Legacy token, risking unauthorized access to older Slack integrations and user data.",
-		Regex:       regexp.MustCompile(`xox[os]-\d+-\d+-\d+-[a-fA-F\d]+`),
+		Regex:       `xox[os]-\d+-\d+-\d+-[a-fA-F\d]+`,
 		Keywords:    []string{"xoxo", "xoxs"},
 		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
@@ -332,8 +331,7 @@ func SlackWebHookUrl() *config.Rule {
 		Confidence:  "high",
 		Description: "Discovered a Slack Webhook, which could lead to unauthorized message posting and data leakage in Slack channels.",
 		// If this generates too many false positives, add a filter (for example, "xxxx" or "00000").
-		Regex: regexp.MustCompile(
-			`(?:https?://)?hooks.slack.com/(?:services|workflows|triggers)/[A-Za-z0-9+/]{43,56}`),
+		Regex: `(?:https?://)?hooks.slack.com/(?:services|workflows|triggers)/[A-Za-z0-9+/]{43,56}`,
 		Keywords: []string{
 			"hooks.slack.com",
 		},
@@ -370,7 +368,7 @@ func SlackSessionCookie() *config.Rule {
 		RuleID:      "slack-session-cookie",
 		Confidence:  "high",
 		Description: "Detected a Slack session cookie (xoxd-), which authenticates browser and desktop sessions across all of a user's workspaces.",
-		Regex:       regexp.MustCompile(`(xoxd-[\w\/\\+-]{100,}={0,2})(?:[^\w\/+=-]|\z)`),
+		Regex:       `(xoxd-[\w\/\\+-]{100,}={0,2})(?:[^\w\/+=-]|\z)`,
 		Keywords:    []string{"xoxd-"},
 		Filter:      `entropy(finding["secret"]) <= 3.5`,
 	}
@@ -398,7 +396,7 @@ func SlackSessionToken() *config.Rule {
 		RuleID:      "slack-session-token",
 		Confidence:  "high",
 		Description: "Detected a Slack client session token (xoxc-), which provides full user-level API access when paired with a session cookie.",
-		Regex:       regexp.MustCompile(`xoxc-\d{9,15}-\d{9,15}-\d{9,15}-[a-f0-9]{64}\b`),
+		Regex:       `xoxc-\d{9,15}-\d{9,15}-\d{9,15}-[a-f0-9]{64}\b`,
 		Keywords:    []string{"xoxc-"},
 		Filter:      `entropy(finding["secret"]) <= 3.5`,
 	}

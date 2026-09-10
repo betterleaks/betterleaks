@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func SupabaseManagementToken() *config.Rule {
@@ -73,7 +72,7 @@ func SupabaseProjectURL() *config.Rule {
 		RuleID:      "supabase-project-url",
 		Confidence:  "high",
 		Description: "Detected a Supabase project URL, used as a component of the supabase-project-api-key composite rule.",
-		Regex:       regexp.MustCompile(`\b(https://[a-z0-9]{16,32}\.supabase\.co)\b`),
+		Regex:       `\b(https://[a-z0-9]{16,32}\.supabase\.co)\b`,
 		Keywords:    []string{"supabase.co"},
 		SkipReport:  true,
 		Filter:      `entropy(finding["secret"]) <= 3.0`,

@@ -6,7 +6,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func HashiCorpTerraform() *config.Rule {
@@ -15,7 +14,7 @@ func HashiCorpTerraform() *config.Rule {
 		RuleID:      "hashicorp-tf-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a HashiCorp Terraform user/org API token, which may lead to unauthorized infrastructure management and security breaches.",
-		Regex:       regexp.MustCompile(`(?i)[a-z0-9]{14}\.(?-i:atlasv1)\.[a-z0-9\-_=]{60,70}`),
+		Regex:       `(?i)[a-z0-9]{14}\.(?-i:atlasv1)\.[a-z0-9\-_=]{60,70}`,
 		Keywords:    []string{"atlasv1"},
 		Filter:      `entropy(finding["secret"]) <= 3.5`,
 	}
@@ -39,7 +38,7 @@ func HashicorpField() *config.Rule {
 		Confidence:  "medium",
 		Description: "Identified a HashiCorp Terraform password field, risking unauthorized infrastructure configuration and security breaches.",
 		Regex:       utils.GenerateSemiGenericRegex(keywords, fmt.Sprintf(`"%s"`, utils.AlphaNumericExtended("8,20")), true),
-		Path:        regexp.MustCompile(`(?i)\.(?:tf|hcl)$`),
+		Path:        `(?i)\.(?:tf|hcl)$`,
 		Keywords:    keywords,
 		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}

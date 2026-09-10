@@ -16,7 +16,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/detect"
 	blfingerprint "github.com/betterleaks/betterleaks/v2/internal/fingerprint"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
@@ -73,7 +72,7 @@ func TestFingerprintCommandRejectsInvalidInputAndPositionalSecret(t *testing.T) 
 }
 
 func ignoreTestConfig() *config.Config {
-	return &config.Config{Rules: []config.Rule{{RuleID: "secret", Regex: regexp.MustCompile(`secret-[a-z]+`)}}}
+	return &config.Config{Rules: []config.Rule{{RuleID: "secret", Regex: `secret-[a-z]+`}}}
 }
 
 func writeIgnore(t *testing.T, dir, secret string) string {

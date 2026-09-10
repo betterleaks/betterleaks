@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func BraveSearchAPIKey() *config.Rule {
@@ -11,7 +10,7 @@ func BraveSearchAPIKey() *config.Rule {
 		RuleID:      "brave-search-api-key",
 		Confidence:  "high",
 		Description: "Detected a Brave Search API key, which may allow unauthorized use of Brave Search API quota.",
-		Regex:       regexp.MustCompile(`\b(BSA[A-Za-z0-9_-]{24,40})\b`),
+		Regex:       `\b(BSA[A-Za-z0-9_-]{24,40})\b`,
 		Keywords:    []string{"BSA"},
 		ValidateExpr: `let r = http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&count=1", {
     "Accept": "application/json",

@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=" + finding["secret"], {}); k.status == 400 ? {
@@ -66,7 +65,7 @@ func GCPApplicationDefaultCredentials() *config.Rule {
 		Description: "Google (GCP) Application Default Credentials",
 		RuleID:      "gcp-application-default-credentials",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}`),
+		Regex:       `\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}`,
 		Keywords:    []string{".apps.googleusercontent.com"},
 		ValidateExpr: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid",
@@ -91,7 +90,7 @@ func GCPServiceAccount() *config.Rule {
 		Description: "Google (GCP) Service-account",
 		RuleID:      "gcp-service-account",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}`),
+		Regex:       `\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}`,
 		Keywords:    []string{"provider_x509"},
 		ValidateExpr: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
     "result": "valid",

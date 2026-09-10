@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func SendInBlueAPIToken() *config.Rule {
@@ -12,7 +11,7 @@ func SendInBlueAPIToken() *config.Rule {
 		RuleID:      "sendinblue-api-token",
 		Confidence:  "high",
 		Description: "Identified a Brevo (formerly Sendinblue) API token, which may compromise email marketing services and subscriber data privacy.",
-		Regex:       regexp.MustCompile(`\b(xkeysib-[a-fA-F0-9]{64}-[a-zA-Z0-9]{16})\b`),
+		Regex:       `\b(xkeysib-[a-fA-F0-9]{64}-[a-zA-Z0-9]{16})\b`,
 		Keywords: []string{
 			"xkeysib-",
 		},

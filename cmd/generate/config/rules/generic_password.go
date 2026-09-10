@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func GenericPassword() *config.Rule {
@@ -14,7 +13,7 @@ func GenericPassword() *config.Rule {
 		RuleID:      "generic-password",
 		Confidence:  "low",
 		Description: "Detected a potential hardcoded password literal, which may expose account credentials.",
-		Regex:       regexp.MustCompile(`(?i)(?:` + passwordAssignmentRegex + `|` + authArgumentRegex + `)`),
+		Regex:       `(?i)(?:` + passwordAssignmentRegex + `|` + authArgumentRegex + `)`,
 		Keywords: []string{
 			"passw", "psw", "_pw", "-pw", ".pw",
 			"login(", "login (",
@@ -256,7 +255,7 @@ func GenericUsername() *config.Rule {
 		RuleID:      "generic-username",
 		Confidence:  "low",
 		Description: "Detected a username-like value used as a component of the generic-password rule.",
-		Regex:       regexp.MustCompile(`(?m)(?:^|[^a-zA-Z0-9])(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){3,250})"|'((?:\\.|[^'\\\r\n]){3,250})'|\x60((?:\\.|[^\x60\\\r\n]){3,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{2,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`),
+		Regex:       `(?m)(?:^|[^a-zA-Z0-9])(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){3,250})"|'((?:\\.|[^'\\\r\n]){3,250})'|\x60((?:\\.|[^\x60\\\r\n]){3,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{2,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`,
 		Keywords: []string{
 			"user",
 			"login",

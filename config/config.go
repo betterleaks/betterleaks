@@ -12,7 +12,6 @@ import (
 	gv "github.com/hashicorp/go-version"
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/version"
 )
 
@@ -168,23 +167,9 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 
 	// Validate individual rules.
 	for _, vr := range rc.Rules {
-		var (
-			pathPat  *regexp.Regexp
-			regexPat *regexp.Regexp
-		)
-		if vr.Path != "" {
-			pat, err := regexp.Compile(vr.Path)
-			if err != nil {
-				return nil, fmt.Errorf("%s: invalid path regex %q: %w", vr.ID, vr.Path, err)
-			}
-			pathPat = pat
-		}
-		if vr.Regex != "" {
-			pat, err := regexp.Compile(vr.Regex)
-			if err != nil {
-				return nil, fmt.Errorf("%s: invalid regex %q: %w", vr.ID, vr.Regex, err)
-			}
-			regexPat = pat
+		patterns := Rule{RuleID: vr.ID, Regex: vr.Regex, Path: vr.Path}
+		if _, err := patterns.validatePatterns(); err != nil {
+			return nil, err
 		}
 		if vr.Keywords == nil {
 			vr.Keywords = []string{}
@@ -204,9 +189,9 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		cr := Rule{
 			RuleID:      vr.ID,
 			Description: vr.Description,
-			Regex:       regexPat,
+			Regex:       vr.Regex,
 			SecretGroup: vr.SecretGroup,
-			Path:        pathPat,
+			Path:        vr.Path,
 			Keywords:    vr.Keywords,
 			Tags:        vr.Tags,
 			Specificity: specificity,
@@ -448,10 +433,10 @@ func (c *Config) extend(extensionConfig *Config, extend extendConfig, components
 			if currentRule.SecretGroup != 0 {
 				baseRule.SecretGroup = currentRule.SecretGroup
 			}
-			if currentRule.Regex != nil {
+			if currentRule.Regex != "" {
 				baseRule.Regex = currentRule.Regex
 			}
-			if currentRule.Path != nil {
+			if currentRule.Path != "" {
 				baseRule.Path = currentRule.Path
 			}
 			if currentRule.ValidateExpr != "" {

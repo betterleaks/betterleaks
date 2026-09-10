@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func ApifyAPIToken() *config.Rule {
@@ -11,7 +10,7 @@ func ApifyAPIToken() *config.Rule {
 		RuleID:       "apify-api-token",
 		Confidence:   "high",
 		Description:  "Detected an Apify API token, which may expose actors, tasks, and stored data.",
-		Regex:        regexp.MustCompile(`\b(apify_api_[A-Za-z0-9]{34,38})\b`),
+		Regex:        `\b(apify_api_[A-Za-z0-9]{34,38})\b`,
 		Keywords:     []string{"apify_api_"},
 		ValidateExpr: utils.BearerGetValidationExpr("https://api.apify.com/v2/users/me", `(r.body contains "\"data\"") && (r.body contains "\"username\"")`),
 		Filter:       utils.MinEntropy(3.5),

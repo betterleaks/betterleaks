@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func SnowflakeAccountHost() *config.Rule {
@@ -13,7 +12,7 @@ func SnowflakeAccountHost() *config.Rule {
 		RuleID:      "snowflake-account-host.1",
 		Confidence:  "high",
 		Description: "Snowflake account host, used as a component of the programmatic access-token rule.",
-		Regex:       regexp.MustCompile(`(?i)\b([a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.snowflakecomputing\.com)\b`),
+		Regex:       `(?i)\b([a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.snowflakecomputing\.com)\b`,
 		Keywords:    []string{"snowflakecomputing.com"},
 		SkipReport:  true,
 	}

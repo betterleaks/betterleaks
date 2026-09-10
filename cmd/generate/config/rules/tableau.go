@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func TableauPersonalAccessTokenName() *config.Rule {
@@ -40,7 +39,7 @@ func TableauServerHost() *config.Rule {
 		RuleID:      "tableau-server-host.1",
 		Confidence:  "high",
 		Description: "Tableau Online server host, used as a component of the personal access-token rule.",
-		Regex:       regexp.MustCompile(`(?i)\b([a-z0-9-]+\.online\.tableau\.com)\b`),
+		Regex:       `(?i)\b([a-z0-9-]+\.online\.tableau\.com)\b`,
 		Keywords:    []string{"online.tableau.com"},
 		SkipReport:  true,
 	}
@@ -62,7 +61,7 @@ func TableauPersonalAccessToken() *config.Rule {
 		RuleID:      "tableau-personal-access-token.1",
 		Confidence:  "high",
 		Description: "Tableau personal access token.",
-		Regex:       regexp.MustCompile(`\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`),
+		Regex:       `\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`,
 		Keywords:    []string{"tableau"},
 		Components: []*config.Component{
 			{RuleID: "tableau-personal-access-token-name.1", Within: "20L"},

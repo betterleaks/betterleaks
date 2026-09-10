@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func TestParseTOMLUsesInjectedLogger(t *testing.T) {
@@ -31,13 +30,6 @@ title = "logger test"
 }
 
 const configPath = "../testdata/config/"
-
-var regexComparer = func(x, y *regexp.Regexp) bool {
-	if x == nil || y == nil {
-		return x == y
-	}
-	return x.String() == y.String()
-}
 
 type translateCase struct {
 	// Configuration file basename to load, from `../testdata/config/`.
@@ -60,7 +52,7 @@ func TestTranslate(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "generic-api-key",
 					Description: "Generic API Key",
-					Regex:       regexp.MustCompile(`(?i)(?:key|api|token|secret|client|passwd|password|auth|access)(?:[0-9a-z\-_\t .]{0,20})(?:[\s|']|[\s|"]){0,3}(?:=|>|:{1,3}=|\|\|:|<=|=>|:|\?=)(?:'|\"|\s|=|\x60){0,5}([0-9a-z\-_.=]{10,150})(?:['|\"|\n|\r|\s|\x60|;]|$)`),
+					Regex:       `(?i)(?:key|api|token|secret|client|passwd|password|auth|access)(?:[0-9a-z\-_\t .]{0,20})(?:[\s|']|[\s|"]){0,3}(?:=|>|:{1,3}=|\|\|:|<=|=>|:|\?=)(?:'|\"|\s|=|\x60){0,5}([0-9a-z\-_.=]{10,150})(?:['|\"|\n|\r|\s|\x60|;]|$)`,
 					Keywords:    []string{"key", "api", "token", "secret", "client", "passwd", "password", "auth", "access"},
 					Tags:        []string{},
 					Filter:      `entropy(finding["secret"]) <= 3.5`,
@@ -73,7 +65,7 @@ func TestTranslate(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "python-files-only",
 					Description: "Python Files",
-					Path:        regexp.MustCompile(`.py`),
+					Path:        `.py`,
 					Keywords:    []string{},
 					Tags:        []string{},
 				}},
@@ -85,7 +77,7 @@ func TestTranslate(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "pypi-upload-token",
 					Description: "PyPI upload token",
-					Regex:       regexp.MustCompile(`pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,1000}`),
+					Regex:       `pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,1000}`,
 					Keywords:    []string{},
 					Tags:        []string{"key", "pypi"},
 				}},
@@ -97,7 +89,7 @@ func TestTranslate(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "discord-api-key",
 					Description: "Discord API key",
-					Regex:       regexp.MustCompile(`(?i)(discord[a-z0-9_ .\-,]{0,25})(=|>|:=|\|\|:|<=|=>|:).{0,5}['\"]([a-h0-9]{64})['\"]`),
+					Regex:       `(?i)(discord[a-z0-9_ .\-,]{0,25})(=|>|:=|\|\|:|<=|=>|:).{0,5}['\"]([a-h0-9]{64})['\"]`,
 					SecretGroup: 3,
 					Keywords:    []string{},
 					Tags:        []string{},
@@ -249,21 +241,21 @@ func TestTranslateExtend(t *testing.T) {
 					{
 						RuleID:      "aws-access-key",
 						Description: "AWS Access Key",
-						Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
+						Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
 					},
 					{
 						RuleID:      "aws-secret-key",
 						Description: "AWS Secret Key",
-						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
+						Regex:       `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
 					},
 					{
 						RuleID:      "aws-secret-key-again",
 						Description: "AWS Secret Key",
-						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
+						Regex:       `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
 					},
@@ -277,13 +269,13 @@ func TestTranslateExtend(t *testing.T) {
 				Rules: []Rule{
 					{
 						RuleID:   "aws-secret-key",
-						Regex:    regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
+						Regex:    `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
 						Tags:     []string{"key", "AWS"},
 						Keywords: []string{},
 					},
 					{
 						RuleID:   "pypi-upload-token",
-						Regex:    regexp.MustCompile(`pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,1000}`),
+						Regex:    `pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,1000}`,
 						Tags:     []string{},
 						Keywords: []string{},
 					},
@@ -297,7 +289,7 @@ func TestTranslateExtend(t *testing.T) {
 					{
 						RuleID:      "aws-secret-key-again-again",
 						Description: "AWS Secret Key",
-						Regex:       regexp.MustCompile(`(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`),
+						Regex:       `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
 						Filter:      "filter.matchesAny(attributes[\"path\"], [`something.py`])",
@@ -313,7 +305,7 @@ func TestTranslateExtend(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "Puppy Doggy",
-					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
+					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 					Keywords:    []string{},
 					Tags:        []string{"key", "AWS"},
 				},
@@ -328,8 +320,8 @@ func TestTranslateExtend(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
-					Path:        regexp.MustCompile("(?:puppy)"),
+					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
+					Path:        "(?:puppy)",
 					Keywords:    []string{},
 					Tags:        []string{"key", "AWS"},
 				},
@@ -344,7 +336,7 @@ func TestTranslateExtend(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					Regex:       regexp.MustCompile("(?:a)"),
+					Regex:       "(?:a)",
 					Keywords:    []string{},
 					Tags:        []string{"key", "AWS"},
 				},
@@ -359,7 +351,7 @@ func TestTranslateExtend(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					Regex:       regexp.MustCompile("(a)(a)"),
+					Regex:       "(a)(a)",
 					SecretGroup: 2,
 					Keywords:    []string{},
 					Tags:        []string{"key", "AWS"},
@@ -375,7 +367,7 @@ func TestTranslateExtend(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
+					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 					Keywords:    []string{},
 					Tags:        []string{"key", "AWS"},
 					Filter:      `entropy(finding["secret"]) <= 999.0`,
@@ -391,7 +383,7 @@ func TestTranslateExtend(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
+					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 					Keywords:    []string{"puppy"},
 					Tags:        []string{"key", "AWS"},
 				},
@@ -406,7 +398,7 @@ func TestTranslateExtend(t *testing.T) {
 				Rules: []Rule{{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					Regex:       regexp.MustCompile("(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}"),
+					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 					Keywords:    []string{},
 					Tags:        []string{"key", "AWS", "puppy"},
 				},
@@ -540,7 +532,6 @@ func testTranslate(t *testing.T, test translateCase) {
 	}
 
 	opts := cmp.Options{
-		cmp.Comparer(regexComparer),
 		cmpopts.IgnoreFields(Rule{}, "Specificity"),
 		cmpopts.IgnoreUnexported(Rule{}),
 	}

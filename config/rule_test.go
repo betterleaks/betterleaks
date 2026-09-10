@@ -4,12 +4,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func TestRuleValidateRechecksCurrentData(t *testing.T) {
-	rule := Rule{RuleID: "test", Regex: regexp.MustCompile(`secret`)}
+	rule := Rule{RuleID: "test", Regex: `secret`}
 	require.NoError(t, rule.Validate())
 
 	rule.RuleID = ""
@@ -24,12 +22,12 @@ func TestRuleValidateRejectsInvalidSecretGroups(t *testing.T) {
 	}{
 		{
 			name: "negative",
-			rule: Rule{RuleID: "test", Regex: regexp.MustCompile(`(secret)`), SecretGroup: -1},
+			rule: Rule{RuleID: "test", Regex: `(secret)`, SecretGroup: -1},
 			want: "must be non-negative",
 		},
 		{
 			name: "without regex",
-			rule: Rule{RuleID: "test", Path: regexp.MustCompile(`\.env$`), SecretGroup: 1},
+			rule: Rule{RuleID: "test", Path: `\.env$`, SecretGroup: 1},
 			want: "requires a regex",
 		},
 	}
@@ -44,7 +42,7 @@ func TestRuleValidateRejectsInvalidSecretGroups(t *testing.T) {
 func TestRuleValidateRequiresValidationForAnalysis(t *testing.T) {
 	rule := Rule{
 		RuleID:      "test",
-		Regex:       regexp.MustCompile(`secret`),
+		Regex:       `secret`,
 		AnalyzeExpr: `{}`,
 	}
 	require.ErrorContains(t, rule.Validate(), "analyze expression requires a validate expression")
@@ -54,7 +52,7 @@ func TestRuleValidateRequiresValidationForAnalysis(t *testing.T) {
 }
 
 func TestConfigValidateRejectsAmbiguousRuleGraph(t *testing.T) {
-	validRegex := regexp.MustCompile(`secret`)
+	validRegex := `secret`
 	tests := []struct {
 		name  string
 		rules []Rule
@@ -107,5 +105,36 @@ regex = "second"
 	require.NoError(t, err)
 	require.Len(t, cfg.Rules, 1)
 	require.Equal(t, "second", cfg.Rules[0].Description)
-	require.Equal(t, "second", cfg.Rules[0].Regex.String())
+	require.Equal(t, "second", cfg.Rules[0].Regex)
+}
+
+func TestRuleValidatePatternStrings(t *testing.T) {
+	tests := []struct {
+		name string
+		rule Rule
+		want string
+	}{
+		{"invalid regex", Rule{RuleID: "test", Regex: `(`}, "invalid regex"},
+		{"invalid path", Rule{RuleID: "test", Path: `[`}, "invalid path regex"},
+		{"capture overflow", Rule{RuleID: "test", Regex: `(?P<secret>secret)`, SecretGroup: 2}, "max regex secret group 1"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			original := test.rule
+			require.ErrorContains(t, test.rule.Validate(), test.want)
+			require.Equal(t, original, test.rule)
+		})
+	}
+}
+
+func TestParseRejectsInvalidPatternBeforeDuplicateReplacement(t *testing.T) {
+	_, err := ParseTOMLString(`
+[[rules]]
+id = "duplicate"
+regex = "("
+[[rules]]
+id = "duplicate"
+regex = "valid"
+`, "")
+	require.ErrorContains(t, err, "invalid regex")
 }

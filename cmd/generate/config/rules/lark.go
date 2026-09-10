@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func LarkAppID() *config.Rule {
@@ -13,7 +12,7 @@ func LarkAppID() *config.Rule {
 		RuleID:      "lark-app-id",
 		Confidence:  "high",
 		Description: "Lark application ID, used as a component of the Lark application-secret rule.",
-		Regex:       regexp.MustCompile(`\b(cli_[A-Za-z0-9]{16})`),
+		Regex:       `\b(cli_[A-Za-z0-9]{16})`,
 		Keywords:    []string{"cli_"},
 		SkipReport:  true,
 		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,

@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func GCNotifyAPIKey() *config.Rule {
@@ -12,7 +11,7 @@ func GCNotifyAPIKey() *config.Rule {
 		RuleID:      "canadian-digital-service-notify-api-key",
 		Confidence:  "high",
 		Description: "Detected a GC Notify API key, which may allow unauthorized notification access.",
-		Regex:       regexp.MustCompile(`(?i:\b(ApiKey-v1\s+gcntfy-[a-z0-9_]+-` + uuid + `-` + uuid + `)\b)`),
+		Regex:       `(?i:\b(ApiKey-v1\s+gcntfy-[a-z0-9_]+-` + uuid + `-` + uuid + `)\b)`,
 		Keywords:    []string{"gcntfy-"},
 		ValidateExpr: `let r = http.get("https://api.notification.canada.ca/v2/notifications", {
     "Authorization": finding["secret"],

@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func ClickHouseCloud() *config.Rule {
@@ -13,7 +12,7 @@ func ClickHouseCloud() *config.Rule {
 		RuleID:      "clickhouse-cloud-api-secret-key",
 		Confidence:  "high",
 		Description: "Identified a pattern that may indicate clickhouse cloud API secret key, risking unauthorized clickhouse cloud api access and data breaches on ClickHouse Cloud platforms.",
-		Regex:       regexp.MustCompile(`\b(4b1d[A-Za-z0-9]{38})\b`),
+		Regex:       `\b(4b1d[A-Za-z0-9]{38})\b`,
 		Keywords: []string{
 			"4b1d", // Prefix
 		},
@@ -46,7 +45,7 @@ func ClickHouseCloudKeyID() *config.Rule {
 		RuleID:      "clickhouse-cloud-key-id",
 		Confidence:  "high",
 		Description: "Detected a ClickHouse Cloud key ID, used as a component of the clickhouse-cloud-api-secret-key composite rule.",
-		Regex:       regexp.MustCompile(`(?i)\bclickhouse(?:.|[\n\r]){0,16}?(?:ID|USER)(?:.|[\n\r]){0,16}?([a-z0-9]{20})`),
+		Regex:       `(?i)\bclickhouse(?:.|[\n\r]){0,16}?(?:ID|USER)(?:.|[\n\r]){0,16}?([a-z0-9]{20})`,
 		Keywords:    []string{"clickhouse"},
 		SkipReport:  true,
 		Filter:      `filter.entropy(finding["secret"]) < 3.0`,

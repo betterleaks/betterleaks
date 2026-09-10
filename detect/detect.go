@@ -297,7 +297,7 @@ type Detector struct {
 	// rulesBySpecificity contains an immutable snapshot of every configured rule in descending
 	// specificity order. Its positions are the shared index space used by the
 	// candidate slices below, so it must not change after detector construction.
-	rulesBySpecificity []config.Rule
+	rulesBySpecificity []compiledRule
 	ruleIndexByID      map[string]int
 
 	// keywordRuleIndexes maps each Aho-Corasick pattern ID to the positions in
@@ -339,7 +339,7 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 
 	var validationRuntime *exprruntime.Runtime
 	for _, rule := range rulesBySpecificity {
-		if rule.ValidateExpr == "" {
+		if rule.rule.ValidateExpr == "" {
 			continue
 		}
 		var validationErr error
@@ -365,11 +365,11 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 	keywordToRuleIndexes := make(map[string][]int)
 	noKeywordIndexes := make([]int, 0)
 	for ruleIndex, rule := range rulesBySpecificity {
-		if len(rule.Keywords) == 0 {
+		if len(rule.rule.Keywords) == 0 {
 			noKeywordIndexes = append(noKeywordIndexes, ruleIndex)
 			continue
 		}
-		for _, keyword := range rule.Keywords {
+		for _, keyword := range rule.rule.Keywords {
 			keyword = strings.ToLower(keyword)
 			indexes := keywordToRuleIndexes[keyword]
 			// A rule may repeat a keyword with different casing. Dispatch it once.
@@ -482,24 +482,25 @@ func (d *Detector) compileAll() error {
 	if _, _, err := d.globalFilterProgram(); err != nil {
 		return err
 	}
-	for _, rule := range d.rulesBySpecificity {
-		if rule.Regex != nil {
-			if err := rule.Regex.Compile(); err != nil {
-				return fmt.Errorf("compile rule %q regex: %w", rule.RuleID, err)
+	for i := range d.rulesBySpecificity {
+		rule := &d.rulesBySpecificity[i]
+		if rule.regex != nil {
+			if err := rule.regex.Compile(); err != nil {
+				return fmt.Errorf("compile rule %q regex: %w", rule.rule.RuleID, err)
 			}
 		}
-		if rule.Path != nil {
-			if err := rule.Path.Compile(); err != nil {
-				return fmt.Errorf("compile rule %q path regex: %w", rule.RuleID, err)
+		if rule.path != nil {
+			if err := rule.path.Compile(); err != nil {
+				return fmt.Errorf("compile rule %q path regex: %w", rule.rule.RuleID, err)
 			}
 		}
 		if _, _, err := d.ruleFilterProgram(rule); err != nil {
 			return err
 		}
-		if _, _, err := d.validationProgram(rule.RuleID); err != nil {
+		if _, _, err := d.validationProgram(rule.rule.RuleID); err != nil {
 			return err
 		}
-		if _, _, err := d.analysisProgram(rule.RuleID); err != nil {
+		if _, _, err := d.analysisProgram(rule.rule.RuleID); err != nil {
 			return err
 		}
 	}
@@ -546,7 +547,7 @@ func (d *Detector) AnalysisEnabled() bool {
 		return false
 	}
 	for _, rule := range d.rulesBySpecificity {
-		if rule.AnalyzeExpr != "" {
+		if rule.rule.AnalyzeExpr != "" {
 			return true
 		}
 	}
@@ -593,14 +594,14 @@ func (d *Detector) validationProgram(ruleID string) (exprruntime.Program, bool, 
 	if !ok {
 		return nil, false, nil
 	}
-	rule := d.rulesBySpecificity[ruleIndex]
-	if rule.ValidateExpr == "" {
+	rule := &d.rulesBySpecificity[ruleIndex]
+	if rule.rule.ValidateExpr == "" {
 		return nil, false, nil
 	}
 	if prg := d.validationPrograms[ruleID]; prg != nil {
 		return prg, true, nil
 	}
-	prg, err := d.validationRuntime.CompileValidation(rule.ValidateExpr)
+	prg, err := d.validationRuntime.CompileValidation(rule.rule.ValidateExpr)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling rule %s validation: %w", ruleID, err)
 	}
@@ -619,14 +620,14 @@ func (d *Detector) analysisProgram(ruleID string) (exprruntime.Program, bool, er
 	if !ok {
 		return nil, false, nil
 	}
-	rule := d.rulesBySpecificity[ruleIndex]
-	if rule.AnalyzeExpr == "" {
+	rule := &d.rulesBySpecificity[ruleIndex]
+	if rule.rule.AnalyzeExpr == "" {
 		return nil, false, nil
 	}
 	if prg := d.analysisPrograms[ruleID]; prg != nil {
 		return prg, true, nil
 	}
-	prg, err := d.validationRuntime.CompileAnalysis(rule.AnalyzeExpr)
+	prg, err := d.validationRuntime.CompileAnalysis(rule.rule.AnalyzeExpr)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling rule %s analysis: %w", ruleID, err)
 	}
@@ -634,21 +635,21 @@ func (d *Detector) analysisProgram(ruleID string) (exprruntime.Program, bool, er
 	return prg, true, nil
 }
 
-func (d *Detector) ruleFilterProgram(r config.Rule) (exprruntime.Program, bool, error) {
+func (d *Detector) ruleFilterProgram(r *compiledRule) (exprruntime.Program, bool, error) {
 	d.filterProgramM.Lock()
 	defer d.filterProgramM.Unlock()
 
-	if r.Filter == "" {
+	if r.rule.Filter == "" {
 		return nil, false, nil
 	}
-	if prg := d.filterPrograms[r.RuleID]; prg != nil {
+	if prg := d.filterPrograms[r.rule.RuleID]; prg != nil {
 		return prg, true, nil
 	}
-	prg, err := d.exprRuntime.CompileFilter(r.Filter, nil)
+	prg, err := d.exprRuntime.CompileFilter(r.rule.Filter, nil)
 	if err != nil {
-		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.RuleID, err)
+		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.rule.RuleID, err)
 	}
-	d.filterPrograms[r.RuleID] = prg
+	d.filterPrograms[r.rule.RuleID] = prg
 	return prg, true, nil
 }
 
@@ -691,18 +692,18 @@ func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragmen
 	return path != "" && pathRule != nil && pathRule.MatchString(path)
 }
 
-func newPathOnlyFinding(r config.Rule, fragment sources.Fragment) report.Finding {
+func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Finding {
 	path := fragment.Attr(sources.AttrPath)
 	finding := report.Finding{
-		RuleID:          r.RuleID,
-		Description:     r.Description,
+		RuleID:          r.rule.RuleID,
+		Description:     r.rule.Description,
 		Match:           "file detected: " + path,
-		Tags:            append([]string{}, r.Tags...),
-		RuleSpecificity: r.Specificity,
+		Tags:            append([]string{}, r.rule.Tags...),
+		RuleSpecificity: r.rule.Specificity,
 	}
 	finding.SetAttributes(fragment.Attributes)
-	if r.Confidence != "" {
-		finding.Confidence = r.Confidence
+	if r.rule.Confidence != "" {
+		finding.Confidence = r.rule.Confidence
 	}
 	return finding
 }
@@ -1010,7 +1011,7 @@ ScanLoop:
 				if !candidates.marked[ruleIndex] {
 					continue
 				}
-				rule := d.rulesBySpecificity[ruleIndex]
+				rule := &d.rulesBySpecificity[ruleIndex]
 				select {
 				case <-ctx.Done():
 					clear(candidates.marked)
@@ -1020,7 +1021,7 @@ ScanLoop:
 					// A path-only rule cannot produce a new result after decoding content
 					// or for later chunks of the same file. Keep missing attributes eligible
 					// so fragments from sources other than File retain their existing behavior.
-					if rule.Regex == nil && (currentDecodeDepth > 0 || fragment.Attr(sources.AttrFSFirstFragment) == "false") {
+					if rule.regex == nil && (currentDecodeDepth > 0 || fragment.Attr(sources.AttrFSFirstFragment) == "false") {
 						continue
 					}
 					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings) {
@@ -1060,7 +1061,7 @@ ScanLoop:
 func (d *Detector) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
 	fragment sources.Fragment,
 	currentRaw string,
-	r config.Rule,
+	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings *findingIndex) []report.Finding {
 	if ruleTimings == nil {
@@ -1069,15 +1070,15 @@ func (d *Detector) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector
 
 	start := time.Now()
 	findings := d.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings)
-	ruleTimings.Record(r.RuleID, time.Since(start))
+	ruleTimings.Record(r.rule.RuleID, time.Since(start))
 	return findings
 }
 
-func snapshotDetectorRules(cfg *config.Config) ([]config.Rule, map[string]int, error) {
+func snapshotDetectorRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, nil, err
 	}
-	rules := make([]config.Rule, len(cfg.Rules))
+	rules := make([]compiledRule, len(cfg.Rules))
 	for i, source := range cfg.Rules {
 		rule := source
 		rule.Keywords = slices.Clone(source.Keywords)
@@ -1089,14 +1090,29 @@ func snapshotDetectorRules(cfg *config.Config) ([]config.Rule, map[string]int, e
 				rule.Components[componentIndex] = &copy
 			}
 		}
-		rules[i] = rule
+		compiled := compiledRule{rule: rule}
+		if rule.Regex != "" {
+			var err error
+			compiled.regex, err = blregexp.Compile(rule.Regex)
+			if err != nil {
+				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.RuleID, err)
+			}
+		}
+		if rule.Path != "" {
+			var err error
+			compiled.path, err = blregexp.Compile(rule.Path)
+			if err != nil {
+				return nil, nil, fmt.Errorf("compile rule %q path regex: %w", rule.RuleID, err)
+			}
+		}
+		rules[i] = compiled
 	}
 	sort.SliceStable(rules, func(i, j int) bool {
-		return rules[i].Specificity > rules[j].Specificity
+		return rules[i].rule.Specificity > rules[j].rule.Specificity
 	})
 	indexes := make(map[string]int, len(rules))
 	for i, rule := range rules {
-		indexes[rule.RuleID] = i
+		indexes[rule.rule.RuleID] = i
 	}
 	return rules, indexes, nil
 }
@@ -1105,7 +1121,7 @@ func snapshotDetectorRules(cfg *config.Config) ([]config.Rule, map[string]int, e
 func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	fragment sources.Fragment,
 	currentRaw string,
-	r config.Rule,
+	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings *findingIndex) []report.Finding {
 	var (
@@ -1113,31 +1129,31 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		logger   = d.logger
 	)
 
-	if r.SkipReport && !fragment.InheritedFromFinding {
+	if r.rule.SkipReport && !fragment.InheritedFromFinding {
 		return findings
 	}
 
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
-	if r.Regex == nil {
+	if r.regex == nil {
 		// Decoding content cannot change a path-only result.
 		if len(encodedSegments) > 0 {
 			return findings
 		}
-		if rulePathMatchesFragment(r.Path, fragment) {
+		if rulePathMatchesFragment(r.path, fragment) {
 			return append(findings, newPathOnlyFinding(r, fragment))
 		}
 		return findings
 	}
 
-	if r.Path != nil && !rulePathMatchesFragment(r.Path, fragment) {
+	if r.path != nil && !rulePathMatchesFragment(r.path, fragment) {
 		// If a rule defines both `path` and `regex`, the normalized fragment path
 		// must match before we spend time checking the content regex.
 		return findings
 	}
 
-	matches := r.Regex.FindAllStringIndex(currentRaw, -1)
+	matches := r.regex.FindAllStringIndex(currentRaw, -1)
 	if len(matches) == 0 {
 		return findings
 	}
@@ -1187,20 +1203,20 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		loc := location(lineOffsets, fragment.Raw, matchIndex)
 
-		tags := append([]string{}, r.Tags...)
+		tags := append([]string{}, r.rule.Tags...)
 		if len(metaTags) > 0 {
 			tags = append(tags, metaTags...)
 		}
 
 		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
-			RuleID:          r.RuleID,
-			Description:     r.Description,
+			RuleID:          r.rule.RuleID,
+			Description:     r.rule.Description,
 			Line:            strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
 			Match:           secret,
 			Secret:          secret,
 			Tags:            tags,
-			RuleSpecificity: r.Specificity,
+			RuleSpecificity: r.rule.Specificity,
 			Location: report.Location{
 				StartLine:   prevFragmentEndLine + loc.startLine,
 				EndLine:     prevFragmentEndLine + loc.endLine,
@@ -1209,8 +1225,8 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			},
 		}
 		finding.SetAttributes(fragment.Attributes)
-		if r.Confidence != "" {
-			finding.Confidence = r.Confidence
+		if r.rule.Confidence != "" {
+			finding.Confidence = r.rule.Confidence
 		}
 
 		// TODO eventually move this git specific bit into somewhere... better?
@@ -1233,14 +1249,14 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		// Set the value of |secret|, if the pattern contains at least one capture group.
 		// (The first element is the full match, hence we check >= 2.)
-		groups := r.Regex.FindStringSubmatch(finding.Secret)
+		groups := r.regex.FindStringSubmatch(finding.Secret)
 		if len(groups) >= 2 {
-			if r.SecretGroup > 0 {
-				if len(groups) <= r.SecretGroup {
+			if r.rule.SecretGroup > 0 {
+				if len(groups) <= r.rule.SecretGroup {
 					// Config validation should prevent this
 					continue
 				}
-				finding.Secret = groups[r.SecretGroup]
+				finding.Secret = groups[r.rule.SecretGroup]
 			} else {
 				// If |secretGroup| is not set, we will use the first suitable capture group.
 				for _, s := range groups[1:] {
@@ -1252,7 +1268,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 
 			// Extract named capture groups for use as template variables.
-			names := r.Regex.SubexpNames()
+			names := r.regex.SubexpNames()
 			captures := make(map[string]string)
 			for i, name := range names {
 				if i > 0 && name != "" && i < len(groups) && groups[i] != "" {
@@ -1271,9 +1287,9 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		entropy := shannonEntropy(finding.Secret)
 
 		hasGlobalFilter := d.globalFilterExpr != ""
-		hasRuleFilter := r.Filter != ""
+		hasRuleFilter := r.rule.Filter != ""
 		// Validation/filter expressions need context text in the finding map.
-		if r.ValidateExpr != "" || r.AnalyzeExpr != "" || hasGlobalFilter || hasRuleFilter {
+		if r.rule.ValidateExpr != "" || r.rule.AnalyzeExpr != "" || hasGlobalFilter || hasRuleFilter {
 			finding.SetExprContext(strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, contextwindow.Spec{
 				Mode:        contextwindow.ModeBox,
 				LinesBefore: 20,
@@ -1347,7 +1363,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	}
 
 	// Handle component rules (multi-part rules).
-	if fragment.InheritedFromFinding || len(r.Components) == 0 {
+	if fragment.InheritedFromFinding || len(r.rule.Components) == 0 {
 		return findings
 	}
 
@@ -1355,7 +1371,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 }
 
 // processComponents attaches nearby component matches and enforces required components.
-func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r config.Rule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger *slog.Logger) []report.Finding {
+func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger *slog.Logger) []report.Finding {
 	if len(primaryFindings) == 0 {
 		logger.Debug("no primary findings to process for components")
 		return primaryFindings
@@ -1363,9 +1379,9 @@ func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment
 
 	// Pre-collect each component rule's findings once per fragment.
 	allComponentFindings := make(map[string][]report.Finding)
-	componentWindows := make(map[string]contextwindow.Spec, len(r.Components))
+	componentWindows := make(map[string]contextwindow.Spec, len(r.rule.Components))
 
-	for _, component := range r.Components {
+	for _, component := range r.rule.Components {
 		window, err := contextwindow.Parse(component.Within)
 		if err != nil {
 			logger.Error("invalid component within value", "error", err, "rule_id", component.RuleID, "within", component.Within)
@@ -1378,7 +1394,7 @@ func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment
 			logger.Error("component rule not found in config", "rule_id", component.RuleID)
 			continue
 		}
-		rule := d.rulesBySpecificity[ruleIndex]
+		rule := &d.rulesBySpecificity[ruleIndex]
 
 		// Mark fragment as inherited to prevent infinite recursion
 		inheritedFragment := fragment
@@ -1399,7 +1415,7 @@ func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment
 	for _, primaryFinding := range primaryFindings {
 		var componentFindings []*report.ComponentFinding
 
-		for _, component := range r.Components {
+		for _, component := range r.rule.Components {
 			foundComponentFindings, exists := allComponentFindings[component.RuleID]
 			if !exists {
 				continue
@@ -1422,13 +1438,13 @@ func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment
 			}
 		}
 
-		if d.hasAllRequiredComponents(componentFindings, r.Components) {
+		if d.hasAllRequiredComponents(componentFindings, r.rule.Components) {
 			newFinding := primaryFinding
 			newFinding.BuildComponentSets(componentFindings, maxComponentSets)
 			finalFindings = append(finalFindings, newFinding)
 
 			logger.Debug("multi-part rule satisfied",
-				"primary_rule", r.RuleID,
+				"primary_rule", r.rule.RuleID,
 				"primary_line", primaryFinding.Location.StartLine,
 				"component_count", len(componentFindings),
 			)

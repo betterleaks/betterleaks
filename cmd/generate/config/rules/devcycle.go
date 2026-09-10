@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 const devCycleValidationExpr = `let r = http.post("https://bucketing-api.devcycle.com/v1/variables", {
@@ -23,7 +22,7 @@ func DevCycleClientSDKKey() *config.Rule {
 		RuleID:       "devcycle-client-sdk-key",
 		Confidence:   "high",
 		Description:  "DevCycle client SDK key.",
-		Regex:        regexp.MustCompile(`\b(dvc_client_[A-Za-z0-9]{8,32})`),
+		Regex:        `\b(dvc_client_[A-Za-z0-9]{8,32})`,
 		Keywords:     []string{"dvc_client_"},
 		ValidateExpr: devCycleValidationExpr,
 		Filter:       utils.MinEntropy(3.0),
@@ -45,7 +44,7 @@ func DevCycleMobileSDKKey() *config.Rule {
 		RuleID:       "devcycle-mobile-sdk-key",
 		Confidence:   "high",
 		Description:  "DevCycle mobile SDK key.",
-		Regex:        regexp.MustCompile(`\b(dvc_mobile_[A-Za-z0-9]{8,32})`),
+		Regex:        `\b(dvc_mobile_[A-Za-z0-9]{8,32})`,
 		Keywords:     []string{"dvc_mobile_"},
 		ValidateExpr: devCycleValidationExpr,
 		Filter:       utils.MinEntropy(3.0),
@@ -67,7 +66,7 @@ func DevCycleServerSDKKey() *config.Rule {
 		RuleID:       "devcycle-server-sdk-key",
 		Confidence:   "high",
 		Description:  "DevCycle server SDK key.",
-		Regex:        regexp.MustCompile(`\b(dvc_server_[A-Za-z0-9]{8,32})`),
+		Regex:        `\b(dvc_server_[A-Za-z0-9]{8,32})`,
 		Keywords:     []string{"dvc_server_"},
 		ValidateExpr: devCycleValidationExpr,
 		Filter:       utils.MinEntropy(3.0),

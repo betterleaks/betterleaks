@@ -7,8 +7,6 @@ package utils
 import (
 	"fmt"
 	"strings"
-
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 const (
@@ -31,7 +29,7 @@ const (
 	secretSuffix       = `)(?:\\?['"\x60]|[\s;]|\\[nr]|$)`
 )
 
-func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseInsensitive bool) *regexp.Regexp {
+func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseInsensitive bool) string {
 	var sb strings.Builder
 	// The identifiers should always be case-insensitive.
 	// This is inelegant but prevents an extraneous `(?i:)` from being added to the pattern; it could be removed.
@@ -47,17 +45,11 @@ func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseIn
 	sb.WriteString(secretPrefix)
 	sb.WriteString(secretRegex)
 	sb.WriteString(secretSuffix)
-	return regexp.MustCompile(sb.String())
+	return sb.String()
 }
 
-func MergeRegexps(regexps ...*regexp.Regexp) *regexp.Regexp {
-	patterns := make([]string, len(regexps))
-
-	for i, r := range regexps {
-		patterns[i] = r.String()
-	}
-
-	return regexp.MustCompile(strings.Join(patterns, "|"))
+func MergeRegexps(regexps ...string) string {
+	return strings.Join(regexps, "|")
 }
 
 func writeIdentifiers(sb *strings.Builder, identifiers []string) {
@@ -66,7 +58,7 @@ func writeIdentifiers(sb *strings.Builder, identifiers []string) {
 	sb.WriteString(identifierSuffix)
 }
 
-func GenerateUniqueTokenRegex(secretRegex string, isCaseInsensitive bool) *regexp.Regexp {
+func GenerateUniqueTokenRegex(secretRegex string, isCaseInsensitive bool) string {
 	var sb strings.Builder
 	if isCaseInsensitive {
 		sb.WriteString(caseInsensitive)
@@ -74,7 +66,7 @@ func GenerateUniqueTokenRegex(secretRegex string, isCaseInsensitive bool) *regex
 	sb.WriteString(secretPrefixUnique)
 	sb.WriteString(secretRegex)
 	sb.WriteString(secretSuffix)
-	return regexp.MustCompile(sb.String())
+	return sb.String()
 }
 
 func GenerateSampleSecret(identifier string, secret string) string {

@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func NugetConfigPassword() *config.Rule {
@@ -11,8 +10,8 @@ func NugetConfigPassword() *config.Rule {
 		Description: "Identified a password within a Nuget config file, potentially compromising package management access.",
 		RuleID:      "nuget-config-password",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`(?i)<add key=\"(?:(?:ClearText)?Password)\"\s*value=\"(.{8,})\"\s*/>`),
-		Path:        regexp.MustCompile(`(?i)nuget\.config$`),
+		Regex:       `(?i)<add key=\"(?:(?:ClearText)?Password)\"\s*value=\"(.{8,})\"\s*/>`,
+		Path:        `(?i)nuget\.config$`,
 		Keywords:    []string{"<add key="},
 		Filter:      "entropy(finding[\"secret\"]) <= 1.0\n|| matchesAny(finding[\"secret\"], [\n  `33f!!lloppa`,\n  `hal\\+9ooo_da!sY`,\n  `^\\%\\S.*\\%$`\n])",
 	}

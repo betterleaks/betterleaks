@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func CanvaClientID() *config.Rule {
@@ -11,7 +10,7 @@ func CanvaClientID() *config.Rule {
 		RuleID:      "canva-client-id",
 		Confidence:  "high",
 		Description: "Detected a Canva Connect API client ID, used as a component of the canva-client-secret composite rule.",
-		Regex:       regexp.MustCompile(`(?i)\b(?:canva|CANVA_CLIENT_ID)(?:.|[\n\r]){0,32}?(?:client[_\s-]*id|app[_\s-]*id)(?:.|[\n\r]){0,16}?\b(OC-[A-Za-z0-9_-]{8,16})\b`),
+		Regex:       `(?i)\b(?:canva|CANVA_CLIENT_ID)(?:.|[\n\r]){0,32}?(?:client[_\s-]*id|app[_\s-]*id)(?:.|[\n\r]){0,16}?\b(OC-[A-Za-z0-9_-]{8,16})\b`,
 		Keywords:    []string{"canva"},
 		SkipReport:  true,
 		Filter:      `filter.entropy(finding["secret"]) < 2.5`,
@@ -33,7 +32,7 @@ func CanvaClientSecret() *config.Rule {
 		RuleID:      "canva-client-secret",
 		Confidence:  "high",
 		Description: "Detected a Canva Connect API client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
-		Regex:       regexp.MustCompile(`\b(cnvca[a-zA-Z0-9_-]{51})\b`),
+		Regex:       `\b(cnvca[a-zA-Z0-9_-]{51})\b`,
 		Keywords:    []string{"cnvca"},
 		Components: []*config.Component{
 			{RuleID: "canva-client-id"},

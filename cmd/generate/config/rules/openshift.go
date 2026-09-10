@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // OpenShift 4 user tokens are prefixed with `sha256~`.
@@ -15,7 +14,7 @@ func OpenshiftUserToken() *config.Rule {
 		Confidence:  "high",
 		Description: "Found an OpenShift user token, potentially compromising an OpenShift/Kubernetes cluster.",
 		// TODO: Do tokens vary in length or are they always 43?
-		Regex: regexp.MustCompile(`\b(sha256~[\w-]{43})(?:[^\w-]|\z)`),
+		Regex: `\b(sha256~[\w-]{43})(?:[^\w-]|\z)`,
 		Keywords: []string{
 			"sha256~",
 		},

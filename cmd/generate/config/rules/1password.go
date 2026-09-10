@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // https://developer.1password.com/docs/service-accounts/security/?token-example=encoded
@@ -14,7 +13,7 @@ func OnePasswordServiceAccountToken() *config.Rule {
 		RuleID:      "1password-service-account-token",
 		Confidence:  "high",
 		Description: "Uncovered a possible 1Password service account token, potentially compromising access to secrets in vaults.",
-		Regex:       regexp.MustCompile(`ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`),
+		Regex:       `ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`,
 		Keywords:    []string{"ops_eyj"},
 		ValidateExpr: `let r = http.get("https://events.1password.com/api/v2/auth/introspect", {
     "Accept": "application/json",
@@ -69,7 +68,7 @@ func OnePasswordSecretKey() *config.Rule {
 		Description: "Uncovered a possible 1Password secret key, potentially compromising access to secrets in vaults.",
 		RuleID:      "1password-secret-key",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`\bA3-[A-Z0-9]{6}-(?:(?:[A-Z0-9]{11})|(?:[A-Z0-9]{6}-[A-Z0-9]{5}))-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}\b`),
+		Regex:       `\bA3-[A-Z0-9]{6}-(?:(?:[A-Z0-9]{11})|(?:[A-Z0-9]{6}-[A-Z0-9]{5}))-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}\b`,
 		Keywords:    []string{"A3-"},
 		Filter:      `entropy(finding["secret"]) <= 3.8`,
 	}

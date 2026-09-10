@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func EasyPost() *config.Rule {
@@ -13,7 +12,7 @@ func EasyPost() *config.Rule {
 		RuleID:      "easypost-api-token",
 		Confidence:  "high",
 		Description: "Identified an EasyPost API token, which could lead to unauthorized postal and shipment service access and data exposure.",
-		Regex:       regexp.MustCompile(`\bEZAK(?i)[a-z0-9]{54}\b`),
+		Regex:       `\bEZAK(?i)[a-z0-9]{54}\b`,
 		Keywords:    []string{"EZAK"},
 		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}
@@ -37,7 +36,7 @@ func EasyPostTestAPI() *config.Rule {
 		RuleID:      "easypost-test-api-token",
 		Confidence:  "high",
 		Description: "Detected an EasyPost test API token, risking exposure of test environments and potentially sensitive shipment data.",
-		Regex:       regexp.MustCompile(`\bEZTK(?i)[a-z0-9]{54}\b`),
+		Regex:       `\bEZTK(?i)[a-z0-9]{54}\b`,
 		Keywords:    []string{"EZTK"},
 		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}

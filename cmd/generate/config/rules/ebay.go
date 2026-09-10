@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func EBayClientID() *config.Rule {
@@ -13,7 +12,7 @@ func EBayClientID() *config.Rule {
 		RuleID:      "ebay-client-id",
 		Confidence:  "high",
 		Description: "eBay client ID, used as a component of the eBay client-secret composite rule.",
-		Regex:       regexp.MustCompile(`\b([a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+-PRD-[a-f0-9]{8,12}-[a-f0-9]{8,12})`),
+		Regex:       `\b([a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+-PRD-[a-f0-9]{8,12}-[a-f0-9]{8,12})`,
 		Keywords:    []string{"-PRD-"},
 		SkipReport:  true,
 		Filter:      utils.MinEntropy(3.0),

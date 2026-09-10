@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func AivenAuthToken() *config.Rule {
@@ -11,7 +10,7 @@ func AivenAuthToken() *config.Rule {
 		RuleID:      "aiven-auth-token",
 		Confidence:  "high",
 		Description: "Detected an Aiven authentication token, which may expose Aiven projects and services.",
-		Regex:       regexp.MustCompile(`(?i:aiven)[\s\S]{0,32}?\b([A-Za-z0-9/+=]{372})(?:[^A-Za-z0-9/+=]|$)`),
+		Regex:       `(?i:aiven)[\s\S]{0,32}?\b([A-Za-z0-9/+=]{372})(?:[^A-Za-z0-9/+=]|$)`,
 		Keywords:    []string{"aiven"},
 		ValidateExpr: `let r = http.get("https://api.aiven.io/v1/project", {
     "Authorization": "aivenv1 " + finding["secret"],

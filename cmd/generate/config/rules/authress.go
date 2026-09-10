@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func Authress() *config.Rule {
@@ -13,7 +12,7 @@ func Authress() *config.Rule {
 		RuleID:      "authress-service-client-access-key",
 		Confidence:  "high",
 		Description: "Uncovered a possible Authress Service Client Access Key, which may compromise access control services and sensitive data.",
-		Regex:       regexp.MustCompile(`(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b`),
+		Regex:       `(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b`,
 		// The `.acc_`/`.acc-` segment is required by the regex and is far
 		// rarer in real code than the `sc_`/`ext_` prefixes.
 		Keywords: []string{".acc_", ".acc-"},

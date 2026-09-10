@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func AlibabaAccessKey() *config.Rule {
@@ -12,7 +11,7 @@ func AlibabaAccessKey() *config.Rule {
 		RuleID:      "alibaba-access-key-id",
 		Confidence:  "high",
 		Description: "Detected an Alibaba Cloud AccessKey ID, posing a risk of unauthorized cloud resource access and potential data compromise.",
-		Regex:       regexp.MustCompile(`\b(LTAI[A-Za-z0-9]{17,21})\b`),
+		Regex:       `\b(LTAI[A-Za-z0-9]{17,21})\b`,
 		Keywords:    []string{"LTAI"},
 		SkipReport:  true,
 		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
@@ -57,7 +56,7 @@ func AlibabaSTSAccessKeyID() *config.Rule {
 		RuleID:      "alibaba-sts-access-key-id",
 		Confidence:  "high",
 		Description: "Detected an Alibaba Cloud STS AccessKey ID, used as a component of the alibaba-sts-access-key-secret composite rule.",
-		Regex:       regexp.MustCompile(`\b(STS\.[A-Za-z0-9]{16,64})\b`),
+		Regex:       `\b(STS\.[A-Za-z0-9]{16,64})\b`,
 		Keywords:    []string{"sts."},
 		SkipReport:  true,
 		Filter:      `filter.entropy(finding["secret"]) < 3.0`,

@@ -3,11 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"regexp/syntax"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // Rules contain information that define details on how to detect secrets
@@ -21,12 +21,13 @@ type Rule struct {
 	// SecretGroup identifies the regex group used as the secret.
 	SecretGroup int
 
-	// Regex is a golang regular expression used to detect secrets.
-	Regex *regexp.Regexp
+	// Regex is a Go regular expression pattern used to detect secrets.
+	// An empty pattern disables content matching. The detector owns compilation.
+	Regex string
 
-	// Path is a golang regular expression used to
-	// filter secrets by path
-	Path *regexp.Regexp
+	// Path is a Go regular expression pattern used to filter secrets by path.
+	// An empty pattern matches any path when Regex is set.
+	Path string
 
 	// Tags is an array of strings used for metadata
 	// and reporting purposes.
@@ -84,32 +85,37 @@ func (r *Rule) Validate() error {
 		if r.Description != "" {
 			sb.WriteString(", description: " + r.Description)
 		}
-		if r.Regex != nil {
-			sb.WriteString(", regex: " + r.Regex.String())
+		if r.Regex != "" {
+			sb.WriteString(", regex: " + r.Regex)
 		}
-		if r.Path != nil {
-			sb.WriteString(", path: " + r.Path.String())
+		if r.Path != "" {
+			sb.WriteString(", path: " + r.Path)
 		}
 		return errors.New("rule |id| is missing or empty" + sb.String())
 	}
 
 	// Ensure the rule actually matches something.
-	if r.Regex == nil && r.Path == nil {
+	if r.Regex == "" && r.Path == "" {
 		return errors.New(r.RuleID + ": both |regex| and |path| are empty, this rule will have no effect")
 	}
 	if r.Confidence != "" && !confidence.Valid(r.Confidence) {
 		return fmt.Errorf("%s: invalid confidence %q (expected low, medium, or high)", r.RuleID, r.Confidence)
 	}
 
+	maxCapture, err := r.validatePatterns()
+	if err != nil {
+		return err
+	}
+
 	// Ensure |secretGroup| works.
 	if r.SecretGroup < 0 {
 		return fmt.Errorf("%s: invalid regex secret group %d, must be non-negative", r.RuleID, r.SecretGroup)
 	}
-	if r.Regex == nil && r.SecretGroup != 0 {
+	if r.Regex == "" && r.SecretGroup != 0 {
 		return fmt.Errorf("%s: regex secret group %d requires a regex", r.RuleID, r.SecretGroup)
 	}
-	if r.Regex != nil && r.SecretGroup > r.Regex.NumSubexp() {
-		return fmt.Errorf("%s: invalid regex secret group %d, max regex secret group %d", r.RuleID, r.SecretGroup, r.Regex.NumSubexp())
+	if r.Regex != "" && r.SecretGroup > maxCapture {
+		return fmt.Errorf("%s: invalid regex secret group %d, max regex secret group %d", r.RuleID, r.SecretGroup, maxCapture)
 	}
 	if strings.TrimSpace(r.AnalyzeExpr) != "" && strings.TrimSpace(r.ValidateExpr) == "" {
 		return fmt.Errorf("%s: analyze expression requires a validate expression", r.RuleID)
@@ -136,4 +142,25 @@ func (r *Rule) Validate() error {
 	}
 
 	return nil
+}
+
+// validatePatterns checks syntax without creating runtime regex objects.
+// Translation also calls it before merging to reject invalid definitions even
+// when a later duplicate or extension would replace their patterns.
+func (r *Rule) validatePatterns() (int, error) {
+	if r.Path != "" {
+		if _, err := syntax.Parse(r.Path, syntax.Perl); err != nil {
+			return 0, fmt.Errorf("%s: invalid path regex %q: %w", r.RuleID, r.Path, err)
+		}
+	}
+	maxCapture := 0
+	if r.Regex != "" {
+		parsed, err := syntax.Parse(r.Regex, syntax.Perl)
+		if err != nil {
+			return 0, fmt.Errorf("%s: invalid regex %q: %w", r.RuleID, r.Regex, err)
+		}
+		maxCapture = parsed.MaxCap()
+	}
+
+	return maxCapture, nil
 }

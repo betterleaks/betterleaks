@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func PerplexityAPIKey() *config.Rule {
@@ -12,7 +11,7 @@ func PerplexityAPIKey() *config.Rule {
 		RuleID:      "perplexity-api-key",
 		Confidence:  "high",
 		Description: "Detected a Perplexity API key, which could lead to unauthorized access to Perplexity AI services and data exposure.",
-		Regex:       regexp.MustCompile(`\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)`),
+		Regex:       `\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)`,
 		Keywords:    []string{"pplx-"},
 		ValidateExpr: `let r = http.post("https://api.perplexity.ai/chat/completions", {
     "Authorization": "Bearer " + finding["secret"],

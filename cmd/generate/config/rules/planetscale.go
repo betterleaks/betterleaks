@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func PlanetScalePassword() *config.Rule {
@@ -34,12 +33,10 @@ func PlanetScaleID() *config.Rule {
 		RuleID:      "planetscale-id",
 		Confidence:  "high",
 		Description: "Found a PlanetScale service token ID.",
-		Regex: regexp.MustCompile(
-			`(?i)(?:pscale|planetscale)(?:.|[\n\r]){0,16}?(?:USER|ID|NAME)(?:.|[\n\r]){0,16}?([a-z0-9]{12})`,
-		),
-		Keywords:   []string{"pscale", "planetscale"},
-		SkipReport: true,
-		Filter:     `entropy(finding["secret"]) <= 3.0`,
+		Regex:       `(?i)(?:pscale|planetscale)(?:.|[\n\r]){0,16}?(?:USER|ID|NAME)(?:.|[\n\r]){0,16}?([a-z0-9]{12})`,
+		Keywords:    []string{"pscale", "planetscale"},
+		SkipReport:  true,
+		Filter:      `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := []string{

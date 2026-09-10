@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func AmplitudeSecretKey() *config.Rule {
@@ -11,7 +10,7 @@ func AmplitudeSecretKey() *config.Rule {
 		RuleID:      "amplitude-secret-key",
 		Confidence:  "medium",
 		Description: "Detected an Amplitude secret key, which may allow unauthorized event ingestion or access to Amplitude API functionality.",
-		Regex:       regexp.MustCompile(`(?i)\bamplitude(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN|AUTHORIZATION)(?:.|[\n\r]){0,16}?\b([a-f0-9]{32})\b`),
+		Regex:       `(?i)\bamplitude(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN|AUTHORIZATION)(?:.|[\n\r]){0,16}?\b([a-f0-9]{32})\b`,
 		Keywords:    []string{"amplitude"},
 		ValidateExpr: `let r = http.post("https://api2.amplitude.com/2/httpapi", {
     "Content-Type": "application/json",

@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func BitlyAccessToken() *config.Rule {
@@ -11,7 +10,7 @@ func BitlyAccessToken() *config.Rule {
 		RuleID:      "bitly-access-token",
 		Confidence:  "high",
 		Description: "Detected a Bitly access token, which may allow unauthorized access to Bitly account and link management APIs.",
-		Regex:       regexp.MustCompile(`(?i)\bbitly(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN)(?:.|[\n\r]){0,32}?([a-f0-9]{40})\b`),
+		Regex:       `(?i)\bbitly(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN)(?:.|[\n\r]){0,32}?([a-f0-9]{40})\b`,
 		Keywords:    []string{"bitly"},
 		ValidateExpr: `let r = http.get("https://api-ssl.bitly.com/v4/user", {
     "Authorization": "Bearer " + finding["secret"]

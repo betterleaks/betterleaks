@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func AikidoClientID() *config.Rule {
@@ -53,7 +52,7 @@ func AikidoCIToken() *config.Rule {
 		RuleID:      "aikido-ci-token",
 		Confidence:  "high",
 		Description: "Detected an Aikido CI token, which may allow unauthorized CI scan integration activity in Aikido.",
-		Regex:       regexp.MustCompile(`\b(AIK_CI_[A-Za-z0-9]{20,44})\b`),
+		Regex:       `\b(AIK_CI_[A-Za-z0-9]{20,44})\b`,
 		Keywords:    []string{"AIK_CI_"},
 		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
 	}

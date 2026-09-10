@@ -138,7 +138,7 @@ func mustNewDetector(t *testing.T, cfg *config.Config, options ...Option) *Detec
 func testConfig() *config.Config {
 	return &config.Config{Rules: []config.Rule{{
 		RuleID: "test-secret",
-		Regex:  regexp.MustCompile(`secret-[a-z]+`),
+		Regex:  `secret-[a-z]+`,
 	}}}
 }
 
@@ -147,7 +147,7 @@ func TestDetectorLoggerIsOptIn(t *testing.T) {
 		Filter: `missingFunction()`,
 		Rules: []config.Rule{{
 			RuleID: "test-secret",
-			Regex:  regexp.MustCompile(`secret-[a-z]+`),
+			Regex:  `secret-[a-z]+`,
 		}},
 	}
 
@@ -164,7 +164,7 @@ func TestDetectorLoggerIsOptIn(t *testing.T) {
 func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
 	detector := &Detector{logger: discardLogger}
 	fragment := sources.Fragment{Raw: "ordinary input"}
-	rule := config.Rule{RuleID: "test-secret", SkipReport: true}
+	rule := &compiledRule{rule: config.Rule{RuleID: "test-secret", SkipReport: true}}
 
 	var findings []report.Finding
 	allocations := testing.AllocsPerRun(1_000, func() {
@@ -406,7 +406,7 @@ func TestRunCancellationDoesNotEmitErrors(t *testing.T) {
 func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "path-only",
-		Path:   regexp.MustCompile(`\.p12$`),
+		Path:   `\.p12$`,
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
@@ -433,10 +433,10 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 
 func TestCandidateBitmap(t *testing.T) {
 	rules := []config.Rule{
-		{RuleID: "high", Specificity: 30, Keywords: []string{"shared", "alias"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
-		{RuleID: "low", Specificity: 20, Keywords: []string{"shared"}, Regex: regexp.MustCompile(`LOWSECRET`)},
-		{RuleID: "cancel", Specificity: 10, Keywords: []string{"cancel"}, Regex: regexp.MustCompile(`ALWAYSSECRET`)},
-		{RuleID: "always", Regex: regexp.MustCompile(`ALWAYSSECRET`)},
+		{RuleID: "high", Specificity: 30, Keywords: []string{"shared", "alias"}, Regex: `HIGHSECRET`},
+		{RuleID: "low", Specificity: 20, Keywords: []string{"shared"}, Regex: `LOWSECRET`},
+		{RuleID: "cancel", Specificity: 10, Keywords: []string{"cancel"}, Regex: `ALWAYSSECRET`},
+		{RuleID: "always", Regex: `ALWAYSSECRET`},
 	}
 	cfg := &config.Config{
 		Rules: rules,
@@ -456,19 +456,19 @@ func TestCandidateBitmap(t *testing.T) {
 
 func TestNewDetectorSnapshotsConfigWithoutMutatingIt(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
-		{RuleID: "low", Specificity: 10, Keywords: []string{"MiXeD"}, Regex: regexp.MustCompile(`LOWSECRET`)},
-		{RuleID: "high", Specificity: 20, Keywords: []string{"MiXeD"}, Regex: regexp.MustCompile(`HIGHSECRET`)},
+		{RuleID: "low", Specificity: 10, Keywords: []string{"MiXeD"}, Regex: `LOWSECRET`},
+		{RuleID: "high", Specificity: 20, Keywords: []string{"MiXeD"}, Regex: `HIGHSECRET`},
 	}}
 
 	d := mustNewDetector(t, cfg)
 	require.Equal(t, []string{"low", "high"}, []string{cfg.Rules[0].RuleID, cfg.Rules[1].RuleID})
 	require.Equal(t, "MiXeD", cfg.Rules[0].Keywords[0])
-	require.Equal(t, []string{"high", "low"}, []string{d.rulesBySpecificity[0].RuleID, d.rulesBySpecificity[1].RuleID})
+	require.Equal(t, []string{"high", "low"}, []string{d.rulesBySpecificity[0].rule.RuleID, d.rulesBySpecificity[1].rule.RuleID})
 
 	// Detector behavior is isolated from later changes to the caller's config.
 	cfg.Rules[0].Keywords[0] = "changed"
-	cfg.Rules[0].Regex = regexp.MustCompile(`CHANGED`)
-	cfg.Rules[1] = config.Rule{RuleID: "replacement", Keywords: []string{"changed"}, Regex: regexp.MustCompile(`CHANGED`)}
+	cfg.Rules[0].Regex = `CHANGED`
+	cfg.Rules[1] = config.Rule{RuleID: "replacement", Keywords: []string{"changed"}, Regex: `CHANGED`}
 	cfg.Filter = "true"
 
 	require.Equal(t, []string{"high", "low"}, findingRuleIDs(d.DetectString("mixed HIGHSECRET LOWSECRET")))
@@ -1481,7 +1481,7 @@ skipReport = true
 func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "near-match",
-		Regex:  regexp.MustCompile(`[A-Z0-9]{20}`),
+		Regex:  `[A-Z0-9]{20}`,
 		Filter: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; filter.matchesAny(matchContext, ["red-herring"])`,
 	}
 	cfg := &config.Config{
@@ -1496,8 +1496,8 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 }
 
 func TestConfidenceAttributeAndFilter(t *testing.T) {
-	low := config.Rule{RuleID: "specific-low", Regex: regexp.MustCompile(`[A-Z0-9]{20}`), Specificity: 1, Confidence: "low"}
-	promoted := config.Rule{RuleID: "promoted", Regex: regexp.MustCompile(`[A-Z0-9]{20}`), Confidence: "medium", Filter: `let _ = filter.setConfidence("high"); false`}
+	low := config.Rule{RuleID: "specific-low", Regex: `[A-Z0-9]{20}`, Specificity: 1, Confidence: "low"}
+	promoted := config.Rule{RuleID: "promoted", Regex: `[A-Z0-9]{20}`, Confidence: "medium", Filter: `let _ = filter.setConfidence("high"); false`}
 	cfg := &config.Config{
 		Rules: []config.Rule{low, promoted},
 	}
@@ -1524,7 +1524,7 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rule := config.Rule{
 				RuleID: "decoded-near-match",
-				Regex:  regexp.MustCompile(`decoded-secret-[A-Z]{20}`),
+				Regex:  `decoded-secret-[A-Z]{20}`,
 				Filter: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; filter.containsAny(matchContext, ["provider"])`, tc.before),
 			}
 			cfg := &config.Config{
@@ -1540,7 +1540,7 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "original-match-bounds",
-		Regex:  regexp.MustCompile("\nSECRET"),
+		Regex:  "\nSECRET",
 		Filter: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; filter.matchesAny(matchContext, [`\\nSECRET$`])",
 	}
 	cfg := &config.Config{
@@ -1553,7 +1553,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 	rule := config.Rule{
 		RuleID: "line-context",
-		Regex:  regexp.MustCompile(`SECRET`),
+		Regex:  `SECRET`,
 		Filter: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; filter.containsAny(matchContext, ["other-line"])`,
 	}
 	cfg := &config.Config{
@@ -3335,11 +3335,11 @@ func moveDotGit(t *testing.T, from, to string) {
 func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	unixRule := config.Rule{
 		RuleID: "test-rule",
-		Path:   regexp.MustCompile(`(^|/)\.m2/settings\.xml`),
+		Path:   `(^|/)\.m2/settings\.xml`,
 	}
 	windowsRule := config.Rule{
 		RuleID: "test-rule",
-		Path:   regexp.MustCompile(`(^|\\)\.m2\\settings\.xml`),
+		Path:   `(^|\\)\.m2\\settings\.xml`,
 	}
 	expected := []report.Finding{
 		{
@@ -3381,8 +3381,8 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 			},
 			rule: config.Rule{
 				RuleID: "test-rule",
-				Regex:  regexp.MustCompile(`<password>(.+?)</password>`),
-				Path:   regexp.MustCompile(`(^|/)\.m2/settings\.xml`),
+				Regex:  `<password>(.+?)</password>`,
+				Path:   `(^|/)\.m2/settings\.xml`,
 			},
 			expected: []report.Finding{
 				{
@@ -3432,8 +3432,8 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 			},
 			rule: config.Rule{
 				RuleID: "test-rule",
-				Regex:  regexp.MustCompile(`<password>(.+?)</password>`),
-				Path:   regexp.MustCompile(`(^|\\)\.m2\\settings\.xml`),
+				Regex:  `<password>(.+?)</password>`,
+				Path:   `(^|\\)\.m2\\settings\.xml`,
 			},
 			// Paths are normalized to use Unix separators before detection.
 			expected: nil,
@@ -3443,7 +3443,9 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	d := newDefaultTestDetector(t)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, test.rule, []*codec.EncodedSegment{}, nil)
+			rules, _, err := snapshotDetectorRules(&config.Config{Rules: []config.Rule{test.rule}})
+			require.NoError(t, err)
+			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, &rules[0], []*codec.EncodedSegment{}, nil)
 			compare(t, actual, test.expected)
 		})
 	}

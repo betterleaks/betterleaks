@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func Doppler() *config.Rule {
@@ -13,7 +12,7 @@ func Doppler() *config.Rule {
 		RuleID:      "doppler-api-token",
 		Confidence:  "high",
 		Description: "Discovered a Doppler API token, posing a risk to environment and secrets management security.",
-		Regex:       regexp.MustCompile(`dp\.pt\.(?i)[a-z0-9]{43}`),
+		Regex:       `dp\.pt\.(?i)[a-z0-9]{43}`,
 		Keywords:    []string{`dp.pt.`},
 		Filter:      `entropy(finding["secret"]) <= 2.0`,
 	}

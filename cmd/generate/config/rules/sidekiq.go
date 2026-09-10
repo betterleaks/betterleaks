@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func SidekiqSecret() *config.Rule {
@@ -41,7 +40,7 @@ func SidekiqSensitiveUrl() *config.Rule {
 		Description: "Uncovered a Sidekiq Sensitive URL, potentially exposing internal job queues and sensitive operation details.",
 		RuleID:      "sidekiq-sensitive-url",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`(?i)\bhttps?://([a-f0-9]{8}:[a-f0-9]{8})@(?:gems.contribsys.com|enterprise.contribsys.com)(?:[\/|\#|\?|:]|$)`),
+		Regex:       `(?i)\bhttps?://([a-f0-9]{8}:[a-f0-9]{8})@(?:gems.contribsys.com|enterprise.contribsys.com)(?:[\/|\#|\?|:]|$)`,
 		Keywords:    []string{"gems.contribsys.com", "enterprise.contribsys.com"},
 	}
 

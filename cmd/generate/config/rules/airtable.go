@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 const airtableValidateExpr = `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
@@ -58,7 +57,7 @@ func AirtablePersonalAccessToken() *config.Rule {
 		Description:  "Uncovered a possible Airtable Personal AccessToken, potentially compromising database access and leading to data leakage or alteration.",
 		RuleID:       "airtable-personnal-access-token",
 		Confidence:   "high",
-		Regex:        regexp.MustCompile(`\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b`),
+		Regex:        `\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b`,
 		Keywords:     []string{"airtable"},
 		ValidateExpr: airtableValidateExpr,
 		AnalyzeExpr:  airtableAnalyzeExpr,

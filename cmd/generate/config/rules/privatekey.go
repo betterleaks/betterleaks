@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func PrivateKey() *config.Rule {
@@ -12,7 +11,7 @@ func PrivateKey() *config.Rule {
 		RuleID:      "private-key",
 		Confidence:  "high",
 		Description: "Identified a Private Key, which may compromise cryptographic security and sensitive data encryption.",
-		Regex:       regexp.MustCompile(`(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]{64,}?KEY(?: BLOCK)?-----`),
+		Regex:       `(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]{64,}?KEY(?: BLOCK)?-----`,
 		Keywords:    []string{"-----BEGIN"},
 	}
 
@@ -46,7 +45,7 @@ func PrivateKeyPKCS12File() *config.Rule {
 		RuleID:      "pkcs12-file",
 		Confidence:  "high",
 		Description: "Found a PKCS #12 file, which commonly contain bundled private keys.",
-		Path:        regexp.MustCompile(`(?i)(?:^|\/)[^\/]+\.p(?:12|fx)$`),
+		Path:        `(?i)(?:^|\/)[^\/]+\.p(?:12|fx)$`,
 	}
 
 	// validate

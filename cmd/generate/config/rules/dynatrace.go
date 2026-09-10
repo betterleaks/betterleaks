@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func Dynatrace() *config.Rule {
@@ -13,7 +12,7 @@ func Dynatrace() *config.Rule {
 		RuleID:      "dynatrace-api-token",
 		Confidence:  "high",
 		Description: "Detected a Dynatrace API token, potentially risking application performance monitoring and data exposure.",
-		Regex:       regexp.MustCompile(`dt0c01\.(?i)[a-z0-9]{24}\.[a-z0-9]{64}`),
+		Regex:       `dt0c01\.(?i)[a-z0-9]{24}\.[a-z0-9]{64}`,
 		Keywords:    []string{"dt0c01."},
 		Filter:      `entropy(finding["secret"]) <= 4.0`,
 	}

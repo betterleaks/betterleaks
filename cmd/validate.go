@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp/syntax"
 	"sort"
 	"strings"
 
@@ -178,11 +179,15 @@ func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 }
 
 func requiredValidationCaptures(rule configpkg.Rule) []string {
-	if rule.Regex == nil {
+	if rule.Regex == "" {
 		return nil
 	}
 	referenced := referencedValidationCaptures(rule.ValidateExpr)
-	names := rule.Regex.SubexpNames()
+	parsed, err := syntax.Parse(rule.Regex, syntax.Perl)
+	if err != nil {
+		return nil
+	}
+	names := parsed.CapNames()
 	required := make([]string, 0, len(names))
 	seen := make(map[string]struct{}, len(names))
 	for index, name := range names {

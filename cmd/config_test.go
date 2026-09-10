@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func TestResolveConfigIgnoresGitleaksCompatibility(t *testing.T) {
@@ -34,7 +33,7 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 		Rules: []configpkg.Rule{
 			{
 				RuleID: "primary",
-				Regex:  regexp.MustCompile("primary"),
+				Regex:  "primary",
 				Components: []*configpkg.Component{
 					{
 						RuleID:   "component",
@@ -45,7 +44,7 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 			},
 			{
 				RuleID: "component",
-				Regex:  regexp.MustCompile("component"),
+				Regex:  "component",
 			},
 		},
 	}

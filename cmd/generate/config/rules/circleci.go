@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func CircleCIPersonalToken() *config.Rule {
@@ -12,7 +11,7 @@ func CircleCIPersonalToken() *config.Rule {
 		RuleID:      "circleci-personal-token",
 		Confidence:  "high",
 		Description: "CircleCI personal access token.",
-		Regex:       regexp.MustCompile(`\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})`),
+		Regex:       `\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})`,
 		Keywords:    []string{"CCIPAT_"},
 		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://circleci.com/api/v2/me", {

@@ -6,7 +6,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func SentryAccessToken() *config.Rule {
@@ -45,7 +44,7 @@ func SentryOrgToken() *config.Rule {
 		RuleID:      "sentry-org-token",
 		Confidence:  "high",
 		Description: "Found a Sentry.io Organization Token, risking unauthorized access to error tracking services and sensitive application data.",
-		Regex:       regexp.MustCompile(`\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}(?:[^a-zA-Z0-9+/]|\z)`),
+		Regex:       `\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}(?:[^a-zA-Z0-9+/]|\z)`,
 		Keywords:    []string{"sntrys_eyJpYXQiO"},
 		Filter:      `filter.entropy(finding["secret"]) < 4.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}

@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/user", {
@@ -61,7 +60,7 @@ func GitHubPat() *config.Rule {
 		RuleID:       "github-pat",
 		Confidence:   "high",
 		Description:  "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.",
-		Regex:        regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
+		Regex:        `ghp_[0-9a-zA-Z]{36}`,
 		Keywords:     []string{"ghp_"},
 		ValidateExpr: githubTokenExpr,
 		AnalyzeExpr:  githubTokenAnalyzeExpr,
@@ -83,7 +82,7 @@ func GitHubFineGrainedPat() *config.Rule {
 		RuleID:       "github-fine-grained-pat",
 		Confidence:   "high",
 		Description:  "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation.",
-		Regex:        regexp.MustCompile(`github_pat_\w{82}`),
+		Regex:        `github_pat_\w{82}`,
 		Keywords:     []string{"github_pat_"},
 		ValidateExpr: githubTokenExpr,
 		AnalyzeExpr:  githubTokenAnalyzeExpr,
@@ -104,7 +103,7 @@ func GitHubOauth() *config.Rule {
 		RuleID:       "github-oauth",
 		Confidence:   "high",
 		Description:  "Discovered a GitHub OAuth Access Token, posing a risk of compromised GitHub account integrations and data leaks.",
-		Regex:        regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`),
+		Regex:        `gho_[0-9a-zA-Z]{36}`,
 		Keywords:     []string{"gho_"},
 		ValidateExpr: githubTokenExpr,
 		AnalyzeExpr:  githubTokenAnalyzeExpr,
@@ -140,7 +139,7 @@ func GitHubApp() *config.Rule {
 		RuleID:       "github-app-token",
 		Confidence:   "high",
 		Description:  "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security.",
-		Regex:        regexp.MustCompile(`(?:ghu|ghs)_[0-9a-zA-Z]{36}`),
+		Regex:        `(?:ghu|ghs)_[0-9a-zA-Z]{36}`,
 		Keywords:     []string{"ghu_", "ghs_"},
 		ValidateExpr: githubAppTokenExpr,
 		Filter: `entropy(finding["secret"]) <= 3.0
@@ -163,7 +162,7 @@ func GitHubRefresh() *config.Rule {
 		RuleID:       "github-refresh-token",
 		Confidence:   "high",
 		Description:  "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services.",
-		Regex:        regexp.MustCompile(`ghr_[0-9a-zA-Z]{36}`),
+		Regex:        `ghr_[0-9a-zA-Z]{36}`,
 		Keywords:     []string{"ghr_"},
 		ValidateExpr: githubTokenExpr,
 		Filter:       `entropy(finding["secret"]) <= 3.0`,

@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func Freemius() *config.Rule {
@@ -12,9 +11,9 @@ func Freemius() *config.Rule {
 		RuleID:      "freemius-secret-key",
 		Confidence:  "medium",
 		Description: "Detected a Freemius secret key, potentially exposing sensitive information.",
-		Regex:       regexp.MustCompile(`(?i)["']secret_key["']\s*=>\s*["'](sk_[\S]{29})["']`),
+		Regex:       `(?i)["']secret_key["']\s*=>\s*["'](sk_[\S]{29})["']`,
 		Keywords:    []string{"secret_key"},
-		Path:        regexp.MustCompile(`(?i)\.php$`),
+		Path:        `(?i)\.php$`,
 	}
 
 	// validate

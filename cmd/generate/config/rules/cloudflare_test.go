@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/betterleaks/betterleaks/v2/regexp"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,7 +41,7 @@ func TestCloudflareAPIKeyV2Formats(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			matches := rule.Regex.FindStringSubmatch("token = " + test.token)
+			matches := regexp.MustCompile(rule.Regex).FindStringSubmatch("token = " + test.token)
 			if !test.match {
 				assert.Empty(t, matches)
 				return
@@ -139,7 +141,7 @@ func TestCloudflareAccountIDV1(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		matches := rule.Regex.FindStringSubmatch(test.value)
+		matches := regexp.MustCompile(rule.Regex).FindStringSubmatch(test.value)
 		if !test.match {
 			assert.Empty(t, matches, test.value)
 			continue

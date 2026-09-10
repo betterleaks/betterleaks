@@ -3,7 +3,6 @@ package rules
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func LangSmithPersonalAccessToken() *config.Rule {
@@ -12,7 +11,7 @@ func LangSmithPersonalAccessToken() *config.Rule {
 		RuleID:      "langchain-langsmith-personal-access-token",
 		Confidence:  "high",
 		Description: "LangSmith personal access token.",
-		Regex:       regexp.MustCompile(`\b(lsv2_pt_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})`),
+		Regex:       `\b(lsv2_pt_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})`,
 		Keywords:    []string{"lsv2_pt_"},
 		ValidateExpr: `let r = http.get("https://api.smith.langchain.com/api/v1/api-key/current", {
     "X-API-Key": finding["secret"],
@@ -42,7 +41,7 @@ func LangSmithServiceKey() *config.Rule {
 		RuleID:      "langchain-langsmith-service-key",
 		Confidence:  "high",
 		Description: "LangSmith service API key.",
-		Regex:       regexp.MustCompile(`\b(lsv2_sk_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})`),
+		Regex:       `\b(lsv2_sk_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})`,
 		Keywords:    []string{"lsv2_sk_"},
 		ValidateExpr: `let r = http.get("https://api.smith.langchain.com/api/v1/orgs/current", {
     "X-API-Key": finding["secret"],

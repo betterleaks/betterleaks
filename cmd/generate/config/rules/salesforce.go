@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func SalesforceInstanceURL() *config.Rule {
@@ -13,11 +12,9 @@ func SalesforceInstanceURL() *config.Rule {
 		RuleID:      "salesforce-instance-url.1",
 		Confidence:  "high",
 		Description: "Salesforce instance host, used as a component of the Salesforce access-token rule.",
-		Regex: regexp.MustCompile(
-			`(?i)(?:^|[^a-z0-9.-])(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){0,4}\.my\.salesforce\.com|[a-z]{2,8}[0-9]{1,4}\.salesforce\.com))(?:[^a-z0-9.-]|$)`,
-		),
-		Keywords:   []string{"salesforce.com"},
-		SkipReport: true,
+		Regex:       `(?i)(?:^|[^a-z0-9.-])(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){0,4}\.my\.salesforce\.com|[a-z]{2,8}[0-9]{1,4}\.salesforce\.com))(?:[^a-z0-9.-]|$)`,
+		Keywords:    []string{"salesforce.com"},
+		SkipReport:  true,
 	}
 
 	// validate

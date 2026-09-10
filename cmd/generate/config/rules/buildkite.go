@@ -5,7 +5,6 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // https://buildkite.com/docs/apis/rest-api/access-token
@@ -67,7 +66,7 @@ func BuildkiteUserAccessToken() *config.Rule {
 		RuleID:       "buildkite-user-access-token",
 		Confidence:   "high",
 		Description:  "Detected a Buildkite user access token, which may expose pipelines, builds, and organization data.",
-		Regex:        regexp.MustCompile(`\b(bkua_(?:[a-z0-9]{40}|[a-z0-9]{53}))\b`),
+		Regex:        `\b(bkua_(?:[a-z0-9]{40}|[a-z0-9]{53}))\b`,
 		Keywords:     []string{"bkua_"},
 		ValidateExpr: buildkiteValidateExpr,
 		AnalyzeExpr:  buildkiteAnalyzeExpr,
@@ -91,7 +90,7 @@ func BuildkiteServiceToken() *config.Rule {
 		RuleID:      "buildkite-service-token",
 		Confidence:  "high",
 		Description: "Detected a Buildkite agent, package, or portal token, which may expose CI/CD workloads or packages.",
-		Regex: regexp.MustCompile(`\b(` +
+		Regex: `\b(` +
 			`bkaa_[A-Za-z0-9_-]{75}|` +
 			`bkaj_[A-Za-z0-9_-]{333}|` +
 			`bkar_[A-Za-z0-9_-]{73}|` +
@@ -99,7 +98,7 @@ func BuildkiteServiceToken() *config.Rule {
 			`bkpt_[A-Za-z0-9_-]{199}|` +
 			`bkpat_[A-Za-z0-9_-]{54}|` +
 			`bkps_[A-Za-z0-9_-]{64}` +
-			`)(?:$|[^A-Za-z0-9_-])`),
+			`)(?:$|[^A-Za-z0-9_-])`,
 		Keywords: []string{"bkaa_", "bkaj_", "bkar_", "bkct_", "bkpt_", "bkpat_", "bkps_"},
 		Filter:   utils.MinEntropy(3.5),
 	}

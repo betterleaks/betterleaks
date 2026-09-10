@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func NeonAPIKey() *config.Rule {
@@ -45,7 +44,7 @@ func NeonConnectionURI() *config.Rule {
 		RuleID:      "neon-connection-uri",
 		Confidence:  "high",
 		Description: "Password embedded in a Neon PostgreSQL connection URI.",
-		Regex:       regexp.MustCompile(`\bpostgres(?:ql)?://[^:@\s]{1,64}:([^@\s]{6,128})@[^\s/"']{4,200}\.neon\.tech\b`),
+		Regex:       `\bpostgres(?:ql)?://[^:@\s]{1,64}:([^@\s]{6,128})@[^\s/"']{4,200}\.neon\.tech\b`,
 		Keywords:    []string{".neon.tech"},
 		Filter:      utils.MinEntropy(2.5),
 	}

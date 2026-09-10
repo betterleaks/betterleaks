@@ -219,15 +219,16 @@ func compileKeywordTrie(cfg *configpkg.Config) {
 
 func compileRuleRegexps(cfg *configpkg.Config) error {
 	for _, rule := range cfg.Rules {
-		id := rule.RuleID
-		if rule.Regex != nil {
-			if err := rule.Regex.Compile(); err != nil {
-				return fmt.Errorf("compiling rule %s regex: %w", id, err)
+		for _, entry := range []struct{ kind, pattern string }{{"regex", rule.Regex}, {"path regex", rule.Path}} {
+			if entry.pattern == "" {
+				continue
 			}
-		}
-		if rule.Path != nil {
-			if err := rule.Path.Compile(); err != nil {
-				return fmt.Errorf("compiling rule %s path regex: %w", id, err)
+			re, err := regexp.Compile(entry.pattern)
+			if err == nil {
+				err = re.Compile()
+			}
+			if err != nil {
+				return fmt.Errorf("compiling rule %s %s: %w", rule.RuleID, entry.kind, err)
 			}
 		}
 	}
@@ -278,8 +279,8 @@ func renderConfig(cfg *configpkg.Config) configView {
 		rv := ruleView{
 			ID:          rule.RuleID,
 			Description: rule.Description,
-			Path:        regexString(rule.Path),
-			Regex:       regexString(rule.Regex),
+			Path:        rule.Path,
+			Regex:       rule.Regex,
 			SecretGroup: rule.SecretGroup,
 			Keywords:    rule.Keywords,
 			Tags:        rule.Tags,
@@ -445,13 +446,6 @@ func hasControlChar(s string) bool {
 		}
 	}
 	return false
-}
-
-func regexString(re *regexp.Regexp) string {
-	if re == nil {
-		return ""
-	}
-	return re.String()
 }
 
 func renderedSpecificity(specificity int) int {

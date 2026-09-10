@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func ArtifactoryApiKey() *config.Rule {
@@ -13,7 +12,7 @@ func ArtifactoryApiKey() *config.Rule {
 		RuleID:      "artifactory-api-key",
 		Confidence:  "high",
 		Description: "Detected an Artifactory api key, posing a risk unauthorized access to the central repository.",
-		Regex:       regexp.MustCompile(`\bAKCp[A-Za-z0-9]{68,70}\b`),
+		Regex:       `\bAKCp[A-Za-z0-9]{68,70}\b`,
 		Keywords:    []string{"AKCp"},
 		Components: []*config.Component{
 			{RuleID: "artifactory-jfrog-url"},
@@ -50,7 +49,7 @@ func ArtifactoryReferenceToken() *config.Rule {
 		RuleID:      "artifactory-reference-token",
 		Confidence:  "high",
 		Description: "Detected an Artifactory reference token, posing a risk of impersonation and unauthorized access to the central repository.",
-		Regex:       regexp.MustCompile(`\bcmVmd[A-Za-z0-9]{59}\b`),
+		Regex:       `\bcmVmd[A-Za-z0-9]{59}\b`,
 		Keywords:    []string{"cmVmd"},
 		Components: []*config.Component{
 			{RuleID: "artifactory-jfrog-url"},
@@ -86,7 +85,7 @@ func ArtifactoryJFrogURL() *config.Rule {
 		RuleID:      "artifactory-jfrog-url",
 		Confidence:  "high",
 		Description: "Detected a JFrog Artifactory host, used as a component of Artifactory token validation.",
-		Regex:       regexp.MustCompile(`(?i)(?:^|[^a-z0-9-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.jfrog\.io)(?:$|[^a-z0-9-])`),
+		Regex:       `(?i)(?:^|[^a-z0-9-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.jfrog\.io)(?:$|[^a-z0-9-])`,
 		Keywords:    []string{"jfrog.io"},
 		SkipReport:  true,
 		Filter:      `filter.entropy(finding["secret"]) < 2.5`,

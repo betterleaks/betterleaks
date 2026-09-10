@@ -27,7 +27,7 @@ func Validate(rule config.Rule, truePositives []string, falsePositives []string)
 			logging.Fatal("Failed to Validate. True positive was not detected by regex.",
 				"rule", r.RuleID,
 				"value", tp,
-				"regex", r.Regex.String(),
+				"regex", r.Regex,
 			)
 		}
 	}
@@ -40,7 +40,7 @@ func Validate(rule config.Rule, truePositives []string, falsePositives []string)
 			logging.Fatal("Failed to Validate. False positive was detected by regex.",
 				"rule", r.RuleID,
 				"value", fp,
-				"regex", r.Regex.String(),
+				"regex", r.Regex,
 			)
 		}
 	}
@@ -65,8 +65,8 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 			logging.Fatal("Failed to Validate. True positive was not detected by regex and/or path.",
 				"rule", r.RuleID,
 				"value", tp,
-				"regex", r.Regex.String(),
-				"path", r.Path.String(),
+				"regex", r.Regex,
+				"path", r.Path,
 			)
 		}
 	}
@@ -85,8 +85,8 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 			logging.Fatal("Failed to Validate. False positive was detected by regex and/or path.",
 				"rule", r.RuleID,
 				"value", fp,
-				"regex", r.Regex.String(),
-				"path", r.Path.String(),
+				"regex", r.Regex,
+				"path", r.Path,
 			)
 		}
 	}

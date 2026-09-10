@@ -4,7 +4,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func DataStaxAstraApplicationToken() *config.Rule {
@@ -13,7 +12,7 @@ func DataStaxAstraApplicationToken() *config.Rule {
 		RuleID:      "datastax-astra-application-token",
 		Confidence:  "high",
 		Description: "DataStax Astra application token.",
-		Regex:       regexp.MustCompile(`\b(AstraCS:[A-Za-z0-9]{20,})`),
+		Regex:       `\b(AstraCS:[A-Za-z0-9]{20,})`,
 		Keywords:    []string{"AstraCS:"},
 		ValidateExpr: `let r = http.get("https://api.astra.datastax.com/v2/tokens", {
     "Authorization": "Bearer " + finding["secret"],
