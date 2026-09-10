@@ -294,7 +294,7 @@ func TestS3_listsAndScans_endToEnd(t *testing.T) {
 		AccessKey: "AKIAIOSFODNN7EXAMPLE",
 		SecretKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
 	}
-	require.NoError(t, s.Validate())
+	require.NoError(t, s.resolveConfig())
 	assert.Equal(t, "mybucket", s.parsed.Bucket)
 	assert.True(t, s.parsed.PathStyle)
 	assert.Equal(t, u.Host, s.parsed.Host)
@@ -339,7 +339,7 @@ func TestS3_prefilterSkipsBucket(t *testing.T) {
 			return attrs[AttrBucket] == "mybucket"
 		},
 	}
-	require.NoError(t, s.Validate())
+	require.NoError(t, s.resolveConfig())
 	require.NoError(t, s.Fragments(context.Background(), func(sources.Fragment, error) error {
 		t.Fatal("yield called for skipped bucket")
 		return nil
@@ -494,7 +494,7 @@ func TestS3_enumerateMatchesGlob(t *testing.T) {
 		Region:    "us-east-1",
 		AccessKey: "ak", SecretKey: "sk",
 	}
-	require.NoError(t, s.Validate())
+	require.NoError(t, s.resolveConfig())
 	require.True(t, s.parsed.IsEnumerate())
 	require.Equal(t, "prod-*", s.parsed.BucketGlob)
 
@@ -536,7 +536,7 @@ func TestS3_skipsBeforeFetch(t *testing.T) {
 		Region:    "us-east-1",
 		AccessKey: "ak", SecretKey: "sk",
 	}
-	require.NoError(t, s.Validate())
+	require.NoError(t, s.resolveConfig())
 	require.NoError(t, s.Fragments(context.Background(), func(sources.Fragment, error) error {
 		t.Fatal("no objects should be yielded")
 		return nil

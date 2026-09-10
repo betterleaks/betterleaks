@@ -53,12 +53,12 @@ type Source struct {
 	ExcludeRepos []string // glob patterns matched against "owner/repo"
 
 	// Include and Exclude specify resource types by name (e.g. "repos", "prs").
-	// Validate applies these when Resources is empty.
+	// Fragments applies these when Resources is empty.
 	Include []string
 	Exclude []string
 
 	// Resources controls which resource types to scan.
-	// Populated automatically by Validate from Include/Exclude when empty,
+	// Populated automatically by Fragments from Include/Exclude when empty,
 	// or set directly by callers who want programmatic control.
 	Resources ResourceSet
 
@@ -169,8 +169,8 @@ func (s *Source) logScanStart() {
 	sourceutil.LoggerOrDiscard(s.Logger).Info("starting GitHub scan", "target", s.URL, "resources", s.Resources)
 }
 
-// Validate checks the GitHub source configuration and populates Resources if needed.
-func (s *Source) Validate() error {
+// resolveResources checks the GitHub source configuration and populates Resources if needed.
+func (s *Source) resolveResources() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
 	}
@@ -233,7 +233,7 @@ func (s *Source) Validate() error {
 
 // Fragments enumerates GitHub repos and scans each one.
 func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
-	if err := s.Validate(); err != nil {
+	if err := s.resolveResources(); err != nil {
 		return err
 	}
 	s.logScanStart()

@@ -111,7 +111,7 @@ func TestGitLab_projectAttributes(t *testing.T) {
 	}
 }
 
-func TestGitLab_Validate(t *testing.T) {
+func TestGitLab_ResolveResources(t *testing.T) {
 	cases := []struct {
 		name      string
 		source    func() *Source
@@ -154,7 +154,7 @@ func TestGitLab_Validate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			src := tc.source()
-			err := src.Validate()
+			err := src.resolveResources()
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error")
@@ -250,8 +250,8 @@ func TestGitLab_scanIssues_L2Skip(t *testing.T) {
 		Resources:  ResourceSet{ResourceTypeIssues: true, ResourceTypeIssueComments: true},
 		ShouldSkip: func(attrs map[string]string) bool { return attrs[AttrIssueIID] == "2" },
 	}
-	if err := s.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
+	if err := s.resolveResources(); err != nil {
+		t.Fatalf("resolveResources: %v", err)
 	}
 	if base, err := s.buildAPIBase(); err != nil {
 		t.Fatalf("buildAPIBase: %v", err)

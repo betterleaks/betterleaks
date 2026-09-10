@@ -1097,7 +1097,7 @@ func Test_ParseGitHubURL(t *testing.T) {
 	}
 }
 
-func TestGitHub_Validate_fromIncludeExclude(t *testing.T) {
+func TestGitHub_ResolveResources_fromIncludeExclude(t *testing.T) {
 	t.Parallel()
 
 	src := &Source{
@@ -1106,7 +1106,7 @@ func TestGitHub_Validate_fromIncludeExclude(t *testing.T) {
 		Include: []string{"repos", "issues", "releases"},
 		Exclude: []string{"repos"},
 	}
-	require.NoError(t, src.Validate())
+	require.NoError(t, src.resolveResources())
 
 	require.False(t, src.Resources.Has(ResourceTypeRepos))
 	require.True(t, src.Resources.Has(ResourceTypeIssues))
@@ -1114,7 +1114,7 @@ func TestGitHub_Validate_fromIncludeExclude(t *testing.T) {
 	require.True(t, src.Resources.Has(ResourceTypeReleaseAssets), "release-assets auto-included")
 }
 
-func TestGitHub_Validate_skipsWhenResourcesAlreadySet(t *testing.T) {
+func TestGitHub_ResolveResources_skipsWhenResourcesAlreadySet(t *testing.T) {
 	t.Parallel()
 
 	existing := ResourceSet{ResourceTypePRs: true}
@@ -1124,23 +1124,23 @@ func TestGitHub_Validate_skipsWhenResourcesAlreadySet(t *testing.T) {
 		Include:   []string{"issues"},
 		Resources: existing,
 	}
-	require.NoError(t, src.Validate())
+	require.NoError(t, src.resolveResources())
 	require.True(t, src.Resources.Has(ResourceTypePRs), "programmatic set preserved")
 	require.False(t, src.Resources.Has(ResourceTypeIssues), "Include ignored when Resources pre-set")
 }
 
-func TestGitHub_Validate_ownerDefaultsToRepos(t *testing.T) {
+func TestGitHub_ResolveResources_ownerDefaultsToRepos(t *testing.T) {
 	t.Parallel()
 
 	src := &Source{
 		URL:   "https://github.com/myorg",
 		Token: "tok",
 	}
-	require.NoError(t, src.Validate())
+	require.NoError(t, src.resolveResources())
 	require.True(t, src.Resources.Has(ResourceTypeRepos))
 }
 
-func TestGitHub_Validate_unknownTypeErrors(t *testing.T) {
+func TestGitHub_ResolveResources_unknownTypeErrors(t *testing.T) {
 	t.Parallel()
 
 	src := &Source{
@@ -1148,49 +1148,49 @@ func TestGitHub_Validate_unknownTypeErrors(t *testing.T) {
 		Token:   "tok",
 		Include: []string{"bogus"},
 	}
-	require.Error(t, src.Validate())
+	require.Error(t, src.resolveResources())
 }
 
-func TestGitHub_Validate_noTargetErrors(t *testing.T) {
+func TestGitHub_ResolveResources_noTargetErrors(t *testing.T) {
 	t.Parallel()
 
 	src := &Source{Token: "tok"}
-	require.ErrorContains(t, src.Validate(), "target URL is required")
+	require.ErrorContains(t, src.resolveResources(), "target URL is required")
 }
 
-func TestGitHub_Validate_resourceURLNeedsToken(t *testing.T) {
+func TestGitHub_ResolveResources_resourceURLNeedsToken(t *testing.T) {
 	t.Parallel()
 
 	src := &Source{URL: "https://github.com/owner/repo/issues/1"}
-	require.ErrorContains(t, src.Validate(), "token is required")
+	require.ErrorContains(t, src.resolveResources(), "token is required")
 }
 
-func TestGitHub_Validate_ownerURLNeedsToken(t *testing.T) {
+func TestGitHub_ResolveResources_ownerURLNeedsToken(t *testing.T) {
 	t.Parallel()
 
 	src := &Source{URL: "https://github.com/myorg"}
-	require.ErrorContains(t, src.Validate(), "token is required")
+	require.ErrorContains(t, src.resolveResources(), "token is required")
 }
 
-func TestGitHub_Validate_repoWithOnlyReposNoTokenOK(t *testing.T) {
+func TestGitHub_ResolveResources_repoWithOnlyReposNoTokenOK(t *testing.T) {
 	t.Parallel()
 
 	src := &Source{URL: "https://github.com/owner/repo"}
-	require.NoError(t, src.Validate())
+	require.NoError(t, src.resolveResources())
 	require.True(t, src.Resources.Has(ResourceTypeRepos))
 }
 
-func TestGitHub_Validate_repoWithAPIResourceNeedsToken(t *testing.T) {
+func TestGitHub_ResolveResources_repoWithAPIResourceNeedsToken(t *testing.T) {
 	t.Parallel()
 
 	src := &Source{
 		URL:     "https://github.com/owner/repo",
 		Include: []string{"issues"},
 	}
-	require.ErrorContains(t, src.Validate(), "token is required")
+	require.ErrorContains(t, src.resolveResources(), "token is required")
 }
 
-func TestGitHub_Validate_repoWithTokenAndAPIResourceOK(t *testing.T) {
+func TestGitHub_ResolveResources_repoWithTokenAndAPIResourceOK(t *testing.T) {
 	t.Parallel()
 
 	src := &Source{
@@ -1198,7 +1198,7 @@ func TestGitHub_Validate_repoWithTokenAndAPIResourceOK(t *testing.T) {
 		Token:   "tok",
 		Include: []string{"issues"},
 	}
-	require.NoError(t, src.Validate())
+	require.NoError(t, src.resolveResources())
 	require.True(t, src.Resources.Has(ResourceTypeIssues))
 	require.True(t, src.Resources.Has(ResourceTypeRepos), "repos included by default for repo URL")
 }

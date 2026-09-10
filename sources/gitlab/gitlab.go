@@ -146,8 +146,9 @@ var defaultGitLabScanResources = map[string][]ResourceType{
 	"job":       {ResourceTypeCIJobs, ResourceTypeCIArtifacts},
 }
 
-// Validate checks the GitLab source configuration and populates Resources if needed.
-func (s *Source) Validate() error {
+// resolveResources checks the target and token, normalizes BaseURL, and
+// populates Resources if needed.
+func (s *Source) resolveResources() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
 	}
@@ -215,7 +216,7 @@ func (s *Source) Validate() error {
 
 // Fragments enumerates GitLab projects and scans each one.
 func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
-	if err := s.Validate(); err != nil {
+	if err := s.resolveResources(); err != nil {
 		return err
 	}
 	sourceutil.LoggerOrDiscard(s.Logger).Info("starting GitLab scan", "target", s.URL, "base", s.BaseURL, "resources", s.Resources)

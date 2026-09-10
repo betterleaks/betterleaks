@@ -90,9 +90,9 @@ func (rs ResourceSet) String() string {
 	return strings.Join(out, ",")
 }
 
-// Validate checks the Hugging Face source configuration and resolves default
+// resolveResources checks the Hugging Face source configuration and resolves default
 // resource selection.
-func (s *Source) Validate() error {
+func (s *Source) resolveResources() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
 	}
@@ -132,7 +132,7 @@ func (s *Source) Validate() error {
 }
 
 func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
-	if err := s.Validate(); err != nil {
+	if err := s.resolveResources(); err != nil {
 		return err
 	}
 	jobs, budget := sourcejobs.EnsureBudget(s.Jobs, sourcejobs.AutomaticProvider(), s.budget)

@@ -47,10 +47,6 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 		MaxArchiveDepth: options.MaxArchiveDepth,
 	}
 
-	if err := src.Validate(); err != nil {
-		runtime.fatal("invalid S3 configuration", "error", err)
-	}
-
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)

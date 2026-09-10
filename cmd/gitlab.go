@@ -80,10 +80,6 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 		},
 	}
 
-	if err := src.Validate(); err != nil {
-		runtime.fatal("invalid GitLab configuration", "error", err)
-	}
-
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)

@@ -58,7 +58,7 @@ type Source struct {
 	Region string
 
 	// Credentials. Explicit fields win over environment variables. If both are
-	// empty and Anonymous is false, the source fails Validate.
+	// empty and Anonymous is false, Fragments returns an error.
 	AccessKey    string
 	SecretKey    string
 	SessionToken string
@@ -101,10 +101,10 @@ type s3Creds struct {
 	Anonymous    bool
 }
 
-// Validate parses the URL, resolves credentials, and (for AWS single-bucket
+// resolveConfig parses the URL, resolves credentials, and (for AWS single-bucket
 // targets without an explicit region) probes the bucket region. In enumerate
 // mode, region resolution is deferred to scan time on a per-bucket basis.
-func (s *Source) Validate() error {
+func (s *Source) resolveConfig() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
 	}
@@ -179,7 +179,7 @@ func (s *Source) resolveCreds() (s3Creds, error) {
 // the parsed URL.
 func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
 	if s.parsed.Bucket == "" && s.parsed.BucketGlob == "" {
-		if err := s.Validate(); err != nil {
+		if err := s.resolveConfig(); err != nil {
 			return err
 		}
 	}

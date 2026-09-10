@@ -71,10 +71,10 @@ func TestParseHuggingFaceURL(t *testing.T) {
 	}
 }
 
-func TestHuggingFaceValidate_DefaultsToRepos(t *testing.T) {
+func TestHuggingFaceResolveResources_DefaultsToRepos(t *testing.T) {
 	src := &Source{URL: "https://huggingface.co/acme/model"}
-	if err := src.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
+	if err := src.resolveResources(); err != nil {
+		t.Fatalf("resolveResources: %v", err)
 	}
 	if !src.Resources.Has(ResourceTypeRepos) {
 		t.Fatalf("expected repos to be enabled by default")
@@ -84,10 +84,10 @@ func TestHuggingFaceValidate_DefaultsToRepos(t *testing.T) {
 	}
 }
 
-func TestHuggingFaceValidate_BucketTargetDefaultsToBuckets(t *testing.T) {
+func TestHuggingFaceResolveResources_BucketTargetDefaultsToBuckets(t *testing.T) {
 	src := &Source{URL: "hf://buckets/acme/logs"}
-	if err := src.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
+	if err := src.resolveResources(); err != nil {
+		t.Fatalf("resolveResources: %v", err)
 	}
 	if !src.Resources.Has(ResourceTypeBuckets) {
 		t.Fatalf("expected buckets to be enabled for bucket target")

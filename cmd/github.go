@@ -80,10 +80,6 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		},
 	}
 
-	if err := src.Validate(); err != nil {
-		runtime.fatal("invalid GitHub configuration", "error", err)
-	}
-
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)

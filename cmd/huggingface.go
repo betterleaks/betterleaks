@@ -56,10 +56,6 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 		MaxBucketObjectSize: options.MaxBucketObjectSize,
 	}
 
-	if err := src.Validate(); err != nil {
-		runtime.fatal("invalid Hugging Face configuration", "error", err)
-	}
-
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)
