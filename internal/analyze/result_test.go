@@ -51,10 +51,12 @@ func TestParseResultDerivesSeverity(t *testing.T) {
 		capabilities []any
 		want         report.Severity
 	}{
-		{name: "none", want: report.SeverityLow},
+		{name: "none", want: report.SeverityUnknown},
 		{name: "incomplete", reason: "Permissions unavailable", want: report.SeverityUnknown},
 		{name: "read", capabilities: []any{"read"}, want: report.SeverityMedium},
 		{name: "write", capabilities: []any{"write"}, want: report.SeverityHigh},
+		{name: "write then read", capabilities: []any{"write", "read"}, want: report.SeverityHigh},
+		{name: "read then write", capabilities: []any{"read", "write"}, want: report.SeverityHigh},
 		{name: "secrets", capabilities: []any{"read_secrets"}, want: report.SeverityHigh},
 		{name: "credentials", capabilities: []any{"create_credentials"}, want: report.SeverityHigh},
 		{name: "users", capabilities: []any{"manage_users"}, want: report.SeverityHigh},
@@ -69,6 +71,23 @@ func TestParseResultDerivesSeverity(t *testing.T) {
 			assert.Equal(t, test.want, result.Severity)
 		})
 	}
+}
+
+func TestParseResultWithoutCapabilityEvidence(t *testing.T) {
+	for _, value := range []map[string]any{
+		{},
+		{"capabilities": []any{}},
+		{"capabilities": nil},
+		{"reason": "Could not determine permissions"},
+		{"identity": map[string]any{"id": "user-1"}},
+		{"metadata": map[string]any{"plan": "enterprise"}},
+	} {
+		result, err := ParseResult(value)
+		require.NoError(t, err)
+		assert.Equal(t, report.SeverityUnknown, result.Severity)
+		assert.False(t, result.IsZero(), "analysis ran even though permissions are unknown")
+	}
+	assert.True(t, (report.Analysis{}).IsZero(), "analysis that never ran remains absent")
 }
 
 func TestParseResultRejectsUnknownSchema(t *testing.T) {

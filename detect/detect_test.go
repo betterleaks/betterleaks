@@ -218,6 +218,44 @@ func TestValidationRequiresExplicitOption(t *testing.T) {
 	assert.True(t, detector.ValidationEnabled())
 }
 
+func TestScanValidationAndEmptyAnalysisContracts(t *testing.T) {
+	for _, test := range []struct {
+		name, validation, analysis string
+		status                     report.ValidationStatus
+		severity                   report.Severity
+	}{
+		{"missing result", `{"foo": "bar"}`, `{"capabilities": ["admin"]}`, report.ValidationStatusError, report.SeverityNone},
+		{"wrong result type", `{"result": 123}`, `{"capabilities": ["admin"]}`, report.ValidationStatusError, report.SeverityNone},
+		{"unknown status", `{"result": "bogus"}`, `{"capabilities": ["admin"]}`, report.ValidationStatusError, report.SeverityNone},
+		{"intentional unknown", `{"result": "unknown"}`, `{"capabilities": ["admin"]}`, report.ValidationStatusUnknown, report.SeverityNone},
+		{"empty analysis", `{"result": "valid"}`, `{}`, report.ValidationStatusValid, report.SeverityUnknown},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.Rules[0].ValidateExpr = test.validation
+			cfg.Rules[0].AnalyzeExpr = test.analysis
+			detector, err := NewDetector(cfg, WithAnalysis(ProviderOptions{Workers: 1}))
+			require.NoError(t, err)
+			var findings []report.Finding
+			summary, err := detector.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(f report.Finding) error {
+				findings = append(findings, f)
+				return nil
+			})
+			require.NoError(t, err)
+			require.Len(t, findings, 1)
+			assert.Equal(t, test.status, findings[0].Validation.Status)
+			assert.Equal(t, 1, summary.ValidationCounts[test.status])
+			assert.Equal(t, test.severity, findings[0].Analysis.Severity)
+			if test.status == report.ValidationStatusError {
+				assert.NotEmpty(t, findings[0].Validation.Reason)
+			}
+			if test.status != report.ValidationStatusValid {
+				assert.True(t, findings[0].Analysis.IsZero(), "analysis must not run without valid credentials")
+			}
+		})
+	}
+}
+
 func TestAnalysisRequiresExplicitOptionAndImpliesValidation(t *testing.T) {
 	cfg := testConfig()
 	cfg.Rules[0].ValidateExpr = `{"result": "valid", "analysis": {"owner": "user-1"}}`

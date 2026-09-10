@@ -192,7 +192,8 @@ Credential analysis evaluates a rule's `analyze` expression after validation
 returns `valid` and is also enabled by default. Use `--no-analysis` to retain
 validation without analysis, or `--offline` to disable both. Analysis returns a
 small identity and positive-only capability model; severity is derived by
-Betterleaks rather than assigned by the rule. See the
+Betterleaks rather than assigned by the rule. Analysis without positive capability
+evidence has `unknown` severity, including an empty analysis result. See the
 [credential access analysis design](credential-access-analysis.md) for the
 result schema and provider mappings.
 
@@ -282,6 +283,11 @@ statuses are:
 - `"revoked"`
 - `"unknown"`
 - `"error"`
+
+The `result` value must be a string naming one of these statuses (case-insensitive).
+A missing, non-string, or unrecognized result produces `error` with an explanation.
+Use `unknown` explicitly when the rule cannot establish credential liveness.
+The optional `reason` must be a string and becomes the validation reason.
 
 Any additional keys are attached to the finding as validation metadata. The
 reserved `analysis` key is the exception: it must contain an object and is

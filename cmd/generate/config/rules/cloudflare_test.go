@@ -220,7 +220,7 @@ func TestCloudflareAPIKeyAnalysis(t *testing.T) {
 			wantPath:         "/client/v4/user/tokens/empty-token-id",
 			statusCode:       http.StatusOK,
 			body:             `{"success":true,"result":{"name":"empty","policies":[]}}`,
-			wantSeverity:     report.SeverityLow,
+			wantSeverity:     report.SeverityUnknown,
 			wantCapabilities: []report.Capability{},
 			wantPermissions:  []any{},
 		},

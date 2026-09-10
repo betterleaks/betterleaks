@@ -401,6 +401,57 @@ func TestRedactedCopyDoesNotMutateOriginal(t *testing.T) {
 	require.Equal(t, "component-secret", component.CaptureGroups["token"])
 }
 
+func TestRedactedCopySanitizesValidation(t *testing.T) {
+	for _, percent := range []uint{50, 100} {
+		primary, component := "test-token", "test-token-companion"
+		validation := Validation{
+			Status: ValidationStatusValid,
+			Reason: primary + " " + component,
+			Metadata: map[string]any{
+				"req_url":  "https://example.invalid/?token=" + primary,
+				"req_body": component,
+				"resp_body": []any{map[string]any{
+					component: []string{primary, component},
+				}},
+				"headers": map[string]string{"echo": component},
+				"status":  200,
+				"empty":   "",
+			},
+		}
+		original := Finding{
+			Secret:     primary,
+			Validation: validation,
+			ComponentSets: []ComponentSet{{
+				Validation: validation,
+				Components: []*ComponentFinding{{Secret: component}},
+			}},
+		}
+		before, err := json.Marshal(original)
+		require.NoError(t, err)
+		redacted := original.RedactedCopy(percent)
+		encoded, err := json.Marshal(redacted)
+		require.NoError(t, err)
+		if percent == 100 {
+			assert.NotContains(t, string(encoded), primary)
+			assert.NotContains(t, string(encoded), component)
+		}
+		for _, got := range []Validation{redacted.Validation, redacted.ComponentSets[0].Validation} {
+			encoded, err := json.Marshal(got)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), primary)
+			assert.NotContains(t, string(encoded), component)
+			assert.Equal(t, ValidationStatusValid, got.Status)
+			assert.Equal(t, "[redacted] [redacted]", got.Reason)
+			assert.Equal(t, "[redacted]", got.Metadata["req_body"])
+			assert.Equal(t, 200, got.Metadata["status"])
+			assert.Equal(t, "", got.Metadata["empty"])
+		}
+		after, err := json.Marshal(original)
+		require.NoError(t, err)
+		assert.Equal(t, string(before), string(after), "redaction must not mutate shared results")
+	}
+}
+
 func TestMaskSecretMultibyteUTF8(t *testing.T) {
 	secret := "日本語パスワード" // 8 runes, 24 bytes
 

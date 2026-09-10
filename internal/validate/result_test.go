@@ -1,9 +1,11 @@
 package validate
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBetterStatusPriority(t *testing.T) {
@@ -50,9 +52,45 @@ func TestParseResultMapNormalizesStatus(t *testing.T) {
 		t.Errorf("analysis input not captured: %v", got.Analysis)
 	}
 
-	// An unrecognized status falls back to "unknown".
-	if s := parseResultMap(map[string]any{"result": "bogus"}).Status; s != report.ValidationStatusUnknown {
-		t.Errorf("unrecognized status should fall back to unknown, got %q", s)
+}
+
+func TestParseResultRejectsMalformedResults(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		value  any
+		reason string
+	}{
+		{"empty map", map[string]any{}, "validation result is required"},
+		{"missing result", map[string]any{"foo": "bar"}, "validation result is required"},
+		{"number", map[string]any{"result": 123}, "validation result must be a string"},
+		{"null", map[string]any{"result": nil}, "validation result must be a string"},
+		{"empty status", map[string]any{"result": ""}, "validation result must be one of:"},
+		{"unknown status", map[string]any{"result": "bogus"}, "validation result must be one of:"},
+		{"number reason", map[string]any{"result": "valid", "reason": 123}, "validation reason must be a string"},
+		{"null reason", map[string]any{"result": "valid", "reason": nil}, "validation reason must be a string"},
+		{"interface keys", map[any]any{"result": false}, "validation result must be a string"},
+		{"non-map", "valid", "expression returned unexpected type:"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := ParseResult(test.value)
+			require.Equal(t, report.ValidationStatusError, got.Status)
+			require.Contains(t, got.Reason, test.reason)
+		})
+	}
+}
+
+func TestParseResultAcceptsKnownStatuses(t *testing.T) {
+	for _, status := range []report.ValidationStatus{
+		report.ValidationStatusValid, report.ValidationStatusNeedsValidation,
+		report.ValidationStatusInvalid, report.ValidationStatusRevoked,
+		report.ValidationStatusUnknown, report.ValidationStatusError,
+	} {
+		for _, text := range []string{string(status), strings.ToUpper(string(status))} {
+			got := ParseResult(map[string]any{"result": text, "reason": "provider explanation", "public": true})
+			require.Equal(t, status, got.Status)
+			require.Equal(t, "provider explanation", got.Reason)
+			require.Equal(t, true, got.Metadata["public"])
+		}
 	}
 }
 

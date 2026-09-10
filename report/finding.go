@@ -178,11 +178,11 @@ func cartesianFindings(ruleOrder []string, byRule map[string][]*ComponentFinding
 
 // Redact removes sensitive information from a finding.
 func (f *Finding) Redact(percent uint) {
-	analysisSecrets := []string{f.Secret}
+	secrets := []string{f.Secret}
 	for _, set := range f.ComponentSets {
 		for _, component := range set.Components {
 			if component != nil {
-				analysisSecrets = append(analysisSecrets, component.Secret)
+				secrets = append(secrets, component.Secret)
 			}
 		}
 	}
@@ -222,10 +222,21 @@ func (f *Finding) Redact(percent uint) {
 		}
 	}
 
-	f.Analysis = SanitizeAnalysis(f.Analysis, analysisSecrets)
+	f.Validation = sanitizeValidation(f.Validation, secrets)
+	f.Analysis = SanitizeAnalysis(f.Analysis, secrets)
 	for i := range f.ComponentSets {
-		f.ComponentSets[i].Analysis = SanitizeAnalysis(f.ComponentSets[i].Analysis, analysisSecrets)
+		f.ComponentSets[i].Validation = sanitizeValidation(f.ComponentSets[i].Validation, secrets)
+		f.ComponentSets[i].Analysis = SanitizeAnalysis(f.ComponentSets[i].Analysis, secrets)
 	}
+}
+
+// sanitizeValidation fully masks credential material in provider-controlled
+// output, including debug metadata, without mutating shared metadata maps.
+func sanitizeValidation(validation Validation, secrets []string) Validation {
+	secrets = credentialSecretsForRedaction(secrets)
+	validation.Reason = sanitizeCredentialString(validation.Reason, secrets)
+	validation.Metadata = sanitizeCredentialMetadata(validation.Metadata, secrets, true)
+	return validation
 }
 
 // RedactedCopy returns a redacted finding without modifying maps, component

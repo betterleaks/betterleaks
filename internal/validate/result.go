@@ -81,26 +81,36 @@ var reservedKeys = map[string]bool{
 // the validStatuses.
 func parseResultMap(m map[string]any) *Result {
 	result := &Result{
-		Status:   report.ValidationStatusUnknown,
+		Status:   report.ValidationStatusError,
 		Metadata: make(map[string]any),
 	}
 
-	// Primary: explicit "result" key with a string status.
-	if v, ok := m["result"]; ok {
-		if s, ok := v.(string); ok {
-			status := report.ValidationStatus(strings.ToLower(s))
-			if validStatuses[status] {
-				result.Status = status
-			}
-		}
+	value, exists := m["result"]
+	if !exists {
+		result.Reason = "validation result is required"
+		return result
+	}
+	text, ok := value.(string)
+	if !ok {
+		result.Reason = "validation result must be a string"
+		return result
+	}
+	status := report.ValidationStatus(strings.ToLower(text))
+	if !validStatuses[status] {
+		result.Reason = "validation result must be one of: valid, needs_validation, invalid, revoked, unknown, error"
+		return result
 	}
 
 	// Extract reason.
 	if r, ok := m["reason"]; ok {
-		if s, ok := r.(string); ok {
-			result.Reason = s
+		s, ok := r.(string)
+		if !ok {
+			result.Reason = "validation reason must be a string"
+			return result
 		}
+		result.Reason = s
 	}
+	result.Status = status
 
 	// Analysis input is deliberately separate from validation metadata. It
 	// carries facts discovered by validation to a subsequent analysis program

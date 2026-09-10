@@ -73,17 +73,17 @@ type AnalysisAccount struct {
 }
 
 // AnalysisSeverity derives severity from positive capability evidence.
+// Without recognized capabilities, severity is unknown.
 func AnalysisSeverity(capabilities []Capability) Severity {
-	severity := SeverityLow
+	severity := SeverityUnknown
 	for _, capability := range capabilities {
 		switch capability {
 		case CapabilityAdmin, CapabilityCreateCredentials, CapabilityManageUsers, CapabilityReadSecrets:
 			return SeverityHigh
 		case CapabilityWrite:
 			severity = SeverityHigh
-		// TODO handle low and medium
 		case CapabilityRead:
-			if severity == SeverityLow {
+			if severity == SeverityUnknown {
 				severity = SeverityMedium
 			}
 		}
