@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/detect"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/github"
 )
 
 type GitHubCmd struct {
@@ -60,7 +60,7 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		}
 	}
 
-	src := &sources.GitHub{
+	src := &github.Source{
 		Logger:          runtime.Logger(),
 		Token:           token,
 		URL:             targetURL,
@@ -71,10 +71,10 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		MaxArchiveDepth: options.MaxArchiveDepth,
 		Jobs:            jobs.Source,
 		LogOpts:         options.LogOpts,
-		Actions: sources.ActionsOptions{
+		Actions: github.ActionsOptions{
 			Workflows: options.ActionsWorkflow,
 		},
-		DateRangeOpts: sources.DateRangeOptions{
+		DateRangeOpts: github.DateRangeOptions{
 			Since: since,
 			Until: until,
 		},

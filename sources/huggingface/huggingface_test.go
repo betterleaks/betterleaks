@@ -1,4 +1,4 @@
-package sources
+package huggingface
 
 import (
 	"context"
@@ -9,51 +9,52 @@ import (
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func TestParseHuggingFaceURL(t *testing.T) {
 	cases := []struct {
 		name    string
 		raw     string
-		want    *ParsedHuggingFaceURL
+		want    *ParsedURL
 		wantErr bool
 	}{
 		{
 			name: "owner",
 			raw:  "https://huggingface.co/acme",
-			want: &ParsedHuggingFaceURL{Scheme: "https", Host: "huggingface.co", Kind: "owner", Owner: "acme"},
+			want: &ParsedURL{Scheme: "https", Host: "huggingface.co", Kind: "owner", Owner: "acme"},
 		},
 		{
 			name: "model",
 			raw:  "https://huggingface.co/acme/model",
-			want: &ParsedHuggingFaceURL{Scheme: "https", Host: "huggingface.co", Kind: "repo", Owner: "acme", Name: "model", Type: HuggingFaceRepoKindModel},
+			want: &ParsedURL{Scheme: "https", Host: "huggingface.co", Kind: "repo", Owner: "acme", Name: "model", Type: RepoKindModel},
 		},
 		{
 			name: "dataset",
 			raw:  "https://huggingface.co/datasets/acme/data.git",
-			want: &ParsedHuggingFaceURL{Scheme: "https", Host: "huggingface.co", Kind: "repo", Owner: "acme", Name: "data", Type: HuggingFaceRepoKindDataset},
+			want: &ParsedURL{Scheme: "https", Host: "huggingface.co", Kind: "repo", Owner: "acme", Name: "data", Type: RepoKindDataset},
 		},
 		{
 			name: "space",
 			raw:  "https://huggingface.co/spaces/acme/demo",
-			want: &ParsedHuggingFaceURL{Scheme: "https", Host: "huggingface.co", Kind: "repo", Owner: "acme", Name: "demo", Type: HuggingFaceRepoKindSpace},
+			want: &ParsedURL{Scheme: "https", Host: "huggingface.co", Kind: "repo", Owner: "acme", Name: "demo", Type: RepoKindSpace},
 		},
 		{
 			name: "bucket web",
 			raw:  "https://huggingface.co/buckets/acme/logs/prod",
-			want: &ParsedHuggingFaceURL{Scheme: "https", Host: "huggingface.co", Kind: "bucket", Owner: "acme", Name: "logs", Prefix: "prod"},
+			want: &ParsedURL{Scheme: "https", Host: "huggingface.co", Kind: "bucket", Owner: "acme", Name: "logs", Prefix: "prod"},
 		},
 		{
 			name: "bucket hf",
 			raw:  "hf://buckets/acme/logs/prod",
-			want: &ParsedHuggingFaceURL{Scheme: "hf", Host: "buckets", Kind: "bucket", Owner: "acme", Name: "logs", Prefix: "prod"},
+			want: &ParsedURL{Scheme: "hf", Host: "buckets", Kind: "bucket", Owner: "acme", Name: "logs", Prefix: "prod"},
 		},
 		{name: "bad scheme", raw: "ftp://huggingface.co/acme/model", wantErr: true},
 		{name: "root", raw: "https://huggingface.co/", wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ParseHuggingFaceURL(tc.raw)
+			got, err := ParseURL(tc.raw)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got %+v", got)
@@ -71,27 +72,27 @@ func TestParseHuggingFaceURL(t *testing.T) {
 }
 
 func TestHuggingFaceValidate_DefaultsToRepos(t *testing.T) {
-	src := &HuggingFace{URL: "https://huggingface.co/acme/model"}
+	src := &Source{URL: "https://huggingface.co/acme/model"}
 	if err := src.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if !src.Resources.Has(HuggingFaceResourceTypeRepos) {
+	if !src.Resources.Has(ResourceTypeRepos) {
 		t.Fatalf("expected repos to be enabled by default")
 	}
-	if src.Resources.Has(HuggingFaceResourceTypeDiscussions) || src.Resources.Has(HuggingFaceResourceTypePRs) {
+	if src.Resources.Has(ResourceTypeDiscussions) || src.Resources.Has(ResourceTypePRs) {
 		t.Fatalf("community resources should be opt-in, got %v", src.Resources)
 	}
 }
 
 func TestHuggingFaceValidate_BucketTargetDefaultsToBuckets(t *testing.T) {
-	src := &HuggingFace{URL: "hf://buckets/acme/logs"}
+	src := &Source{URL: "hf://buckets/acme/logs"}
 	if err := src.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if !src.Resources.Has(HuggingFaceResourceTypeBuckets) {
+	if !src.Resources.Has(ResourceTypeBuckets) {
 		t.Fatalf("expected buckets to be enabled for bucket target")
 	}
-	if src.Resources.Has(HuggingFaceResourceTypeRepos) {
+	if src.Resources.Has(ResourceTypeRepos) {
 		t.Fatalf("bucket target should not default to repos, got %v", src.Resources)
 	}
 }
@@ -117,14 +118,14 @@ func TestHuggingFaceEnumerateRepos_PaginatesAndDedupeTyped(t *testing.T) {
 	defer server.Close()
 
 	base := mustParseURL(t, server.URL+"/")
-	src := &HuggingFace{
+	src := &Source{
 		Token:      "secret",
 		URL:        server.URL + "/acme",
 		baseURL:    base,
 		restRetry:  httpclient.NewRetryTransport(nil),
 		httpClient: httpclient.NewAuthenticatedClient("secret", http.DefaultTransport, base.Host),
 	}
-	target, err := ParseHuggingFaceURL(src.URL)
+	target, err := ParseURL(src.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +158,7 @@ func TestHuggingFacePaginateRejectsCrossHostNextLink(t *testing.T) {
 	}))
 	defer server.Close()
 
-	src := &HuggingFace{
+	src := &Source{
 		baseURL:    mustParseURL(t, server.URL+"/"),
 		restRetry:  httpclient.NewRetryTransport(nil),
 		httpClient: http.DefaultClient,
@@ -184,7 +185,7 @@ func TestHuggingFacePaginateAllowsRelativeNextLink(t *testing.T) {
 	}))
 	defer server.Close()
 
-	src := &HuggingFace{
+	src := &Source{
 		baseURL:    mustParseURL(t, server.URL+"/"),
 		restRetry:  httpclient.NewRetryTransport(nil),
 		httpClient: http.DefaultClient,
@@ -201,11 +202,11 @@ func TestHuggingFacePaginateAllowsRelativeNextLink(t *testing.T) {
 }
 
 func TestHuggingFaceScanRepoPropagatesGitError(t *testing.T) {
-	src := &HuggingFace{
-		Resources: HuggingFaceResourceSet{HuggingFaceResourceTypeRepos: true},
+	src := &Source{
+		Resources: ResourceSet{ResourceTypeRepos: true},
 		baseURL:   mustParseURL(t, "bad://huggingface.invalid/"),
 	}
-	err := src.scanRepo(context.Background(), huggingFaceRepo{Kind: HuggingFaceRepoKindModel, Owner: "acme", Name: "model"}, func(Fragment, error) error {
+	err := src.scanRepo(context.Background(), huggingFaceRepo{Kind: RepoKindModel, Owner: "acme", Name: "model"}, func(sources.Fragment, error) error {
 		return nil
 	})
 	if err == nil {
@@ -223,13 +224,13 @@ func TestHuggingFaceEnumerateBuckets(t *testing.T) {
 	}))
 	defer server.Close()
 
-	src := &HuggingFace{
+	src := &Source{
 		URL:        server.URL + "/acme",
 		baseURL:    mustParseURL(t, server.URL+"/"),
 		restRetry:  httpclient.NewRetryTransport(nil),
 		httpClient: http.DefaultClient,
 	}
-	target, err := ParseHuggingFaceURL(src.URL)
+	target, err := ParseURL(src.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,15 +263,15 @@ func TestHuggingFaceScanBucketObject(t *testing.T) {
 	}))
 	defer server.Close()
 
-	src := &HuggingFace{
+	src := &Source{
 		Token:      "secret",
 		URL:        "hf://buckets/acme/logs/prod",
 		baseURL:    mustParseURL(t, server.URL+"/"),
 		restRetry:  httpclient.NewRetryTransport(nil),
 		httpClient: httpclient.NewAuthenticatedClient("secret", http.DefaultTransport, strings.TrimPrefix(server.URL, "http://")),
 	}
-	var fragments []Fragment
-	err := src.scanBucket(context.Background(), huggingFaceBucket{Owner: "acme", Name: "logs", Prefix: "prod"}, func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	err := src.scanBucket(context.Background(), huggingFaceBucket{Owner: "acme", Name: "logs", Prefix: "prod"}, func(fragment sources.Fragment, err error) error {
 		if err != nil {
 			return err
 		}
@@ -283,14 +284,14 @@ func TestHuggingFaceScanBucketObject(t *testing.T) {
 	if len(fragments) != 1 {
 		t.Fatalf("got %d fragments", len(fragments))
 	}
-	if fragments[0].Attr(AttrResource) != ResourceHuggingFaceBucket {
-		t.Fatalf("resource = %q", fragments[0].Attr(AttrResource))
+	if fragments[0].Attr(sources.AttrResource) != ResourceBucket {
+		t.Fatalf("resource = %q", fragments[0].Attr(sources.AttrResource))
 	}
-	if fragments[0].Attr(AttrHuggingFaceBucketPath) != "prod/secret.txt" {
-		t.Fatalf("bucket path = %q", fragments[0].Attr(AttrHuggingFaceBucketPath))
+	if fragments[0].Attr(AttrBucketPath) != "prod/secret.txt" {
+		t.Fatalf("bucket path = %q", fragments[0].Attr(AttrBucketPath))
 	}
-	if fragments[0].Attr(AttrHuggingFaceBucketSize) != "28" {
-		t.Fatalf("bucket size = %q", fragments[0].Attr(AttrHuggingFaceBucketSize))
+	if fragments[0].Attr(AttrBucketSize) != "28" {
+		t.Fatalf("bucket size = %q", fragments[0].Attr(AttrBucketSize))
 	}
 	if !strings.Contains(fragments[0].Raw, "AKIALALEMEL33243OLIA") {
 		t.Fatalf("raw fragment missing token: %q", fragments[0].Raw)
@@ -312,17 +313,17 @@ func TestHuggingFaceScanBucketSkipsPrefilteredObjectBeforeDownload(t *testing.T)
 	}))
 	defer server.Close()
 
-	src := &HuggingFace{
+	src := &Source{
 		URL:        "hf://buckets/acme/logs/prod",
 		baseURL:    mustParseURL(t, server.URL+"/"),
 		restRetry:  httpclient.NewRetryTransport(nil),
 		httpClient: http.DefaultClient,
 		ShouldSkip: func(attrs map[string]string) bool {
-			return attrs[AttrHuggingFaceBucketPath] == "prod/skip.txt"
+			return attrs[AttrBucketPath] == "prod/skip.txt"
 		},
 	}
-	var fragments []Fragment
-	err := src.scanBucket(context.Background(), huggingFaceBucket{Owner: "acme", Name: "logs", Prefix: "prod"}, func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	err := src.scanBucket(context.Background(), huggingFaceBucket{Owner: "acme", Name: "logs", Prefix: "prod"}, func(fragment sources.Fragment, err error) error {
 		if err != nil {
 			return err
 		}
@@ -357,12 +358,12 @@ func TestHuggingFaceListDiscussionsDecodesEnvelope(t *testing.T) {
 	}))
 	defer server.Close()
 
-	src := &HuggingFace{
+	src := &Source{
 		baseURL:    mustParseURL(t, server.URL+"/"),
 		restRetry:  httpclient.NewRetryTransport(nil),
 		httpClient: http.DefaultClient,
 	}
-	got, err := src.listDiscussions(context.Background(), huggingFaceRepo{Kind: HuggingFaceRepoKindModel, Owner: "acme", Name: "model"})
+	got, err := src.listDiscussions(context.Background(), huggingFaceRepo{Kind: RepoKindModel, Owner: "acme", Name: "model"})
 	if err != nil {
 		t.Fatalf("listDiscussions: %v", err)
 	}
@@ -381,15 +382,15 @@ func TestHuggingFaceListDiscussionsDecodesEnvelope(t *testing.T) {
 }
 
 func TestHuggingFaceEmitDiscussionEvents(t *testing.T) {
-	src := &HuggingFace{baseURL: mustParseURL(t, "https://huggingface.co/")}
-	repo := huggingFaceRepo{Kind: HuggingFaceRepoKindModel, Owner: "acme", Name: "model"}
+	src := &Source{baseURL: mustParseURL(t, "https://huggingface.co/")}
+	repo := huggingFaceRepo{Kind: RepoKindModel, Owner: "acme", Name: "model"}
 	detail := huggingFaceDiscussionDetails{Num: 7, IsPullRequest: true}
 	detail.Events = []huggingFaceDiscussionEvent{{ID: "abc"}}
 	detail.Events[0].Data.Latest.Raw = "token=AKIALALEMEL33243OLIA"
 	detail.Events[0].Author = map[string]any{"name": "alice"}
 
-	var fragments []Fragment
-	err := src.emitDiscussionEvents(context.Background(), repo, detail, func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	err := src.emitDiscussionEvents(context.Background(), repo, detail, func(fragment sources.Fragment, err error) error {
 		if err != nil {
 			return err
 		}
@@ -402,19 +403,19 @@ func TestHuggingFaceEmitDiscussionEvents(t *testing.T) {
 	if len(fragments) != 1 {
 		t.Fatalf("got %d fragments", len(fragments))
 	}
-	if fragments[0].Attr(AttrResource) != ResourceHuggingFaceComment {
-		t.Fatalf("resource = %q", fragments[0].Attr(AttrResource))
+	if fragments[0].Attr(sources.AttrResource) != ResourceComment {
+		t.Fatalf("resource = %q", fragments[0].Attr(sources.AttrResource))
 	}
-	if fragments[0].Attr(AttrHuggingFaceCommunityResource) != ResourceHuggingFacePR {
-		t.Fatalf("community resource = %q", fragments[0].Attr(AttrHuggingFaceCommunityResource))
+	if fragments[0].Attr(AttrCommunityResource) != ResourcePR {
+		t.Fatalf("community resource = %q", fragments[0].Attr(AttrCommunityResource))
 	}
-	if fragments[0].Attr(AttrHuggingFaceAuthor) != "alice" {
-		t.Fatalf("author = %q", fragments[0].Attr(AttrHuggingFaceAuthor))
+	if fragments[0].Attr(AttrAuthor) != "alice" {
+		t.Fatalf("author = %q", fragments[0].Attr(AttrAuthor))
 	}
 }
 
 func TestHuggingFaceIsExcluded(t *testing.T) {
-	src := &HuggingFace{ExcludeRepos: []string{"acme/test-*", "OTHER/abandoned"}}
+	src := &Source{ExcludeRepos: []string{"acme/test-*", "OTHER/abandoned"}}
 	cases := map[string]bool{
 		"acme/test-model":  true,
 		"other/abandoned":  true,

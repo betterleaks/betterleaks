@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 )
 
 type testLogRecord struct {
@@ -17,7 +19,7 @@ type testLogRecord struct {
 }
 
 func TestSourceLoggingIsOptIn(t *testing.T) {
-	assert.Equal(t, slog.DiscardHandler, loggerOrDiscard(nil).Handler())
+	assert.Equal(t, slog.DiscardHandler, sourceutil.LoggerOrDiscard(nil).Handler())
 
 	var output bytes.Buffer
 	source := &Files{

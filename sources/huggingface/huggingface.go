@@ -1,4 +1,4 @@
-package sources
+package huggingface
 
 import (
 	"context"
@@ -19,6 +19,10 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
+	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
@@ -31,9 +35,9 @@ const (
 	huggingFaceDefaultMaxBucketObjectSize int64 = 250 * 1024 * 1024
 )
 
-// HuggingFace enumerates Hugging Face model, dataset, and Space repositories
-// via the Hub API and delegates git history scanning to the Git source.
-type HuggingFace struct {
+// Source enumerates Hugging Face model, dataset, and Space repositories
+// via the Hub API and delegates git history scanning to the sources.Git source.
+type Source struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger *slog.Logger
 	Token  string
@@ -42,13 +46,13 @@ type HuggingFace struct {
 	Include      []string
 	Exclude      []string
 	ExcludeRepos []string // glob patterns matched against "owner/name"
-	Resources    HuggingFaceResourceSet
+	Resources    ResourceSet
 
-	ShouldSkip      SkipFunc
+	ShouldSkip      sources.SkipFunc
 	MaxArchiveDepth int
 	Jobs            int // 0 is automatic
 	LogOpts         string
-	budget          *jobBudget
+	budget          *sourcejobs.Budget
 
 	MaxBucketObjectSize int64
 
@@ -58,27 +62,27 @@ type HuggingFace struct {
 	apiSem     chan struct{}
 }
 
-type HuggingFaceResourceType string
+type ResourceType string
 
 const (
-	HuggingFaceResourceTypeRepos       HuggingFaceResourceType = "repos"
-	HuggingFaceResourceTypeDiscussions HuggingFaceResourceType = "discussions"
-	HuggingFaceResourceTypePRs         HuggingFaceResourceType = "prs"
-	HuggingFaceResourceTypeBuckets     HuggingFaceResourceType = "buckets"
+	ResourceTypeRepos       ResourceType = "repos"
+	ResourceTypeDiscussions ResourceType = "discussions"
+	ResourceTypePRs         ResourceType = "prs"
+	ResourceTypeBuckets     ResourceType = "buckets"
 )
 
-var AllHuggingFaceResourceTypes = []HuggingFaceResourceType{
-	HuggingFaceResourceTypeRepos,
-	HuggingFaceResourceTypeDiscussions,
-	HuggingFaceResourceTypePRs,
-	HuggingFaceResourceTypeBuckets,
+var AllResourceTypes = []ResourceType{
+	ResourceTypeRepos,
+	ResourceTypeDiscussions,
+	ResourceTypePRs,
+	ResourceTypeBuckets,
 }
 
-type HuggingFaceResourceSet map[HuggingFaceResourceType]bool
+type ResourceSet map[ResourceType]bool
 
-func (rs HuggingFaceResourceSet) Has(r HuggingFaceResourceType) bool { return rs[r] }
+func (rs ResourceSet) Has(r ResourceType) bool { return rs[r] }
 
-func (rs HuggingFaceResourceSet) String() string {
+func (rs ResourceSet) String() string {
 	var out []string
 	for rt := range rs {
 		out = append(out, string(rt))
@@ -88,35 +92,35 @@ func (rs HuggingFaceResourceSet) String() string {
 
 // Validate checks the Hugging Face source configuration and resolves default
 // resource selection.
-func (s *HuggingFace) Validate() error {
+func (s *Source) Validate() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
 	}
-	if _, err := ParseHuggingFaceURL(s.URL); err != nil {
+	if _, err := ParseURL(s.URL); err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
 	if len(s.Resources) == 0 {
-		valid := make(map[HuggingFaceResourceType]bool, len(AllHuggingFaceResourceTypes))
-		for _, rt := range AllHuggingFaceResourceTypes {
+		valid := make(map[ResourceType]bool, len(AllResourceTypes))
+		for _, rt := range AllResourceTypes {
 			valid[rt] = true
 		}
-		target, err := ParseHuggingFaceURL(s.URL)
+		target, err := ParseURL(s.URL)
 		if err != nil {
 			return fmt.Errorf("invalid target URL: %w", err)
 		}
-		rs := HuggingFaceResourceSet{HuggingFaceResourceTypeRepos: true}
+		rs := ResourceSet{ResourceTypeRepos: true}
 		if target.Kind == "bucket" {
-			rs = HuggingFaceResourceSet{HuggingFaceResourceTypeBuckets: true}
+			rs = ResourceSet{ResourceTypeBuckets: true}
 		}
 		for _, name := range s.Include {
-			rt := HuggingFaceResourceType(name)
+			rt := ResourceType(name)
 			if !valid[rt] {
 				return fmt.Errorf("unknown resource type %q", name)
 			}
 			rs[rt] = true
 		}
 		for _, name := range s.Exclude {
-			rt := HuggingFaceResourceType(name)
+			rt := ResourceType(name)
 			if !valid[rt] {
 				return fmt.Errorf("unknown resource type %q", name)
 			}
@@ -127,24 +131,24 @@ func (s *HuggingFace) Validate() error {
 	return nil
 }
 
-func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
-	jobs, budget := ensureJobBudget(s.Jobs, automaticProviderJobs(), s.budget)
+	jobs, budget := sourcejobs.EnsureBudget(s.Jobs, sourcejobs.AutomaticProvider(), s.budget)
 	s.Jobs = jobs
 	s.budget = budget
 	if err := s.ensureClient(); err != nil {
 		return err
 	}
-	loggerOrDiscard(s.Logger).Info("starting Hugging Face scan", "target", s.URL, "resources", s.Resources)
+	sourceutil.LoggerOrDiscard(s.Logger).Info("starting Hugging Face scan", "target", s.URL, "resources", s.Resources)
 
 	start := time.Now()
-	target, err := ParseHuggingFaceURL(s.URL)
+	target, err := ParseURL(s.URL)
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
-	targetJobs := providerTargetJobs(jobs, target.Kind == "repo" || target.Kind == "bucket")
+	targetJobs := sourcejobs.ProviderTargets(jobs, target.Kind == "repo" || target.Kind == "bucket")
 
 	scanCtx, cancelScans := context.WithCancel(ctx)
 	defer cancelScans()
@@ -155,9 +159,9 @@ func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error 
 	var repoCount atomic.Int64
 	var bucketCount atomic.Int64
 	wantsRepoScan := target.Kind != "bucket" &&
-		(s.Resources.Has(HuggingFaceResourceTypeRepos) ||
-			s.Resources.Has(HuggingFaceResourceTypeDiscussions) ||
-			s.Resources.Has(HuggingFaceResourceTypePRs))
+		(s.Resources.Has(ResourceTypeRepos) ||
+			s.Resources.Has(ResourceTypeDiscussions) ||
+			s.Resources.Has(ResourceTypePRs))
 	if wantsRepoScan {
 		repoCh, enumErrCh := s.enumerateRepos(ctx, target)
 		for repo := range repoCh {
@@ -178,7 +182,7 @@ func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error 
 		}
 	}
 
-	if s.Resources.Has(HuggingFaceResourceTypeBuckets) {
+	if s.Resources.Has(ResourceTypeBuckets) {
 		bucketCh, bucketErrCh := s.enumerateBuckets(ctx, target)
 		for bucket := range bucketCh {
 			bucketCount.Add(1)
@@ -197,36 +201,36 @@ func (s *HuggingFace) Fragments(ctx context.Context, yield FragmentsFunc) error 
 			return combined
 		}
 	}
-	loggerOrDiscard(s.Logger).Info("enumeration complete, waiting for scans",
+	sourceutil.LoggerOrDiscard(s.Logger).Info("enumeration complete, waiting for scans",
 		"repos", repoCount.Load(),
 		"buckets", bucketCount.Load(),
 		"duration", time.Since(start),
 	)
 
 	scanErr := scanGroup.Wait()
-	loggerOrDiscard(s.Logger).Info("scan complete", "repos", repoCount.Load(), "buckets", bucketCount.Load(), "duration", time.Since(start))
+	sourceutil.LoggerOrDiscard(s.Logger).Info("scan complete", "repos", repoCount.Load(), "buckets", bucketCount.Load(), "duration", time.Since(start))
 	return scanErr
 }
 
-type HuggingFaceRepoKind string
+type RepoKind string
 
 const (
-	HuggingFaceRepoKindModel   HuggingFaceRepoKind = "model"
-	HuggingFaceRepoKindDataset HuggingFaceRepoKind = "dataset"
-	HuggingFaceRepoKindSpace   HuggingFaceRepoKind = "space"
+	RepoKindModel   RepoKind = "model"
+	RepoKindDataset RepoKind = "dataset"
+	RepoKindSpace   RepoKind = "space"
 )
 
-type ParsedHuggingFaceURL struct {
+type ParsedURL struct {
 	Scheme string
 	Host   string
 	Kind   string // "owner" or "repo"
 	Owner  string
 	Name   string
-	Type   HuggingFaceRepoKind
+	Type   RepoKind
 	Prefix string
 }
 
-func ParseHuggingFaceURL(rawURL string) (*ParsedHuggingFaceURL, error) {
+func ParseURL(rawURL string) (*ParsedURL, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -236,7 +240,7 @@ func ParseHuggingFaceURL(rawURL string) (*ParsedHuggingFaceURL, error) {
 		if len(segments) < 3 || segments[0] != "buckets" {
 			return nil, fmt.Errorf("hf:// URL must use hf://buckets/<owner>/<bucket>[/prefix]")
 		}
-		return &ParsedHuggingFaceURL{
+		return &ParsedURL{
 			Scheme: "hf",
 			Host:   "buckets",
 			Kind:   "bucket",
@@ -252,7 +256,7 @@ func ParseHuggingFaceURL(rawURL string) (*ParsedHuggingFaceURL, error) {
 		return nil, fmt.Errorf("URL must include a host")
 	}
 	segments := cleanPathSegments(u.Path)
-	out := &ParsedHuggingFaceURL{Scheme: u.Scheme, Host: strings.ToLower(u.Host)}
+	out := &ParsedURL{Scheme: u.Scheme, Host: strings.ToLower(u.Host)}
 	switch {
 	case len(segments) >= 3 && segments[0] == "buckets":
 		out.Kind = "bucket"
@@ -266,17 +270,17 @@ func ParseHuggingFaceURL(rawURL string) (*ParsedHuggingFaceURL, error) {
 		return out, nil
 	case len(segments) >= 3 && segments[0] == "datasets":
 		out.Kind = "repo"
-		out.Type = HuggingFaceRepoKindDataset
+		out.Type = RepoKindDataset
 		out.Owner = segments[1]
 		out.Name = strings.TrimSuffix(strings.Join(segments[2:], "/"), ".git")
 	case len(segments) >= 3 && segments[0] == "spaces":
 		out.Kind = "repo"
-		out.Type = HuggingFaceRepoKindSpace
+		out.Type = RepoKindSpace
 		out.Owner = segments[1]
 		out.Name = strings.TrimSuffix(strings.Join(segments[2:], "/"), ".git")
 	case len(segments) >= 2:
 		out.Kind = "repo"
-		out.Type = HuggingFaceRepoKindModel
+		out.Type = RepoKindModel
 		out.Owner = segments[0]
 		out.Name = strings.TrimSuffix(strings.Join(segments[1:], "/"), ".git")
 	default:
@@ -300,7 +304,7 @@ func cleanPathSegments(p string) []string {
 }
 
 type huggingFaceRepo struct {
-	Kind       HuggingFaceRepoKind
+	Kind       RepoKind
 	Owner      string
 	Name       string
 	Visibility string
@@ -315,12 +319,12 @@ func (r huggingFaceRepo) CanonicalKey() string {
 func (r huggingFaceRepo) WebURL(base *url.URL) string {
 	u := *base
 	switch r.Kind {
-	case HuggingFaceRepoKindDataset:
-		u.Path = singleSlashJoin(u.Path, "datasets/"+r.Slug())
-	case HuggingFaceRepoKindSpace:
-		u.Path = singleSlashJoin(u.Path, "spaces/"+r.Slug())
+	case RepoKindDataset:
+		u.Path = sourceutil.SingleSlashJoin(u.Path, "datasets/"+r.Slug())
+	case RepoKindSpace:
+		u.Path = sourceutil.SingleSlashJoin(u.Path, "spaces/"+r.Slug())
 	default:
-		u.Path = singleSlashJoin(u.Path, r.Slug())
+		u.Path = sourceutil.SingleSlashJoin(u.Path, r.Slug())
 	}
 	u.RawQuery = ""
 	return u.String()
@@ -330,7 +334,7 @@ func (r huggingFaceRepo) GitURL(base *url.URL) string {
 	return strings.TrimSuffix(r.WebURL(base), "/") + ".git"
 }
 
-func (s *HuggingFace) enumerateRepos(ctx context.Context, target *ParsedHuggingFaceURL) (<-chan huggingFaceRepo, <-chan error) {
+func (s *Source) enumerateRepos(ctx context.Context, target *ParsedURL) (<-chan huggingFaceRepo, <-chan error) {
 	ch := make(chan huggingFaceRepo, 100)
 	errCh := make(chan error, 1)
 	go func() {
@@ -346,7 +350,7 @@ func (s *HuggingFace) enumerateRepos(ctx context.Context, target *ParsedHuggingF
 				return true
 			}
 			if s.isExcluded(repo.Slug()) {
-				loggerOrDiscard(s.Logger).Debug("excluding Hugging Face repo", "repo", repo.Slug(), "type", string(repo.Kind))
+				sourceutil.LoggerOrDiscard(s.Logger).Debug("excluding Hugging Face repo", "repo", repo.Slug(), "type", string(repo.Kind))
 				return true
 			}
 			seen[key] = true
@@ -364,14 +368,14 @@ func (s *HuggingFace) enumerateRepos(ctx context.Context, target *ParsedHuggingF
 			return
 		}
 
-		for _, kind := range []HuggingFaceRepoKind{HuggingFaceRepoKindModel, HuggingFaceRepoKindDataset, HuggingFaceRepoKindSpace} {
-			loggerOrDiscard(s.Logger).Info("enumerating Hugging Face repositories", "owner", target.Owner, "type", string(kind))
+		for _, kind := range []RepoKind{RepoKindModel, RepoKindDataset, RepoKindSpace} {
+			sourceutil.LoggerOrDiscard(s.Logger).Info("enumerating Hugging Face repositories", "owner", target.Owner, "type", string(kind))
 			repos, err := s.listReposByAuthor(ctx, kind, target.Owner)
 			if err != nil {
 				errCh <- fmt.Errorf("list %s repos for %s: %w", kind, target.Owner, err)
 				return
 			}
-			loggerOrDiscard(s.Logger).Info("Hugging Face repository enumeration complete", "owner", target.Owner, "type", string(kind), "repos", len(repos))
+			sourceutil.LoggerOrDiscard(s.Logger).Info("Hugging Face repository enumeration complete", "owner", target.Owner, "type", string(kind), "repos", len(repos))
 			for _, repo := range repos {
 				if !send(repo) {
 					errCh <- ctx.Err()
@@ -401,12 +405,12 @@ func (b huggingFaceBucket) WebURL(base *url.URL) string {
 	if b.Prefix != "" {
 		pathValue += "/" + strings.TrimPrefix(b.Prefix, "/")
 	}
-	u.Path = singleSlashJoin(u.Path, pathValue)
+	u.Path = sourceutil.SingleSlashJoin(u.Path, pathValue)
 	u.RawQuery = ""
 	return u.String()
 }
 
-func (s *HuggingFace) enumerateBuckets(ctx context.Context, target *ParsedHuggingFaceURL) (<-chan huggingFaceBucket, <-chan error) {
+func (s *Source) enumerateBuckets(ctx context.Context, target *ParsedURL) (<-chan huggingFaceBucket, <-chan error) {
 	ch := make(chan huggingFaceBucket, 100)
 	errCh := make(chan error, 1)
 	go func() {
@@ -414,10 +418,10 @@ func (s *HuggingFace) enumerateBuckets(ctx context.Context, target *ParsedHuggin
 		defer close(errCh)
 		send := func(bucket huggingFaceBucket) bool {
 			if s.isExcluded(bucket.ID()) {
-				loggerOrDiscard(s.Logger).Debug("excluding Hugging Face bucket", "bucket", bucket.ID())
+				sourceutil.LoggerOrDiscard(s.Logger).Debug("excluding Hugging Face bucket", "bucket", bucket.ID())
 				return true
 			}
-			logTrace(ctx, s.Logger, "queueing Hugging Face bucket scan", "bucket", bucket.ID(), "prefix", bucket.Prefix)
+			sourceutil.LogTrace(ctx, s.Logger, "queueing Hugging Face bucket scan", "bucket", bucket.ID(), "prefix", bucket.Prefix)
 			select {
 			case ch <- bucket:
 				return true
@@ -435,13 +439,13 @@ func (s *HuggingFace) enumerateBuckets(ctx context.Context, target *ParsedHuggin
 			errCh <- nil
 			return
 		}
-		loggerOrDiscard(s.Logger).Info("enumerating Hugging Face buckets", "owner", target.Owner)
+		sourceutil.LoggerOrDiscard(s.Logger).Info("enumerating Hugging Face buckets", "owner", target.Owner)
 		buckets, err := s.listBuckets(ctx, target.Owner)
 		if err != nil {
 			errCh <- fmt.Errorf("list buckets for %s: %w", target.Owner, err)
 			return
 		}
-		loggerOrDiscard(s.Logger).Info("Hugging Face bucket enumeration complete", "owner", target.Owner, "buckets", len(buckets))
+		sourceutil.LoggerOrDiscard(s.Logger).Info("Hugging Face bucket enumeration complete", "owner", target.Owner, "buckets", len(buckets))
 		for _, bucket := range buckets {
 			if !send(bucket) {
 				errCh <- ctx.Err()
@@ -460,7 +464,7 @@ type huggingFaceBucketInfo struct {
 	TotalFiles int64  `json:"total_files"`
 }
 
-func (s *HuggingFace) listBuckets(ctx context.Context, namespace string) ([]huggingFaceBucket, error) {
+func (s *Source) listBuckets(ctx context.Context, namespace string) ([]huggingFaceBucket, error) {
 	if namespace == "" {
 		namespace = "me"
 	}
@@ -477,7 +481,7 @@ func (s *HuggingFace) listBuckets(ctx context.Context, namespace string) ([]hugg
 		for _, item := range page {
 			owner, name, ok := splitOwnerName(item.ID)
 			if !ok {
-				loggerOrDiscard(s.Logger).Warn("skipping Hugging Face bucket with unexpected identifier", "bucket", item.ID)
+				sourceutil.LoggerOrDiscard(s.Logger).Warn("skipping Hugging Face bucket with unexpected identifier", "bucket", item.ID)
 				continue
 			}
 			buckets = append(buckets, huggingFaceBucket{
@@ -523,7 +527,7 @@ func (i huggingFaceListItem) visibility() string {
 	return ""
 }
 
-func (s *HuggingFace) listReposByAuthor(ctx context.Context, kind HuggingFaceRepoKind, author string) ([]huggingFaceRepo, error) {
+func (s *Source) listReposByAuthor(ctx context.Context, kind RepoKind, author string) ([]huggingFaceRepo, error) {
 	u, err := s.apiURL(kind.apiPath())
 	if err != nil {
 		return nil, err
@@ -542,7 +546,7 @@ func (s *HuggingFace) listReposByAuthor(ctx context.Context, kind HuggingFaceRep
 		for idx, item := range page {
 			owner, name, ok := parseHuggingFaceSlug(kind, item.identifier())
 			if !ok {
-				loggerOrDiscard(s.Logger).Warn("skipping Hugging Face item with unexpected identifier", "index", idx, "identifier", item.identifier())
+				sourceutil.LoggerOrDiscard(s.Logger).Warn("skipping Hugging Face item with unexpected identifier", "index", idx, "identifier", item.identifier())
 				continue
 			}
 			repos = append(repos, huggingFaceRepo{
@@ -551,20 +555,20 @@ func (s *HuggingFace) listReposByAuthor(ctx context.Context, kind HuggingFaceRep
 				Name:       name,
 				Visibility: item.visibility(),
 			})
-			logTrace(ctx, s.Logger, "discovered Hugging Face repository", "owner", owner, "repo", name, "type", string(kind))
+			sourceutil.LogTrace(ctx, s.Logger, "discovered Hugging Face repository", "owner", owner, "repo", name, "type", string(kind))
 		}
 		return nil
 	})
 	return repos, err
 }
 
-func parseHuggingFaceSlug(kind HuggingFaceRepoKind, raw string) (owner, name string, ok bool) {
+func parseHuggingFaceSlug(kind RepoKind, raw string) (owner, name string, ok bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", "", false
 	}
 	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
-		parsed, err := ParseHuggingFaceURL(raw)
+		parsed, err := ParseURL(raw)
 		if err != nil || parsed.Kind != "repo" || parsed.Type != kind {
 			return "", "", false
 		}
@@ -573,15 +577,15 @@ func parseHuggingFaceSlug(kind HuggingFaceRepoKind, raw string) (owner, name str
 	parts := cleanPathSegments(raw)
 	if len(parts) > 0 {
 		switch kind {
-		case HuggingFaceRepoKindDataset:
+		case RepoKindDataset:
 			if parts[0] == "datasets" || parts[0] == "dataset" {
 				parts = parts[1:]
 			}
-		case HuggingFaceRepoKindSpace:
+		case RepoKindSpace:
 			if parts[0] == "spaces" || parts[0] == "space" {
 				parts = parts[1:]
 			}
-		case HuggingFaceRepoKindModel:
+		case RepoKindModel:
 			if parts[0] == "models" || parts[0] == "model" {
 				parts = parts[1:]
 			}
@@ -595,14 +599,14 @@ func parseHuggingFaceSlug(kind HuggingFaceRepoKind, raw string) (owner, name str
 	return owner, name, owner != "" && name != ""
 }
 
-func (s *HuggingFace) scanRepo(ctx context.Context, repo huggingFaceRepo, yield FragmentsFunc) error {
+func (s *Source) scanRepo(ctx context.Context, repo huggingFaceRepo, yield sources.FragmentsFunc) error {
 	return s.scanRepoWithJobs(ctx, repo, s.Jobs, yield)
 }
 
-func (s *HuggingFace) scanRepoWithJobs(ctx context.Context, repo huggingFaceRepo, jobs int, yield FragmentsFunc) error {
-	logger := loggerOrDiscard(s.Logger).With("repo", repo.Slug(), "type", string(repo.Kind))
+func (s *Source) scanRepoWithJobs(ctx context.Context, repo huggingFaceRepo, jobs int, yield sources.FragmentsFunc) error {
+	logger := sourceutil.LoggerOrDiscard(s.Logger).With("repo", repo.Slug(), "type", string(repo.Kind))
 	repoAttrs := s.repoAttributes(repo, "")
-	if s.ShouldSkip != nil && s.ShouldSkip(s.repoAttributes(repo, ResourceHuggingFaceRepo)) {
+	if s.ShouldSkip != nil && s.ShouldSkip(s.repoAttributes(repo, ResourceRepo)) {
 		logger.Debug("skipping Hugging Face repository based on prefilter")
 		return nil
 	}
@@ -618,14 +622,14 @@ func (s *HuggingFace) scanRepoWithJobs(ctx context.Context, repo huggingFaceRepo
 		return nil
 	}
 
-	if s.Resources.Has(HuggingFaceResourceTypeRepos) {
-		if err := run(string(HuggingFaceResourceTypeRepos), func() error {
+	if s.Resources.Has(ResourceTypeRepos) {
+		if err := run(string(ResourceTypeRepos), func() error {
 			return s.scanRepoGit(ctx, repo, jobs, hfYield)
 		}); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(HuggingFaceResourceTypeDiscussions) || s.Resources.Has(HuggingFaceResourceTypePRs) {
+	if s.Resources.Has(ResourceTypeDiscussions) || s.Resources.Has(ResourceTypePRs) {
 		if err := run("community", func() error { return s.scanCommunity(ctx, repo, hfYield) }); err != nil {
 			return err
 		}
@@ -633,23 +637,23 @@ func (s *HuggingFace) scanRepoWithJobs(ctx context.Context, repo huggingFaceRepo
 	return nil
 }
 
-func (s *HuggingFace) repoAttributes(repo huggingFaceRepo, resource string) map[string]string {
+func (s *Source) repoAttributes(repo huggingFaceRepo, resource string) map[string]string {
 	attrs := map[string]string{
-		AttrHuggingFaceOwner:      repo.Owner,
-		AttrHuggingFaceRepo:       repo.Name,
-		AttrHuggingFaceRepoType:   string(repo.Kind),
-		AttrHuggingFaceRepoURL:    repo.WebURL(s.baseURL),
-		AttrHuggingFaceVisibility: repo.Visibility,
+		AttrOwner:      repo.Owner,
+		AttrRepo:       repo.Name,
+		AttrRepoType:   string(repo.Kind),
+		AttrRepoURL:    repo.WebURL(s.baseURL),
+		AttrVisibility: repo.Visibility,
 	}
 	if resource != "" {
-		attrs[AttrResource] = resource
+		attrs[sources.AttrResource] = resource
 	}
 	return attrs
 }
 
-func (s *HuggingFace) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) FragmentsFunc {
+func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.FragmentsFunc) sources.FragmentsFunc {
 	var mu sync.Mutex
-	return func(fragment Fragment, err error) error {
+	return func(fragment sources.Fragment, err error) error {
 		if err == nil {
 			for k, v := range attrs {
 				if v == "" || fragment.Attr(k) != "" {
@@ -667,18 +671,17 @@ func (s *HuggingFace) wrapYieldWithAttrs(attrs map[string]string, yield Fragment
 	}
 }
 
-func (s *HuggingFace) scanRepoGit(ctx context.Context, repo huggingFaceRepo, jobs int, yield FragmentsFunc) error {
+func (s *Source) scanRepoGit(ctx context.Context, repo huggingFaceRepo, jobs int, yield sources.FragmentsFunc) error {
 	remote := repo.GitURL(s.baseURL)
 	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		src := &Git{
+		src := &sources.Git{
 			Logger:   s.Logger,
 			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 			Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			LogOpts:         s.LogOpts, Jobs: jobs,
-			budget: s.budget,
 		}
-		return src.Fragments(ctx, yield)
+		return src.Fragments(sourcejobs.WithBudget(ctx, s.budget), yield)
 	})
 }
 
@@ -690,14 +693,14 @@ type huggingFaceBucketEntry struct {
 	XetHash      string `json:"xetHash"`
 }
 
-func (s *HuggingFace) scanBucket(ctx context.Context, bucket huggingFaceBucket, yield FragmentsFunc) error {
+func (s *Source) scanBucket(ctx context.Context, bucket huggingFaceBucket, yield sources.FragmentsFunc) error {
 	return s.scanBucketWithJobs(ctx, bucket, s.Jobs, yield)
 }
 
-func (s *HuggingFace) scanBucketWithJobs(ctx context.Context, bucket huggingFaceBucket, configuredJobs int, yield FragmentsFunc) error {
-	logger := loggerOrDiscard(s.Logger).With("bucket", bucket.ID())
+func (s *Source) scanBucketWithJobs(ctx context.Context, bucket huggingFaceBucket, configuredJobs int, yield sources.FragmentsFunc) error {
+	logger := sourceutil.LoggerOrDiscard(s.Logger).With("bucket", bucket.ID())
 	logger.Info("scanning Hugging Face bucket", "prefix", bucket.Prefix)
-	if s.ShouldSkip != nil && s.ShouldSkip(s.bucketAttributes(bucket, nil, ResourceHuggingFaceBucket)) {
+	if s.ShouldSkip != nil && s.ShouldSkip(s.bucketAttributes(bucket, nil, ResourceBucket)) {
 		logger.Debug("skipping Hugging Face bucket based on prefilter")
 		return nil
 	}
@@ -709,7 +712,7 @@ func (s *HuggingFace) scanBucketWithJobs(ctx context.Context, bucket huggingFace
 	if maxSize <= 0 {
 		maxSize = huggingFaceDefaultMaxBucketObjectSize
 	}
-	jobs := jobsWithinBudget(configuredJobs, automaticJobs(), s.budget)
+	jobs := sourcejobs.WithinBudget(configuredJobs, sourcejobs.Automatic(), s.budget)
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(jobs)
 	var scanned atomic.Int64
@@ -721,7 +724,7 @@ func (s *HuggingFace) scanBucketWithJobs(ctx context.Context, bucket huggingFace
 			continue
 		}
 		if maxSize > 0 && entry.Size > maxSize {
-			loggerOrDiscard(s.Logger).Debug("skipping oversized Hugging Face bucket object",
+			sourceutil.LoggerOrDiscard(s.Logger).Debug("skipping oversized Hugging Face bucket object",
 				"bucket", bucket.ID(),
 				"path", entry.Path,
 				"size", entry.Size,
@@ -730,19 +733,19 @@ func (s *HuggingFace) scanBucketWithJobs(ctx context.Context, bucket huggingFace
 			skippedOversized++
 			continue
 		}
-		if s.ShouldSkip != nil && s.ShouldSkip(s.bucketAttributes(bucket, &entry, ResourceHuggingFaceBucket)) {
-			logTrace(ctx, s.Logger, "skipping Hugging Face bucket object based on prefilter", "bucket", bucket.ID(), "path", entry.Path)
+		if s.ShouldSkip != nil && s.ShouldSkip(s.bucketAttributes(bucket, &entry, ResourceBucket)) {
+			sourceutil.LogTrace(ctx, s.Logger, "skipping Hugging Face bucket object based on prefilter", "bucket", bucket.ID(), "path", entry.Path)
 			skippedPrefilter++
 			continue
 		}
 		if entry.Size > huggingFaceLargeObjectWarnThreshold {
-			loggerOrDiscard(s.Logger).Warn("downloading and scanning large Hugging Face bucket object", "bucket", bucket.ID(), "path", entry.Path, "size", entry.Size)
+			sourceutil.LoggerOrDiscard(s.Logger).Warn("downloading and scanning large Hugging Face bucket object", "bucket", bucket.ID(), "path", entry.Path, "size", entry.Size)
 		}
 		entry := entry
 		queued++
-		logTrace(ctx, s.Logger, "queueing Hugging Face bucket object scan", "bucket", bucket.ID(), "path", entry.Path, "size", entry.Size)
+		sourceutil.LogTrace(ctx, s.Logger, "queueing Hugging Face bucket object scan", "bucket", bucket.ID(), "path", entry.Path, "size", entry.Size)
 		g.Go(func() error {
-			return s.budget.run(gctx, func() error {
+			return s.budget.Run(gctx, func() error {
 				if err := s.scanBucketObject(gctx, bucket, entry, yield); err != nil {
 					return err
 				}
@@ -763,7 +766,7 @@ func (s *HuggingFace) scanBucketWithJobs(ctx context.Context, bucket huggingFace
 	return nil
 }
 
-func (s *HuggingFace) listBucketTree(ctx context.Context, bucket huggingFaceBucket) ([]huggingFaceBucketEntry, error) {
+func (s *Source) listBucketTree(ctx context.Context, bucket huggingFaceBucket) ([]huggingFaceBucketEntry, error) {
 	endpoint := "buckets/" + escapePathSegments(bucket.ID()) + "/tree"
 	u, err := s.apiURL(endpoint)
 	if err != nil {
@@ -776,7 +779,7 @@ func (s *HuggingFace) listBucketTree(ctx context.Context, bucket huggingFaceBuck
 	}
 	u.RawQuery = q.Encode()
 
-	loggerOrDiscard(s.Logger).Info("listing Hugging Face bucket tree", "bucket", bucket.ID(), "prefix", bucket.Prefix)
+	sourceutil.LoggerOrDiscard(s.Logger).Info("listing Hugging Face bucket tree", "bucket", bucket.ID(), "prefix", bucket.Prefix)
 	var entries []huggingFaceBucketEntry
 	err = s.paginateJSON(ctx, u, func(body []byte) error {
 		var page []huggingFaceBucketEntry
@@ -789,14 +792,14 @@ func (s *HuggingFace) listBucketTree(ctx context.Context, bucket huggingFaceBuck
 	if err != nil {
 		return nil, err
 	}
-	loggerOrDiscard(s.Logger).Info("Hugging Face bucket tree listed", "bucket", bucket.ID(), "prefix", bucket.Prefix, "entries", len(entries))
+	sourceutil.LoggerOrDiscard(s.Logger).Info("Hugging Face bucket tree listed", "bucket", bucket.ID(), "prefix", bucket.Prefix, "entries", len(entries))
 	return entries, err
 }
 
-func (s *HuggingFace) scanBucketObject(ctx context.Context, bucket huggingFaceBucket, entry huggingFaceBucketEntry, yield FragmentsFunc) error {
-	attrs := s.bucketAttributes(bucket, &entry, ResourceHuggingFaceBucket)
-	logTrace(ctx, s.Logger, "downloading Hugging Face bucket object", "bucket", bucket.ID(), "path", entry.Path, "size", entry.Size)
-	return downloadAndScanSource(ctx, sourceDownloadOptions{
+func (s *Source) scanBucketObject(ctx context.Context, bucket huggingFaceBucket, entry huggingFaceBucketEntry, yield sources.FragmentsFunc) error {
+	attrs := s.bucketAttributes(bucket, &entry, ResourceBucket)
+	sourceutil.LogTrace(ctx, s.Logger, "downloading Hugging Face bucket object", "bucket", bucket.ID(), "path", entry.Path, "size", entry.Size)
+	return download.Scan(ctx, download.Options{
 		URL:             s.bucketObjectURL(bucket, entry.Path),
 		Path:            entry.Path,
 		Attrs:           attrs,
@@ -809,37 +812,37 @@ func (s *HuggingFace) scanBucketObject(ctx context.Context, bucket huggingFaceBu
 	}, yield)
 }
 
-func (s *HuggingFace) bucketObjectURL(bucket huggingFaceBucket, objectPath string) string {
+func (s *Source) bucketObjectURL(bucket huggingFaceBucket, objectPath string) string {
 	u := *s.baseURL
-	u.Path = singleSlashJoin(u.Path, "buckets/"+escapePathSegments(bucket.ID())+"/resolve/"+escapePathSegments(strings.TrimPrefix(objectPath, "/")))
+	u.Path = sourceutil.SingleSlashJoin(u.Path, "buckets/"+escapePathSegments(bucket.ID())+"/resolve/"+escapePathSegments(strings.TrimPrefix(objectPath, "/")))
 	u.RawQuery = ""
 	return u.String()
 }
 
-func (s *HuggingFace) bucketAttributes(bucket huggingFaceBucket, entry *huggingFaceBucketEntry, resource string) map[string]string {
+func (s *Source) bucketAttributes(bucket huggingFaceBucket, entry *huggingFaceBucketEntry, resource string) map[string]string {
 	attrs := map[string]string{
-		AttrHuggingFaceOwner:     bucket.Owner,
-		AttrHuggingFaceBucket:    bucket.Name,
-		AttrHuggingFaceBucketURL: bucket.WebURL(s.baseURL),
+		AttrOwner:     bucket.Owner,
+		AttrBucket:    bucket.Name,
+		AttrBucketURL: bucket.WebURL(s.baseURL),
 	}
 	if bucket.Private {
-		attrs[AttrHuggingFaceVisibility] = "private"
+		attrs[AttrVisibility] = "private"
 	}
 	if resource != "" {
-		attrs[AttrResource] = resource
+		attrs[sources.AttrResource] = resource
 	}
 	if entry != nil {
-		attrs[AttrHuggingFaceBucketPath] = entry.Path
-		attrs[AttrPath] = entry.Path
-		attrs[AttrURL] = s.bucketObjectURL(bucket, entry.Path)
+		attrs[AttrBucketPath] = entry.Path
+		attrs[sources.AttrPath] = entry.Path
+		attrs[sources.AttrURL] = s.bucketObjectURL(bucket, entry.Path)
 		if entry.Size > 0 {
-			attrs[AttrHuggingFaceBucketSize] = strconv.FormatInt(entry.Size, 10)
+			attrs[AttrBucketSize] = strconv.FormatInt(entry.Size, 10)
 		}
 		if entry.LastModified != "" {
-			attrs[AttrHuggingFaceBucketMTime] = entry.LastModified
+			attrs[AttrBucketMTime] = entry.LastModified
 		}
 		if entry.XetHash != "" {
-			attrs[AttrHuggingFaceBucketXetHash] = entry.XetHash
+			attrs[AttrBucketXetHash] = entry.XetHash
 		}
 	}
 	return attrs
@@ -872,16 +875,16 @@ type huggingFaceDiscussionEvent struct {
 	} `json:"data"`
 }
 
-func (s *HuggingFace) scanCommunity(ctx context.Context, repo huggingFaceRepo, yield FragmentsFunc) error {
+func (s *Source) scanCommunity(ctx context.Context, repo huggingFaceRepo, yield sources.FragmentsFunc) error {
 	discussions, err := s.listDiscussions(ctx, repo)
 	if err != nil {
 		return err
 	}
 	for _, discussion := range discussions {
-		if discussion.IsPullRequest && !s.Resources.Has(HuggingFaceResourceTypePRs) {
+		if discussion.IsPullRequest && !s.Resources.Has(ResourceTypePRs) {
 			continue
 		}
-		if !discussion.IsPullRequest && !s.Resources.Has(HuggingFaceResourceTypeDiscussions) {
+		if !discussion.IsPullRequest && !s.Resources.Has(ResourceTypeDiscussions) {
 			continue
 		}
 		detail, err := s.getDiscussionDetails(ctx, repo, discussion.Num)
@@ -895,7 +898,7 @@ func (s *HuggingFace) scanCommunity(ctx context.Context, repo huggingFaceRepo, y
 	return nil
 }
 
-func (s *HuggingFace) listDiscussions(ctx context.Context, repo huggingFaceRepo) ([]huggingFaceDiscussion, error) {
+func (s *Source) listDiscussions(ctx context.Context, repo huggingFaceRepo) ([]huggingFaceDiscussion, error) {
 	u, err := s.apiURL(repo.Kind.apiPath() + "/" + escapePathSegments(repo.Slug()) + "/discussions")
 	if err != nil {
 		return nil, err
@@ -914,7 +917,7 @@ func (s *HuggingFace) listDiscussions(ctx context.Context, repo huggingFaceRepo)
 	return discussions, err
 }
 
-func (s *HuggingFace) getDiscussionDetails(ctx context.Context, repo huggingFaceRepo, num int) (huggingFaceDiscussionDetails, error) {
+func (s *Source) getDiscussionDetails(ctx context.Context, repo huggingFaceRepo, num int) (huggingFaceDiscussionDetails, error) {
 	u, err := s.apiURL(repo.Kind.apiPath() + "/" + escapePathSegments(repo.Slug()) + "/discussions/" + strconv.Itoa(num))
 	if err != nil {
 		return huggingFaceDiscussionDetails{}, err
@@ -930,26 +933,26 @@ func (s *HuggingFace) getDiscussionDetails(ctx context.Context, repo huggingFace
 	return detail, nil
 }
 
-func (s *HuggingFace) emitDiscussionEvents(ctx context.Context, repo huggingFaceRepo, detail huggingFaceDiscussionDetails, yield FragmentsFunc) error {
-	resource := ResourceHuggingFaceDiscussion
+func (s *Source) emitDiscussionEvents(ctx context.Context, repo huggingFaceRepo, detail huggingFaceDiscussionDetails, yield sources.FragmentsFunc) error {
+	resource := ResourceDiscussion
 	if detail.IsPullRequest {
-		resource = ResourceHuggingFacePR
+		resource = ResourcePR
 	}
 	for _, event := range detail.Events {
 		raw := event.Data.Latest.Raw
 		if raw == "" {
 			continue
 		}
-		attrs := s.repoAttributes(repo, ResourceHuggingFaceComment)
-		attrs[AttrHuggingFaceDiscussionNumber] = strconv.Itoa(detail.Num)
-		attrs[AttrHuggingFaceCommentID] = event.ID
-		attrs[AttrHuggingFaceAuthor] = huggingFaceAuthorName(event.Author)
-		attrs[AttrURL] = fmt.Sprintf("%s/discussions/%d#%s", strings.TrimRight(repo.WebURL(s.baseURL), "/"), detail.Num, event.ID)
+		attrs := s.repoAttributes(repo, ResourceComment)
+		attrs[AttrDiscussionNumber] = strconv.Itoa(detail.Num)
+		attrs[AttrCommentID] = event.ID
+		attrs[AttrAuthor] = huggingFaceAuthorName(event.Author)
+		attrs[sources.AttrURL] = fmt.Sprintf("%s/discussions/%d#%s", strings.TrimRight(repo.WebURL(s.baseURL), "/"), detail.Num, event.ID)
 		if event.ID == "" {
-			attrs[AttrURL] = fmt.Sprintf("%s/discussions/%d", strings.TrimRight(repo.WebURL(s.baseURL), "/"), detail.Num)
+			attrs[sources.AttrURL] = fmt.Sprintf("%s/discussions/%d", strings.TrimRight(repo.WebURL(s.baseURL), "/"), detail.Num)
 		}
-		attrs[AttrHuggingFaceCommunityResource] = resource
-		fragment := Fragment{Raw: raw, Attributes: attrs}
+		attrs[AttrCommunityResource] = resource
+		fragment := sources.Fragment{Raw: raw, Attributes: attrs}
 		if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
 			continue
 		}
@@ -979,18 +982,18 @@ func huggingFaceAuthorName(v any) string {
 	return ""
 }
 
-func (k HuggingFaceRepoKind) apiPath() string {
+func (k RepoKind) apiPath() string {
 	switch k {
-	case HuggingFaceRepoKindDataset:
+	case RepoKindDataset:
 		return "datasets"
-	case HuggingFaceRepoKindSpace:
+	case RepoKindSpace:
 		return "spaces"
 	default:
 		return "models"
 	}
 }
 
-func (s *HuggingFace) ensureClient() error {
+func (s *Source) ensureClient() error {
 	if s.restRetry == nil {
 		s.restRetry = httpclient.NewRetryTransport(nil)
 	}
@@ -1005,23 +1008,23 @@ func (s *HuggingFace) ensureClient() error {
 		s.httpClient = httpclient.NewAuthenticatedClient(s.Token, s.restRetry, s.baseURL.Host)
 	}
 	if s.apiSem == nil {
-		s.apiSem = make(chan struct{}, min(workerCount(s.Jobs, automaticProviderJobs()), huggingFaceAPIConcurrency))
+		s.apiSem = make(chan struct{}, min(sourcejobs.WorkerCount(s.Jobs, sourcejobs.AutomaticProvider()), huggingFaceAPIConcurrency))
 	}
 	return nil
 }
 
-func (s *HuggingFace) apiURL(endpoint string) (*url.URL, error) {
+func (s *Source) apiURL(endpoint string) (*url.URL, error) {
 	if err := s.ensureClient(); err != nil {
 		return nil, err
 	}
 	endpoint = strings.TrimPrefix(endpoint, "/")
 	u := *s.baseURL
-	u.Path = singleSlashJoin(u.Path, "api/"+endpoint)
+	u.Path = sourceutil.SingleSlashJoin(u.Path, "api/"+endpoint)
 	u.RawQuery = ""
 	return &u, nil
 }
 
-func (s *HuggingFace) acquireAPISlot(ctx context.Context) (func(), error) {
+func (s *Source) acquireAPISlot(ctx context.Context) (func(), error) {
 	if s.apiSem == nil {
 		return func() {}, nil
 	}
@@ -1033,7 +1036,7 @@ func (s *HuggingFace) acquireAPISlot(ctx context.Context) (func(), error) {
 	}
 }
 
-func (s *HuggingFace) get(ctx context.Context, u *url.URL) ([]byte, error) {
+func (s *Source) get(ctx context.Context, u *url.URL) ([]byte, error) {
 	release, err := s.acquireAPISlot(ctx)
 	if err != nil {
 		return nil, err
@@ -1043,7 +1046,7 @@ func (s *HuggingFace) get(ctx context.Context, u *url.URL) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	logTrace(ctx, s.Logger, "requesting Hugging Face API resource", "url", u.String())
+	sourceutil.LogTrace(ctx, s.Logger, "requesting Hugging Face API resource", "url", u.String())
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -1063,7 +1066,7 @@ func (s *HuggingFace) get(ctx context.Context, u *url.URL) ([]byte, error) {
 	return body, nil
 }
 
-func (s *HuggingFace) paginateJSON(ctx context.Context, first *url.URL, consume func([]byte) error) error {
+func (s *Source) paginateJSON(ctx context.Context, first *url.URL, consume func([]byte) error) error {
 	current := first
 	for {
 		release, err := s.acquireAPISlot(ctx)
@@ -1075,7 +1078,7 @@ func (s *HuggingFace) paginateJSON(ctx context.Context, first *url.URL, consume 
 			release()
 			return err
 		}
-		logTrace(ctx, s.Logger, "requesting Hugging Face API page", "url", current.String())
+		sourceutil.LogTrace(ctx, s.Logger, "requesting Hugging Face API page", "url", current.String())
 		resp, err := s.httpClient.Do(req)
 		release()
 		if err != nil {
@@ -1138,7 +1141,7 @@ func snippet(body []byte) string {
 	return string(runes[:huggingFaceSnippetLimit]) + "..."
 }
 
-func (s *HuggingFace) isExcluded(fullName string) bool {
+func (s *Source) isExcluded(fullName string) bool {
 	lp := strings.ToLower(fullName)
 	for _, pattern := range s.ExcludeRepos {
 		if matched, _ := filepath.Match(strings.ToLower(pattern), lp); matched {

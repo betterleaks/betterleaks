@@ -1,4 +1,4 @@
-package sources
+package s3
 
 import (
 	"context"
@@ -19,6 +19,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/sigv4"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 )
 
 const (
@@ -34,10 +37,10 @@ const (
 	s3StorageClassDeepArchive = "DEEP_ARCHIVE"
 )
 
-// S3 enumerates objects in an S3 (or S3-compatible) bucket and yields a
+// Source enumerates objects in an S3 (or S3-compatible) bucket and yields a
 // fragment for each object's content. The target is described by a single URL
 // passed via S3.URL.
-type S3 struct {
+type Source struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger *slog.Logger
 	// URL is the target bucket (and optional prefix). Required. Supported forms:
@@ -64,9 +67,9 @@ type S3 struct {
 	// Scan config
 	MaxObjectSize   int64
 	Jobs            int // concurrent object scans; 0 is automatic
-	ShouldSkip      SkipFunc
+	ShouldSkip      sources.SkipFunc
 	MaxArchiveDepth int
-	budget          *jobBudget
+	budget          *sourcejobs.Budget
 
 	parsed s3Target
 	creds  s3Creds
@@ -101,7 +104,7 @@ type s3Creds struct {
 // Validate parses the URL, resolves credentials, and (for AWS single-bucket
 // targets without an explicit region) probes the bucket region. In enumerate
 // mode, region resolution is deferred to scan time on a per-bucket basis.
-func (s *S3) Validate() error {
+func (s *Source) Validate() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
 	}
@@ -149,7 +152,7 @@ func (s *S3) Validate() error {
 //	Explicit fields        → static
 //	AWS_* env vars         → static
 //	None of the above      → error (fail loud)
-func (s *S3) resolveCreds() (s3Creds, error) {
+func (s *Source) resolveCreds() (s3Creds, error) {
 	if s.Anonymous {
 		return s3Creds{Anonymous: true}, nil
 	}
@@ -174,7 +177,7 @@ func (s *S3) resolveCreds() (s3Creds, error) {
 
 // Fragments dispatches to single-bucket or enumerate-mode scanning based on
 // the parsed URL.
-func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
 	if s.parsed.Bucket == "" && s.parsed.BucketGlob == "" {
 		if err := s.Validate(); err != nil {
 			return err
@@ -190,8 +193,8 @@ func (s *S3) Fragments(ctx context.Context, yield FragmentsFunc) error {
 // scanEnumerated lists buckets at the endpoint, filters by glob, and scans
 // each matched bucket. Per-bucket failures (e.g. AccessDenied, region probe
 // errors) are logged and non-fatal.
-func (s *S3) scanEnumerated(ctx context.Context, client *http.Client, yield FragmentsFunc) error {
-	loggerOrDiscard(s.Logger).Info("enumerating buckets",
+func (s *Source) scanEnumerated(ctx context.Context, client *http.Client, yield sources.FragmentsFunc) error {
+	sourceutil.LoggerOrDiscard(s.Logger).Info("enumerating buckets",
 		"endpoint", s.parsed.Endpoint,
 		"bucket_glob", s.parsed.BucketGlob,
 		"region", s.parsed.Region,
@@ -212,16 +215,16 @@ func (s *S3) scanEnumerated(ctx context.Context, client *http.Client, yield Frag
 			matched = append(matched, b)
 		}
 	}
-	loggerOrDiscard(s.Logger).Info("bucket enumeration complete", "total", len(buckets), "matched", len(matched))
+	sourceutil.LoggerOrDiscard(s.Logger).Info("bucket enumeration complete", "total", len(buckets), "matched", len(matched))
 
 	for _, b := range matched {
 		sub, err := s.bucketSubTarget(ctx, b)
 		if err != nil {
-			loggerOrDiscard(s.Logger).Error("could not resolve bucket; skipping", "error", err, "bucket", b)
+			sourceutil.LoggerOrDiscard(s.Logger).Error("could not resolve bucket; skipping", "error", err, "bucket", b)
 			continue
 		}
 		if err := s.scanBucket(ctx, client, sub, yield); err != nil {
-			loggerOrDiscard(s.Logger).Error("bucket scan failed; continuing", "error", err, "bucket", b)
+			sourceutil.LoggerOrDiscard(s.Logger).Error("bucket scan failed; continuing", "error", err, "bucket", b)
 		}
 	}
 	return nil
@@ -230,7 +233,7 @@ func (s *S3) scanEnumerated(ctx context.Context, client *http.Client, yield Frag
 // bucketSubTarget builds a single-bucket target derived from the enumerate
 // target. For AWS, this probes the bucket's region (which may differ from the
 // account's default).
-func (s *S3) bucketSubTarget(ctx context.Context, bucket string) (s3Target, error) {
+func (s *Source) bucketSubTarget(ctx context.Context, bucket string) (s3Target, error) {
 	sub := s.parsed
 	sub.Bucket = bucket
 	sub.BucketGlob = ""
@@ -252,27 +255,27 @@ func (s *S3) bucketSubTarget(ctx context.Context, bucket string) (s3Target, erro
 
 // scanBucket runs the list-then-fetch loop for a single bucket described by
 // target.
-func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Target, yield FragmentsFunc) error {
+func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3Target, yield sources.FragmentsFunc) error {
 	maxSize := s.MaxObjectSize
 	if maxSize <= 0 {
 		maxSize = s3DefaultMaxObjectSize
 	}
-	jobs := jobsWithinBudget(s.Jobs, automaticObjectJobs(), s.budget)
+	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.AutomaticObjects(), s.budget)
 
 	bucketAttrs := map[string]string{
-		AttrS3Bucket: target.Bucket,
-		AttrS3Region: target.Region,
-		AttrResource: ResourceS3Object,
+		AttrBucket:           target.Bucket,
+		AttrRegion:           target.Region,
+		sources.AttrResource: ResourceObject,
 	}
 	if target.Endpoint != "" {
-		bucketAttrs[AttrS3Endpoint] = target.Endpoint
+		bucketAttrs[AttrEndpoint] = target.Endpoint
 	}
 	if s.ShouldSkip != nil && s.ShouldSkip(bucketAttrs) {
-		loggerOrDiscard(s.Logger).Info("skipping bucket: filtered by prefilter", "bucket", target.Bucket)
+		sourceutil.LoggerOrDiscard(s.Logger).Info("skipping bucket: filtered by prefilter", "bucket", target.Bucket)
 		return nil
 	}
 
-	loggerOrDiscard(s.Logger).Info("starting S3 scan",
+	sourceutil.LoggerOrDiscard(s.Logger).Info("starting S3 scan",
 		"bucket", target.Bucket,
 		"region", target.Region,
 		"prefix", target.Prefix,
@@ -298,18 +301,18 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 		g.SetLimit(jobs)
 		for _, obj := range page.Contents {
 			if skipReason := s.skipReason(obj, maxSize); skipReason != "" {
-				logTrace(gctx, s.Logger, "skipping object", "key", obj.Key, "reason", skipReason)
+				sourceutil.LogTrace(gctx, s.Logger, "skipping object", "key", obj.Key, "reason", skipReason)
 				continue
 			}
 			attrs := s.objectAttributes(target, obj)
 			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
-				logTrace(gctx, s.Logger, "skipping object: filtered by prefilter", "key", obj.Key)
+				sourceutil.LogTrace(gctx, s.Logger, "skipping object: filtered by prefilter", "key", obj.Key)
 				continue
 			}
 			g.Go(func() error {
-				return s.budget.run(gctx, func() error {
+				return s.budget.Run(gctx, func() error {
 					if err := s.scanObject(gctx, client, target, obj, attrs, yield); err != nil {
-						loggerOrDiscard(s.Logger).Error("could not scan S3 object", "error", err, "key", obj.Key)
+						sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan S3 object", "error", err, "key", obj.Key)
 						return nil
 					}
 					mu.Lock()
@@ -328,7 +331,7 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 		continuationToken = page.NextContinuationToken
 	}
 
-	loggerOrDiscard(s.Logger).Info("S3 scan complete",
+	sourceutil.LoggerOrDiscard(s.Logger).Info("S3 scan complete",
 		"bucket", target.Bucket,
 		"objects_listed", listedCount,
 		"objects_scanned", scannedCount,
@@ -339,7 +342,7 @@ func (s *S3) scanBucket(ctx context.Context, client *http.Client, target s3Targe
 
 // skipReason returns a non-empty reason if the object should be skipped before
 // attempting to fetch it. The empty string means "scan it".
-func (s *S3) skipReason(obj s3Object, maxSize int64) string {
+func (s *Source) skipReason(obj s3Object, maxSize int64) string {
 	switch obj.StorageClass {
 	case s3StorageClassGlacier, s3StorageClassGlacierIR, s3StorageClassDeepArchive:
 		return "storage_class:" + obj.StorageClass
@@ -357,28 +360,28 @@ func (s *S3) skipReason(obj s3Object, maxSize int64) string {
 }
 
 // objectAttributes builds the attr map stamped on every fragment for this object.
-func (s *S3) objectAttributes(target s3Target, obj s3Object) map[string]string {
+func (s *Source) objectAttributes(target s3Target, obj s3Object) map[string]string {
 	attrs := map[string]string{
-		AttrPath:           obj.Key,
-		AttrURL:            s3ObjectURL(target, obj.Key),
-		AttrResource:       ResourceS3Object,
-		AttrS3Bucket:       target.Bucket,
-		AttrS3Key:          obj.Key,
-		AttrS3Region:       target.Region,
-		AttrS3Size:         strconv.FormatInt(obj.Size, 10),
-		AttrS3ETag:         strings.Trim(obj.ETag, `"`),
-		AttrS3LastModified: obj.LastModified,
-		AttrS3StorageClass: obj.StorageClass,
+		sources.AttrPath:     obj.Key,
+		sources.AttrURL:      s3ObjectURL(target, obj.Key),
+		sources.AttrResource: ResourceObject,
+		AttrBucket:           target.Bucket,
+		AttrKey:              obj.Key,
+		AttrRegion:           target.Region,
+		AttrSize:             strconv.FormatInt(obj.Size, 10),
+		AttrETag:             strings.Trim(obj.ETag, `"`),
+		AttrLastModified:     obj.LastModified,
+		AttrStorageClass:     obj.StorageClass,
 	}
 	if target.Endpoint != "" {
-		attrs[AttrS3Endpoint] = target.Endpoint
+		attrs[AttrEndpoint] = target.Endpoint
 	}
 	return attrs
 }
 
 // scanObject GETs an object and pipes its body through File.Fragments, which
 // already handles archives, mime sniffing, and chunk boundaries.
-func (s *S3) scanObject(ctx context.Context, client *http.Client, target s3Target, obj s3Object, attrs map[string]string, yield FragmentsFunc) error {
+func (s *Source) scanObject(ctx context.Context, client *http.Client, target s3Target, obj s3Object, attrs map[string]string, yield sources.FragmentsFunc) error {
 	objCtx, cancel := context.WithTimeout(ctx, s3PerObjectTimeout)
 	defer cancel()
 
@@ -389,7 +392,7 @@ func (s *S3) scanObject(ctx context.Context, client *http.Client, target s3Targe
 	defer body.Close()
 
 	stampedYield := s.wrapYieldWithAttrs(attrs, yield)
-	file := &File{
+	file := &sources.File{
 		Logger:          s.Logger,
 		Content:         body,
 		Path:            obj.Key,
@@ -402,9 +405,9 @@ func (s *S3) scanObject(ctx context.Context, client *http.Client, target s3Targe
 // wrapYieldWithAttrs returns a yield that stamps the given attrs on every
 // fragment, re-applies ShouldSkip with the merged attrs, and serializes calls
 // through a mutex. Mirrors the GitHub source.
-func (s *S3) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) FragmentsFunc {
+func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.FragmentsFunc) sources.FragmentsFunc {
 	var mu sync.Mutex
-	return func(fragment Fragment, err error) error {
+	return func(fragment sources.Fragment, err error) error {
 		if err == nil {
 			for k, v := range attrs {
 				if v == "" {
@@ -412,7 +415,7 @@ func (s *S3) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) Fr
 				}
 				// Always override AttrResource so the fragment reflects the S3
 				// source rather than the File source's default "fs.content".
-				if k == AttrResource || fragment.Attr(k) == "" {
+				if k == sources.AttrResource || fragment.Attr(k) == "" {
 					fragment.SetAttr(k, v)
 				}
 			}

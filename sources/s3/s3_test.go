@@ -1,4 +1,4 @@
-package sources
+package s3
 
 import (
 	"context"
@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func TestS3ParseURL(t *testing.T) {
@@ -185,13 +187,13 @@ func TestS3Sign_anonymousSkipsSigning(t *testing.T) {
 
 func TestS3_resolveCreds(t *testing.T) {
 	t.Run("anonymous", func(t *testing.T) {
-		s := &S3{Anonymous: true}
+		s := &Source{Anonymous: true}
 		c, err := s.resolveCreds()
 		require.NoError(t, err)
 		assert.True(t, c.Anonymous)
 	})
 	t.Run("explicit", func(t *testing.T) {
-		s := &S3{AccessKey: "ak", SecretKey: "sk", SessionToken: "tok"}
+		s := &Source{AccessKey: "ak", SecretKey: "sk", SessionToken: "tok"}
 		c, err := s.resolveCreds()
 		require.NoError(t, err)
 		assert.Equal(t, s3Creds{AccessKey: "ak", SecretKey: "sk", SessionToken: "tok"}, c)
@@ -200,7 +202,7 @@ func TestS3_resolveCreds(t *testing.T) {
 		t.Setenv("AWS_ACCESS_KEY_ID", "envak")
 		t.Setenv("AWS_SECRET_ACCESS_KEY", "envsk")
 		t.Setenv("AWS_SESSION_TOKEN", "envtok")
-		s := &S3{}
+		s := &Source{}
 		c, err := s.resolveCreds()
 		require.NoError(t, err)
 		assert.Equal(t, s3Creds{AccessKey: "envak", SecretKey: "envsk", SessionToken: "envtok"}, c)
@@ -208,14 +210,14 @@ func TestS3_resolveCreds(t *testing.T) {
 	t.Run("none fails loud", func(t *testing.T) {
 		t.Setenv("AWS_ACCESS_KEY_ID", "")
 		t.Setenv("AWS_SECRET_ACCESS_KEY", "")
-		s := &S3{}
+		s := &Source{}
 		_, err := s.resolveCreds()
 		require.Error(t, err)
 	})
 }
 
 func TestS3_skipReason(t *testing.T) {
-	s := &S3{}
+	s := &Source{}
 	const max = 100
 	cases := []struct {
 		name string
@@ -286,7 +288,7 @@ func TestS3_listsAndScans_endToEnd(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL)
-	s := &S3{
+	s := &Source{
 		URL:       fmt.Sprintf("%s/mybucket/", srv.URL),
 		Region:    "us-east-1",
 		AccessKey: "AKIAIOSFODNN7EXAMPLE",
@@ -300,11 +302,11 @@ func TestS3_listsAndScans_endToEnd(t *testing.T) {
 	var mu sync.Mutex
 	var keys []string
 	attrsByKey := map[string]map[string]string{}
-	err := s.Fragments(context.Background(), func(f Fragment, err error) error {
+	err := s.Fragments(context.Background(), func(f sources.Fragment, err error) error {
 		require.NoError(t, err)
 		mu.Lock()
 		defer mu.Unlock()
-		key := f.Attr(AttrS3Key)
+		key := f.Attr(AttrKey)
 		keys = append(keys, key)
 		attrsByKey[key] = f.Attributes
 		return nil
@@ -314,11 +316,11 @@ func TestS3_listsAndScans_endToEnd(t *testing.T) {
 
 	for _, k := range []string{"a.txt", "b.txt"} {
 		a := attrsByKey[k]
-		assert.Equal(t, "mybucket", a[AttrS3Bucket])
-		assert.Equal(t, "us-east-1", a[AttrS3Region])
-		assert.Equal(t, "s3.object", a[AttrResource])
-		assert.Equal(t, k, a[AttrPath])
-		assert.NotEmpty(t, a[AttrURL])
+		assert.Equal(t, "mybucket", a[AttrBucket])
+		assert.Equal(t, "us-east-1", a[AttrRegion])
+		assert.Equal(t, "s3.object", a[sources.AttrResource])
+		assert.Equal(t, k, a[sources.AttrPath])
+		assert.NotEmpty(t, a[sources.AttrURL])
 	}
 }
 
@@ -329,16 +331,16 @@ func TestS3_prefilterSkipsBucket(t *testing.T) {
 		t.Fatalf("unexpected request %s %s", r.Method, r.URL)
 	}))
 	defer srv.Close()
-	s := &S3{
+	s := &Source{
 		URL:       fmt.Sprintf("%s/mybucket/", srv.URL),
 		Region:    "us-east-1",
 		AccessKey: "ak", SecretKey: "sk",
 		ShouldSkip: func(attrs map[string]string) bool {
-			return attrs[AttrS3Bucket] == "mybucket"
+			return attrs[AttrBucket] == "mybucket"
 		},
 	}
 	require.NoError(t, s.Validate())
-	require.NoError(t, s.Fragments(context.Background(), func(Fragment, error) error {
+	require.NoError(t, s.Fragments(context.Background(), func(sources.Fragment, error) error {
 		t.Fatal("yield called for skipped bucket")
 		return nil
 	}))
@@ -487,7 +489,7 @@ func TestS3_enumerateMatchesGlob(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := &S3{
+	s := &Source{
 		URL:       fmt.Sprintf("%s/prod-*", srv.URL),
 		Region:    "us-east-1",
 		AccessKey: "ak", SecretKey: "sk",
@@ -498,11 +500,11 @@ func TestS3_enumerateMatchesGlob(t *testing.T) {
 
 	var seenKeys []string
 	var mu sync.Mutex
-	require.NoError(t, s.Fragments(context.Background(), func(f Fragment, err error) error {
+	require.NoError(t, s.Fragments(context.Background(), func(f sources.Fragment, err error) error {
 		require.NoError(t, err)
 		mu.Lock()
 		defer mu.Unlock()
-		seenKeys = append(seenKeys, f.Attr(AttrS3Bucket)+":"+f.Attr(AttrS3Key))
+		seenKeys = append(seenKeys, f.Attr(AttrBucket)+":"+f.Attr(AttrKey))
 		return nil
 	}))
 
@@ -529,13 +531,13 @@ func TestS3_skipsBeforeFetch(t *testing.T) {
 		t.Fatalf("unexpected GET for %s", r.URL)
 	}))
 	defer srv.Close()
-	s := &S3{
+	s := &Source{
 		URL:       fmt.Sprintf("%s/mybucket/", srv.URL),
 		Region:    "us-east-1",
 		AccessKey: "ak", SecretKey: "sk",
 	}
 	require.NoError(t, s.Validate())
-	require.NoError(t, s.Fragments(context.Background(), func(Fragment, error) error {
+	require.NoError(t, s.Fragments(context.Background(), func(sources.Fragment, error) error {
 		t.Fatal("no objects should be yielded")
 		return nil
 	}))

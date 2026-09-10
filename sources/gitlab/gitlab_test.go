@@ -1,4 +1,4 @@
-package sources
+package gitlab
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func TestParseGitLabURL(t *testing.T) {
@@ -39,7 +40,7 @@ func TestParseGitLabURL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ParseGitLabURL(tc.url)
+			got, err := ParseURL(tc.url)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got %+v", got)
@@ -63,7 +64,7 @@ func TestParseGitLabURL(t *testing.T) {
 }
 
 func TestGitLab_isExcluded(t *testing.T) {
-	s := &GitLab{ExcludeRepos: []string{"group/test-*", "OTHER/abandoned"}}
+	s := &Source{ExcludeRepos: []string{"group/test-*", "OTHER/abandoned"}}
 	cases := map[string]bool{
 		"group/test-foo":     true,
 		"group/Test-Bar":     true, // case-insensitive
@@ -86,16 +87,16 @@ func TestGitLab_projectAttributes(t *testing.T) {
 		WebURL:            "https://gitlab.com/group/sub/project",
 	}
 	proj.Namespace.FullPath = "group/sub"
-	s := &GitLab{}
+	s := &Source{}
 
-	got := s.projectAttributes(proj, ResourceGitLabProject)
+	got := s.projectAttributes(proj, ResourceProject)
 	want := map[string]string{
-		AttrGitLabProjectID:   "42",
-		AttrGitLabProjectPath: "group/sub/project",
-		AttrGitLabProjectURL:  "https://gitlab.com/group/sub/project",
-		AttrGitLabVisibility:  "private",
-		AttrGitLabNamespace:   "group/sub",
-		AttrResource:          ResourceGitLabProject,
+		AttrProjectID:        "42",
+		AttrProjectPath:      "group/sub/project",
+		AttrProjectURL:       "https://gitlab.com/group/sub/project",
+		AttrVisibility:       "private",
+		AttrNamespace:        "group/sub",
+		sources.AttrResource: ResourceProject,
 	}
 	for k, v := range want {
 		if got[k] != v {
@@ -105,49 +106,49 @@ func TestGitLab_projectAttributes(t *testing.T) {
 
 	// resource is empty → no AttrResource key set
 	bare := s.projectAttributes(proj, "")
-	if _, ok := bare[AttrResource]; ok {
-		t.Errorf("expected no AttrResource when resource=\"\", got %q", bare[AttrResource])
+	if _, ok := bare[sources.AttrResource]; ok {
+		t.Errorf("expected no AttrResource when resource=\"\", got %q", bare[sources.AttrResource])
 	}
 }
 
 func TestGitLab_Validate(t *testing.T) {
 	cases := []struct {
 		name      string
-		source    func() *GitLab
+		source    func() *Source
 		wantErr   bool
-		wantResrc []GitLabResourceType
+		wantResrc []ResourceType
 	}{
 		{
 			name:    "missing URL",
-			source:  func() *GitLab { return &GitLab{Token: "t"} },
+			source:  func() *Source { return &Source{Token: "t"} },
 			wantErr: true,
 		},
 		{
 			name:    "namespace URL without token",
-			source:  func() *GitLab { return &GitLab{URL: "https://gitlab.com/group"} },
+			source:  func() *Source { return &Source{URL: "https://gitlab.com/group"} },
 			wantErr: true,
 		},
 		{
 			name:    "project URL without token",
-			source:  func() *GitLab { return &GitLab{URL: "https://gitlab.com/group/project"} },
+			source:  func() *Source { return &Source{URL: "https://gitlab.com/group/project"} },
 			wantErr: true, // namespace kind → requires token
 		},
 		{
 			name:      "release URL stamps release+assets default",
-			source:    func() *GitLab { return &GitLab{URL: "https://gitlab.com/g/p/-/releases/v1.0", Token: "t"} },
-			wantResrc: []GitLabResourceType{GitLabResourceTypeReleases, GitLabResourceTypeReleaseAssets},
+			source:    func() *Source { return &Source{URL: "https://gitlab.com/g/p/-/releases/v1.0", Token: "t"} },
+			wantResrc: []ResourceType{ResourceTypeReleases, ResourceTypeReleaseAssets},
 		},
 		{
 			name:    "include unknown",
-			source:  func() *GitLab { return &GitLab{URL: "https://gitlab.com/g/p", Token: "t", Include: []string{"bogus"}} },
+			source:  func() *Source { return &Source{URL: "https://gitlab.com/g/p", Token: "t", Include: []string{"bogus"}} },
 			wantErr: true,
 		},
 		{
 			name: "exclude drops resource",
-			source: func() *GitLab {
-				return &GitLab{URL: "https://gitlab.com/g/p/-/releases/v1", Token: "t", Exclude: []string{"release-assets"}}
+			source: func() *Source {
+				return &Source{URL: "https://gitlab.com/g/p/-/releases/v1", Token: "t", Exclude: []string{"release-assets"}}
 			},
-			wantResrc: []GitLabResourceType{GitLabResourceTypeReleases},
+			wantResrc: []ResourceType{ResourceTypeReleases},
 		},
 	}
 	for _, tc := range cases {
@@ -177,10 +178,10 @@ func TestGitLab_Validate(t *testing.T) {
 // that are enabled, because the per-resource scanners are never reached.
 func TestGitLab_scanProject_L1Skip(t *testing.T) {
 	skipped := 0
-	s := &GitLab{
-		Resources: GitLabResourceSet{GitLabResourceTypeIssues: true},
+	s := &Source{
+		Resources: ResourceSet{ResourceTypeIssues: true},
 		ShouldSkip: func(attrs map[string]string) bool {
-			if attrs[AttrResource] == ResourceGitLabProject {
+			if attrs[sources.AttrResource] == ResourceProject {
 				skipped++
 				return true
 			}
@@ -190,7 +191,7 @@ func TestGitLab_scanProject_L1Skip(t *testing.T) {
 	proj := &gitlabProject{ID: 1, PathWithNamespace: "g/p", WebURL: "https://gitlab.com/g/p"}
 
 	yielded := 0
-	yield := func(f Fragment, err error) error { yielded++; return nil }
+	yield := func(f sources.Fragment, err error) error { yielded++; return nil }
 	if err := s.scanProject(context.Background(), proj, yield); err != nil {
 		t.Fatalf("scanProject: %v", err)
 	}
@@ -203,8 +204,8 @@ func TestGitLab_scanProject_L1Skip(t *testing.T) {
 }
 
 func TestGitLab_scanProject_PropagatesRepoScanError(t *testing.T) {
-	s := &GitLab{
-		Resources: GitLabResourceSet{GitLabResourceTypeRepos: true},
+	s := &Source{
+		Resources: ResourceSet{ResourceTypeRepos: true},
 	}
 	proj := &gitlabProject{
 		ID:                1,
@@ -213,7 +214,7 @@ func TestGitLab_scanProject_PropagatesRepoScanError(t *testing.T) {
 		HTTPURLToRepo:     "://bad-url",
 	}
 
-	err := s.scanProject(context.Background(), proj, func(Fragment, error) error { return nil })
+	err := s.scanProject(context.Background(), proj, func(sources.Fragment, error) error { return nil })
 	if err == nil {
 		t.Fatal("expected repo scan error")
 	}
@@ -242,12 +243,12 @@ func TestGitLab_scanIssues_L2Skip(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := &GitLab{
+	s := &Source{
 		URL:        server.URL + "/g/p/-/issues/0",
 		BaseURL:    server.URL + "/",
 		Token:      "t",
-		Resources:  GitLabResourceSet{GitLabResourceTypeIssues: true, GitLabResourceTypeIssueComments: true},
-		ShouldSkip: func(attrs map[string]string) bool { return attrs[AttrGitLabIssueIID] == "2" },
+		Resources:  ResourceSet{ResourceTypeIssues: true, ResourceTypeIssueComments: true},
+		ShouldSkip: func(attrs map[string]string) bool { return attrs[AttrIssueIID] == "2" },
 	}
 	if err := s.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
@@ -262,12 +263,12 @@ func TestGitLab_scanIssues_L2Skip(t *testing.T) {
 
 	var got []string
 	var mu sync.Mutex
-	yield := func(f Fragment, err error) error {
+	yield := func(f sources.Fragment, err error) error {
 		if err != nil {
 			return err
 		}
 		mu.Lock()
-		got = append(got, f.Attr(AttrGitLabIssueIID))
+		got = append(got, f.Attr(AttrIssueIID))
 		mu.Unlock()
 		return nil
 	}
@@ -298,17 +299,17 @@ func TestGitLab_scanItemNotes_StampsCommentURL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := &GitLab{
+	s := &Source{
 		URL:     server.URL + "/g/p/-/merge_requests/7",
 		BaseURL: server.URL + "/",
 		Token:   "t",
 	}
 	var gotURL string
-	err := s.scanItemNotes(context.Background(), 1, "merge_requests", 7, parentURL, AttrGitLabMRIID, "7", func(f Fragment, err error) error {
+	err := s.scanItemNotes(context.Background(), 1, "merge_requests", 7, parentURL, AttrMRIID, "7", func(f sources.Fragment, err error) error {
 		if err != nil {
 			return err
 		}
-		gotURL = f.Attr(AttrURL)
+		gotURL = f.Attr(sources.AttrURL)
 		return nil
 	})
 	if err != nil {
@@ -345,13 +346,13 @@ func TestGitLab_scanSingleRelease_ScansSourceArchives(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := &GitLab{
+	s := &Source{
 		URL:       server.URL + "/g/p/-/releases/v1.0",
 		BaseURL:   server.URL + "/",
 		Token:     "t",
-		Resources: GitLabResourceSet{GitLabResourceTypeReleases: true, GitLabResourceTypeReleaseAssets: true},
+		Resources: ResourceSet{ResourceTypeReleases: true, ResourceTypeReleaseAssets: true},
 	}
-	err := s.scanSingleRelease(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, "v1.0", func(Fragment, error) error { return nil })
+	err := s.scanSingleRelease(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, "v1.0", func(sources.Fragment, error) error { return nil })
 	if err != nil {
 		t.Fatalf("scanSingleRelease: %v", err)
 	}
@@ -369,34 +370,34 @@ func TestGitLab_scanSingleRelease_ScansSourceArchives(t *testing.T) {
 // attrs on incoming fragments and applies the per-fragment skip filter.
 func TestGitLab_wrapGitLabYield_stampsAndSkips(t *testing.T) {
 	projectAttrs := map[string]string{
-		AttrGitLabProjectID:   "1",
-		AttrGitLabProjectPath: "g/p",
+		AttrProjectID:   "1",
+		AttrProjectPath: "g/p",
 	}
 	var got []map[string]string
-	yield := func(f Fragment, err error) error {
+	yield := func(f sources.Fragment, err error) error {
 		got = append(got, f.Attributes)
 		return nil
 	}
 
 	skip := func(attrs map[string]string) bool {
-		return attrs[AttrGitSHA] == "deadbeef"
+		return attrs[sources.AttrGitSHA] == "deadbeef"
 	}
 	wrapped := wrapGitLabYield(skip, projectAttrs, yield)
 
 	// 1) Fragment with no overlap → both attrs stamped, not skipped.
-	_ = wrapped(Fragment{Attributes: map[string]string{AttrGitSHA: "cafe"}}, nil)
+	_ = wrapped(sources.Fragment{Attributes: map[string]string{sources.AttrGitSHA: "cafe"}}, nil)
 	// 2) Fragment matching skip predicate → dropped.
-	_ = wrapped(Fragment{Attributes: map[string]string{AttrGitSHA: "deadbeef"}}, nil)
+	_ = wrapped(sources.Fragment{Attributes: map[string]string{sources.AttrGitSHA: "deadbeef"}}, nil)
 	// 3) Fragment with overlapping attr → existing value preserved.
-	_ = wrapped(Fragment{Attributes: map[string]string{AttrGitLabProjectID: "999"}}, nil)
+	_ = wrapped(sources.Fragment{Attributes: map[string]string{AttrProjectID: "999"}}, nil)
 
 	if len(got) != 2 {
 		t.Fatalf("yielded %d fragments, want 2", len(got))
 	}
-	if got[0][AttrGitLabProjectID] != "1" || got[0][AttrGitLabProjectPath] != "g/p" {
+	if got[0][AttrProjectID] != "1" || got[0][AttrProjectPath] != "g/p" {
 		t.Errorf("first fragment missing stamped project attrs: %v", got[0])
 	}
-	if got[1][AttrGitLabProjectID] != "999" {
+	if got[1][AttrProjectID] != "999" {
 		t.Errorf("overlapping attr should not be overwritten; got %v", got[1])
 	}
 }
@@ -469,7 +470,7 @@ func TestGitLab_buildAPIBase(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.base, func(t *testing.T) {
-			s := &GitLab{BaseURL: tc.base}
+			s := &Source{BaseURL: tc.base}
 			u, err := s.buildAPIBase()
 			if err != nil {
 				t.Fatalf("buildAPIBase: %v", err)
@@ -495,7 +496,7 @@ func TestGitLab_downloadAndScan_UsesRetryTransport(t *testing.T) {
 	defer server.Close()
 
 	var slept time.Duration
-	s := &GitLab{
+	s := &Source{
 		URL:     server.URL + "/g/p/-/snippets/1",
 		BaseURL: server.URL + "/",
 		Token:   "t",
@@ -509,7 +510,7 @@ func TestGitLab_downloadAndScan_UsesRetryTransport(t *testing.T) {
 			},
 		},
 	}
-	if err := s.downloadAndScan(context.Background(), server.URL+"/raw", "raw.txt", map[string]string{AttrResource: ResourceGitLabSnippet}, func(Fragment, error) error {
+	if err := s.downloadAndScan(context.Background(), server.URL+"/raw", "raw.txt", map[string]string{sources.AttrResource: ResourceSnippet}, func(sources.Fragment, error) error {
 		return nil
 	}); err != nil {
 		t.Fatalf("downloadAndScan: %v", err)
@@ -535,9 +536,9 @@ func TestGitLab_downloadAndScan_DoesNotSendTokenToExternalURL(t *testing.T) {
 	}))
 	defer external.Close()
 
-	s := &GitLab{URL: api.URL + "/g/p/-/releases/v1", BaseURL: api.URL + "/", Token: "secret"}
+	s := &Source{URL: api.URL + "/g/p/-/releases/v1", BaseURL: api.URL + "/", Token: "secret"}
 	externalURL := strings.Replace(external.URL, "127.0.0.1", "localhost", 1)
-	if err := s.downloadAndScan(context.Background(), externalURL+"/asset.zip", "asset.txt", map[string]string{AttrResource: ResourceGitLabReleaseAsset}, func(Fragment, error) error {
+	if err := s.downloadAndScan(context.Background(), externalURL+"/asset.zip", "asset.txt", map[string]string{sources.AttrResource: ResourceReleaseAsset}, func(sources.Fragment, error) error {
 		return nil
 	}); err != nil {
 		t.Fatalf("downloadAndScan: %v", err)
@@ -555,8 +556,8 @@ func TestGitLab_downloadAndScan_SendsTokenToGitLabHost(t *testing.T) {
 	}))
 	defer api.Close()
 
-	s := &GitLab{URL: api.URL + "/g/p/-/snippets/1", BaseURL: api.URL + "/", Token: "secret"}
-	if err := s.downloadAndScan(context.Background(), api.URL+"/api/v4/projects/1/snippets/1/raw", "snippet.txt", map[string]string{AttrResource: ResourceGitLabSnippet}, func(Fragment, error) error {
+	s := &Source{URL: api.URL + "/g/p/-/snippets/1", BaseURL: api.URL + "/", Token: "secret"}
+	if err := s.downloadAndScan(context.Background(), api.URL+"/api/v4/projects/1/snippets/1/raw", "snippet.txt", map[string]string{sources.AttrResource: ResourceSnippet}, func(sources.Fragment, error) error {
 		return nil
 	}); err != nil {
 		t.Fatalf("downloadAndScan: %v", err)
@@ -583,14 +584,14 @@ func TestGitLab_scanDirectJob_ScansOnlyRequestedJob(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := &GitLab{
+	s := &Source{
 		URL:       server.URL + "/g/p/-/jobs/9001",
 		BaseURL:   server.URL + "/",
 		Token:     "t",
-		Resources: GitLabResourceSet{GitLabResourceTypeCIJobs: true, GitLabResourceTypeCIArtifacts: true},
+		Resources: ResourceSet{ResourceTypeCIJobs: true, ResourceTypeCIArtifacts: true},
 	}
-	target := &gitlabTarget{Kind: "job", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedGitLabURL{ID: "9001"}}
-	if err := s.scanDirect(context.Background(), target, func(Fragment, error) error { return nil }); err != nil {
+	target := &gitlabTarget{Kind: "job", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedURL{ID: "9001"}}
+	if err := s.scanDirect(context.Background(), target, func(sources.Fragment, error) error { return nil }); err != nil {
 		t.Fatalf("scanDirect: %v", err)
 	}
 	for _, p := range requested {
@@ -620,14 +621,14 @@ func TestGitLab_scanDirectPipeline_UsesPipelineJobsEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := &GitLab{
+	s := &Source{
 		URL:       server.URL + "/g/p/-/pipelines/8001",
 		BaseURL:   server.URL + "/",
 		Token:     "t",
-		Resources: GitLabResourceSet{GitLabResourceTypeCIJobs: true},
+		Resources: ResourceSet{ResourceTypeCIJobs: true},
 	}
-	target := &gitlabTarget{Kind: "pipeline", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedGitLabURL{ID: "8001"}}
-	if err := s.scanDirect(context.Background(), target, func(Fragment, error) error { return nil }); err != nil {
+	target := &gitlabTarget{Kind: "pipeline", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedURL{ID: "8001"}}
+	if err := s.scanDirect(context.Background(), target, func(sources.Fragment, error) error { return nil }); err != nil {
 		t.Fatalf("scanDirect: %v", err)
 	}
 	for _, p := range requested {
@@ -654,14 +655,14 @@ func TestGitLab_scanCIJobs_StopsAtSinceBoundary(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := &GitLab{
+	s := &Source{
 		URL:           server.URL + "/g/p",
 		BaseURL:       server.URL + "/",
 		Token:         "t",
-		Resources:     GitLabResourceSet{GitLabResourceTypeCIJobs: true},
+		Resources:     ResourceSet{ResourceTypeCIJobs: true},
 		DateRangeOpts: DateRangeOptions{Since: since},
 	}
-	if err := s.scanCIJobs(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, func(Fragment, error) error { return nil }); err != nil {
+	if err := s.scanCIJobs(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, func(sources.Fragment, error) error { return nil }); err != nil {
 		t.Fatalf("scanCIJobs: %v", err)
 	}
 	if got := fmt.Sprint(pages); got != "[1]" {

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/detect"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/s3"
 )
 
 type S3Cmd struct {
@@ -33,7 +33,7 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 	jobs := resolveJobPlan(options.Jobs, objectJobProfile)
 	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "", detect.WithJobs(jobs.Detector))
 
-	src := &sources.S3{
+	src := &s3.Source{
 		Logger:          runtime.Logger(),
 		URL:             options.URL,
 		Region:          options.Region,

@@ -134,6 +134,25 @@ Use `config.LoadFile` to load an application-owned `betterleaks.toml`,
 `detect.WithLogger` to attach an application-owned `slog.Logger`. For streaming
 input, pass a `sources.Reader` to `Detector.Scan`.
 
+Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
+`sources.Git`. Provider integrations have their own packages:
+
+```go
+import "github.com/betterleaks/betterleaks/v2/sources/github"
+
+src := &github.Source{
+    URL: "https://github.com/example/project",
+    Token: token,
+    ShouldSkip: detector.SkipFunc(),
+}
+summary, err := detector.Scan(ctx, src, handler)
+```
+
+GitLab, Hugging Face, and S3 use `sources/gitlab`, `sources/huggingface`, and
+`sources/s3`, each with a `Source` type. Provider-specific constants live there
+as well: `github.AttrOwner` and `github.ResourceIssue`, for example. Attribute
+strings such as `"github.owner"` and `"github.issue"` are unchanged.
+
 See the [`detect` package documentation](https://pkg.go.dev/github.com/betterleaks/betterleaks/v2/detect)
 for complete default-config and custom-config examples.
 

@@ -1,4 +1,4 @@
-package sources
+package github
 
 import (
 	"context"
@@ -20,6 +20,10 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
+	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
@@ -37,9 +41,9 @@ const (
 	gqlThreadsTailFirst  = 50
 )
 
-// GitHub enumerates repositories via the GitHub API and delegates scanning
-// to the Git source for each cloned repo.
-type GitHub struct {
+// Source enumerates repositories via the GitHub API and delegates scanning
+// to the sources.Git source for each cloned repo.
+type Source struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger *slog.Logger
 	// Auth
@@ -56,14 +60,14 @@ type GitHub struct {
 	// Resources controls which resource types to scan.
 	// Populated automatically by Validate from Include/Exclude when empty,
 	// or set directly by callers who want programmatic control.
-	Resources GitHubResourceSet
+	Resources ResourceSet
 
-	// Scan config (passed through to Git per repo)
-	ShouldSkip      SkipFunc
+	// Scan config (passed through to sources.Git per repo)
+	ShouldSkip      sources.SkipFunc
 	MaxArchiveDepth int
 	Jobs            int // 0 is automatic
 	LogOpts         string
-	budget          *jobBudget
+	budget          *sourcejobs.Budget
 
 	// GitHub API
 	BaseURL       string // GitHub Enterprise base URL; empty = github.com
@@ -95,53 +99,53 @@ type DateRangeOptions struct {
 	Until time.Time // only scan items created before this time (zero = no upper bound)
 }
 
-// GitHubResourceType identifies a scannable GitHub resource category.
-type GitHubResourceType string
+// ResourceType identifies a scannable GitHub resource category.
+type ResourceType string
 
 const (
-	GitHubResourceTypeRepos           GitHubResourceType = "repos"
-	GitHubResourceTypeForks           GitHubResourceType = "forks"
-	GitHubResourceTypePRs             GitHubResourceType = "prs"
-	GitHubResourceTypePRComments      GitHubResourceType = "pr-comments"
-	GitHubResourceTypeIssues          GitHubResourceType = "issues"
-	GitHubResourceTypeIssueComments   GitHubResourceType = "issue-comments"
-	GitHubResourceTypeActions         GitHubResourceType = "actions"
-	GitHubResourceTypeActionArtifacts GitHubResourceType = "action-artifacts"
-	GitHubResourceTypeDiscussions     GitHubResourceType = "discussions"
-	GitHubResourceTypeReleases        GitHubResourceType = "releases"
-	GitHubResourceTypeReleaseAssets   GitHubResourceType = "release-assets"
-	GitHubResourceTypeGists           GitHubResourceType = "gists"
+	ResourceTypeRepos           ResourceType = "repos"
+	ResourceTypeForks           ResourceType = "forks"
+	ResourceTypePRs             ResourceType = "prs"
+	ResourceTypePRComments      ResourceType = "pr-comments"
+	ResourceTypeIssues          ResourceType = "issues"
+	ResourceTypeIssueComments   ResourceType = "issue-comments"
+	ResourceTypeActions         ResourceType = "actions"
+	ResourceTypeActionArtifacts ResourceType = "action-artifacts"
+	ResourceTypeDiscussions     ResourceType = "discussions"
+	ResourceTypeReleases        ResourceType = "releases"
+	ResourceTypeReleaseAssets   ResourceType = "release-assets"
+	ResourceTypeGists           ResourceType = "gists"
 )
 
-// AllGitHubResourceTypes is the canonical list of valid GitHub resource types.
-var AllGitHubResourceTypes = []GitHubResourceType{
-	GitHubResourceTypeRepos,
-	GitHubResourceTypeForks,
-	GitHubResourceTypePRs,
-	GitHubResourceTypePRComments,
-	GitHubResourceTypeIssues,
-	GitHubResourceTypeIssueComments,
-	GitHubResourceTypeActions,
-	GitHubResourceTypeActionArtifacts,
-	GitHubResourceTypeDiscussions,
-	GitHubResourceTypeReleases,
-	GitHubResourceTypeReleaseAssets,
-	GitHubResourceTypeGists,
+// AllResourceTypes is the canonical list of valid GitHub resource types.
+var AllResourceTypes = []ResourceType{
+	ResourceTypeRepos,
+	ResourceTypeForks,
+	ResourceTypePRs,
+	ResourceTypePRComments,
+	ResourceTypeIssues,
+	ResourceTypeIssueComments,
+	ResourceTypeActions,
+	ResourceTypeActionArtifacts,
+	ResourceTypeDiscussions,
+	ResourceTypeReleases,
+	ResourceTypeReleaseAssets,
+	ResourceTypeGists,
 }
 
-// GitHubResourceSet tracks which resource types are enabled for scanning.
-type GitHubResourceSet map[GitHubResourceType]bool
+// ResourceSet tracks which resource types are enabled for scanning.
+type ResourceSet map[ResourceType]bool
 
 // Has reports whether the set contains the given resource type.
-func (rs GitHubResourceSet) Has(r GitHubResourceType) bool { return rs[r] }
+func (rs ResourceSet) Has(r ResourceType) bool { return rs[r] }
 
 // HasAnyIssueOrPR reports whether any issue, PR, or comment resource is enabled (C4).
-func (rs GitHubResourceSet) HasAnyIssueOrPR() bool {
-	return rs[GitHubResourceTypeIssues] || rs[GitHubResourceTypePRs] ||
-		rs[GitHubResourceTypeIssueComments] || rs[GitHubResourceTypePRComments]
+func (rs ResourceSet) HasAnyIssueOrPR() bool {
+	return rs[ResourceTypeIssues] || rs[ResourceTypePRs] ||
+		rs[ResourceTypeIssueComments] || rs[ResourceTypePRComments]
 }
 
-func (rs GitHubResourceSet) String() string {
+func (rs ResourceSet) String() string {
 	var out []string
 	for rt := range rs {
 		out = append(out, string(rt))
@@ -150,60 +154,60 @@ func (rs GitHubResourceSet) String() string {
 }
 
 // defaultScanResources lists the default resource types each URL kind scans.
-var defaultScanResources = map[string][]GitHubResourceType{
-	"owner":       {GitHubResourceTypeRepos},
-	"repo":        {GitHubResourceTypeRepos},
-	"issue":       {GitHubResourceTypeIssues, GitHubResourceTypeIssueComments},
-	"pr":          {GitHubResourceTypePRs, GitHubResourceTypePRComments},
-	"discussion":  {GitHubResourceTypeDiscussions},
-	"release":     {GitHubResourceTypeReleases, GitHubResourceTypeReleaseAssets},
-	"actions_run": {GitHubResourceTypeActions, GitHubResourceTypeActionArtifacts},
-	"gist":        {GitHubResourceTypeGists},
+var defaultScanResources = map[string][]ResourceType{
+	"owner":       {ResourceTypeRepos},
+	"repo":        {ResourceTypeRepos},
+	"issue":       {ResourceTypeIssues, ResourceTypeIssueComments},
+	"pr":          {ResourceTypePRs, ResourceTypePRComments},
+	"discussion":  {ResourceTypeDiscussions},
+	"release":     {ResourceTypeReleases, ResourceTypeReleaseAssets},
+	"actions_run": {ResourceTypeActions, ResourceTypeActionArtifacts},
+	"gist":        {ResourceTypeGists},
 }
 
-func (s *GitHub) logScanStart() {
-	loggerOrDiscard(s.Logger).Info("starting GitHub scan", "target", s.URL, "resources", s.Resources)
+func (s *Source) logScanStart() {
+	sourceutil.LoggerOrDiscard(s.Logger).Info("starting GitHub scan", "target", s.URL, "resources", s.Resources)
 }
 
 // Validate checks the GitHub source configuration and populates Resources if needed.
-func (s *GitHub) Validate() error {
+func (s *Source) Validate() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
 	}
 
-	parsed, err := ParseGitHubURL(s.URL)
+	parsed, err := ParseURL(s.URL)
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
 
 	// Resolve Resources unless the caller pre-populated them.
 	if len(s.Resources) == 0 {
-		valid := make(map[GitHubResourceType]bool, len(AllGitHubResourceTypes))
-		for _, rt := range AllGitHubResourceTypes {
+		valid := make(map[ResourceType]bool, len(AllResourceTypes))
+		for _, rt := range AllResourceTypes {
 			valid[rt] = true
 		}
-		rs := make(GitHubResourceSet)
+		rs := make(ResourceSet)
 		for _, rt := range defaultScanResources[parsed.Resource] {
 			rs[rt] = true
 		}
 		for _, name := range s.Include {
-			rt := GitHubResourceType(name)
+			rt := ResourceType(name)
 			if !valid[rt] {
 				return fmt.Errorf("unknown resource type %q", name)
 			}
 			rs[rt] = true
 		}
-		excluded := make(map[GitHubResourceType]bool)
+		excluded := make(map[ResourceType]bool)
 		for _, name := range s.Exclude {
-			rt := GitHubResourceType(name)
+			rt := ResourceType(name)
 			if !valid[rt] {
 				return fmt.Errorf("unknown resource type %q", name)
 			}
 			excluded[rt] = true
 			delete(rs, rt)
 		}
-		if rs[GitHubResourceTypeReleases] && !excluded[GitHubResourceTypeReleaseAssets] {
-			rs[GitHubResourceTypeReleaseAssets] = true
+		if rs[ResourceTypeReleases] && !excluded[ResourceTypeReleaseAssets] {
+			rs[ResourceTypeReleaseAssets] = true
 		}
 		s.Resources = rs
 	}
@@ -217,7 +221,7 @@ func (s *GitHub) Validate() error {
 		return errors.New("a token is required to scan an organization or user")
 	case "repo":
 		for rt := range s.Resources {
-			if rt != GitHubResourceTypeRepos && rt != GitHubResourceTypeForks {
+			if rt != ResourceTypeRepos && rt != ResourceTypeForks {
 				return fmt.Errorf("a token is required for API-based resources; only repos and forks can be scanned without a token")
 			}
 		}
@@ -228,7 +232,7 @@ func (s *GitHub) Validate() error {
 }
 
 // Fragments enumerates GitHub repos and scans each one.
-func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -243,10 +247,10 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	if err != nil {
 		return err
 	}
-	jobs, budget := ensureJobBudget(s.Jobs, automaticProviderJobs(), s.budget)
+	jobs, budget := sourcejobs.EnsureBudget(s.Jobs, sourcejobs.AutomaticProvider(), s.budget)
 	s.Jobs = jobs
 	s.budget = budget
-	targetJobs := providerTargetJobs(jobs, direct || target.Resource == "repo")
+	targetJobs := sourcejobs.ProviderTargets(jobs, direct || target.Resource == "repo")
 
 	client := s.newClient(ctx)
 	s.gqlClient = s.newGraphQLClient(ctx)
@@ -262,11 +266,11 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	var scanGroup errgroup.Group
 	scanGroup.SetLimit(targetJobs)
 
-	if target.Resource == "user" && s.Resources.Has(GitHubResourceTypeGists) {
+	if target.Resource == "user" && s.Resources.Has(ResourceTypeGists) {
 		scanGroup.Go(func() error {
 			return s.scanUserGists(scanCtx, client, target.Owner, yield)
 		})
-		if !s.Resources.Has(GitHubResourceTypeRepos) {
+		if !s.Resources.Has(ResourceTypeRepos) {
 			return scanGroup.Wait()
 		}
 
@@ -290,18 +294,18 @@ func (s *GitHub) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 		return combined
 	}
-	loggerOrDiscard(s.Logger).Info("enumeration complete, waiting for scans", "repos", repoCount.Load(), "duration", time.Since(start))
+	sourceutil.LoggerOrDiscard(s.Logger).Info("enumeration complete, waiting for scans", "repos", repoCount.Load(), "duration", time.Since(start))
 
 	scanErr := scanGroup.Wait()
-	loggerOrDiscard(s.Logger).Info("scan complete", "repos", repoCount.Load(), "duration", time.Since(start))
+	sourceutil.LoggerOrDiscard(s.Logger).Info("scan complete", "repos", repoCount.Load(), "duration", time.Since(start))
 
 	return scanErr
 }
 
 // dispatchURL resolves a raw GitHub URL into either a direct resource scan or
 // a repository-enumeration target. It does not mutate GitHub target state.
-func (s *GitHub) dispatchURL(ctx context.Context, rawURL string) (*ParsedGitHubURL, bool, error) {
-	parsed, err := ParseGitHubURL(rawURL)
+func (s *Source) dispatchURL(ctx context.Context, rawURL string) (*ParsedURL, bool, error) {
+	parsed, err := ParseURL(rawURL)
 	if err != nil {
 		return nil, false, fmt.Errorf("invalid target URL: %w", err)
 	}
@@ -321,7 +325,7 @@ func (s *GitHub) dispatchURL(ctx context.Context, rawURL string) (*ParsedGitHubU
 		} else {
 			parsed.Resource = "user"
 		}
-		loggerOrDiscard(s.Logger).Info("resolved target", "owner", parsed.Owner, "type", ownerType)
+		sourceutil.LoggerOrDiscard(s.Logger).Info("resolved target", "owner", parsed.Owner, "type", ownerType)
 		return parsed, false, nil
 	case "repo":
 		return parsed, false, nil
@@ -331,7 +335,7 @@ func (s *GitHub) dispatchURL(ctx context.Context, rawURL string) (*ParsedGitHubU
 }
 
 // enumerateRepos streams repos for a URL-derived repo, org, or user target.
-func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, target *ParsedGitHubURL) (<-chan *github.Repository, <-chan error) {
+func (s *Source) enumerateRepos(ctx context.Context, client *github.Client, target *ParsedURL) (<-chan *github.Repository, <-chan error) {
 	ch := make(chan *github.Repository, 100)
 	errCh := make(chan error, 1)
 
@@ -345,11 +349,11 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 			if seen[name] {
 				return
 			}
-			if !s.Resources.Has(GitHubResourceTypeForks) && r.GetFork() {
+			if !s.Resources.Has(ResourceTypeForks) && r.GetFork() {
 				return
 			}
 			if s.isExcluded(name) {
-				loggerOrDiscard(s.Logger).Debug("excluding repo", "repo", name)
+				sourceutil.LoggerOrDiscard(s.Logger).Debug("excluding repo", "repo", name)
 				return
 			}
 			seen[name] = true
@@ -362,7 +366,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 		switch target.Resource {
 		case "repo":
 			slug := target.Owner + "/" + target.Repo
-			loggerOrDiscard(s.Logger).Debug("fetching repo metadata", "repo", slug)
+			sourceutil.LoggerOrDiscard(s.Logger).Debug("fetching repo metadata", "repo", slug)
 			repo, err := s.fetchRepo(ctx, client, target.Owner, target.Repo)
 			if err != nil {
 				errCh <- fmt.Errorf("fetch repo %s: %w", slug, err)
@@ -370,7 +374,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 			}
 			send(repo)
 		case "org":
-			loggerOrDiscard(s.Logger).Info("enumerating org repos", "org", target.Owner)
+			sourceutil.LoggerOrDiscard(s.Logger).Info("enumerating org repos", "org", target.Owner)
 			err := s.streamRepos(target.Owner, func(page int) ([]*github.Repository, *github.Response, error) {
 				return client.Repositories.ListByOrg(ctx, target.Owner, &github.RepositoryListByOrgOptions{
 					Type: "all", ListOptions: github.ListOptions{PerPage: itemsPerPage, Page: page},
@@ -381,7 +385,7 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 				return
 			}
 		case "user":
-			loggerOrDiscard(s.Logger).Info("enumerating user repos", "user", target.Owner)
+			sourceutil.LoggerOrDiscard(s.Logger).Info("enumerating user repos", "user", target.Owner)
 			err := s.streamRepos(target.Owner, func(page int) ([]*github.Repository, *github.Response, error) {
 				return client.Repositories.ListByUser(ctx, target.Owner, &github.RepositoryListByUserOptions{
 					Type: "all", ListOptions: github.ListOptions{PerPage: itemsPerPage, Page: page},
@@ -404,16 +408,16 @@ func (s *GitHub) enumerateRepos(ctx context.Context, client *github.Client, targ
 
 // scanRepo runs all scans for a single repo under the shared top-level job pool.
 // Git history remains non-fatal; API-backed scans still return errors.
-func (s *GitHub) scanRepo(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
+func (s *Source) scanRepo(ctx context.Context, client *github.Client, repo *github.Repository, yield sources.FragmentsFunc) error {
 	return s.scanRepoWithJobs(ctx, client, repo, 0, yield)
 }
 
-func (s *GitHub) scanRepoWithJobs(ctx context.Context, client *github.Client, repo *github.Repository, jobs int, yield FragmentsFunc) error {
+func (s *Source) scanRepoWithJobs(ctx context.Context, client *github.Client, repo *github.Repository, jobs int, yield sources.FragmentsFunc) error {
 	name := repo.GetFullName()
-	logger := loggerOrDiscard(s.Logger).With("repo", name)
+	logger := sourceutil.LoggerOrDiscard(s.Logger).With("repo", name)
 	repoAttrs := s.repoAttributes(repo, "")
 
-	if s.ShouldSkip != nil && s.ShouldSkip(s.repoAttributes(repo, ResourceGitHubRepo)) {
+	if s.ShouldSkip != nil && s.ShouldSkip(s.repoAttributes(repo, ResourceRepo)) {
 		logger.Debug("skipping repository based on prefilter")
 		return nil
 	}
@@ -445,10 +449,10 @@ func (s *GitHub) scanRepoWithJobs(ctx context.Context, client *github.Client, re
 		return nil
 	}
 
-	if s.Resources.Has(GitHubResourceTypeRepos) {
-		_ = run(string(GitHubResourceTypeRepos), func() error { return s.scanRepoGit(ctx, repo, jobs, ghYield) })
+	if s.Resources.Has(ResourceTypeRepos) {
+		_ = run(string(ResourceTypeRepos), func() error { return s.scanRepoGit(ctx, repo, jobs, ghYield) })
 	}
-	if s.Resources.Has(GitHubResourceTypeActions) {
+	if s.Resources.Has(ResourceTypeActions) {
 		if err := run("actions", func() error { return s.scanActionsWithJobs(ctx, client, repo, jobs, ghYield) }); err != nil {
 			return err
 		}
@@ -458,12 +462,12 @@ func (s *GitHub) scanRepoWithJobs(ctx context.Context, client *github.Client, re
 			return err
 		}
 	}
-	if s.Resources.Has(GitHubResourceTypeDiscussions) {
+	if s.Resources.Has(ResourceTypeDiscussions) {
 		if err := run("discussions", func() error { return s.scanDiscussions(ctx, repo, ghYield) }); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(GitHubResourceTypeReleases) {
+	if s.Resources.Has(ResourceTypeReleases) {
 		if err := run("releases", func() error { return s.scanReleases(ctx, client, repo, ghYield) }); err != nil {
 			return err
 		}
@@ -474,9 +478,9 @@ func (s *GitHub) scanRepoWithJobs(ctx context.Context, client *github.Client, re
 
 // wrapYieldWithAttrs returns a yield function that stamps attrs on every fragment,
 // applies ShouldSkip, and serializes calls through a mutex.
-func (s *GitHub) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc) FragmentsFunc {
+func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.FragmentsFunc) sources.FragmentsFunc {
 	var mu sync.Mutex
-	return func(fragment Fragment, err error) error {
+	return func(fragment sources.Fragment, err error) error {
 		if err == nil {
 			for k, v := range attrs {
 				if v == "" || fragment.Attr(k) != "" {
@@ -497,7 +501,7 @@ func (s *GitHub) wrapYieldWithAttrs(attrs map[string]string, yield FragmentsFunc
 // inDateRange returns true if t falls within the configured Since/Until window.
 // Returns "skip" (before Since), "stop" (after Since in DESC order = early termination),
 // or "ok". For ascending-order results, callers should treat "stop" as "skip".
-func (s *GitHub) inDateRange(t time.Time) (ok bool, terminate bool) {
+func (s *Source) inDateRange(t time.Time) (ok bool, terminate bool) {
 	if !s.DateRangeOpts.Since.IsZero() && t.Before(s.DateRangeOpts.Since) {
 		return false, true // older than Since in DESC order = done
 	}
@@ -507,28 +511,28 @@ func (s *GitHub) inDateRange(t time.Time) (ok bool, terminate bool) {
 	return true, false
 }
 
-func (s *GitHub) repoAttributes(repo *github.Repository, resource string) map[string]string {
+func (s *Source) repoAttributes(repo *github.Repository, resource string) map[string]string {
 	attrs := map[string]string{
-		AttrGitHubOwner:      repo.GetOwner().GetLogin(),
-		AttrGitHubOwnerType:  repo.GetOwner().GetType(),
-		AttrGitHubRepo:       repo.GetName(),
-		AttrGitHubRepoURL:    repo.GetHTMLURL(),
-		AttrGitHubVisibility: repo.GetVisibility(),
+		AttrOwner:      repo.GetOwner().GetLogin(),
+		AttrOwnerType:  repo.GetOwner().GetType(),
+		AttrRepo:       repo.GetName(),
+		AttrRepoURL:    repo.GetHTMLURL(),
+		AttrVisibility: repo.GetVisibility(),
 	}
 	if resource != "" {
-		attrs[AttrResource] = resource
+		attrs[sources.AttrResource] = resource
 	}
 	return attrs
 }
 
 // fetchRepo gets a single repo by owner/name.
-func (s *GitHub) fetchRepo(ctx context.Context, client *github.Client, owner, name string) (*github.Repository, error) {
+func (s *Source) fetchRepo(ctx context.Context, client *github.Client, owner, name string) (*github.Repository, error) {
 	repo, _, err := client.Repositories.Get(ctx, owner, name)
 	return repo, err
 }
 
 // streamRepos paginates a repo listing endpoint, calling send for each repo.
-func (s *GitHub) streamRepos(label string,
+func (s *Source) streamRepos(label string,
 	listFn func(page int) ([]*github.Repository, *github.Response, error),
 	send func(*github.Repository),
 ) error {
@@ -547,7 +551,7 @@ func (s *GitHub) streamRepos(label string,
 			args = append(args, "total_pages", resp.LastPage)
 		}
 		args = append(args, "repos_so_far", total)
-		loggerOrDiscard(s.Logger).Info("enumerating repos", args...)
+		sourceutil.LoggerOrDiscard(s.Logger).Info("enumerating repos", args...)
 		if resp.NextPage == 0 {
 			break
 		}
@@ -557,7 +561,7 @@ func (s *GitHub) streamRepos(label string,
 }
 
 // isExcluded checks if a repo full name matches any exclusion glob.
-func (s *GitHub) isExcluded(fullName string) bool {
+func (s *Source) isExcluded(fullName string) bool {
 	for _, pattern := range s.ExcludeRepos {
 		if matched, _ := filepath.Match(pattern, fullName); matched {
 			return true
@@ -566,8 +570,8 @@ func (s *GitHub) isExcluded(fullName string) bool {
 	return false
 }
 
-func (s *GitHub) downloadAndScan(ctx context.Context, rawURL string, reader io.ReadCloser, path string, attrs map[string]string, bearerToken string, yield FragmentsFunc) error {
-	return downloadAndScanSource(ctx, sourceDownloadOptions{
+func (s *Source) downloadAndScan(ctx context.Context, rawURL string, reader io.ReadCloser, path string, attrs map[string]string, bearerToken string, yield sources.FragmentsFunc) error {
+	return download.Scan(ctx, download.Options{
 		URL:             rawURL,
 		Reader:          reader,
 		Path:            path,
@@ -583,7 +587,7 @@ func (s *GitHub) downloadAndScan(ctx context.Context, rawURL string, reader io.R
 // apiHost returns the host the GitHub bearer token is scoped to (REST / GraphQL).
 // It falls back to api.github.com when not using GitHub Enterprise or when BaseURL
 // cannot be parsed.
-func (s *GitHub) apiHost() string {
+func (s *Source) apiHost() string {
 	if s.BaseURL == "" {
 		return "api.github.com"
 	}
@@ -596,7 +600,7 @@ func (s *GitHub) apiHost() string {
 
 // newClient creates a GitHub API client with optional token auth and GHE support.
 // Fragments must have initialized s.restRetry before calling this.
-func (s *GitHub) newClient(ctx context.Context) *github.Client {
+func (s *Source) newClient(ctx context.Context) *github.Client {
 	if s.restRetry == nil {
 		s.restRetry = httpclient.NewRetryTransport(nil)
 		s.restRetry.Decider = githubRetryDecider
@@ -607,7 +611,7 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 	if s.BaseURL != "" {
 		c, err := client.WithEnterpriseURLs(s.BaseURL, s.BaseURL)
 		if err != nil {
-			loggerOrDiscard(s.Logger).Warn("could not configure GHE URL, using github.com", "error", err, "url", s.BaseURL)
+			sourceutil.LoggerOrDiscard(s.Logger).Warn("could not configure GHE URL, using github.com", "error", err, "url", s.BaseURL)
 		} else {
 			client = c
 		}
@@ -616,29 +620,28 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 }
 
 // scanRepoGit clones and scans a repo's git history.
-func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, jobs int, yield FragmentsFunc) error {
+func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, jobs int, yield sources.FragmentsFunc) error {
 	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		src := &Git{
+		src := &sources.Git{
 			Logger:   s.Logger,
 			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 			Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			LogOpts:         s.LogOpts, Jobs: jobs,
-			budget: s.budget,
 		}
-		return src.Fragments(ctx, yield)
+		return src.Fragments(sourcejobs.WithBudget(ctx, s.budget), yield)
 	})
 }
 
 // scanActions scans workflow run logs (and optionally artifacts) for a repo.
-func (s *GitHub) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
+func (s *Source) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield sources.FragmentsFunc) error {
 	return s.scanActionsWithJobs(ctx, client, repo, s.Jobs, yield)
 }
 
-func (s *GitHub) scanActionsWithJobs(ctx context.Context, client *github.Client, repo *github.Repository, configuredJobs int, yield FragmentsFunc) error {
+func (s *Source) scanActionsWithJobs(ctx context.Context, client *github.Client, repo *github.Repository, configuredJobs int, yield sources.FragmentsFunc) error {
 	owner := repo.GetOwner().GetLogin()
 	repoName := repo.GetName()
-	jobs := jobsWithinBudget(configuredJobs, defaultActionsJobs, s.budget)
+	jobs := sourcejobs.WithinBudget(configuredJobs, defaultActionsJobs, s.budget)
 
 	runs := make(chan *github.WorkflowRun, jobs)
 	g, gctx := errgroup.WithContext(ctx)
@@ -665,17 +668,17 @@ func (s *GitHub) scanActionsWithJobs(ctx context.Context, client *github.Client,
 					if !ok {
 						return nil
 					}
-					err := s.budget.run(gctx, func() error {
+					err := s.budget.Run(gctx, func() error {
 						if err := s.scanRunLogs(gctx, client, owner, repoName, run, yield); err != nil {
 							if !isGitHubGone(err) {
-								loggerOrDiscard(s.Logger).Error("could not scan run logs", "error", err, "run_id", run.GetID())
+								sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan run logs", "error", err, "run_id", run.GetID())
 								return fmt.Errorf("scan run %d logs: %w", run.GetID(), err)
 							}
 						}
-						if s.Resources.Has(GitHubResourceTypeActionArtifacts) {
+						if s.Resources.Has(ResourceTypeActionArtifacts) {
 							if err := s.scanRunArtifacts(gctx, client, owner, repoName, run, yield); err != nil {
 								if !isGitHubGone(err) {
-									loggerOrDiscard(s.Logger).Error("could not scan run artifacts", "error", err, "run_id", run.GetID())
+									sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan run artifacts", "error", err, "run_id", run.GetID())
 									return fmt.Errorf("scan run %d artifacts: %w", run.GetID(), err)
 								}
 							}
@@ -697,7 +700,7 @@ func (s *GitHub) scanActionsWithJobs(ctx context.Context, client *github.Client,
 }
 
 // streamWorkflowRuns lists runs for a repo, respecting date-range and workflow filters.
-func (s *GitHub) streamWorkflowRuns(ctx context.Context, client *github.Client, owner, repo string, send func(*github.WorkflowRun) error) error {
+func (s *Source) streamWorkflowRuns(ctx context.Context, client *github.Client, owner, repo string, send func(*github.WorkflowRun) error) error {
 	opts := &github.ListWorkflowRunsOptions{
 		ListOptions: github.ListOptions{PerPage: itemsPerPage},
 	}
@@ -726,7 +729,7 @@ func (s *GitHub) streamWorkflowRuns(ctx context.Context, client *github.Client, 
 	return s.paginateWorkflowRuns(ctx, client, owner, repo, "", opts, send)
 }
 
-func (s *GitHub) paginateWorkflowRuns(ctx context.Context, client *github.Client, owner, repo, workflow string, opts *github.ListWorkflowRunsOptions, send func(*github.WorkflowRun) error) error {
+func (s *Source) paginateWorkflowRuns(ctx context.Context, client *github.Client, owner, repo, workflow string, opts *github.ListWorkflowRunsOptions, send func(*github.WorkflowRun) error) error {
 	for {
 		var (
 			result *github.WorkflowRuns
@@ -756,16 +759,16 @@ func (s *GitHub) paginateWorkflowRuns(ctx context.Context, client *github.Client
 
 func runAttrs(run *github.WorkflowRun) map[string]string {
 	return map[string]string{
-		AttrGitHubActionsRunID:   strconv.FormatInt(run.GetID(), 10),
-		AttrGitHubActionsRunName: run.GetName(),
-		AttrGitHubActionsRunURL:  run.GetHTMLURL(),
-		AttrGitHubActionsEvent:   run.GetEvent(),
-		AttrResource:             ResourceGitHubActions,
+		AttrActionsRunID:     strconv.FormatInt(run.GetID(), 10),
+		AttrActionsRunName:   run.GetName(),
+		AttrActionsRunURL:    run.GetHTMLURL(),
+		AttrActionsEvent:     run.GetEvent(),
+		sources.AttrResource: ResourceActions,
 	}
 }
 
 // scanRunLogs downloads the logs zip for a workflow run and scans it.
-func (s *GitHub) scanRunLogs(ctx context.Context, client *github.Client, owner, repo string, run *github.WorkflowRun, yield FragmentsFunc) error {
+func (s *Source) scanRunLogs(ctx context.Context, client *github.Client, owner, repo string, run *github.WorkflowRun, yield sources.FragmentsFunc) error {
 	logURL, _, err := client.Actions.GetWorkflowRunLogs(ctx, owner, repo, run.GetID(), 3)
 	if err != nil {
 		return err
@@ -775,7 +778,7 @@ func (s *GitHub) scanRunLogs(ctx context.Context, client *github.Client, owner, 
 }
 
 // scanRunArtifacts lists and scans all artifacts for a workflow run.
-func (s *GitHub) scanRunArtifacts(ctx context.Context, client *github.Client, owner, repo string, run *github.WorkflowRun, yield FragmentsFunc) error {
+func (s *Source) scanRunArtifacts(ctx context.Context, client *github.Client, owner, repo string, run *github.WorkflowRun, yield sources.FragmentsFunc) error {
 	attrs := runAttrs(run)
 	opts := &github.ListOptions{PerPage: itemsPerPage}
 	for {
@@ -789,12 +792,12 @@ func (s *GitHub) scanRunArtifacts(ctx context.Context, client *github.Client, ow
 			}
 			artifactURL, _, err := client.Actions.DownloadArtifact(ctx, owner, repo, artifact.GetID(), 3)
 			if err != nil {
-				loggerOrDiscard(s.Logger).Error("could not get artifact download URL", "error", err, "artifact", artifact.GetName())
+				sourceutil.LoggerOrDiscard(s.Logger).Error("could not get artifact download URL", "error", err, "artifact", artifact.GetName())
 				continue
 			}
-			path := fmt.Sprintf("actions/artifacts/%s/run_%s.zip", artifact.GetName(), attrs[AttrGitHubActionsRunID])
+			path := fmt.Sprintf("actions/artifacts/%s/run_%s.zip", artifact.GetName(), attrs[AttrActionsRunID])
 			if err := s.downloadAndScan(ctx, artifactURL.String(), nil, path, attrs, "", yield); err != nil {
-				loggerOrDiscard(s.Logger).Error("could not scan artifact", "error", err, "artifact", artifact.GetName())
+				sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan artifact", "error", err, "artifact", artifact.GetName())
 			}
 		}
 		if resp.NextPage == 0 {
@@ -931,7 +934,7 @@ type ghThreadCommentsTailQuery struct {
 }
 
 // newGraphQLClient constructs a githubv4 client with optional token auth and GHE support.
-func (s *GitHub) newGraphQLClient(ctx context.Context) *githubv4.Client {
+func (s *Source) newGraphQLClient(ctx context.Context) *githubv4.Client {
 	// Reuse RetryTransport so GraphQL can honor Retry-After on secondary rate
 	// limits and share the same backoff behavior as REST.
 	s.gqlRetry = httpclient.NewRetryTransport(nil)
@@ -944,7 +947,7 @@ func (s *GitHub) newGraphQLClient(ctx context.Context) *githubv4.Client {
 	// GHE: REST is at <host>/api/v3, GraphQL is at <host>/api/graphql.
 	u, err := url.Parse(s.BaseURL)
 	if err != nil {
-		loggerOrDiscard(s.Logger).Warn("could not parse GHE URL for GraphQL, falling back to github.com", "error", err, "url", s.BaseURL)
+		sourceutil.LoggerOrDiscard(s.Logger).Warn("could not parse GHE URL for GraphQL, falling back to github.com", "error", err, "url", s.BaseURL)
 		return githubv4.NewClient(httpClient)
 	}
 	before, _ := strings.CutSuffix(u.Path, "/api/v3")
@@ -958,7 +961,7 @@ func (s *GitHub) newGraphQLClient(ctx context.Context) *githubv4.Client {
 // body) are detected here: the transport pause is set so every goroutine waits
 // before its next request, then this goroutine sleeps and retries.
 // For guidance look at https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api
-func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any) error {
+func (s *Source) gqlQuery(ctx context.Context, q any, vars map[string]any) error {
 	for {
 		// Acquire a concurrency slot.
 		select {
@@ -1000,7 +1003,7 @@ func (s *GitHub) gqlQuery(ctx context.Context, q any, vars map[string]any) error
 		// next RoundTrip call blocks in waitForResume for the same duration.
 		s.gqlRetry.PauseFor(wait)
 
-		loggerOrDiscard(s.Logger).Warn("GraphQL rate limited, pausing",
+		sourceutil.LoggerOrDiscard(s.Logger).Warn("GraphQL rate limited, pausing",
 			"error", err,
 			"wait", wait.Round(time.Second),
 			"resume_at", time.Now().Add(wait).Round(time.Second),
@@ -1076,13 +1079,13 @@ func githubRateLimitStateExtractor(resp *http.Response) (int64, time.Time, bool)
 }
 
 // scanIssuesAndPRsGraphQL scans issues, PRs, and comments via the GitHub GraphQL API.
-func (s *GitHub) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
+func (s *Source) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repository, yield sources.FragmentsFunc) error {
 	owner, name := repo.GetOwner().GetLogin(), repo.GetName()
 	var (
 		issuesAfter  *githubv4.String
 		prsAfter     *githubv4.String
-		issuesDone   = !s.Resources.Has(GitHubResourceTypeIssues) && !s.Resources.Has(GitHubResourceTypeIssueComments)
-		prsDone      = !s.Resources.Has(GitHubResourceTypePRs) && !s.Resources.Has(GitHubResourceTypePRComments)
+		issuesDone   = !s.Resources.Has(ResourceTypeIssues) && !s.Resources.Has(ResourceTypeIssueComments)
+		prsDone      = !s.Resources.Has(ResourceTypePRs) && !s.Resources.Has(ResourceTypePRComments)
 		commentCount int
 	)
 	for !issuesDone || !prsDone {
@@ -1155,7 +1158,7 @@ func (s *GitHub) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repos
 type itemEmit struct {
 	title, body, url, resource string
 	numAttr, numVal            string
-	bodyRes, commentsRes       GitHubResourceType
+	bodyRes, commentsRes       ResourceType
 	comments                   ghCommentConnection
 	fetchTail                  func(githubv4.String) ([]ghComment, ghPageInfo, error)
 }
@@ -1164,11 +1167,11 @@ type itemEmit struct {
 // bodyRes gates whether the body is emitted; commentsRes gates comment scanning.
 // count tracks comments emitted (caller adds to totalComments).
 // Returns true if comments were processed (commentsRes enabled).
-func (s *GitHub) emitItemAndComments(it itemEmit, count *int, yield FragmentsFunc) (bool, error) {
+func (s *Source) emitItemAndComments(it itemEmit, count *int, yield sources.FragmentsFunc) (bool, error) {
 	if s.Resources.Has(it.bodyRes) && (it.title != "" || it.body != "") {
-		frag := Fragment{Raw: strings.TrimSpace(it.title + "\n" + it.body)}
-		frag.SetAttr(AttrURL, it.url)
-		frag.SetAttr(AttrResource, it.resource)
+		frag := sources.Fragment{Raw: strings.TrimSpace(it.title + "\n" + it.body)}
+		frag.SetAttr(sources.AttrURL, it.url)
+		frag.SetAttr(sources.AttrResource, it.resource)
 		frag.SetAttr(it.numAttr, it.numVal)
 		if err := yield(frag, nil); err != nil {
 			return false, err
@@ -1178,7 +1181,7 @@ func (s *GitHub) emitItemAndComments(it itemEmit, count *int, yield FragmentsFun
 		return false, nil
 	}
 	prNum, issueNum := "", ""
-	if it.numAttr == AttrGitHubPRNumber {
+	if it.numAttr == AttrPRNumber {
 		prNum = it.numVal
 	} else {
 		issueNum = it.numVal
@@ -1200,12 +1203,12 @@ func (s *GitHub) emitItemAndComments(it itemEmit, count *int, yield FragmentsFun
 	return true, nil
 }
 
-func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, issue ghIssueNode, totalComments *int, yield FragmentsFunc) error {
+func (s *Source) emitIssueAndComments(ctx context.Context, owner, name string, issue ghIssueNode, totalComments *int, yield sources.FragmentsFunc) error {
 	var count int
 	_, err := s.emitItemAndComments(itemEmit{
-		title: issue.Title, body: issue.Body, url: issue.Url, resource: ResourceGitHubIssue,
-		numAttr: AttrGitHubIssueNumber, numVal: strconv.Itoa(issue.Number),
-		bodyRes: GitHubResourceTypeIssues, commentsRes: GitHubResourceTypeIssueComments,
+		title: issue.Title, body: issue.Body, url: issue.Url, resource: ResourceIssue,
+		numAttr: AttrIssueNumber, numVal: strconv.Itoa(issue.Number),
+		bodyRes: ResourceTypeIssues, commentsRes: ResourceTypeIssueComments,
 		comments: issue.Comments,
 		fetchTail: func(cursor githubv4.String) ([]ghComment, ghPageInfo, error) {
 			var q ghIssueCommentsTailQuery
@@ -1221,13 +1224,13 @@ func (s *GitHub) emitIssueAndComments(ctx context.Context, owner, name string, i
 	return err
 }
 
-func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr ghPRNode, totalComments *int, yield FragmentsFunc) error {
+func (s *Source) emitPRAndComments(ctx context.Context, owner, name string, pr ghPRNode, totalComments *int, yield sources.FragmentsFunc) error {
 	var count int
 	prNumStr := strconv.Itoa(pr.Number)
 	did, err := s.emitItemAndComments(itemEmit{
-		title: pr.Title, body: pr.Body, url: pr.Url, resource: ResourceGitHubPR,
-		numAttr: AttrGitHubPRNumber, numVal: prNumStr,
-		bodyRes: GitHubResourceTypePRs, commentsRes: GitHubResourceTypePRComments,
+		title: pr.Title, body: pr.Body, url: pr.Url, resource: ResourcePR,
+		numAttr: AttrPRNumber, numVal: prNumStr,
+		bodyRes: ResourceTypePRs, commentsRes: ResourceTypePRComments,
 		comments: pr.Comments,
 		fetchTail: func(cursor githubv4.String) ([]ghComment, ghPageInfo, error) {
 			var q ghPRCommentsTailQuery
@@ -1294,7 +1297,7 @@ func (s *GitHub) emitPRAndComments(ctx context.Context, owner, name string, pr g
 
 // emitCommentNodes yields one Fragment per comment.
 // Either prNum or issueNum should be set; pass "" for the unused one.
-func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueNum string, count *int, yield FragmentsFunc) error {
+func (s *Source) emitCommentNodes(comments []ghComment, parentURL, prNum, issueNum string, count *int, yield sources.FragmentsFunc) error {
 	for _, c := range comments {
 		if c.Body == "" {
 			continue
@@ -1304,19 +1307,19 @@ func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueN
 		}
 		(*count)++
 
-		frag := Fragment{Raw: c.Body}
+		frag := sources.Fragment{Raw: c.Body}
 		u := c.Url
 		if u == "" {
 			u = parentURL
 		}
-		frag.SetAttr(AttrURL, u)
-		frag.SetAttr(AttrResource, ResourceGitHubComment)
-		frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(c.DatabaseId, 10))
+		frag.SetAttr(sources.AttrURL, u)
+		frag.SetAttr(sources.AttrResource, ResourceComment)
+		frag.SetAttr(AttrCommentID, strconv.FormatInt(c.DatabaseId, 10))
 		if prNum != "" {
-			frag.SetAttr(AttrGitHubPRNumber, prNum)
+			frag.SetAttr(AttrPRNumber, prNum)
 		}
 		if issueNum != "" {
-			frag.SetAttr(AttrGitHubIssueNumber, issueNum)
+			frag.SetAttr(AttrIssueNumber, issueNum)
 		}
 		if err := yield(frag, nil); err != nil {
 			return err
@@ -1326,7 +1329,7 @@ func (s *GitHub) emitCommentNodes(comments []ghComment, parentURL, prNum, issueN
 }
 
 // scanReleases scans GitHub Releases for a repo via the REST API.
-func (s *GitHub) scanReleases(ctx context.Context, client *github.Client, repo *github.Repository, yield FragmentsFunc) error {
+func (s *Source) scanReleases(ctx context.Context, client *github.Client, repo *github.Repository, yield sources.FragmentsFunc) error {
 	owner, repoName := repo.GetOwner().GetLogin(), repo.GetName()
 	// Build httpClient once for the entire scan; passed to emitRelease → scanReleaseAssets (C7).
 	httpClient := httpclient.NewAuthenticatedClient(s.Token, s.restRetry, s.apiHost())
@@ -1355,12 +1358,12 @@ func (s *GitHub) scanReleases(ctx context.Context, client *github.Client, repo *
 }
 
 // emitRelease emits a release body fragment and scans its assets.
-func (s *GitHub) emitRelease(ctx context.Context, client *github.Client, httpClient *http.Client, owner, repo string, rel *github.RepositoryRelease, yield FragmentsFunc) error {
+func (s *Source) emitRelease(ctx context.Context, client *github.Client, httpClient *http.Client, owner, repo string, rel *github.RepositoryRelease, yield sources.FragmentsFunc) error {
 	tag := rel.GetTagName()
 	if s.ShouldSkip != nil && s.ShouldSkip(map[string]string{
-		AttrURL:              rel.GetHTMLURL(),
-		AttrResource:         ResourceGitHubRelease,
-		AttrGitHubReleaseTag: tag,
+		sources.AttrURL:      rel.GetHTMLURL(),
+		sources.AttrResource: ResourceRelease,
+		AttrReleaseTag:       tag,
 	}) {
 		return nil
 	}
@@ -1368,27 +1371,27 @@ func (s *GitHub) emitRelease(ctx context.Context, client *github.Client, httpCli
 	title := rel.GetName()
 	body := rel.GetBody()
 	if title != "" || body != "" {
-		frag := Fragment{Raw: strings.TrimSpace(title + "\n" + body)}
-		frag.SetAttr(AttrURL, rel.GetHTMLURL())
-		frag.SetAttr(AttrResource, ResourceGitHubRelease)
-		frag.SetAttr(AttrGitHubReleaseTag, tag)
+		frag := sources.Fragment{Raw: strings.TrimSpace(title + "\n" + body)}
+		frag.SetAttr(sources.AttrURL, rel.GetHTMLURL())
+		frag.SetAttr(sources.AttrResource, ResourceRelease)
+		frag.SetAttr(AttrReleaseTag, tag)
 		if err := yield(frag, nil); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(GitHubResourceTypeReleaseAssets) {
+	if s.Resources.Has(ResourceTypeReleaseAssets) {
 		if err := s.scanReleaseAssets(ctx, client, httpClient, owner, repo, rel, yield); err != nil {
-			loggerOrDiscard(s.Logger).Warn("could not scan release assets", "error", err, "tag", tag)
+			sourceutil.LoggerOrDiscard(s.Logger).Warn("could not scan release assets", "error", err, "tag", tag)
 		}
 		if err := s.scanReleaseSourceArchives(ctx, rel, yield); err != nil {
-			loggerOrDiscard(s.Logger).Warn("could not scan release source archives", "error", err, "tag", tag)
+			sourceutil.LoggerOrDiscard(s.Logger).Warn("could not scan release source archives", "error", err, "tag", tag)
 		}
 	}
 	return nil
 }
 
 // scanSingleRelease scans one release identified by its tag.
-func (s *GitHub) scanSingleRelease(ctx context.Context, client *github.Client, owner, repo, tag string, yield FragmentsFunc) error {
+func (s *Source) scanSingleRelease(ctx context.Context, client *github.Client, owner, repo, tag string, yield sources.FragmentsFunc) error {
 	rel, _, err := client.Repositories.GetReleaseByTag(ctx, owner, repo, tag)
 	if err != nil {
 		return fmt.Errorf("get release %s: %w", tag, err)
@@ -1399,7 +1402,7 @@ func (s *GitHub) scanSingleRelease(ctx context.Context, client *github.Client, o
 
 // scanReleaseAssets lists and scans all downloadable assets for a release.
 // httpClient is built once by the caller to avoid repeated construction (C7).
-func (s *GitHub) scanReleaseAssets(ctx context.Context, client *github.Client, httpClient *http.Client, owner, repo string, rel *github.RepositoryRelease, yield FragmentsFunc) error {
+func (s *Source) scanReleaseAssets(ctx context.Context, client *github.Client, httpClient *http.Client, owner, repo string, rel *github.RepositoryRelease, yield sources.FragmentsFunc) error {
 	tag := rel.GetTagName()
 	opts := &github.ListOptions{PerPage: itemsPerPage}
 	for {
@@ -1410,16 +1413,16 @@ func (s *GitHub) scanReleaseAssets(ctx context.Context, client *github.Client, h
 		for _, asset := range assets {
 			rc, _, err := client.Repositories.DownloadReleaseAsset(ctx, owner, repo, asset.GetID(), httpClient)
 			if err != nil {
-				loggerOrDiscard(s.Logger).Error("could not download release asset", "error", err, "tag", tag, "asset", asset.GetName())
+				sourceutil.LoggerOrDiscard(s.Logger).Error("could not download release asset", "error", err, "tag", tag, "asset", asset.GetName())
 				continue
 			}
 			attrs := map[string]string{
-				AttrGitHubReleaseTag:       tag,
-				AttrGitHubReleaseAssetName: asset.GetName(),
-				AttrResource:               ResourceGitHubReleaseAsset,
+				AttrReleaseTag:       tag,
+				AttrReleaseAssetName: asset.GetName(),
+				sources.AttrResource: ResourceReleaseAsset,
 			}
 			if err := s.downloadAndScan(ctx, "", rc, fmt.Sprintf("releases/%s/%s", tag, asset.GetName()), attrs, "", yield); err != nil {
-				loggerOrDiscard(s.Logger).Error("could not scan release asset", "error", err, "tag", tag, "asset", asset.GetName())
+				sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan release asset", "error", err, "tag", tag, "asset", asset.GetName())
 			}
 		}
 		if resp.NextPage == 0 {
@@ -1432,7 +1435,7 @@ func (s *GitHub) scanReleaseAssets(ctx context.Context, client *github.Client, h
 
 // scanReleaseSourceArchives downloads and scans the auto-generated source code
 // zip and tarball that GitHub attaches to every release.
-func (s *GitHub) scanReleaseSourceArchives(ctx context.Context, rel *github.RepositoryRelease, yield FragmentsFunc) error {
+func (s *Source) scanReleaseSourceArchives(ctx context.Context, rel *github.RepositoryRelease, yield sources.FragmentsFunc) error {
 	tag := rel.GetTagName()
 	for _, a := range []struct{ url, name string }{
 		{rel.GetZipballURL(), "source-code.zip"},
@@ -1442,19 +1445,19 @@ func (s *GitHub) scanReleaseSourceArchives(ctx context.Context, rel *github.Repo
 			continue
 		}
 		attrs := map[string]string{
-			AttrGitHubReleaseTag:       tag,
-			AttrGitHubReleaseAssetName: a.name,
-			AttrResource:               ResourceGitHubReleaseAsset,
+			AttrReleaseTag:       tag,
+			AttrReleaseAssetName: a.name,
+			sources.AttrResource: ResourceReleaseAsset,
 		}
 		if err := s.downloadAndScan(ctx, a.url, nil, fmt.Sprintf("releases/%s/%s", tag, a.name), attrs, s.Token, yield); err != nil {
-			loggerOrDiscard(s.Logger).Error("could not scan release source archive", "error", err, "tag", tag, "archive", a.name)
+			sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan release source archive", "error", err, "tag", tag, "archive", a.name)
 		}
 	}
 	return nil
 }
 
 // scanUserGists scans all public gists for a GitHub user via the REST API.
-func (s *GitHub) scanUserGists(ctx context.Context, client *github.Client, user string, yield FragmentsFunc) error {
+func (s *Source) scanUserGists(ctx context.Context, client *github.Client, user string, yield sources.FragmentsFunc) error {
 	opts := &github.GistListOptions{
 		ListOptions: github.ListOptions{PerPage: itemsPerPage},
 	}
@@ -1478,7 +1481,7 @@ func (s *GitHub) scanUserGists(ctx context.Context, client *github.Client, user 
 			}
 			// Pass nil count — the local accumulator was never read (A7).
 			if err := s.emitGist(ctx, client, gist.GetID(), gist.GetOwner().GetLogin(), gist.GetHTMLURL(), yield); err != nil {
-				loggerOrDiscard(s.Logger).Error("could not scan gist", "error", err, "gist_id", gist.GetID())
+				sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan gist", "error", err, "gist_id", gist.GetID())
 			}
 		}
 		if resp.NextPage == 0 {
@@ -1490,7 +1493,7 @@ func (s *GitHub) scanUserGists(ctx context.Context, client *github.Client, user 
 }
 
 // emitGist fetches a single gist by ID and emits one fragment per file.
-func (s *GitHub) emitGist(ctx context.Context, client *github.Client, gistID, owner, htmlURL string, yield FragmentsFunc) error {
+func (s *Source) emitGist(ctx context.Context, client *github.Client, gistID, owner, htmlURL string, yield sources.FragmentsFunc) error {
 	full, _, err := client.Gists.Get(ctx, gistID)
 	if err != nil {
 		return fmt.Errorf("get gist %s: %w", gistID, err)
@@ -1501,12 +1504,12 @@ func (s *GitHub) emitGist(ctx context.Context, client *github.Client, gistID, ow
 		if content == "" {
 			continue
 		}
-		frag := Fragment{Raw: content}
-		frag.SetAttr(AttrURL, htmlURL)
-		frag.SetAttr(AttrResource, ResourceGitHubGist)
-		frag.SetAttr(AttrGitHubGistID, gistID)
-		frag.SetAttr(AttrGitHubGistOwner, owner)
-		frag.SetAttr(AttrGitHubGistFilename, string(filename))
+		frag := sources.Fragment{Raw: content}
+		frag.SetAttr(sources.AttrURL, htmlURL)
+		frag.SetAttr(sources.AttrResource, ResourceGist)
+		frag.SetAttr(AttrGistID, gistID)
+		frag.SetAttr(AttrGistOwner, owner)
+		frag.SetAttr(AttrGistFilename, string(filename))
 		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
 			if err := yield(frag, nil); err != nil {
 				return err
@@ -1582,7 +1585,7 @@ type ghDiscussionReplyTailQuery struct {
 }
 
 // scanDiscussions scans GitHub Discussions for a repo via the GraphQL API.
-func (s *GitHub) scanDiscussions(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
+func (s *Source) scanDiscussions(ctx context.Context, repo *github.Repository, yield sources.FragmentsFunc) error {
 	owner, name := repo.GetOwner().GetLogin(), repo.GetName()
 	var (
 		after        *githubv4.String
@@ -1619,14 +1622,14 @@ func (s *GitHub) scanDiscussions(ctx context.Context, repo *github.Repository, y
 }
 
 // emitDiscussion emits a discussion and all its comments/replies.
-func (s *GitHub) emitDiscussion(ctx context.Context, owner, name string, d ghDiscussionNode, totalComments *int, yield FragmentsFunc) error {
+func (s *Source) emitDiscussion(ctx context.Context, owner, name string, d ghDiscussionNode, totalComments *int, yield sources.FragmentsFunc) error {
 	numStr := strconv.Itoa(d.Number)
 
 	if d.Title != "" || d.Body != "" {
-		frag := Fragment{Raw: strings.TrimSpace(d.Title + "\n" + d.Body)}
-		frag.SetAttr(AttrURL, d.Url)
-		frag.SetAttr(AttrResource, ResourceGitHubDiscussion)
-		frag.SetAttr(AttrGitHubDiscussionNumber, numStr)
+		frag := sources.Fragment{Raw: strings.TrimSpace(d.Title + "\n" + d.Body)}
+		frag.SetAttr(sources.AttrURL, d.Url)
+		frag.SetAttr(sources.AttrResource, ResourceDiscussion)
+		frag.SetAttr(AttrDiscussionNumber, numStr)
 		if err := yield(frag, nil); err != nil {
 			return err
 		}
@@ -1664,22 +1667,22 @@ func (s *GitHub) emitDiscussion(ctx context.Context, owner, name string, d ghDis
 }
 
 // emitDiscussionReply emits a single discussion reply fragment with date filtering.
-func (s *GitHub) emitDiscussionReply(r ghDiscussionCommentReply, discussionURL, discussionNum string, count *int, yield FragmentsFunc) error {
+func (s *Source) emitDiscussionReply(r ghDiscussionCommentReply, discussionURL, discussionNum string, count *int, yield sources.FragmentsFunc) error {
 	if r.Body == "" {
 		return nil
 	}
 	if ok, _ := s.inDateRange(r.CreatedAt); !ok {
 		return nil
 	}
-	frag := Fragment{Raw: r.Body}
+	frag := sources.Fragment{Raw: r.Body}
 	u := r.Url
 	if u == "" {
 		u = discussionURL
 	}
-	frag.SetAttr(AttrURL, u)
-	frag.SetAttr(AttrResource, ResourceGitHubComment)
-	frag.SetAttr(AttrGitHubCommentID, strconv.FormatInt(r.DatabaseId, 10))
-	frag.SetAttr(AttrGitHubDiscussionNumber, discussionNum)
+	frag.SetAttr(sources.AttrURL, u)
+	frag.SetAttr(sources.AttrResource, ResourceComment)
+	frag.SetAttr(AttrCommentID, strconv.FormatInt(r.DatabaseId, 10))
+	frag.SetAttr(AttrDiscussionNumber, discussionNum)
 	if err := yield(frag, nil); err != nil {
 		return err
 	}
@@ -1698,7 +1701,7 @@ func discussionCommentAsReply(c ghDiscussionComment) ghDiscussionCommentReply {
 
 // emitDiscussionComments emits comments and their replies for a discussion,
 // including tail-pagination of replies when the first page is incomplete.
-func (s *GitHub) emitDiscussionComments(ctx context.Context, discussionURL, discussionNum string, comments []ghDiscussionComment, count *int, yield FragmentsFunc) error {
+func (s *Source) emitDiscussionComments(ctx context.Context, discussionURL, discussionNum string, comments []ghDiscussionComment, count *int, yield sources.FragmentsFunc) error {
 	for _, c := range comments {
 		// Emit the comment itself via the shared reply helper (C2).
 		if err := s.emitDiscussionReply(discussionCommentAsReply(c), discussionURL, discussionNum, count, yield); err != nil {
@@ -1731,8 +1734,8 @@ func (s *GitHub) emitDiscussionComments(ctx context.Context, discussionURL, disc
 	return nil
 }
 
-// ParsedGitHubURL holds the components extracted from a GitHub target URL.
-type ParsedGitHubURL struct {
+// ParsedURL holds the components extracted from a GitHub target URL.
+type ParsedURL struct {
 	Owner    string // repo owner, org name, user name, or gist user
 	Repo     string // repo name (empty for owner-level or gists)
 	Resource string // "owner", "repo", "issue", "pr", "actions_run", "release", "discussion", "gist"
@@ -1740,9 +1743,9 @@ type ParsedGitHubURL struct {
 	Host     string // host (for GHE detection)
 }
 
-// ParseGitHubURL parses a GitHub URL into its components.
+// ParseURL parses a GitHub URL into its components.
 // Supports org/user URLs, repo URLs, specific resource URLs, and gists.
-func ParseGitHubURL(rawURL string) (*ParsedGitHubURL, error) {
+func ParseURL(rawURL string) (*ParsedURL, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -1759,19 +1762,19 @@ func ParseGitHubURL(rawURL string) (*ParsedGitHubURL, error) {
 		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 			return nil, fmt.Errorf("gist URL must be gist.github.com/{user}/{id}")
 		}
-		return &ParsedGitHubURL{Owner: parts[0], Resource: "gist", ID: parts[1], Host: host}, nil
+		return &ParsedURL{Owner: parts[0], Resource: "gist", ID: parts[1], Host: host}, nil
 	}
 
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 
 	// Owner-level URL: github.com/{owner}
 	if len(parts) == 1 && parts[0] != "" {
-		return &ParsedGitHubURL{Owner: parts[0], Resource: "owner", Host: host}, nil
+		return &ParsedURL{Owner: parts[0], Resource: "owner", Host: host}, nil
 	}
 
 	// Repo-level URL: github.com/{owner}/{repo}
 	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-		return &ParsedGitHubURL{Owner: parts[0], Repo: parts[1], Resource: "repo", Host: host}, nil
+		return &ParsedURL{Owner: parts[0], Repo: parts[1], Resource: "repo", Host: host}, nil
 	}
 
 	// Specific resource: {host}/{owner}/{repo}/{type}/...
@@ -1781,7 +1784,7 @@ func ParseGitHubURL(rawURL string) (*ParsedGitHubURL, error) {
 	owner, repo := parts[0], parts[1]
 	kind, id := parts[2], parts[3]
 
-	p := &ParsedGitHubURL{Owner: owner, Repo: repo, Host: host}
+	p := &ParsedURL{Owner: owner, Repo: repo, Host: host}
 
 	switch kind {
 	case "issues":
@@ -1827,7 +1830,7 @@ func baseURLFromHost(host string) string {
 
 // resolveOwnerType determines whether a GitHub login is an Organization or User
 // by calling GET /users/{login}. Returns "Organization" or "User".
-func (s *GitHub) resolveOwnerType(ctx context.Context, client *github.Client, login string) (string, error) {
+func (s *Source) resolveOwnerType(ctx context.Context, client *github.Client, login string) (string, error) {
 	user, _, err := client.Users.Get(ctx, login)
 	if err != nil {
 		return "", fmt.Errorf("resolve owner %q: %w", login, err)
@@ -1836,8 +1839,8 @@ func (s *GitHub) resolveOwnerType(ctx context.Context, client *github.Client, lo
 }
 
 // scanURL dispatches to the appropriate single-resource scanner based on the URL.
-func (s *GitHub) scanURL(ctx context.Context, client *github.Client, rawURL string, yield FragmentsFunc) error {
-	parsed, err := ParseGitHubURL(rawURL)
+func (s *Source) scanURL(ctx context.Context, client *github.Client, rawURL string, yield sources.FragmentsFunc) error {
+	parsed, err := ParseURL(rawURL)
 	if err != nil {
 		return fmt.Errorf("--url: %w", err)
 	}
@@ -1939,7 +1942,7 @@ type ghSingleDiscussionQuery struct {
 }
 
 // scanSingleActionRun scans logs (and optionally artifacts) for one workflow run.
-func (s *GitHub) scanSingleActionRun(ctx context.Context, client *github.Client, owner, repo string, runID int64, yield FragmentsFunc) error {
+func (s *Source) scanSingleActionRun(ctx context.Context, client *github.Client, owner, repo string, runID int64, yield sources.FragmentsFunc) error {
 	run, _, err := client.Actions.GetWorkflowRunByID(ctx, owner, repo, runID)
 	if err != nil {
 		return fmt.Errorf("get action run %d: %w", runID, err)
@@ -1949,7 +1952,7 @@ func (s *GitHub) scanSingleActionRun(ctx context.Context, client *github.Client,
 			return err
 		}
 	}
-	if s.Resources.Has(GitHubResourceTypeActionArtifacts) {
+	if s.Resources.Has(ResourceTypeActionArtifacts) {
 		return s.scanRunArtifacts(ctx, client, owner, repo, run, yield)
 	}
 	return nil

@@ -1,4 +1,4 @@
-package sources
+package jobs
 
 import (
 	"sync"
@@ -22,7 +22,7 @@ func TestProviderTargetJobs(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := providerTargetJobs(test.jobs, test.singleTarget)
+			got := ProviderTargets(test.jobs, test.singleTarget)
 			if got != test.want {
 				t.Fatalf("providerTargetJobs(%d, %t) = %d, want %d",
 					test.jobs, test.singleTarget, got, test.want)
@@ -32,22 +32,22 @@ func TestProviderTargetJobs(t *testing.T) {
 }
 
 func TestAutomaticSourceJobsUseAdditionalIOFanout(t *testing.T) {
-	processorJobs := automaticJobs()
-	if got, want := automaticFileJobs(), max(processorJobs, min(processorJobs*4, 40)); got != want {
+	processorJobs := Automatic()
+	if got, want := AutomaticFiles(), max(processorJobs, min(processorJobs*4, 40)); got != want {
 		t.Fatalf("automaticFileJobs() = %d, want %d", got, want)
 	}
-	if got, want := automaticObjectJobs(), processorJobs*2; got != want {
+	if got, want := AutomaticObjects(), processorJobs*2; got != want {
 		t.Fatalf("automaticObjectJobs() = %d, want %d", got, want)
 	}
 }
 
 func TestJobsWithinBudget(t *testing.T) {
-	budget := newJobBudget(4)
+	budget := NewBudget(4)
 	tests := []struct {
 		name       string
 		configured int
 		fallback   int
-		budget     *jobBudget
+		budget     *Budget
 		want       int
 	}{
 		{name: "configured", configured: 8, fallback: 2, want: 8},
@@ -57,7 +57,7 @@ func TestJobsWithinBudget(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := jobsWithinBudget(test.configured, test.fallback, test.budget); got != test.want {
+			if got := WithinBudget(test.configured, test.fallback, test.budget); got != test.want {
 				t.Fatalf("jobsWithinBudget(%d, %d) = %d, want %d", test.configured, test.fallback, got, test.want)
 			}
 		})
@@ -65,9 +65,9 @@ func TestJobsWithinBudget(t *testing.T) {
 }
 
 func TestNilJobBudgetRunsDirectly(t *testing.T) {
-	var budget *jobBudget
+	var budget *Budget
 	called := false
-	if err := budget.run(t.Context(), func() error {
+	if err := budget.Run(t.Context(), func() error {
 		called = true
 		return nil
 	}); err != nil {
@@ -79,7 +79,7 @@ func TestNilJobBudgetRunsDirectly(t *testing.T) {
 }
 
 func TestJobBudgetBoundsNestedWork(t *testing.T) {
-	budget := newJobBudget(2)
+	budget := NewBudget(2)
 	started := make(chan struct{}, 4)
 	release := make(chan struct{})
 	var active atomic.Int64
@@ -90,7 +90,7 @@ func TestJobBudgetBoundsNestedWork(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := budget.run(t.Context(), func() error {
+			if err := budget.Run(t.Context(), func() error {
 				current := active.Add(1)
 				for {
 					previous := peak.Load()

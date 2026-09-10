@@ -11,6 +11,9 @@ import (
 
 	"github.com/charlievieth/fastwalk"
 	"golang.org/x/sync/errgroup"
+
+	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 )
 
 // TODO: remove this in v9 and have scanTargets yield file sources
@@ -29,7 +32,7 @@ type Files struct {
 	Path            string
 	MaxArchiveDepth int
 	Jobs            int // 0 is automatic
-	budget          *jobBudget
+	budget          *sourcejobs.Budget
 }
 
 // scanTargets yields scan targets to a callback func
@@ -38,7 +41,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 	// symlink handling when the requested root is a single file or symlink.
 	rootInfo, err := os.Lstat(s.Path)
 	if err != nil {
-		logger := loggerOrDiscard(s.Logger).With("path", s.Path)
+		logger := sourceutil.LoggerOrDiscard(s.Logger).With("path", s.Path)
 		if os.IsPermission(err) {
 			logger.Warn("skipping directory", "error", errors.New("permission denied"))
 		} else {
@@ -55,7 +58,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			return err
 		}
 		scanTarget := ScanTarget{Path: path}
-		logger := loggerOrDiscard(s.Logger).With("path", path)
+		logger := sourceutil.LoggerOrDiscard(s.Logger).With("path", path)
 
 		if err != nil {
 			if os.IsPermission(err) {
@@ -157,7 +160,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	g, groupCtx := errgroup.WithContext(ctx)
-	jobs := jobsWithinBudget(s.Jobs, automaticFileJobs(), s.budget)
+	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.AutomaticFiles(), s.budget)
 	g.SetLimit(jobs)
 
 	producerErr := s.scanTargets(groupCtx, func(scanTarget ScanTarget, scanErr error) error {
@@ -172,7 +175,7 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			if s.budget == nil {
 				return s.scanFile(groupCtx, scanTarget, yield)
 			}
-			return s.budget.run(groupCtx, func() error {
+			return s.budget.Run(groupCtx, func() error {
 				return s.scanFile(groupCtx, scanTarget, yield)
 			})
 		})
@@ -183,8 +186,8 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 }
 
 func (s *Files) scanFile(ctx context.Context, target ScanTarget, yield FragmentsFunc) error {
-	logger := loggerOrDiscard(s.Logger).With("path", target.Path)
-	logTrace(ctx, logger, "scanning path")
+	logger := sourceutil.LoggerOrDiscard(s.Logger).With("path", target.Path)
+	sourceutil.LogTrace(ctx, logger, "scanning path")
 
 	f, err := os.Open(target.Path)
 	if err != nil {

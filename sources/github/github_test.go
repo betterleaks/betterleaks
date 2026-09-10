@@ -1,4 +1,4 @@
-package sources
+package github
 
 import (
 	"archive/zip"
@@ -24,6 +24,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
@@ -32,11 +33,11 @@ func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes["resource"] == "github.repository" && attributes["github.repo"] == "repo"`)
 
-	src := &GitHub{ShouldSkip: skip, Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
+	src := &Source{ShouldSkip: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
-	var fragments []Fragment
-	err := src.scanRepo(t.Context(), nil, repo, func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	err := src.scanRepo(t.Context(), nil, repo, func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -51,11 +52,11 @@ func TestGitHub_scanRepo_prefilterUsesMergedRepoAttrsOnFragments(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes["github.repo"] == "repo" && attributes["path"] != ""`)
 
-	src := &GitHub{ShouldSkip: skip, Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
+	src := &Source{ShouldSkip: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
-	var fragments []Fragment
-	err := src.scanRepo(t.Context(), nil, repo, func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	err := src.scanRepo(t.Context(), nil, repo, func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -70,11 +71,11 @@ func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `containsAny(attributes["path"], ["does-not-match"])`)
 
-	src := &GitHub{ShouldSkip: skip, Resources: GitHubResourceSet{GitHubResourceTypeRepos: true}}
+	src := &Source{ShouldSkip: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
-	var fragments []Fragment
-	err := src.scanRepo(t.Context(), nil, repo, func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	err := src.scanRepo(t.Context(), nil, repo, func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -82,21 +83,21 @@ func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, fragments)
 	require.Contains(t, fragments[0].Raw, "AKIALALEMEL33243OLIA")
-	require.Equal(t, "repo", fragments[0].Attr(AttrGitHubRepo))
-	require.Equal(t, "owner", fragments[0].Attr(AttrGitHubOwner))
-	require.NotEmpty(t, fragments[0].Attr(AttrPath))
+	require.Equal(t, "repo", fragments[0].Attr(AttrRepo))
+	require.Equal(t, "owner", fragments[0].Attr(AttrOwner))
+	require.NotEmpty(t, fragments[0].Attr(sources.AttrPath))
 }
 
 func TestGitHub_scanRepo_skipRepoGitDoesNotCloneOrScanHistory(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{
-		Resources: GitHubResourceSet{}, // repos not in set = skip git
+	src := &Source{
+		Resources: ResourceSet{}, // repos not in set = skip git
 	}
 	repo := newTestGitHubRepo(filepath.Join(t.TempDir(), "does-not-exist"))
 
-	var fragments []Fragment
-	err := src.scanRepo(t.Context(), nil, repo, func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	err := src.scanRepo(t.Context(), nil, repo, func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -129,16 +130,16 @@ func TestGitHub_scanURL_gistDoesNotPanicAndStampsAttrs(t *testing.T) {
 	}))
 	defer server.Close()
 
-	src := &GitHub{
+	src := &Source{
 		BaseURL:   strings.TrimRight(server.URL, "/") + "/api/v3/",
 		URL:       "https://gist.github.example.com/user/abc123def456",
 		restRetry: httpclient.NewRetryTransport(nil),
 	}
 	client := src.newClient(t.Context())
 
-	var fragments []Fragment
+	var fragments []sources.Fragment
 	require.NotPanics(t, func() {
-		err := src.scanURL(t.Context(), client, src.URL, func(fragment Fragment, err error) error {
+		err := src.scanURL(t.Context(), client, src.URL, func(fragment sources.Fragment, err error) error {
 			require.NoError(t, err)
 			fragments = append(fragments, fragment)
 			return nil
@@ -147,18 +148,18 @@ func TestGitHub_scanURL_gistDoesNotPanicAndStampsAttrs(t *testing.T) {
 	})
 
 	require.Len(t, fragments, 1)
-	require.Equal(t, ResourceGitHubGist, fragments[0].Attr(AttrResource))
-	require.Equal(t, "abc123def456", fragments[0].Attr(AttrGitHubGistID))
-	require.Equal(t, "user", fragments[0].Attr(AttrGitHubGistOwner))
-	require.Equal(t, "secret.txt", fragments[0].Attr(AttrGitHubGistFilename))
-	require.Equal(t, "https://gist.github.example.com/user/abc123def456", fragments[0].Attr(AttrURL))
+	require.Equal(t, ResourceGist, fragments[0].Attr(sources.AttrResource))
+	require.Equal(t, "abc123def456", fragments[0].Attr(AttrGistID))
+	require.Equal(t, "user", fragments[0].Attr(AttrGistOwner))
+	require.Equal(t, "secret.txt", fragments[0].Attr(AttrGistFilename))
+	require.Equal(t, "https://gist.github.example.com/user/abc123def456", fragments[0].Attr(sources.AttrURL))
 	require.Contains(t, fragments[0].Raw, "AKIALALEMEL33243OLIA")
 }
 
 func TestGitHub_emitIssueAndComments_stampsAttrs(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{Resources: GitHubResourceSet{GitHubResourceTypeIssues: true, GitHubResourceTypeIssueComments: true}}
+	src := &Source{Resources: ResourceSet{ResourceTypeIssues: true, ResourceTypeIssueComments: true}}
 	issueURL := "https://github.example.com/owner/repo/issues/42"
 	now := time.Now().UTC()
 	issue := ghIssueNode{
@@ -176,9 +177,9 @@ func TestGitHub_emitIssueAndComments_stampsAttrs(t *testing.T) {
 		},
 	}
 
-	var fragments []Fragment
+	var fragments []sources.Fragment
 	var commentCount int
-	err := src.emitIssueAndComments(t.Context(), "owner", "repo", issue, &commentCount, func(fragment Fragment, err error) error {
+	err := src.emitIssueAndComments(t.Context(), "owner", "repo", issue, &commentCount, func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -187,15 +188,15 @@ func TestGitHub_emitIssueAndComments_stampsAttrs(t *testing.T) {
 	require.Len(t, fragments, 2)
 	require.Equal(t, 1, commentCount)
 
-	require.Equal(t, ResourceGitHubIssue, fragments[0].Attr(AttrResource))
-	require.Equal(t, "42", fragments[0].Attr(AttrGitHubIssueNumber))
-	require.Equal(t, issueURL, fragments[0].Attr(AttrURL))
+	require.Equal(t, ResourceIssue, fragments[0].Attr(sources.AttrResource))
+	require.Equal(t, "42", fragments[0].Attr(AttrIssueNumber))
+	require.Equal(t, issueURL, fragments[0].Attr(sources.AttrURL))
 	require.Contains(t, fragments[0].Raw, "Issue title")
 
-	require.Equal(t, ResourceGitHubComment, fragments[1].Attr(AttrResource))
-	require.Equal(t, "101", fragments[1].Attr(AttrGitHubCommentID))
-	require.Equal(t, "42", fragments[1].Attr(AttrGitHubIssueNumber))
-	require.Equal(t, issueURL, fragments[1].Attr(AttrURL))
+	require.Equal(t, ResourceComment, fragments[1].Attr(sources.AttrResource))
+	require.Equal(t, "101", fragments[1].Attr(AttrCommentID))
+	require.Equal(t, "42", fragments[1].Attr(AttrIssueNumber))
+	require.Equal(t, issueURL, fragments[1].Attr(sources.AttrURL))
 	require.Equal(t, "Issue comment", fragments[1].Raw)
 }
 
@@ -230,7 +231,7 @@ func TestGithubRateLimitStateExtractor_ParsesHeaders(t *testing.T) {
 func TestGitHub_emitPRAndComments_stampsPRAndReviewThreadAttrs(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{Resources: GitHubResourceSet{GitHubResourceTypePRs: true, GitHubResourceTypePRComments: true}}
+	src := &Source{Resources: ResourceSet{ResourceTypePRs: true, ResourceTypePRComments: true}}
 	prURL := "https://github.example.com/owner/repo/pull/7"
 	now := time.Now().UTC()
 	pr := ghPRNode{
@@ -257,9 +258,9 @@ func TestGitHub_emitPRAndComments_stampsPRAndReviewThreadAttrs(t *testing.T) {
 		},
 	}
 
-	var fragments []Fragment
+	var fragments []sources.Fragment
 	var commentCount int
-	err := src.emitPRAndComments(t.Context(), "owner", "repo", pr, &commentCount, func(fragment Fragment, err error) error {
+	err := src.emitPRAndComments(t.Context(), "owner", "repo", pr, &commentCount, func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -268,23 +269,23 @@ func TestGitHub_emitPRAndComments_stampsPRAndReviewThreadAttrs(t *testing.T) {
 	require.Len(t, fragments, 3)
 	require.Equal(t, 2, commentCount)
 
-	require.Equal(t, ResourceGitHubPR, fragments[0].Attr(AttrResource))
-	require.Equal(t, "7", fragments[0].Attr(AttrGitHubPRNumber))
-	require.Equal(t, prURL, fragments[0].Attr(AttrURL))
+	require.Equal(t, ResourcePR, fragments[0].Attr(sources.AttrResource))
+	require.Equal(t, "7", fragments[0].Attr(AttrPRNumber))
+	require.Equal(t, prURL, fragments[0].Attr(sources.AttrURL))
 
 	for _, fragment := range fragments[1:] {
-		require.Equal(t, ResourceGitHubComment, fragment.Attr(AttrResource))
-		require.Equal(t, "7", fragment.Attr(AttrGitHubPRNumber))
-		require.Equal(t, prURL, fragment.Attr(AttrURL))
+		require.Equal(t, ResourceComment, fragment.Attr(sources.AttrResource))
+		require.Equal(t, "7", fragment.Attr(AttrPRNumber))
+		require.Equal(t, prURL, fragment.Attr(sources.AttrURL))
 	}
-	require.Equal(t, "201", fragments[1].Attr(AttrGitHubCommentID))
-	require.Equal(t, "202", fragments[2].Attr(AttrGitHubCommentID))
+	require.Equal(t, "201", fragments[1].Attr(AttrCommentID))
+	require.Equal(t, "202", fragments[2].Attr(AttrCommentID))
 }
 
 func TestGitHub_emitDiscussion_stampsDiscussionCommentAndReplyAttrs(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{Resources: GitHubResourceSet{GitHubResourceTypeDiscussions: true}}
+	src := &Source{Resources: ResourceSet{ResourceTypeDiscussions: true}}
 	discussionURL := "https://github.example.com/owner/repo/discussions/9"
 	now := time.Now().UTC()
 	discussion := ghDiscussionNode{
@@ -312,9 +313,9 @@ func TestGitHub_emitDiscussion_stampsDiscussionCommentAndReplyAttrs(t *testing.T
 		},
 	}
 
-	var fragments []Fragment
+	var fragments []sources.Fragment
 	var commentCount int
-	err := src.emitDiscussion(t.Context(), "owner", "repo", discussion, &commentCount, func(fragment Fragment, err error) error {
+	err := src.emitDiscussion(t.Context(), "owner", "repo", discussion, &commentCount, func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -323,17 +324,17 @@ func TestGitHub_emitDiscussion_stampsDiscussionCommentAndReplyAttrs(t *testing.T
 	require.Len(t, fragments, 3)
 	require.Equal(t, 2, commentCount)
 
-	require.Equal(t, ResourceGitHubDiscussion, fragments[0].Attr(AttrResource))
-	require.Equal(t, "9", fragments[0].Attr(AttrGitHubDiscussionNumber))
-	require.Equal(t, discussionURL, fragments[0].Attr(AttrURL))
+	require.Equal(t, ResourceDiscussion, fragments[0].Attr(sources.AttrResource))
+	require.Equal(t, "9", fragments[0].Attr(AttrDiscussionNumber))
+	require.Equal(t, discussionURL, fragments[0].Attr(sources.AttrURL))
 
 	for _, fragment := range fragments[1:] {
-		require.Equal(t, ResourceGitHubComment, fragment.Attr(AttrResource))
-		require.Equal(t, "9", fragment.Attr(AttrGitHubDiscussionNumber))
-		require.Equal(t, discussionURL, fragment.Attr(AttrURL))
+		require.Equal(t, ResourceComment, fragment.Attr(sources.AttrResource))
+		require.Equal(t, "9", fragment.Attr(AttrDiscussionNumber))
+		require.Equal(t, discussionURL, fragment.Attr(sources.AttrURL))
 	}
-	require.Equal(t, "301", fragments[1].Attr(AttrGitHubCommentID))
-	require.Equal(t, "302", fragments[2].Attr(AttrGitHubCommentID))
+	require.Equal(t, "301", fragments[1].Attr(AttrCommentID))
+	require.Equal(t, "302", fragments[2].Attr(AttrCommentID))
 }
 
 func TestGitHub_emitRelease_stampsReleaseAttrs(t *testing.T) {
@@ -350,18 +351,18 @@ func TestGitHub_emitRelease_stampsReleaseAttrs(t *testing.T) {
 		HTMLURL: &htmlURL,
 	}
 
-	src := &GitHub{Resources: GitHubResourceSet{GitHubResourceTypeReleases: true}}
-	var fragments []Fragment
-	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment Fragment, err error) error {
+	src := &Source{Resources: ResourceSet{ResourceTypeReleases: true}}
+	var fragments []sources.Fragment
+	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
 	})
 	require.NoError(t, err)
 	require.Len(t, fragments, 1)
-	require.Equal(t, ResourceGitHubRelease, fragments[0].Attr(AttrResource))
-	require.Equal(t, tag, fragments[0].Attr(AttrGitHubReleaseTag))
-	require.Equal(t, htmlURL, fragments[0].Attr(AttrURL))
+	require.Equal(t, ResourceRelease, fragments[0].Attr(sources.AttrResource))
+	require.Equal(t, tag, fragments[0].Attr(AttrReleaseTag))
+	require.Equal(t, htmlURL, fragments[0].Attr(sources.AttrURL))
 	require.Contains(t, fragments[0].Raw, releaseName)
 }
 
@@ -375,13 +376,13 @@ func TestGitHub_emitRelease_prefilterSkipsReleaseByTag(t *testing.T) {
 		HTMLURL: &htmlURL,
 	}
 
-	src := &GitHub{
-		Resources:  GitHubResourceSet{GitHubResourceTypeReleases: true},
+	src := &Source{
+		Resources:  ResourceSet{ResourceTypeReleases: true},
 		ShouldSkip: compileGitHubPrefilter(t, `attributes["resource"] == "github.release" && attributes["github.release.tag"] == "v1.0.0"`),
 	}
 
 	called := false
-	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment Fragment, err error) error {
+	err := src.emitRelease(t.Context(), nil, nil, "owner", "repo", rel, func(fragment sources.Fragment, err error) error {
 		called = true
 		return nil
 	})
@@ -416,18 +417,18 @@ func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 		Event:   &event,
 	}
 
-	src := &GitHub{MaxArchiveDepth: 2}
+	src := &Source{MaxArchiveDepth: 2}
 	runIDStr := strconv.FormatInt(run.GetID(), 10)
 	zipPath := "actions/logs/run_" + runIDStr + ".zip"
 	actionsAttrs := map[string]string{
-		AttrGitHubActionsRunID:   runIDStr,
-		AttrGitHubActionsRunName: run.GetName(),
-		AttrGitHubActionsRunURL:  run.GetHTMLURL(),
-		AttrGitHubActionsEvent:   run.GetEvent(),
-		AttrResource:             ResourceGitHubActions,
+		AttrActionsRunID:     runIDStr,
+		AttrActionsRunName:   run.GetName(),
+		AttrActionsRunURL:    run.GetHTMLURL(),
+		AttrActionsEvent:     run.GetEvent(),
+		sources.AttrResource: ResourceActions,
 	}
-	var fragments []Fragment
-	err = src.downloadAndScan(t.Context(), zipURL.String(), nil, zipPath, actionsAttrs, "", func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	err = src.downloadAndScan(t.Context(), zipURL.String(), nil, zipPath, actionsAttrs, "", func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
@@ -436,13 +437,13 @@ func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 	require.NotEmpty(t, fragments)
 
 	fragment := fragments[0]
-	require.Equal(t, ResourceGitHubActions, fragment.Attr(AttrResource))
-	require.Equal(t, "123", fragment.Attr(AttrGitHubActionsRunID))
-	require.Equal(t, runName, fragment.Attr(AttrGitHubActionsRunName))
-	require.Equal(t, runURL, fragment.Attr(AttrGitHubActionsRunURL))
-	require.Equal(t, event, fragment.Attr(AttrGitHubActionsEvent))
+	require.Equal(t, ResourceActions, fragment.Attr(sources.AttrResource))
+	require.Equal(t, "123", fragment.Attr(AttrActionsRunID))
+	require.Equal(t, runName, fragment.Attr(AttrActionsRunName))
+	require.Equal(t, runURL, fragment.Attr(AttrActionsRunURL))
+	require.Equal(t, event, fragment.Attr(AttrActionsEvent))
 	require.Contains(t, fragment.Raw, "AKIALALEMEL33243OLIA")
-	require.Contains(t, fragment.Attr(AttrPath), "actions/logs")
+	require.Contains(t, fragment.Attr(sources.AttrPath), "actions/logs")
 }
 
 // TestGitHub_downloadAndScan_bearerToken pins the contract that downloadAndScan
@@ -482,8 +483,8 @@ func TestGitHub_downloadAndScan_bearerToken(t *testing.T) {
 
 			// Token field on src is intentionally set to a value that would
 			// fail the empty-token assertion if it were used by mistake.
-			src := &GitHub{Token: "ghp_must_not_leak", MaxArchiveDepth: 2}
-			err := src.downloadAndScan(t.Context(), server.URL+"/blob.zip", nil, "p/blob.zip", nil, tc.token, func(_ Fragment, err error) error {
+			src := &Source{Token: "ghp_must_not_leak", MaxArchiveDepth: 2}
+			err := src.downloadAndScan(t.Context(), server.URL+"/blob.zip", nil, "p/blob.zip", nil, tc.token, func(_ sources.Fragment, err error) error {
 				return err
 			})
 			require.NoError(t, err)
@@ -528,17 +529,17 @@ func TestGitHub_scanActions_startsLogsBeforeWorkflowPaginationCompletes(t *testi
 	}))
 	defer server.Close()
 
-	src := &GitHub{
+	src := &Source{
 		BaseURL:         strings.TrimRight(server.URL, "/") + "/api/v3/",
 		MaxArchiveDepth: 2,
-		Resources:       GitHubResourceSet{GitHubResourceTypeActions: true},
+		Resources:       ResourceSet{ResourceTypeActions: true},
 	}
 	repo := newTestGitHubRepo(t.TempDir())
 	client := src.newClient(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- src.scanActions(t.Context(), client, repo, func(Fragment, error) error { return nil })
+		errCh <- src.scanActions(t.Context(), client, repo, func(sources.Fragment, error) error { return nil })
 	}()
 
 	select {
@@ -616,12 +617,12 @@ func TestGitHub_scanActions_startsArtifactsBeforeWorkflowPaginationCompletes(t *
 	}))
 	defer server.Close()
 
-	src := &GitHub{
+	src := &Source{
 		BaseURL:         strings.TrimRight(server.URL, "/") + "/api/v3/",
 		MaxArchiveDepth: 2,
-		Resources: GitHubResourceSet{
-			GitHubResourceTypeActions:         true,
-			GitHubResourceTypeActionArtifacts: true,
+		Resources: ResourceSet{
+			ResourceTypeActions:         true,
+			ResourceTypeActionArtifacts: true,
 		},
 	}
 	repo := newTestGitHubRepo(t.TempDir())
@@ -629,7 +630,7 @@ func TestGitHub_scanActions_startsArtifactsBeforeWorkflowPaginationCompletes(t *
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- src.scanActions(t.Context(), client, repo, func(Fragment, error) error { return nil })
+		errCh <- src.scanActions(t.Context(), client, repo, func(sources.Fragment, error) error { return nil })
 	}()
 
 	select {
@@ -668,7 +669,7 @@ func TestGitHub_streamWorkflowRuns_usesCombinedCreatedRange(t *testing.T) {
 	}))
 	defer server.Close()
 
-	src := &GitHub{
+	src := &Source{
 		BaseURL: strings.TrimRight(server.URL, "/") + "/api/v3/",
 		DateRangeOpts: DateRangeOptions{
 			Since: since,
@@ -687,7 +688,7 @@ func TestGitHub_streamWorkflowRuns_usesCombinedCreatedRange(t *testing.T) {
 	require.Equal(t, []int64{12}, got)
 }
 
-func compileGitHubPrefilter(t *testing.T, expression string) SkipFunc {
+func compileGitHubPrefilter(t *testing.T, expression string) sources.SkipFunc {
 	t.Helper()
 
 	env, err := exprruntime.New(nil)
@@ -840,13 +841,13 @@ func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	src := &GitHub{
+	src := &Source{
 		BaseURL:   strings.TrimRight(server.URL, "/") + "/api/v3/",
 		URL:       "https://github.example.com/owner",
 		Token:     "tok",
-		Resources: GitHubResourceSet{GitHubResourceTypeReleases: true},
+		Resources: ResourceSet{ResourceTypeReleases: true},
 	}
-	err := src.Fragments(t.Context(), func(_ Fragment, _ error) error { return nil })
+	err := src.Fragments(t.Context(), func(_ sources.Fragment, _ error) error { return nil })
 	require.NoError(t, err)
 
 	mu.Lock()
@@ -911,14 +912,14 @@ func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
 	}))
 	defer server.Close()
 
-	src := &GitHub{
+	src := &Source{
 		BaseURL:   strings.TrimRight(server.URL, "/") + "/api/v3/",
 		URL:       "https://github.example.com/owner",
 		Token:     "tok",
-		Resources: GitHubResourceSet{GitHubResourceTypeReleases: true},
+		Resources: ResourceSet{ResourceTypeReleases: true},
 	}
 
-	yield := func(_ Fragment, _ error) error {
+	yield := func(_ sources.Fragment, _ error) error {
 		mu.Lock()
 		if done {
 			yieldAfterDone = true
@@ -960,95 +961,95 @@ func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
 func TestGitHubResourceSet_HasAnyIssueOrPR(t *testing.T) {
 	t.Parallel()
 
-	require.False(t, GitHubResourceSet{}.HasAnyIssueOrPR())
-	require.True(t, GitHubResourceSet{GitHubResourceTypeIssues: true}.HasAnyIssueOrPR())
-	require.True(t, GitHubResourceSet{GitHubResourceTypePRs: true}.HasAnyIssueOrPR())
-	require.True(t, GitHubResourceSet{GitHubResourceTypeIssueComments: true}.HasAnyIssueOrPR())
-	require.True(t, GitHubResourceSet{GitHubResourceTypePRComments: true}.HasAnyIssueOrPR())
-	require.False(t, GitHubResourceSet{GitHubResourceTypeRepos: true}.HasAnyIssueOrPR())
+	require.False(t, ResourceSet{}.HasAnyIssueOrPR())
+	require.True(t, ResourceSet{ResourceTypeIssues: true}.HasAnyIssueOrPR())
+	require.True(t, ResourceSet{ResourceTypePRs: true}.HasAnyIssueOrPR())
+	require.True(t, ResourceSet{ResourceTypeIssueComments: true}.HasAnyIssueOrPR())
+	require.True(t, ResourceSet{ResourceTypePRComments: true}.HasAnyIssueOrPR())
+	require.False(t, ResourceSet{ResourceTypeRepos: true}.HasAnyIssueOrPR())
 }
 
 func Test_ParseGitHubURL(t *testing.T) {
 	cases := []struct {
 		name    string
 		url     string
-		want    *ParsedGitHubURL
+		want    *ParsedURL
 		wantErr bool
 	}{
 		{
 			name: "owner",
 			url:  "https://github.com/betterleaks",
-			want: &ParsedGitHubURL{Owner: "betterleaks", Resource: "owner", Host: "github.com"},
+			want: &ParsedURL{Owner: "betterleaks", Resource: "owner", Host: "github.com"},
 		},
 		{
 			name: "owner trailing slash",
 			url:  "https://github.com/betterleaks/",
-			want: &ParsedGitHubURL{Owner: "betterleaks", Resource: "owner", Host: "github.com"},
+			want: &ParsedURL{Owner: "betterleaks", Resource: "owner", Host: "github.com"},
 		},
 		{
 			name: "repo",
 			url:  "https://github.com/owner/repo",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "repo", Host: "github.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "repo", Host: "github.com"},
 		},
 		{
 			name: "repo trailing slash",
 			url:  "https://github.com/owner/repo/",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "repo", Host: "github.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "repo", Host: "github.com"},
 		},
 		{
 			name: "issue",
 			url:  "https://github.com/owner/repo/issues/123",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "issue", ID: "123", Host: "github.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "issue", ID: "123", Host: "github.com"},
 		},
 		{
 			name: "pr",
 			url:  "https://github.com/owner/repo/pull/42",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "pr", ID: "42", Host: "github.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "pr", ID: "42", Host: "github.com"},
 		},
 		{
 			name: "discussion",
 			url:  "https://github.com/owner/repo/discussions/7",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "discussion", ID: "7", Host: "github.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "discussion", ID: "7", Host: "github.com"},
 		},
 		{
 			name: "release",
 			url:  "https://github.com/owner/repo/releases/tag/v1.0.0",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "release", ID: "v1.0.0", Host: "github.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "release", ID: "v1.0.0", Host: "github.com"},
 		},
 		{
 			name: "actions run",
 			url:  "https://github.com/owner/repo/actions/runs/9876543210",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "actions_run", ID: "9876543210", Host: "github.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "actions_run", ID: "9876543210", Host: "github.com"},
 		},
 		{
 			name: "gist",
 			url:  "https://gist.github.com/user/abc123def456",
-			want: &ParsedGitHubURL{Owner: "user", Repo: "", Resource: "gist", ID: "abc123def456", Host: "gist.github.com"},
+			want: &ParsedURL{Owner: "user", Repo: "", Resource: "gist", ID: "abc123def456", Host: "gist.github.com"},
 		},
 		{
 			name: "trailing slash on resource",
 			url:  "https://github.com/owner/repo/issues/1/",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "issue", ID: "1", Host: "github.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "issue", ID: "1", Host: "github.com"},
 		},
 		{
 			name: "GHE owner",
 			url:  "https://github.example.com/myorg",
-			want: &ParsedGitHubURL{Owner: "myorg", Resource: "owner", Host: "github.example.com"},
+			want: &ParsedURL{Owner: "myorg", Resource: "owner", Host: "github.example.com"},
 		},
 		{
 			name: "GHE repo",
 			url:  "https://github.example.com/owner/repo",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "repo", Host: "github.example.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "repo", Host: "github.example.com"},
 		},
 		{
 			name: "GHE issue",
 			url:  "https://github.example.com/owner/repo/issues/55",
-			want: &ParsedGitHubURL{Owner: "owner", Repo: "repo", Resource: "issue", ID: "55", Host: "github.example.com"},
+			want: &ParsedURL{Owner: "owner", Repo: "repo", Resource: "issue", ID: "55", Host: "github.example.com"},
 		},
 		{
 			name: "GHE gist",
 			url:  "https://gist.github.example.com/user/deadbeef",
-			want: &ParsedGitHubURL{Owner: "user", Repo: "", Resource: "gist", ID: "deadbeef", Host: "gist.github.example.com"},
+			want: &ParsedURL{Owner: "user", Repo: "", Resource: "gist", ID: "deadbeef", Host: "gist.github.example.com"},
 		},
 		// Error cases
 		{
@@ -1085,7 +1086,7 @@ func Test_ParseGitHubURL(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ParseGitHubURL(tc.url)
+			got, err := ParseURL(tc.url)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -1099,7 +1100,7 @@ func Test_ParseGitHubURL(t *testing.T) {
 func TestGitHub_Validate_fromIncludeExclude(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{
+	src := &Source{
 		URL:     "https://github.com/owner/repo",
 		Token:   "tok",
 		Include: []string{"repos", "issues", "releases"},
@@ -1107,42 +1108,42 @@ func TestGitHub_Validate_fromIncludeExclude(t *testing.T) {
 	}
 	require.NoError(t, src.Validate())
 
-	require.False(t, src.Resources.Has(GitHubResourceTypeRepos))
-	require.True(t, src.Resources.Has(GitHubResourceTypeIssues))
-	require.True(t, src.Resources.Has(GitHubResourceTypeReleases))
-	require.True(t, src.Resources.Has(GitHubResourceTypeReleaseAssets), "release-assets auto-included")
+	require.False(t, src.Resources.Has(ResourceTypeRepos))
+	require.True(t, src.Resources.Has(ResourceTypeIssues))
+	require.True(t, src.Resources.Has(ResourceTypeReleases))
+	require.True(t, src.Resources.Has(ResourceTypeReleaseAssets), "release-assets auto-included")
 }
 
 func TestGitHub_Validate_skipsWhenResourcesAlreadySet(t *testing.T) {
 	t.Parallel()
 
-	existing := GitHubResourceSet{GitHubResourceTypePRs: true}
-	src := &GitHub{
+	existing := ResourceSet{ResourceTypePRs: true}
+	src := &Source{
 		URL:       "https://github.com/owner/repo",
 		Token:     "tok",
 		Include:   []string{"issues"},
 		Resources: existing,
 	}
 	require.NoError(t, src.Validate())
-	require.True(t, src.Resources.Has(GitHubResourceTypePRs), "programmatic set preserved")
-	require.False(t, src.Resources.Has(GitHubResourceTypeIssues), "Include ignored when Resources pre-set")
+	require.True(t, src.Resources.Has(ResourceTypePRs), "programmatic set preserved")
+	require.False(t, src.Resources.Has(ResourceTypeIssues), "Include ignored when Resources pre-set")
 }
 
 func TestGitHub_Validate_ownerDefaultsToRepos(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{
+	src := &Source{
 		URL:   "https://github.com/myorg",
 		Token: "tok",
 	}
 	require.NoError(t, src.Validate())
-	require.True(t, src.Resources.Has(GitHubResourceTypeRepos))
+	require.True(t, src.Resources.Has(ResourceTypeRepos))
 }
 
 func TestGitHub_Validate_unknownTypeErrors(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{
+	src := &Source{
 		URL:     "https://github.com/owner/repo",
 		Token:   "tok",
 		Include: []string{"bogus"},
@@ -1153,36 +1154,36 @@ func TestGitHub_Validate_unknownTypeErrors(t *testing.T) {
 func TestGitHub_Validate_noTargetErrors(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{Token: "tok"}
+	src := &Source{Token: "tok"}
 	require.ErrorContains(t, src.Validate(), "target URL is required")
 }
 
 func TestGitHub_Validate_resourceURLNeedsToken(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{URL: "https://github.com/owner/repo/issues/1"}
+	src := &Source{URL: "https://github.com/owner/repo/issues/1"}
 	require.ErrorContains(t, src.Validate(), "token is required")
 }
 
 func TestGitHub_Validate_ownerURLNeedsToken(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{URL: "https://github.com/myorg"}
+	src := &Source{URL: "https://github.com/myorg"}
 	require.ErrorContains(t, src.Validate(), "token is required")
 }
 
 func TestGitHub_Validate_repoWithOnlyReposNoTokenOK(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{URL: "https://github.com/owner/repo"}
+	src := &Source{URL: "https://github.com/owner/repo"}
 	require.NoError(t, src.Validate())
-	require.True(t, src.Resources.Has(GitHubResourceTypeRepos))
+	require.True(t, src.Resources.Has(ResourceTypeRepos))
 }
 
 func TestGitHub_Validate_repoWithAPIResourceNeedsToken(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{
+	src := &Source{
 		URL:     "https://github.com/owner/repo",
 		Include: []string{"issues"},
 	}
@@ -1192,12 +1193,12 @@ func TestGitHub_Validate_repoWithAPIResourceNeedsToken(t *testing.T) {
 func TestGitHub_Validate_repoWithTokenAndAPIResourceOK(t *testing.T) {
 	t.Parallel()
 
-	src := &GitHub{
+	src := &Source{
 		URL:     "https://github.com/owner/repo",
 		Token:   "tok",
 		Include: []string{"issues"},
 	}
 	require.NoError(t, src.Validate())
-	require.True(t, src.Resources.Has(GitHubResourceTypeIssues))
-	require.True(t, src.Resources.Has(GitHubResourceTypeRepos), "repos included by default for repo URL")
+	require.True(t, src.Resources.Has(ResourceTypeIssues))
+	require.True(t, src.Resources.Has(ResourceTypeRepos), "repos included by default for repo URL")
 }

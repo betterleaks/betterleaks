@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/detect"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/huggingface"
 )
 
 type HuggingFaceCmd struct {
@@ -42,7 +42,7 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 		token = os.Getenv("HF_TOKEN")
 	}
 
-	src := &sources.HuggingFace{
+	src := &huggingface.Source{
 		Logger:              runtime.Logger(),
 		Token:               token,
 		URL:                 options.TargetURL,

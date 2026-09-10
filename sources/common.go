@@ -3,21 +3,17 @@ package sources
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
-	"log/slog"
-	"net/http"
-	"os"
 	"path/filepath"
 	"runtime"
-	"time"
 
 	"github.com/mholt/archives"
+
+	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 )
 
 const (
-	maxPeekSize     = 25 * 1_000 // 25kb
-	downloadTimeout = 5 * time.Minute
+	maxPeekSize = 25 * 1_000 // 25kb
 )
 
 var isWhitespace [256]bool
@@ -39,16 +35,6 @@ func isArchive(ctx context.Context, path string) bool {
 	return err == nil && format != nil
 }
 
-// shouldSkipAttrs evaluates the skip callback against attrs.
-// Returns true if the fragment should be skipped.
-// If no callback is set (nil), nothing is skipped.
-func shouldSkipAttrs(skip SkipFunc, attrs map[string]string) bool {
-	if skip == nil {
-		return false
-	}
-	return skip(attrs)
-}
-
 // shouldSkipPath checks a path against the skip callback.
 // Also handles the Windows forward-slash path normalization workaround.
 func shouldSkipPath(skip SkipFunc, path string) bool {
@@ -56,13 +42,13 @@ func shouldSkipPath(skip SkipFunc, path string) bool {
 		return false
 	}
 	attrs := map[string]string{AttrPath: path}
-	if shouldSkipAttrs(skip, attrs) {
+	if sourceutil.ShouldSkipAttrs(skip, attrs) {
 		return true
 	}
 	// TODO: Remove this Windows workaround in v9 (gitleaks/gitleaks#1641).
 	if isWindows {
 		attrs[AttrPath] = filepath.ToSlash(path)
-		return shouldSkipAttrs(skip, attrs)
+		return sourceutil.ShouldSkipAttrs(skip, attrs)
 	}
 	return false
 }
@@ -142,89 +128,4 @@ func readUntilSafeBoundary(r *bufio.Reader, data []byte, initialSize int, maxPee
 		data = append(data, b)
 	}
 	return data, nil
-}
-
-type sourceDownloadOptions struct {
-	URL             string
-	Reader          io.ReadCloser
-	HTTPClient      *http.Client
-	Path            string
-	Attrs           map[string]string
-	BearerToken     string
-	MaxArchiveDepth int
-	ShouldSkip      SkipFunc
-	TempPattern     string
-	Logger          *slog.Logger
-}
-
-// downloadAndScanSource downloads content from a URL or scans an existing reader via File.
-func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yield FragmentsFunc) error {
-	start := time.Now()
-	reader := opts.Reader
-
-	if reader == nil {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, opts.URL, nil)
-		if err != nil {
-			return err
-		}
-		if opts.BearerToken != "" {
-			req.Header.Set("Authorization", "Bearer "+opts.BearerToken)
-		}
-		httpClient := opts.HTTPClient
-		if httpClient == nil {
-			httpClient = &http.Client{
-				Timeout: downloadTimeout,
-			}
-		}
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return err
-		}
-		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			return fmt.Errorf("download returned %s", resp.Status)
-		}
-		reader = resp.Body
-	}
-	defer reader.Close()
-
-	tempPattern := opts.TempPattern
-	if tempPattern == "" {
-		tempPattern = "betterleaks-download-*"
-	}
-	tmp, err := os.CreateTemp("", tempPattern)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		tmp.Close()
-		os.Remove(tmp.Name())
-	}()
-
-	if _, err := io.Copy(tmp, reader); err != nil {
-		return fmt.Errorf("download %s: %w", opts.Path, err)
-	}
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-
-	file := &File{
-		Content:         tmp,
-		Path:            opts.Path,
-		MaxArchiveDepth: max(1, opts.MaxArchiveDepth),
-		ShouldSkip:      opts.ShouldSkip,
-		Logger:          opts.Logger,
-	}
-	err = file.Fragments(ctx, func(fragment Fragment, err error) error {
-		if err == nil {
-			for k, v := range opts.Attrs {
-				if k == AttrResource || fragment.Attr(k) == "" {
-					fragment.SetAttr(k, v)
-				}
-			}
-		}
-		return yield(fragment, err)
-	})
-	loggerOrDiscard(opts.Logger).Debug("download scan complete", "path", opts.Path, "scan_duration", time.Since(start).Round(time.Millisecond))
-	return err
 }

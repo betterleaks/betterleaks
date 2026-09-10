@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
+	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
 )
 
 func TestGitRepoJobsHaveSameCoverage(t *testing.T) {
@@ -53,7 +54,7 @@ func TestGitRepoJobsHaveSameCoverage(t *testing.T) {
 }
 
 func TestGitRepoDefaultProcessesFragmentsConcurrently(t *testing.T) {
-	if automaticJobs() < 2 {
+	if sourcejobs.Automatic() < 2 {
 		t.Skip("automatic Git concurrency is serial when GOMAXPROCS is one")
 	}
 	repo := newGitTestRepo(t, 4)
@@ -733,5 +734,54 @@ func TestGitWithoutReflogs(t *testing.T) {
 			}))
 			require.Equal(t, commits, patches)
 		}
+	}
+}
+
+func TestGitSourcesShareInheritedJobBudget(t *testing.T) {
+	repo := newGitTestRepo(t, 4)
+	ctx := sourcejobs.WithBudget(t.Context(), sourcejobs.NewBudget(1))
+	started := make(chan struct{}, 32)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseAll()
+	done := make(chan error, 2)
+	gitSources := []*Git{{RepoPath: repo, Jobs: 4}, {RepoPath: repo, Jobs: 4}}
+	for _, source := range gitSources {
+		go func() {
+			done <- source.Fragments(ctx, func(_ Fragment, err error) error {
+				if err != nil {
+					return err
+				}
+				started <- struct{}{}
+				<-release
+				return nil
+			})
+		}()
+	}
+	select {
+	case <-started:
+	case err := <-done:
+		require.NoError(t, err)
+		t.Fatal("Git scan completed before yielding a fragment")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for budgeted Git work")
+	}
+	select {
+	case <-started:
+		t.Fatal("nested Git scans exceeded their shared job budget")
+	case <-time.After(100 * time.Millisecond):
+	}
+	releaseAll()
+	for range gitSources {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out completing budgeted Git scans")
+		}
+	}
+	for _, source := range gitSources {
+		require.Nil(t, source.budget, "context budget must not persist on the caller's source")
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/detect"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/gitlab"
 )
 
 type GitLabCmd struct {
@@ -60,7 +60,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 		}
 	}
 
-	src := &sources.GitLab{
+	src := &gitlab.Source{
 		Logger:           runtime.Logger(),
 		Token:            token,
 		URL:              targetURL,
@@ -74,7 +74,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 		MaxArchiveDepth:  options.MaxArchiveDepth,
 		Jobs:             jobs.Source,
 		LogOpts:          options.LogOpts,
-		DateRangeOpts: sources.DateRangeOptions{
+		DateRangeOpts: gitlab.DateRangeOptions{
 			Since: since,
 			Until: until,
 		},
