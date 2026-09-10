@@ -58,9 +58,11 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 
 		if err != nil {
 			if os.IsPermission(err) {
-				// This seems to only fail on directories at this stage.
 				logger.Warn().Err(errors.New("permission denied")).Msg("skipping directory")
-				return filepath.SkipDir
+				// fastwalk has already failed to read this directory. Returning
+				// SkipDir from its error callback aborts the walk; nil continues
+				// with the remaining directories.
+				return nil
 			}
 			logger.Warn().Err(err).Msg("skipping")
 			return nil
