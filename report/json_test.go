@@ -47,6 +47,11 @@ func TestWriteJSON(t *testing.T) {
 			testReportName: "empty",
 			expected:       filepath.Join(expectPath, "report", "empty.json"),
 			findings:       []Finding{}},
+		{
+			testReportName: "nil",
+			expected:       filepath.Join(expectPath, "report", "empty.json"),
+			findings:       nil,
+		},
 	}
 
 	reporter := JsonReporter{}
