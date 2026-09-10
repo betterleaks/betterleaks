@@ -174,7 +174,7 @@ betterleaks filesystem services/api infra/terraform
 # triage with context
 betterleaks filesystem . --match-context 3L
 
-# follow file symlinks
+# follow file and directory symlinks (each directory is visited once)
 betterleaks filesystem /mnt/data --follow-symlinks
 
 # skip large files
