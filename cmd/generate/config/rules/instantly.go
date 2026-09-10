@@ -8,7 +8,7 @@ import (
 
 func InstantlyAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "instantly-api-key.1",
+		ID:          "instantly-api-key.1",
 		Confidence:  "medium",
 		Description: "Instantly API key, which may allow access to campaigns, accounts, leads, and analytics.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"instantly"}, `[A-Za-z0-9+/]{66}==`, false),

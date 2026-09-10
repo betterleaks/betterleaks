@@ -7,7 +7,7 @@ import (
 
 func InfluxDBAPIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "influxdb-api-token",
+		ID:          "influxdb-api-token",
 		Confidence:  "high",
 		Description: "Detected an InfluxDB API token, which may allow unauthorized access to time-series data and InfluxDB organization resources.",
 		Regex:       `(?i)(?:\binflux(?:db)?\b(?:.|[\n\r]){0,64}?\b(?:token|api[_-]?key)\b(?:.|[\n\r]){0,32}?)[=:"'\s]{1,8}([A-Za-z0-9+/=_-]{88,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)`,

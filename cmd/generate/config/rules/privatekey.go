@@ -8,7 +8,7 @@ import (
 func PrivateKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "private-key",
+		ID:          "private-key",
 		Confidence:  "high",
 		Description: "Identified a Private Key, which may compromise cryptographic security and sensitive data encryption.",
 		Regex:       `(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]{64,}?KEY(?: BLOCK)?-----`,
@@ -42,7 +42,7 @@ anything
 func PrivateKeyPKCS12File() *config.Rule {
 	// https://en.wikipedia.org/wiki/PKCS_12
 	r := config.Rule{
-		RuleID:      "pkcs12-file",
+		ID:          "pkcs12-file",
 		Confidence:  "high",
 		Description: "Found a PKCS #12 file, which commonly contain bundled private keys.",
 		Path:        `(?i)(?:^|\/)[^\/]+\.p(?:12|fx)$`,

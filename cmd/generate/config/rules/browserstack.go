@@ -8,7 +8,7 @@ import (
 
 func BrowserStackUsername() *config.Rule {
 	r := config.Rule{
-		RuleID:      "browserstack-username.1",
+		ID:          "browserstack-username.1",
 		Confidence:  "medium",
 		Description: "BrowserStack username, used as a component of the BrowserStack access-key composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -36,7 +36,7 @@ func BrowserStackUsername() *config.Rule {
 
 func BrowserStackAccessKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "browserstack-access-key.1",
+		ID:          "browserstack-access-key.1",
 		Confidence:  "high",
 		Description: "BrowserStack access key, which may allow access to automated browser and device testing when paired with its username.",
 		Regex: utils.GenerateSemiGenericRegex(

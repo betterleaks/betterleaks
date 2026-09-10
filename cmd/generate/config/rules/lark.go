@@ -9,7 +9,7 @@ import (
 func LarkAppID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "lark-app-id",
+		ID:          "lark-app-id",
 		Confidence:  "high",
 		Description: "Lark application ID, used as a component of the Lark application-secret rule.",
 		Regex:       `\b(cli_[A-Za-z0-9]{16})`,
@@ -31,7 +31,7 @@ func LarkAppID() *config.Rule {
 func LarkAppSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "lark-app-secret",
+		ID:          "lark-app-secret",
 		Confidence:  "high",
 		Description: "Lark application secret.",
 		Regex: utils.GenerateSemiGenericRegex(

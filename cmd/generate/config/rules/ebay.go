@@ -9,7 +9,7 @@ import (
 func EBayClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ebay-client-id",
+		ID:          "ebay-client-id",
 		Confidence:  "high",
 		Description: "eBay client ID, used as a component of the eBay client-secret composite rule.",
 		Regex:       `\b([a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+-PRD-[a-f0-9]{8,12}-[a-f0-9]{8,12})`,
@@ -31,7 +31,7 @@ func EBayClientID() *config.Rule {
 func EBayClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ebay-client-secret",
+		ID:          "ebay-client-secret",
 		Confidence:  "high",
 		Description: "eBay client secret.",
 		Regex: utils.GenerateSemiGenericRegex(

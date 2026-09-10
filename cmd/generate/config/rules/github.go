@@ -57,7 +57,7 @@ var githubPathFilter = "matchesAny(attributes[\"path\"], [`(?:^|/)@octokit/auth-
 func GitHubPat() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "github-pat",
+		ID:           "github-pat",
 		Confidence:   "high",
 		Description:  "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.",
 		Regex:        `ghp_[0-9a-zA-Z]{36}`,
@@ -79,7 +79,7 @@ func GitHubPat() *config.Rule {
 func GitHubFineGrainedPat() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "github-fine-grained-pat",
+		ID:           "github-fine-grained-pat",
 		Confidence:   "high",
 		Description:  "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation.",
 		Regex:        `github_pat_\w{82}`,
@@ -100,7 +100,7 @@ func GitHubFineGrainedPat() *config.Rule {
 func GitHubOauth() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "github-oauth",
+		ID:           "github-oauth",
 		Confidence:   "high",
 		Description:  "Discovered a GitHub OAuth Access Token, posing a risk of compromised GitHub account integrations and data leaks.",
 		Regex:        `gho_[0-9a-zA-Z]{36}`,
@@ -136,7 +136,7 @@ const githubAppTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "
 func GitHubApp() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "github-app-token",
+		ID:           "github-app-token",
 		Confidence:   "high",
 		Description:  "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security.",
 		Regex:        `(?:ghu|ghs)_[0-9a-zA-Z]{36}`,
@@ -159,7 +159,7 @@ func GitHubApp() *config.Rule {
 func GitHubRefresh() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "github-refresh-token",
+		ID:           "github-refresh-token",
 		Confidence:   "high",
 		Description:  "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services.",
 		Regex:        `ghr_[0-9a-zA-Z]{36}`,

@@ -8,7 +8,7 @@ import (
 func MaxMindLicenseKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "maxmind-license-key",
+		ID:          "maxmind-license-key",
 		Confidence:  "high",
 		Description: "Discovered a potential MaxMind license key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`[A-Za-z0-9]{6}_[A-Za-z0-9]{29}_mmk`, false),

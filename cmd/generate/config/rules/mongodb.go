@@ -10,7 +10,7 @@ import (
 
 func MongoDBAtlasServiceAccountSecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "mongodb-atlas-service-account-secret",
+		ID:          "mongodb-atlas-service-account-secret",
 		Confidence:  "high",
 		Description: "Detected a MongoDB Atlas service account client secret, which could allow unauthorized Atlas administration API access when paired with a service account client ID.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mdb_sa_sk_[A-Za-z0-9_-]{40}`, false),
@@ -48,7 +48,7 @@ func MongoDBAtlasServiceAccountSecret() *config.Rule {
 
 func MongoDBAtlasServiceAccountID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "mongodb-atlas-service-account-id",
+		ID:          "mongodb-atlas-service-account-id",
 		Confidence:  "high",
 		Description: "Found a MongoDB Atlas service account client ID.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mdb_sa_id_[a-f0-9]{24}`, false),
@@ -63,7 +63,7 @@ func MongoDBAtlasServiceAccountID() *config.Rule {
 
 func MongoDBConnectionString() *config.Rule {
 	r := config.Rule{
-		RuleID:      "mongodb-connection-string",
+		ID:          "mongodb-connection-string",
 		Confidence:  "high",
 		Description: "Detected a MongoDB connection string with embedded credentials, potentially exposing direct database access and sensitive application data.",
 		Regex:       `\b(mongodb(?:\+srv)?://(?P<username>[!-9;-~]{3,50}):(?P<password>[!-?A-~]{3,88})@(?P<host>(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?(?:,(?:[a-zA-Z0-9][\w.-]+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d{1,5})?)*)/?(?:(?P<authdb>[\w-]+)?(?P<options>\?\w+=[\w@/.$-]+(?:&(?:amp;)?\w+=[\w@/.$-]+)*)?)?)(?:['"\s;\x60]|\\[nr]|\b|$)`,

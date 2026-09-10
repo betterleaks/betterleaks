@@ -12,8 +12,8 @@ import (
 
 // Rules contain information that define details on how to detect secrets
 type Rule struct {
-	// RuleID is a unique identifier for this rule
-	RuleID string
+	// ID is a unique identifier for this rule
+	ID string
 
 	// Description is the description of the rule.
 	Description string
@@ -79,7 +79,7 @@ func (r *Rule) Validate() error {
 	}
 
 	// Ensure |id| is present.
-	if strings.TrimSpace(r.RuleID) == "" {
+	if strings.TrimSpace(r.ID) == "" {
 		// Try to provide helpful context, since |id| is empty.
 		var sb strings.Builder
 		if r.Description != "" {
@@ -96,10 +96,10 @@ func (r *Rule) Validate() error {
 
 	// Ensure the rule actually matches something.
 	if r.Regex == "" && r.Path == "" {
-		return errors.New(r.RuleID + ": both |regex| and |path| are empty, this rule will have no effect")
+		return errors.New(r.ID + ": both |regex| and |path| are empty, this rule will have no effect")
 	}
 	if r.Confidence != "" && !confidence.Valid(r.Confidence) {
-		return fmt.Errorf("%s: invalid confidence %q (expected low, medium, or high)", r.RuleID, r.Confidence)
+		return fmt.Errorf("%s: invalid confidence %q (expected low, medium, or high)", r.ID, r.Confidence)
 	}
 
 	maxCapture, err := r.validatePatterns()
@@ -109,35 +109,35 @@ func (r *Rule) Validate() error {
 
 	// Ensure |secretGroup| works.
 	if r.SecretGroup < 0 {
-		return fmt.Errorf("%s: invalid regex secret group %d, must be non-negative", r.RuleID, r.SecretGroup)
+		return fmt.Errorf("%s: invalid regex secret group %d, must be non-negative", r.ID, r.SecretGroup)
 	}
 	if r.Regex == "" && r.SecretGroup != 0 {
-		return fmt.Errorf("%s: regex secret group %d requires a regex", r.RuleID, r.SecretGroup)
+		return fmt.Errorf("%s: regex secret group %d requires a regex", r.ID, r.SecretGroup)
 	}
 	if r.Regex != "" && r.SecretGroup > maxCapture {
-		return fmt.Errorf("%s: invalid regex secret group %d, max regex secret group %d", r.RuleID, r.SecretGroup, maxCapture)
+		return fmt.Errorf("%s: invalid regex secret group %d, max regex secret group %d", r.ID, r.SecretGroup, maxCapture)
 	}
 	if strings.TrimSpace(r.AnalyzeExpr) != "" && strings.TrimSpace(r.ValidateExpr) == "" {
-		return fmt.Errorf("%s: analyze expression requires a validate expression", r.RuleID)
+		return fmt.Errorf("%s: analyze expression requires a validate expression", r.ID)
 	}
 
 	seenComponents := make(map[string]struct{}, len(r.Components))
 	for _, component := range r.Components {
 		if component == nil {
-			return fmt.Errorf("%s: component is nil", r.RuleID)
+			return fmt.Errorf("%s: component is nil", r.ID)
 		}
 		if strings.TrimSpace(component.RuleID) == "" {
-			return fmt.Errorf("%s: component rule ID is empty", r.RuleID)
+			return fmt.Errorf("%s: component rule ID is empty", r.ID)
 		}
-		if component.RuleID == r.RuleID {
-			return fmt.Errorf("%s: rule cannot reference itself as a component", r.RuleID)
+		if component.RuleID == r.ID {
+			return fmt.Errorf("%s: rule cannot reference itself as a component", r.ID)
 		}
 		if _, exists := seenComponents[component.RuleID]; exists {
-			return fmt.Errorf("%s: duplicate component rule ID %q", r.RuleID, component.RuleID)
+			return fmt.Errorf("%s: duplicate component rule ID %q", r.ID, component.RuleID)
 		}
 		seenComponents[component.RuleID] = struct{}{}
 		if _, err := contextwindow.Parse(component.Within); err != nil {
-			return fmt.Errorf("%s: component %q has invalid within value %q: %w", r.RuleID, component.RuleID, component.Within, err)
+			return fmt.Errorf("%s: component %q has invalid within value %q: %w", r.ID, component.RuleID, component.Within, err)
 		}
 	}
 
@@ -150,14 +150,14 @@ func (r *Rule) Validate() error {
 func (r *Rule) validatePatterns() (int, error) {
 	if r.Path != "" {
 		if _, err := syntax.Parse(r.Path, syntax.Perl); err != nil {
-			return 0, fmt.Errorf("%s: invalid path regex %q: %w", r.RuleID, r.Path, err)
+			return 0, fmt.Errorf("%s: invalid path regex %q: %w", r.ID, r.Path, err)
 		}
 	}
 	maxCapture := 0
 	if r.Regex != "" {
 		parsed, err := syntax.Parse(r.Regex, syntax.Perl)
 		if err != nil {
-			return 0, fmt.Errorf("%s: invalid regex %q: %w", r.RuleID, r.Regex, err)
+			return 0, fmt.Errorf("%s: invalid regex %q: %w", r.ID, r.Regex, err)
 		}
 		maxCapture = parsed.MaxCap()
 	}

@@ -141,7 +141,7 @@ func validateConfig(cfg *configpkg.Config) error {
 		}
 	}
 	for _, rule := range cfg.Rules {
-		id := rule.RuleID
+		id := rule.ID
 		if rule.Filter != "" {
 			prg, err := rt.CompileFilter(rule.Filter, nil)
 			if err != nil {
@@ -228,7 +228,7 @@ func compileRuleRegexps(cfg *configpkg.Config) error {
 				err = re.Compile()
 			}
 			if err != nil {
-				return fmt.Errorf("compiling rule %s %s: %w", rule.RuleID, entry.kind, err)
+				return fmt.Errorf("compiling rule %s %s: %w", rule.ID, entry.kind, err)
 			}
 		}
 	}
@@ -277,7 +277,7 @@ func renderConfig(cfg *configpkg.Config) configView {
 	}
 	for _, rule := range cfg.Rules {
 		rv := ruleView{
-			ID:          rule.RuleID,
+			ID:          rule.ID,
 			Description: rule.Description,
 			Path:        rule.Path,
 			Regex:       rule.Regex,

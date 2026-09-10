@@ -7,7 +7,7 @@ import (
 
 func DockerHubPersonalAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "dockerhub-personal-access-token",
+		ID:          "dockerhub-personal-access-token",
 		Confidence:  "high",
 		Description: "Detected a Docker Hub personal access token, which may expose Docker Hub account access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dckr_pat_[A-Za-z0-9_-]{27}`, false),
@@ -24,7 +24,7 @@ func DockerHubPersonalAccessToken() *config.Rule {
 
 func DockerHubOrganizationAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "dockerhub-organization-access-token",
+		ID:          "dockerhub-organization-access-token",
 		Confidence:  "high",
 		Description: "Detected a Docker Hub organization access token, which may expose organization repositories.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dckr_oat_[A-Za-z0-9_-]{32}`, false),

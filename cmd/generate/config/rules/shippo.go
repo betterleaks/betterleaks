@@ -9,7 +9,7 @@ import (
 func ShippoAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "shippo-api-token",
+		ID:          "shippo-api-token",
 		Confidence:  "high",
 		Description: "Discovered a Shippo API token, potentially compromising shipping services and customer order data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`shippo_(?:live|test)_[a-fA-F0-9]{40}`, false),

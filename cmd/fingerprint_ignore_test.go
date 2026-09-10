@@ -72,7 +72,7 @@ func TestFingerprintCommandRejectsInvalidInputAndPositionalSecret(t *testing.T) 
 }
 
 func ignoreTestConfig() *config.Config {
-	return &config.Config{Rules: []config.Rule{{RuleID: "secret", Regex: `secret-[a-z]+`}}}
+	return &config.Config{Rules: []config.Rule{{ID: "secret", Regex: `secret-[a-z]+`}}}
 }
 
 func writeIgnore(t *testing.T, dir, secret string) string {

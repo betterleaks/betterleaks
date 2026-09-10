@@ -9,7 +9,7 @@ import (
 func IonicPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ionic-personal-access-token",
+		ID:          "ionic-personal-access-token",
 		Confidence:  "high",
 		Description: "Ionic personal access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ion_[A-Za-z0-9]{42}`, false),

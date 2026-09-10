@@ -9,7 +9,7 @@ import (
 func AdobeClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "adobe-client-id",
+		ID:          "adobe-client-id",
 		Confidence:  "high",
 		Description: "Detected a pattern that resembles an Adobe OAuth Web Client ID, posing a risk of compromised Adobe integrations and data breaches.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"adobe"}, utils.Hex("32"), true),
@@ -25,7 +25,7 @@ func AdobeClientID() *config.Rule {
 func AdobeClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "adobe-client-secret",
+		ID:          "adobe-client-secret",
 		Confidence:  "high",
 		Description: "Discovered a potential Adobe Client Secret, which, if exposed, could allow unauthorized Adobe service access and data manipulation.",
 		Regex:       utils.GenerateUniqueTokenRegex(`p8e-(?i)[a-z0-9]{32}`, false),

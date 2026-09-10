@@ -9,7 +9,7 @@ import (
 func NetlifyAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "netlify-access-token",
+		ID:          "netlify-access-token",
 		Confidence:  "high",
 		Description: "Detected a Netlify Access Token, potentially compromising web hosting services and site management.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"netlify"},

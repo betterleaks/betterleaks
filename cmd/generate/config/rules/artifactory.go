@@ -9,7 +9,7 @@ import (
 func ArtifactoryApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "artifactory-api-key",
+		ID:          "artifactory-api-key",
 		Confidence:  "high",
 		Description: "Detected an Artifactory api key, posing a risk unauthorized access to the central repository.",
 		Regex:       `\bAKCp[A-Za-z0-9]{68,70}\b`,
@@ -46,7 +46,7 @@ func ArtifactoryApiKey() *config.Rule {
 func ArtifactoryReferenceToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "artifactory-reference-token",
+		ID:          "artifactory-reference-token",
 		Confidence:  "high",
 		Description: "Detected an Artifactory reference token, posing a risk of impersonation and unauthorized access to the central repository.",
 		Regex:       `\bcmVmd[A-Za-z0-9]{59}\b`,
@@ -82,7 +82,7 @@ func ArtifactoryReferenceToken() *config.Rule {
 
 func ArtifactoryJFrogURL() *config.Rule {
 	r := config.Rule{
-		RuleID:      "artifactory-jfrog-url",
+		ID:          "artifactory-jfrog-url",
 		Confidence:  "high",
 		Description: "Detected a JFrog Artifactory host, used as a component of Artifactory token validation.",
 		Regex:       `(?i)(?:^|[^a-z0-9-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.jfrog\.io)(?:$|[^a-z0-9-])`,

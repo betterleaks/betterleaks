@@ -8,7 +8,7 @@ import (
 
 func Infomaniak() *config.Rule {
 	r := config.Rule{
-		RuleID:      "infomaniak-api-token",
+		ID:          "infomaniak-api-token",
 		Confidence:  "high",
 		Description: "Detected an Infomaniak API token, which may expose hosting, mail, and cloud services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"infomaniak"}, `[A-Za-z0-9_\-]{60,100}`, true),

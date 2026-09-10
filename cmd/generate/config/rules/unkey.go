@@ -9,7 +9,7 @@ import (
 func UnkeyRootKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "unkey-root-key.1",
+		ID:          "unkey-root-key.1",
 		Confidence:  "high",
 		Description: "Unkey administrative root key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`unkey_[A-Za-z0-9]{20,32}`, false),

@@ -8,7 +8,7 @@ import (
 
 func PayPalClientID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "paypal-client-id.1",
+		ID:          "paypal-client-id.1",
 		Confidence:  "medium",
 		Description: "PayPal OAuth client ID, used as a component of the PayPal client-secret composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -38,7 +38,7 @@ func PayPalClientSecret() *config.Rule {
 	// token endpoint can prove a matching pair valid; a rejection remains
 	// unknown rather than misclassifying sandbox credentials.
 	r := config.Rule{
-		RuleID:      "paypal-client-secret.1",
+		ID:          "paypal-client-secret.1",
 		Confidence:  "high",
 		Description: "PayPal OAuth client secret, which may allow access to PayPal REST APIs when paired with its client ID.",
 		Regex: utils.GenerateSemiGenericRegex(

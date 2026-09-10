@@ -9,7 +9,7 @@ import (
 func OpenWeatherAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "openweather-api-key",
+		ID:          "openweather-api-key",
 		Confidence:  "medium",
 		Description: "OpenWeather API key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"openweather", "pyowm"}, `[a-z0-9]{32}`, false),

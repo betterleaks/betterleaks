@@ -8,7 +8,7 @@ import (
 
 func RetellAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "retell-api-key.1",
+		ID:          "retell-api-key.1",
 		Confidence:  "high",
 		Description: "Retell AI API key, which may allow access to agents, calls, and account configuration.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"retell"}, `key_`+utils.Hex("28"), false),

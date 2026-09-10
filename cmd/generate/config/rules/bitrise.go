@@ -7,7 +7,7 @@ import (
 
 func BitriseAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "bitrise-access-token",
+		ID:          "bitrise-access-token",
 		Confidence:  "high",
 		Description: "Detected a Bitrise personal or workspace access token, which may expose CI/CD applications and builds.",
 		Regex: utils.GenerateSemiGenericRegex(

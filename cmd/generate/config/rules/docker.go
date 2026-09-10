@@ -9,7 +9,7 @@ import (
 func DockerSwarmJoinToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "docker-swarm-join-token",
+		ID:          "docker-swarm-join-token",
 		Confidence:  "high",
 		Description: "Docker Swarm join token.",
 		Regex:       `\b(SWMTKN-1-[a-z0-9]{50,60}-[a-z0-9]{24,30})`,
@@ -30,7 +30,7 @@ func DockerSwarmJoinToken() *config.Rule {
 func DockerSwarmUnlockKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "docker-swarm-unlock-key",
+		ID:          "docker-swarm-unlock-key",
 		Confidence:  "high",
 		Description: "Docker Swarm unlock key.",
 		Regex:       `\b(SWMKEY-1-[A-Za-z0-9+/]{40,50})`,

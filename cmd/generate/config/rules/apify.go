@@ -7,7 +7,7 @@ import (
 
 func ApifyAPIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:       "apify-api-token",
+		ID:           "apify-api-token",
 		Confidence:   "high",
 		Description:  "Detected an Apify API token, which may expose actors, tasks, and stored data.",
 		Regex:        `\b(apify_api_[A-Za-z0-9]{34,38})\b`,

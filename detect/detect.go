@@ -486,21 +486,21 @@ func (d *Detector) compileAll() error {
 		rule := &d.rulesBySpecificity[i]
 		if rule.regex != nil {
 			if err := rule.regex.Compile(); err != nil {
-				return fmt.Errorf("compile rule %q regex: %w", rule.rule.RuleID, err)
+				return fmt.Errorf("compile rule %q regex: %w", rule.rule.ID, err)
 			}
 		}
 		if rule.path != nil {
 			if err := rule.path.Compile(); err != nil {
-				return fmt.Errorf("compile rule %q path regex: %w", rule.rule.RuleID, err)
+				return fmt.Errorf("compile rule %q path regex: %w", rule.rule.ID, err)
 			}
 		}
 		if _, _, err := d.ruleFilterProgram(rule); err != nil {
 			return err
 		}
-		if _, _, err := d.validationProgram(rule.rule.RuleID); err != nil {
+		if _, _, err := d.validationProgram(rule.rule.ID); err != nil {
 			return err
 		}
-		if _, _, err := d.analysisProgram(rule.rule.RuleID); err != nil {
+		if _, _, err := d.analysisProgram(rule.rule.ID); err != nil {
 			return err
 		}
 	}
@@ -642,14 +642,14 @@ func (d *Detector) ruleFilterProgram(r *compiledRule) (exprruntime.Program, bool
 	if r.rule.Filter == "" {
 		return nil, false, nil
 	}
-	if prg := d.filterPrograms[r.rule.RuleID]; prg != nil {
+	if prg := d.filterPrograms[r.rule.ID]; prg != nil {
 		return prg, true, nil
 	}
 	prg, err := d.exprRuntime.CompileFilter(r.rule.Filter, nil)
 	if err != nil {
-		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.rule.RuleID, err)
+		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.rule.ID, err)
 	}
-	d.filterPrograms[r.rule.RuleID] = prg
+	d.filterPrograms[r.rule.ID] = prg
 	return prg, true, nil
 }
 
@@ -695,7 +695,7 @@ func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragmen
 func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Finding {
 	path := fragment.Attr(sources.AttrPath)
 	finding := report.Finding{
-		RuleID:          r.rule.RuleID,
+		RuleID:          r.rule.ID,
 		Description:     r.rule.Description,
 		Match:           "file detected: " + path,
 		Tags:            append([]string{}, r.rule.Tags...),
@@ -1070,7 +1070,7 @@ func (d *Detector) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector
 
 	start := time.Now()
 	findings := d.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings)
-	ruleTimings.Record(r.rule.RuleID, time.Since(start))
+	ruleTimings.Record(r.rule.ID, time.Since(start))
 	return findings
 }
 
@@ -1095,14 +1095,14 @@ func snapshotDetectorRules(cfg *config.Config) ([]compiledRule, map[string]int, 
 			var err error
 			compiled.regex, err = blregexp.Compile(rule.Regex)
 			if err != nil {
-				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.RuleID, err)
+				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.ID, err)
 			}
 		}
 		if rule.Path != "" {
 			var err error
 			compiled.path, err = blregexp.Compile(rule.Path)
 			if err != nil {
-				return nil, nil, fmt.Errorf("compile rule %q path regex: %w", rule.RuleID, err)
+				return nil, nil, fmt.Errorf("compile rule %q path regex: %w", rule.ID, err)
 			}
 		}
 		rules[i] = compiled
@@ -1112,7 +1112,7 @@ func snapshotDetectorRules(cfg *config.Config) ([]compiledRule, map[string]int, 
 	})
 	indexes := make(map[string]int, len(rules))
 	for i, rule := range rules {
-		indexes[rule.rule.RuleID] = i
+		indexes[rule.rule.ID] = i
 	}
 	return rules, indexes, nil
 }
@@ -1210,7 +1210,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
-			RuleID:          r.rule.RuleID,
+			RuleID:          r.rule.ID,
 			Description:     r.rule.Description,
 			Line:            strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
 			Match:           secret,
@@ -1444,7 +1444,7 @@ func (d *Detector) processComponents(ruleTimings *ruletiming.Collector, fragment
 			finalFindings = append(finalFindings, newFinding)
 
 			logger.Debug("multi-part rule satisfied",
-				"primary_rule", r.rule.RuleID,
+				"primary_rule", r.rule.ID,
 				"primary_line", primaryFinding.Location.StartLine,
 				"component_count", len(componentFindings),
 			)

@@ -9,7 +9,7 @@ import (
 func CoinbaseAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "coinbase-access-token",
+		ID:          "coinbase-access-token",
 		Confidence:  "medium",
 		Description: "Detected a Coinbase Access Token, posing a risk of unauthorized access to cryptocurrency accounts and financial transactions.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"coinbase"},

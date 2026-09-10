@@ -8,7 +8,7 @@ import (
 func WorkOSProductionAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "workos-production-api-key.1",
+		ID:          "workos-production-api-key.1",
 		Confidence:  "high",
 		Description: "WorkOS production API key.",
 		Regex: utils.GenerateSemiGenericRegex(

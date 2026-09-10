@@ -23,10 +23,10 @@ prefilter = {{ tomlExpr . }}
 filter = {{ tomlExpr . }}
 {{ end }}
 {{- range $i, $rule := .Rules }}{{println}}# ──────────────────────────────────────────────────────────────────────────────
-# {{ $rule.RuleID }}
+# {{ $rule.ID }}
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
-id = "{{$rule.RuleID}}"
+id = "{{$rule.ID}}"
 description = "{{$rule.Description}}"
 {{- with $rule.Regex }}
 regex = '''{{ . }}'''{{ end -}}
@@ -34,7 +34,7 @@ regex = '''{{ . }}'''{{ end -}}
 path = '''{{ . }}'''{{ end -}}
 {{- with $rule.SecretGroup }}
 secretGroup = {{ . }}{{ end -}}
-{{- if eq $rule.RuleID "generic-api-key" }}
+{{- if eq $rule.ID "generic-api-key" }}
 specificity = 0
 {{- else if $rule.Specificity }}
 specificity = {{ $rule.Specificity }}

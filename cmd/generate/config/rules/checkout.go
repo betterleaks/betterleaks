@@ -8,7 +8,7 @@ import (
 func CheckoutSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "checkout-secret-key",
+		ID:          "checkout-secret-key",
 		Confidence:  "medium",
 		Description: "Checkout.com secret key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"checkout"}, `sk_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`, true),

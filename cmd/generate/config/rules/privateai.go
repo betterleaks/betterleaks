@@ -9,7 +9,7 @@ import (
 func PrivateAIToken() *config.Rule {
 	// https://docs.private-ai.com/reference/latest/operation/metrics_metrics_get/
 	r := config.Rule{
-		RuleID:      "privateai-api-token",
+		ID:          "privateai-api-token",
 		Confidence:  "medium",
 		Description: "Identified a PrivateAI Token, posing a risk of unauthorized access to AI services and data manipulation.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"private[_-]?ai"}, `[a-z0-9]{32}`, false),

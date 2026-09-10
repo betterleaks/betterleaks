@@ -10,7 +10,7 @@ import (
 
 func TestDetectorOwnsRegexesFromPatternStrings(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{{
-		RuleID:      "token",
+		ID:          "token",
 		Regex:       `token=(?P<secret>[a-z]+)`,
 		Path:        `\.env$`,
 		SecretGroup: 1,

@@ -9,7 +9,7 @@ import (
 func ClickHouseCloud() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "clickhouse-cloud-api-secret-key",
+		ID:          "clickhouse-cloud-api-secret-key",
 		Confidence:  "high",
 		Description: "Identified a pattern that may indicate clickhouse cloud API secret key, risking unauthorized clickhouse cloud api access and data breaches on ClickHouse Cloud platforms.",
 		Regex:       `\b(4b1d[A-Za-z0-9]{38})\b`,
@@ -42,7 +42,7 @@ func ClickHouseCloud() *config.Rule {
 
 func ClickHouseCloudKeyID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "clickhouse-cloud-key-id",
+		ID:          "clickhouse-cloud-key-id",
 		Confidence:  "high",
 		Description: "Detected a ClickHouse Cloud key ID, used as a component of the clickhouse-cloud-api-secret-key composite rule.",
 		Regex:       `(?i)\bclickhouse(?:.|[\n\r]){0,16}?(?:ID|USER)(?:.|[\n\r]){0,16}?([a-z0-9]{20})`,

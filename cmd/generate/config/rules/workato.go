@@ -8,7 +8,7 @@ import (
 func WorkatoDeveloperAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "workato-developer-api-token.1",
+		ID:          "workato-developer-api-token.1",
 		Confidence:  "high",
 		Description: "Workato Developer API token.",
 		Regex: utils.GenerateUniqueTokenRegex(

@@ -10,7 +10,7 @@ func ScalingoAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a Scalingo API token, posing a risk to cloud platform services and application deployment security.",
-		RuleID:      "scalingo-api-token",
+		ID:          "scalingo-api-token",
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`tk-us-[\w-]{48}`, false),
 		Keywords:    []string{"tk-us-"},

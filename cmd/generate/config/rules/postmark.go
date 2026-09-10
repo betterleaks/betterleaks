@@ -11,7 +11,7 @@ func PostmarkAPIToken() *config.Rule {
 	// endpoint first, then the account endpoint, and reject the token only when
 	// both authentication schemes return Postmark's documented 401 response.
 	r := config.Rule{
-		RuleID:      "postmark-api-token.1",
+		ID:          "postmark-api-token.1",
 		Confidence:  "high",
 		Description: "Postmark server or account API token, which may allow access to email delivery and account configuration.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"postmark"}, utils.Hex8_4_4_4_12(), true),

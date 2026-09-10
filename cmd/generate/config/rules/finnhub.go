@@ -9,7 +9,7 @@ import (
 func FinnhubAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "finnhub-access-token",
+		ID:          "finnhub-access-token",
 		Confidence:  "high",
 		Description: "Found a Finnhub Access Token, risking unauthorized access to financial market data and analytics.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"finnhub"}, utils.AlphaNumeric("20"), true),

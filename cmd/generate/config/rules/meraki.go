@@ -9,7 +9,7 @@ import (
 func Meraki() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "cisco-meraki-api-key",
+		ID:          "cisco-meraki-api-key",
 		Confidence:  "high",
 		Description: "Cisco Meraki is a cloud-managed IT solution that provides networking, security, and device management through an easy-to-use interface.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`(?-i:[Mm]eraki|MERAKI)`}, `[0-9a-f]{40}`, false),

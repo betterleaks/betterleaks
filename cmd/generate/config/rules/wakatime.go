@@ -18,7 +18,7 @@ const wakaTimeAPIKeyValidateExpr = `let r = http.get("https://api.wakatime.com/a
 func WakaTimeAPIKeyV1() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "wakatime-api-key.1",
+		ID:          "wakatime-api-key.1",
 		Confidence:  "high",
 		Description: "WakaTime API key version 1 (UUID format).",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -46,7 +46,7 @@ func WakaTimeAPIKeyV1() *config.Rule {
 func WakaTimeAPIKeyV2() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "wakatime-api-key.2",
+		ID:           "wakatime-api-key.2",
 		Confidence:   "high",
 		Description:  "WakaTime API key version 2 (waka_ format).",
 		Regex:        utils.GenerateUniqueTokenRegex(`waka_[a-z0-9]{36,64}`, true),

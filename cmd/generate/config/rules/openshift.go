@@ -10,7 +10,7 @@ import (
 // https://docs.redhat.com/en/documentation/openshift_container_platform/4.10/html-single/authentication_and_authorization/index#oauth-view-details-tokens_managing-oauth-access-tokens
 func OpenshiftUserToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "openshift-user-token",
+		ID:          "openshift-user-token",
 		Confidence:  "high",
 		Description: "Found an OpenShift user token, potentially compromising an OpenShift/Kubernetes cluster.",
 		// TODO: Do tokens vary in length or are they always 43?

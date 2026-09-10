@@ -9,7 +9,7 @@ import (
 func Atlassian() *config.Rule {
 	r := config.Rule{
 		Description: "Detected an Atlassian Cloud API token, posing a threat to project management and collaboration tool security and data confidentiality.",
-		RuleID:      "atlassian-api-token",
+		ID:          "atlassian-api-token",
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`ATAT[A-Za-z0-9_\-=]{100,}`, false),
 		Keywords:    []string{"atat"},

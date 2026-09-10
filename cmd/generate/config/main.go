@@ -548,22 +548,22 @@ func main() {
 	ruleList := make([]config.Rule, 0, len(configRules))
 	for _, rule := range configRules {
 		if err := rule.Validate(); err != nil {
-			logging.Fatal("Failed to validate rule", "error", err, "rule_id", rule.RuleID)
+			logging.Fatal("Failed to validate rule", "error", err, "rule_id", rule.ID)
 		}
 
 		// check if rule is in ruleLookUp
-		if _, ok := ruleIDs[rule.RuleID]; ok {
-			logging.Fatal("rule id is not unique", "rule_id", rule.RuleID)
+		if _, ok := ruleIDs[rule.ID]; ok {
+			logging.Fatal("rule id is not unique", "rule_id", rule.ID)
 		}
 		// TODO: eventually change all the signatures to get ride of this
 		// nasty dereferencing.
-		ruleIDs[rule.RuleID] = struct{}{}
+		ruleIDs[rule.ID] = struct{}{}
 		ruleList = append(ruleList, *rule)
 	}
 	// The template previously ranged over a map, which emitted string keys in
 	// sorted order. Keep generated configs stable now that Rules is a slice.
 	sort.Slice(ruleList, func(i, j int) bool {
-		return ruleList[i].RuleID < ruleList[j].RuleID
+		return ruleList[i].ID < ruleList[j].ID
 	})
 
 	funcMap := template.FuncMap{

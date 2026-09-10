@@ -10,7 +10,7 @@ func GenericPassword() *config.Rule {
 	authArgumentRegex := `\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)`
 
 	r := config.Rule{
-		RuleID:      "generic-password",
+		ID:          "generic-password",
 		Confidence:  "low",
 		Description: "Detected a potential hardcoded password literal, which may expose account credentials.",
 		Regex:       `(?i)(?:` + passwordAssignmentRegex + `|` + authArgumentRegex + `)`,
@@ -252,7 +252,7 @@ filter.matchesAny(finding["secret"], [
 
 func GenericUsername() *config.Rule {
 	r := config.Rule{
-		RuleID:      "generic-username",
+		ID:          "generic-username",
 		Confidence:  "low",
 		Description: "Detected a username-like value used as a component of the generic-password rule.",
 		Regex:       `(?m)(?:^|[^a-zA-Z0-9])(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){3,250})"|'((?:\\.|[^'\\\r\n]){3,250})'|\x60((?:\\.|[^\x60\\\r\n]){3,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{2,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`,

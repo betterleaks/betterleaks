@@ -8,7 +8,7 @@ import (
 
 func LangfusePublicKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "langfuse-public-key.1",
+		ID:          "langfuse-public-key.1",
 		Confidence:  "high",
 		Description: "Langfuse public key, used as a component of the Langfuse secret-key composite rule.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pk-lf-`+uuidPattern(), false),
@@ -33,7 +33,7 @@ func LangfuseSecretKey() *config.Rule {
 	// The EU cloud request can prove a matching pair valid; non-success remains
 	// unknown rather than rejecting credentials issued for another host.
 	r := config.Rule{
-		RuleID:      "langfuse-secret-key.1",
+		ID:          "langfuse-secret-key.1",
 		Confidence:  "high",
 		Description: "Langfuse secret key, which authenticates project API access when paired with its public key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-lf-`+uuidPattern(), false),

@@ -8,7 +8,7 @@ import (
 
 func AbuseIPDBAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "abuseipdb-api-key.1",
+		ID:          "abuseipdb-api-key.1",
 		Confidence:  "high",
 		Description: "AbuseIPDB API key, which may allow access to IP reputation data and abuse-reporting APIs.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"abuseipdb"}, utils.Hex("80"), true),

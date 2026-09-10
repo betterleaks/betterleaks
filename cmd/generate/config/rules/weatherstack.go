@@ -9,7 +9,7 @@ import (
 func WeatherstackAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "weatherstack-api-key.1",
+		ID:          "weatherstack-api-key.1",
 		Confidence:  "medium",
 		Description: "Weatherstack API key.",
 		Regex: utils.GenerateSemiGenericRegex(

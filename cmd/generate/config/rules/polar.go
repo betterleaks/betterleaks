@@ -22,7 +22,7 @@ const polarUserTokenValidateExpr = `let r = http.get("https://api.polar.sh/v1/oa
 func PolarOrganizationAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "polar-organization-access-token",
+		ID:          "polar-organization-access-token",
 		Confidence:  "high",
 		Description: "Polar organization access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`polar_oat_[A-Za-z0-9_-]{20,100}`, false),
@@ -53,7 +53,7 @@ func PolarOrganizationAccessToken() *config.Rule {
 func PolarPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "polar-personal-access-token",
+		ID:           "polar-personal-access-token",
 		Confidence:   "high",
 		Description:  "Polar personal access token.",
 		Regex:        utils.GenerateUniqueTokenRegex(`polar_pat_[A-Za-z0-9_-]{20,100}`, false),
@@ -73,7 +73,7 @@ func PolarPersonalAccessToken() *config.Rule {
 func PolarOAuthAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "polar-oauth-access-token",
+		ID:           "polar-oauth-access-token",
 		Confidence:   "high",
 		Description:  "Polar OAuth access token.",
 		Regex:        utils.GenerateUniqueTokenRegex(`polar_at_[A-Za-z0-9_-]{20,100}`, false),

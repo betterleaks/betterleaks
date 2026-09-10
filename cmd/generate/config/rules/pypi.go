@@ -10,7 +10,7 @@ func PyPiUploadToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Discovered a PyPI upload token, potentially compromising Python package distribution and repository integrity.",
-		RuleID:      "pypi-upload-token",
+		ID:          "pypi-upload-token",
 		Confidence:  "high",
 		Regex:       `pypi-AgEIcHlwaS5vcmc[\w-]{50,1000}`,
 		Keywords: []string{

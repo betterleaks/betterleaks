@@ -10,7 +10,7 @@ func WooCommerceConsumerSecret() *config.Rule {
 	// WooCommerce stores are self-hosted on customer-controlled domains. Avoid
 	// turning an arbitrary nearby store URL into a validation request target.
 	r := config.Rule{
-		RuleID:      "woocommerce-consumer-secret.1",
+		ID:          "woocommerce-consumer-secret.1",
 		Confidence:  "high",
 		Description: "WooCommerce REST API consumer secret, which may allow read or write access to a store with the associated consumer key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"woo"}, `cs_`+utils.Hex("40"), true),

@@ -9,7 +9,7 @@ import (
 func PaddleLiveAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "paddle-live-api-key",
+		ID:          "paddle-live-api-key",
 		Confidence:  "high",
 		Description: "Paddle live API key.",
 		Regex: utils.GenerateUniqueTokenRegex(

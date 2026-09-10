@@ -9,7 +9,7 @@ import (
 func FullStoryAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "fullstory-api-key",
+		ID:          "fullstory-api-key",
 		Confidence:  "medium",
 		Description: "FullStory API key.",
 		Regex: utils.GenerateSemiGenericRegex(

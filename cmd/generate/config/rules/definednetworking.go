@@ -13,7 +13,7 @@ func DefinedNetworkingAPIToken() *config.Rule {
 		Description: "Identified a Defined Networking API token, which could lead to unauthorized network operations and data breaches.",
 
 		// Unique ID for the rule
-		RuleID:     "defined-networking-api-token",
+		ID:         "defined-networking-api-token",
 		Confidence: "high",
 
 		// Regex used for detecting secrets. See regex section below for more details

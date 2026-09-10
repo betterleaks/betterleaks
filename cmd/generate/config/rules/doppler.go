@@ -9,7 +9,7 @@ import (
 func Doppler() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "doppler-api-token",
+		ID:          "doppler-api-token",
 		Confidence:  "high",
 		Description: "Discovered a Doppler API token, posing a risk to environment and secrets management security.",
 		Regex:       `dp\.pt\.(?i)[a-z0-9]{43}`,

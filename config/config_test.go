@@ -50,7 +50,7 @@ func TestTranslate(t *testing.T) {
 			cfg: &Config{
 				Title: "gitleaks config",
 				Rules: []Rule{{
-					RuleID:      "generic-api-key",
+					ID:          "generic-api-key",
 					Description: "Generic API Key",
 					Regex:       `(?i)(?:key|api|token|secret|client|passwd|password|auth|access)(?:[0-9a-z\-_\t .]{0,20})(?:[\s|']|[\s|"]){0,3}(?:=|>|:{1,3}=|\|\|:|<=|=>|:|\?=)(?:'|\"|\s|=|\x60){0,5}([0-9a-z\-_.=]{10,150})(?:['|\"|\n|\r|\s|\x60|;]|$)`,
 					Keywords:    []string{"key", "api", "token", "secret", "client", "passwd", "password", "auth", "access"},
@@ -63,7 +63,7 @@ func TestTranslate(t *testing.T) {
 			cfgName: "valid/rule_path_only",
 			cfg: &Config{
 				Rules: []Rule{{
-					RuleID:      "python-files-only",
+					ID:          "python-files-only",
 					Description: "Python Files",
 					Path:        `.py`,
 					Keywords:    []string{},
@@ -75,7 +75,7 @@ func TestTranslate(t *testing.T) {
 			cfgName: "valid/rule_regex_escaped_character_group",
 			cfg: &Config{
 				Rules: []Rule{{
-					RuleID:      "pypi-upload-token",
+					ID:          "pypi-upload-token",
 					Description: "PyPI upload token",
 					Regex:       `pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,1000}`,
 					Keywords:    []string{},
@@ -87,7 +87,7 @@ func TestTranslate(t *testing.T) {
 			cfgName: "valid/rule_secret_group",
 			cfg: &Config{
 				Rules: []Rule{{
-					RuleID:      "discord-api-key",
+					ID:          "discord-api-key",
 					Description: "Discord API key",
 					Regex:       `(?i)(discord[a-z0-9_ .\-,]{0,25})(=|>|:=|\|\|:|<=|=>|:).{0,5}['\"]([a-h0-9]{64})['\"]`,
 					SecretGroup: 3,
@@ -140,15 +140,15 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 	for _, rule := range cfg.Rules {
 		if rule.Filter != "" {
 			_, err = filterRuntime.CompileFilter(rule.Filter, nil)
-			require.NoErrorf(t, err, "rule %q filter", rule.RuleID)
+			require.NoErrorf(t, err, "rule %q filter", rule.ID)
 		}
 		if rule.ValidateExpr != "" {
 			_, err = filterRuntime.CompileValidation(rule.ValidateExpr)
-			require.NoErrorf(t, err, "rule %q validation", rule.RuleID)
+			require.NoErrorf(t, err, "rule %q validation", rule.ID)
 		}
 		if rule.AnalyzeExpr != "" {
 			_, err = filterRuntime.CompileAnalysis(rule.AnalyzeExpr)
-			require.NoErrorf(t, err, "rule %q analysis", rule.RuleID)
+			require.NoErrorf(t, err, "rule %q analysis", rule.ID)
 		}
 	}
 }
@@ -181,7 +181,7 @@ func TestGenericRuleConfidence(t *testing.T) {
 	cfg, err := Default()
 	require.NoError(t, err)
 	for _, rule := range cfg.Rules {
-		require.NotEmptyf(t, rule.Confidence, "rule %q has no confidence", rule.RuleID)
+		require.NotEmptyf(t, rule.Confidence, "rule %q has no confidence", rule.ID)
 	}
 	require.Equal(t, "low", requireRule(t, cfg, "generic-api-key").Confidence)
 	require.Equal(t, "medium", requireRule(t, cfg, "box-api-access-token").Confidence)
@@ -239,21 +239,21 @@ func TestTranslateExtend(t *testing.T) {
 			cfg: &Config{
 				Rules: []Rule{
 					{
-						RuleID:      "aws-access-key",
+						ID:          "aws-access-key",
 						Description: "AWS Access Key",
 						Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
 					},
 					{
-						RuleID:      "aws-secret-key",
+						ID:          "aws-secret-key",
 						Description: "AWS Secret Key",
 						Regex:       `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
 					},
 					{
-						RuleID:      "aws-secret-key-again",
+						ID:          "aws-secret-key-again",
 						Description: "AWS Secret Key",
 						Regex:       `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
 						Keywords:    []string{},
@@ -268,13 +268,13 @@ func TestTranslateExtend(t *testing.T) {
 				Title: "gitleaks extend disable",
 				Rules: []Rule{
 					{
-						RuleID:   "aws-secret-key",
+						ID:       "aws-secret-key",
 						Regex:    `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
 						Tags:     []string{"key", "AWS"},
 						Keywords: []string{},
 					},
 					{
-						RuleID:   "pypi-upload-token",
+						ID:       "pypi-upload-token",
 						Regex:    `pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,1000}`,
 						Tags:     []string{},
 						Keywords: []string{},
@@ -287,7 +287,7 @@ func TestTranslateExtend(t *testing.T) {
 			cfg: &Config{
 				Rules: []Rule{
 					{
-						RuleID:      "aws-secret-key-again-again",
+						ID:          "aws-secret-key-again-again",
 						Description: "AWS Secret Key",
 						Regex:       `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
 						Keywords:    []string{},
@@ -303,7 +303,7 @@ func TestTranslateExtend(t *testing.T) {
 			cfg: &Config{
 				Title: "override a built-in rule's description",
 				Rules: []Rule{{
-					RuleID:      "aws-access-key",
+					ID:          "aws-access-key",
 					Description: "Puppy Doggy",
 					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 					Keywords:    []string{},
@@ -318,7 +318,7 @@ func TestTranslateExtend(t *testing.T) {
 			cfg: &Config{
 				Title: "override a built-in rule's path",
 				Rules: []Rule{{
-					RuleID:      "aws-access-key",
+					ID:          "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 					Path:        "(?:puppy)",
@@ -334,7 +334,7 @@ func TestTranslateExtend(t *testing.T) {
 			cfg: &Config{
 				Title: "override a built-in rule's regex",
 				Rules: []Rule{{
-					RuleID:      "aws-access-key",
+					ID:          "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       "(?:a)",
 					Keywords:    []string{},
@@ -349,7 +349,7 @@ func TestTranslateExtend(t *testing.T) {
 			cfg: &Config{
 				Title: "override a built-in rule's secretGroup",
 				Rules: []Rule{{
-					RuleID:      "aws-access-key",
+					ID:          "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       "(a)(a)",
 					SecretGroup: 2,
@@ -365,7 +365,7 @@ func TestTranslateExtend(t *testing.T) {
 			cfg: &Config{
 				Title: "override a built-in rule's filter",
 				Rules: []Rule{{
-					RuleID:      "aws-access-key",
+					ID:          "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 					Keywords:    []string{},
@@ -381,7 +381,7 @@ func TestTranslateExtend(t *testing.T) {
 			cfg: &Config{
 				Title: "override a built-in rule's keywords",
 				Rules: []Rule{{
-					RuleID:      "aws-access-key",
+					ID:          "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 					Keywords:    []string{"puppy"},
@@ -396,7 +396,7 @@ func TestTranslateExtend(t *testing.T) {
 			cfg: &Config{
 				Title: "override a built-in rule's tags",
 				Rules: []Rule{{
-					RuleID:      "aws-access-key",
+					ID:          "aws-access-key",
 					Description: "AWS Access Key",
 					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
 					Keywords:    []string{},

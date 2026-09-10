@@ -8,7 +8,7 @@ import (
 
 func HunterAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "hunter-api-key.1",
+		ID:          "hunter-api-key.1",
 		Confidence:  "medium",
 		Description: "Hunter API key, which may allow access to account and email intelligence data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"hunter"}, utils.Hex("40"), false),

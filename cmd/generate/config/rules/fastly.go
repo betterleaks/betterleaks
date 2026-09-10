@@ -58,7 +58,7 @@ func FastlyAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description:  "Uncovered a Fastly API token, which may compromise CDN and edge cloud services, leading to content delivery and security issues.",
-		RuleID:       "fastly-api-token",
+		ID:           "fastly-api-token",
 		Confidence:   "high",
 		Regex:        utils.GenerateSemiGenericRegex([]string{"fastly"}, utils.AlphaNumericExtendedShort("32"), true),
 		Keywords:     []string{"fastly"},

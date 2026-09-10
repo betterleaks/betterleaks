@@ -9,7 +9,7 @@ func Authress() *config.Rule {
 	// Rule Definition
 	// When changes are made to this rule, regenerate and commit config/betterleaks.toml.
 	r := config.Rule{
-		RuleID:      "authress-service-client-access-key",
+		ID:          "authress-service-client-access-key",
 		Confidence:  "high",
 		Description: "Uncovered a possible Authress Service Client Access Key, which may compromise access control services and sensitive data.",
 		Regex:       `(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b`,

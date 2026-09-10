@@ -58,7 +58,7 @@ let can_write = filter.intersects(acl, [
 func AlgoliaApplicationID() *config.Rule {
 	r := config.Rule{
 		Description: "Detected an Algolia application ID, used as a component of the algolia-api-key composite rule.",
-		RuleID:      "algolia-application-id",
+		ID:          "algolia-application-id",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{10}`, true),
 		Keywords:    []string{"algolia"},
@@ -81,7 +81,7 @@ func AlgoliaApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Identified an Algolia API Key, which could result in unauthorized search operations and data exposure on Algolia-managed platforms.",
-		RuleID:      "algolia-api-key",
+		ID:          "algolia-api-key",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{32}`, true),
 		Keywords:    []string{"algolia"},

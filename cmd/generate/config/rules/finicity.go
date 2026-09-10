@@ -10,7 +10,7 @@ func FinicityClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Identified a Finicity Client Secret, which could lead to compromised financial service integrations and data breaches.",
-		RuleID:      "finicity-client-secret",
+		ID:          "finicity-client-secret",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"finicity"}, utils.AlphaNumeric("20"), true),
 
@@ -27,7 +27,7 @@ func FinicityAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Detected a Finicity API token, potentially risking financial data access and unauthorized financial operations.",
-		RuleID:      "finicity-api-token",
+		ID:          "finicity-api-token",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"finicity"}, utils.Hex("32"), true),
 

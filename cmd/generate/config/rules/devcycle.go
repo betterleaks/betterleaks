@@ -19,7 +19,7 @@ const devCycleValidationExpr = `let r = http.post("https://bucketing-api.devcycl
 func DevCycleClientSDKKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "devcycle-client-sdk-key",
+		ID:           "devcycle-client-sdk-key",
 		Confidence:   "high",
 		Description:  "DevCycle client SDK key.",
 		Regex:        `\b(dvc_client_[A-Za-z0-9]{8,32})`,
@@ -41,7 +41,7 @@ func DevCycleClientSDKKey() *config.Rule {
 func DevCycleMobileSDKKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "devcycle-mobile-sdk-key",
+		ID:           "devcycle-mobile-sdk-key",
 		Confidence:   "high",
 		Description:  "DevCycle mobile SDK key.",
 		Regex:        `\b(dvc_mobile_[A-Za-z0-9]{8,32})`,
@@ -63,7 +63,7 @@ func DevCycleMobileSDKKey() *config.Rule {
 func DevCycleServerSDKKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "devcycle-server-sdk-key",
+		ID:           "devcycle-server-sdk-key",
 		Confidence:   "high",
 		Description:  "DevCycle server SDK key.",
 		Regex:        `\b(dvc_server_[A-Za-z0-9]{8,32})`,

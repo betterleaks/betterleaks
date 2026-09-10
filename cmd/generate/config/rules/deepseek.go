@@ -8,7 +8,7 @@ import (
 
 func DeepSeek() *config.Rule {
 	r := config.Rule{
-		RuleID:      "deepseek-api-key",
+		ID:          "deepseek-api-key",
 		Confidence:  "high",
 		Description: "Detected a DeepSeek API Key, which may expose AI model access and associated usage to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"deepseek"}, `sk-[a-f0-9]{32}`, true),

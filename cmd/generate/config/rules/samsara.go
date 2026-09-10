@@ -9,7 +9,7 @@ import (
 func SamsaraAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "samsara-api-token.1",
+		ID:          "samsara-api-token.1",
 		Confidence:  "high",
 		Description: "Samsara API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`samsara_api_[A-Za-z0-9]{26,32}`, false),

@@ -7,7 +7,7 @@ import (
 
 func CoverallsPersonalAPIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "coveralls-personal-api-token",
+		ID:          "coveralls-personal-api-token",
 		Confidence:  "medium",
 		Description: "Detected a Coveralls personal API token, which may expose repository coverage data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"coveralls"}, `[A-Za-z0-9-]{37}`, true),

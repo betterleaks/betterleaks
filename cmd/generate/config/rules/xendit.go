@@ -8,7 +8,7 @@ import (
 
 func XenditProductionAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "xendit-production-api-key.1",
+		ID:          "xendit-production-api-key.1",
 		Confidence:  "high",
 		Description: "Xendit production API key, which may allow access to payment and balance APIs.",
 		Regex:       utils.GenerateUniqueTokenRegex(`xnd_production_[A-Za-z0-9]{56,72}`, false),

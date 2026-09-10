@@ -8,7 +8,7 @@ import (
 
 func ApolloAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "apollo-api-key.1",
+		ID:          "apollo-api-key.1",
 		Confidence:  "medium",
 		Description: "Apollo.io API key, which may allow access to sales intelligence and engagement data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"apollo"}, `[A-Za-z0-9_-]{22}`, false),

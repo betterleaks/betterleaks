@@ -722,15 +722,15 @@ func TestUnknownValidationRuleErrorSuggestsProviderRules(t *testing.T) {
 	cfg := &configpkg.Config{
 		Rules: []configpkg.Rule{
 			{
-				RuleID:       "github-pat",
+				ID:           "github-pat",
 				ValidateExpr: `{"result": "valid"}`,
 			},
 			{
-				RuleID:       "github-oauth",
+				ID:           "github-oauth",
 				ValidateExpr: `{"result": "valid"}`,
 			},
 			{
-				RuleID: "github-unvalidated",
+				ID: "github-unvalidated",
 			},
 		},
 	}

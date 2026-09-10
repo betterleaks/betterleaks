@@ -10,7 +10,7 @@ func SidekiqSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Discovered a Sidekiq Secret, which could lead to compromised background job processing and application data breaches.",
-		RuleID:      "sidekiq-secret",
+		ID:          "sidekiq-secret",
 		Confidence:  "high",
 
 		Regex: utils.GenerateSemiGenericRegex([]string{"BUNDLE_ENTERPRISE__CONTRIBSYS__COM", "BUNDLE_GEMS__CONTRIBSYS__COM"},
@@ -38,7 +38,7 @@ func SidekiqSensitiveUrl() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Uncovered a Sidekiq Sensitive URL, potentially exposing internal job queues and sensitive operation details.",
-		RuleID:      "sidekiq-sensitive-url",
+		ID:          "sidekiq-sensitive-url",
 		Confidence:  "high",
 		Regex:       `(?i)\bhttps?://([a-f0-9]{8}:[a-f0-9]{8})@(?:gems.contribsys.com|enterprise.contribsys.com)(?:[\/|\#|\?|:]|$)`,
 		Keywords:    []string{"gems.contribsys.com", "enterprise.contribsys.com"},

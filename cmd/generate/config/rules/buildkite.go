@@ -63,7 +63,7 @@ let can_write = filter.matchesAny(scopes, [
 
 func BuildkiteUserAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:       "buildkite-user-access-token",
+		ID:           "buildkite-user-access-token",
 		Confidence:   "high",
 		Description:  "Detected a Buildkite user access token, which may expose pipelines, builds, and organization data.",
 		Regex:        `\b(bkua_(?:[a-z0-9]{40}|[a-z0-9]{53}))\b`,
@@ -87,7 +87,7 @@ func BuildkiteUserAccessToken() *config.Rule {
 
 func BuildkiteServiceToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "buildkite-service-token",
+		ID:          "buildkite-service-token",
 		Confidence:  "high",
 		Description: "Detected a Buildkite agent, package, or portal token, which may expose CI/CD workloads or packages.",
 		Regex: `\b(` +

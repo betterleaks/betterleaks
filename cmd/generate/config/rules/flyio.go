@@ -14,7 +14,7 @@ import (
 func FlyIOAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "flyio-access-token",
+		ID:          "flyio-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a Fly.io API key", // TODO
 		Regex:       utils.GenerateUniqueTokenRegex(`FlyV1\s[A-Za-z0-9=_\-,/+]{100,}`, false),

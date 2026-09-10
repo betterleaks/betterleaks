@@ -9,7 +9,7 @@ import (
 func PersonaProductionAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "persona-production-api-key",
+		ID:          "persona-production-api-key",
 		Confidence:  "high",
 		Description: "Persona production API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`persona_production_[a-z0-9_-]{20,80}`, false),

@@ -9,7 +9,7 @@ import (
 func RapidAPIAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "rapidapi-access-token",
+		ID:          "rapidapi-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a RapidAPI Access Token, which could lead to unauthorized access to various APIs and data services.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"rapidapi"},

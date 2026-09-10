@@ -7,10 +7,10 @@ import (
 )
 
 func TestRuleValidateRechecksCurrentData(t *testing.T) {
-	rule := Rule{RuleID: "test", Regex: `secret`}
+	rule := Rule{ID: "test", Regex: `secret`}
 	require.NoError(t, rule.Validate())
 
-	rule.RuleID = ""
+	rule.ID = ""
 	require.ErrorContains(t, rule.Validate(), "|id| is missing or empty")
 }
 
@@ -22,12 +22,12 @@ func TestRuleValidateRejectsInvalidSecretGroups(t *testing.T) {
 	}{
 		{
 			name: "negative",
-			rule: Rule{RuleID: "test", Regex: `(secret)`, SecretGroup: -1},
+			rule: Rule{ID: "test", Regex: `(secret)`, SecretGroup: -1},
 			want: "must be non-negative",
 		},
 		{
 			name: "without regex",
-			rule: Rule{RuleID: "test", Path: `\.env$`, SecretGroup: 1},
+			rule: Rule{ID: "test", Path: `\.env$`, SecretGroup: 1},
 			want: "requires a regex",
 		},
 	}
@@ -41,7 +41,7 @@ func TestRuleValidateRejectsInvalidSecretGroups(t *testing.T) {
 
 func TestRuleValidateRequiresValidationForAnalysis(t *testing.T) {
 	rule := Rule{
-		RuleID:      "test",
+		ID:          "test",
 		Regex:       `secret`,
 		AnalyzeExpr: `{}`,
 	}
@@ -61,22 +61,22 @@ func TestConfigValidateRejectsAmbiguousRuleGraph(t *testing.T) {
 		{
 			name: "duplicate rule ID",
 			rules: []Rule{
-				{RuleID: "duplicate", Regex: validRegex},
-				{RuleID: "duplicate", Regex: validRegex},
+				{ID: "duplicate", Regex: validRegex},
+				{ID: "duplicate", Regex: validRegex},
 			},
 			want: `duplicate rule ID "duplicate"`,
 		},
 		{
 			name: "missing component",
 			rules: []Rule{
-				{RuleID: "primary", Regex: validRegex, Components: []*Component{{RuleID: "missing"}}},
+				{ID: "primary", Regex: validRegex, Components: []*Component{{RuleID: "missing"}}},
 			},
 			want: `component rule ID "missing" does not exist`,
 		},
 		{
 			name: "self component",
 			rules: []Rule{
-				{RuleID: "primary", Regex: validRegex, Components: []*Component{{RuleID: "primary"}}},
+				{ID: "primary", Regex: validRegex, Components: []*Component{{RuleID: "primary"}}},
 			},
 			want: "cannot reference itself",
 		},
@@ -114,9 +114,9 @@ func TestRuleValidatePatternStrings(t *testing.T) {
 		rule Rule
 		want string
 	}{
-		{"invalid regex", Rule{RuleID: "test", Regex: `(`}, "invalid regex"},
-		{"invalid path", Rule{RuleID: "test", Path: `[`}, "invalid path regex"},
-		{"capture overflow", Rule{RuleID: "test", Regex: `(?P<secret>secret)`, SecretGroup: 2}, "max regex secret group 1"},
+		{"invalid regex", Rule{ID: "test", Regex: `(`}, "invalid regex"},
+		{"invalid path", Rule{ID: "test", Path: `[`}, "invalid path regex"},
+		{"capture overflow", Rule{ID: "test", Regex: `(?P<secret>secret)`, SecretGroup: 2}, "max regex secret group 1"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

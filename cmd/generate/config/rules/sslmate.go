@@ -9,7 +9,7 @@ import (
 func SSLMateAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "sslmate-api-key.1",
+		ID:          "sslmate-api-key.1",
 		Confidence:  "high",
 		Description: "SSLMate API key.",
 		Regex: utils.GenerateSemiGenericRegex(

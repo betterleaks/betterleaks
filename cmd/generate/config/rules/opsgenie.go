@@ -11,7 +11,7 @@ func OpsgenieAPIKey() *config.Rule {
 	// remain usable until the service's announced end-of-support date, so both
 	// fixed provider hosts are checked before rejecting a key.
 	r := config.Rule{
-		RuleID:      "opsgenie-api-key.1",
+		ID:          "opsgenie-api-key.1",
 		Confidence:  "high",
 		Description: "Opsgenie API key, which may allow access to alerts, incidents, and account configuration.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"opsgenie"}, utils.Hex8_4_4_4_12(), true),

@@ -105,7 +105,7 @@ var cloudflareIdentifiers = []string{"cloudflare"}
 
 func CloudflareAccountIDV1() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cloudflare-account-id.1",
+		ID:          "cloudflare-account-id.1",
 		Confidence:  "high",
 		Description: "Detected a Cloudflare account ID, used as a component of Cloudflare API key validation.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`account[_. -]*id`}, utils.Hex("32"), false),
@@ -124,7 +124,7 @@ func CloudflareAccountIDV1() *config.Rule {
 
 func CloudflareGlobalAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cloudflare-global-api-key",
+		ID:          "cloudflare-global-api-key",
 		Confidence:  "high",
 		Description: "Detected a Cloudflare Global API Key, potentially compromising cloud application deployments and operational security.",
 		Regex:       utils.GenerateSemiGenericRegex(cloudflareIdentifiers, utils.Hex("37"), true),
@@ -141,7 +141,7 @@ func CloudflareGlobalAPIKey() *config.Rule {
 
 func CloudflareAPIKeyV1() *config.Rule {
 	r := config.Rule{
-		RuleID:       "cloudflare-api-key.1",
+		ID:           "cloudflare-api-key.1",
 		Confidence:   "high",
 		Description:  "Detected a Cloudflare API key version 1 (legacy format), potentially compromising cloud application deployments and operational security.",
 		Regex:        utils.GenerateSemiGenericRegex(cloudflareIdentifiers, utils.AlphaNumericExtendedShort("40"), true),
@@ -160,7 +160,7 @@ func CloudflareAPIKeyV1() *config.Rule {
 
 func CloudflareAPIKeyV2() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cloudflare-api-key.2",
+		ID:          "cloudflare-api-key.2",
 		Confidence:  "high",
 		Description: "Detected a Cloudflare API key version 2 (cfut/cfat format), potentially granting access to Cloudflare account and service resources.",
 		Regex:       utils.GenerateUniqueTokenRegex(`cf[ua]t_[A-Za-z0-9]{40}[a-f0-9]{8}`, false),
@@ -186,7 +186,7 @@ func CloudflareOriginCAKey() *config.Rule {
 	caIdentifiers := append(cloudflareIdentifiers, "v1.0-")
 	r := config.Rule{
 		Description: "Detected a Cloudflare Origin CA Key, potentially compromising cloud application deployments and operational security.",
-		RuleID:      "cloudflare-origin-ca-key",
+		ID:          "cloudflare-origin-ca-key",
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`v1\.0-`+utils.Hex("24")+"-"+utils.Hex("146"), false),
 		Keywords:    caIdentifiers,

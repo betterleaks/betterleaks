@@ -10,7 +10,7 @@ func FrameIO() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a Frame.io API token, potentially compromising video collaboration and project management.",
-		RuleID:      "frameio-api-token",
+		ID:          "frameio-api-token",
 		Confidence:  "high",
 		Regex:       `fio-u-(?i)[a-z0-9\-_=]{64}`,
 		Keywords:    []string{"fio-u-"},

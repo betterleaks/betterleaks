@@ -9,7 +9,7 @@ import (
 func RainforestPayProductionAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "rainforest-pay-production-api-key",
+		ID:          "rainforest-pay-production-api-key",
 		Confidence:  "medium",
 		Description: "Rainforest Pay production API key.",
 		Regex: utils.GenerateSemiGenericRegex(

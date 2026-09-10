@@ -8,7 +8,7 @@ import (
 
 func PagerDutyAuthorizationToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "pagerduty-authorization-token.1",
+		ID:          "pagerduty-authorization-token.1",
 		Confidence:  "high",
 		Description: "PagerDuty authorization token, which may allow access to PagerDuty account and incident data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"pagerduty"}, `u\+[A-Za-z0-9_+-]{18}`, false),

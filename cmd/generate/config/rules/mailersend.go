@@ -9,7 +9,7 @@ import (
 func MailerSendAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "mailersend-api-token",
+		ID:          "mailersend-api-token",
 		Confidence:  "high",
 		Description: "MailerSend API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mlsn\.[A-Za-z0-9]{30,100}`, false),

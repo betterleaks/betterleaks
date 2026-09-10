@@ -9,7 +9,7 @@ import (
 func KrakenAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "kraken-access-token",
+		ID:          "kraken-access-token",
 		Confidence:  "medium",
 		Description: "Identified a Kraken Access Token, potentially compromising cryptocurrency trading accounts and financial security.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"kraken"},

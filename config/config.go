@@ -167,7 +167,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 
 	// Validate individual rules.
 	for _, vr := range rc.Rules {
-		patterns := Rule{RuleID: vr.ID, Regex: vr.Regex, Path: vr.Path}
+		patterns := Rule{ID: vr.ID, Regex: vr.Regex, Path: vr.Path}
 		if _, err := patterns.validatePatterns(); err != nil {
 			return nil, err
 		}
@@ -187,7 +187,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			specificity = *vr.Specificity
 		}
 		cr := Rule{
-			RuleID:      vr.ID,
+			ID:          vr.ID,
 			Description: vr.Description,
 			Regex:       vr.Regex,
 			SecretGroup: vr.SecretGroup,
@@ -199,11 +199,11 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			SkipReport:  vr.SkipReport,
 		}
 		if vr.Required != nil {
-			return nil, fmt.Errorf("%s: [[rules.required]] is not supported; use rules.components", cr.RuleID)
+			return nil, fmt.Errorf("%s: [[rules.required]] is not supported; use rules.components", cr.ID)
 		}
 
 		if vr.Components != nil {
-			componentsSet[cr.RuleID] = struct{}{}
+			componentsSet[cr.ID] = struct{}{}
 			for _, component := range *vr.Components {
 				if component == nil {
 					component = &rawComponent{}
@@ -220,17 +220,17 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		cr.AnalyzeExpr = vr.Analyze
 		cr.Filter = vr.Filter
 
-		if index, exists := ruleIndexes[cr.RuleID]; exists {
+		if index, exists := ruleIndexes[cr.ID]; exists {
 			// TOML configs historically used last-rule-wins semantics because
 			// rules were loaded into a map. Preserve that compatibility while
 			// keeping the resolved Config rule set canonical and unique.
 			rules[index] = cr
 			if vr.Components == nil {
-				delete(componentsSet, cr.RuleID)
+				delete(componentsSet, cr.ID)
 			}
 			continue
 		}
-		ruleIndexes[cr.RuleID] = len(rules)
+		ruleIndexes[cr.ID] = len(rules)
 		rules = append(rules, cr)
 	}
 
@@ -314,7 +314,7 @@ func (c *Config) Rule(id string) (Rule, bool) {
 		return Rule{}, false
 	}
 	for _, rule := range c.Rules {
-		if rule.RuleID == id {
+		if rule.ID == id {
 			return rule, true
 		}
 	}
@@ -332,10 +332,10 @@ func (c *Config) Validate() error {
 		if err := rule.Validate(); err != nil {
 			return err
 		}
-		if _, exists := ruleIDs[rule.RuleID]; exists {
-			return fmt.Errorf("duplicate rule ID %q", rule.RuleID)
+		if _, exists := ruleIDs[rule.ID]; exists {
+			return fmt.Errorf("duplicate rule ID %q", rule.ID)
 		}
-		ruleIDs[rule.RuleID] = struct{}{}
+		ruleIDs[rule.ID] = struct{}{}
 	}
 	for _, rule := range c.Rules {
 		for _, component := range rule.Components {
@@ -343,7 +343,7 @@ func (c *Config) Validate() error {
 				continue // Rule.Validate reports this with rule context.
 			}
 			if _, ok := ruleIDs[component.RuleID]; !ok {
-				return fmt.Errorf("%s: component rule ID %q does not exist", rule.RuleID, component.RuleID)
+				return fmt.Errorf("%s: component rule ID %q does not exist", rule.ID, component.RuleID)
 			}
 		}
 	}
@@ -398,7 +398,7 @@ func (c *Config) extend(extensionConfig *Config, extend extendConfig, components
 	disabledRuleIDs := map[string]struct{}{}
 	baseRules := make(map[string]Rule, len(extensionConfig.Rules))
 	for _, rule := range extensionConfig.Rules {
-		baseRules[rule.RuleID] = rule
+		baseRules[rule.ID] = rule
 	}
 	for _, id := range extend.DisabledRules {
 		if _, ok := baseRules[id]; !ok {
@@ -409,10 +409,10 @@ func (c *Config) extend(extensionConfig *Config, extend extendConfig, components
 
 	currentRuleIndexes := make(map[string]int, len(c.Rules))
 	for i, rule := range c.Rules {
-		currentRuleIndexes[rule.RuleID] = i
+		currentRuleIndexes[rule.ID] = i
 	}
 	for _, baseRule := range extensionConfig.Rules {
-		ruleID := baseRule.RuleID
+		ruleID := baseRule.ID
 		// Skip the rule.
 		if _, ok := disabledRuleIDs[ruleID]; ok {
 			c.logger.Debug("Ignoring rule from extended config.", "rule_id", ruleID, "config", configName)
@@ -470,7 +470,7 @@ func (c *Config) extend(extensionConfig *Config, extend extendConfig, components
 	// Preserve the existing deterministic extended-config ordering without a
 	// second order index on Config.
 	sort.Slice(c.Rules, func(i, j int) bool {
-		return c.Rules[i].RuleID < c.Rules[j].RuleID
+		return c.Rules[i].ID < c.Rules[j].ID
 	})
 }
 

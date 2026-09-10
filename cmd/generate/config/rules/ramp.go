@@ -9,7 +9,7 @@ import (
 func RampClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ramp-client-id",
+		ID:          "ramp-client-id",
 		Confidence:  "high",
 		Description: "Ramp client ID, used as a component of the Ramp client-secret composite rule.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ramp_id_[A-Za-z0-9]{40}`, false),
@@ -32,7 +32,7 @@ func RampClientID() *config.Rule {
 func RampClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ramp-client-secret",
+		ID:          "ramp-client-secret",
 		Confidence:  "high",
 		Description: "Ramp OAuth client secret.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ramp_sec_[A-Za-z0-9]{48}`, false),

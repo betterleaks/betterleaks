@@ -21,11 +21,11 @@ func Validate(rule config.Rule, truePositives []string, falsePositives []string)
 	for _, tp := range truePositives {
 		count, err := countFindings(d, sources.Fragment{Raw: tp})
 		if err != nil {
-			logging.Fatal("Failed to validate true positive.", "error", err, "rule", r.RuleID)
+			logging.Fatal("Failed to validate true positive.", "error", err, "rule", r.ID)
 		}
 		if count < 1 {
 			logging.Fatal("Failed to Validate. True positive was not detected by regex.",
-				"rule", r.RuleID,
+				"rule", r.ID,
 				"value", tp,
 				"regex", r.Regex,
 			)
@@ -34,11 +34,11 @@ func Validate(rule config.Rule, truePositives []string, falsePositives []string)
 	for _, fp := range falsePositives {
 		count, err := countFindings(d, sources.Fragment{Raw: fp})
 		if err != nil {
-			logging.Fatal("Failed to validate false positive.", "error", err, "rule", r.RuleID)
+			logging.Fatal("Failed to validate false positive.", "error", err, "rule", r.ID)
 		}
 		if count != 0 {
 			logging.Fatal("Failed to Validate. False positive was detected by regex.",
-				"rule", r.RuleID,
+				"rule", r.ID,
 				"value", fp,
 				"regex", r.Regex,
 			)
@@ -59,11 +59,11 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 		}
 		count, err := countFindings(d, f)
 		if err != nil {
-			logging.Fatal("Failed to validate true positive.", "error", err, "rule", r.RuleID)
+			logging.Fatal("Failed to validate true positive.", "error", err, "rule", r.ID)
 		}
 		if count != 1 {
 			logging.Fatal("Failed to Validate. True positive was not detected by regex and/or path.",
-				"rule", r.RuleID,
+				"rule", r.ID,
 				"value", tp,
 				"regex", r.Regex,
 				"path", r.Path,
@@ -79,11 +79,11 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 		}
 		count, err := countFindings(d, f)
 		if err != nil {
-			logging.Fatal("Failed to validate false positive.", "error", err, "rule", r.RuleID)
+			logging.Fatal("Failed to validate false positive.", "error", err, "rule", r.ID)
 		}
 		if count != 0 {
 			logging.Fatal("Failed to Validate. False positive was detected by regex and/or path.",
-				"rule", r.RuleID,
+				"rule", r.ID,
 				"value", fp,
 				"regex", r.Regex,
 				"path", r.Path,
@@ -119,7 +119,7 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 
 	detector, err := detect.NewDetector(cfg, detect.WithPrecompile())
 	if err != nil {
-		logging.Fatal("Failed to create rule detector.", "error", err, "rule", r.RuleID)
+		logging.Fatal("Failed to create rule detector.", "error", err, "rule", r.ID)
 	}
 	return detector
 }

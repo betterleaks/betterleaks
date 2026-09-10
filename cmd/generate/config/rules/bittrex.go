@@ -10,7 +10,7 @@ func BittrexAccessKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Identified a Bittrex Access Key, which could lead to unauthorized access to cryptocurrency trading accounts and financial loss.",
-		RuleID:      "bittrex-access-key",
+		ID:          "bittrex-access-key",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"bittrex"},
@@ -26,7 +26,7 @@ func BittrexSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Detected a Bittrex Secret Key, potentially compromising cryptocurrency transactions and financial security.",
-		RuleID:      "bittrex-secret-key",
+		ID:          "bittrex-secret-key",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 

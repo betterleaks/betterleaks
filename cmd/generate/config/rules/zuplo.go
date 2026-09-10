@@ -8,7 +8,7 @@ import (
 func ZuploConsumerAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "zuplo-consumer-api-key.1",
+		ID:          "zuplo-consumer-api-key.1",
 		Confidence:  "high",
 		Description: "Zuplo consumer API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`zpka_[a-z0-9]{32}_[0-9a-f]{8}`, false),

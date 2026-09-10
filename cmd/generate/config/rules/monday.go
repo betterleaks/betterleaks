@@ -8,7 +8,7 @@ import (
 
 func MondayAPIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "monday-api-token.1",
+		ID:          "monday-api-token.1",
 		Confidence:  "high",
 		Specificity: 110,
 		Description: "monday.com API token, which may grant the same workspace access as its associated user or application.",

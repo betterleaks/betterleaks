@@ -9,7 +9,7 @@ import (
 func Duffel() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "duffel-api-token",
+		ID:          "duffel-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a Duffel API token, which may compromise travel platform integrations and sensitive customer data.",
 		Regex:       `duffel_(?:test|live)_(?i)[a-z0-9_\-=]{43}`,

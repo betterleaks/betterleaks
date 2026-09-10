@@ -8,7 +8,7 @@ import (
 
 func FalAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "fal-api-key.1",
+		ID:          "fal-api-key.1",
 		Confidence:  "high",
 		Description: "Fal.ai API key, which may allow access to model execution, billing, and platform APIs.",
 		Regex: utils.GenerateSemiGenericRegex(

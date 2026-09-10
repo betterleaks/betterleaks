@@ -8,7 +8,7 @@ import (
 func ScalrAPIAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "scalr-api-access-token.1",
+		ID:          "scalr-api-access-token.1",
 		Confidence:  "high",
 		Description: "Scalr API access token.",
 		Regex: utils.GenerateSemiGenericRegex(

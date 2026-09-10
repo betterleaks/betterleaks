@@ -9,7 +9,7 @@ import (
 func SquareAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "square-access-token",
+		ID:          "square-access-token",
 		Confidence:  "high",
 		Description: "Detected a Square Access Token, risking unauthorized payment processing and financial transaction exposure.",
 		Regex:       utils.GenerateUniqueTokenRegex(`(?:EAAA|sq0atp-)[\w-]{22,60}`, false),
@@ -32,7 +32,7 @@ func SquareAccessToken() *config.Rule {
 func SquareSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "square-secret",
+		ID:          "square-secret",
 		Confidence:  "high",
 		Description: "Square Secret",
 		Regex:       utils.GenerateUniqueTokenRegex(`sq0csp-[\w-]{43}`, false),

@@ -63,7 +63,7 @@ const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/id
 func GCPApplicationDefaultCredentials() *config.Rule {
 	r := config.Rule{
 		Description: "Google (GCP) Application Default Credentials",
-		RuleID:      "gcp-application-default-credentials",
+		ID:          "gcp-application-default-credentials",
 		Confidence:  "high",
 		Regex:       `\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}`,
 		Keywords:    []string{".apps.googleusercontent.com"},
@@ -88,7 +88,7 @@ func GCPApplicationDefaultCredentials() *config.Rule {
 func GCPServiceAccount() *config.Rule {
 	r := config.Rule{
 		Description: "Google (GCP) Service-account",
-		RuleID:      "gcp-service-account",
+		ID:          "gcp-service-account",
 		Confidence:  "high",
 		Regex:       `\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}`,
 		Keywords:    []string{"provider_x509"},
@@ -119,7 +119,7 @@ func GCPServiceAccount() *config.Rule {
 func GCPAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "gcp-api-key",
+		ID:           "gcp-api-key",
 		Confidence:   "high",
 		Description:  "Uncovered a GCP API key, which could lead to unauthorized access to Google Cloud services and data breaches.",
 		Regex:        utils.GenerateUniqueTokenRegex(`AIza[\w-]{35}`, false),
@@ -162,7 +162,7 @@ func GCPAPIKey() *config.Rule {
 
 func GCPGeminiAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:       "gcp-gemini-api",
+		ID:           "gcp-gemini-api",
 		Confidence:   "high",
 		Description:  "Detected a Google Gemini API key, which may expose Gemini model access and usage to unauthorized parties.",
 		Regex:        utils.GenerateUniqueTokenRegex(`AQ\.Ab8RN6[A-Za-z0-9_-]{44}`, false),

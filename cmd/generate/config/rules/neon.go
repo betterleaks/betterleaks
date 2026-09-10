@@ -9,7 +9,7 @@ import (
 func NeonAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "neon-api-key",
+		ID:          "neon-api-key",
 		Confidence:  "high",
 		Description: "Neon API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`napi_[A-Za-z0-9]{64}`, false),
@@ -41,7 +41,7 @@ func NeonAPIKey() *config.Rule {
 func NeonConnectionURI() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "neon-connection-uri",
+		ID:          "neon-connection-uri",
 		Confidence:  "high",
 		Description: "Password embedded in a Neon PostgreSQL connection URI.",
 		Regex:       `\bpostgres(?:ql)?://[^:@\s]{1,64}:([^@\s]{6,128})@[^\s/"']{4,200}\.neon\.tech\b`,

@@ -10,7 +10,7 @@ import (
 
 func AzureTenantID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "azure-tenant-id",
+		ID:          "azure-tenant-id",
 		Confidence:  "medium",
 		Description: "Detected an Azure tenant ID, used as a component of Azure service principal validation.",
 		Regex:       `(?i)\b(?:tenant[_\s.-]*(?:id)?|AZURE_TENANT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`,
@@ -23,7 +23,7 @@ func AzureTenantID() *config.Rule {
 
 func AzureClientID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "azure-client-id",
+		ID:          "azure-client-id",
 		Confidence:  "medium",
 		Description: "Detected an Azure client ID, used as a component of Azure service principal validation.",
 		Regex:       `(?i)\b(?:client[_\s.-]*id|AZURE_CLIENT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`,
@@ -40,7 +40,7 @@ func AzureClientID() *config.Rule {
 func AzureActiveDirectoryClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "azure-ad-client-secret",
+		ID:          "azure-ad-client-secret",
 		Confidence:  "high",
 		Description: "Azure AD Client Secret",
 		// After inspecting dozens of secrets, I'm fairly confident that they start with `xxx\dQ~`.
@@ -101,7 +101,7 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 
 func AzureStorageAccountName() *config.Rule {
 	r := config.Rule{
-		RuleID:      "azure-storage-account-name",
+		ID:          "azure-storage-account-name",
 		Confidence:  "medium",
 		Description: "Detected an Azure Storage account name, used as a component of Azure Storage key validation.",
 		Regex:       `(?i)(?:\bAccountName\s*=\s*([a-z0-9]{3,24})\b|https://([a-z0-9]{3,24})\.blob\.core\.windows\.net\b|\b(?:azure[_\s.-]*storage[_\s.-]*(?:account[_\s.-]*)?name|storage[_\s.-]*account[_\s.-]*name)\b(?s:.{0,24}?)([a-z0-9]{3,24})\b)`,
@@ -119,7 +119,7 @@ func AzureStorageAccountName() *config.Rule {
 
 func AzureStorageAccountKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "azure-storage-account-key",
+		ID:          "azure-storage-account-key",
 		Confidence:  "high",
 		Description: "Detected an Azure Storage account key.",
 		Regex:       `(?i)\b(?:AccountKey|(?:azure[_\s.-]*)?(?:storage[_\s.-]*)?(?:account[_\s.-]*)?(?:access[_\s.-]*)?key)\b(?s:.{0,24}?)([A-Za-z0-9+/]{86}==)`,
@@ -144,7 +144,7 @@ func AzureStorageAccountKey() *config.Rule {
 
 func AzureAppConfigurationConnectionString() *config.Rule {
 	r := config.Rule{
-		RuleID:      "azure-app-configuration-connection-string",
+		ID:          "azure-app-configuration-connection-string",
 		Confidence:  "high",
 		Description: "Detected an Azure App Configuration connection string.",
 		Regex:       `(?i)Endpoint=(?P<azure_appconfig_endpoint>https://[a-z0-9-]+\.azconfig\.io);Id=(?P<azure_appconfig_id>[^;\s'"]{4,80});Secret=([A-Za-z0-9+/]{36,100}={0,2})`,
@@ -173,7 +173,7 @@ func AzureAppConfigurationConnectionString() *config.Rule {
 
 func AzureServiceBusConnectionString() *config.Rule {
 	r := config.Rule{
-		RuleID:      "azure-servicebus-connection-string",
+		ID:          "azure-servicebus-connection-string",
 		Confidence:  "high",
 		Description: "Detected an Azure Service Bus or Event Hub shared access connection string.",
 		Regex:       `(?i)(Endpoint=sb://[a-z0-9-]+\.servicebus\.windows\.net/;SharedAccessKeyName=[^;=\s'"]{1,128};SharedAccessKey=[A-Za-z0-9+/]{32,100}={0,2}(?:;EntityPath=[^;\s'"]{1,128})?)`,

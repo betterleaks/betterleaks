@@ -8,7 +8,7 @@ import (
 func Freemius() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "freemius-secret-key",
+		ID:          "freemius-secret-key",
 		Confidence:  "medium",
 		Description: "Detected a Freemius secret key, potentially exposing sensitive information.",
 		Regex:       `(?i)["']secret_key["']\s*=>\s*["'](sk_[\S]{29})["']`,

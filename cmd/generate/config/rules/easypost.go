@@ -9,7 +9,7 @@ import (
 func EasyPost() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "easypost-api-token",
+		ID:          "easypost-api-token",
 		Confidence:  "high",
 		Description: "Identified an EasyPost API token, which could lead to unauthorized postal and shipment service access and data exposure.",
 		Regex:       `\bEZAK(?i)[a-z0-9]{54}\b`,
@@ -33,7 +33,7 @@ func EasyPost() *config.Rule {
 func EasyPostTestAPI() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "easypost-test-api-token",
+		ID:          "easypost-test-api-token",
 		Confidence:  "high",
 		Description: "Detected an EasyPost test API token, risking exposure of test environments and potentially sensitive shipment data.",
 		Regex:       `\bEZTK(?i)[a-z0-9]{54}\b`,

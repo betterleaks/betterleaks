@@ -8,7 +8,7 @@ import (
 func LangSmithPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "langchain-langsmith-personal-access-token",
+		ID:          "langchain-langsmith-personal-access-token",
 		Confidence:  "high",
 		Description: "LangSmith personal access token.",
 		Regex:       `\b(lsv2_pt_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})`,
@@ -38,7 +38,7 @@ func LangSmithPersonalAccessToken() *config.Rule {
 func LangSmithServiceKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "langchain-langsmith-service-key",
+		ID:          "langchain-langsmith-service-key",
 		Confidence:  "high",
 		Description: "LangSmith service API key.",
 		Regex:       `\b(lsv2_sk_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})`,

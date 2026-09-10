@@ -9,7 +9,7 @@ import (
 func YandexAWSAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "yandex-aws-access-token",
+		ID:          "yandex-aws-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a Yandex AWS Access Token, potentially compromising cloud resource access and data security on Yandex Cloud.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"yandex"},
@@ -27,7 +27,7 @@ func YandexAWSAccessToken() *config.Rule {
 func YandexAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "yandex-api-key",
+		ID:          "yandex-api-key",
 		Confidence:  "high",
 		Description: "Discovered a Yandex API Key, which could lead to unauthorized access to Yandex services and data manipulation.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"yandex"},
@@ -46,7 +46,7 @@ func YandexAPIKey() *config.Rule {
 func YandexAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "yandex-access-token",
+		ID:          "yandex-access-token",
 		Confidence:  "high",
 		Description: "Found a Yandex Access Token, posing a risk to Yandex service integrations and user data privacy.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"yandex"},

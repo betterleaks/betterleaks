@@ -9,7 +9,7 @@ import (
 func RedirectPizzaAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "redirect-pizza-api-token.1",
+		ID:          "redirect-pizza-api-token.1",
 		Confidence:  "high",
 		Description: "redirect.pizza API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rpa_[A-Za-z0-9]{30}`, false),

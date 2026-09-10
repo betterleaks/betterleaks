@@ -9,7 +9,7 @@ import (
 func LinkedinClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "linkedin-client-id",
+		ID:          "linkedin-client-id",
 		Confidence:  "medium",
 		Description: "Found a LinkedIn Client ID, risking unauthorized access to LinkedIn integrations and professional data exposure.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"linked[_-]?in"}, utils.AlphaNumeric("14"), true),
@@ -29,7 +29,7 @@ func LinkedinClientID() *config.Rule {
 func LinkedinClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "linkedin-client-secret",
+		ID:          "linkedin-client-secret",
 		Confidence:  "medium",
 		Description: "Discovered a LinkedIn Client secret, potentially compromising LinkedIn application integrations and user data.",
 		Regex: utils.GenerateSemiGenericRegex([]string{

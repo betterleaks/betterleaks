@@ -82,16 +82,16 @@ func TestApplyRuleSelection(t *testing.T) {
 
 			flags := newRuleSelectionTestFlags(t, tt.args)
 			originalRules := []config.Rule{
-				{RuleID: "aws", Keywords: []string{"aws"}},
+				{ID: "aws", Keywords: []string{"aws"}},
 				{
-					RuleID:   "github",
+					ID:       "github",
 					Keywords: []string{"github"},
 					Components: []*config.Component{
 						{RuleID: "github-client-id"},
 					},
 				},
-				{RuleID: "github-client-id", Keywords: []string{"client"}},
-				{RuleID: "slack"},
+				{ID: "github-client-id", Keywords: []string{"client"}},
+				{ID: "slack"},
 			}
 			cfg := &config.Config{Rules: originalRules}
 
@@ -122,7 +122,7 @@ func newRuleSelectionTestFlags(t *testing.T, args []string) *ScanFlags {
 func ruleIDs(rules []config.Rule) []string {
 	ids := make([]string, 0, len(rules))
 	for _, rule := range rules {
-		ids = append(ids, rule.RuleID)
+		ids = append(ids, rule.ID)
 	}
 	return ids
 }
@@ -130,7 +130,7 @@ func ruleIDs(rules []config.Rule) []string {
 func findRule(t testing.TB, rules []config.Rule, id string) config.Rule {
 	t.Helper()
 	for _, rule := range rules {
-		if rule.RuleID == id {
+		if rule.ID == id {
 			return rule
 		}
 	}

@@ -10,7 +10,7 @@ import (
 // https://curl.se/docs/manpage.html#-u
 func CurlBasicAuth() *config.Rule {
 	r := config.Rule{
-		RuleID:      "curl-auth-user",
+		ID:          "curl-auth-user",
 		Confidence:  "high",
 		Description: "Discovered a potential basic authorization token provided in a curl command, which could compromise the curl accessed resource.",
 		Regex:       `\bcurl\b(?:.*|.*(?:[\r\n]{1,2}.*){1,5})[ \t\n\r](?:-u|--user)(?:=|[ \t]{0,5})("(:[^"]{3,}|[^:"]{3,}:|[^:"]{3,}:[^"]{3,})"|'([^:']{3,}:[^']{3,})'|((?:"[^"]{3,}"|'[^']{3,}'|[\w$@.-]+):(?:"[^"]{3,}"|'[^']{3,}'|[\w${}@.-]+)))(?:\s|\z)`,
@@ -91,7 +91,7 @@ func CurlHeaderAuth() *config.Rule {
 	// language=regexp
 	authPat := `(?i)(?:Authorization:[ \t]{0,5}(?:Basic[ \t]([a-z0-9+/]{8,}={0,3})|(?:Bearer|(?:Api-)?Token)[ \t]([\w=~@.+/-]{8,})|([\w=~@.+/-]{8,}))|(?:(?:X-(?:[a-z]+-)?)?(?:Api-?)?(?:Key|Token)):[ \t]{0,5}([\w=~@.+/-]{8,}))`
 	r := config.Rule{
-		RuleID:      "curl-auth-header",
+		ID:          "curl-auth-header",
 		Confidence:  "high",
 		Description: "Discovered a potential authorization token provided in a curl command header, which could compromise the curl accessed resource.",
 		Regex:       fmt.Sprintf(`\bcurl\b(?:.*?|.*?(?:[\r\n]{1,2}.*?){1,5})[ \t\n\r](?:-H|--header)(?:=|[ \t]{0,5})(?:"%s"|'%s')(?:\B|\s|\z)`, authPat, authPat),

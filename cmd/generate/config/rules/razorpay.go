@@ -10,7 +10,7 @@ func RazorpayKeyID() *config.Rule {
 	// Razorpay key IDs are intentionally used in client-side integrations and
 	// are not confidential. They only gate and validate the associated secret.
 	r := config.Rule{
-		RuleID:      "razorpay-key-id.1",
+		ID:          "razorpay-key-id.1",
 		Confidence:  "high",
 		Description: "Razorpay key ID, used as a component of the Razorpay key-secret composite rule.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rzp_(?:live|test)_[A-Za-z0-9]{14}`, false),
@@ -35,7 +35,7 @@ func RazorpayKeyID() *config.Rule {
 
 func RazorpayKeySecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "razorpay-key-secret.1",
+		ID:          "razorpay-key-secret.1",
 		Confidence:  "high",
 		Description: "Razorpay key secret, which may authorize payment APIs when paired with its key ID.",
 		Regex: utils.GenerateSemiGenericRegex(

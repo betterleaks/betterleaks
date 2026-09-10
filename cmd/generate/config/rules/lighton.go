@@ -8,7 +8,7 @@ import (
 
 func LightOn() *config.Rule {
 	r := config.Rule{
-		RuleID:      "lighton-paradigm-api-key",
+		ID:          "lighton-paradigm-api-key",
 		Confidence:  "medium",
 		Description: "Detected a LightOn Paradigm API key, which may expose enterprise LLM services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"lighton", "paradigm"}, `[A-Za-z0-9_\-]{40,80}`, true),

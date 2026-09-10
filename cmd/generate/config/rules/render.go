@@ -8,7 +8,7 @@ import (
 
 func RenderAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:       "render-api-key",
+		ID:           "render-api-key",
 		Confidence:   "high",
 		Description:  "Detected a Render API key, which may expose hosted services and account resources to unauthorized access.",
 		Regex:        utils.GenerateUniqueTokenRegex(`rnd_[A-Za-z0-9]{28}`, false),

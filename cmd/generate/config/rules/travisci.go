@@ -9,7 +9,7 @@ import (
 func TravisCIAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "travisci-access-token",
+		ID:          "travisci-access-token",
 		Confidence:  "medium",
 		Description: "Identified a Travis CI Access Token, potentially compromising continuous integration services and codebase security.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"travis"}, utils.AlphaNumeric("22"), true),

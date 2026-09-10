@@ -9,7 +9,7 @@ import (
 func TableauPersonalAccessTokenName() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "tableau-personal-access-token-name.1",
+		ID:          "tableau-personal-access-token-name.1",
 		Confidence:  "high",
 		Description: "Tableau personal access-token name, used as a component of the token rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -36,7 +36,7 @@ func TableauPersonalAccessTokenName() *config.Rule {
 func TableauServerHost() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "tableau-server-host.1",
+		ID:          "tableau-server-host.1",
 		Confidence:  "high",
 		Description: "Tableau Online server host, used as a component of the personal access-token rule.",
 		Regex:       `(?i)\b([a-z0-9-]+\.online\.tableau\.com)\b`,
@@ -58,7 +58,7 @@ func TableauServerHost() *config.Rule {
 func TableauPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "tableau-personal-access-token.1",
+		ID:          "tableau-personal-access-token.1",
 		Confidence:  "high",
 		Description: "Tableau personal access token.",
 		Regex:       `\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`,

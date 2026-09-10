@@ -18,7 +18,7 @@ func GenericCredentialURI() *config.Rule {
 	// credential-bearing structure as named captures. Every supported scheme
 	// still requires explicit userinfo, keeping ordinary URLs and emails out.
 	r := config.Rule{
-		RuleID:      "generic-credential-uri",
+		ID:          "generic-credential-uri",
 		Confidence:  "medium",
 		Description: "Detected a password embedded in a service connection URI, which may expose direct access to the referenced service.",
 		Regex:       `(?i)\b(?P<uri>(?P<scheme>https?|postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|ldaps?|smtps?|ftps?|ssh)://(?P<username>[^:/@\s'"\x60]{0,128}):(?P<password>[^/@\s'"\x60]{1,256})@(?P<host>(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252}))(?::[0-9]{1,5})?(?:,(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252})(?::[0-9]{1,5})?)*(?:[/?][a-z0-9._~!$&(*+,;=:@%/?-]*)?)(?:[\s'"\x60#<>{}\[\],;)]|\\[nr]|$)`,

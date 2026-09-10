@@ -9,7 +9,7 @@ import (
 func SumoLogicAccessID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "sumologic-access-id",
+		ID:          "sumologic-access-id",
 		Confidence:  "medium",
 		Description: "Discovered a SumoLogic Access ID, potentially compromising log management services and data analytics integrity.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"(?-i:[Ss]umo|SUMO)"}, "(?-i:su)[a-zA-Z0-9]{12}", true),
@@ -46,7 +46,7 @@ func SumoLogicAccessID() *config.Rule {
 func SumoLogicAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "sumologic-access-token",
+		ID:          "sumologic-access-token",
 		Confidence:  "medium",
 		Description: "Uncovered a SumoLogic Access Token, which could lead to unauthorized access to log data and analytics insights.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"(?-i:[Ss]umo|SUMO)"}, utils.AlphaNumeric("64"), true),

@@ -62,7 +62,7 @@ let scopes = input["scopes"] ?? [];
 func SlackBotToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "slack-bot-token",
+		ID:          "slack-bot-token",
 		Confidence:  "high",
 		Description: "Identified a Slack Bot token, which may compromise bot integrations and communication channel security.",
 		Regex:       `xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`,
@@ -97,7 +97,7 @@ func SlackBotToken() *config.Rule {
 func SlackUserToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "slack-user-token",
+		ID:          "slack-user-token",
 		Confidence:  "high",
 		Description: "Found a Slack User token, posing a risk of unauthorized user impersonation and data access within Slack workspaces.",
 		// The last segment seems to be consistently 32 characters. I've made it 28-34 just in case.
@@ -140,7 +140,7 @@ func SlackUserToken() *config.Rule {
 func SlackAppLevelToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "slack-app-token",
+		ID:          "slack-app-token",
 		Confidence:  "high",
 		Description: "Detected a Slack App-level token, risking unauthorized access to Slack applications and workspace data.",
 		// This regex is based on a limited number of examples and may not be 100% accurate.
@@ -163,7 +163,7 @@ func SlackAppLevelToken() *config.Rule {
 func SlackConfigurationToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "slack-config-access-token",
+		ID:          "slack-config-access-token",
 		Confidence:  "high",
 		Description: "Found a Slack Configuration access token, posing a risk to workspace configuration and sensitive data access.",
 		Regex:       `(?i)xoxe.xox[bp]-\d-[A-Z0-9]{163,166}`,
@@ -189,7 +189,7 @@ func SlackConfigurationToken() *config.Rule {
 func SlackConfigurationRefreshToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "slack-config-refresh-token",
+		ID:          "slack-config-refresh-token",
 		Confidence:  "high",
 		Description: "Discovered a Slack Configuration refresh token, potentially allowing prolonged unauthorized access to configuration settings.",
 		Regex:       `(?i)xoxe-\d-[A-Z0-9]{146}`,
@@ -210,7 +210,7 @@ func SlackConfigurationRefreshToken() *config.Rule {
 // Reference: https://api.slack.com/authentication/token-types#legacy_bot
 func SlackLegacyBotToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "slack-legacy-bot-token",
+		ID:          "slack-legacy-bot-token",
 		Confidence:  "high",
 		Description: "Uncovered a Slack Legacy bot token, which could lead to compromised legacy bot operations and data exposure.",
 		// This rule is based off the limited information I could find and may not be 100% accurate.
@@ -257,7 +257,7 @@ func SlackLegacyBotToken() *config.Rule {
 // Reference: https://api.slack.com/authentication/token-types#workspace
 func SlackLegacyWorkspaceToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "slack-legacy-workspace-token",
+		ID:          "slack-legacy-workspace-token",
 		Confidence:  "high",
 		Description: "Identified a Slack Legacy Workspace token, potentially compromising access to workspace data and legacy features.",
 		// This is by far the least confident pattern.
@@ -294,7 +294,7 @@ func SlackLegacyWorkspaceToken() *config.Rule {
 func SlackLegacyToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "slack-legacy-token",
+		ID:          "slack-legacy-token",
 		Confidence:  "high",
 		Description: "Detected a Slack Legacy token, risking unauthorized access to older Slack integrations and user data.",
 		Regex:       `xox[os]-\d+-\d+-\d+-[a-fA-F\d]+`,
@@ -327,7 +327,7 @@ func SlackLegacyToken() *config.Rule {
 func SlackWebHookUrl() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "slack-webhook-url",
+		ID:          "slack-webhook-url",
 		Confidence:  "high",
 		Description: "Discovered a Slack Webhook, which could lead to unauthorized message posting and data leakage in Slack channels.",
 		// If this generates too many false positives, add a filter (for example, "xxxx" or "00000").
@@ -365,7 +365,7 @@ func SlackSessionCookie() *config.Rule {
 
 	// define rule
 	r := config.Rule{
-		RuleID:      "slack-session-cookie",
+		ID:          "slack-session-cookie",
 		Confidence:  "high",
 		Description: "Detected a Slack session cookie (xoxd-), which authenticates browser and desktop sessions across all of a user's workspaces.",
 		Regex:       `(xoxd-[\w\/\\+-]{100,}={0,2})(?:[^\w\/+=-]|\z)`,
@@ -393,7 +393,7 @@ func SlackSessionToken() *config.Rule {
 
 	// define rule
 	r := config.Rule{
-		RuleID:      "slack-session-token",
+		ID:          "slack-session-token",
 		Confidence:  "high",
 		Description: "Detected a Slack client session token (xoxc-), which provides full user-level API access when paired with a session cookie.",
 		Regex:       `xoxc-\d{9,15}-\d{9,15}-\d{9,15}-[a-f0-9]{64}\b`,

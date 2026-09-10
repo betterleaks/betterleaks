@@ -7,7 +7,7 @@ import (
 
 func AivenAuthToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "aiven-auth-token",
+		ID:          "aiven-auth-token",
 		Confidence:  "high",
 		Description: "Detected an Aiven authentication token, which may expose Aiven projects and services.",
 		Regex:       `(?i:aiven)[\s\S]{0,32}?\b([A-Za-z0-9/+=]{372})(?:[^A-Za-z0-9/+=]|$)`,

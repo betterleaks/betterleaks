@@ -8,7 +8,7 @@ import (
 func TemporalCloudAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "temporal-cloud-api-key.1",
+		ID:          "temporal-cloud-api-key.1",
 		Confidence:  "high",
 		Description: "Temporal Cloud API key.",
 		Regex: utils.GenerateUniqueTokenRegex(

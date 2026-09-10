@@ -16,7 +16,7 @@ func Notion() *config.Rule {
 
 	r := config.Rule{
 		Description: "Notion API token",
-		RuleID:      "notion-api-token",
+		ID:          "notion-api-token",
 		Confidence:  "high",
 		Regex:       regex,
 		Keywords:    identifiers,

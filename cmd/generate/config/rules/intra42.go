@@ -10,7 +10,7 @@ func Intra42ClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a Intra42 client secret, which could lead to unauthorized access to the 42School API and sensitive data.",
-		RuleID:      "intra42-client-secret",
+		ID:          "intra42-client-secret",
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`s-s4t2(?:ud|af)-(?i)[abcdef0123456789]{64}`, false),
 		Keywords: []string{

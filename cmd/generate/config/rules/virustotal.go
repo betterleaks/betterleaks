@@ -8,7 +8,7 @@ import (
 
 func VirusTotalAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "virustotal-api-key.1",
+		ID:          "virustotal-api-key.1",
 		Confidence:  "high",
 		Description: "VirusTotal API key, which may expose private submissions, intelligence, or account API access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"virustotal"}, utils.Hex("64"), true),

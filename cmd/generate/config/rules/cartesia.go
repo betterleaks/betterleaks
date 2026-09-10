@@ -8,7 +8,7 @@ import (
 
 func CartesiaAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cartesia-api-key.1",
+		ID:          "cartesia-api-key.1",
 		Confidence:  "high",
 		Description: "Cartesia API key, which grants server-side access to Cartesia voice APIs.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk_car_[A-Za-z0-9_]{20}`, false),

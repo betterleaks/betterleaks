@@ -8,7 +8,7 @@ import (
 
 func MuxAccessTokenID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "mux-access-token-id.1",
+		ID:          "mux-access-token-id.1",
 		Confidence:  "medium",
 		Description: "Mux access-token ID, used as a component of the Mux access-token-secret composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -36,7 +36,7 @@ func MuxAccessTokenID() *config.Rule {
 
 func MuxAccessTokenSecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "mux-access-token-secret.1",
+		ID:          "mux-access-token-secret.1",
 		Confidence:  "high",
 		Description: "Mux access-token secret, which may grant access to video, data, or system APIs when paired with its token ID.",
 		Regex: utils.GenerateSemiGenericRegex(

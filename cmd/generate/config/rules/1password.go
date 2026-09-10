@@ -10,7 +10,7 @@ import (
 func OnePasswordServiceAccountToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "1password-service-account-token",
+		ID:          "1password-service-account-token",
 		Confidence:  "high",
 		Description: "Uncovered a possible 1Password service account token, potentially compromising access to secrets in vaults.",
 		Regex:       `ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`,
@@ -66,7 +66,7 @@ func OnePasswordSecretKey() *config.Rule {
 	// to scan for the these two patterns.
 	r := config.Rule{
 		Description: "Uncovered a possible 1Password secret key, potentially compromising access to secrets in vaults.",
-		RuleID:      "1password-secret-key",
+		ID:          "1password-secret-key",
 		Confidence:  "high",
 		Regex:       `\bA3-[A-Z0-9]{6}-(?:(?:[A-Z0-9]{11})|(?:[A-Z0-9]{6}-[A-Z0-9]{5}))-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}\b`,
 		Keywords:    []string{"A3-"},

@@ -8,7 +8,7 @@ import (
 func PerplexityAPIKey() *config.Rule {
 	// Define Rule
 	r := config.Rule{
-		RuleID:      "perplexity-api-key",
+		ID:          "perplexity-api-key",
 		Confidence:  "high",
 		Description: "Detected a Perplexity API key, which could lead to unauthorized access to Perplexity AI services and data exposure.",
 		Regex:       `\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)`,

@@ -9,7 +9,7 @@ import (
 func DroneciAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "droneci-access-token",
+		ID:          "droneci-access-token",
 		Confidence:  "high",
 		Description: "Detected a Droneci Access Token, potentially compromising continuous integration and deployment workflows.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"droneci"}, utils.AlphaNumeric("32"), true),

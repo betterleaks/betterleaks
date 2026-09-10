@@ -9,7 +9,7 @@ import (
 func OktaAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "okta-access-token",
+		ID:          "okta-access-token",
 		Confidence:  "high",
 		Description: "Identified an Okta Access Token, which may compromise identity management services and user authentication data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`(?-i:[Oo]kta|OKTA)`}, `00[\w=\-]{40}`, false),

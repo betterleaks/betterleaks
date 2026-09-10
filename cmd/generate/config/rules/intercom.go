@@ -10,7 +10,7 @@ func Intercom() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Identified an Intercom API Token, which could compromise customer communication channels and data privacy.",
-		RuleID:      "intercom-api-key",
+		ID:          "intercom-api-key",
 		Confidence:  "medium",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"intercom"}, utils.AlphaNumericExtended("60"), true),
 

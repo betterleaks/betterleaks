@@ -11,7 +11,7 @@ func NgrokAPIKey() *config.Rule {
 	// agent token to the API returns ERR_NGROK_206, which proves the credential
 	// is live without opening a tunnel or mutating account state.
 	r := config.Rule{
-		RuleID:      "ngrok-api-key.1",
+		ID:          "ngrok-api-key.1",
 		Confidence:  "high",
 		Description: "ngrok API key or agent authtoken, which may allow tunnel access or account administration.",
 		Regex: utils.GenerateSemiGenericRegex(

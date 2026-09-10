@@ -9,7 +9,7 @@ import (
 func ThunderstoreAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "thunderstore-api-token.1",
+		ID:          "thunderstore-api-token.1",
 		Confidence:  "high",
 		Description: "Thunderstore API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`tss_[A-Za-z0-9_-]{20,80}`, false),

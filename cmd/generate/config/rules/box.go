@@ -7,7 +7,7 @@ import (
 
 func BoxAPIAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:       "box-api-access-token",
+		ID:           "box-api-access-token",
 		Confidence:   "medium",
 		Description:  "Detected a Box API access token, which may expose Box files and account data.",
 		Regex:        utils.GenerateSemiGenericRegex([]string{"box"}, utils.AlphaNumeric("32"), true),

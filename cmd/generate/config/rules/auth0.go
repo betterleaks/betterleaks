@@ -8,7 +8,7 @@ import (
 
 func Auth0Domain() *config.Rule {
 	r := config.Rule{
-		RuleID:      "auth0-domain.1",
+		ID:          "auth0-domain.1",
 		Confidence:  "high",
 		Description: "Auth0 tenant domain, used as a component of the Auth0 client-secret composite rule.",
 		Regex: utils.GenerateUniqueTokenRegex(
@@ -33,7 +33,7 @@ func Auth0Domain() *config.Rule {
 
 func Auth0ClientID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "auth0-client-id.1",
+		ID:          "auth0-client-id.1",
 		Confidence:  "medium",
 		Description: "Auth0 client ID, used as a component of the Auth0 client-secret composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -64,7 +64,7 @@ func Auth0ClientSecret() *config.Rule {
 	// accepts the tenant, client ID, and client secret. An invalid_client error
 	// is therefore a definitive rejection of the discovered credential pair.
 	r := config.Rule{
-		RuleID:      "auth0-client-secret.1",
+		ID:          "auth0-client-secret.1",
 		Confidence:  "high",
 		Description: "Auth0 client secret, which may allow an application to impersonate its OAuth client.",
 		Regex: utils.GenerateSemiGenericRegex(

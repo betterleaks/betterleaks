@@ -9,7 +9,7 @@ import (
 func InfracostAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "infracost-api-token",
+		ID:          "infracost-api-token",
 		Confidence:  "high",
 		Description: "Detected an Infracost API Token, risking unauthorized access to cloud cost estimation tools and financial data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ico-[a-zA-Z0-9]{32}`, false),

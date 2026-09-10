@@ -9,7 +9,7 @@ import (
 func Databricks() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "databricks-api-token",
+		ID:          "databricks-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a Databricks API token, which may compromise big data analytics platforms and sensitive data processing.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dapi[a-f0-9]{32}(?:-\d)?`, false),

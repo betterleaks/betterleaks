@@ -8,7 +8,7 @@ import (
 
 func WizClientID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "wiz-client-id.1",
+		ID:          "wiz-client-id.1",
 		Confidence:  "medium",
 		Description: "Wiz OAuth client ID, used as a component of the Wiz client-secret composite rule.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wiz"}, `[A-Za-z0-9]{53,56}`, false),
@@ -31,7 +31,7 @@ func WizClientID() *config.Rule {
 
 func WizClientSecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "wiz-client-secret.1",
+		ID:          "wiz-client-secret.1",
 		Confidence:  "high",
 		Description: "Wiz OAuth client secret, which may allow access to the Wiz API when paired with its client ID.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wiz"}, `[A-Za-z0-9]{64}`, false),

@@ -9,7 +9,7 @@ import (
 func ReadMe() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "readme-api-token",
+		ID:          "readme-api-token",
 		Confidence:  "high",
 		Description: "Detected a Readme API token, risking unauthorized documentation management and content exposure.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rdme_[a-z0-9]{70}`, false),

@@ -51,7 +51,7 @@ func applyRuleSelection(logger *slog.Logger, flags *ScanFlags, cfg *config.Confi
 
 	availableRules := make(map[string]config.Rule, len(cfg.Rules))
 	for _, rule := range cfg.Rules {
-		availableRules[rule.RuleID] = rule
+		availableRules[rule.ID] = rule
 	}
 	disabledRuleIDs := make(map[string]struct{}, len(disableRules))
 	for _, ruleID := range disableRules {
@@ -94,7 +94,7 @@ func applyRuleSelection(logger *slog.Logger, flags *ScanFlags, cfg *config.Confi
 				}
 				componentRule, ok := availableRules[component.RuleID]
 				if !ok {
-					return fmt.Errorf("component rule %q referenced by %q not found in rules", component.RuleID, rule.RuleID)
+					return fmt.Errorf("component rule %q referenced by %q not found in rules", component.RuleID, rule.ID)
 				}
 				componentRule.SkipReport = true
 				selectedRules[component.RuleID] = componentRule
@@ -116,7 +116,7 @@ func applyRuleSelection(logger *slog.Logger, flags *ScanFlags, cfg *config.Confi
 
 	selected := make([]config.Rule, 0, len(selectedRules))
 	for _, rule := range cfg.Rules {
-		if selectedRule, ok := selectedRules[rule.RuleID]; ok {
+		if selectedRule, ok := selectedRules[rule.ID]; ok {
 			selected = append(selected, selectedRule)
 		}
 	}

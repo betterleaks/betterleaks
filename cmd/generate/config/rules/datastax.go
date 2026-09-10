@@ -9,7 +9,7 @@ import (
 func DataStaxAstraApplicationToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "datastax-astra-application-token",
+		ID:          "datastax-astra-application-token",
 		Confidence:  "high",
 		Description: "DataStax Astra application token.",
 		Regex:       `\b(AstraCS:[A-Za-z0-9]{20,})`,

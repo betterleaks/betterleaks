@@ -9,7 +9,7 @@ import (
 func RunPodAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "runpod-api-key.1",
+		ID:          "runpod-api-key.1",
 		Confidence:  "high",
 		Description: "RunPod API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rpa_[A-Z0-9]{40}[A-Za-z0-9]{6}`, false),

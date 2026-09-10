@@ -8,7 +8,7 @@ import (
 
 func Mem0APIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "mem0-api-key.1",
+		ID:          "mem0-api-key.1",
 		Confidence:  "high",
 		Description: "Mem0 API key, which may allow access to stored application memories.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mem0"}, `m0-[A-Za-z0-9]{24,44}`, false),

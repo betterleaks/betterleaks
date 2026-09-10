@@ -8,7 +8,7 @@ import (
 func CfxreServerKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "cfxre-server-key",
+		ID:          "cfxre-server-key",
 		Confidence:  "high",
 		Description: "Cfx.re FiveM server key.",
 		Regex:       `\b(cfxk_[a-zA-Z0-9_-]{20,100})`,

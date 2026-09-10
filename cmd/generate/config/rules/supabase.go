@@ -7,7 +7,7 @@ import (
 
 func SupabaseManagementToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "supabase-management-token",
+		ID:          "supabase-management-token",
 		Confidence:  "high",
 		Description: "Detected a Supabase Management Token, which may allow unauthorized access to Supabase organizations and projects.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sbp_[a-z0-9_-]{40}`, false),
@@ -36,7 +36,7 @@ func SupabaseManagementToken() *config.Rule {
 
 func SupabaseProjectAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "supabase-project-api-key",
+		ID:          "supabase-project-api-key",
 		Confidence:  "high",
 		Description: "Detected a Supabase Project API Key, which may expose project data through Supabase APIs when paired with a project URL.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sb_secret_[A-Za-z0-9_-]{31}`, false),
@@ -69,7 +69,7 @@ func SupabaseProjectAPIKey() *config.Rule {
 
 func SupabaseProjectURL() *config.Rule {
 	r := config.Rule{
-		RuleID:      "supabase-project-url",
+		ID:          "supabase-project-url",
 		Confidence:  "high",
 		Description: "Detected a Supabase project URL, used as a component of the supabase-project-api-key composite rule.",
 		Regex:       `\b(https://[a-z0-9]{16,32}\.supabase\.co)\b`,

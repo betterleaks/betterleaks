@@ -9,7 +9,7 @@ import (
 func MercuryProductionAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "mercury-production-api-token",
+		ID:          "mercury-production-api-token",
 		Confidence:  "high",
 		Description: "Mercury production API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mercury_production_[a-z]{3,6}_[A-Za-z0-9]{40,50}_yrucrem`, false),

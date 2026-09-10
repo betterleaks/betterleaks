@@ -160,7 +160,7 @@ func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 			continue
 		}
 		summary := report.CredentialRuleSummary{
-			RuleID:      rule.RuleID,
+			RuleID:      rule.ID,
 			Description: rule.Description,
 			Captures:    requiredValidationCaptures(rule),
 		}
@@ -265,7 +265,7 @@ func validateRequiredCaptures(rule configpkg.Rule, supplied map[string]string) e
 	}
 	return fmt.Errorf(
 		"missing required capture(s) for rule %q: %s (use --capture name=value)",
-		rule.RuleID,
+		rule.ID,
 		strings.Join(missing, ", "),
 	)
 }
@@ -454,7 +454,7 @@ func buildValidateFinding(rule configpkg.Rule, input validateCredentialInput) (r
 	}
 
 	finding := report.Finding{
-		RuleID:          rule.RuleID,
+		RuleID:          rule.ID,
 		Description:     rule.Description,
 		Match:           input.Secret,
 		Secret:          input.Secret,
@@ -622,7 +622,7 @@ func validateComponents(rule configpkg.Rule, supplied map[string]struct{}) error
 	if len(extra) > 0 {
 		problems = append(problems, fmt.Sprintf(
 			"component(s) not declared by rule %q: %s",
-			rule.RuleID,
+			rule.ID,
 			strings.Join(extra, ", "),
 		))
 	}
@@ -636,7 +636,7 @@ func unknownValidationRuleError(cfg *configpkg.Config, ruleID string) error {
 	query := strings.ToLower(ruleID)
 	var matches []string
 	for _, rule := range cfg.Rules {
-		id := rule.RuleID
+		id := rule.ID
 		if strings.TrimSpace(rule.ValidateExpr) != "" && strings.Contains(strings.ToLower(id), query) {
 			matches = append(matches, id)
 		}

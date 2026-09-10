@@ -32,8 +32,8 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 		MinVersion: "v1.8.0",
 		Rules: []configpkg.Rule{
 			{
-				RuleID: "primary",
-				Regex:  "primary",
+				ID:    "primary",
+				Regex: "primary",
 				Components: []*configpkg.Component{
 					{
 						RuleID:   "component",
@@ -43,8 +43,8 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 				},
 			},
 			{
-				RuleID: "component",
-				Regex:  "component",
+				ID:    "component",
+				Regex: "component",
 			},
 		},
 	}

@@ -9,7 +9,7 @@ import (
 func PlanetScalePassword() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "planetscale-password",
+		ID:          "planetscale-password",
 		Confidence:  "high",
 		Description: "Discovered a PlanetScale password, which could lead to unauthorized database operations and data breaches.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pscale_pw_(?i)[\w=\.-]{32,64}`, true),
@@ -30,7 +30,7 @@ func PlanetScalePassword() *config.Rule {
 // This is a dependency rule for PlanetScaleAPIToken and is not reported on its own.
 func PlanetScaleID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "planetscale-id",
+		ID:          "planetscale-id",
 		Confidence:  "high",
 		Description: "Found a PlanetScale service token ID.",
 		Regex:       `(?i)(?:pscale|planetscale)(?:.|[\n\r]){0,16}?(?:USER|ID|NAME)(?:.|[\n\r]){0,16}?([a-z0-9]{12})`,
@@ -50,7 +50,7 @@ func PlanetScaleID() *config.Rule {
 func PlanetScaleAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "planetscale-api-token",
+		ID:          "planetscale-api-token",
 		Confidence:  "high",
 		Description: "Identified a PlanetScale API token, potentially compromising database management and operations.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pscale_tkn_(?i)[\w=\.-]{32,64}`, false),
@@ -83,7 +83,7 @@ func PlanetScaleAPIToken() *config.Rule {
 func PlanetScaleOAuthToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "planetscale-oauth-token",
+		ID:          "planetscale-oauth-token",
 		Confidence:  "high",
 		Description: "Found a PlanetScale OAuth token, posing a risk to database access control and sensitive data integrity.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pscale_oauth_[\w=\.-]{32,64}`, false),

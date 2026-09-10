@@ -8,7 +8,7 @@ import (
 func NugetConfigPassword() *config.Rule {
 	r := config.Rule{
 		Description: "Identified a password within a Nuget config file, potentially compromising package management access.",
-		RuleID:      "nuget-config-password",
+		ID:          "nuget-config-password",
 		Confidence:  "high",
 		Regex:       `(?i)<add key=\"(?:(?:ClearText)?Password)\"\s*value=\"(.{8,})\"\s*/>`,
 		Path:        `(?i)nuget\.config$`,

@@ -20,7 +20,7 @@ const highnoteLiveValidationExpr = `let r = http.post("https://api.us.highnote.c
 func HighnoteSecretLiveKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "highnote-secret-live-key",
+		ID:          "highnote-secret-live-key",
 		Confidence:  "high",
 		Description: "Highnote secret API key for the live environment.",
 		Regex: utils.GenerateSemiGenericRegex(

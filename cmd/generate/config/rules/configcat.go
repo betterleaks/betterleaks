@@ -16,7 +16,7 @@ const configCatValidationExpr = `let r = http.get("https://cdn-global.configcat.
 
 func ConfigCatSDKKey() *config.Rule {
 	r := config.Rule{
-		RuleID:       "configcat-sdk-key",
+		ID:           "configcat-sdk-key",
 		Confidence:   "high",
 		Description:  "Detected a ConfigCat SDK key, which may allow access to feature flag configuration data.",
 		Regex:        utils.GenerateSemiGenericRegex([]string{"configcat"}, `[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, true),
@@ -38,7 +38,7 @@ func ConfigCatSDKKey() *config.Rule {
 
 func ConfigCatSDKKeyExtended() *config.Rule {
 	r := config.Rule{
-		RuleID:       "configcat-sdk-key-extended",
+		ID:           "configcat-sdk-key-extended",
 		Confidence:   "high",
 		Description:  "Detected an extended ConfigCat SDK key, which may allow access to feature flag configuration data.",
 		Regex:        utils.GenerateUniqueTokenRegex(`configcat-sdk-1/[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, false),

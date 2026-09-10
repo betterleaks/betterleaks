@@ -9,7 +9,7 @@ import (
 func MailGunPrivateAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "mailgun-private-api-token",
+		ID:          "mailgun-private-api-token",
 		Confidence:  "high",
 		Description: "Found a Mailgun private API token, risking unauthorized email service operations and data breaches.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mailgun"}, `key-[a-f0-9]{32}`, true),
@@ -36,7 +36,7 @@ func MailGunPrivateAPIToken() *config.Rule {
 func MailGunPubAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "mailgun-pub-key",
+		ID:          "mailgun-pub-key",
 		Confidence:  "high",
 		Description: "Discovered a Mailgun public validation key, which could expose email verification processes and associated data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mailgun"}, `pubkey-[a-f0-9]{32}`, true),
@@ -54,7 +54,7 @@ func MailGunPubAPIToken() *config.Rule {
 func MailGunSigningKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "mailgun-signing-key",
+		ID:          "mailgun-signing-key",
 		Confidence:  "high",
 		Description: "Uncovered a Mailgun webhook signing key, potentially compromising email automation and data integrity.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mailgun"}, `[a-h0-9]{32}-[a-h0-9]{8}-[a-h0-9]{8}`, true),
