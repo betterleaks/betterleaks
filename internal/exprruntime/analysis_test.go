@@ -13,8 +13,8 @@ func TestAnalysisReceivesValidationBinding(t *testing.T) {
 	program, err := runtime.CompileAnalysis(`let scopes = validation.analysis["scopes"] ?? []; {
 		"identity": {"id": validation.analysis["owner"]},
 		"capabilities": analysis.capabilities({
-			"read": validation["status"] == "valid" && filter.matchesAny(scopes, ["^read_"]),
-			"write": filter.intersects(scopes, ["write_api"])
+			"read": validation["status"] == "valid" && matchesAny(scopes, ["^read_"]),
+			"write": intersects(scopes, ["write_api"])
 		})
 	}`)
 	require.NoError(t, err)
@@ -43,7 +43,7 @@ func TestAnalysisReceivesValidationBinding(t *testing.T) {
 func TestAnalysisRejectsInvalidRegexPattern(t *testing.T) {
 	runtime, err := New(nil)
 	require.NoError(t, err)
-	program, err := runtime.CompileAnalysis(`filter.matchesAny(["read_api"], ["*read"])`)
+	program, err := runtime.CompileAnalysis(`matchesAny(["read_api"], ["*read"])`)
 	require.NoError(t, err)
 
 	_, err = runtime.EvalAnalysisWithComponents(

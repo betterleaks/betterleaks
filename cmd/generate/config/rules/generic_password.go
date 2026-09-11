@@ -44,7 +44,7 @@ let nearbyContext =
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
 
-let hasAuthContext = filter.matchesAny(nearbyContext, [
+let hasAuthContext = matchesAny(nearbyContext, [
   // Authentication and connection calls.
   ` + "`(?i)(?:^|[^a-z0-9])(?:auth(?:enticate|entication)?|login|log[_.-]?in|sign[_.-]?in|connect(?:ion)?|open[_.-]?(?:connection|session)|create[_.-]?(?:connection|session)|bind)\\b[ \\t]*\\(`" + `,
   // Credential and connection configuration containers.
@@ -54,40 +54,40 @@ let hasAuthContext = filter.matchesAny(nearbyContext, [
   // Nearby connection URI or service context.
   ` + "`(?i)\\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\\+srv)?|redis|amqps?|ldaps?|smtps?|ftps?|ssh)://`" + `
 ]);
-let hasIdentityFieldContext = filter.matchesAny(nearbyContext, [
+let hasIdentityFieldContext = matchesAny(nearbyContext, [
   ` + "`(?im)(?:^|[^a-z0-9])(?:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)`" + `
 ]);
-let isDirectAuthArgument = filter.matchesAny(finding["match"], [
+let isDirectAuthArgument = matchesAny(finding["match"], [
   ` + "`(?i)^(?:login|log_in)\\b[ \\t]*\\(`" + `,
   ` + "`(?i)^authenticate\\b[ \\t]*\\([ \\t]*[^,\\r\\n]*(?:user(?:name)?|account|email|login|uid)[^,\\r\\n]*,`" + `
 ]);
-let isCommented = filter.matchesAny(linePrefix, [
+let isCommented = matchesAny(linePrefix, [
   ` + "`(?:^[ \\t]*(?:#|//|/\\*|\\*|--|;|<!--)|[ \\t](?:#|//|/\\*|--|<!--)[ \\t]*)`" + `
 ]);
-let isInstructionalPlaceholder = filter.matchesAny(finding["secret"], [
+let isInstructionalPlaceholder = matchesAny(finding["secret"], [
   ` + "`^(?:PGPASSWORD|[A-Z][A-Z0-9_]*_(?:PASSWORD|PASSWD|PWD)(?:_[A-Z0-9]+)*|(?:PASSWORD|PASSWD|PWD)_[A-Z0-9_]+)$`" + `,
   ` + "`(?i)^(?:(?:(?:an?|my)[ _.-]*)?example(?:[ _.-]*(?:password|passwd|pwd))?|(?:password|passwd|pwd)[ _.-]*example)(?:[ _.-]*[0-9]{1,4})?[!?.]*$`" + `,
   ` + "`(?i)^(?:password|passwd|pwd)?[ _-]?(?:goes[ _-]?here|replace[ _-]?me|insert[ _-].*here|not[ _-]?set)$`" + `
 ]);
-let isCodeFile = filter.matchesAny(attributes["path"], [
+let isCodeFile = matchesAny(attributes["path"], [
   ` + "`(?i)\\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|gemspec|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rake|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\\.(?:example|sample|template))?$`" + `
 ]);
-let isUnquotedAssignment = filter.matchesAny(finding["match"], [
+let isUnquotedAssignment = matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*[^\\x22\\x27\\x60 \\t\\r\\n]`" + `
 ]);
 let isUnquotedCodeValue = isCodeFile && isUnquotedAssignment;
-let isUnquotedExpression = isUnquotedAssignment && filter.matchesAny(finding["secret"], [
+let isUnquotedExpression = isUnquotedAssignment && matchesAny(finding["secret"], [
   ` + "`^[A-Za-z_][A-Za-z0-9_-]*:\\[[^]\\r\\n]+\\]$`" + `,
   ` + "`^[A-Za-z_][A-Za-z0-9_]*[)}\\]]+(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*(?:\\([^)]*\\))?)*$`" + `
 ]);
-let hasNonPlaintextPasswordContext = filter.matchesAny(linePrefix + finding["match"], [
+let hasNonPlaintextPasswordContext = matchesAny(linePrefix + finding["match"], [
   ` + "`(?i)(?:^|[^a-z0-9])(?:enc|encrypt(?:ed|ion)?|hash(?:ed)?|encod(?:e|ed|ing)|cipher(?:text)?|seal(?:ed)?|vault(?:ed)?)(?:[_.-][a-z0-9]+){0,5}[_.-]?password\\b`" + `,
   ` + "`(?i)(?:^|[^a-z0-9])password[_.-]?(?:cipher(?:text)?|hash|digest|algorithm|scheme|encoding|format)\\b`" + `
 ]);
-let hasNestedUnquotedAssignment = filter.matchesAny(finding["match"], [
+let hasNestedUnquotedAssignment = matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]{0,5}[^\"'\\x60\\r\\n]*[.,][A-Za-z_][A-Za-z0-9_-]*=`" + `
 ]);
-let isEncryptedValue = filter.matchesAny(finding["secret"], [
+let isEncryptedValue = matchesAny(finding["secret"], [
   // Serialized encryption envelopes and armored ciphertext.
   ` + "`(?i)^ENC\\[[A-Z0-9][A-Z0-9_.+/-]*(?:,|\\]|$)`" + `,
   ` + "`(?i)^ENC\\([A-Z0-9+/=_:.,-]{8,}\\)$`" + `,
@@ -107,7 +107,7 @@ let isEncryptedValue = filter.matchesAny(finding["secret"], [
   ` + "`^AQAAANCMnd8BFdERjHoAwE/Cl\\+sBA[A-Za-z0-9+/=]{16,}$`" + `,
   ` + "`(?i)^01000000d08c9ddf0115d1118c7a00c04fc297eb01[0-9a-f]{16,}$`" + `
 ]);
-let isCryptographicAlgorithm = filter.matchesAny(finding["secret"], [
+let isCryptographicAlgorithm = matchesAny(finding["secret"], [
   // Common block ciphers with key sizes and/or modes.
   ` + "`(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA)[-_/]?(?:128|192|256)(?:[-_/](?:ECB|CBC(?:[-_/]HMAC[-_/]SHA[-_]?(?:256|384|512))?|PCBC|CFB(?:8|64|128)?|OFB(?:8|64|128)?|CTR|CTS|CCM|GCM|GMAC|EAX|OCB|SIV|GCM[-_]?SIV|XTS|KW|KWP))?$`" + `,
   ` + "`(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA)[-_/]?(?:ECB|CBC|PCBC|CFB(?:8|64|128)?|OFB(?:8|64|128)?|CTR|CTS|CCM|GCM|GMAC|EAX|OCB|SIV|GCM[-_]?SIV|XTS|KW|KWP)$`" + `,
@@ -125,7 +125,7 @@ let isCryptographicAlgorithm = filter.matchesAny(finding["secret"], [
   ` + "`(?i)^TLS_(?:(?:AES_(?:128|256)_GCM|CHACHA20_POLY1305)_SHA(?:256|384)|[A-Z0-9]+(?:_[A-Z0-9]+)*_WITH_[A-Z0-9]+(?:_[A-Z0-9]+)*)$`" + `,
   ` + "`(?i)^(?:AES(?:128|192|256)-(?:CBC|CTR|GCM)|CHACHA20-POLY1305)@OPENSSH\\.COM$`" + `
 ]);
-let isContextualAlgorithmName = hasNonPlaintextPasswordContext && filter.matchesAny(finding["secret"], [
+let isContextualAlgorithmName = hasNonPlaintextPasswordContext && matchesAny(finding["secret"], [
   // A field name can disambiguate an exact algorithm name, but cannot by
   // itself prove that an arbitrary value is encrypted or hashed.
   ` + "`(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA|CHACHA20|XCHACHA20|SALSA20|XSALSA20|DES|DESEDE|3DES|TRIPLE[-_]?DES|TWOFISH|SERPENT|CAST(?:5|128|256)|IDEA|SEED|SM4|RC[2456]|ARCFOUR|RSA|ECIES|ELGAMAL|SM2|MD5|SHA[-_]?(?:1|224|256|384|512)|SHA3[-_]?(?:224|256|384|512)|BLAKE2[BS](?:[-_]?(?:256|512))?|BLAKE3|RIPEMD[-_]?(?:128|160|256|320)|WHIRLPOOL|SM3|PBKDF2|SCRYPT|BCRYPT|ARGON2(?:D|I|ID)?|HKDF|YESCRYPT)$`" + `
@@ -138,9 +138,9 @@ let level = (
   && !isCommented
   && !isInstructionalPlaceholder
 ) ? "medium" : "low";
-let _ = filter.setConfidence(level);
+let _ = setConfidence(level);
 
-filter.matchesAny(finding["secret"], [
+matchesAny(finding["secret"], [
   ` + "`^\\*+$`" + `,
   ` + "`^\\.+$`" + `,
   ` + "`(?i)^x{4,}$`" + `,
@@ -179,7 +179,7 @@ filter.matchesAny(finding["secret"], [
 || isUnquotedCodeValue
 || isUnquotedExpression
 || hasNestedUnquotedAssignment
-|| filter.matchesAny(finding["match"], [
+|| matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `,
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*\\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\\]]*\\\\?(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `
 ])`,
@@ -267,15 +267,15 @@ func GenericUsername() *config.Rule {
 		SkipReport: true,
 		Filter: `// An unquoted value is an ambiguous scalar in configuration, but
 // not a string literal in the source languages recognized below.
-let isCodeFile = filter.matchesAny(attributes["path"], [
+let isCodeFile = matchesAny(attributes["path"], [
   ` + "`(?i)\\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|gemspec|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rake|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\\.(?:example|sample|template))?$`" + `
 ]);
-let isUnquotedCodeValue = isCodeFile && filter.matchesAny(finding["match"], [
+let isUnquotedCodeValue = isCodeFile && matchesAny(finding["match"], [
   ` + "`^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*[^\\x22\\x27\\x60 \\t\\r\\n]`" + `
 ]);
 
 isUnquotedCodeValue
-|| filter.matchesAny(finding["secret"], [
+|| matchesAny(finding["secret"], [
   ` + "`^\\*+$`" + `,
   ` + "`^\\.+$`" + `,
   ` + "`(?i)^x{4,}$`" + `,
@@ -292,7 +292,7 @@ isUnquotedCodeValue
   ` + "`^(?:USERNAME|USER_NAME|USER|LOGIN|LOGIN_NAME|ACCOUNT_NAME|EMAIL|EMAIL_ADDRESS|UID|CLIENT|CLIENT_ID|CLIENT_NAME)$`" + `,
   ` + "`(?i)^(?:your|example)[_-]?(?:username|user_name|user|login|login_name|account_name|email|email_address|uid|client(?:_id|_name)?)$`" + `
 ])
-|| filter.matchesAny(finding["match"], [
+|| matchesAny(finding["match"], [
   ` + "`^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]name)?|client(?:[_.-]?(?:id|name))?)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `,
   ` + "`^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]name)?|client(?:[_.-]?(?:id|name))?)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*\\.(?i:(?:[a-z0-9]+_)*(?:username|user|login(?:_name)?|email(?:_address)?|uid|account(?:_name)?|client(?:_(?:id|name))?|id)))[)}\\]]*\\\\?(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `
 ])`,

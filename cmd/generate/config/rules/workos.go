@@ -29,8 +29,8 @@ func WorkOSProductionAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5
-|| filter.matchesAny(finding["secret"], ["(?i)example"])`,
+		Filter: `entropy(finding["secret"]) < 3.5
+|| matchesAny(finding["secret"], ["(?i)example"])`,
 	}
 
 	// validate

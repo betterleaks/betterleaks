@@ -88,7 +88,7 @@
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
   secretGroup = 1
-  filter = '''filter.matchesAny(finding["secret"], [`please-ignore-me`])'''
+  filter = '''matchesAny(finding["secret"], [`please-ignore-me`])'''
 
 [[rules]]
   id = 'decoded-password-ignore-match'
@@ -96,7 +96,7 @@
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
   secretGroup = 1
-  filter = '''filter.matchesAny(finding["match"], [`please-ignore-me`])'''
+  filter = '''matchesAny(finding["match"], [`please-ignore-me`])'''
 
 [[rules]]
   id = 'decoded-password-ignore-line'
@@ -104,5 +104,5 @@
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
   secretGroup = 1
-  filter = '''filter.matchesAny(finding["line"], [`please-ignore-me`])'''
+  filter = '''matchesAny(finding["line"], [`please-ignore-me`])'''
 # -----END REGEX TARGET DECODED MATCH PATTERNS-----

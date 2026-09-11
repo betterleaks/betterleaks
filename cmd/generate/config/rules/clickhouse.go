@@ -27,7 +27,7 @@ func ClickHouseCloud() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
@@ -48,7 +48,7 @@ func ClickHouseCloudKeyID() *config.Rule {
 		Regex:       `(?i)\bclickhouse(?:.|[\n\r]){0,16}?(?:ID|USER)(?:.|[\n\r]){0,16}?([a-z0-9]{20})`,
 		Keywords:    []string{"clickhouse"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
+		Filter:      `entropy(finding["secret"]) < 3.0`,
 	}
 
 	tps := []string{

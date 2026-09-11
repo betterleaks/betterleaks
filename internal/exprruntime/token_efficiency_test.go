@@ -21,12 +21,12 @@ func TestTokenEfficiencyBindings(t *testing.T) {
 	}{
 		{
 			name: "wordlist-assisted check",
-			expr: `filter.failsTokenEfficiency(finding["secret"])`,
+			expr: `failsTokenEfficiency(finding["secret"])`,
 			want: true,
 		},
 		{
 			name: "ratio-only check",
-			expr: `filter.tokenRatio(finding["secret"]) >= 2.5`,
+			expr: `tokenRatio(finding["secret"]) >= 2.5`,
 			want: false,
 		},
 	} {
@@ -47,7 +47,7 @@ func TestTokenRatio(t *testing.T) {
 	counter, err := tokenizer.Default()
 	require.NoError(t, err)
 
-	prg, err := env.CompileFilter(`filter.tokenRatio(finding["secret"]) >= 2.5`, counter)
+	prg, err := env.CompileFilter(`tokenRatio(finding["secret"]) >= 2.5`, counter)
 	require.NoError(t, err)
 
 	got, err := env.EvalFilter(prg, map[string]any{"secret": "this-is-a-long-readable-placeholder-value"}, nil)

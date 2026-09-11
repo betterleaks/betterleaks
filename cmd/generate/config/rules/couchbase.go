@@ -21,7 +21,7 @@ func CouchbaseCapellaAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 4.0`,
+		Filter: `entropy(finding["secret"]) < 4.0`,
 	}
 
 	tps := []string{

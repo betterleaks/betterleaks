@@ -5,15 +5,17 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
+
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 )
 
 func cryptoNamespace() map[string]any {
 	return map[string]any{
-		"md5":         md5Bytes,
-		"sha1":        sha1Bytes,
-		"hmacSha1":    hmacSha1Bytes,
-		"hmacSha256":  hmacSha256Bytes,
-		"hmac_sha256": hmacSha256Bytes,
+		"md5":        md5Bytes,
+		"sha1":       sha1Bytes,
+		"sha256":     sha256Fingerprint,
+		"hmacSha1":   hmacSha1Bytes,
+		"hmacSha256": hmacSha256Bytes,
 	}
 }
 
@@ -37,4 +39,9 @@ func hmacSha1Bytes(key, msg []byte) []byte {
 	h := hmac.New(sha1.New, key)
 	_, _ = h.Write(msg)
 	return h.Sum(nil)
+}
+
+// sha256Fingerprint returns the canonical ignore-file fingerprint, not raw digest bytes.
+func sha256Fingerprint(value string) string {
+	return fingerprint.Format(fingerprint.Sum([]byte(value)))
 }

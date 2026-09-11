@@ -198,7 +198,7 @@ the `attributes` map and candidate `finding` data like `finding["secret"]` or
 ```toml
 # Global prefilter, it runs before expensive regex calls
 prefilter = '''
-filter.matchesAny(attributes["path"], [
+matchesAny(attributes["path"], [
   `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff|pdf|exe)$`,
   `(?:^|/)node_modules(?:/.*)?$`,
   `(?:^|/)vendor(?:/.*)?$`
@@ -208,7 +208,7 @@ filter.matchesAny(attributes["path"], [
 
 # Global filter, it runs for _every_ candidate secret.
 filter = '''
-filter.containsAny(finding["secret"], [
+containsAny(finding["secret"], [
   "EXAMPLE",
   "CHANGEME",
   "YOUR_API_KEY_HERE",
@@ -227,10 +227,10 @@ keywords = ["ghp_"]
 filter = '''
 (
     attributes["git.author_name"] == "ci-runner" &&
-    filter.matchesAny(attributes["path"], [`^mocks/`]) &&
+    matchesAny(attributes["path"], [`^mocks/`]) &&
     finding["secret"] contains "TESTING"
 )
-|| (filter.entropy(finding["secret"]) <= 3.0)
+|| (entropy(finding["secret"]) <= 3.0)
 '''
 
 # Post-match-and-filter async validation check
@@ -263,16 +263,16 @@ let scopes = input["scopes"] ?? [];
   },
   "metadata": {"scopes": scopes},
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [
+    "read": matchesAny(scopes, [
       "^read:",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
     ]),
-    "write": filter.matchesAny(scopes, [
+    "write": matchesAny(scopes, [
       "^write:",
       "^delete:packages$",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
     ]),
-    "create_credentials": filter.matchesAny(scopes, [
+    "create_credentials": matchesAny(scopes, [
       "^admin:(?:gpg_key|public_key|ssh_signing_key)$"
     ])
   })

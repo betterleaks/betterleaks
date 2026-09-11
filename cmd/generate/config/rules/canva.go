@@ -13,7 +13,7 @@ func CanvaClientID() *config.Rule {
 		Regex:       `(?i)\b(?:canva|CANVA_CLIENT_ID)(?:.|[\n\r]){0,32}?(?:client[_\s-]*id|app[_\s-]*id)(?:.|[\n\r]){0,16}?\b(OC-[A-Za-z0-9_-]{8,16})\b`,
 		Keywords:    []string{"canva"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 2.5`,
+		Filter:      `entropy(finding["secret"]) < 2.5`,
 	}
 
 	tps := []string{
@@ -49,7 +49,7 @@ func CanvaClientSecret() *config.Rule {
     "result": "invalid",
     "reason": "Invalid client"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{

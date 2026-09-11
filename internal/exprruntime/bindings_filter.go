@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 	"github.com/betterleaks/betterleaks/v2/internal/words"
@@ -15,31 +14,14 @@ import (
 	ahocorasick "github.com/rrethy/ahocorasick"
 )
 
-func sha256Fingerprint(value string) string {
-	return fingerprint.Format(fingerprint.Sum([]byte(value)))
-}
-
 var (
 	regexCache  sync.Map // string -> *blregexp.Regexp
 	acTrieCache sync.Map // string -> *ahocorasick.Matcher
 )
 
-func filterNamespace(rt *runtimeBindings) map[string]any {
-	return map[string]any{
-		"matchesAny":           matchesAny,
-		"findMatch":            findMatch,
-		"containsAny":          containsAny,
-		"startsWithAny":        startsWithAny,
-		"intersects":           intersects,
-		"entropy":              shannonEntropy,
-		"failsTokenEfficiency": rt.failsTokenEfficiency,
-		"tokenRatio":           rt.tokenRatio,
-	}
-}
-
 func (rt *runtimeBindings) setConfidence(value string) (string, error) {
 	if !confidence.Valid(value) {
-		return "", fmt.Errorf("filter.setConfidence: invalid confidence %q (expected low, medium, or high)", value)
+		return "", fmt.Errorf("setConfidence: invalid confidence %q (expected low, medium, or high)", value)
 	}
 	rt.attrs.(map[string]string)[confidence.Attribute] = value
 	return value, nil

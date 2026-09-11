@@ -44,7 +44,7 @@ let providerMatchContext = finding["fragment_raw"][
 
 // Recreate the generic rule's former [\w.-]{0,50} preamble. Only the
 // contiguous word, dot, and hyphen suffix immediately before the match counts.
-let genericMatchPrefix = filter.findMatch(
+let genericMatchPrefix = findMatch(
   finding["fragment_raw"][
     max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
     finding["match_start_idx"]
@@ -57,14 +57,14 @@ let genericMatchContext =
   genericMatchPrefix +
   finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
 
-let level = filter.matchesAny(genericMatchContext, [
+let level = matchesAny(genericMatchContext, [
   ` + "`(?i)\\b[a-z0-9]+[_.-]+token\\b`" + `
 ]) ? "medium" : "low";
-let _ = filter.setConfidence(level);
+let _ = setConfidence(level);
 
 // big ol expression to filter out FPs
 entropy(finding["secret"]) <= 3.5
-|| filter.failsTokenEfficiency(finding["secret"])
+|| failsTokenEfficiency(finding["secret"])
 || ` + genericAPIKeyFilter,
 	}
 

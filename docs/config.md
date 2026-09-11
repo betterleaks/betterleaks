@@ -113,7 +113,7 @@ let providerMatchContext = finding["fragment_raw"][
     max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
     min(finding["match_end_idx"] + 50, finding["match_line_end_idx"])
 ];
-filter.containsAny(providerMatchContext, ["provider"])
+containsAny(providerMatchContext, ["provider"])
 ```
 
 Regex extraction can further restrict a context window. This example recreates
@@ -121,7 +121,7 @@ a `[\w.-]{0,50}` regex preamble by retaining only the contiguous word, dot, and
 hyphen suffix immediately before the match:
 
 ```expr
-let genericMatchPrefix = filter.findMatch(
+let genericMatchPrefix = findMatch(
     finding["fragment_raw"][
         max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
         finding["match_start_idx"]
@@ -142,35 +142,76 @@ filter expression evaluates to `true`, the item is skipped.
 
 | Function | Description |
 | :--- | :--- |
-| `filter.matchesAny(string-or-list, patterns)` | Returns `true` if the string, or any string in the list, matches any regex pattern. Invalid patterns fail expression evaluation. |
-| `matchesAny(string-or-list, patterns)` | Equivalent to `filter.matchesAny(string-or-list, patterns)`. |
-| `filter.findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. Invalid patterns fail expression evaluation. |
-| `filter.containsAny(string-or-list, terms)` | Returns `true` if the string, or any string in the list, contains a term. Uses an efficient Aho-Corasick substring match. |
-| `containsAny(string-or-list, terms)` | Equivalent to `filter.containsAny(string-or-list, terms)`. |
-| `filter.startsWithAny(string-or-list, prefixes)` | Returns `true` if the string, or any string in the list, starts with a prefix. |
-| `startsWithAny(string-or-list, prefixes)` | Equivalent to `filter.startsWithAny(string-or-list, prefixes)`. |
-| `filter.intersects(string-or-list, candidates)` | Returns `true` if at least one input string exactly equals a candidate. Matching is case-sensitive. |
-| `sha256(string)` | Returns the canonical `sha256:` fingerprint of the exact string bytes as lowercase hexadecimal. Available in finding filters. |
-| `filter.entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
-| `entropy(string)` | Equivalent to `filter.entropy(string)`; useful for concise rule filters. |
-| `filter.tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
-| `filter.failsTokenEfficiency(string)` | Returns `true` when the generic-secret heuristic identifies readable text using token ratio, wordlist matches, and a length-sensitive threshold. |
-| `filter.setConfidence(level)` | Sets the current finding's `confidence` attribute. Use as `let _ = filter.setConfidence(level);`. |
+| `matchesAny(string-or-list, patterns)` | Returns `true` if the string, or any string in the list, matches any regex pattern. Invalid patterns fail expression evaluation. |
+| `findMatch(string, pattern)` | Returns the first substring matching the regex pattern, or an empty string if there is no match. Invalid patterns fail expression evaluation. |
+| `containsAny(string-or-list, terms)` | Returns `true` if the string, or any string in the list, contains a term. Uses an efficient Aho-Corasick substring match. |
+| `startsWithAny(string-or-list, prefixes)` | Returns `true` if the string, or any string in the list, starts with a prefix. |
+| `intersects(string-or-list, candidates)` | Returns `true` if at least one input string exactly equals a candidate. Matching is case-sensitive. |
+| `crypto.sha256(string)` | Returns the canonical `sha256:` fingerprint of the exact string bytes as lowercase hexadecimal. Available in finding filters, validation, and analysis. |
+| `entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
+| `tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
+| `failsTokenEfficiency(string)` | Returns `true` when the generic-secret heuristic identifies readable text using token ratio, wordlist matches, and a length-sensitive threshold. |
+| `setConfidence(level)` | Sets the current finding's `confidence` attribute. Use as `let _ = setConfidence(level);`. |
 
-Use `filter.tokenRatio` when a rule needs an explicit threshold without the
+The general helpers use top-level names across Expr stages. `setConfidence` is
+available only in finding filters. There is no `filter` namespace: native Expr
+collection filtering works directly, for example `filter([1, 2, 3], { # > 1 })`.
+The former `filter.*` helper names fail compilation.
+
+Other Betterleaks helpers use their documented namespace. Unknown members of
+helper namespaces fail compilation; input maps such as `attributes`,
+`finding.captures`, and provider response data remain dynamic.
+
+### Native Expr helpers and migration
+
+Use native Expr functions for general collection and string operations:
+
+| Removed form | Use |
+| :--- | :--- |
+| `filter.<helper>(...)` | `<helper>(...)`, e.g. `filter.entropy(s)` → `entropy(s)` |
+| `fingerprint.sha256(s)` | `crypto.sha256(s)` |
+| `env_get(name)` | `env.get(name)` |
+| `unknown(response)` | `validate.unknown(response)` |
+| `obfuscate(s)` | `strings.obfuscate(s)` |
+| `crypto.hmac_sha256(key, message)` | `crypto.hmacSha256(key, message)` |
+| `strings.url_query_escape(s)` | `strings.urlQueryEscape(s)` |
+| `time.now_unix()` | `time.nowUnix()` |
+| `sha256(s)` | `crypto.sha256(s)` |
+| `size(collection)` | `len(collection)` |
+| `substring(s, start)` | `s[max(0, start):]` to preserve the old negative-index behavior |
+| `get(object, key, fallback)` | `get(object, key) ?? fallback` |
+| `json.string(s)` | `toJSON(s)` |
+
+The removed forms fail compilation. `replace` and `lastIndexOf` now use Expr's
+native implementations; their existing calls remain valid. Native `replace`
+also accepts a fourth argument limiting the replacement count.
+
+`len(string)` counts Unicode code points; use `len(bytes(string))` in provider
+expressions when a byte count is required. Unlike the removed `size`, `len`
+rejects unsupported values instead of returning zero. A `??` fallback applies to
+nil or missing values, preserving meaningful zero, false, and empty-string values.
+Native string slicing supports negative indices from the end; the explicit
+`max(0, start)` above preserves the removed helper's clamping behavior.
+
+Binary helpers (`bytes`, `hex.encode`, `base64.encode`, `base64.decode`) remain
+available for composing provider signatures. `base64.decode` returns bytes;
+Expr's `fromBase64` returns a string. `time.nowUnix` and `time.nowRFC3339` return
+formatted strings; Expr's native `now()` returns a time value.
+
+Use `tokenRatio` when a rule needs an explicit threshold without the
 generic heuristic's wordlist check. For example, this skips low-entropy or
 readable-looking candidates:
 
 ```expr
-filter.entropy(finding["secret"]) < 3.0 ||
-filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 ||
+tokenRatio(finding["secret"]) >= 2.5
 ```
 
 Exact secret values can be filtered without storing the plaintext:
 
 ```toml
 filter = '''
-sha256(finding["secret"]) in [
+crypto.sha256(finding["secret"]) in [
     "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
 ]
 '''
@@ -187,22 +228,22 @@ Example:
 ```toml
 filter = '''
 (
-    filter.matchesAny(attributes["git.author_name"], [`\[bot\]$`]) &&
-    filter.matchesAny(attributes["path"], [`^tests/fixtures/`]) &&
-    filter.containsAny(finding["secret"], ["_MOCK_", "_TEST_"])
+    matchesAny(attributes["git.author_name"], [`\[bot\]$`]) &&
+    matchesAny(attributes["path"], [`^tests/fixtures/`]) &&
+    containsAny(finding["secret"], ["_MOCK_", "_TEST_"])
 )
 ||
 (
-    filter.matchesAny(attributes["path"], [`(?i)\.(?:md|txt|csv)$`]) &&
+    matchesAny(attributes["path"], [`(?i)\.(?:md|txt|csv)$`]) &&
     (
-        filter.containsAny(finding["line"], ["Example:", "Placeholder:", "Replace this with"]) ||
+        containsAny(finding["line"], ["Example:", "Placeholder:", "Replace this with"]) ||
         finding["secret"] == "SUPER_SECRET_EXAMPLE_KEY_12345"
     )
 )
 ||
 (
-    filter.entropy(finding["secret"]) <= 2.5 &&
-    filter.failsTokenEfficiency(finding["secret"])
+    entropy(finding["secret"]) <= 2.5 &&
+    failsTokenEfficiency(finding["secret"])
 )
 '''
 ```
@@ -215,8 +256,8 @@ filter:
 id = "generic-api-key"
 confidence = "low"
 filter = '''
-let level = filter.matchesAny(finding["line"], [`(?i)\b[a-z0-9]+[_.-]+token\b`]) ? "medium" : "low";
-let _ = filter.setConfidence(level);
+let level = matchesAny(finding["line"], [`(?i)\b[a-z0-9]+[_.-]+token\b`]) ? "medium" : "low";
+let _ = setConfidence(level);
 false
 '''
 ```
@@ -339,8 +380,8 @@ reuses identity, scope, and permission data from the validation request.
 
 ### Validation functions
 
-Validation and analysis expressions can also use the pure `filter` functions
-listed above. `filter.setConfidence` is available only to finding filters
+Validation and analysis expressions can also use the general helper functions
+listed above. `setConfidence` is available only to finding filters
 because it mutates finding output.
 
 | Function | Description |
@@ -352,10 +393,11 @@ because it mutates finding output.
 | `env.getOrDefault(name, default)` | Reads an allowlisted environment variable, or returns `default` when env access is disabled, the name is not allowlisted, or the variable is unset. |
 | `strings.obfuscate(secret)` | Returns a same-length, shape-preserving stand-in for a secret. Useful before sending context to third-party APIs. |
 | `strings.splitTrim(value, separator)` | Splits a string, trims each part, and removes empty parts. The separator must not be empty. |
-| `json.string(value)` | Returns a quoted JSON string literal. Useful when hand-building JSON request bodies. |
+| `toJSON(value)` | Native Expr JSON serialization. String inputs become quoted JSON string literals. |
 | `strings.urlQueryEscape(value)` | URL-query escapes a string. Useful when building signed validation request URLs. |
 | `crypto.md5(bytes)` | Returns the MD5 hash as bytes. |
 | `crypto.sha1(bytes)` | Returns the SHA-1 hash as bytes. |
+| `crypto.sha256(string)` | Returns a canonical `sha256:<hex>` fingerprint string, not raw digest bytes. |
 | `crypto.hmacSha1(key, msg)` | Returns the HMAC-SHA1 signature as bytes. |
 | `crypto.hmacSha256(key, msg)` | Returns the HMAC-SHA256 signature as bytes. |
 | `hex.encode(bytes)` | Returns lowercase hex encoding. |
@@ -494,7 +536,7 @@ returns an Expr error when env access is disabled or the name is not allowlisted
 
 For generic high-entropy matches that no live API can adjudicate, a validation
 expression can ask an LLM whether the candidate looks like a real secret. Use
-`json.string(...)` for quoted/escaped prompt fragments, `env.get(...)` plus
+`toJSON(...)` for quoted/escaped prompt fragments, `env.get(...)` plus
 `--provider-env-vars` for provider API keys, and `strings.obfuscate(...)`
 when you want to avoid sending the raw candidate to a third-party API.
 
@@ -509,8 +551,8 @@ regex = '''(?i)[\w.-]{0,50}?(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key
 keywords = ["access", "api", "auth", "key", "credential", "creds", "password", "secret", "token"]
 
 filter = '''
-filter.entropy(finding["secret"]) <= 4.0 ||
-filter.failsTokenEfficiency(finding["secret"])
+entropy(finding["secret"]) <= 4.0 ||
+failsTokenEfficiency(finding["secret"])
 '''
 
 validate = '''
@@ -528,13 +570,13 @@ let r = http.post(
     "\"max_completion_tokens\":256," +
     "\"messages\":[" +
       "{\"role\":\"system\",\"content\":" +
-        json.string(
+        toJSON(
           "Classify whether the candidate is a real usable credential or a benign match. " +
           "Respond with exactly three lines: VERDICT_SECRET or VERDICT_NOT, confidence from 0.0 to 1.0, and a short justification."
         ) +
       "}," +
       "{\"role\":\"user\",\"content\":" +
-        json.string("Candidate: " + obf_secret + "\n\nSurrounding code:\n" + obf_context) +
+        toJSON("Candidate: " + obf_secret + "\n\nSurrounding code:\n" + obf_context) +
       "}" +
     "]" +
   "}"
@@ -552,9 +594,9 @@ r.status == 200 && r.body contains "VERDICT_SECRET" ? {
 
 ## Expr function naming
 
-Project-owned Expr functions use short lower-case namespaces with camelCase
-function names. Examples: `http.get`, `crypto.hmacSha256`,
-`filter.matchesAny`, `env.getOrDefault`, and `validate.unknown`.
+General helpers use top-level camelCase names. Domain-specific functions use
+short lower-case namespaces with camelCase function names. Examples: `http.get`, `crypto.hmacSha256`,
+`matchesAny`, `env.getOrDefault`, and `validate.unknown`.
 
 Project-owned data keys stay snake_case. This includes attribute keys, finding
 keys, and response map keys such as `error_code`. Capture names and component

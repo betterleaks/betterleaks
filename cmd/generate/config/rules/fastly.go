@@ -35,8 +35,8 @@ let scopes = input["scopes"] ?? [];
 let services = input["services"] ?? [];
 let known_scopes = ["global", "global:read", "purge_all", "purge_select"];
 {
-  "reason": size(scopes) == 0 ? "Fastly did not return token scope metadata" :
-    !filter.intersects(scopes, known_scopes) ? "Fastly returned no recognized token scopes" : "",
+  "reason": len(scopes) == 0 ? "Fastly did not return token scope metadata" :
+    !intersects(scopes, known_scopes) ? "Fastly returned no recognized token scopes" : "",
   "identity": {
     "id": input["user_id"] ?? ""
   },
@@ -45,12 +45,12 @@ let known_scopes = ["global", "global:read", "purge_all", "purge_select"];
     "token_name": input["token_name"] ?? "",
     "scopes": scopes,
     "service_ids": services,
-    "all_services": size(services) == 0,
+    "all_services": len(services) == 0,
     "expires_at": input["expires_at"] ?? ""
   },
   "capabilities": analysis.capabilities({
-    "read": filter.intersects(scopes, ["global", "global:read"]),
-    "write": filter.intersects(scopes, ["global", "purge_all", "purge_select"])
+    "read": intersects(scopes, ["global", "global:read"]),
+    "write": intersects(scopes, ["global", "purge_all", "purge_select"])
   })
 }`
 
@@ -64,7 +64,7 @@ func FastlyAPIToken() *config.Rule {
 		Keywords:     []string{"fastly"},
 		ValidateExpr: fastlyValidateExpr,
 		AnalyzeExpr:  fastlyAnalyzeExpr,
-		Filter:       `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

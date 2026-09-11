@@ -25,7 +25,7 @@ func ArtifactoryApiKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
@@ -62,7 +62,7 @@ func ArtifactoryReferenceToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		Filter: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
@@ -88,7 +88,7 @@ func ArtifactoryJFrogURL() *config.Rule {
 		Regex:       `(?i)(?:^|[^a-z0-9-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.jfrog\.io)(?:$|[^a-z0-9-])`,
 		Keywords:    []string{"jfrog.io"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 2.5`,
+		Filter:      `entropy(finding["secret"]) < 2.5`,
 	}
 
 	tps := []string{

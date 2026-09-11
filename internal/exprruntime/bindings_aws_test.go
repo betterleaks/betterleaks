@@ -105,7 +105,7 @@ func TestAWSValidateExprBinding_Valid(t *testing.T) {
   } : r.status == 403 ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)`
+  } : validate.unknown(r)`
 	prg, err := env.CompileValidation(expr)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
@@ -148,7 +148,7 @@ func TestAWSValidateExprBinding_Invalid(t *testing.T) {
   } : r.status == 403 ? {
     "result": "invalid",
     "reason": "Unauthorized"
-  } : unknown(r)`
+  } : validate.unknown(r)`
 	prg, err := env.CompileValidation(expr)
 	if err != nil {
 		t.Fatalf("compile: %v", err)

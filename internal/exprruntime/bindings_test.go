@@ -50,7 +50,7 @@ func TestBindings(t *testing.T) {
 
 	// Verify crypto.hmac_sha256 returns correct HMAC
 	t.Run("hmac_sha256", func(t *testing.T) {
-		prg, err := env.CompileValidation(`crypto.hmac_sha256(bytes("key"), bytes("hello"))`)
+		prg, err := env.CompileValidation(`crypto.hmacSha256(bytes("key"), bytes("hello"))`)
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
@@ -96,7 +96,7 @@ func TestBindings(t *testing.T) {
 
 	// Verify time.now_unix returns a numeric string
 	t.Run("time_now_unix", func(t *testing.T) {
-		prg, err := env.CompileValidation(`time.now_unix()`)
+		prg, err := env.CompileValidation(`time.nowUnix()`)
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}

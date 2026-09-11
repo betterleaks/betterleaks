@@ -17,7 +17,7 @@ func SendbirdAccessToken() *config.Rule {
 		Keywords: []string{
 			"sendbird",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -36,7 +36,7 @@ func SendbirdAccessID() *config.Rule {
 		Keywords: []string{
 			"sendbird",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

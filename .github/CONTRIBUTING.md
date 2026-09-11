@@ -91,8 +91,8 @@ If you want to add a new rule to the [default configuration](config/betterleaks.
 Example simple `filter`:
 ```
 filter = '''
-    filter.entropy(finding["secret"]) <= 3.5 ||
-    filter.failsTokenEfficiency(finding["secret"])
+    entropy(finding["secret"]) <= 3.5 ||
+    failsTokenEfficiency(finding["secret"])
 '''
 ```
 

@@ -46,7 +46,7 @@ const (
 let scopes = input["scopes"] ?? [];
 let granular = input["granular"] ?? false;
 let granular_scopes =
-  size(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
+  len(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
   !granular || (input["token_id"] ?? "") in ["", "0"] || (input["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
@@ -60,14 +60,14 @@ let grants = flatten([
   granular ? [] : scopes,
   granular_permissions
 ]);
-let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
-let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
-let can_create_credentials = filter.intersects(grants, ["create_runner", "self_rotate"]);
-let can_admin = filter.intersects(grants, ["sudo", "admin_mode"]);
+let can_read = matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
+let can_write = matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
+let can_create_credentials = intersects(grants, ["create_runner", "self_rotate"]);
+let can_admin = intersects(grants, ["sudo", "admin_mode"]);
 {
-  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
-    size(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
-  "metadata": size(grants) > 0 ? {
+  "reason": granular && len(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
+    len(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
+  "metadata": len(grants) > 0 ? {
     "permissions": grants
   } : {},
   "identity": {

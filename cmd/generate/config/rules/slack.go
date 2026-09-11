@@ -38,7 +38,7 @@ r.status == 200 && (r.json?.ok ?? false) ? {
 const slackAnalyzeExpr = `let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
+  "reason": len(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "metadata": {
     "enterprise_id": input["enterprise_id"] ?? "",
     "scopes": scopes
@@ -52,9 +52,9 @@ let scopes = input["scopes"] ?? [];
     }
   },
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [":(?:history|read)$"]),
-    "write": filter.matchesAny(scopes, [":write$", "^channels:manage$"]),
-    "manage_users": filter.matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
+    "read": matchesAny(scopes, [":(?:history|read)$"]),
+    "write": matchesAny(scopes, [":write$", "^channels:manage$"]),
+    "manage_users": matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
   })
 }`
 

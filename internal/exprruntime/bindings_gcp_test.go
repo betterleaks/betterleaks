@@ -48,7 +48,7 @@ func TestGCPValidateExprBinding_ServiceAccountValid(t *testing.T) {
   } : r.status in [400, 401] ? {
     "result": "invalid",
     "reason": r.error_code
-  } : unknown(r)`)
+  } : validate.unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestGCPValidateExprBinding_ApplicationDefaultCredentialsInvalid(t *testing.
   } : r.status in [400, 401] ? {
     "result": "invalid",
     "error_code": r.error_code
-  } : unknown(r)`)
+  } : validate.unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

@@ -1673,7 +1673,7 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	rule := config.Rule{
 		ID:     "near-match",
 		Regex:  `[A-Z0-9]{20}`,
-		Filter: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; filter.matchesAny(matchContext, ["red-herring"])`,
+		Filter: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; matchesAny(matchContext, ["red-herring"])`,
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
@@ -1688,7 +1688,7 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 
 func TestConfidenceAttributeAndFilter(t *testing.T) {
 	low := config.Rule{ID: "specific-low", Regex: `[A-Z0-9]{20}`, Specificity: 1, Confidence: "low"}
-	promoted := config.Rule{ID: "promoted", Regex: `[A-Z0-9]{20}`, Confidence: "medium", Filter: `let _ = filter.setConfidence("high"); false`}
+	promoted := config.Rule{ID: "promoted", Regex: `[A-Z0-9]{20}`, Confidence: "medium", Filter: `let _ = setConfidence("high"); false`}
 	cfg := &config.Config{
 		Rules: []config.Rule{low, promoted},
 	}
@@ -1716,7 +1716,7 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 			rule := config.Rule{
 				ID:     "decoded-near-match",
 				Regex:  `decoded-secret-[A-Z]{20}`,
-				Filter: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; filter.containsAny(matchContext, ["provider"])`, tc.before),
+				Filter: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; containsAny(matchContext, ["provider"])`, tc.before),
 			}
 			cfg := &config.Config{
 				Rules: []config.Rule{rule},
@@ -1732,7 +1732,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	rule := config.Rule{
 		ID:     "original-match-bounds",
 		Regex:  "\nSECRET",
-		Filter: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; filter.matchesAny(matchContext, [`\\nSECRET$`])",
+		Filter: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; matchesAny(matchContext, [`\\nSECRET$`])",
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
@@ -1745,7 +1745,7 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 	rule := config.Rule{
 		ID:     "line-context",
 		Regex:  `SECRET`,
-		Filter: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; filter.containsAny(matchContext, ["other-line"])`,
+		Filter: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; containsAny(matchContext, ["other-line"])`,
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},

@@ -11,7 +11,7 @@ var genericAPIKeyFilter = buildGenericAPIKeyFilter()
 
 func buildGenericAPIKeyFilter() string {
 	return `matchesAny(finding["secret"], [` + "`^[a-zA-Z_.-]+$`" + `])
-|| (containsAny(finding["secret"], ` + exprStringList(DefaultStopWords) + `) || filter.matchesAny(genericMatchContext, [` + "`" + genericAPIKeyMatchFilter + "`" + `]))
+|| (containsAny(finding["secret"], ` + exprStringList(DefaultStopWords) + `) || matchesAny(genericMatchContext, [` + "`" + genericAPIKeyMatchFilter + "`" + `]))
 || matchesAny(finding["line"], [
   ` + "`--mount=type=secret,`" + `,
   ` + "`import[ \\t]+{[ \\t\\w,]+}[ \\t]+from[ \\t]+['\"][^'\"]+['\"]`" + `
@@ -151,7 +151,7 @@ func buildTestAndPublicAPIFilters() string {
 			continue
 		}
 		b.WriteString("\n|| ")
-		b.WriteString("(" + secretMatch + ` && filter.containsAny(providerMatchContext, ` + exprStringListInline(f.keywords) + "))")
+		b.WriteString("(" + secretMatch + ` && containsAny(providerMatchContext, ` + exprStringListInline(f.keywords) + "))")
 	}
 	if len(secretOnly) > 0 {
 		return "\n|| matchesAny(finding[\"secret\"], " + exprList(secretOnly) + ")" + b.String()

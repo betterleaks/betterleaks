@@ -17,7 +17,7 @@ func OneSignalRichAuthenticationToken() *config.Rule {
 		ValidateExpr: `let r = http.get("https://api.onesignal.com/apps", {
     "Authorization": "Key " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 || (r.status == 403 && size(r.json?.errors ?? []) > 0) ? {
+  }); r.status == 200 || (r.status == 403 && len(r.json?.errors ?? []) > 0) ? {
     "result": "valid"
   } : r.status == 401 ? {
     "result": "invalid",

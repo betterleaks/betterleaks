@@ -729,7 +729,7 @@ func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Findi
 	return finding
 }
 
-// promoteConfidence moves the value written by filter.setConfidence from the
+// promoteConfidence moves the value written by setConfidence from the
 // mutable expression attributes into Finding's typed field.
 func promoteConfidence(finding *report.Finding, findingMap map[string]any) {
 	value, ok := finding.Attributes[confidence.Attribute]

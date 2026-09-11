@@ -27,7 +27,7 @@ const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "htt
 const githubTokenAnalyzeExpr = `let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
+  "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
     "sso": input["sso"] ?? ""
@@ -39,16 +39,16 @@ let scopes = input["scopes"] ?? [];
     "email": input["email"] ?? ""
   },
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [
+    "read": matchesAny(scopes, [
       "^read:",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
     ]),
-    "write": filter.matchesAny(scopes, [
+    "write": matchesAny(scopes, [
       "^write:",
       "^delete:packages$",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
     ]),
-    "create_credentials": filter.matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
+    "create_credentials": matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
   })
 }`
 

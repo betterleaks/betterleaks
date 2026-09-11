@@ -36,7 +36,7 @@ let can_write = any([
   "events", "markers", "triggers", "boards", "columns", "createDatasets", "slos", "recipients", "privateBoards"
 ], {(permissions[#] ?? false) == true});
 {
-  "reason": size(permissions) == 0 ? "Honeycomb did not return API key permission metadata" :
+  "reason": len(permissions) == 0 ? "Honeycomb did not return API key permission metadata" :
     !can_read && !can_write ? "Honeycomb returned no recognized enabled permissions" : "",
   "identity": {
     "account": {
@@ -63,7 +63,7 @@ func HoneycombAPIKey() *config.Rule {
 		Keywords:     []string{"honeycomb"},
 		ValidateExpr: honeycombValidateExpr,
 		AnalyzeExpr:  honeycombAnalyzeExpr,
-		Filter:       `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

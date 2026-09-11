@@ -1,7 +1,7 @@
 title = "gitleaks config"
 
 prefilter = '''
-filter.matchesAny(attributes["path"], [
+matchesAny(attributes["path"], [
   `gitleaks.toml`,
   `(.*?)(jpg|gif|doc|pdf|bin|svg|socket)$`,
   `(go.mod|go.sum)$`
@@ -9,7 +9,7 @@ filter.matchesAny(attributes["path"], [
 '''
 
 filter = '''
-filter.matchesAny(finding["secret"], [
+matchesAny(finding["secret"], [
   `219-09-9999`,
   `078-05-1120`,
   `(9[0-9]{2}|666)-\d{2}-\d{4}`,

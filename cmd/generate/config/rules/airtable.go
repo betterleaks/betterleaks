@@ -27,11 +27,11 @@ let scopes = input["scopes"] ?? [];
     "id": input["id"] ?? "",
     "email": input["email"] ?? ""
   },
-  "metadata": size(scopes) > 0 ? {"scopes": scopes} : {},
+  "metadata": len(scopes) > 0 ? {"scopes": scopes} : {},
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [":read$"]),
-    "write": filter.matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
-    "manage_users": filter.matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
+    "read": matchesAny(scopes, [":read$"]),
+    "write": matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
+    "manage_users": matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
   })
 }`
 
@@ -43,7 +43,7 @@ func AirtableApiKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, utils.AlphaNumeric("17"), true),
 		Keywords:    []string{"airtable"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:      `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -61,7 +61,7 @@ func AirtablePersonalAccessToken() *config.Rule {
 		Keywords:     []string{"airtable"},
 		ValidateExpr: airtableValidateExpr,
 		AnalyzeExpr:  airtableAnalyzeExpr,
-		Filter:       `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:       `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -78,7 +78,7 @@ func AirtableOAuthToken() *config.Rule {
 		Keywords:     []string{"airtable"},
 		ValidateExpr: airtableValidateExpr,
 		AnalyzeExpr:  airtableAnalyzeExpr,
-		Filter:       `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

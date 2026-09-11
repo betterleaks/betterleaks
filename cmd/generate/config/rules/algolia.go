@@ -33,19 +33,19 @@ r.status == 200 && has_sensitive_acl ? {
 const algoliaAnalyzeExpr = `let input = validation.analysis;
 let acl = input["acl"] ?? [];
 let indexes = input["indexes"] ?? [];
-let can_read = filter.intersects(acl, [
+let can_read = intersects(acl, [
   "search", "browse", "listIndexes", "settings", "analytics", "logs", "usage",
   "nluReadProject", "nluReadEntity", "nluReadIntent", "nluReadAnswers"
 ]);
-let can_write = filter.intersects(acl, [
+let can_write = intersects(acl, [
   "addObject", "deleteObject", "deleteIndex", "editSettings",
   "nluWriteProject", "nluWriteEntity", "nluWriteIntent"
 ]);
 {
-  "reason": size(acl) == 0 ? "Algolia did not return API key ACLs" :
+  "reason": len(acl) == 0 ? "Algolia did not return API key ACLs" :
     !can_read && !can_write ? "Algolia returned no recognized permission grants" : "",
   "identity": {"account": {"id": input["application_id"] ?? ""}},
-  "metadata": size(indexes) > 0 ? {
+  "metadata": len(indexes) > 0 ? {
     "acl": acl,
     "indexes": indexes
   } : {
@@ -63,7 +63,7 @@ func AlgoliaApplicationID() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{10}`, true),
 		Keywords:    []string{"algolia"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 2.75 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:      `entropy(finding["secret"]) < 2.75 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{
@@ -85,7 +85,7 @@ func AlgoliaApiKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{32}`, true),
 		Keywords:    []string{"algolia"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:      `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 		Components: []*config.Component{
 			{RuleID: "algolia-application-id"},
 		},

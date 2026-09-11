@@ -24,10 +24,10 @@ func UnkeyRootKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid root key"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5
-|| !filter.matchesAny(finding["secret"], ["[0-9]"])
-|| !filter.matchesAny(finding["secret"], ["[A-Z]"])
-|| !filter.matchesAny(finding["secret"], ["[a-z]"])`,
+		Filter: `entropy(finding["secret"]) < 3.5
+|| !matchesAny(finding["secret"], ["[0-9]"])
+|| !matchesAny(finding["secret"], ["[A-Z]"])
+|| !matchesAny(finding["secret"], ["[a-z]"])`,
 	}
 
 	// validate

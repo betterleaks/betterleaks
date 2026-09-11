@@ -41,7 +41,7 @@ let orgs = input["orgs"] ?? [];
     "username": input["username"] ?? "",
     "name": input["name"] ?? "",
     "email": input["email"] ?? "",
-    "account": size(orgs) == 1 ? {
+    "account": len(orgs) == 1 ? {
       "id": string(orgs[0]?.id ?? ""),
       "name": orgs[0]?.name ?? ""
     } : {}

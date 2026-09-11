@@ -44,7 +44,7 @@ func TestPublicAPIKeyProviderUsesLineClampedContext(t *testing.T) {
 func TestGenericAPIKeyUsesRestrictedPrefix(t *testing.T) {
 	runtime, err := exprruntime.New(nil)
 	require.NoError(t, err)
-	program, err := runtime.CompileFilter(`let genericMatchPrefix = filter.findMatch(finding["fragment_raw"][max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):finding["match_start_idx"]], `+"`[\\w.-]{0,50}$`"+`); let genericMatchContext = genericMatchPrefix + finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]]; filter.matchesAny(genericMatchContext, [`+"`"+genericAPIKeyMatchFilter+"`"+`])`, nil)
+	program, err := runtime.CompileFilter(`let genericMatchPrefix = findMatch(finding["fragment_raw"][max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):finding["match_start_idx"]], `+"`[\\w.-]{0,50}$`"+`); let genericMatchContext = genericMatchPrefix + finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]]; matchesAny(genericMatchContext, [`+"`"+genericAPIKeyMatchFilter+"`"+`])`, nil)
 	require.NoError(t, err)
 
 	secret := strings.Repeat("A", 20)

@@ -1,7 +1,7 @@
 title = "gitleaks config"
 # https://learnxinyminutes.com/docs/toml/ for toml reference
 
-prefilter = '''filter.matchesAny(attributes["path"], [`\.env\.prod$`])'''
+prefilter = '''matchesAny(attributes["path"], [`\.env\.prod$`])'''
 
 [[rules]]
 id = "aws-access-key"

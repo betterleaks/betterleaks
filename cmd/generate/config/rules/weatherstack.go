@@ -26,7 +26,7 @@ func WeatherstackAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid access key"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

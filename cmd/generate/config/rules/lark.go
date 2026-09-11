@@ -15,7 +15,7 @@ func LarkAppID() *config.Rule {
 		Regex:       `\b(cli_[A-Za-z0-9]{16})`,
 		Keywords:    []string{"cli_"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter:      `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -46,7 +46,7 @@ func LarkAppSecret() *config.Rule {
 		ValidateExpr: `let r = http.post("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
     "Content-Type": "application/json",
     "Accept": "application/json"
-  }, "{\"app_id\":" + json.string((components["lark-app-id"]?.secret ?? "")) + ",\"app_secret\":" + json.string(finding["secret"]) + "}");
+  }, "{\"app_id\":" + toJSON((components["lark-app-id"]?.secret ?? "")) + ",\"app_secret\":" + toJSON(finding["secret"]) + "}");
 let code = r.json?.code ?? -1;
 r.status == 200 && code == 0 ? {
     "result": "valid"
@@ -54,7 +54,7 @@ r.status == 200 && code == 0 ? {
     "result": "invalid",
     "reason": (r.json?.msg ?? "Invalid application credentials")
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

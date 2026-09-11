@@ -142,7 +142,7 @@ regex = '''(?i)(?:adafruit)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["adafruit"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ regex = '''(?i)(?:adobe)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\
 confidence = "high"
 keywords = ["adobe"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ regex = '''\b(p8e-(?i)[a-z0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["p8e-"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ regex = '''\b(AIK_CI_[A-Za-z0-9]{20,44})\b'''
 confidence = "high"
 keywords = ["aik_ci_"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ confidence = "high"
 keywords = ["aik_client_"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -218,7 +218,7 @@ regex = '''\b(AIK_SECRET_[A-Za-z0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["aik_secret_"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+entropy(finding["secret"]) < 3.5
 '''
 components = [
     { id = "aikido-client-id" },
@@ -234,7 +234,7 @@ regex = '''(?i)(?:airtable)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["airtable"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -269,16 +269,16 @@ let scopes = input["scopes"] ?? [];
     "id": input["id"] ?? "",
     "email": input["email"] ?? ""
   },
-  "metadata": size(scopes) > 0 ? {"scopes": scopes} : {},
+  "metadata": len(scopes) > 0 ? {"scopes": scopes} : {},
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [":read$"]),
-    "write": filter.matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
-    "manage_users": filter.matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
+    "read": matchesAny(scopes, [":read$"]),
+    "write": matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
+    "manage_users": matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
   })
 }
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -313,16 +313,16 @@ let scopes = input["scopes"] ?? [];
     "id": input["id"] ?? "",
     "email": input["email"] ?? ""
   },
-  "metadata": size(scopes) > 0 ? {"scopes": scopes} : {},
+  "metadata": len(scopes) > 0 ? {"scopes": scopes} : {},
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [":read$"]),
-    "write": filter.matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
-    "manage_users": filter.matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
+    "read": matchesAny(scopes, [":read$"]),
+    "write": matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
+    "manage_users": matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
   })
 }
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -346,7 +346,7 @@ let r = http.get("https://api.aiven.io/v1/project", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -384,19 +384,19 @@ analyze = '''
 let input = validation.analysis;
 let acl = input["acl"] ?? [];
 let indexes = input["indexes"] ?? [];
-let can_read = filter.intersects(acl, [
+let can_read = intersects(acl, [
   "search", "browse", "listIndexes", "settings", "analytics", "logs", "usage",
   "nluReadProject", "nluReadEntity", "nluReadIntent", "nluReadAnswers"
 ]);
-let can_write = filter.intersects(acl, [
+let can_write = intersects(acl, [
   "addObject", "deleteObject", "deleteIndex", "editSettings",
   "nluWriteProject", "nluWriteEntity", "nluWriteIntent"
 ]);
 {
-  "reason": size(acl) == 0 ? "Algolia did not return API key ACLs" :
+  "reason": len(acl) == 0 ? "Algolia did not return API key ACLs" :
     !can_read && !can_write ? "Algolia returned no recognized permission grants" : "",
   "identity": {"account": {"id": input["application_id"] ?? ""}},
-  "metadata": size(indexes) > 0 ? {
+  "metadata": len(indexes) > 0 ? {
     "acl": acl,
     "indexes": indexes
   } : {
@@ -407,7 +407,7 @@ let can_write = filter.intersects(acl, [
 }
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "algolia-application-id" },
@@ -424,7 +424,7 @@ confidence = "high"
 keywords = ["algolia"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 2.75 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 2.75 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -438,7 +438,7 @@ confidence = "high"
 keywords = ["ltai"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -473,7 +473,7 @@ r.status == 200 && (r.body contains "\"Arn\"") ? {
 } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "alibaba-access-key-id", within = "5L" },
@@ -490,7 +490,7 @@ confidence = "high"
 keywords = ["sts."]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -526,7 +526,7 @@ r.status == 200 && (r.body contains "\"Arn\"") ? {
 } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "alibaba-sts-access-key-id", within = "10L" },
@@ -548,7 +548,7 @@ keywords = [
 ]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -566,7 +566,7 @@ let r = http.post("https://api2.amplitude.com/2/httpapi", {
     "Accept": "*/*"
   },
   "{" +
-    "\"api_key\":" + json.string(finding["secret"]) + "," +
+    "\"api_key\":" + toJSON(finding["secret"]) + "," +
     "\"events\":[{" +
       "\"user_id\":\"203201202\"," +
       "\"device_id\":\"C8F9E604-F01A-4BD9-95C6-8E5357DF265D\"," +
@@ -580,7 +580,7 @@ let r = http.post("https://api2.amplitude.com/2/httpapi", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -677,7 +677,7 @@ let r = http.post("https://api.apollo.io/api/v1/mixed_people/api_search", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -700,7 +700,7 @@ let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? ""
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+entropy(finding["secret"]) < 3.5
 '''
 components = [
     { id = "artifactory-jfrog-url" },
@@ -717,7 +717,7 @@ confidence = "high"
 keywords = ["jfrog.io"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 2.5
+entropy(finding["secret"]) < 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -740,7 +740,7 @@ let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? ""
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+entropy(finding["secret"]) < 3.5
 '''
 components = [
     { id = "artifactory-jfrog-url" },
@@ -782,7 +782,7 @@ regex = '''(?i)(?:asana)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\
 confidence = "high"
 keywords = ["asana"]
 filter = '''
-filter.entropy(finding["secret"]) < 2.75
+entropy(finding["secret"]) < 2.75
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -795,7 +795,7 @@ regex = '''(?i)(?:asana)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\
 confidence = "high"
 keywords = ["asana"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -808,7 +808,7 @@ regex = '''(?i)(?:assemblyai)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:
 confidence = "medium"
 keywords = ["assemblyai"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -821,7 +821,7 @@ regex = '''\b(ATAT[A-Za-z0-9_\-=]{100,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["atat"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -908,7 +908,7 @@ let r = http.get("https://api.authress.io/v1/users/me", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0
+entropy(finding["secret"]) < 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1198,7 +1198,7 @@ regex = '''(?i)(?:bitbucket)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "high"
 keywords = ["bitbucket"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1211,7 +1211,7 @@ regex = '''(?i)(?:bitbucket)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "high"
 keywords = ["bitbucket"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1235,7 +1235,7 @@ let r = http.get("https://api-ssl.bitly.com/v4/user", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1259,7 +1259,7 @@ let r = http.get("https://api.bitrise.io/v0.1/apps", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1272,7 +1272,7 @@ regex = '''(?i)(?:bittrex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["bittrex"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1285,7 +1285,7 @@ regex = '''(?i)(?:bittrex)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["bittrex"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1317,7 +1317,7 @@ r.status == 200 && ((r.body contains "\"id\"")) ? {
 
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1341,7 +1341,7 @@ let r = http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&c
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.2
+entropy(finding["secret"]) < 3.2
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1440,16 +1440,16 @@ let r = http.get("https://api.buildkite.com/v2/access-token", {
 analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
-let can_read = filter.matchesAny(scopes, [
+let can_read = matchesAny(scopes, [
   "^read_(?:pipelines|builds|build_logs|job_env|artifacts|agents|clusters|pipeline_templates|rules|organizations|organization_invitations|organization_settings|organization_repository_connections|notification_services|teams|user|audit_events|secrets_details|suites|test_plan|registries|packages|portals)$"
 ]);
-let can_write = filter.matchesAny(scopes, [
+let can_write = matchesAny(scopes, [
   "^write_(?:pipelines|builds|build_logs|artifacts|agents|clusters|pipeline_templates|rules|organizations|organization_invitations|organization_settings|notification_services|teams|secrets|suites|test_plan|registries|packages|portals)$",
   "^delete_(?:registries|packages)$"
 ]);
 {
   "reason": "graphql" in scopes ? "Buildkite GraphQL permissions were not expanded" :
-    size(scopes) == 0 ? "Buildkite did not return token scopes" :
+    len(scopes) == 0 ? "Buildkite did not return token scopes" :
     !can_read && !can_write ? "Buildkite returned no recognized REST permission grants" : "",
   "identity": {
     "name": input["name"] ?? "",
@@ -1465,7 +1465,7 @@ let can_write = filter.matchesAny(scopes, [
   "capabilities": analysis.capabilities({
     "read": can_read,
     "write": can_write,
-    "manage_users": filter.intersects(scopes, ["write_organizations", "write_organization_invitations", "write_teams"])
+    "manage_users": intersects(scopes, ["write_organizations", "write_organization_invitations", "write_teams"])
   })
 }
 '''
@@ -1508,7 +1508,7 @@ confidence = "high"
 keywords = ["canva"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 2.5
+entropy(finding["secret"]) < 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1535,7 +1535,7 @@ let r = http.post("https://api.canva.com/rest/v1/oauth/token", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+entropy(finding["secret"]) < 3.5
 '''
 components = [
     { id = "canva-client-id" },
@@ -1630,7 +1630,7 @@ let r = http.get("https://circleci.com/api/v2/me", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1654,7 +1654,7 @@ let r = http.get("https://circleci.com/api/v1.1/projects", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1678,7 +1678,7 @@ let r = http.get("https://api.meraki.com/api/v1/organizations", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1701,7 +1701,7 @@ let r = http.get("https://api.civo.com/v2/instances", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1725,7 +1725,7 @@ let r = http.get("https://api.clerk.com/v1/users?limit=1", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3
+entropy(finding["secret"]) < 3.3
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1748,7 +1748,7 @@ let r = http.get("https://api.clickhouse.cloud/v1/organizations", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+entropy(finding["secret"]) < 3.5
 '''
 components = [
     { id = "clickhouse-cloud-key-id" },
@@ -1765,7 +1765,7 @@ confidence = "high"
 keywords = ["clickhouse"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.0
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1878,8 +1878,8 @@ let token = details_ok ? (details.json?.result ?? {}) : {};
 let policies = token["policies"] ?? [];
 let permission_groups = flatten(map(policies, {#.effect == "allow" ? (#.permission_groups ?? []) : []}));
 let permissions = map(permission_groups, {#.name ?? ""});
-let can_crud = filter.matchesAny(permissions, ["(?: Write| Edit)$"]);
-let can_write = can_crud || filter.matchesAny(permissions, ["(?: Revoke| Send)$", "^Cache Purge$"]);
+let can_crud = matchesAny(permissions, ["(?: Write| Edit)$"]);
+let can_write = can_crud || matchesAny(permissions, ["(?: Revoke| Send)$", "^Cache Purge$"]);
 {
   "reason": !details_ok ? "Cloudflare did not allow this token to read its policy details" : "",
   "identity": token_type == "account" && account_id != "" ? {
@@ -1890,18 +1890,18 @@ let can_write = can_crud || filter.matchesAny(permissions, ["(?: Revoke| Send)$"
     "token_type": token_type,
     "token_name": token["name"] ?? "",
     "permissions": permissions,
-    "policy_count": size(policies),
+    "policy_count": len(policies),
     "not_before": input["not_before"] ?? "",
     "expires_on": input["expires_on"] ?? ""
   },
   "capabilities": analysis.capabilities({
-    "read": can_crud || filter.matchesAny(permissions, [" Read$"]),
+    "read": can_crud || matchesAny(permissions, [" Read$"]),
     "write": can_write,
-    "create_credentials": filter.matchesAny(permissions, [
+    "create_credentials": matchesAny(permissions, [
       "^(?:Account )?API Tokens (?:Write|Edit)$",
       "^Access: (?:Keys|Service Tokens) (?:Write|Edit)$"
     ]),
-    "manage_users": filter.matchesAny(permissions, [
+    "manage_users": matchesAny(permissions, [
       "^(?:User )?Memberships (?:Write|Edit)$",
       "^Account Settings (?:Write|Edit)$"
     ])
@@ -1909,7 +1909,7 @@ let can_write = can_crud || filter.matchesAny(permissions, ["(?: Revoke| Send)$"
 }
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1970,8 +1970,8 @@ let token = details_ok ? (details.json?.result ?? {}) : {};
 let policies = token["policies"] ?? [];
 let permission_groups = flatten(map(policies, {#.effect == "allow" ? (#.permission_groups ?? []) : []}));
 let permissions = map(permission_groups, {#.name ?? ""});
-let can_crud = filter.matchesAny(permissions, ["(?: Write| Edit)$"]);
-let can_write = can_crud || filter.matchesAny(permissions, ["(?: Revoke| Send)$", "^Cache Purge$"]);
+let can_crud = matchesAny(permissions, ["(?: Write| Edit)$"]);
+let can_write = can_crud || matchesAny(permissions, ["(?: Revoke| Send)$", "^Cache Purge$"]);
 {
   "reason": !details_ok ? "Cloudflare did not allow this token to read its policy details" : "",
   "identity": token_type == "account" && account_id != "" ? {
@@ -1982,18 +1982,18 @@ let can_write = can_crud || filter.matchesAny(permissions, ["(?: Revoke| Send)$"
     "token_type": token_type,
     "token_name": token["name"] ?? "",
     "permissions": permissions,
-    "policy_count": size(policies),
+    "policy_count": len(policies),
     "not_before": input["not_before"] ?? "",
     "expires_on": input["expires_on"] ?? ""
   },
   "capabilities": analysis.capabilities({
-    "read": can_crud || filter.matchesAny(permissions, [" Read$"]),
+    "read": can_crud || matchesAny(permissions, [" Read$"]),
     "write": can_write,
-    "create_credentials": filter.matchesAny(permissions, [
+    "create_credentials": matchesAny(permissions, [
       "^(?:Account )?API Tokens (?:Write|Edit)$",
       "^Access: (?:Keys|Service Tokens) (?:Write|Edit)$"
     ]),
-    "manage_users": filter.matchesAny(permissions, [
+    "manage_users": matchesAny(permissions, [
       "^(?:User )?Memberships (?:Write|Edit)$",
       "^Account Settings (?:Write|Edit)$"
     ])
@@ -2001,7 +2001,7 @@ let can_write = can_crud || filter.matchesAny(permissions, ["(?: Revoke| Send)$"
 }
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "cloudflare-account-id.1", optional = true, within = "5L" },
@@ -2017,7 +2017,7 @@ regex = '''(?i)(?:cloudflare)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:
 confidence = "high"
 keywords = ["cloudflare"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2033,7 +2033,7 @@ keywords = [
     "v1.0-",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2047,7 +2047,7 @@ confidence = "high"
 keywords = ["cloudinary"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 2.75
+entropy(finding["secret"]) < 2.75
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2071,7 +2071,7 @@ let r = http.get("https://api.cloudinary.com/v1_1/" + (components["cloudinary-cl
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "cloudinary-api-key" },
@@ -2131,7 +2131,7 @@ let r = http.get("https://cockroachlabs.cloud/api/v1/clusters", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2155,7 +2155,7 @@ let r = http.get("https://api.codecov.io/api/v2/github/", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2181,7 +2181,7 @@ let r = http.get("https://api.cohere.com/v1/connectors", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2194,7 +2194,7 @@ regex = '''(?i)(?:coinbase)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "medium"
 keywords = ["coinbase"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2217,7 +2217,7 @@ let r = http.get("https://cdn-global.configcat.com/configuration-files/" + findi
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2240,7 +2240,7 @@ let r = http.get("https://cdn-global.configcat.com/configuration-files/" + findi
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2253,7 +2253,7 @@ regex = '''(?i)(?:confluent)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "high"
 keywords = ["confluent"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2266,7 +2266,7 @@ regex = '''(?i)(?:confluent)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "high"
 keywords = ["confluent"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2279,7 +2279,7 @@ regex = '''(?i)(?:contentful)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:
 confidence = "medium"
 keywords = ["contentful"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2306,7 +2306,7 @@ let r = http.get("https://cloudapi.cloud.couchbase.com/v4/organizations", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0
+entropy(finding["secret"]) < 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2319,7 +2319,7 @@ regex = '''(?i)(?:coveralls)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|
 confidence = "medium"
 keywords = ["coveralls"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2491,7 +2491,7 @@ let r = http.get("https://developer.nrel.gov/api/alt-fuel-stations/v1.json?limit
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2528,7 +2528,7 @@ regex = '''(?i)(?:deepgram)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["deepgram"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2787,7 +2787,7 @@ regex = '''(?i)(?:discord)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "medium"
 keywords = ["discord"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2800,7 +2800,7 @@ regex = '''(?i)(?:discord)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "medium"
 keywords = ["discord"]
 filter = '''
-filter.entropy(finding["secret"]) < 2.75
+entropy(finding["secret"]) < 2.75
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2813,7 +2813,7 @@ regex = '''(?i)(?:discord)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "medium"
 keywords = ["discord"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2836,7 +2836,7 @@ let r = http.get("https://disqus.com/api/3.0/threads/list.json?limit=1&api_secre
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2914,7 +2914,7 @@ regex = '''(?i)(?:droneci)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["droneci"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2927,7 +2927,7 @@ regex = '''(?i)(?:dropbox)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "medium"
 keywords = ["dropbox"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2940,7 +2940,7 @@ regex = '''(?i)(?:dropbox)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["dropbox"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2953,7 +2953,7 @@ regex = '''(?i)(?:dropbox)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["dropbox"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3194,7 +3194,7 @@ regex = '''(?i)\b(\d{15,16}(\||%)[0-9a-z\-_]{27,40})(?:\\?['"\x60]|[\s;]|\\[nr]|
 confidence = "high"
 keywords = ["facebook"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3210,7 +3210,7 @@ keywords = [
     "eaac",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3223,7 +3223,7 @@ regex = '''(?i)(?:facebook)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["facebook"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3296,8 +3296,8 @@ let scopes = input["scopes"] ?? [];
 let services = input["services"] ?? [];
 let known_scopes = ["global", "global:read", "purge_all", "purge_select"];
 {
-  "reason": size(scopes) == 0 ? "Fastly did not return token scope metadata" :
-    !filter.intersects(scopes, known_scopes) ? "Fastly returned no recognized token scopes" : "",
+  "reason": len(scopes) == 0 ? "Fastly did not return token scope metadata" :
+    !intersects(scopes, known_scopes) ? "Fastly returned no recognized token scopes" : "",
   "identity": {
     "id": input["user_id"] ?? ""
   },
@@ -3306,17 +3306,17 @@ let known_scopes = ["global", "global:read", "purge_all", "purge_select"];
     "token_name": input["token_name"] ?? "",
     "scopes": scopes,
     "service_ids": services,
-    "all_services": size(services) == 0,
+    "all_services": len(services) == 0,
     "expires_at": input["expires_at"] ?? ""
   },
   "capabilities": analysis.capabilities({
-    "read": filter.intersects(scopes, ["global", "global:read"]),
-    "write": filter.intersects(scopes, ["global", "purge_all", "purge_select"])
+    "read": intersects(scopes, ["global", "global:read"]),
+    "write": intersects(scopes, ["global", "purge_all", "purge_select"])
   })
 }
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3382,7 +3382,7 @@ regex = '''(?i)(?:finicity)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["finicity"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3395,7 +3395,7 @@ regex = '''(?i)(?:finicity)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["finicity"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3408,7 +3408,7 @@ regex = '''(?i)(?:finnhub)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["finnhub"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3421,7 +3421,7 @@ regex = '''(?i)(?:flickr)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["flickr"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3547,7 +3547,7 @@ r.status == 200 && (true) ? {
 
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3807,7 +3807,7 @@ let providerMatchContext = finding["fragment_raw"][
 
 // Recreate the generic rule's former [\w.-]{0,50} preamble. Only the
 // contiguous word, dot, and hyphen suffix immediately before the match counts.
-let genericMatchPrefix = filter.findMatch(
+let genericMatchPrefix = findMatch(
   finding["fragment_raw"][
     max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
     finding["match_start_idx"]
@@ -3820,14 +3820,14 @@ let genericMatchContext =
   genericMatchPrefix +
   finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
 
-let level = filter.matchesAny(genericMatchContext, [
+let level = matchesAny(genericMatchContext, [
   `(?i)\b[a-z0-9]+[_.-]+token\b`
 ]) ? "medium" : "low";
-let _ = filter.setConfidence(level);
+let _ = setConfidence(level);
 
 // big ol expression to filter out FPs
 entropy(finding["secret"]) <= 3.5
-|| filter.failsTokenEfficiency(finding["secret"])
+|| failsTokenEfficiency(finding["secret"])
 || matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
 || (containsAny(finding["secret"], [
   "000000",
@@ -5276,7 +5276,7 @@ entropy(finding["secret"]) <= 3.5
   "zsh.",
   "zsh_",
   "6fe4476ee5a1832882e326b506d14126"
-]) || filter.matchesAny(genericMatchContext, [`(?i)(?:access(?:ibility|or)|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|rapid|capital|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|(?:turkey)|key[_.-]?(?:alias|board|code|frame|id|length|mesh|name|pair|press(?:ed)?|ring|selector|signature|size|stone|storetype|word|up|down|left|right)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`]))
+]) || matchesAny(genericMatchContext, [`(?i)(?:access(?:ibility|or)|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|rapid|capital|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|(?:turkey)|key[_.-]?(?:alias|board|code|frame|id|length|mesh|name|pair|press(?:ed)?|ring|selector|signature|size|stone|storetype|word|up|down|left|right)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`]))
 || matchesAny(finding["line"], [
   `--mount=type=secret,`,
   `import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]`
@@ -5314,49 +5314,49 @@ entropy(finding["secret"]) <= 3.5
   `^pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}$`,
   `^8c6803164dbc395fb7131c9d54843627$`
 ])
-|| (matchesAny(finding["secret"], [`^pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && filter.containsAny(providerMatchContext, ["stripe", "woo", "wcm"]))
-|| (matchesAny(finding["secret"], [`^rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && filter.containsAny(providerMatchContext, ["stripe"]))
-|| (matchesAny(finding["secret"], [`^pk_live_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && filter.containsAny(providerMatchContext, ["stripe", "woo", "wcm"]))
-|| (matchesAny(finding["secret"], [`^pk_test_[A-Za-z0-9_-]{40}$`]) && filter.containsAny(providerMatchContext, ["paystack"]))
-|| (matchesAny(finding["secret"], [`^pk_live_[A-Za-z0-9_-]{40}$`]) && filter.containsAny(providerMatchContext, ["paystack"]))
-|| (matchesAny(finding["secret"], [`^sandbox_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}$`]) && filter.containsAny(providerMatchContext, ["braintree"]))
-|| (matchesAny(finding["secret"], [`^production_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}$`]) && filter.containsAny(providerMatchContext, ["braintree"]))
-|| (matchesAny(finding["secret"], [`^test_[0-9a-zA-Z]{32}$`]) && filter.containsAny(providerMatchContext, ["adyen"]))
-|| (matchesAny(finding["secret"], [`^live_[0-9a-zA-Z]{32}$`]) && filter.containsAny(providerMatchContext, ["adyen"]))
-|| (matchesAny(finding["secret"], [`^[A-Za-z0-9]{32}$`]) && filter.containsAny(providerMatchContext, ["bugsnag"]))
-|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && filter.containsAny(providerMatchContext, ["hcaptcha", "site_key", "sitekey"]))
-|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && filter.containsAny(providerMatchContext, ["pendo"]))
-|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && filter.containsAny(providerMatchContext, ["instrumentation"]))
-|| (matchesAny(finding["secret"], [`^TEST-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && filter.containsAny(providerMatchContext, ["mercado"]))
-|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{32}$`]) && filter.containsAny(providerMatchContext, ["mixpanel"]))
-|| (matchesAny(finding["secret"], [`^[0-9a-z]{6}\/[a-z_-]{2,100}$`]) && filter.containsAny(providerMatchContext, ["logrocket"]))
-|| (len(finding["secret"]) == 8 && matchesAny(finding["secret"], [`^[0-9a-f]{8}$`]) && filter.containsAny(providerMatchContext, ["honeybadger"]))
-|| ((len(finding["secret"]) >= 21 && len(finding["secret"]) <= 24) && matchesAny(finding["secret"], [`^[a-zA-Z0-9=+]{21,24}$`]) && filter.containsAny(providerMatchContext, ["raygun"]))
-|| (matchesAny(finding["secret"], [`^key_live_[0-9a-zA-Z]{32}$`]) && filter.containsAny(providerMatchContext, ["branch"]))
-|| (matchesAny(finding["secret"], [`^key_test_[0-9a-zA-Z]{32}$`]) && filter.containsAny(providerMatchContext, ["branch"]))
-|| (matchesAny(finding["secret"], [`^pub[0-9a-zA-Z]{32}$`]) && filter.containsAny(providerMatchContext, ["datadog", "dd"]))
-|| (len(finding["secret"]) == 6 && matchesAny(finding["secret"], [`^[0-9a-zA-Z]{6}$`]) && filter.containsAny(providerMatchContext, ["klaviyo"]))
-|| (matchesAny(finding["secret"], [`^[0-9a-zA-Z]{32}$`]) && filter.containsAny(providerMatchContext, ["storefront"]))
-|| (matchesAny(finding["secret"], [`^search-[0-9a-zA-Z_-]{24}$`]) && filter.containsAny(providerMatchContext, ["swiftype"]))
-|| (len(finding["secret"]) == 20 && matchesAny(finding["secret"], [`^[0-9a-zA-Z_-]{20}$`]) && filter.containsAny(providerMatchContext, ["swiftype"]))
-|| (matchesAny(finding["secret"], [`^pk.eyJ1Ijoi[0-9a-zA-Z_-]{1,}\.[0-9a-zA-Z-_]{1,}$`]) && filter.containsAny(providerMatchContext, ["map"]))
-|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && filter.containsAny(providerMatchContext, ["crisp"]))
-|| (matchesAny(finding["secret"], [`^client-[a-zA-Z0-9]{43}$`]) && filter.containsAny(providerMatchContext, ["statsdig"]))
-|| (matchesAny(finding["secret"], [`^sdk-[a-zA-Z0-9]{15,16}$`]) && filter.containsAny(providerMatchContext, ["growthbook"]))
-|| (len(finding["secret"]) == 24 && matchesAny(finding["secret"], [`^[a-zA-Z0-9\/=]{24}$`]) && filter.containsAny(providerMatchContext, ["growthbook"]))
-|| ((len(finding["secret"]) >= 21 && len(finding["secret"]) <= 22) && matchesAny(finding["secret"], [`^[a-zA-Z0-9]{21,22}$`]) && filter.containsAny(providerMatchContext, ["optimizely"]))
-|| (len(finding["secret"]) == 24 && matchesAny(finding["secret"], [`^[0-9a-fA-F]{24}$`]) && filter.containsAny(providerMatchContext, ["launchdarkly"]))
-|| (matchesAny(finding["secret"], [`^pk_test_[0-9a-zA-Z]{20,70}$`]) && filter.containsAny(providerMatchContext, ["clerk"]))
-|| (matchesAny(finding["secret"], [`^pk_live_[0-9a-zA-Z]{20,70}$`]) && filter.containsAny(providerMatchContext, ["clerk"]))
-|| (len(finding["secret"]) == 40 && matchesAny(finding["secret"], [`^[0-9a-zA-Z]{40}$`]) && filter.containsAny(providerMatchContext, ["smartlook"]))
-|| ((len(finding["secret"]) >= 5 && len(finding["secret"]) <= 6) && matchesAny(finding["secret"], [`^[0-9A-Z]{5,6}$`]) && filter.containsAny(providerMatchContext, ["fullstory"]))
-|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && filter.containsAny(providerMatchContext, ["zendesk", "zdassets.com"]))
-|| (len(finding["secret"]) == 27 && matchesAny(finding["secret"], [`^[0-9a-zA-Z]{27}$`]) && filter.containsAny(providerMatchContext, ["rudderstack"]))
-|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && filter.containsAny(providerMatchContext, ["web3forms"]))
-|| (len(finding["secret"]) == 12 && matchesAny(finding["secret"], [`^[0-9]{12}$`]) && filter.containsAny(providerMatchContext, ["2checkout", "twocheckout"]))
-|| (matchesAny(finding["secret"], [`^test_[a-zA-Z0-9]{27}$`]) && filter.containsAny(providerMatchContext, ["paddle"]))
-|| (matchesAny(finding["secret"], [`^live_[a-zA-Z0-9]{27}$`]) && filter.containsAny(providerMatchContext, ["paddle"]))
-|| (matchesAny(finding["secret"], [`^pk_live_[0-9A-F]{16}$`]) && filter.containsAny(providerMatchContext, ["magic"]))
+|| (matchesAny(finding["secret"], [`^pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && containsAny(providerMatchContext, ["stripe", "woo", "wcm"]))
+|| (matchesAny(finding["secret"], [`^rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && containsAny(providerMatchContext, ["stripe"]))
+|| (matchesAny(finding["secret"], [`^pk_live_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && containsAny(providerMatchContext, ["stripe", "woo", "wcm"]))
+|| (matchesAny(finding["secret"], [`^pk_test_[A-Za-z0-9_-]{40}$`]) && containsAny(providerMatchContext, ["paystack"]))
+|| (matchesAny(finding["secret"], [`^pk_live_[A-Za-z0-9_-]{40}$`]) && containsAny(providerMatchContext, ["paystack"]))
+|| (matchesAny(finding["secret"], [`^sandbox_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}$`]) && containsAny(providerMatchContext, ["braintree"]))
+|| (matchesAny(finding["secret"], [`^production_[A-Za-z0-9]{8}_[A-Za-z0-9_-]{16}$`]) && containsAny(providerMatchContext, ["braintree"]))
+|| (matchesAny(finding["secret"], [`^test_[0-9a-zA-Z]{32}$`]) && containsAny(providerMatchContext, ["adyen"]))
+|| (matchesAny(finding["secret"], [`^live_[0-9a-zA-Z]{32}$`]) && containsAny(providerMatchContext, ["adyen"]))
+|| (matchesAny(finding["secret"], [`^[A-Za-z0-9]{32}$`]) && containsAny(providerMatchContext, ["bugsnag"]))
+|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(providerMatchContext, ["hcaptcha", "site_key", "sitekey"]))
+|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(providerMatchContext, ["pendo"]))
+|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(providerMatchContext, ["instrumentation"]))
+|| (matchesAny(finding["secret"], [`^TEST-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(providerMatchContext, ["mercado"]))
+|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{32}$`]) && containsAny(providerMatchContext, ["mixpanel"]))
+|| (matchesAny(finding["secret"], [`^[0-9a-z]{6}\/[a-z_-]{2,100}$`]) && containsAny(providerMatchContext, ["logrocket"]))
+|| (len(finding["secret"]) == 8 && matchesAny(finding["secret"], [`^[0-9a-f]{8}$`]) && containsAny(providerMatchContext, ["honeybadger"]))
+|| ((len(finding["secret"]) >= 21 && len(finding["secret"]) <= 24) && matchesAny(finding["secret"], [`^[a-zA-Z0-9=+]{21,24}$`]) && containsAny(providerMatchContext, ["raygun"]))
+|| (matchesAny(finding["secret"], [`^key_live_[0-9a-zA-Z]{32}$`]) && containsAny(providerMatchContext, ["branch"]))
+|| (matchesAny(finding["secret"], [`^key_test_[0-9a-zA-Z]{32}$`]) && containsAny(providerMatchContext, ["branch"]))
+|| (matchesAny(finding["secret"], [`^pub[0-9a-zA-Z]{32}$`]) && containsAny(providerMatchContext, ["datadog", "dd"]))
+|| (len(finding["secret"]) == 6 && matchesAny(finding["secret"], [`^[0-9a-zA-Z]{6}$`]) && containsAny(providerMatchContext, ["klaviyo"]))
+|| (matchesAny(finding["secret"], [`^[0-9a-zA-Z]{32}$`]) && containsAny(providerMatchContext, ["storefront"]))
+|| (matchesAny(finding["secret"], [`^search-[0-9a-zA-Z_-]{24}$`]) && containsAny(providerMatchContext, ["swiftype"]))
+|| (len(finding["secret"]) == 20 && matchesAny(finding["secret"], [`^[0-9a-zA-Z_-]{20}$`]) && containsAny(providerMatchContext, ["swiftype"]))
+|| (matchesAny(finding["secret"], [`^pk.eyJ1Ijoi[0-9a-zA-Z_-]{1,}\.[0-9a-zA-Z-_]{1,}$`]) && containsAny(providerMatchContext, ["map"]))
+|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(providerMatchContext, ["crisp"]))
+|| (matchesAny(finding["secret"], [`^client-[a-zA-Z0-9]{43}$`]) && containsAny(providerMatchContext, ["statsdig"]))
+|| (matchesAny(finding["secret"], [`^sdk-[a-zA-Z0-9]{15,16}$`]) && containsAny(providerMatchContext, ["growthbook"]))
+|| (len(finding["secret"]) == 24 && matchesAny(finding["secret"], [`^[a-zA-Z0-9\/=]{24}$`]) && containsAny(providerMatchContext, ["growthbook"]))
+|| ((len(finding["secret"]) >= 21 && len(finding["secret"]) <= 22) && matchesAny(finding["secret"], [`^[a-zA-Z0-9]{21,22}$`]) && containsAny(providerMatchContext, ["optimizely"]))
+|| (len(finding["secret"]) == 24 && matchesAny(finding["secret"], [`^[0-9a-fA-F]{24}$`]) && containsAny(providerMatchContext, ["launchdarkly"]))
+|| (matchesAny(finding["secret"], [`^pk_test_[0-9a-zA-Z]{20,70}$`]) && containsAny(providerMatchContext, ["clerk"]))
+|| (matchesAny(finding["secret"], [`^pk_live_[0-9a-zA-Z]{20,70}$`]) && containsAny(providerMatchContext, ["clerk"]))
+|| (len(finding["secret"]) == 40 && matchesAny(finding["secret"], [`^[0-9a-zA-Z]{40}$`]) && containsAny(providerMatchContext, ["smartlook"]))
+|| ((len(finding["secret"]) >= 5 && len(finding["secret"]) <= 6) && matchesAny(finding["secret"], [`^[0-9A-Z]{5,6}$`]) && containsAny(providerMatchContext, ["fullstory"]))
+|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(providerMatchContext, ["zendesk", "zdassets.com"]))
+|| (len(finding["secret"]) == 27 && matchesAny(finding["secret"], [`^[0-9a-zA-Z]{27}$`]) && containsAny(providerMatchContext, ["rudderstack"]))
+|| (matchesAny(finding["secret"], [`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`]) && containsAny(providerMatchContext, ["web3forms"]))
+|| (len(finding["secret"]) == 12 && matchesAny(finding["secret"], [`^[0-9]{12}$`]) && containsAny(providerMatchContext, ["2checkout", "twocheckout"]))
+|| (matchesAny(finding["secret"], [`^test_[a-zA-Z0-9]{27}$`]) && containsAny(providerMatchContext, ["paddle"]))
+|| (matchesAny(finding["secret"], [`^live_[a-zA-Z0-9]{27}$`]) && containsAny(providerMatchContext, ["paddle"]))
+|| (matchesAny(finding["secret"], [`^pk_live_[0-9A-F]{16}$`]) && containsAny(providerMatchContext, ["magic"]))
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5391,29 +5391,29 @@ keywords = [
     "ssh://",
 ]
 filter = '''
-let isExampleValue = filter.matchesAny(finding["secret"], [
+let isExampleValue = matchesAny(finding["secret"], [
   `(?i)^(?:(?:(?:an?|my)(?:[ _.-]|%(?:20|2d|5f))*)?example(?:(?:[ _.-]|%(?:20|2d|5f))*(?:password|passwd|pwd))?|(?:password|passwd|pwd)(?:[ _.-]|%(?:20|2d|5f))*example)(?:(?:[ _.-]|%(?:20|2d|5f))*[0-9]{1,4})?[!?.]*$`
 ]);
-let isInstructionalPlaceholder = filter.matchesAny(finding["secret"], [
+let isInstructionalPlaceholder = matchesAny(finding["secret"], [
   `(?i)^(?:[a-z0-9]+[_.-])?(?:your[_.-]?(?:password|passwd|pwd)|(?:password|passwd|pwd)[_.-]goes[_.-]?here|replace[_.-]?me|insert[_.-].*[_.-]here|placeholder)$`
 ]);
-let isSyntheticExampleURI = filter.matchesAny(finding["match"], [
+let isSyntheticExampleURI = matchesAny(finding["match"], [
   `(?i)^[a-z][a-z0-9+.-]*://(?:foo|user(?:name)?|example(?:[_.-]?user)?):(?:bar|pass(?:word)?|passwd|pwd|example(?:[_.-]?(?:password|passwd|pwd))?)@(?:(?:example|test)\.(?:com|org|net)|example\.invalid)(?::[0-9]{1,5})?(?:[/\s'"\x60#]|$)`
 ]);
-let isSyntheticCredentialTuple = filter.matchesAny(finding["match"], [
+let isSyntheticCredentialTuple = matchesAny(finding["match"], [
   `(?i)^[a-z][a-z0-9+.-]*://(?:foo|test|user(?:name)?|example(?:[_.-]?user)?)[0-9]{0,4}:(?:bar|test|pass(?:word)?|passwd|pwd|token|secret)[0-9]{0,4}[!?.]?@`
 ]);
-let isTestOrDocumentationSource = filter.matchesAny(attributes["path"], [
+let isTestOrDocumentationSource = matchesAny(attributes["path"], [
   `(?i)(?:^|[/\\])(?:__tests__|tests?|testdata|specs?|fixtures?|mocks?|examples?|samples?|demos?|tutorials?|templates?|qa|e2e|documentation|docs?(?:[-_][a-z0-9-]+)?)(?:[/\\]|$)`,
   `(?i)(?:^|[/\\])readme(?:\.[^/\\]+)?$`,
   `(?i)(?:^|[/\\])[^/\\]*(?:[_.-](?:test|spec)|(?:test|spec)[_.-])[^/\\]*\.[^/\\]+$`,
   `(?i)\.(?:example|sample|template)(?:\.[^/\\]+)?$`,
   `(?i)\.(?:md|mdx|rst|adoc|asciidoc)$`
 ]);
-let hasIgnoredHost = filter.matchesAny(finding["match"], [
+let hasIgnoredHost = matchesAny(finding["match"], [
   `(?i)^[a-z][a-z0-9+.-]*://[^@\s]+@(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?\.?(?::[0-9]{1,5})?(?:,(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?\.?(?::[0-9]{1,5})?)*(?:[/?\s'"\x60#<>{}\[\];)]|,?$)`
 ]);
-let hasLowConfidenceHost = filter.matchesAny(finding["match"], [
+let hasLowConfidenceHost = matchesAny(finding["match"], [
   `(?i)^[a-z][a-z0-9+.-]*://[^@\s]+@(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))\.?(?::[0-9]{1,5})?(?:,(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))\.?(?::[0-9]{1,5})?)*(?:[/?\s'"\x60#<>{}\[\];)]|,?$)`
 ]);
 let level = (
@@ -5422,14 +5422,14 @@ let level = (
   || isTestOrDocumentationSource
   || hasLowConfidenceHost
 ) ? "low" : "medium";
-let _ = filter.setConfidence(level);
+let _ = setConfidence(level);
 
 // Discard mechanically non-literal credentials. Weak and default passwords
 // remain reportable because the URI establishes their credential role.
 isInstructionalPlaceholder
 || isSyntheticExampleURI
 || hasIgnoredHost
-|| filter.matchesAny(finding["secret"], [
+|| matchesAny(finding["secret"], [
   `^\*+$`,
   `^\.+$`,
   `(?i)^x{4,}$`,
@@ -5489,7 +5489,7 @@ let nearbyContext =
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
 
-let hasAuthContext = filter.matchesAny(nearbyContext, [
+let hasAuthContext = matchesAny(nearbyContext, [
   // Authentication and connection calls.
   `(?i)(?:^|[^a-z0-9])(?:auth(?:enticate|entication)?|login|log[_.-]?in|sign[_.-]?in|connect(?:ion)?|open[_.-]?(?:connection|session)|create[_.-]?(?:connection|session)|bind)\b[ \t]*\(`,
   // Credential and connection configuration containers.
@@ -5499,40 +5499,40 @@ let hasAuthContext = filter.matchesAny(nearbyContext, [
   // Nearby connection URI or service context.
   `(?i)\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|amqps?|ldaps?|smtps?|ftps?|ssh)://`
 ]);
-let hasIdentityFieldContext = filter.matchesAny(nearbyContext, [
+let hasIdentityFieldContext = matchesAny(nearbyContext, [
   `(?im)(?:^|[^a-z0-9])(?:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)`
 ]);
-let isDirectAuthArgument = filter.matchesAny(finding["match"], [
+let isDirectAuthArgument = matchesAny(finding["match"], [
   `(?i)^(?:login|log_in)\b[ \t]*\(`,
   `(?i)^authenticate\b[ \t]*\([ \t]*[^,\r\n]*(?:user(?:name)?|account|email|login|uid)[^,\r\n]*,`
 ]);
-let isCommented = filter.matchesAny(linePrefix, [
+let isCommented = matchesAny(linePrefix, [
   `(?:^[ \t]*(?:#|//|/\*|\*|--|;|<!--)|[ \t](?:#|//|/\*|--|<!--)[ \t]*)`
 ]);
-let isInstructionalPlaceholder = filter.matchesAny(finding["secret"], [
+let isInstructionalPlaceholder = matchesAny(finding["secret"], [
   `^(?:PGPASSWORD|[A-Z][A-Z0-9_]*_(?:PASSWORD|PASSWD|PWD)(?:_[A-Z0-9]+)*|(?:PASSWORD|PASSWD|PWD)_[A-Z0-9_]+)$`,
   `(?i)^(?:(?:(?:an?|my)[ _.-]*)?example(?:[ _.-]*(?:password|passwd|pwd))?|(?:password|passwd|pwd)[ _.-]*example)(?:[ _.-]*[0-9]{1,4})?[!?.]*$`,
   `(?i)^(?:password|passwd|pwd)?[ _-]?(?:goes[ _-]?here|replace[ _-]?me|insert[ _-].*here|not[ _-]?set)$`
 ]);
-let isCodeFile = filter.matchesAny(attributes["path"], [
+let isCodeFile = matchesAny(attributes["path"], [
   `(?i)\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|gemspec|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rake|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\.(?:example|sample|template))?$`
 ]);
-let isUnquotedAssignment = filter.matchesAny(finding["match"], [
+let isUnquotedAssignment = matchesAny(finding["match"], [
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]`
 ]);
 let isUnquotedCodeValue = isCodeFile && isUnquotedAssignment;
-let isUnquotedExpression = isUnquotedAssignment && filter.matchesAny(finding["secret"], [
+let isUnquotedExpression = isUnquotedAssignment && matchesAny(finding["secret"], [
   `^[A-Za-z_][A-Za-z0-9_-]*:\[[^]\r\n]+\]$`,
   `^[A-Za-z_][A-Za-z0-9_]*[)}\]]+(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?)*$`
 ]);
-let hasNonPlaintextPasswordContext = filter.matchesAny(linePrefix + finding["match"], [
+let hasNonPlaintextPasswordContext = matchesAny(linePrefix + finding["match"], [
   `(?i)(?:^|[^a-z0-9])(?:enc|encrypt(?:ed|ion)?|hash(?:ed)?|encod(?:e|ed|ing)|cipher(?:text)?|seal(?:ed)?|vault(?:ed)?)(?:[_.-][a-z0-9]+){0,5}[_.-]?password\b`,
   `(?i)(?:^|[^a-z0-9])password[_.-]?(?:cipher(?:text)?|hash|digest|algorithm|scheme|encoding|format)\b`
 ]);
-let hasNestedUnquotedAssignment = filter.matchesAny(finding["match"], [
+let hasNestedUnquotedAssignment = matchesAny(finding["match"], [
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}[^"'\x60\r\n]*[.,][A-Za-z_][A-Za-z0-9_-]*=`
 ]);
-let isEncryptedValue = filter.matchesAny(finding["secret"], [
+let isEncryptedValue = matchesAny(finding["secret"], [
   // Serialized encryption envelopes and armored ciphertext.
   `(?i)^ENC\[[A-Z0-9][A-Z0-9_.+/-]*(?:,|\]|$)`,
   `(?i)^ENC\([A-Z0-9+/=_:.,-]{8,}\)$`,
@@ -5552,7 +5552,7 @@ let isEncryptedValue = filter.matchesAny(finding["secret"], [
   `^AQAAANCMnd8BFdERjHoAwE/Cl\+sBA[A-Za-z0-9+/=]{16,}$`,
   `(?i)^01000000d08c9ddf0115d1118c7a00c04fc297eb01[0-9a-f]{16,}$`
 ]);
-let isCryptographicAlgorithm = filter.matchesAny(finding["secret"], [
+let isCryptographicAlgorithm = matchesAny(finding["secret"], [
   // Common block ciphers with key sizes and/or modes.
   `(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA)[-_/]?(?:128|192|256)(?:[-_/](?:ECB|CBC(?:[-_/]HMAC[-_/]SHA[-_]?(?:256|384|512))?|PCBC|CFB(?:8|64|128)?|OFB(?:8|64|128)?|CTR|CTS|CCM|GCM|GMAC|EAX|OCB|SIV|GCM[-_]?SIV|XTS|KW|KWP))?$`,
   `(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA)[-_/]?(?:ECB|CBC|PCBC|CFB(?:8|64|128)?|OFB(?:8|64|128)?|CTR|CTS|CCM|GCM|GMAC|EAX|OCB|SIV|GCM[-_]?SIV|XTS|KW|KWP)$`,
@@ -5570,7 +5570,7 @@ let isCryptographicAlgorithm = filter.matchesAny(finding["secret"], [
   `(?i)^TLS_(?:(?:AES_(?:128|256)_GCM|CHACHA20_POLY1305)_SHA(?:256|384)|[A-Z0-9]+(?:_[A-Z0-9]+)*_WITH_[A-Z0-9]+(?:_[A-Z0-9]+)*)$`,
   `(?i)^(?:AES(?:128|192|256)-(?:CBC|CTR|GCM)|CHACHA20-POLY1305)@OPENSSH\.COM$`
 ]);
-let isContextualAlgorithmName = hasNonPlaintextPasswordContext && filter.matchesAny(finding["secret"], [
+let isContextualAlgorithmName = hasNonPlaintextPasswordContext && matchesAny(finding["secret"], [
   // A field name can disambiguate an exact algorithm name, but cannot by
   // itself prove that an arbitrary value is encrypted or hashed.
   `(?i)^(?:AES|RIJNDAEL|ARIA|CAMELLIA|CHACHA20|XCHACHA20|SALSA20|XSALSA20|DES|DESEDE|3DES|TRIPLE[-_]?DES|TWOFISH|SERPENT|CAST(?:5|128|256)|IDEA|SEED|SM4|RC[2456]|ARCFOUR|RSA|ECIES|ELGAMAL|SM2|MD5|SHA[-_]?(?:1|224|256|384|512)|SHA3[-_]?(?:224|256|384|512)|BLAKE2[BS](?:[-_]?(?:256|512))?|BLAKE3|RIPEMD[-_]?(?:128|160|256|320)|WHIRLPOOL|SM3|PBKDF2|SCRYPT|BCRYPT|ARGON2(?:D|I|ID)?|HKDF|YESCRYPT)$`
@@ -5583,9 +5583,9 @@ let level = (
   && !isCommented
   && !isInstructionalPlaceholder
 ) ? "medium" : "low";
-let _ = filter.setConfidence(level);
+let _ = setConfidence(level);
 
-filter.matchesAny(finding["secret"], [
+matchesAny(finding["secret"], [
   `^\*+$`,
   `^\.+$`,
   `(?i)^x{4,}$`,
@@ -5624,7 +5624,7 @@ filter.matchesAny(finding["secret"], [
 || isUnquotedCodeValue
 || isUnquotedExpression
 || hasNestedUnquotedAssignment
-|| filter.matchesAny(finding["match"], [
+|| matchesAny(finding["match"], [
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`,
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^]\r\n]+\]|\([^,\r\n)]*\)?)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\]]*\\?(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`
 ])
@@ -5653,15 +5653,15 @@ skipReport = true
 filter = '''
 // An unquoted value is an ambiguous scalar in configuration, but
 // not a string literal in the source languages recognized below.
-let isCodeFile = filter.matchesAny(attributes["path"], [
+let isCodeFile = matchesAny(attributes["path"], [
   `(?i)\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|gemspec|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rake|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\.(?:example|sample|template))?$`
 ]);
-let isUnquotedCodeValue = isCodeFile && filter.matchesAny(finding["match"], [
+let isUnquotedCodeValue = isCodeFile && matchesAny(finding["match"], [
   `^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]?name)?|client(?:[_.-]?(?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]`
 ]);
 
 isUnquotedCodeValue
-|| filter.matchesAny(finding["secret"], [
+|| matchesAny(finding["secret"], [
   `^\*+$`,
   `^\.+$`,
   `(?i)^x{4,}$`,
@@ -5678,7 +5678,7 @@ isUnquotedCodeValue
   `^(?:USERNAME|USER_NAME|USER|LOGIN|LOGIN_NAME|ACCOUNT_NAME|EMAIL|EMAIL_ADDRESS|UID|CLIENT|CLIENT_ID|CLIENT_NAME)$`,
   `(?i)^(?:your|example)[_-]?(?:username|user_name|user|login|login_name|account_name|email|email_address|uid|client(?:_id|_name)?)$`
 ])
-|| filter.matchesAny(finding["match"], [
+|| matchesAny(finding["match"], [
   `^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]name)?|client(?:[_.-]?(?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`,
   `^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]name)?|client(?:[_.-]?(?:id|name))?)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^]\r\n]+\]|\([^,\r\n)]*\)?)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*\.(?i:(?:[a-z0-9]+_)*(?:username|user|login(?:_name)?|email(?:_address)?|uid|account(?:_name)?|client(?:_(?:id|name))?|id)))[)}\]]*\\?(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`
 ])
@@ -5694,7 +5694,7 @@ regex = '''(?i)(?:gitea[_.-]?(?:token|key|secret|access))(?:[ \t\w.-]{0,20})[\s'
 confidence = "high"
 keywords = ["gitea"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5761,7 +5761,7 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
+  "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
     "sso": input["sso"] ?? ""
@@ -5773,16 +5773,16 @@ let scopes = input["scopes"] ?? [];
     "email": input["email"] ?? ""
   },
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [
+    "read": matchesAny(scopes, [
       "^read:",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
     ]),
-    "write": filter.matchesAny(scopes, [
+    "write": matchesAny(scopes, [
       "^write:",
       "^delete:packages$",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
     ]),
-    "create_credentials": filter.matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
+    "create_credentials": matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
   })
 }
 '''
@@ -5822,7 +5822,7 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
+  "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
     "sso": input["sso"] ?? ""
@@ -5834,16 +5834,16 @@ let scopes = input["scopes"] ?? [];
     "email": input["email"] ?? ""
   },
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [
+    "read": matchesAny(scopes, [
       "^read:",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
     ]),
-    "write": filter.matchesAny(scopes, [
+    "write": matchesAny(scopes, [
       "^write:",
       "^delete:packages$",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
     ]),
-    "create_credentials": filter.matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
+    "create_credentials": matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
   })
 }
 '''
@@ -5883,7 +5883,7 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": size(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
+  "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
     "sso": input["sso"] ?? ""
@@ -5895,16 +5895,16 @@ let scopes = input["scopes"] ?? [];
     "email": input["email"] ?? ""
   },
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [
+    "read": matchesAny(scopes, [
       "^read:",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
     ]),
-    "write": filter.matchesAny(scopes, [
+    "write": matchesAny(scopes, [
       "^write:",
       "^delete:packages$",
       "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
     ]),
-    "create_credentials": filter.matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
+    "create_credentials": matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
   })
 }
 '''
@@ -6102,7 +6102,7 @@ let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 let granular = input["granular"] ?? false;
 let granular_scopes =
-  size(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
+  len(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
   !granular || (input["token_id"] ?? "") in ["", "0"] || (input["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
@@ -6116,14 +6116,14 @@ let grants = flatten([
   granular ? [] : scopes,
   granular_permissions
 ]);
-let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
-let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
-let can_create_credentials = filter.intersects(grants, ["create_runner", "self_rotate"]);
-let can_admin = filter.intersects(grants, ["sudo", "admin_mode"]);
+let can_read = matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
+let can_write = matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
+let can_create_credentials = intersects(grants, ["create_runner", "self_rotate"]);
+let can_admin = intersects(grants, ["sudo", "admin_mode"]);
 {
-  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
-    size(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
-  "metadata": size(grants) > 0 ? {
+  "reason": granular && len(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
+    len(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
+  "metadata": len(grants) > 0 ? {
     "permissions": grants
   } : {},
   "identity": {
@@ -6173,7 +6173,7 @@ let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 let granular = input["granular"] ?? false;
 let granular_scopes =
-  size(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
+  len(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
   !granular || (input["token_id"] ?? "") in ["", "0"] || (input["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
@@ -6187,14 +6187,14 @@ let grants = flatten([
   granular ? [] : scopes,
   granular_permissions
 ]);
-let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
-let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
-let can_create_credentials = filter.intersects(grants, ["create_runner", "self_rotate"]);
-let can_admin = filter.intersects(grants, ["sudo", "admin_mode"]);
+let can_read = matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
+let can_write = matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
+let can_create_credentials = intersects(grants, ["create_runner", "self_rotate"]);
+let can_admin = intersects(grants, ["sudo", "admin_mode"]);
 {
-  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
-    size(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
-  "metadata": size(grants) > 0 ? {
+  "reason": granular && len(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
+    len(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
+  "metadata": len(grants) > 0 ? {
     "permissions": grants
   } : {},
   "identity": {
@@ -6244,7 +6244,7 @@ let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 let granular = input["granular"] ?? false;
 let granular_scopes =
-  size(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
+  len(input["granular_scopes"] ?? []) > 0 ? input["granular_scopes"] :
   !granular || (input["token_id"] ?? "") in ["", "0"] || (input["user_id"] ?? "") in ["", "0"] ? [] : (
   let headers = {"PRIVATE-TOKEN": finding["secret"]};
   let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
@@ -6258,14 +6258,14 @@ let grants = flatten([
   granular ? [] : scopes,
   granular_permissions
 ]);
-let can_read = filter.matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
-let can_write = filter.matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
-let can_create_credentials = filter.intersects(grants, ["create_runner", "self_rotate"]);
-let can_admin = filter.intersects(grants, ["sudo", "admin_mode"]);
+let can_read = matchesAny(grants, ["^(?:api$|download_|read_|write_)"]);
+let can_write = matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archive_|assign_|cancel_|create_|delete_|disable_|enable_|execute_|import_|manage_|merge_|move_|publish_|renew_|restore_|retry_|revoke_|rotate_|run_|set_|stop_|transfer_|trigger_|unarchive_|update_|upload_|write_)"]);
+let can_create_credentials = intersects(grants, ["create_runner", "self_rotate"]);
+let can_admin = intersects(grants, ["sudo", "admin_mode"]);
 {
-  "reason": granular && size(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
-    size(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
-  "metadata": size(grants) > 0 ? {
+  "reason": granular && len(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
+    len(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
+  "metadata": len(grants) > 0 ? {
     "permissions": grants
   } : {},
   "identity": {
@@ -6411,7 +6411,7 @@ regex = '''(?i)(?:gitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["gitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6504,7 +6504,7 @@ regex = '''(?i)(?:greptile)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["greptile"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6550,7 +6550,7 @@ let r = http.get("https://api.gumroad.com/v2/user?access_token=" + finding["secr
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6695,7 +6695,7 @@ let can_write = any([
   "events", "markers", "triggers", "boards", "columns", "createDatasets", "slos", "recipients", "privateBoards"
 ], {(permissions[#] ?? false) == true});
 {
-  "reason": size(permissions) == 0 ? "Honeycomb did not return API key permission metadata" :
+  "reason": len(permissions) == 0 ? "Honeycomb did not return API key permission metadata" :
     !can_read && !can_write ? "Honeycomb returned no recognized enabled permissions" : "",
   "identity": {
     "account": {
@@ -6714,7 +6714,7 @@ let can_write = any([
 }
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6771,7 +6771,7 @@ let orgs = input["orgs"] ?? [];
     "username": input["username"] ?? "",
     "name": input["name"] ?? "",
     "email": input["email"] ?? "",
-    "account": size(orgs) == 1 ? {
+    "account": len(orgs) == 1 ? {
       "id": string(orgs[0]?.id ?? ""),
       "name": orgs[0]?.name ?? ""
     } : {}
@@ -6830,7 +6830,7 @@ let orgs = input["orgs"] ?? [];
     "username": input["username"] ?? "",
     "name": input["name"] ?? "",
     "email": input["email"] ?? "",
-    "account": size(orgs) == 1 ? {
+    "account": len(orgs) == 1 ? {
       "id": string(orgs[0]?.id ?? ""),
       "name": orgs[0]?.name ?? ""
     } : {}
@@ -6914,7 +6914,7 @@ let r = http.get("https://us-east-1-1.aws.cloud2.influxdata.com/api/v2/orgs", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6937,7 +6937,7 @@ let r = http.get("https://api.infomaniak.com/1/profile", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6990,7 +6990,7 @@ regex = '''(?i)(?:intercom)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "medium"
 keywords = ["intercom"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7056,7 +7056,7 @@ let r = http.get("https://console.jumpcloud.com/api/systemusers?limit=1&skip=0",
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7170,7 +7170,7 @@ regex = '''(?i)(?:kraken)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["kraken"]
 filter = '''
-filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7198,7 +7198,7 @@ regex = '''(?i)(?:kucoin)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["kucoin"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7211,7 +7211,7 @@ regex = '''(?i)(?:kucoin)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["kucoin"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7311,7 +7311,7 @@ confidence = "high"
 keywords = ["cli_"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7327,7 +7327,7 @@ validate = '''
 let r = http.post("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
     "Content-Type": "application/json",
     "Accept": "application/json"
-  }, "{\"app_id\":" + json.string((components["lark-app-id"]?.secret ?? "")) + ",\"app_secret\":" + json.string(finding["secret"]) + "}");
+  }, "{\"app_id\":" + toJSON((components["lark-app-id"]?.secret ?? "")) + ",\"app_secret\":" + toJSON(finding["secret"]) + "}");
 let code = r.json?.code ?? -1;
 r.status == 200 && code == 0 ? {
     "result": "valid"
@@ -7337,7 +7337,7 @@ r.status == 200 && code == 0 ? {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "lark-app-id" },
@@ -7353,7 +7353,7 @@ regex = '''(?i)(?:launchdarkly)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\|
 confidence = "high"
 keywords = ["launchdarkly"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7404,7 +7404,7 @@ let r = http.get("https://paradigm.lighton.ai/api/v2/models", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7430,7 +7430,7 @@ let r = http.post("https://api.linear.app/graphql", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7443,7 +7443,7 @@ regex = '''(?i)(?:linear)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["linear"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7460,7 +7460,7 @@ keywords = [
     "linked-in",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7477,7 +7477,7 @@ keywords = [
     "linked-in",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7537,7 +7537,7 @@ regex = '''(?i)(?:looker)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["looker"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7550,7 +7550,7 @@ regex = '''(?i)(?:looker)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["looker"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7563,7 +7563,7 @@ regex = '''(?i)(?:MailchimpSDK.initialize|mailchimp)(?:[ \t\w.-]{0,20})[\s'"]{0,
 confidence = "high"
 keywords = ["mailchimp"]
 validate = '''
-let dc = substring(finding["secret"], lastIndexOf(finding["secret"], "-") + 1); (let r = http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
+let dc = finding["secret"][lastIndexOf(finding["secret"], "-") + 1:]; (let r = http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
       "Accept": "application/json",
       "Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"]))
     }); r.status == 200 ? {
@@ -7659,7 +7659,7 @@ regex = '''(?i)(?:mattermost)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:
 confidence = "medium"
 keywords = ["mattermost"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7762,7 +7762,7 @@ keywords = [
     "message_bird",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7779,7 +7779,7 @@ keywords = [
     "message_bird",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7946,7 +7946,7 @@ let r = http.get("https://api.mistral.ai/v1/models", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8119,7 +8119,7 @@ regex = '''(?i)(?:netlify)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["netlify"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8132,7 +8132,7 @@ regex = '''(?i)(?:new-relic|newrelic|new_relic)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:
 confidence = "high"
 keywords = ["nrjs-"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8145,7 +8145,7 @@ regex = '''(?i)(?:new-relic|newrelic|new_relic)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:
 confidence = "high"
 keywords = ["nrii-"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8162,7 +8162,7 @@ keywords = [
     "new_relic",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8175,7 +8175,7 @@ regex = '''(?i)(?:new-relic|newrelic|new_relic)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:
 confidence = "high"
 keywords = ["nrak"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8309,7 +8309,7 @@ keywords = [
     "newyorktimes",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8367,7 +8367,7 @@ validate = '''
 let r = http.get("https://api.onesignal.com/apps", {
     "Authorization": "Key " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 || (r.status == 403 && size(r.json?.errors ?? []) > 0) ? {
+  }); r.status == 200 || (r.status == 403 && len(r.json?.errors ?? []) > 0) ? {
     "result": "valid"
   } : r.status == 401 ? {
     "result": "invalid",
@@ -8522,7 +8522,7 @@ let r = http.get("https://api.openweathermap.org/data/2.5/forecast?q=London&appi
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8742,7 +8742,7 @@ let r = http.get("https://api.withpersona.com/api/v1/accounts?page[size]=1", {
     "Accept": "application/json"
   }); r.status == 200 ? {
     "result": "valid"
-  } : r.status == 403 && size(r.json?.errors ?? []) > 0 ? {
+  } : r.status == 403 && len(r.json?.errors ?? []) > 0 ? {
     "result": "valid",
     "reason": "Authenticated but access is restricted"
   } : r.status == 401 ? {
@@ -8866,7 +8866,7 @@ regex = '''(?i)(?:plaid)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\
 confidence = "medium"
 keywords = ["plaid"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8879,7 +8879,7 @@ regex = '''(?i)(?:plaid)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\
 confidence = "medium"
 keywords = ["plaid"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8964,7 +8964,7 @@ confidence = "high"
 keywords = ["plivo"]
 skipReport = true
 filter = '''
-filter.entropy(finding["secret"]) < 2.8 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 2.8 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8992,7 +8992,7 @@ let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
 } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "plivo-auth-id" },
@@ -9288,7 +9288,7 @@ keywords = [
     "private-ai",
 ]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9313,7 +9313,7 @@ let r = http.post("https://api.proof.com/v1/transactions", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.matchesAny(finding["secret"], ["^prf_(?:cli_)?test_"])
+matchesAny(finding["secret"], ["^prf_(?:cli_)?test_"])
 || entropy(finding["secret"]) < 3.5
 '''
 
@@ -9427,7 +9427,7 @@ regex = '''(?i)(?:rapidapi)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["rapidapi"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9846,7 +9846,7 @@ regex = '''(?i)(?:sendbird)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["sendbird"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9859,7 +9859,7 @@ regex = '''(?i)(?:sendbird)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["sendbird"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9909,7 +9909,7 @@ regex = '''(?i)(?:sentry)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["sentry"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9922,7 +9922,7 @@ regex = '''\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl
 confidence = "high"
 keywords = ["sntrys_eyjpyxqio"]
 filter = '''
-filter.entropy(finding["secret"]) < 4.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 4.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9935,7 +9935,7 @@ regex = '''\b(sntryu_[a-f0-9]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["sntryu_"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10122,7 +10122,7 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
+  "reason": len(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "metadata": {
     "enterprise_id": input["enterprise_id"] ?? "",
     "scopes": scopes
@@ -10136,9 +10136,9 @@ let scopes = input["scopes"] ?? [];
     }
   },
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [":(?:history|read)$"]),
-    "write": filter.matchesAny(scopes, [":write$", "^channels:manage$"]),
-    "manage_users": filter.matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
+    "read": matchesAny(scopes, [":(?:history|read)$"]),
+    "write": matchesAny(scopes, [":write$", "^channels:manage$"]),
+    "manage_users": matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
   })
 }
 '''
@@ -10216,7 +10216,7 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
+  "reason": len(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "metadata": {
     "enterprise_id": input["enterprise_id"] ?? "",
     "scopes": scopes
@@ -10230,9 +10230,9 @@ let scopes = input["scopes"] ?? [];
     }
   },
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [":(?:history|read)$"]),
-    "write": filter.matchesAny(scopes, [":write$", "^channels:manage$"]),
-    "manage_users": filter.matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
+    "read": matchesAny(scopes, [":(?:history|read)$"]),
+    "write": matchesAny(scopes, [":write$", "^channels:manage$"]),
+    "manage_users": matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
   })
 }
 '''
@@ -10342,7 +10342,7 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": size(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
+  "reason": len(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "metadata": {
     "enterprise_id": input["enterprise_id"] ?? "",
     "scopes": scopes
@@ -10356,9 +10356,9 @@ let scopes = input["scopes"] ?? [];
     }
   },
   "capabilities": analysis.capabilities({
-    "read": filter.matchesAny(scopes, [":(?:history|read)$"]),
-    "write": filter.matchesAny(scopes, [":write$", "^channels:manage$"]),
-    "manage_users": filter.matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
+    "read": matchesAny(scopes, [":(?:history|read)$"]),
+    "write": matchesAny(scopes, [":write$", "^channels:manage$"]),
+    "manage_users": matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
   })
 }
 '''
@@ -10414,7 +10414,7 @@ let r = http.post("https://" + (components["snowflake-account-host.1"]?.secret ?
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 components = [
     { id = "snowflake-account-host.1", within = "30L" },
@@ -10514,7 +10514,7 @@ let r = http.get("https://sslmate.com/api/v2/certs/example.com", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10558,7 +10558,7 @@ let r = http.get("https://api.stripe.com/v1/account", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
+matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
 || entropy(finding["secret"]) <= 2.0
 '''
 
@@ -10572,7 +10572,7 @@ regex = '''(?i)(?:(?-i:[Ss]umo|SUMO))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}
 confidence = "medium"
 keywords = ["sumo"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10585,7 +10585,7 @@ regex = '''(?i)(?:(?-i:[Ss]umo|SUMO))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}
 confidence = "medium"
 keywords = ["sumo"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10787,8 +10787,8 @@ let r = http.get("https://saas-api.tmprl.cloud/cloud/current-identity", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.2
-|| !filter.matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){3}"])
+entropy(finding["secret"]) < 3.2
+|| !matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){3}"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10812,8 +10812,8 @@ let r = http.get("https://thunderstore.io/api/experimental/current-user/", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
-|| !filter.matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){2}"])
+entropy(finding["secret"]) < 3.5
+|| !matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){2}"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10850,7 +10850,7 @@ regex = '''(?i)(?:travis)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["travis"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10876,7 +10876,7 @@ regex = '''(?i)(?:twitch)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "medium"
 keywords = ["twitch"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10889,7 +10889,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10902,7 +10902,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10915,7 +10915,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10928,7 +10928,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10941,7 +10941,7 @@ regex = '''(?i)(?:twitter)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["twitter"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10976,10 +10976,10 @@ let r = http.post("https://api.unkey.com/v2/keys.verifyKey", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
-|| !filter.matchesAny(finding["secret"], ["[0-9]"])
-|| !filter.matchesAny(finding["secret"], ["[A-Z]"])
-|| !filter.matchesAny(finding["secret"], ["[a-z]"])
+entropy(finding["secret"]) < 3.5
+|| !matchesAny(finding["secret"], ["[0-9]"])
+|| !matchesAny(finding["secret"], ["[A-Z]"])
+|| !matchesAny(finding["secret"], ["[a-z]"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11025,7 +11025,7 @@ let r = http.get("https://api.upstage.ai/v1/models", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11088,8 +11088,8 @@ let r = http.get("https://api.val.town/v1/me", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
-|| !filter.matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){2}"])
+entropy(finding["secret"]) < 3.5
+|| !matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){2}"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11143,7 +11143,7 @@ let r = http.post("https://ai-gateway.vercel.sh/v1/chat/completions", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11182,14 +11182,14 @@ let token = details_ok ? (r.json?.token ?? {}) : {};
 let scopes = token["scopes"] ?? [];
 {
   "reason": !details_ok ? "Vercel token metadata could not be retrieved" :
-    size(scopes) == 0 ? "Vercel did not return token scope metadata" :
+    len(scopes) == 0 ? "Vercel did not return token scope metadata" :
     "Vercel token scopes do not establish resource permissions",
   "identity": {
     "id": input["user_id"] ?? "",
     "email": input["email"] ?? "",
     "username": input["username"] ?? "",
     "name": input["name"] ?? "",
-    "account": size(scopes) == 1 && (scopes[0]?.type ?? "") == "team" ? {
+    "account": len(scopes) == 1 && (scopes[0]?.type ?? "") == "team" ? {
       "id": scopes[0]?.teamId ?? ""
     } : {}
   },
@@ -11210,7 +11210,7 @@ let scopes = token["scopes"] ?? [];
 }
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11235,7 +11235,7 @@ let r = http.post("https://api.vercel.com/login/oauth/userinfo", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11261,7 +11261,7 @@ let r = http.post("https://api.vercel.com/login/oauth/token/introspect", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11287,7 +11287,7 @@ let r = http.get("https://api.vercel.com/v2/user", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11326,14 +11326,14 @@ let token = details_ok ? (r.json?.token ?? {}) : {};
 let scopes = token["scopes"] ?? [];
 {
   "reason": !details_ok ? "Vercel token metadata could not be retrieved" :
-    size(scopes) == 0 ? "Vercel did not return token scope metadata" :
+    len(scopes) == 0 ? "Vercel did not return token scope metadata" :
     "Vercel token scopes do not establish resource permissions",
   "identity": {
     "id": input["user_id"] ?? "",
     "email": input["email"] ?? "",
     "username": input["username"] ?? "",
     "name": input["name"] ?? "",
-    "account": size(scopes) == 1 && (scopes[0]?.type ?? "") == "team" ? {
+    "account": len(scopes) == 1 && (scopes[0]?.type ?? "") == "team" ? {
       "id": scopes[0]?.teamId ?? ""
     } : {}
   },
@@ -11354,7 +11354,7 @@ let scopes = token["scopes"] ?? [];
 }
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11484,7 +11484,7 @@ let r = http.get("https://api.weatherstack.com/current?access_key=" + finding["s
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11513,7 +11513,7 @@ let r = http.post("https://api.wandb.ai/graphql", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11539,7 +11539,7 @@ let r = http.post("https://api.wandb.ai/graphql", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11616,13 +11616,13 @@ confidence = "high"
 keywords = ["wrka"]
 validate = '''
 let token = finding["secret"];
-let host = filter.matchesAny(token, ["^wrkaeu-"]) ? "https://app.eu.workato.com" :
-  filter.matchesAny(token, ["^wrkajp-"]) ? "https://app.jp.workato.com" :
-  filter.matchesAny(token, ["^wrkasg-"]) ? "https://app.sg.workato.com" :
-  filter.matchesAny(token, ["^wrkaau-"]) ? "https://app.au.workato.com" :
-  filter.matchesAny(token, ["^wrkail-"]) ? "https://app.il.workato.com" :
-  filter.matchesAny(token, ["^wrkacn-"]) ? "https://app.workatoapp.cn" :
-  filter.matchesAny(token, ["^wrkakr-"]) ? "https://app.kr.workato.com" :
+let host = matchesAny(token, ["^wrkaeu-"]) ? "https://app.eu.workato.com" :
+  matchesAny(token, ["^wrkajp-"]) ? "https://app.jp.workato.com" :
+  matchesAny(token, ["^wrkasg-"]) ? "https://app.sg.workato.com" :
+  matchesAny(token, ["^wrkaau-"]) ? "https://app.au.workato.com" :
+  matchesAny(token, ["^wrkail-"]) ? "https://app.il.workato.com" :
+  matchesAny(token, ["^wrkacn-"]) ? "https://app.workatoapp.cn" :
+  matchesAny(token, ["^wrkakr-"]) ? "https://app.kr.workato.com" :
   "https://www.workato.com";
 let r = http.get(host + "/api/users/me", {
     "Authorization": "Bearer " + token,
@@ -11665,8 +11665,8 @@ let r = http.get("https://api.workos.com/organizations", {
   } : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5
-|| filter.matchesAny(finding["secret"], ["(?i)example"])
+entropy(finding["secret"]) < 3.5
+|| matchesAny(finding["secret"], ["(?i)example"])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11784,7 +11784,7 @@ regex = '''(?i)(?:zendesk)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>
 confidence = "high"
 keywords = ["zendesk"]
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────

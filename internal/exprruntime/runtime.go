@@ -6,12 +6,11 @@ import (
 	"net/http"
 	"os"
 	"reflect"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/expr-lang/expr"
+	"github.com/expr-lang/expr/types"
 	"github.com/expr-lang/expr/vm"
 
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
@@ -198,7 +197,7 @@ func (e *Runtime) compile(mode compileMode, expression string, counter *tokenize
 	e.mu.RUnlock()
 
 	b, options := e.compileBindings(mode, counter)
-	vmPrg, err := expr.Compile(expression, append([]expr.Option{expr.Env(b)}, options...)...)
+	vmPrg, err := expr.Compile(expression, append([]expr.Option{expr.Env(compileEnv(b))}, options...)...)
 	if err != nil {
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
@@ -222,6 +221,31 @@ func compileCacheKey(mode compileMode, exprText string, counter *tokenizer.Count
 		key += fmt.Sprintf("\x00%p", counter)
 	}
 	return key
+}
+
+// Function namespaces have a closed set of members and known signatures.
+// Keep input maps dynamic: providers and sources supply their keys at runtime.
+func compileEnv(b bindings) types.Map {
+	env := make(types.Map, len(b))
+	for name, value := range b {
+		if namespace, ok := value.(map[string]any); ok && len(namespace) > 0 {
+			members := make(types.Map, len(namespace))
+			for member, function := range namespace {
+				functionType := reflect.TypeOf(function)
+				if functionType == nil || functionType.Kind() != reflect.Func {
+					members = nil
+					break
+				}
+				members[member] = types.TypeOf(function)
+			}
+			if members != nil {
+				env[name] = members
+				continue
+			}
+		}
+		env[name] = types.TypeOf(value)
+	}
+	return env
 }
 
 func programBindings(mode compileMode, b bindings) bindings {
@@ -268,9 +292,7 @@ func (e *Runtime) EvalFilter(prg Program, finding map[string]any, attributes map
 	b["attributes"] = attributes
 	if rt, ok := b["__runtime"].(*runtimeBindings); ok {
 		rt.attrs = attributes
-		filter := filterNamespace(rt)
-		filter["setConfidence"] = rt.setConfidence
-		b["filter"] = filter
+		b["setConfidence"] = rt.setConfidence
 	}
 	return runBool(prg, b, "filter")
 }
@@ -290,8 +312,8 @@ func (prg Program) evalBindings() bindings {
 			rt.tokenCounter = prg.tokenCounter
 			rt.tokenCounterProvider = prg.tokenCounterProvider
 			b["__runtime"] = rt
-			b["filter"] = filterNamespace(rt)
 			b["failsTokenEfficiency"] = rt.failsTokenEfficiency
+			b["tokenRatio"] = rt.tokenRatio
 		}
 		return b
 	}
@@ -363,7 +385,7 @@ func (e *Runtime) evalProviderProgram(ctx context.Context, prg Program, finding,
 	}
 	state := &evalState{debug: opts.Debug}
 	ctx = context.WithValue(ctx, validationRequestContextKey{}, &validationRequestContext{
-		ruleID: lookupString(finding, "rule_id"),
+		ruleID: finding["rule_id"],
 		state:  state,
 	})
 	b := e.validationBindings(ctx, finding, captures, components, attributes, state)
@@ -419,16 +441,10 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 	b["finding"] = rt.finding
 	b["components"] = rt.components
 	b["bytes"] = func(s string) []byte { return []byte(s) }
-	b["size"] = size
-	b["substring"] = substring
-	b["lastIndexOf"] = strings.LastIndex
-	b["replace"] = strings.ReplaceAll
 	b["http"] = httpNamespace(rt)
 	b["env"] = envNamespace(rt)
-	b["env_get"] = rt.envGet
 	b["strings"] = stringsNamespace()
 	b["validate"] = validateNamespace()
-	b["json"] = jsonNamespace()
 	b["crypto"] = cryptoNamespace()
 	b["hex"] = hexNamespace()
 	b["base64"] = base64Namespace()
@@ -436,8 +452,6 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 	b["aws"] = awsNamespace(rt)
 	b["gcp"] = gcpNamespace(rt)
 	b["azure"] = azureNamespace(rt)
-	b["unknown"] = unknownResult
-	b["obfuscate"] = func(s string) (string, error) { return obfuscate(s), nil }
 	return b
 }
 
@@ -462,13 +476,14 @@ func baseBindings(rt *runtimeBindings) bindings {
 
 	rtb := bindings{
 		"attributes":           rt.attrs,
-		"get":                  getDefault,
-		"filter":               filterNamespace(rt),
+		"findMatch":            findMatch,
+		"intersects":           intersects,
+		"failsTokenEfficiency": rt.failsTokenEfficiency,
+		"tokenRatio":           rt.tokenRatio,
 		"matchesAny":           matchesAny,
 		"containsAny":          containsAny,
 		"startsWithAny":        startsWithAny,
 		"entropy":              shannonEntropy,
-		"failsTokenEfficiency": rt.failsTokenEfficiency,
 	}
 	rtb["__runtime"] = rt
 	return rtb
@@ -490,86 +505,14 @@ func nonNilStringMap(m map[string]string) map[string]string {
 func filterBindings(counter *tokenizer.Counter, finding map[string]any, attributes map[string]string) bindings {
 	rt := &runtimeBindings{tokenCounter: counter, attrs: attributes}
 	b := baseBindings(rt)
-	b["filter"].(map[string]any)["setConfidence"] = rt.setConfidence
+	b["setConfidence"] = rt.setConfidence
 	b["finding"] = finding
-	b["sha256"] = sha256Fingerprint
+	b["crypto"] = map[string]any{"sha256": sha256Fingerprint}
 	return b
 }
 
 func prefilterBindings(attributes map[string]string) bindings {
 	return baseBindings(&runtimeBindings{attrs: attributes})
-}
-
-func size(v any) int {
-	switch x := v.(type) {
-	case string:
-		return len(x)
-	case []any:
-		return len(x)
-	case []string:
-		return len(x)
-	case []byte:
-		return len(x)
-	case map[string]any:
-		return len(x)
-	case map[string]string:
-		return len(x)
-	default:
-		return 0
-	}
-}
-
-func substring(s string, start int) string {
-	if start < 0 {
-		start = 0
-	}
-	if start > len(s) {
-		return ""
-	}
-	return s[start:]
-}
-
-func lookupString(container any, key string) string {
-	if v, ok := lookup(container, key); ok {
-		s, ok := v.(string)
-		if ok {
-			return s
-		}
-	}
-	return ""
-}
-
-func getDefault(container any, key string, fallback any) any {
-	if v, ok := lookup(container, key); ok && v != nil {
-		return v
-	}
-	return fallback
-}
-
-func lookup(container any, key string) (any, bool) {
-	switch m := container.(type) {
-	case map[string]any:
-		v, ok := m[key]
-		return v, ok
-	case map[string]string:
-		v, ok := m[key]
-		return v, ok
-	case []any:
-		i, err := strconv.Atoi(key)
-		if err != nil || i < 0 || i >= len(m) {
-			return nil, false
-		}
-		return m[i], true
-	default:
-		rv := reflect.ValueOf(container)
-		if rv.Kind() == reflect.Map && rv.Type().Key().Kind() == reflect.String {
-			v := rv.MapIndex(reflect.ValueOf(key))
-			if v.IsValid() {
-				return v.Interface(), true
-			}
-		}
-	}
-	return nil, false
 }
 
 func (rt *runtimeBindings) envGet(name string) (string, error) {

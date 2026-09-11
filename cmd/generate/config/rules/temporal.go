@@ -25,8 +25,8 @@ func TemporalCloudAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Request not authenticated"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.2
-|| !filter.matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){3}"])`,
+		Filter: `entropy(finding["secret"]) < 3.2
+|| !matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){3}"])`,
 	}
 
 	// validate

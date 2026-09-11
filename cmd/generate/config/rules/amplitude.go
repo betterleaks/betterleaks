@@ -17,7 +17,7 @@ func AmplitudeSecretKey() *config.Rule {
     "Accept": "*/*"
   },
   "{" +
-    "\"api_key\":" + json.string(finding["secret"]) + "," +
+    "\"api_key\":" + toJSON(finding["secret"]) + "," +
     "\"events\":[{" +
       "\"user_id\":\"203201202\"," +
       "\"device_id\":\"C8F9E604-F01A-4BD9-95C6-8E5357DF265D\"," +
@@ -29,7 +29,7 @@ func AmplitudeSecretKey() *config.Rule {
     "result": "invalid",
     "reason": (r.json?.error ?? "Unauthorized")
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Filter: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

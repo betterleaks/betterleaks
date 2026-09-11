@@ -32,16 +32,16 @@ const buildkiteValidateExpr = `let r = http.get("https://api.buildkite.com/v2/ac
 // https://buildkite.com/docs/apis/managing-api-tokens
 const buildkiteAnalyzeExpr = `let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
-let can_read = filter.matchesAny(scopes, [
+let can_read = matchesAny(scopes, [
   "^read_(?:pipelines|builds|build_logs|job_env|artifacts|agents|clusters|pipeline_templates|rules|organizations|organization_invitations|organization_settings|organization_repository_connections|notification_services|teams|user|audit_events|secrets_details|suites|test_plan|registries|packages|portals)$"
 ]);
-let can_write = filter.matchesAny(scopes, [
+let can_write = matchesAny(scopes, [
   "^write_(?:pipelines|builds|build_logs|artifacts|agents|clusters|pipeline_templates|rules|organizations|organization_invitations|organization_settings|notification_services|teams|secrets|suites|test_plan|registries|packages|portals)$",
   "^delete_(?:registries|packages)$"
 ]);
 {
   "reason": "graphql" in scopes ? "Buildkite GraphQL permissions were not expanded" :
-    size(scopes) == 0 ? "Buildkite did not return token scopes" :
+    len(scopes) == 0 ? "Buildkite did not return token scopes" :
     !can_read && !can_write ? "Buildkite returned no recognized REST permission grants" : "",
   "identity": {
     "name": input["name"] ?? "",
@@ -57,7 +57,7 @@ let can_write = filter.matchesAny(scopes, [
   "capabilities": analysis.capabilities({
     "read": can_read,
     "write": can_write,
-    "manage_users": filter.intersects(scopes, ["write_organizations", "write_organization_invitations", "write_teams"])
+    "manage_users": intersects(scopes, ["write_organizations", "write_organization_invitations", "write_teams"])
   })
 }`
 

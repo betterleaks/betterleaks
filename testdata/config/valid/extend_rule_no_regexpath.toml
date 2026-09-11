@@ -3,4 +3,4 @@ path="../testdata/config/valid/extend_base_3.toml"
 
 [[rules]]
 id = "aws-secret-key-again-again"
-filter = '''filter.matchesAny(attributes["path"], [`something.py`])'''
+filter = '''matchesAny(attributes["path"], [`something.py`])'''

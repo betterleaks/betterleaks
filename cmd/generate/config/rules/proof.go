@@ -24,7 +24,7 @@ func ProofFullAccessAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.matchesAny(finding["secret"], ["^prf_(?:cli_)?test_"])
+		Filter: `matchesAny(finding["secret"], ["^prf_(?:cli_)?test_"])
 || ` + utils.MinEntropy(3.5),
 	}
 

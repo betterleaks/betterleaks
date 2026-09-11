@@ -47,29 +47,29 @@ func GenericCredentialURI() *config.Rule {
 		// Prefer this structural URI match over the generic username/password
 		// rules while leaving provider-specific rules at the default 100 ahead.
 		Specificity: 30,
-		Filter: `let isExampleValue = filter.matchesAny(finding["secret"], [
+		Filter: `let isExampleValue = matchesAny(finding["secret"], [
   ` + "`(?i)^(?:(?:(?:an?|my)(?:[ _.-]|%(?:20|2d|5f))*)?example(?:(?:[ _.-]|%(?:20|2d|5f))*(?:password|passwd|pwd))?|(?:password|passwd|pwd)(?:[ _.-]|%(?:20|2d|5f))*example)(?:(?:[ _.-]|%(?:20|2d|5f))*[0-9]{1,4})?[!?.]*$`" + `
 ]);
-let isInstructionalPlaceholder = filter.matchesAny(finding["secret"], [
+let isInstructionalPlaceholder = matchesAny(finding["secret"], [
   ` + "`(?i)^(?:[a-z0-9]+[_.-])?(?:your[_.-]?(?:password|passwd|pwd)|(?:password|passwd|pwd)[_.-]goes[_.-]?here|replace[_.-]?me|insert[_.-].*[_.-]here|placeholder)$`" + `
 ]);
-let isSyntheticExampleURI = filter.matchesAny(finding["match"], [
+let isSyntheticExampleURI = matchesAny(finding["match"], [
   ` + "`(?i)^[a-z][a-z0-9+.-]*://(?:foo|user(?:name)?|example(?:[_.-]?user)?):(?:bar|pass(?:word)?|passwd|pwd|example(?:[_.-]?(?:password|passwd|pwd))?)@(?:(?:example|test)\\.(?:com|org|net)|example\\.invalid)(?::[0-9]{1,5})?(?:[/\\s'\"\\x60#]|$)`" + `
 ]);
-let isSyntheticCredentialTuple = filter.matchesAny(finding["match"], [
+let isSyntheticCredentialTuple = matchesAny(finding["match"], [
   ` + "`(?i)^[a-z][a-z0-9+.-]*://(?:foo|test|user(?:name)?|example(?:[_.-]?user)?)[0-9]{0,4}:(?:bar|test|pass(?:word)?|passwd|pwd|token|secret)[0-9]{0,4}[!?.]?@`" + `
 ]);
-let isTestOrDocumentationSource = filter.matchesAny(attributes["path"], [
+let isTestOrDocumentationSource = matchesAny(attributes["path"], [
   ` + "`(?i)(?:^|[/\\\\])(?:__tests__|tests?|testdata|specs?|fixtures?|mocks?|examples?|samples?|demos?|tutorials?|templates?|qa|e2e|documentation|docs?(?:[-_][a-z0-9-]+)?)(?:[/\\\\]|$)`" + `,
   ` + "`(?i)(?:^|[/\\\\])readme(?:\\.[^/\\\\]+)?$`" + `,
   ` + "`(?i)(?:^|[/\\\\])[^/\\\\]*(?:[_.-](?:test|spec)|(?:test|spec)[_.-])[^/\\\\]*\\.[^/\\\\]+$`" + `,
   ` + "`(?i)\\.(?:example|sample|template)(?:\\.[^/\\\\]+)?$`" + `,
   ` + "`(?i)\\.(?:md|mdx|rst|adoc|asciidoc)$`" + `
 ]);
-let hasIgnoredHost = filter.matchesAny(finding["match"], [
+let hasIgnoredHost = matchesAny(finding["match"], [
   ` + "`" + ignoredHostsPattern + "`" + `
 ]);
-let hasLowConfidenceHost = filter.matchesAny(finding["match"], [
+let hasLowConfidenceHost = matchesAny(finding["match"], [
   ` + "`" + lowConfidenceHostsPattern + "`" + `
 ]);
 let level = (
@@ -78,14 +78,14 @@ let level = (
   || isTestOrDocumentationSource
   || hasLowConfidenceHost
 ) ? "low" : "medium";
-let _ = filter.setConfidence(level);
+let _ = setConfidence(level);
 
 // Discard mechanically non-literal credentials. Weak and default passwords
 // remain reportable because the URI establishes their credential role.
 isInstructionalPlaceholder
 || isSyntheticExampleURI
 || hasIgnoredHost
-|| filter.matchesAny(finding["secret"], [
+|| matchesAny(finding["secret"], [
   ` + "`^\\*+$`" + `,
   ` + "`^\\.+$`" + `,
   ` + "`(?i)^x{4,}$`" + `,

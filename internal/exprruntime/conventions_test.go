@@ -14,60 +14,52 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 	analysisBindings, _ := runtime.compileBindings(modeAnalysis, nil)
 
 	for _, env := range []struct {
-		name       string
-		fns        map[string]struct{}
-		current    []string
-		deprecated []string
+		name    string
+		fns     map[string]struct{}
+		current []string
 	}{
 		{
 			name: "validation",
 			fns:  functionNames(runtime.validationBindings(nil, nil, nil, nil, nil, nil)),
 			current: []string{
 				"http.get", "http.post", "env.get", "env.getOrDefault", "strings.obfuscate",
-				"strings.splitTrim", "strings.urlQueryEscape", "validate.unknown", "json.string",
-				"crypto.md5", "crypto.sha1", "crypto.hmacSha1",
+				"strings.splitTrim", "strings.urlQueryEscape", "validate.unknown",
+				"crypto.md5", "crypto.sha1", "crypto.sha256", "crypto.hmacSha1",
 				"crypto.hmacSha256", "hex.encode", "time.nowUnix",
 				"time.nowRFC3339", "aws.validate", "gcp.validate",
-				"base64.encode", "base64.decode", "filter.matchesAny",
-				"filter.containsAny", "filter.startsWithAny", "filter.intersects",
+				"base64.encode", "base64.decode", "matchesAny",
+				"containsAny", "startsWithAny", "intersects",
 			},
-			deprecated: []string{"obfuscate", "unknown", "crypto.hmac_sha256", "time.now_unix"},
 		},
 		{
 			name: "analysis",
 			fns:  functionNames(analysisBindings),
 			current: []string{
 				"analysis.capabilities", "strings.splitTrim",
-				"filter.matchesAny", "filter.containsAny", "filter.startsWithAny", "filter.intersects",
+				"matchesAny", "containsAny", "startsWithAny", "intersects",
 			},
 		},
 		{
 			name: "filter",
 			fns:  functionNames(filterBindings(nil, emptyFilterFinding, emptyStringMap)),
 			current: []string{
-				"matchesAny", "containsAny", "startsWithAny", "entropy", "sha256",
-				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.startsWithAny", "filter.entropy",
-				"filter.intersects", "filter.failsTokenEfficiency", "filter.tokenRatio", "filter.setConfidence",
+				"crypto.sha256",
+				"matchesAny", "findMatch", "containsAny", "startsWithAny", "entropy",
+				"intersects", "failsTokenEfficiency", "tokenRatio", "setConfidence",
 			},
-			deprecated: []string{"failsTokenEfficiency"},
 		},
 		{
 			name: "prefilter",
 			fns:  functionNames(prefilterBindings(emptyStringMap)),
 			current: []string{
-				"matchesAny", "containsAny", "startsWithAny", "entropy",
-				"filter.matchesAny", "filter.findMatch", "filter.containsAny", "filter.startsWithAny", "filter.entropy",
-				"filter.intersects", "filter.failsTokenEfficiency", "filter.tokenRatio",
+				"matchesAny", "findMatch", "containsAny", "startsWithAny", "entropy",
+				"intersects", "failsTokenEfficiency", "tokenRatio",
 			},
-			deprecated: []string{"failsTokenEfficiency"},
 		},
 	} {
 		for _, name := range env.current {
 			require.Contains(t, env.fns, name, "%s missing function %q", env.name, name)
 			require.Truef(t, validName.MatchString(name), "%s function %q does not follow convention", env.name, name)
-		}
-		for _, name := range env.deprecated {
-			require.Contains(t, env.fns, name, "%s missing deprecated alias %q", env.name, name)
 		}
 	}
 }
@@ -77,8 +69,6 @@ func TestFilterScopes(t *testing.T) {
 	require.NoError(t, err)
 	_, err = env.CompileFilter(`http.get("https://example.com")`, nil)
 	require.Error(t, err)
-	_, err = env.CompileFilter(`filter.entropy(finding["secret"]) > 0`, nil)
-	require.NoError(t, err)
 	_, err = env.CompileFilter(`entropy(finding["secret"]) > 0`, nil)
 	require.NoError(t, err)
 	_, err = env.CompileFilter(`finding.captures.username == "example"`, nil)
@@ -96,8 +86,6 @@ func TestFilterScopes(t *testing.T) {
 	require.Error(t, err)
 	_, err = env.CompilePrefilter(`finding.captures.username == "example"`)
 	require.Error(t, err)
-	_, err = env.CompilePrefilter(`filter.matchesAny(attributes["path"], [".go"])`)
-	require.NoError(t, err)
 	_, err = env.CompilePrefilter(`matchesAny(attributes["path"], [".go"])`)
 	require.NoError(t, err)
 }
@@ -164,7 +152,7 @@ func TestFilterEntropy(t *testing.T) {
 	require.NoError(t, err)
 	for _, expression := range []string{
 		`entropy(finding["secret"]) <= 1.0`,
-		`filter.entropy(finding["secret"]) <= 1.0`,
+		`entropy(finding["secret"]) <= 1.0`,
 	} {
 		prg, err := env.CompileFilter(expression, nil)
 		require.NoError(t, err)
@@ -180,10 +168,10 @@ func TestFilterEntropy(t *testing.T) {
 func TestFilterSHA256(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
-	prg, err := env.CompileFilter("sha256(finding[\"secret\"]) in [\"sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"]", nil)
+	prg, err := env.CompileFilter("crypto.sha256(finding[\"secret\"]) in [\"sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"]", nil)
 	require.NoError(t, err)
 
-	for secret, want := range map[string]bool{"abc": true, "ABC": false} {
+	for secret, want := range map[string]bool{"abc": true, "ABC": false, "abc\n": false, "abc ": false} {
 		skip, err := env.EvalFilter(prg, map[string]any{"secret": secret}, nil)
 		require.NoError(t, err)
 		require.Equal(t, want, skip)
@@ -193,13 +181,35 @@ func TestFilterSHA256(t *testing.T) {
 func TestFilterSetConfidence(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
-	prg, err := env.CompileFilter(`let _ = filter.setConfidence("high"); false`, nil)
+	prg, err := env.CompileFilter(`let _ = setConfidence("high"); false`, nil)
 	require.NoError(t, err)
 
 	attributes := map[string]string{}
 	_, err = env.EvalFilter(prg, nil, attributes)
 	require.NoError(t, err)
 	require.Equal(t, "high", attributes["confidence"])
+
+	_, err = env.CompilePrefilter(`setConfidence("high") == "high"`)
+	require.Error(t, err)
+	_, err = env.CompileValidation(`setConfidence("high")`)
+	require.Error(t, err)
+	_, err = env.CompileAnalysis(`setConfidence("high")`)
+	require.Error(t, err)
+
+	prg, err = env.CompileFilter(`let _ = setConfidence(finding.confidence); false`, nil)
+	require.NoError(t, err)
+	for _, level := range []string{"low", "medium", "high"} {
+		t.Run(level, func(t *testing.T) {
+			t.Parallel()
+			for range 100 {
+				attrs := map[string]string{}
+				skip, err := env.EvalFilter(prg, map[string]any{"confidence": level}, attrs)
+				require.NoError(t, err)
+				require.False(t, skip)
+				require.Equal(t, level, attrs["confidence"])
+			}
+		})
+	}
 }
 
 func TestFilterEvalUsesPerCallBindings(t *testing.T) {

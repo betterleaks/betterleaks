@@ -292,7 +292,7 @@ func TestTranslateExtend(t *testing.T) {
 						Regex:       `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
 						Keywords:    []string{},
 						Tags:        []string{"key", "AWS"},
-						Filter:      "filter.matchesAny(attributes[\"path\"], [`something.py`])",
+						Filter:      "matchesAny(attributes[\"path\"], [`something.py`])",
 					},
 				},
 			},

@@ -22,7 +22,7 @@ func ConfigCatSDKKey() *config.Rule {
 		Regex:        utils.GenerateSemiGenericRegex([]string{"configcat"}, `[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, true),
 		Keywords:     []string{"configcat"},
 		ValidateExpr: configCatValidationExpr,
-		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:       `entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{
@@ -44,7 +44,7 @@ func ConfigCatSDKKeyExtended() *config.Rule {
 		Regex:        utils.GenerateUniqueTokenRegex(`configcat-sdk-1/[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, false),
 		Keywords:     []string{"configcat-sdk-1"},
 		ValidateExpr: configCatValidationExpr,
-		Filter:       `filter.entropy(finding["secret"]) < 3.5`,
+		Filter:       `entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{

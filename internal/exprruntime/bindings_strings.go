@@ -27,10 +27,9 @@ var obfuscateRand io.Reader = rand.Reader
 
 func stringsNamespace() map[string]any {
 	return map[string]any{
-		"obfuscate":        func(s string) (string, error) { return obfuscate(s), nil },
-		"splitTrim":        splitTrim,
-		"urlQueryEscape":   urlQueryEscape,
-		"url_query_escape": urlQueryEscape,
+		"obfuscate":      func(s string) (string, error) { return obfuscate(s), nil },
+		"splitTrim":      splitTrim,
+		"urlQueryEscape": urlQueryEscape,
 	}
 }
 
