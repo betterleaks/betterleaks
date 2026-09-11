@@ -207,11 +207,17 @@ func TestWaitForGitWorkersReturnsGroupCancellation(t *testing.T) {
 
 func TestGitStreamMatchesLegacy(t *testing.T) {
 	repo := newGitTestRepo(t, 1)
+	quotedName := "quoted\"\t日本語.txt"
+	if runtime.GOOS == "windows" {
+		// Windows forbids quotes and tabs in filenames. Unicode still exercises
+		// Git's quoted path output; literal quote/tab parsing is tested in memory.
+		quotedName = "quoted 日本語.txt"
+	}
 	files := map[string]string{
-		"space name.txt":    "first\nsecond\nthird\nfourth\nfifth\nlast\n",
-		"quoted\"\t日本語.txt": "old without newline",
-		"large.txt":         strings.Repeat("ordinary content\n", 20000),
-		"binary.dat":        "\x00\x01\x02",
+		"space name.txt": "first\nsecond\nthird\nfourth\nfifth\nlast\n",
+		quotedName:       "old without newline",
+		"large.txt":      strings.Repeat("ordinary content\n", 20000),
+		"binary.dat":     "\x00\x01\x02",
 	}
 	for name, content := range files {
 		require.NoError(t, os.WriteFile(filepath.Join(repo, name), []byte(content), 0o600))
@@ -219,7 +225,7 @@ func TestGitStreamMatchesLegacy(t *testing.T) {
 	runGitTestCommand(t, repo, "add", ".")
 	runGitTestCommand(t, repo, "commit", "-qm", "multiple files\n\ncommit message body")
 	require.NoError(t, os.WriteFile(filepath.Join(repo, "space name.txt"), []byte("first\nchanged\nthird\nfourth\nfifth\nlast changed\n"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(repo, "quoted\"\t日本語.txt"), []byte("new without newline"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, quotedName), []byte("new without newline"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(repo, "large.txt"), []byte(strings.Repeat("x", 200000)+"\n"), 0o600))
 	runGitTestCommand(t, repo, "mv", "file-0.txt", "renamed.txt")
 	runGitTestCommand(t, repo, "add", ".")

@@ -29,7 +29,7 @@ func TestGitStreamFiltersBeforeContent(t *testing.T) {
 func TestGitStreamBackslashPaths(t *testing.T) {
 	// GitLab commit e4d07947f108878c8f3e5534f9b12a58c7ea2674 adds a file
 	// named backslash. The upstream header parser rejects its closing quote.
-	for _, name := range []string{"\\", "dir/\\\\", "quote\"\\", "\\134", "space and \\"} {
+	for _, name := range []string{"\\", "dir/\\\\", "quote\"\\", "\\134", "space and \\", "quoted\"\t日本語.txt"} {
 		t.Run(name, func(t *testing.T) {
 			oldPath, newPath := strconv.Quote("a/"+name), strconv.Quote("b/"+name)
 			patch := fmt.Sprintf("diff --git %s %s\nnew file mode 100644\nindex 000000000000..df743ce0a692\n--- /dev/null\n+++ %s\n@@ -0,0 +1 @@\n+example\n", oldPath, newPath, newPath)
