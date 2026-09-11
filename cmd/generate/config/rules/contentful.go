@@ -22,3 +22,20 @@ func Contentful() *config.Rule {
 	tps := utils.GenerateSampleSecrets("contentful", secrets.NewSecretWithEntropy(utils.AlphaNumeric("43"), 3.5))
 	return utils.Validate(r, tps, nil)
 }
+
+func ContentfulPersonalAccessToken() *config.Rule {
+	// define rule
+	r := config.Rule{
+		Description:  "Discovered a Contentful personal access token, posing a risk to content management systems and data integrity.",
+		RuleID:       "contentful-personal-access-token",
+		Confidence:   "high",
+		Regex:        utils.GenerateUniqueTokenRegex(`CFPAT-[a-zA-Z0-9_\-]{43}`, false),
+		Keywords:     []string{"CFPAT-"},
+		ValidateExpr: utils.BearerGetValidationExpr("https://api.contentful.com/organizations", "true"),
+		Filter:       `entropy(finding["secret"]) <= 4.0`,
+	}
+
+	// validate
+	tps := utils.GenerateSampleSecrets("contentful", secrets.NewSecretWithEntropy(`CFPAT-[a-zA-Z0-9_\-]{43}`, 4.0))
+	return utils.Validate(r, tps, nil)
+}
