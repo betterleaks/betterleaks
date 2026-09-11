@@ -25,7 +25,6 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"max-decode-depth",
 		"max-archive-depth",
 		"no-validation",
-		"no-analysis",
 		"offline",
 		"validation-status",
 		"provider-workers",
@@ -57,6 +56,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 
 	sharedWithValidate := []string{
 		"jsonl",
+		"no-analysis",
 		"provider-timeout",
 		"provider-max-requests",
 		"provider-rps",

@@ -101,6 +101,79 @@ attributes["path"] == "betterleaks://validate" ? {
 	}
 }
 
+func TestValidateCommandAnalysis(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		flags        []string
+		status       string
+		wantAnalysis bool
+	}{
+		{name: "pretty", status: "valid", wantAnalysis: true},
+		{name: "jsonl", flags: []string{"--jsonl"}, status: "valid", wantAnalysis: true},
+		{name: "disabled", flags: []string{"--jsonl", "--no-analysis"}, status: "valid"},
+		{name: "invalid", flags: []string{"--jsonl"}, status: "invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Method != http.MethodGet || r.URL.Path != "/analysis" {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+				fmt.Fprint(w, `{}`)
+			}))
+			defer server.Close()
+			configPath := writeValidateTestConfig(t, fmt.Sprintf(`
+[[rules]]
+id = "analysis-token"
+regex = '''(unused-regex)'''
+validate = '''{"result": %q, "analysis": {"owner": "fixture-owner"}}'''
+analyze = '''
+let response = http.get(%q, {});
+{
+  "identity": {"username": validation.analysis.owner},
+  "capabilities": ["read"],
+  "metadata": {"echo": finding.secret}
+}
+'''
+`, test.status, server.URL+"/analysis"))
+			root, stdout := newValidateTestRoot(t)
+			args := []string{"validate", "--config", configPath, "--rule-id", "analysis-token", "--no-color"}
+			args = append(args, test.flags...)
+			root.SetArgs(append(args, "fixture-secret"))
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			wantRequests := int32(0)
+			if test.wantAnalysis {
+				wantRequests = 1
+			}
+			if requests.Load() != wantRequests {
+				t.Fatalf("analysis requests = %d, want %d", requests.Load(), wantRequests)
+			}
+			output := stdout.String()
+			if strings.Contains(output, "fixture-secret") {
+				t.Fatal("analysis report contains the supplied secret")
+			}
+			if strings.Contains(output, "fixture-owner") != test.wantAnalysis {
+				t.Fatalf("unexpected analysis output: %s", output)
+			}
+			if len(test.flags) > 0 {
+				var result report.CredentialReport
+				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				if string(result.Validation.Status) != test.status || result.Analysis.IsZero() == test.wantAnalysis {
+					t.Fatalf("unexpected result: %+v", result)
+				}
+				if test.wantAnalysis && result.Analysis.Severity != report.SeverityMedium {
+					t.Fatalf("severity = %s, want medium", result.Analysis.Severity)
+				}
+			}
+		})
+	}
+}
+
 func TestValidateCommandReadsSecretFromStdin(t *testing.T) {
 	configPath := writeValidateTestConfig(t, `
 [[rules]]

@@ -742,6 +742,10 @@ run the rule's regex, filters, or source scanning. This is useful when the
 original source is unavailable or a standalone credential no longer has the
 provider context its detection regex expects.
 
+After successful validation, the command also runs the rule's analysis, when
+defined, and includes it in text and JSONL reports. Use `--no-analysis` for
+validation only. `--simple` still prints only the validation status.
+
 List the rules in the selected config that support direct validation:
 
 ```sh

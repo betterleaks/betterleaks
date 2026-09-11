@@ -147,6 +147,7 @@ func run() error {
 			return fmt.Errorf("scan %s: %w", path, err)
 		}
 	}
+
 	// Already have a credential? No Reader, regex matching, or Scan is needed.
 	// This deliberately checks the fixture ignored by scans above: explicit
 	// validation bypasses scan filters, fingerprint ignores, and status filters.

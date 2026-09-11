@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -58,6 +59,14 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 			wantIdentity:     "userHF",
 		},
 		{
+			name:             "hugging-face-fine-grained",
+			validation:       huggingFaceValidateExpr,
+			analysis:         huggingFaceAnalyzeExpr,
+			body:             `{"type":"user","id":"userHF","name":"octo","fullname":"Octo Cat","orgs":[],"auth":{"type":"access_token","accessToken":{"displayName":"test token","role":"fineGrained","fineGrained":{"canReadGatedRepos":true,"global":[],"scoped":[{"entity":{"_id":"userHF","type":"user","name":"octo"},"permissions":["repo.content.read"]}]}}}}`,
+			wantCapabilities: []report.Capability{report.CapabilityRead},
+			wantIdentity:     "userHF",
+		},
+		{
 			name:             "slack",
 			validation:       slackValidateExpr,
 			analysis:         slackAnalyzeExpr,
@@ -87,7 +96,13 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(*http.Request) (*http.Response, error) {
+			requests := 0
+			runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(request *http.Request) (*http.Response, error) {
+				requests++
+				if strings.HasPrefix(test.name, "hugging-face") {
+					assert.Equal(t, http.MethodGet, request.Method)
+					assert.Equal(t, "https://huggingface.co/api/whoami-v2", request.URL.String())
+				}
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     test.headers,
@@ -126,6 +141,7 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 			require.NoError(t, err)
 			analysisResult, err := analyze.ParseResult(analysisValue.Value)
 			require.NoError(t, err)
+			assert.Equal(t, 1, requests, "analysis should reuse validation evidence")
 			assert.Equal(t, test.wantCapabilities, analysisResult.Capabilities)
 			assert.NotEmpty(t, analysisResult.Metadata)
 			require.NotNil(t, analysisResult.Identity)
@@ -381,7 +397,7 @@ func TestCredentialAnalysisUnknownGrantsDoNotAddCapabilities(t *testing.T) {
 		"auth": map[string]any{"accessToken": map[string]any{"role": "fineGrained"}},
 	})
 	assert.Equal(t, report.SeverityUnknown, result.Severity)
-	assert.Equal(t, "Fine-grained or unknown token role was not expanded", result.Reason)
+	assert.Equal(t, "Hugging Face returned no recognized permission grants", result.Reason)
 	assert.Empty(t, result.Capabilities)
 }
 
@@ -567,4 +583,93 @@ func evaluateProviderAnalysis(t *testing.T, expression string, input map[string]
 	analysisResult, err := analyze.ParseResult(result.Value)
 	require.NoError(t, err)
 	return analysisResult
+}
+
+func TestHuggingFaceFineGrainedAnalysis(t *testing.T) {
+	tests := []struct {
+		name         string
+		grants       string
+		capabilities []report.Capability
+		severity     report.Severity
+		permissions  []string
+	}{
+		{
+			name:         "scoped repository read without gated access",
+			grants:       `{"scoped":[{"entity":{"_id":"userHF","type":"user","name":"octo"},"permissions":["repo.content.read"]}]}`,
+			capabilities: []report.Capability{report.CapabilityRead}, severity: report.SeverityMedium,
+			permissions: []string{"repo.content.read"},
+		},
+		{
+			name:         "multiple resource scopes and duplicate grants",
+			grants:       `{"global":["discussion.write"],"scoped":[{"entity":{"_id":"modelHF","type":"model","name":"octo/model"},"permissions":["repo.content.read","repo.write"]},{"entity":{"_id":"orgHF","type":"org","name":"Acme"},"permissions":["repo.content.read"]}]}`,
+			capabilities: []report.Capability{report.CapabilityRead, report.CapabilityWrite}, severity: report.SeverityHigh,
+			permissions: []string{"discussion.write", "repo.content.read", "repo.write"},
+		},
+		{
+			name:         "global posts only",
+			grants:       `{"global":["post.write"],"scoped":[]}`,
+			capabilities: []report.Capability{report.CapabilityWrite}, severity: report.SeverityHigh,
+			permissions: []string{"post.write"},
+		},
+		{
+			name:         "gated access only",
+			grants:       `{"canReadGatedRepos":true,"scoped":[]}`,
+			capabilities: []report.Capability{report.CapabilityRead}, severity: report.SeverityMedium,
+		},
+		{
+			name:         "organization settings and member management",
+			grants:       `{"scoped":[{"entity":{"_id":"orgHF","type":"org","name":"Acme"},"permissions":["org.write"]}]}`,
+			capabilities: []report.Capability{report.CapabilityManageUsers}, severity: report.SeverityHigh,
+			permissions: []string{"org.write"},
+		},
+		{
+			name:         "secrets configuration is not secret disclosure",
+			grants:       `{"scoped":[{"entity":{"_id":"spaceHF","type":"space"},"permissions":["repo.config.secrets.write"]}]}`,
+			capabilities: []report.Capability{report.CapabilityWrite}, severity: report.SeverityHigh,
+			permissions: []string{"repo.config.secrets.write"},
+		},
+		{
+			name:        "inference invocation is not data write",
+			grants:      `{"scoped":[{"entity":{"_id":"userHF","type":"user"},"permissions":["inference.serverless.write","inference.endpoints.infer.write"]}]}`,
+			severity:    report.SeverityUnknown,
+			permissions: []string{"inference.endpoints.infer.write", "inference.serverless.write"},
+		},
+		{
+			name:        "future grants retained without guessing capabilities",
+			grants:      `{"global":["future.read"],"scoped":[{"entity":{"_id":"orgHF","type":"org"},"permissions":["future.admin","future.write"]}]}`,
+			severity:    report.SeverityUnknown,
+			permissions: []string{"future.admin", "future.read", "future.write"},
+		},
+		{name: "empty grants", grants: `{"global":[],"scoped":[],"canReadGatedRepos":false}`, severity: report.SeverityUnknown},
+		{name: "missing grants", grants: `{}`, severity: report.SeverityUnknown},
+		{name: "null grants", grants: `{"global":null,"scoped":null,"canReadGatedRepos":null}`, severity: report.SeverityUnknown},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var grants map[string]any
+			require.NoError(t, json.Unmarshal([]byte(test.grants), &grants))
+			result := evaluateProviderAnalysis(t, huggingFaceAnalyzeExpr, map[string]any{
+				"id": "userHF", "username": "octo", "name": "Octo Cat",
+				// A membership must not override the token's actual resource scopes.
+				"orgs": []any{map[string]any{"id": "unrelatedOrg", "name": "Other"}},
+				"auth": map[string]any{"accessToken": map[string]any{
+					"role": "fineGrained", "displayName": "test token", "fineGrained": grants,
+				}},
+			})
+			assert.ElementsMatch(t, test.capabilities, result.Capabilities)
+			assert.Equal(t, test.severity, result.Severity)
+			require.NotNil(t, result.Identity)
+			assert.Equal(t, "userHF", result.Identity.ID)
+			assert.Nil(t, result.Identity.Account)
+			assert.Equal(t, "fineGrained", result.Metadata["role"])
+			assert.Equal(t, "test token", result.Metadata["token_name"])
+			assert.ElementsMatch(t, test.permissions, result.Metadata["permissions"])
+			assert.Len(t, result.Metadata, 3, "keep metadata to role, token name, and permissions")
+			if len(test.capabilities) == 0 {
+				assert.Equal(t, "Hugging Face returned no recognized permission grants", result.Reason)
+			} else {
+				assert.Empty(t, result.Reason)
+			}
+		})
+	}
 }

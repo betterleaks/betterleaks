@@ -28,28 +28,57 @@ const huggingFaceValidateExpr = `let r = http.get("https://huggingface.co/api/wh
     "reason": "Unauthorized"
   } : validate.unknown(r)`
 
+// whoami-v2 returns token grants, including their resource scopes. Organization
+// policies and the owner's access can restrict their use further. Membership
+// alone does not establish fine-grained access.
+// https://huggingface.co/.well-known/openapi.json
+// https://huggingface.co/docs/hub/security-tokens
+// Permission names: Hugging Face's FineGrainedToken/ViewUtils definitions.
+// Inference invocation is not a data write, and configuring secrets does not
+// establish the ability to read secret values.
 const huggingFaceAnalyzeExpr = `let input = validation.analysis;
 let auth = input["auth"] ?? {};
 let access_token = auth["accessToken"] ?? {};
 let role = access_token["role"] ?? "";
 let orgs = input["orgs"] ?? [];
+let fine_grained = role == "fineGrained" ? (access_token["fineGrained"] ?? {}) : {};
+let global = fine_grained["global"] ?? [];
+let scoped = fine_grained["scoped"] ?? [];
+let permissions = sort(uniq(concat(global, flatten(map(scoped, {#.permissions ?? []})))));
+let gated = fine_grained["canReadGatedRepos"] ?? false;
+let capabilities = analysis.capabilities({
+  "read": role in ["read", "write"] || gated || any(permissions, {# in [
+    "repo.read", "repo.content.read", "repo.content.metadata.read", "repo.lfs.read",
+    "repo.config.read", "repo.access.read", "collection.read", "org.read", "org.members.read",
+    "user.billing.read", "user.notifications.read", "user.membership.read",
+    "inference.endpoints.read", "job.read"
+  ]}),
+  "write": role == "write" || any(permissions, {# in [
+    "repo.write", "repo.content.write", "repo.config.write", "repo.config.doi.write",
+    "repo.config.visibility.write", "repo.config.variables.write", "repo.config.secrets.write",
+    "repo.access.write", "discussion.write", "post.write", "collection.write",
+    "inference.endpoints.write", "job.write"
+  ]}),
+  "manage_users": any(permissions, {# in ["org.write", "org.members.write"]})
+});
 {
-  "reason": role in ["read", "write"] ? "" : "Fine-grained or unknown token role was not expanded",
-  "metadata": role == "" ? {} : {"role": role},
+  "reason": len(capabilities) > 0 ? "" : "Hugging Face returned no recognized permission grants",
+  "metadata": role == "fineGrained" ? {
+    "role": role,
+    "token_name": access_token["displayName"] ?? "",
+    "permissions": permissions
+  } : (role == "" ? {} : {"role": role}),
   "identity": {
     "id": string(input["id"] ?? ""),
     "username": input["username"] ?? "",
     "name": input["name"] ?? "",
     "email": input["email"] ?? "",
-    "account": len(orgs) == 1 ? {
+    "account": role != "fineGrained" && len(orgs) == 1 ? {
       "id": string(orgs[0]?.id ?? ""),
       "name": orgs[0]?.name ?? ""
     } : {}
   },
-  "capabilities": analysis.capabilities({
-    "read": role in ["read", "write"],
-    "write": role == "write"
-  })
+  "capabilities": capabilities
 }`
 
 // Reference: https://huggingface.co/docs/hub/security-tokens

@@ -22,13 +22,14 @@ type ValidateCmd struct {
 	Component            []string `sep:"none" help:"Credential component as rule-id=secret (repeatable)."`
 	Capture              []string `sep:"none" help:"Validation capture as name=value; use rule-id:name=value for a component (repeatable)."`
 	List                 bool     `help:"List rules that support direct validation."`
+	NoAnalysis           bool     `name:"no-analysis" help:"Disable credential analysis while retaining validation."`
 	Simple               bool     `help:"Print only the validation status."`
-	JSONL                bool     `name:"jsonl" help:"Print the validation result as JSONL."`
+	JSONL                bool     `name:"jsonl" help:"Print the validation and analysis result as JSONL."`
 	Secret               string   `arg:"" optional:"" help:"Secret to validate; read from stdin when omitted."`
 }
 
 func (*ValidateCmd) Help() string {
-	return "When the secret is omitted, it is read from piped or redirected stdin. Supply multipart credential components explicitly with --component."
+	return "Valid credentials are analyzed when their rule defines analysis; use --no-analysis for validation only. When the secret is omitted, it is read from piped or redirected stdin. Supply multipart credential components explicitly with --component."
 }
 
 func (cmd *ValidateCmd) Run(cli *CLI, runtime *commandRuntime) error {
@@ -77,7 +78,11 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 	if err != nil {
 		return err
 	}
-	detector, err := detect.NewDetector(resolved.cfg, detect.WithValidation(detect.ProviderOptions{
+	providerOption := detect.WithAnalysis
+	if options.NoAnalysis {
+		providerOption = detect.WithValidation
+	}
+	detector, err := detect.NewDetector(resolved.cfg, providerOption(detect.ProviderOptions{
 		Workers:                 1,
 		Timeout:                 options.ProviderTimeout,
 		MaxRequestsPerTarget:    options.ProviderMaxRequests,
