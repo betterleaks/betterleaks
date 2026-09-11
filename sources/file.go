@@ -13,7 +13,7 @@ import (
 	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
 
-	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
+	"github.com/betterleaks/betterleaks/v2/logging"
 )
 
 const InnerPathSeparator = "!"
@@ -73,12 +73,12 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		if s.archiveDepth+1 > s.MaxArchiveDepth {
 			// Warn if the feature is enabled; else emit a trace log.
 			if s.MaxArchiveDepth != 0 {
-				sourceutil.LoggerOrDiscard(s.Logger).Warn("skipping archive: exceeds max archive depth",
+				logging.OrDiscard(s.Logger).Warn("skipping archive: exceeds max archive depth",
 					"path", s.FullPath(),
 					"max_archive_depth", s.MaxArchiveDepth,
 				)
 			} else {
-				sourceutil.LogTrace(ctx, s.Logger, "skipping archive: exceeds max archive depth",
+				logging.OrDiscard(s.Logger).Log(ctx, logging.LevelTrace, "skipping archive: exceeds max archive depth",
 					"path", s.FullPath(),
 					"max_archive_depth", s.MaxArchiveDepth,
 				)
@@ -93,7 +93,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			s.decompressorFragments(ctx, decompressor, stream, yield)
 			return nil
 		}
-		sourceutil.LoggerOrDiscard(s.Logger).Warn("skipping unknown archive type", "path", s.FullPath())
+		logging.OrDiscard(s.Logger).Warn("skipping unknown archive type", "path", s.FullPath())
 	}
 
 	isArchiveContent := s.archiveDepth > 0
@@ -110,7 +110,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 	// nested entries via file.Fragments below.
 	defer func() {
 		if r := recover(); r != nil {
-			sourceutil.LoggerOrDiscard(s.Logger).Warn("skipping archive: panic during extraction", "path", s.FullPath(), "panic", fmt.Sprint(r))
+			logging.OrDiscard(s.Logger).Warn("skipping archive: panic during extraction", "path", s.FullPath(), "panic", fmt.Sprint(r))
 		}
 	}()
 
@@ -119,7 +119,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		case archives.SevenZip, archives.Zip:
 			tmpfile, err := os.CreateTemp("", "betterleaks-archive-")
 			if err != nil {
-				sourceutil.LoggerOrDiscard(s.Logger).Warn("could not create archive tmp file", "error", err, "path", s.FullPath())
+				logging.OrDiscard(s.Logger).Warn("could not create archive tmp file", "error", err, "path", s.FullPath())
 				return
 			}
 			defer func() {
@@ -129,7 +129,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 			_, err = io.Copy(tmpfile, reader)
 			if err != nil {
-				sourceutil.LoggerOrDiscard(s.Logger).Warn("could not copy archive file", "error", err, "path", s.FullPath())
+				logging.OrDiscard(s.Logger).Warn("could not copy archive file", "error", err, "path", s.FullPath())
 				return
 			}
 
@@ -140,19 +140,19 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 	err := extractor.Extract(ctx, reader, func(_ context.Context, d archives.FileInfo) error {
 		path := filepath.Clean(d.NameInArchive)
 		if !d.Mode().IsRegular() {
-			sourceutil.LogTrace(ctx, s.Logger, "skipping non-regular file", "path", path)
+			logging.OrDiscard(s.Logger).Log(ctx, logging.LevelTrace, "skipping non-regular file", "path", path)
 			return nil
 		}
 
 		innerReader, err := d.Open()
 		if err != nil {
-			sourceutil.LoggerOrDiscard(s.Logger).Warn("could not open archive inner file", "error", err, "path", s.FullPath())
+			logging.OrDiscard(s.Logger).Warn("could not open archive inner file", "error", err, "path", s.FullPath())
 			return nil
 		}
 		defer innerReader.Close()
 
 		if s.ShouldSkip != nil && shouldSkipPath(s.ShouldSkip, path) {
-			sourceutil.LoggerOrDiscard(s.Logger).Debug("skipping file: global prefilter", "path", s.FullPath())
+			logging.OrDiscard(s.Logger).Debug("skipping file: global prefilter", "path", s.FullPath())
 			return nil
 		}
 
@@ -171,7 +171,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 	})
 
 	if err != nil {
-		sourceutil.LoggerOrDiscard(s.Logger).Warn("error reading archive", "error", err, "path", s.FullPath())
+		logging.OrDiscard(s.Logger).Warn("error reading archive", "error", err, "path", s.FullPath())
 	}
 }
 
@@ -181,13 +181,13 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 	// panic from closing a malformed decompressor reader.
 	defer func() {
 		if r := recover(); r != nil {
-			sourceutil.LoggerOrDiscard(s.Logger).Warn("skipping compressed file: panic during decompression", "path", s.FullPath(), "panic", fmt.Sprint(r))
+			logging.OrDiscard(s.Logger).Warn("skipping compressed file: panic during decompression", "path", s.FullPath(), "panic", fmt.Sprint(r))
 		}
 	}()
 
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
-		sourceutil.LoggerOrDiscard(s.Logger).Warn("could not read compressed file", "error", err, "path", s.FullPath())
+		logging.OrDiscard(s.Logger).Warn("could not read compressed file", "error", err, "path", s.FullPath())
 		return
 	}
 	defer func() {
@@ -195,7 +195,7 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 	}()
 
 	if err := s.fileFragments(ctx, innerReader, true, yield); err != nil {
-		sourceutil.LoggerOrDiscard(s.Logger).Warn("error reading compressed file", "error", err, "path", s.FullPath())
+		logging.OrDiscard(s.Logger).Warn("error reading compressed file", "error", err, "path", s.FullPath())
 	}
 }
 
@@ -234,7 +234,7 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 
 		if readErr != nil {
 			if isArchiveContent {
-				sourceutil.LoggerOrDiscard(s.Logger).Warn("could not read archive content", "error", readErr, "path", fullPath)
+				logging.OrDiscard(s.Logger).Warn("could not read archive content", "error", readErr, "path", fullPath)
 				return nil
 			}
 			return yield(fragment, fmt.Errorf("could not read file: %w", readErr))
@@ -246,7 +246,7 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 			mimetype, matchErr := filetype.Match(chunk.initial)
 			if matchErr != nil {
 				if isArchiveContent {
-					sourceutil.LoggerOrDiscard(s.Logger).Warn("could not determine archive content type", "error", matchErr, "path", fullPath)
+					logging.OrDiscard(s.Logger).Warn("could not determine archive content type", "error", matchErr, "path", fullPath)
 					return errStopFileFragments
 				}
 				if err := yield(fragment, fmt.Errorf("could not read file: could not determine type: %w", matchErr)); err != nil {
@@ -255,7 +255,7 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 				return errStopFileFragments
 			}
 			if mimetype.MIME.Type == "application" {
-				sourceutil.LoggerOrDiscard(s.Logger).Debug("skipping binary file", "mime_type", mimetype.MIME.Value, "path", fullPath)
+				logging.OrDiscard(s.Logger).Debug("skipping binary file", "mime_type", mimetype.MIME.Value, "path", fullPath)
 				return errStopFileFragments
 			}
 		}

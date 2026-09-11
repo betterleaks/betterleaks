@@ -9,8 +9,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 )
 
 const downloadTimeout = 5 * time.Minute
@@ -96,6 +96,6 @@ func Scan(ctx context.Context, opts Options, yield sources.FragmentsFunc) error 
 		}
 		return yield(fragment, err)
 	})
-	sourceutil.LoggerOrDiscard(opts.Logger).Debug("download scan complete", "path", opts.Path, "scan_duration", time.Since(start).Round(time.Millisecond))
+	logging.OrDiscard(opts.Logger).Debug("download scan complete", "path", opts.Path, "scan_duration", time.Since(start).Round(time.Millisecond))
 	return err
 }

@@ -8,8 +8,6 @@ import (
 	"runtime"
 
 	"github.com/mholt/archives"
-
-	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 )
 
 const (
@@ -42,13 +40,13 @@ func shouldSkipPath(skip SkipFunc, path string) bool {
 		return false
 	}
 	attrs := map[string]string{AttrPath: path}
-	if sourceutil.ShouldSkipAttrs(skip, attrs) {
+	if skip(attrs) {
 		return true
 	}
 	// TODO: Remove this Windows workaround in v9 (gitleaks/gitleaks#1641).
 	if isWindows {
 		attrs[AttrPath] = filepath.ToSlash(path)
-		return sourceutil.ShouldSkipAttrs(skip, attrs)
+		return skip(attrs)
 	}
 	return false
 }

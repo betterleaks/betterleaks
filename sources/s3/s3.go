@@ -19,9 +19,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/sigv4"
+	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
-	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 )
 
 const (
@@ -194,7 +194,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 // each matched bucket. Per-bucket failures (e.g. AccessDenied, region probe
 // errors) are logged and non-fatal.
 func (s *Source) scanEnumerated(ctx context.Context, client *http.Client, yield sources.FragmentsFunc) error {
-	sourceutil.LoggerOrDiscard(s.Logger).Info("enumerating buckets",
+	logging.OrDiscard(s.Logger).Info("enumerating buckets",
 		"endpoint", s.parsed.Endpoint,
 		"bucket_glob", s.parsed.BucketGlob,
 		"region", s.parsed.Region,
@@ -215,16 +215,16 @@ func (s *Source) scanEnumerated(ctx context.Context, client *http.Client, yield 
 			matched = append(matched, b)
 		}
 	}
-	sourceutil.LoggerOrDiscard(s.Logger).Info("bucket enumeration complete", "total", len(buckets), "matched", len(matched))
+	logging.OrDiscard(s.Logger).Info("bucket enumeration complete", "total", len(buckets), "matched", len(matched))
 
 	for _, b := range matched {
 		sub, err := s.bucketSubTarget(ctx, b)
 		if err != nil {
-			sourceutil.LoggerOrDiscard(s.Logger).Error("could not resolve bucket; skipping", "error", err, "bucket", b)
+			logging.OrDiscard(s.Logger).Error("could not resolve bucket; skipping", "error", err, "bucket", b)
 			continue
 		}
 		if err := s.scanBucket(ctx, client, sub, yield); err != nil {
-			sourceutil.LoggerOrDiscard(s.Logger).Error("bucket scan failed; continuing", "error", err, "bucket", b)
+			logging.OrDiscard(s.Logger).Error("bucket scan failed; continuing", "error", err, "bucket", b)
 		}
 	}
 	return nil
@@ -271,11 +271,11 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 		bucketAttrs[AttrEndpoint] = target.Endpoint
 	}
 	if s.ShouldSkip != nil && s.ShouldSkip(bucketAttrs) {
-		sourceutil.LoggerOrDiscard(s.Logger).Info("skipping bucket: filtered by prefilter", "bucket", target.Bucket)
+		logging.OrDiscard(s.Logger).Info("skipping bucket: filtered by prefilter", "bucket", target.Bucket)
 		return nil
 	}
 
-	sourceutil.LoggerOrDiscard(s.Logger).Info("starting S3 scan",
+	logging.OrDiscard(s.Logger).Info("starting S3 scan",
 		"bucket", target.Bucket,
 		"region", target.Region,
 		"prefix", target.Prefix,
@@ -301,18 +301,18 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 		g.SetLimit(jobs)
 		for _, obj := range page.Contents {
 			if skipReason := s.skipReason(obj, maxSize); skipReason != "" {
-				sourceutil.LogTrace(gctx, s.Logger, "skipping object", "key", obj.Key, "reason", skipReason)
+				logging.OrDiscard(s.Logger).Log(gctx, logging.LevelTrace, "skipping object", "key", obj.Key, "reason", skipReason)
 				continue
 			}
 			attrs := s.objectAttributes(target, obj)
 			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
-				sourceutil.LogTrace(gctx, s.Logger, "skipping object: filtered by prefilter", "key", obj.Key)
+				logging.OrDiscard(s.Logger).Log(gctx, logging.LevelTrace, "skipping object: filtered by prefilter", "key", obj.Key)
 				continue
 			}
 			g.Go(func() error {
 				return s.budget.Run(gctx, func() error {
 					if err := s.scanObject(gctx, client, target, obj, attrs, yield); err != nil {
-						sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan S3 object", "error", err, "key", obj.Key)
+						logging.OrDiscard(s.Logger).Error("could not scan S3 object", "error", err, "key", obj.Key)
 						return nil
 					}
 					mu.Lock()
@@ -331,7 +331,7 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 		continuationToken = page.NextContinuationToken
 	}
 
-	sourceutil.LoggerOrDiscard(s.Logger).Info("S3 scan complete",
+	logging.OrDiscard(s.Logger).Info("S3 scan complete",
 		"bucket", target.Bucket,
 		"objects_listed", listedCount,
 		"objects_scanned", scannedCount,

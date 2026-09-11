@@ -13,7 +13,8 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
-	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
+
+	"github.com/betterleaks/betterleaks/v2/logging"
 )
 
 // TODO: remove this in v9 and have scanTargets yield file sources
@@ -48,7 +49,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 	// symlink handling when the requested root is a single file or symlink.
 	rootInfo, err := os.Lstat(s.Path)
 	if err != nil {
-		logger := sourceutil.LoggerOrDiscard(s.Logger).With("path", s.Path)
+		logger := logging.OrDiscard(s.Logger).With("path", s.Path)
 		if os.IsPermission(err) {
 			logger.Warn("skipping directory", "error", errors.New("permission denied"))
 		} else {
@@ -65,7 +66,7 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 			return err
 		}
 		scanTarget := ScanTarget{Path: path}
-		logger := sourceutil.LoggerOrDiscard(s.Logger).With("path", path)
+		logger := logging.OrDiscard(s.Logger).With("path", path)
 
 		if err != nil {
 			var callbackErr *scanTargetError
@@ -230,8 +231,8 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 }
 
 func (s *Files) scanFile(ctx context.Context, target ScanTarget, yield FragmentsFunc) error {
-	logger := sourceutil.LoggerOrDiscard(s.Logger).With("path", target.Path)
-	sourceutil.LogTrace(ctx, logger, "scanning path")
+	logger := logging.OrDiscard(s.Logger).With("path", target.Path)
+	logging.OrDiscard(logger).Log(ctx, logging.LevelTrace, "scanning path")
 
 	f, err := os.Open(target.Path)
 	if err != nil {

@@ -16,6 +16,17 @@ const (
 	LevelFatal = slog.LevelError + 4
 )
 
+var discardLogger = slog.New(slog.DiscardHandler)
+
+// OrDiscard returns logger, or a shared logger that discards output when logger is nil.
+// It does not change the process-wide default logger.
+func OrDiscard(logger *slog.Logger) *slog.Logger {
+	if logger == nil {
+		return discardLogger
+	}
+	return logger
+}
+
 func Trace(msg string, args ...any) {
 	slog.Default().Log(context.Background(), LevelTrace, msg, args...)
 }

@@ -24,8 +24,8 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
+	"github.com/betterleaks/betterleaks/v2/logging"
 	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
-	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
@@ -137,7 +137,7 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc, budget
 	}
 
 	chunkSize := (len(commits) + workers - 1) / workers
-	sourceutil.LoggerOrDiscard(s.Logger).Debug("parallel git scan", "commits", len(commits), "workers", workers, "chunk_size", chunkSize)
+	logging.OrDiscard(s.Logger).Debug("parallel git scan", "commits", len(commits), "workers", workers, "chunk_size", chunkSize)
 
 	g, groupCtx := errgroup.WithContext(ctx)
 	for i := range workers {
@@ -223,7 +223,7 @@ func (s *Git) fragmentsFromCommitMessages(ctx context.Context, commits []string,
 			fragment.SetAttr(AttrGitRemoteURL, s.RemoteURL)
 			fragment.SetAttr(AttrGitPlatform, s.Platform.String())
 		}
-		if fragment.Raw == "" || sourceutil.ShouldSkipAttrs(s.ShouldSkip, fragment.Attributes) {
+		if fragment.Raw == "" || (s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes)) {
 			continue
 		}
 		if err := yield(fragment, nil); err != nil {
@@ -398,7 +398,7 @@ func (s *Git) fragmentsFromTagMessages(ctx context.Context, yield FragmentsFunc)
 			fragment.SetAttr(AttrGitRemoteURL, s.RemoteURL)
 			fragment.SetAttr(AttrGitPlatform, s.Platform.String())
 		}
-		if fragment.Raw == "" || sourceutil.ShouldSkipAttrs(s.ShouldSkip, fragment.Attributes) {
+		if fragment.Raw == "" || (s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes)) {
 			continue
 		}
 		if err := yield(fragment, nil); err != nil {
@@ -499,7 +499,7 @@ func (s *Git) fragmentsFromReflogs(ctx context.Context, yield FragmentsFunc) (sc
 			fragment.SetAttr(AttrGitRemoteURL, s.RemoteURL)
 			fragment.SetAttr(AttrGitPlatform, s.Platform.String())
 		}
-		if fragment.Raw == "" || sourceutil.ShouldSkipAttrs(s.ShouldSkip, fragment.Attributes) {
+		if fragment.Raw == "" || (s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes)) {
 			continue
 		}
 		if err := yield(fragment, nil); err != nil {
@@ -566,8 +566,8 @@ func (s *Git) fragmentsFromStream(ctx context.Context, yield FragmentsFunc) erro
 			return nil, nil
 		}
 		attrs := s.gitAttributes(file)
-		if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
-			sourceutil.LogTrace(ctx, s.Logger, "skipping diff entry: global prefilter", "commit", attrs[AttrGitSHA], "path", file.NewName)
+		if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			logging.OrDiscard(s.Logger).Log(ctx, logging.LevelTrace, "skipping diff entry: global prefilter", "commit", attrs[AttrGitSHA], "path", file.NewName)
 			return nil, nil
 		}
 		if file.IsBinary {
@@ -606,7 +606,7 @@ func (s *Git) fragmentsFromStream(ctx context.Context, yield FragmentsFunc) erro
 func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc, budget *sourcejobs.Budget) error {
 	defer func() {
 		if err := s.Cmd.Wait(); err != nil {
-			sourceutil.LoggerOrDiscard(s.Logger).Debug("command aborted", "error", err, "command", s.Cmd.String())
+			logging.OrDiscard(s.Logger).Debug("command aborted", "error", err, "command", s.Cmd.String())
 		}
 	}()
 
@@ -657,8 +657,8 @@ func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc, b
 			// allocating goroutines or fragment memory.
 			commitAttrs := s.gitAttributes(gitdiffFile)
 			commitSHA := commitAttrs[AttrGitSHA]
-			if sourceutil.ShouldSkipAttrs(s.ShouldSkip, commitAttrs) {
-				sourceutil.LogTrace(groupCtx, s.Logger, "skipping diff entry: global prefilter", "commit", commitSHA, "path", gitdiffFile.NewName)
+			if s.ShouldSkip != nil && s.ShouldSkip(commitAttrs) {
+				logging.OrDiscard(s.Logger).Log(groupCtx, logging.LevelTrace, "skipping diff entry: global prefilter", "commit", commitSHA, "path", gitdiffFile.NewName)
 				continue
 			}
 
@@ -737,7 +737,7 @@ func drainGitOutput(diffFilesCh <-chan *gitdiff.File, errCh <-chan error) error 
 func (s *Git) fragmentsFromArchive(ctx context.Context, path string, commitAttrs map[string]string, yield FragmentsFunc) error {
 	blob, err := s.Cmd.NewBlobReaderContext(ctx, commitAttrs[AttrGitSHA], path)
 	if err != nil {
-		sourceutil.LoggerOrDiscard(s.Logger).Error("could not read archive blob", "error", err)
+		logging.OrDiscard(s.Logger).Error("could not read archive blob", "error", err)
 		return nil
 	}
 	file := File{
@@ -754,7 +754,7 @@ func (s *Git) fragmentsFromArchive(ctx context.Context, path string, commitAttrs
 		return yield(fragment, err)
 	})
 	if closeErr := blob.Close(); closeErr != nil {
-		sourceutil.LoggerOrDiscard(s.Logger).Debug("blobReader.Close() returned an error", "error", closeErr)
+		logging.OrDiscard(s.Logger).Debug("blobReader.Close() returned an error", "error", closeErr)
 	}
 	return err
 }
@@ -810,12 +810,12 @@ type GitCmdOption struct {
 // disables logging.
 func WithGitCmdLogger(logger *slog.Logger) GitCmdOption {
 	return GitCmdOption{apply: func(options *gitCmdOptions) {
-		options.logger = sourceutil.LoggerOrDiscard(logger)
+		options.logger = logging.OrDiscard(logger)
 	}}
 }
 
 func resolveGitCmdOptions(options []GitCmdOption) gitCmdOptions {
-	resolved := gitCmdOptions{logger: sourceutil.LoggerOrDiscard(nil)}
+	resolved := gitCmdOptions{logger: logging.OrDiscard(nil)}
 	for _, option := range options {
 		if option.apply != nil {
 			option.apply(&resolved)
@@ -1142,10 +1142,10 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error, logger *slog.Logg
 				"See \"git help gc\" for manual housekeeping") ||
 			strings.Contains(scanner.Text(),
 				"Auto packing the repository in background for optimum performance") {
-			sourceutil.LoggerOrDiscard(logger).Warn(scanner.Text())
+			logging.OrDiscard(logger).Warn(scanner.Text())
 		} else {
 			line := scanner.Text()
-			sourceutil.LoggerOrDiscard(logger).Error("git command error", "message", line)
+			logging.OrDiscard(logger).Error("git command error", "message", line)
 			errLines = append(errLines, line)
 		}
 	}
@@ -1166,7 +1166,7 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, l
 	if err != nil {
 		return nil, err
 	}
-	gitCmd, err := startGitCmd(cmd, sourceClean, gitCmdOptions{logger: sourceutil.LoggerOrDiscard(logger), stream: true})
+	gitCmd, err := startGitCmd(cmd, sourceClean, gitCmdOptions{logger: logging.OrDiscard(logger), stream: true})
 	if err != nil {
 		return nil, err
 	}

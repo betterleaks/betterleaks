@@ -22,10 +22,10 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
-	"github.com/betterleaks/betterleaks/v2/sources/internal/sourceutil"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
@@ -219,7 +219,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if err := s.resolveResources(); err != nil {
 		return err
 	}
-	sourceutil.LoggerOrDiscard(s.Logger).Info("starting GitLab scan", "target", s.URL, "base", s.BaseURL, "resources", s.Resources)
+	logging.OrDiscard(s.Logger).Info("starting GitLab scan", "target", s.URL, "base", s.BaseURL, "resources", s.Resources)
 
 	start := time.Now()
 	jobs, budget := sourcejobs.EnsureBudget(s.Jobs, sourcejobs.AutomaticProvider(), s.budget)
@@ -263,10 +263,10 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 		}
 		return combined
 	}
-	sourceutil.LoggerOrDiscard(s.Logger).Info("enumeration complete, waiting for scans", "projects", projCount.Load(), "duration", time.Since(start))
+	logging.OrDiscard(s.Logger).Info("enumeration complete, waiting for scans", "projects", projCount.Load(), "duration", time.Since(start))
 
 	scanErr := scanGroup.Wait()
-	sourceutil.LoggerOrDiscard(s.Logger).Info("scan complete", "projects", projCount.Load(), "duration", time.Since(start))
+	logging.OrDiscard(s.Logger).Info("scan complete", "projects", projCount.Load(), "duration", time.Since(start))
 	return scanErr
 }
 
@@ -286,7 +286,7 @@ func (s *Source) buildAPIBase() (*url.URL, error) {
 	if u.Scheme == "" || u.Host == "" {
 		return nil, fmt.Errorf("GitLab base URL must include scheme and host: %q", base)
 	}
-	u.Path = sourceutil.SingleSlashJoin(u.Path, gitlabAPISuffix)
+	u.Path = strings.TrimSuffix(u.Path, "/") + "/" + gitlabAPISuffix
 	return u, nil
 }
 
@@ -746,7 +746,7 @@ func (s *Source) enumerateProjects(ctx context.Context, target *gitlabTarget) (<
 				return
 			}
 			if s.isExcluded(p.PathWithNamespace) {
-				sourceutil.LoggerOrDiscard(s.Logger).Debug("excluding project", "project", p.PathWithNamespace)
+				logging.OrDiscard(s.Logger).Debug("excluding project", "project", p.PathWithNamespace)
 				return
 			}
 			seen[p.ID] = true
@@ -917,7 +917,7 @@ func (s *Source) scanProject(ctx context.Context, proj *gitlabProject, yield sou
 }
 
 func (s *Source) scanProjectWithJobs(ctx context.Context, proj *gitlabProject, jobs int, yield sources.FragmentsFunc) error {
-	logger := sourceutil.LoggerOrDiscard(s.Logger).With("project", proj.PathWithNamespace)
+	logger := logging.OrDiscard(s.Logger).With("project", proj.PathWithNamespace)
 	projectAttrs := s.projectAttributes(proj, "")
 
 	// L1 — drop the whole project early.
@@ -1027,7 +1027,7 @@ func (s *Source) scanIssues(ctx context.Context, proj *gitlabProject, yield sour
 				sources.AttrURL:      issue.WebURL,
 			}
 			// L2 skip: drop this whole issue (body + comments) without fetching notes.
-			if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 				continue
 			}
 			if s.Resources.Has(ResourceTypeIssues) {
@@ -1070,7 +1070,7 @@ func (s *Source) scanMRs(ctx context.Context, proj *gitlabProject, yield sources
 				AttrMRIID:            strconv.Itoa(mr.IID),
 				sources.AttrURL:      mr.WebURL,
 			}
-			if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 				continue
 			}
 			if s.Resources.Has(ResourceTypeMRs) {
@@ -1113,7 +1113,7 @@ func (s *Source) scanItemNotes(ctx context.Context, projectID int, itemKind stri
 				sources.AttrURL:      gitlabNoteURL(parentURL, note.ID),
 				parentAttrKey:        parentAttrVal,
 			}
-			if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 				continue
 			}
 			frag := sources.Fragment{Raw: note.Body, Attributes: cloneAttrs(attrs)}
@@ -1143,7 +1143,7 @@ func (s *Source) scanSnippets(ctx context.Context, proj *gitlabProject, yield so
 				sources.AttrURL:      snip.WebURL,
 				sources.AttrPath:     snip.FileName,
 			}
-			if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 				continue
 			}
 			raw, err := s.apiURL(fmt.Sprintf("projects/%d/snippets/%d/raw", proj.ID, snip.ID))
@@ -1151,7 +1151,7 @@ func (s *Source) scanSnippets(ctx context.Context, proj *gitlabProject, yield so
 				return false, err
 			}
 			if err := s.downloadAndScan(ctx, raw.String(), snip.FileName, attrs, yield); err != nil {
-				sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan snippet", "error", err, "snippet", snip.FileName)
+				logging.OrDiscard(s.Logger).Error("could not scan snippet", "error", err, "snippet", snip.FileName)
 			}
 		}
 		return len(page) == gitlabPerPage, nil
@@ -1178,7 +1178,7 @@ func (s *Source) scanReleases(ctx context.Context, proj *gitlabProject, yield so
 				sources.AttrResource: ResourceRelease,
 				AttrReleaseTag:       rel.TagName,
 			}
-			if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 				continue
 			}
 			if rel.Description != "" {
@@ -1255,7 +1255,7 @@ func (s *Source) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 		AttrCIPipelineID:     strconv.FormatInt(job.Pipeline.ID, 10),
 		sources.AttrURL:      job.WebURL,
 	}
-	if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 		return nil
 	}
 	traceURL, err := s.apiURL(fmt.Sprintf("projects/%d/jobs/%d/trace", proj.ID, job.ID))
@@ -1264,7 +1264,7 @@ func (s *Source) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 	}
 	logPath := fmt.Sprintf("ci/jobs/%s/job_%d.log", safePath(job.Name), job.ID)
 	if err := s.downloadAndScan(ctx, traceURL.String(), logPath, attrs, yield); err != nil {
-		sourceutil.LoggerOrDiscard(s.Logger).Debug("could not scan job trace", "error", err, "job", job.ID)
+		logging.OrDiscard(s.Logger).Debug("could not scan job trace", "error", err, "job", job.ID)
 	}
 	if !s.Resources.Has(ResourceTypeCIArtifacts) || len(job.Artifacts) == 0 {
 		return nil
@@ -1276,7 +1276,7 @@ func (s *Source) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 		AttrCIPipelineID:     strconv.FormatInt(job.Pipeline.ID, 10),
 		sources.AttrURL:      job.WebURL,
 	}
-	if sourceutil.ShouldSkipAttrs(s.ShouldSkip, artifactAttrs) {
+	if s.ShouldSkip != nil && s.ShouldSkip(artifactAttrs) {
 		return nil
 	}
 	artURL, err := s.apiURL(fmt.Sprintf("projects/%d/jobs/%d/artifacts", proj.ID, job.ID))
@@ -1285,7 +1285,7 @@ func (s *Source) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 	}
 	artifactPath := fmt.Sprintf("ci/artifacts/%s/job_%d.zip", safePath(job.Name), job.ID)
 	if err := s.downloadAndScan(ctx, artURL.String(), artifactPath, artifactAttrs, yield); err != nil {
-		sourceutil.LoggerOrDiscard(s.Logger).Debug("could not scan job artifacts", "error", err, "job", job.ID)
+		logging.OrDiscard(s.Logger).Debug("could not scan job artifacts", "error", err, "job", job.ID)
 	}
 	return nil
 }
@@ -1352,7 +1352,7 @@ func (s *Source) scanSingleIssue(ctx context.Context, proj *gitlabProject, iid i
 		AttrIssueIID:         strconv.Itoa(issue.IID),
 		sources.AttrURL:      issue.WebURL,
 	}
-	if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 		return nil
 	}
 	if s.Resources.Has(ResourceTypeIssues) {
@@ -1381,7 +1381,7 @@ func (s *Source) scanSingleMR(ctx context.Context, proj *gitlabProject, iid int,
 		AttrMRIID:            strconv.Itoa(mr.IID),
 		sources.AttrURL:      mr.WebURL,
 	}
-	if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 		return nil
 	}
 	if s.Resources.Has(ResourceTypeMRs) {
@@ -1412,7 +1412,7 @@ func (s *Source) scanSingleSnippet(ctx context.Context, proj *gitlabProject, sni
 		sources.AttrURL:      snip.WebURL,
 		sources.AttrPath:     snip.FileName,
 	}
-	if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 		return nil
 	}
 	raw, err := s.apiURL(fmt.Sprintf("projects/%d/snippets/%d/raw", proj.ID, snip.ID))
@@ -1435,7 +1435,7 @@ func (s *Source) scanSingleRelease(ctx context.Context, proj *gitlabProject, tag
 		sources.AttrResource: ResourceRelease,
 		AttrReleaseTag:       rel.TagName,
 	}
-	if sourceutil.ShouldSkipAttrs(s.ShouldSkip, attrs) {
+	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
 		return nil
 	}
 	if rel.Description != "" && s.Resources.Has(ResourceTypeReleases) {
@@ -1464,11 +1464,11 @@ func (s *Source) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield
 			AttrReleaseTag:       rel.TagName,
 			AttrReleaseAssetName: name,
 		}
-		if sourceutil.ShouldSkipAttrs(s.ShouldSkip, assetAttrs) {
+		if s.ShouldSkip != nil && s.ShouldSkip(assetAttrs) {
 			continue
 		}
 		if err := s.downloadAndScan(ctx, src.URL, "release/"+rel.TagName+"/"+name, assetAttrs, yield); err != nil {
-			sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan release source archive", "error", err, "tag", rel.TagName, "asset", name)
+			logging.OrDiscard(s.Logger).Error("could not scan release source archive", "error", err, "tag", rel.TagName, "asset", name)
 		}
 	}
 	for _, link := range rel.Assets.Links {
@@ -1480,11 +1480,11 @@ func (s *Source) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield
 			AttrReleaseTag:       rel.TagName,
 			AttrReleaseAssetName: link.Name,
 		}
-		if sourceutil.ShouldSkipAttrs(s.ShouldSkip, assetAttrs) {
+		if s.ShouldSkip != nil && s.ShouldSkip(assetAttrs) {
 			continue
 		}
 		if err := s.downloadAndScan(ctx, link.URL, "release/"+rel.TagName+"/"+link.Name, assetAttrs, yield); err != nil {
-			sourceutil.LoggerOrDiscard(s.Logger).Error("could not scan release asset", "error", err, "tag", rel.TagName, "asset", link.Name)
+			logging.OrDiscard(s.Logger).Error("could not scan release asset", "error", err, "tag", rel.TagName, "asset", link.Name)
 		}
 	}
 	return nil
