@@ -41,6 +41,7 @@ type compiledProgram struct {
 var emptyStringMap = map[string]string{}
 var emptyFilterFinding = map[string]any{
 	"secret":               "",
+	"captures":             emptyStringMap,
 	"match":                "",
 	"line":                 "",
 	"rule_id":              "",
@@ -405,22 +406,18 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 		findingWithCaptures[key] = value
 	}
 	findingWithCaptures["captures"] = captures
-	legacyCaptures := legacyValidationCaptures(captures, components)
 	rt := &runtimeBindings{
 		validation: e,
 		ctx:        ctx,
 		finding:    findingWithCaptures,
 		attrs:      attributes,
-		captures:   legacyCaptures,
 		components: components,
 		debug:      state,
 	}
 	b := baseBindings(rt)
 	b["ctx"] = rt.ctx
 	b["finding"] = rt.finding
-	b["captures"] = rt.captures
 	b["components"] = rt.components
-	b["secret"] = lookupString(rt.finding, "secret")
 	b["bytes"] = func(s string) []byte { return []byte(s) }
 	b["size"] = size
 	b["substring"] = substring
@@ -444,43 +441,6 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 	return b
 }
 
-// legacyValidationCaptures preserves the v1 composite-validation contract at
-// the top-level captures binding. New expressions should use finding["captures"]
-// for primary named groups and components for component data. The overloaded
-// binding can be removed in a future breaking release.
-func legacyValidationCaptures(primary map[string]string, components map[string]any) map[string]string {
-	if len(components) == 0 {
-		return primary
-	}
-
-	legacy := make(map[string]string, len(primary)+len(components)*2)
-	for name, value := range primary {
-		legacy[name] = value
-	}
-	for ruleID, raw := range components {
-		component, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		if secret, ok := component["secret"].(string); ok {
-			legacy[ruleID] = secret
-		}
-		switch captures := component["captures"].(type) {
-		case map[string]string:
-			for name, value := range captures {
-				legacy[ruleID+":"+name] = value
-			}
-		case map[string]any:
-			for name, rawValue := range captures {
-				if value, ok := rawValue.(string); ok {
-					legacy[ruleID+":"+name] = value
-				}
-			}
-		}
-	}
-	return legacy
-}
-
 type runtimeBindings struct {
 	validation           *Runtime
 	ctx                  context.Context
@@ -488,7 +448,6 @@ type runtimeBindings struct {
 	tokenCounterProvider func() *tokenizer.Counter
 	finding              any
 	attrs                any
-	captures             any
 	components           any
 	debug                *evalState
 }
@@ -518,9 +477,7 @@ func baseBindings(rt *runtimeBindings) bindings {
 func setCompileMaps(b bindings) {
 	b["finding"] = map[string]any{"captures": map[string]any{}}
 	b["attributes"] = map[string]any{}
-	b["captures"] = map[string]any{}
 	b["components"] = map[string]any{}
-	b["secret"] = ""
 }
 
 func nonNilStringMap(m map[string]string) map[string]string {

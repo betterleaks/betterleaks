@@ -3,6 +3,7 @@
 // Run with: go run examples/with_analysis.go
 // This example detects plaintext and Base64 credentials, validates and analyzes
 // them with local mock rules, and streams redacted findings as JSONL to stdout.
+// It also validates an already-extracted credential through the direct SDK API.
 // No network requests are made. Scan summaries and diagnostics go to stderr.
 package main
 
@@ -146,5 +147,21 @@ func run() error {
 			return fmt.Errorf("scan %s: %w", path, err)
 		}
 	}
-	return nil
+	// Already have a credential? No Reader, regex matching, or Scan is needed.
+	// This deliberately checks the fixture ignored by scans above: explicit
+	// validation bypasses scan filters, fingerprint ignores, and status filters.
+	result, err := detector.ValidateCredential(ctx, detect.Credential{
+		RuleID: "mock-api-key",
+		Secret: fixtureToken,
+		Attributes: map[string]string{
+			"application": "example-service",
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("validate credential: %w", err)
+	}
+	logger.Info("credential checked", "status", result.Validation.Status,
+		"severity", result.Analysis.Severity)
+	// Credential reports already sanitize supplied secrets and captures.
+	return encoder.Encode(result)
 }

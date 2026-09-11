@@ -13,14 +13,13 @@ import (
 
 const CredentialReportSchemaVersion = 1
 
-// CredentialReport keeps validation in its own namespace. Credential access
-// analysis can be added later as an "analysis" sibling without changing the
-// validation result contract.
+// CredentialReport is a sanitized direct validation and optional analysis result.
 type CredentialReport struct {
 	SchemaVersion int                        `json:"schema_version"`
 	RuleID        string                     `json:"rule_id"`
 	Attributes    map[string]string          `json:"attributes,omitempty"`
 	Validation    CredentialValidationReport `json:"validation"`
+	Analysis      Analysis                   `json:"analysis,omitzero"`
 }
 
 // CredentialValidationReport is the validation portion of a credential report.
@@ -36,6 +35,7 @@ type CredentialComponentSetReport struct {
 	Status     ValidationStatus            `json:"status,omitempty"`
 	Reason     string                      `json:"reason,omitempty"`
 	Components []CredentialComponentReport `json:"components"`
+	Analysis   Analysis                    `json:"analysis,omitzero"`
 }
 
 // CredentialComponentReport identifies one component and whether the rule
@@ -67,6 +67,7 @@ func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 		SchemaVersion: CredentialReportSchemaVersion,
 		RuleID:        finding.RuleID,
 		Attributes:    sanitizeCredentialAttributes(finding.Attributes, secrets),
+		Analysis:      SanitizeAnalysis(finding.Analysis, secrets),
 		Validation: CredentialValidationReport{
 			Status:   finding.Validation.Status,
 			Reason:   sanitizeCredentialString(finding.Validation.Reason, secrets),
@@ -75,8 +76,9 @@ func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 	}
 	for _, set := range finding.ComponentSets {
 		setResult := CredentialComponentSetReport{
-			Status: set.Validation.Status,
-			Reason: sanitizeCredentialString(set.Validation.Reason, secrets),
+			Status:   set.Validation.Status,
+			Reason:   sanitizeCredentialString(set.Validation.Reason, secrets),
+			Analysis: SanitizeAnalysis(set.Analysis, secrets),
 		}
 		for _, component := range set.Components {
 			setResult.Components = append(setResult.Components, CredentialComponentReport{
@@ -294,6 +296,26 @@ func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) err
 				if _, err := fmt.Fprintf(w, "│      reason: %s\n", set.Reason); err != nil {
 					return err
 				}
+			}
+		}
+	}
+	if !result.Analysis.IsZero() {
+		if _, err := fmt.Fprintln(w, "│\n│ analysis:"); err != nil {
+			return err
+		}
+		values := analysisDisplayValues(result.Analysis, noColor)
+		keys := make([]string, 0, len(values))
+		width := 0
+		for key, value := range values {
+			if value != "" {
+				keys = append(keys, key)
+				width = max(width, len(key))
+			}
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if err := writeCredentialDotLeader(w, key, values[key], width); err != nil {
+				return err
 			}
 		}
 	}

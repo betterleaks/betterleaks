@@ -656,13 +656,13 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 	f.PrintComponentFindings(noColor, redact)
 }
 
-func (f *Finding) printPrettyAnalysis(noColor bool) {
+func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
 	values := map[string]string{
-		"severity":     formatAnalysisSeverity(f.Analysis.Severity, noColor),
-		"reason":       f.Analysis.Reason,
-		"capabilities": capabilitiesText(f.Analysis.Capabilities),
+		"severity":     formatAnalysisSeverity(analysis.Severity, noColor),
+		"reason":       analysis.Reason,
+		"capabilities": capabilitiesText(analysis.Capabilities),
 	}
-	if identity := f.Analysis.Identity; identity != nil {
+	if identity := analysis.Identity; identity != nil {
 		values["identity.id"] = identity.ID
 		values["identity.username"] = identity.Username
 		values["identity.name"] = identity.Name
@@ -673,10 +673,10 @@ func (f *Finding) printPrettyAnalysis(noColor bool) {
 			values["account.domains"] = strings.Join(account.Domains, ", ")
 		}
 	}
-	for key, value := range f.Analysis.Debug {
+	for key, value := range analysis.Debug {
 		values["debug."+key] = fmt.Sprintf("%v", value)
 	}
-	for key, value := range f.Analysis.Metadata {
+	for key, value := range analysis.Metadata {
 		displayKey := key
 		for {
 			if _, exists := values[displayKey]; !exists {
@@ -686,6 +686,12 @@ func (f *Finding) printPrettyAnalysis(noColor bool) {
 		}
 		values[displayKey] = formatMetadataValue(value)
 	}
+
+	return values
+}
+
+func (f *Finding) printPrettyAnalysis(noColor bool) {
+	values := analysisDisplayValues(f.Analysis, noColor)
 
 	keys := make([]string, 0, len(values))
 	maxKey := 0

@@ -52,6 +52,45 @@ func TestCredentialReportOmitsInternalAttributes(t *testing.T) {
 	}
 }
 
+func TestCredentialReportAnalysis(t *testing.T) {
+	analysis := Analysis{
+		Severity: SeverityMedium,
+		Identity: &AnalysisIdentity{Username: "owner-secret-value"},
+		Metadata: map[string]any{"credential": "secret-value"},
+	}
+	finding := Finding{
+		RuleID:     "demo",
+		Validation: Validation{Status: ValidationStatusValid},
+		Analysis:   analysis,
+		ComponentSets: []ComponentSet{{
+			Validation: Validation{Status: ValidationStatusValid},
+			Analysis:   analysis,
+			Components: []*ComponentFinding{{RuleID: "part"}},
+		}},
+	}
+	result := NewCredentialReport(finding, []string{"secret-value"})
+	if result.Analysis.Identity.Username != "owner-[redacted]" ||
+		result.Validation.ComponentSets[0].Analysis.Identity.Username != "owner-[redacted]" {
+		t.Fatalf("analysis was not sanitized: %#v", result)
+	}
+	if analysis.Identity.Username != "owner-secret-value" {
+		t.Fatal("report construction mutated the original analysis")
+	}
+	for _, format := range []CredentialReportFormat{CredentialReportFormatJSONL, CredentialReportFormatPretty} {
+		t.Run(string(format), func(t *testing.T) {
+			var output bytes.Buffer
+			if err := (CredentialReporter{Format: format, NoColor: true}).Write(&output, result); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(output.String(), "secret-value") ||
+				!strings.Contains(output.String(), "owner-[redacted]") ||
+				!strings.Contains(output.String(), "analysis") {
+				t.Fatalf("unexpected analysis output: %s", &output)
+			}
+		})
+	}
+}
+
 func TestCredentialReportOmitsEmptyValidationMetadata(t *testing.T) {
 	got := NewCredentialReport(Finding{
 		RuleID: "test",

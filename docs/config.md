@@ -1,6 +1,6 @@
 # Betterleaks config
 
-The `betterleaks.toml` file controls detection, filtering, and validation.
+The `betterleaks.toml` file controls detection, filtering, validation, and analysis.
 It is TOML because rules are mostly flat data plus Expr expressions.
 
 ## Top-level shape
@@ -29,6 +29,7 @@ Each `[[rules]]` entry can use:
 - `filter`: rule-specific Expr expression to discard false positives.
 - `confidence`: optional `low`, `medium`, or `high` likelihood classification.
 - `validate`: Expr expression to actively verify whether a secret is live.
+- `analyze`: Expr expression to enrich a valid credential with identity and capabilities.
 - `components`: required or optional component rules used to build multipart findings.
 
 `keywords` are strongly recommended. Betterleaks checks them with an
@@ -36,13 +37,17 @@ Aho-Corasick trie before running the heavier regex.
 
 ## Expr overview
 
-Betterleaks uses [Expr](https://expr-lang.org/) for `prefilter`, `filter`, and
-`validate` expressions.
+Betterleaks uses [Expr](https://expr-lang.org/) for `prefilter`, `filter`,
+`validate`, and `analyze` expressions.
 
 - `prefilter` runs before regex matching and only has `attributes`.
-- `filter` runs after regex matching and has `attributes` and `finding`.
-- `validate` runs after filtering when validation is enabled and has
-  `attributes`, `finding`, and `components`.
+- `filter` runs after regex matching, before component assembly, and has
+  `attributes` and `finding`, including `finding.captures`. Returning `true`
+  discards that match. A component rule's filter sees its own match as `finding`.
+- `validate` runs after filtering and component assembly when validation is
+  enabled. It has `attributes`, `finding`, and one combination of `components`.
+- `analyze` runs for each valid combination when analysis is enabled. It has
+  the same inputs plus that combination's `validation` result.
 
 Use brackets to access map values. For nested data that may be absent, use `?.`
 and provide a fallback with `??`:
@@ -57,9 +62,44 @@ r.json?.login ?? ""
 
 | Name | Scope | Description |
 | :--- | :--- | :--- |
-| `attributes` | prefilter, filter, validate | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, `fs.symlink`, and the read-only `fs.first_fragment` (`"true"` for a file's first chunk and `"false"` thereafter). |
-| `finding` | filter, validate | Matched secret data. Common keys include `secret`, `match`, `line`, `rule_id`, and `description`. In validation, `finding["captures"]` contains the primary rule's named regex groups. |
-| `components` | validate | Matched component findings, keyed by the referenced component rule ID. Each has `secret` and `captures` fields. |
+| `attributes` | prefilter, filter, validate, analyze | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, `fs.symlink`, and the read-only `fs.first_fragment` (`"true"` for a file's first chunk and `"false"` thereafter). |
+| `finding` | filter, validate, analyze | Primary match data. `finding.secret` is its selected value; `finding.captures` contains its named regex groups. Other keys include `match`, `line`, `rule_id`, and `description`. |
+| `components` | validate, analyze | One combination of companion matches, keyed by referenced rule ID. Each has `secret` and `captures` fields. Absent optional components have no entry. |
+| `validation` | analyze | This combination's validation `status`, `reason`, public `metadata`, and private `analysis` handoff data. |
+
+Use these canonical paths in rule expressions:
+
+```expr
+finding.secret
+finding.captures["username"]
+components["account-id"].secret
+components["account-id"].captures["region"]
+```
+
+`finding.secret` is the rule's primary value, not necessarily a complete
+credential or its only sensitive field. Captures belong to that same match;
+components come from other rules' matches. A capture can be required for
+authentication without being a component. Named groups include the selected
+secret group if it has a name; unmatched or empty groups are omitted during
+scanning. Use `?.` and `??` for values that may be absent.
+
+For example, a URI rule can select the password from
+`postgres://alice:password@example.com/database` while capturing the username,
+host, and database. Its filter can exclude a fixture using those captures:
+
+```expr
+finding.captures["username"] == "example"
+&& finding.captures["host"] == "example.invalid"
+```
+
+Validation and analysis read those same paths. A companion rule's named
+captures stay under `components[id].captures`, even if they have the same names
+as the primary rule's captures.
+
+Top-level `secret` and `captures` bindings are not supported. Expressions using
+them fail compilation. Use `finding.secret`, `finding.captures`, and
+`components[id].secret` / `.captures` instead. Dot and bracket access are
+equivalent: `finding.secret` and `finding["secret"]` are both supported.
 
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
@@ -387,11 +427,12 @@ before and after, `100C` allows 100 characters on either side, and signs make a
 boundary directional (for example, `-2L,+4C`). When `within` is omitted, the
 component only needs to occur in the same fragment.
 
-Validation receives primary captures and matched components in this canonical
-shape:
+Validation and analysis receive primary captures and matched components in this
+canonical shape:
 
 ```expr
-finding["captures"]                         // primary rule named capture groups
+finding.secret                              // primary rule's selected value
+finding.captures                             // primary rule named capture groups
 components["account-id"]?.secret            // component's selected secret
 components["account-id"]?.captures?.id       // component named capture group
 ```
@@ -404,6 +445,18 @@ let account = components["account-id"]?.secret ?? "";
 let session = components["session-token"]?.secret ?? "";
 let region = components["account-id"]?.captures?.region ?? "";
 ```
+
+Each component combination is validated separately with the same primary
+match. Analysis runs separately for each valid combination, using that
+combination's validation result. Expressions do not iterate over all component
+sets. Filters run before assembly and cannot inspect `components` or provider
+results.
+
+Direct SDK validation supplies this same structure through `detect.Credential`:
+`Secret` becomes `finding.secret`, `Captures` becomes `finding.captures`, and
+each `Components[id]` supplies `components[id].secret` and `.captures`.
+Direct validation skips filters and requires callers to supply capture values;
+it does not run the detection regex to reconstruct them.
 
 ### Overriding rule defaults with env vars
 

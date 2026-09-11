@@ -17,7 +17,7 @@ import (
 	"time"
 
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/detect"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
@@ -31,13 +31,13 @@ description = "A test credential"
 regex = '''(test-token)'''
 validate = '''
 finding["secret"] == %q &&
-captures["tenant"] == "acme" &&
+finding.captures["tenant"] == "acme" &&
 attributes["path"] == "betterleaks://validate" ? {
   "result": "valid",
-  "reason": "tenant=" + captures["tenant"],
+  "reason": "tenant=" + finding.captures["tenant"],
   "owner": "alice",
   "echo": "credential=" + finding["secret"],
-  "capture_echo": {"tenant": captures["tenant"]},
+  "capture_echo": {"tenant": finding.captures["tenant"]},
   "empty": ""
 } : {
   "result": "invalid"
@@ -174,10 +174,11 @@ id = "account-secret"
 description = "Composite account credential"
 regex = '''(secret-[a-z]+)'''
 validate = '''
-captures["account-id"] == "acct-secret" &&
-captures["account-id:region"] == "us" ? {
+len(finding.captures) == 0 &&
+components["account-id"].secret == "acct-secret" &&
+components["account-id"].captures["region"] == "us" ? {
   "result": "valid",
-  "nested": {"component": captures["account-id"]}
+  "nested": {"component": components["account-id"].secret}
 } : {
   "result": "invalid"
 }
@@ -246,8 +247,8 @@ components = [
   { id = "optional-part", optional = true },
 ]
 validate = '''
-captures["required-part"] == "required-secret" &&
-get(captures, "optional-part", "") in ["", "optional-secret"] ? {
+components["required-part"].secret == "required-secret" &&
+(components["optional-part"]?.secret ?? "") in ["", "optional-secret"] ? {
   "result": "valid"
 } : {
   "result": "invalid"
@@ -346,10 +347,10 @@ id = "client-secret"
 regex = '''(secret-[a-z]+)'''
 validate = '''
 finding["secret"] == "secret-primary" &&
-captures["client-id"] == "client-primary" &&
-captures["client-id:tenant"] == "acme" ? {
+components["client-id"].secret == "client-primary" &&
+components["client-id"].captures["tenant"] == "acme" ? {
   "result": "valid",
-  "echo": finding["secret"] + ":" + captures["client-id"]
+  "echo": finding["secret"] + ":" + components["client-id"].secret
 } : {
   "result": "invalid"
 }
@@ -667,10 +668,10 @@ validate = '''{"result": "valid"}'''
 	}
 }
 
-func TestEvaluateCredentialHonorsCanceledContext(t *testing.T) {
+func TestValidateCredentialHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := evaluateCredential(ctx, nil, nil, report.Finding{})
+	_, err := (*detect.Detector)(nil).ValidateCredential(ctx, detect.Credential{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
@@ -743,12 +744,8 @@ func TestUnknownValidationRuleErrorSuggestsProviderRules(t *testing.T) {
 	}
 }
 
-func TestConfigureCredentialRuntimeRejectsNegativeTimeout(t *testing.T) {
-	runtime, err := exprruntime.New(nil)
-	if err != nil {
-		t.Fatalf("new runtime: %v", err)
-	}
-	err = configureCredentialRuntime(ProviderRuntimeFlags{ProviderTimeout: -time.Second}, runtime)
+func TestValidateProviderFlagsRejectNegativeTimeout(t *testing.T) {
+	err := (ProviderRuntimeFlags{ProviderTimeout: -time.Second}).Validate()
 	if err == nil || !strings.Contains(err.Error(), "must be non-negative") {
 		t.Fatalf("error = %v", err)
 	}

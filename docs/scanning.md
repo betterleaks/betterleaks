@@ -788,6 +788,12 @@ declared with `optional = true` may be omitted. Repeat `--component` when a rule
 needs more than one component. Use `--capture name=value` when a validation
 expression needs a named regex capture that cannot be reconstructed from the
 credential. A component capture uses `--capture rule-id:name=value`.
+
+Expressions read the primary value as `finding.secret`, primary captures as
+`finding.captures["name"]`, and companion values as `components["rule-id"].secret`
+or `components["rule-id"].captures["name"]`. These are the same paths used by
+scan-based validation and analysis; the CLI supplies the values without regex
+matching. See [the Expr input contract](config.md#data-available-to-expr).
 Supplied capture values are treated as sensitive and redacted from validation
 reasons and metadata just like primary and component secrets.
 

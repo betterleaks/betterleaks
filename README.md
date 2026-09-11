@@ -134,6 +134,34 @@ Use `config.LoadFile` to load an application-owned `betterleaks.toml`,
 `detect.WithLogger` to attach an application-owned `slog.Logger`. For streaming
 input, pass a `sources.Reader` to `Detector.Scan`.
 
+For an already-extracted secret, use `ValidateCredential` with its rule ID:
+
+```go
+detector, err := detect.NewDetector(cfg, detect.WithAnalysis(detect.ProviderOptions{
+    Timeout: 5 * time.Second,
+}))
+if err != nil {
+    return err
+}
+result, err := detector.ValidateCredential(ctx, detect.Credential{
+    RuleID: "github-pat",
+    Secret: token,
+})
+if err != nil {
+    return err
+}
+// result.Validation contains liveness; result.Analysis contains identity,
+// capabilities, and severity when the credential is valid and analysis exists.
+```
+
+Use `WithValidation` instead for validation alone. Supply named `Captures` and
+`Components` (a map of component rule IDs to `detect.CredentialComponent`) when
+the rule needs them. Direct validation bypasses detection and scan filters,
+including status filters and fingerprint ignores. Results sanitize supplied
+credential values; provider failures appear in the result, while invalid input,
+compilation errors, and cancellation return Go errors. Each call owns its
+provider runtime and request limits. See [the runnable analysis example](examples/with_analysis.go).
+
 Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
 `sources.Git`. Provider integrations have their own packages:
 

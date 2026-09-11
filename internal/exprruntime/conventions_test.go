@@ -81,8 +81,20 @@ func TestFilterScopes(t *testing.T) {
 	require.NoError(t, err)
 	_, err = env.CompileFilter(`entropy(finding["secret"]) > 0`, nil)
 	require.NoError(t, err)
+	_, err = env.CompileFilter(`finding.captures.username == "example"`, nil)
+	require.NoError(t, err)
+	for _, expression := range []string{
+		`components["part"].secret == "fixture"`,
+		`validation.status == "valid"`,
+		`captures["username"] == "example"`,
+	} {
+		_, err = env.CompileFilter(expression, nil)
+		require.Error(t, err, "filter must not expose provider-stage bindings: %s", expression)
+	}
 
 	_, err = env.CompilePrefilter(`finding["secret"] == ""`)
+	require.Error(t, err)
+	_, err = env.CompilePrefilter(`finding.captures.username == "example"`)
 	require.Error(t, err)
 	_, err = env.CompilePrefilter(`filter.matchesAny(attributes["path"], [".go"])`)
 	require.NoError(t, err)
@@ -96,6 +108,43 @@ func TestCELBindIsRejected(t *testing.T) {
 
 	_, err = env.CompileValidation(`cel.bind(secret, finding["secret"], secret)`)
 	require.Error(t, err)
+}
+
+func TestCredentialBindingsRejectLegacyAliases(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	for _, stage := range []struct {
+		name    string
+		compile func(string) (Program, error)
+	}{
+		{"validation", env.CompileValidation},
+		{"analysis", env.CompileAnalysis},
+	} {
+		t.Run(stage.name, func(t *testing.T) {
+			for _, expression := range []string{
+				`secret`,
+				`captures["username"]`,
+				`captures["account-id"]`,
+				`captures["account-id:region"]`,
+				`captures?.username ?? ""`,
+			} {
+				_, err := stage.compile(expression)
+				require.ErrorContains(t, err, "unknown name", expression)
+			}
+			for _, expression := range []string{
+				`finding.secret`,
+				`finding["secret"]`,
+				`finding.captures["username"]`,
+				`components["account-id"].secret`,
+				`components["account-id"]?.captures?.region ?? ""`,
+				// Local variables are valid Expr, not injected legacy bindings.
+				`let secret = finding.secret; secret`,
+			} {
+				_, err := stage.compile(expression)
+				require.NoError(t, err, expression)
+			}
+		})
+	}
 }
 
 func TestAttributeMapAccessIsSafeWhenKeyIsMissing(t *testing.T) {

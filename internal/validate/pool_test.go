@@ -143,7 +143,7 @@ func TestPoolMaxRequestsReturnsNeedsValidationMetadataAndDoesNotCountCacheHits(t
 	}
 }
 
-func TestPoolExposesCanonicalAndLegacyComponentBindings(t *testing.T) {
+func TestPoolExposesCanonicalComponentBindings(t *testing.T) {
 	rt, err := exprruntime.New(nil)
 	if err != nil {
 		t.Fatalf("exprruntime.New: %v", err)
@@ -153,10 +153,6 @@ func TestPoolExposesCanonicalAndLegacyComponentBindings(t *testing.T) {
 && len(components) == 1
 && (components["required-component"]?.secret ?? "") == "account"
 && (components["required-component"]?.captures?.kind ?? "") == "tenant"
-&& len(captures) == 3
-&& captures["primary_group"] == "named-value"
-&& captures["required-component"] == "account"
-&& captures["required-component:kind"] == "tenant"
 ? {"result": "valid"} : {"result": "invalid"}`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)

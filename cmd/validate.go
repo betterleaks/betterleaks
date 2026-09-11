@@ -1,24 +1,17 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
-	"regexp/syntax"
 	"sort"
 	"strings"
 
-	"github.com/expr-lang/expr/ast"
-	exprparser "github.com/expr-lang/expr/parser"
-
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/detect"
 	validatepkg "github.com/betterleaks/betterleaks/v2/internal/validate"
 	"github.com/betterleaks/betterleaks/v2/report"
-	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 const maxValidateCredentialInputBytes = 1 << 20
@@ -80,34 +73,30 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 	if strings.TrimSpace(rule.ValidateExpr) == "" {
 		return fmt.Errorf("rule %q does not define validation", ruleID)
 	}
-	if err := validateRequiredCaptures(rule, input.Captures); err != nil {
-		return err
-	}
-
-	rt, err := exprruntime.New(nil)
+	rates, err := parseProviderRuleRPS(options.ProviderRPSRule)
 	if err != nil {
 		return err
 	}
-	if err := configureCredentialRuntime(options.ProviderRuntimeFlags, rt); err != nil {
-		return err
-	}
-
-	program, err := rt.CompileValidation(rule.ValidateExpr)
-	if err != nil {
-		return fmt.Errorf("compiling rule %s validation: %w", ruleID, err)
-	}
-
-	finding, suppliedSecrets, err := buildValidateFinding(rule, input)
+	detector, err := detect.NewDetector(resolved.cfg, detect.WithValidation(detect.ProviderOptions{
+		Workers:                 1,
+		Timeout:                 options.ProviderTimeout,
+		MaxRequestsPerTarget:    options.ProviderMaxRequests,
+		RequestsPerSecond:       options.ProviderRPS,
+		RequestsPerSecondByRule: rates,
+		EnvVars:                 options.ProviderEnvVars,
+	}))
 	if err != nil {
 		return err
 	}
-
-	validated, err := evaluateCredential(runtime.Context, rt, program, finding)
+	credential, err := input.credential(ruleID)
+	if err != nil {
+		return err
+	}
+	result, err := detector.ValidateCredential(runtime.Context, credential)
 	if err != nil {
 		return err
 	}
 
-	result := report.NewCredentialReport(validated, suppliedSecrets)
 	return writeCredentialReport(runtime, globals, options, result)
 }
 
@@ -162,7 +151,7 @@ func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 		summary := report.CredentialRuleSummary{
 			RuleID:      rule.ID,
 			Description: rule.Description,
-			Captures:    requiredValidationCaptures(rule),
+			Captures:    validatepkg.RequiredCaptures(rule),
 		}
 		for _, component := range rule.Components {
 			summary.Components = append(summary.Components, report.CredentialComponentReport{
@@ -178,102 +167,37 @@ func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 	return result
 }
 
-func requiredValidationCaptures(rule configpkg.Rule) []string {
-	if rule.Regex == "" {
-		return nil
-	}
-	referenced := referencedValidationCaptures(rule.ValidateExpr)
-	parsed, err := syntax.Parse(rule.Regex, syntax.Perl)
-	if err != nil {
-		return nil
-	}
-	names := parsed.CapNames()
-	required := make([]string, 0, len(names))
-	seen := make(map[string]struct{}, len(names))
-	for index, name := range names {
-		if name == "" || index == rule.SecretGroup {
-			continue
-		}
-		if _, ok := referenced[name]; !ok {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		required = append(required, name)
-	}
-	sort.Strings(required)
-	return required
-}
-
-type validationCaptureCollector map[string]struct{}
-
-func (c validationCaptureCollector) Visit(node *ast.Node) {
-	member, ok := (*node).(*ast.MemberNode)
-	if !ok || !isValidationCaptureObject(member.Node) {
-		return
-	}
-	property, ok := member.Property.(*ast.StringNode)
-	if ok && property.Value != "" {
-		c[property.Value] = struct{}{}
-	}
-}
-
-func referencedValidationCaptures(expression string) map[string]struct{} {
-	captures := validationCaptureCollector{}
-	tree, err := exprparser.Parse(expression)
-	if err != nil {
-		return captures
-	}
-	ast.Walk(&tree.Node, captures)
-	return captures
-}
-
-func isValidationCaptureObject(node ast.Node) bool {
-	for {
-		chain, ok := node.(*ast.ChainNode)
-		if !ok {
-			break
-		}
-		node = chain.Node
-	}
-	if identifier, ok := node.(*ast.IdentifierNode); ok {
-		return identifier.Value == "captures"
-	}
-	member, ok := node.(*ast.MemberNode)
-	if !ok {
-		return false
-	}
-	property, ok := member.Property.(*ast.StringNode)
-	if !ok || property.Value != "captures" {
-		return false
-	}
-	base, ok := member.Node.(*ast.IdentifierNode)
-	return ok && base.Value == "finding"
-}
-
-func validateRequiredCaptures(rule configpkg.Rule, supplied map[string]string) error {
-	var missing []string
-	for _, name := range requiredValidationCaptures(rule) {
-		if supplied[name] == "" {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-	return fmt.Errorf(
-		"missing required capture(s) for rule %q: %s (use --capture name=value)",
-		rule.ID,
-		strings.Join(missing, ", "),
-	)
-}
-
 type validateCredentialInput struct {
 	Secret     string
 	Components map[string]string
 	Captures   map[string]string
+}
+
+// credential translates CLI component capture names (rule-id:name) into the
+// SDK's structured component inputs, keeping primary and companion captures separate.
+func (input validateCredentialInput) credential(ruleID string) (detect.Credential, error) {
+	supplied := make(map[string]struct{}, len(input.Components))
+	components := make(map[string]detect.CredentialComponent, len(input.Components))
+	for id, secret := range input.Components {
+		supplied[id] = struct{}{}
+		captures := make(map[string]string)
+		for name, value := range input.Captures {
+			if name, ok := strings.CutPrefix(name, id+":"); ok {
+				captures[name] = value
+			}
+		}
+		components[id] = detect.CredentialComponent{Secret: secret, Captures: captures}
+	}
+	if err := validateComponentCaptures(input.Captures, supplied); err != nil {
+		return detect.Credential{}, err
+	}
+	primaryCaptures := make(map[string]string)
+	for name, value := range input.Captures {
+		if !strings.Contains(name, ":") {
+			primaryCaptures[name] = value
+		}
+	}
+	return detect.Credential{RuleID: ruleID, Secret: input.Secret, Captures: primaryCaptures, Components: components}, nil
 }
 
 func readValidateCredentialInput(stdin io.Reader, cmd *ValidateCmd) (validateCredentialInput, error) {
@@ -377,110 +301,6 @@ func readLimitedValidateStdin(stdin io.Reader) ([]byte, error) {
 	return data, nil
 }
 
-func configureCredentialRuntime(flags ProviderRuntimeFlags, rt *exprruntime.Runtime) error {
-	rt.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(flags.ProviderEnvVars)
-
-	if flags.ProviderTimeout < 0 {
-		return errors.New("--provider-timeout must be non-negative")
-	}
-	if flags.ProviderTimeout > 0 {
-		rt.SetHTTPClient(&http.Client{Timeout: flags.ProviderTimeout})
-	}
-
-	if flags.ProviderMaxRequests < 0 {
-		return errors.New("provider maximum requests: must be non-negative")
-	}
-	if err := validateProviderRPS(flags.ProviderRPS); err != nil {
-		return fmt.Errorf("--provider-rps: %w", err)
-	}
-	ruleRPS, err := parseProviderRuleRPS(flags.ProviderRPSRule)
-	if err != nil {
-		return fmt.Errorf("--provider-rps-rule: %w", err)
-	}
-	if err := rt.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
-		MaxRequestsPerTarget:    flags.ProviderMaxRequests,
-		RequestsPerSecond:       flags.ProviderRPS,
-		RequestsPerSecondByRule: ruleRPS,
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
-func evaluateCredential(
-	ctx context.Context,
-	rt *exprruntime.Runtime,
-	program exprruntime.Program,
-	finding report.Finding,
-) (report.Finding, error) {
-	if err := ctx.Err(); err != nil {
-		return report.Finding{}, err
-	}
-
-	var (
-		result  report.Finding
-		emitted bool
-	)
-	pool := validatepkg.NewPoolContext(ctx, 1, rt)
-	pool.Emit = func(f report.Finding) {
-		result = f
-		emitted = true
-	}
-	if err := pool.SubmitContext(ctx, finding, program); err != nil {
-		pool.Close()
-		return report.Finding{}, err
-	}
-	pool.Close()
-
-	if err := ctx.Err(); err != nil {
-		return report.Finding{}, err
-	}
-	if !emitted {
-		return report.Finding{}, errors.New("validation did not produce a result")
-	}
-	return result, nil
-}
-
-func buildValidateFinding(rule configpkg.Rule, input validateCredentialInput) (report.Finding, []string, error) {
-	captures := input.Captures
-	attrs := map[string]string{sources.AttrPath: "betterleaks://validate"}
-
-	components, supplied, componentSecrets := buildValidateComponents(rule, input.Components, captures)
-	if err := validateComponents(rule, supplied); err != nil {
-		return report.Finding{}, nil, err
-	}
-	if err := validateComponentCaptures(captures, supplied); err != nil {
-		return report.Finding{}, nil, err
-	}
-
-	finding := report.Finding{
-		RuleID:          rule.ID,
-		Description:     rule.Description,
-		Match:           input.Secret,
-		Secret:          input.Secret,
-		Line:            input.Secret,
-		CaptureGroups:   captures,
-		RuleSpecificity: rule.Specificity,
-		Tags:            append([]string{}, rule.Tags...),
-		Location: report.Location{
-			StartLine:   1,
-			EndLine:     1,
-			StartColumn: 1,
-		},
-	}
-	finding.SetAttributes(attrs)
-	if len(components) > 0 {
-		finding.ComponentSets = []report.ComponentSet{{Components: components}}
-	}
-	suppliedSecrets := make([]string, 0, len(componentSecrets)+len(input.Captures)+1)
-	suppliedSecrets = append(suppliedSecrets, input.Secret)
-	suppliedSecrets = append(suppliedSecrets, componentSecrets...)
-	for _, capture := range input.Captures {
-		suppliedSecrets = append(suppliedSecrets, capture)
-	}
-	return finding, suppliedSecrets, nil
-}
-
 func parseUniqueAssignments(values []string) (map[string]string, error) {
 	if len(values) == 0 {
 		return nil, nil
@@ -522,58 +342,6 @@ func parseValidateComponentAssignments(values []string) (map[string]string, erro
 	return components, nil
 }
 
-func buildValidateComponents(
-	rule configpkg.Rule,
-	values map[string]string,
-	captures map[string]string,
-) ([]*report.ComponentFinding, map[string]struct{}, []string) {
-	components := make([]*report.ComponentFinding, 0, len(values))
-	optional := make(map[string]bool, len(rule.Components))
-	for _, component := range rule.Components {
-		optional[component.RuleID] = component.Optional
-	}
-	supplied := make(map[string]struct{}, len(values))
-	secrets := make([]string, 0, len(values))
-	ruleIDs := make([]string, 0, len(values))
-	for ruleID := range values {
-		ruleIDs = append(ruleIDs, ruleID)
-	}
-	sort.Strings(ruleIDs)
-	for _, ruleID := range ruleIDs {
-		secret := values[ruleID]
-		supplied[ruleID] = struct{}{}
-		secrets = append(secrets, secret)
-		components = append(components, &report.ComponentFinding{
-			RuleID:   ruleID,
-			Optional: optional[ruleID],
-			Location: report.Location{
-				StartLine:   1,
-				EndLine:     1,
-				StartColumn: 1,
-			},
-			Secret:        secret,
-			Match:         secret,
-			Line:          secret,
-			CaptureGroups: componentCaptureGroups(ruleID, captures),
-		})
-	}
-	return components, supplied, secrets
-}
-
-func componentCaptureGroups(ruleID string, captures map[string]string) map[string]string {
-	prefix := ruleID + ":"
-	out := map[string]string{}
-	for name, value := range captures {
-		if captureName, ok := strings.CutPrefix(name, prefix); ok && captureName != "" {
-			out[captureName] = value
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
 func validateComponentCaptures(captures map[string]string, supplied map[string]struct{}) error {
 	for name := range captures {
 		ruleID, captureName, componentCapture := strings.Cut(name, ":")
@@ -586,48 +354,6 @@ func validateComponentCaptures(captures map[string]string, supplied map[string]s
 		if _, ok := supplied[ruleID]; !ok {
 			return fmt.Errorf("capture %q belongs to component %q, which was not supplied", name, ruleID)
 		}
-	}
-	return nil
-}
-
-func validateComponents(rule configpkg.Rule, supplied map[string]struct{}) error {
-	declared := make(map[string]struct{}, len(rule.Components))
-	required := make(map[string]struct{}, len(rule.Components))
-	for _, component := range rule.Components {
-		declared[component.RuleID] = struct{}{}
-		if !component.Optional {
-			required[component.RuleID] = struct{}{}
-		}
-	}
-
-	var missing []string
-	for ruleID := range required {
-		if _, ok := supplied[ruleID]; !ok {
-			missing = append(missing, ruleID)
-		}
-	}
-	var extra []string
-	for ruleID := range supplied {
-		if _, ok := declared[ruleID]; !ok {
-			extra = append(extra, ruleID)
-		}
-	}
-	sort.Strings(missing)
-	sort.Strings(extra)
-
-	var problems []string
-	if len(missing) > 0 {
-		problems = append(problems, "missing required component(s): "+strings.Join(missing, ", "))
-	}
-	if len(extra) > 0 {
-		problems = append(problems, fmt.Sprintf(
-			"component(s) not declared by rule %q: %s",
-			rule.ID,
-			strings.Join(extra, ", "),
-		))
-	}
-	if len(problems) > 0 {
-		return errors.New(strings.Join(problems, "; "))
 	}
 	return nil
 }

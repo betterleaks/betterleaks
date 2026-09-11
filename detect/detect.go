@@ -529,7 +529,7 @@ func (d *Detector) compileAll() error {
 	return nil
 }
 
-func (d *Detector) newValidationPool(ctx context.Context) (*validate.Pool, error) {
+func (d *Detector) newValidationPool(ctx context.Context, workers int) (*validate.Pool, error) {
 	if !d.ValidationEnabled() {
 		return nil, nil
 	}
@@ -549,7 +549,6 @@ func (d *Detector) newValidationPool(ctx context.Context) (*validate.Pool, error
 	}); err != nil {
 		return nil, fmt.Errorf("configure provider request limits: %w", err)
 	}
-	workers := options.Workers
 	if workers <= 0 {
 		workers = 10
 	}
@@ -808,7 +807,7 @@ func (d *Detector) run(ctx context.Context, source sources.Source, yield func(Re
 	state.ruleTimings = ruletiming.FromContext(ctx)
 
 	runCtx, cancel := context.WithCancel(ctx)
-	validationPool, err := d.newValidationPool(runCtx)
+	validationPool, err := d.newValidationPool(runCtx, d.providerOptions.Workers)
 	if err != nil {
 		cancel()
 		_ = yield(Result{Err: err})
@@ -1347,6 +1346,7 @@ func (d *Detector) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			for key, value := range finding.ToExprMap() {
 				findingMap[key] = value
 			}
+			findingMap["captures"] = finding.CaptureGroups
 			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
 			findingMap["fragment_raw"] = currentRaw
 			findingMap["match_start_idx"] = filterMatchStartIdx

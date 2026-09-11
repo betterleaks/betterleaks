@@ -59,6 +59,8 @@ type Rule struct {
 	AnalyzeExpr string
 
 	// Filter is an expression evaluated against attributes + finding per regex match.
+	// finding.captures holds this match's named groups. Components are assembled
+	// after filtering and are available only to validation and analysis.
 	// Returns true = skip (discard this finding); false = keep.
 	Filter string
 }
