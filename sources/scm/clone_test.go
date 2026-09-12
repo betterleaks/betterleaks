@@ -90,6 +90,8 @@ func TestGitCloneEnv(t *testing.T) {
 	joined := strings.Join(env, "\n")
 
 	for _, want := range []string{
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_SYSTEM=/dev/null",
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=http.extraheader",
 		"GIT_CONFIG_VALUE_0=Authorization: basic abc",

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 )
+
+func TestGitConfigIsolationEnvCanRunGit(t *testing.T) {
+	repo := newGitTestRepo(t, 1)
+	cmd := exec.Command("git", "-C", repo, "rev-parse", "--is-inside-work-tree")
+	cmd.Env = gitConfigIsolationEnv()
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git must accept the isolated config paths: %s", output)
+	require.Equal(t, "true", strings.TrimSpace(string(output)))
+}
 
 func TestGitRepoWorkersHaveSameCoverage(t *testing.T) {
 	repo := newGitTestRepo(t, 4)
