@@ -455,13 +455,20 @@ func writeFooter() {
 
 func (f Finding) printPretty(noColor bool, redact uint) {
 	if redact > 0 {
+		// Use the same fail-closed redactLineAndMatch that Finding.Redact() uses
+		// for Line/Match/MatchContext, but — unlike calling Redact() itself —
+		// never touch f.ComponentSets or f.CaptureGroups here: f is a value-copy
+		// that still shares its *ComponentFinding pointers (and CaptureGroups
+		// map) with the collector's copy of this same finding, which still needs
+		// to redact them itself (for report-file output) or, for components,
+		// has PrintComponentFindings below compute its own display-only mask
+		// from the untouched original. Redacting them here too would silently
+		// double-mask an already-masked value.
 		secret := MaskSecret(f.Secret, redact)
 		if redact >= 100 {
 			secret = "REDACTED"
 		}
-		f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
-		f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
-		f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
+		f.Line, f.Match, f.MatchContext = redactLineAndMatch(f.Line, f.Match, f.MatchContext, f.Secret, secret, f.StartColumn)
 		f.Secret = secret
 	}
 

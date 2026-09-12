@@ -11,13 +11,17 @@ import (
 // PrintLegacy prints a finding using the legacy key/value verbose format.
 func (f Finding) PrintLegacy(noColor bool, redact uint) {
 	if redact > 0 {
+		// Use the same fail-closed redactLineAndMatch as printPretty/Redact():
+		// a plain strings.ReplaceAll here silently leaves Line raw whenever
+		// Secret isn't a literal substring of it (e.g. a decode-depth finding).
+		// Never touch f.ComponentSets/f.CaptureGroups — see the comment in
+		// printPretty for why (f shares that reference-typed data with the
+		// collector's copy of this finding).
 		secret := MaskSecret(f.Secret, redact)
 		if redact >= 100 {
 			secret = "REDACTED"
 		}
-		f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
-		f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
-		f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
+		f.Line, f.Match, f.MatchContext = redactLineAndMatch(f.Line, f.Match, f.MatchContext, f.Secret, secret, f.StartColumn)
 		f.Secret = secret
 	}
 	f.Line = strings.TrimSpace(f.Line)
