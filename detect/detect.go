@@ -7,7 +7,6 @@ import (
 	"iter"
 	"log/slog"
 	"maps"
-	"net/http"
 	"runtime"
 	"slices"
 	"sort"
@@ -24,9 +23,9 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/internal/provider"
 	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
-	"github.com/betterleaks/betterleaks/v2/internal/validate"
 	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -52,6 +51,16 @@ type ProviderOptions struct {
 	// EnvVars lists environment variable names that provider Expr
 	// programs may read through env.get(...). Names not listed are unavailable.
 	EnvVars []string
+}
+
+func (o ProviderOptions) runtimeOptions() provider.RuntimeOptions {
+	return provider.RuntimeOptions{
+		Debug: o.Debug, Timeout: o.Timeout,
+		MaxRequestsPerTarget:    o.MaxRequestsPerTarget,
+		RequestsPerSecond:       o.RequestsPerSecond,
+		RequestsPerSecondByRule: o.RequestsPerSecondByRule,
+		EnvVars:                 o.EnvVars,
+	}
 }
 
 var allowSignatures = [...]string{"betterleaks:allow", "gitleaks:allow"}
@@ -370,9 +379,6 @@ func NewDetector(cfg *config.Config, options ...Option) (*Detector, error) {
 			return nil, err
 		}
 	}
-	if validationRuntime != nil && settings.validationEnabled {
-		validationRuntime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(settings.providerOptions.EnvVars)
-	}
 	exprRuntime, exprErr := exprruntime.New(nil)
 	if exprErr != nil {
 		return nil, fmt.Errorf("create expression runtime: %w", exprErr)
@@ -484,20 +490,10 @@ func validateProviderOptions(options ProviderOptions, runtime *exprruntime.Runti
 		}
 	}
 	if runtime == nil {
-		var err error
-		runtime, err = exprruntime.New(nil)
-		if err != nil {
-			return fmt.Errorf("create provider runtime: %w", err)
-		}
+		_, err := provider.NewRuntime(options.runtimeOptions())
+		return err
 	}
-	if err := runtime.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
-		MaxRequestsPerTarget:    options.MaxRequestsPerTarget,
-		RequestsPerSecond:       options.RequestsPerSecond,
-		RequestsPerSecondByRule: options.RequestsPerSecondByRule,
-	}); err != nil {
-		return fmt.Errorf("invalid provider request limits: %w", err)
-	}
-	return nil
+	return provider.ConfigureRuntime(runtime, options.runtimeOptions())
 }
 
 func (d *Detector) compileAll() error {
@@ -529,32 +525,11 @@ func (d *Detector) compileAll() error {
 	return nil
 }
 
-func (d *Detector) newValidationPool(ctx context.Context, workers int) (*validate.Pool, error) {
+func (d *Detector) newValidationPool(ctx context.Context, workers int) (*provider.Pool, error) {
 	if !d.ValidationEnabled() {
 		return nil, nil
 	}
-	options := d.providerOptions
-	runtime, err := exprruntime.New(nil)
-	if err != nil {
-		return nil, fmt.Errorf("create validation runtime: %w", err)
-	}
-	runtime.AllowedEnv = exprruntime.ParseValidationEnvAllowlist(options.EnvVars)
-	if options.Timeout > 0 {
-		runtime.SetHTTPClient(&http.Client{Timeout: options.Timeout})
-	}
-	if err := runtime.SetValidationRequestLimits(exprruntime.ValidationRequestLimits{
-		MaxRequestsPerTarget:    options.MaxRequestsPerTarget,
-		RequestsPerSecond:       options.RequestsPerSecond,
-		RequestsPerSecondByRule: options.RequestsPerSecondByRule,
-	}); err != nil {
-		return nil, fmt.Errorf("configure provider request limits: %w", err)
-	}
-	if workers <= 0 {
-		workers = 10
-	}
-	pool := validate.NewPoolContext(ctx, workers, runtime)
-	pool.Debug = options.Debug
-	return pool, nil
+	return provider.NewConfiguredPool(ctx, workers, d.providerOptions.runtimeOptions())
 }
 
 // ValidationEnabled reports whether scans will validate matching findings.
@@ -937,7 +912,7 @@ func (d *Detector) scanFragment(
 	ctx context.Context,
 	fragment sources.Fragment,
 	emit func(Result) error,
-	validationPool *validate.Pool,
+	validationPool *provider.Pool,
 	state *scanState,
 ) error {
 	for _, finding := range d.detectFragmentWithState(ctx, fragment, state) {

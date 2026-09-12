@@ -13,9 +13,6 @@
 // recoverable source errors. [WithAnalysis] enables both provider validation
 // and credential analysis.
 //
-// Use [Detector.ValidateCredential] when the credential is already extracted.
-// It runs the same provider pipeline without scanning or applying scan filters,
-// and returns a sanitized report. [Credential] accepts named captures and one
-// combination of companion secrets. Enable [WithValidation] for validation
-// alone, or [WithAnalysis] to also analyze valid credentials.
+// For already-extracted credentials, use the public validate package. Both
+// packages use the same provider execution pipeline.
 package detect

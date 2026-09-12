@@ -134,16 +134,17 @@ Use `config.LoadFile` to load an application-owned `betterleaks.toml`,
 `detect.WithLogger` to attach an application-owned `slog.Logger`. For streaming
 input, pass a `sources.Reader` to `Detector.Scan`.
 
-For an already-extracted secret, use `ValidateCredential` with its rule ID:
+For an already-extracted secret, use the public `validate` package:
 
 ```go
-detector, err := detect.NewDetector(cfg, detect.WithAnalysis(detect.ProviderOptions{
+validator, err := validate.NewValidator(cfg, validate.Options{
+    Analysis: true,
     Timeout: 5 * time.Second,
-}))
+})
 if err != nil {
     return err
 }
-result, err := detector.ValidateCredential(ctx, detect.Credential{
+result, err := validator.ValidateCredential(ctx, validate.Credential{
     RuleID: "github-pat",
     Secret: token,
 })
@@ -154,8 +155,8 @@ if err != nil {
 // capabilities, and severity when the credential is valid and analysis exists.
 ```
 
-Use `WithValidation` instead for validation alone. Supply named `Captures` and
-`Components` (a map of component rule IDs to `detect.CredentialComponent`) when
+Set `Analysis: false` (the default) for validation alone. Supply named `Captures` and
+`Components` (a map of component rule IDs to `validate.CredentialComponent`) when
 the rule needs them. Direct validation bypasses detection and scan filters,
 including status filters and fingerprint ignores. Results sanitize supplied
 credential values; provider failures appear in the result, while invalid input,

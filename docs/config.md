@@ -494,7 +494,7 @@ combination's validation result. Expressions do not iterate over all component
 sets. Filters run before assembly and cannot inspect `components` or provider
 results.
 
-Direct SDK validation supplies this same structure through `detect.Credential`:
+Direct SDK validation supplies this same structure through `validate.Credential`:
 `Secret` becomes `finding.secret`, `Captures` becomes `finding.captures`, and
 each `Components[id]` supplies `components[id].secret` and `.captures`.
 Direct validation skips filters and requires callers to supply capture values;

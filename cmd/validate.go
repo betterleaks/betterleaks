@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/detect"
-	validatepkg "github.com/betterleaks/betterleaks/v2/internal/validate"
+	"github.com/betterleaks/betterleaks/v2/internal/provider"
 	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/validate"
 )
 
 const maxValidateCredentialInputBytes = 1 << 20
@@ -78,18 +78,14 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 	if err != nil {
 		return err
 	}
-	providerOption := detect.WithAnalysis
-	if options.NoAnalysis {
-		providerOption = detect.WithValidation
-	}
-	detector, err := detect.NewDetector(resolved.cfg, providerOption(detect.ProviderOptions{
-		Workers:                 1,
+	validator, err := validate.NewValidator(resolved.cfg, validate.Options{
+		Analysis:                !options.NoAnalysis,
 		Timeout:                 options.ProviderTimeout,
 		MaxRequestsPerTarget:    options.ProviderMaxRequests,
 		RequestsPerSecond:       options.ProviderRPS,
 		RequestsPerSecondByRule: rates,
 		EnvVars:                 options.ProviderEnvVars,
-	}))
+	})
 	if err != nil {
 		return err
 	}
@@ -97,7 +93,7 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 	if err != nil {
 		return err
 	}
-	result, err := detector.ValidateCredential(runtime.Context, credential)
+	result, err := validator.ValidateCredential(runtime.Context, credential)
 	if err != nil {
 		return err
 	}
@@ -156,7 +152,7 @@ func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
 		summary := report.CredentialRuleSummary{
 			RuleID:      rule.ID,
 			Description: rule.Description,
-			Captures:    validatepkg.RequiredCaptures(rule),
+			Captures:    provider.RequiredCaptures(rule),
 		}
 		for _, component := range rule.Components {
 			summary.Components = append(summary.Components, report.CredentialComponentReport{
@@ -180,9 +176,9 @@ type validateCredentialInput struct {
 
 // credential translates CLI component capture names (rule-id:name) into the
 // SDK's structured component inputs, keeping primary and companion captures separate.
-func (input validateCredentialInput) credential(ruleID string) (detect.Credential, error) {
+func (input validateCredentialInput) credential(ruleID string) (validate.Credential, error) {
 	supplied := make(map[string]struct{}, len(input.Components))
-	components := make(map[string]detect.CredentialComponent, len(input.Components))
+	components := make(map[string]validate.CredentialComponent, len(input.Components))
 	for id, secret := range input.Components {
 		supplied[id] = struct{}{}
 		captures := make(map[string]string)
@@ -191,10 +187,10 @@ func (input validateCredentialInput) credential(ruleID string) (detect.Credentia
 				captures[name] = value
 			}
 		}
-		components[id] = detect.CredentialComponent{Secret: secret, Captures: captures}
+		components[id] = validate.CredentialComponent{Secret: secret, Captures: captures}
 	}
 	if err := validateComponentCaptures(input.Captures, supplied); err != nil {
-		return detect.Credential{}, err
+		return validate.Credential{}, err
 	}
 	primaryCaptures := make(map[string]string)
 	for name, value := range input.Captures {
@@ -202,7 +198,7 @@ func (input validateCredentialInput) credential(ruleID string) (detect.Credentia
 			primaryCaptures[name] = value
 		}
 	}
-	return detect.Credential{RuleID: ruleID, Secret: input.Secret, Captures: primaryCaptures, Components: components}, nil
+	return validate.Credential{RuleID: ruleID, Secret: input.Secret, Captures: primaryCaptures, Components: components}, nil
 }
 
 func readValidateCredentialInput(stdin io.Reader, cmd *ValidateCmd) (validateCredentialInput, error) {

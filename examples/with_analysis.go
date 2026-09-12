@@ -23,6 +23,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/validate"
 )
 
 const mockAnalysisConfig = `
@@ -151,7 +152,11 @@ func run() error {
 	// Already have a credential? No Reader, regex matching, or Scan is needed.
 	// This deliberately checks the fixture ignored by scans above: explicit
 	// validation bypasses scan filters, fingerprint ignores, and status filters.
-	result, err := detector.ValidateCredential(ctx, detect.Credential{
+	validator, err := validate.NewValidator(cfg, validate.Options{Analysis: true, Timeout: 5 * time.Second})
+	if err != nil {
+		return err
+	}
+	result, err := validator.ValidateCredential(ctx, validate.Credential{
 		RuleID: "mock-api-key",
 		Secret: fixtureToken,
 		Attributes: map[string]string{

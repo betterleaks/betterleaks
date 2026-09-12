@@ -14,7 +14,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/internal/analyze"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
-	validatepkg "github.com/betterleaks/betterleaks/v2/internal/validate"
+	"github.com/betterleaks/betterleaks/v2/internal/provider"
 	"github.com/betterleaks/betterleaks/v2/report"
 )
 
@@ -102,7 +102,7 @@ func TestCloudflareAPIKeyValidationRoutes(t *testing.T) {
 				nil, test.components, nil, exprruntime.EvalOptions{},
 			)
 			require.NoError(t, err)
-			result := validatepkg.ParseResult(value.Value)
+			result := provider.ParseResult(value.Value)
 
 			assert.Equal(t, test.wantStatus, result.Status)
 			assert.Empty(t, result.Metadata)

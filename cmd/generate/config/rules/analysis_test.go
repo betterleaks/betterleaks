@@ -12,7 +12,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/internal/analyze"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
-	validatepkg "github.com/betterleaks/betterleaks/v2/internal/validate"
+	"github.com/betterleaks/betterleaks/v2/internal/provider"
 	"github.com/betterleaks/betterleaks/v2/report"
 )
 
@@ -116,7 +116,7 @@ func TestCredentialAnalysisProviderFixtures(t *testing.T) {
 			finding := map[string]string{"rule_id": test.name, "secret": "fixture-secret"}
 			validationValue, err := runtime.EvalValidation(t.Context(), validationProgram, finding, nil, nil, exprruntime.EvalOptions{})
 			require.NoError(t, err)
-			validationResult := validatepkg.ParseResult(validationValue.Value)
+			validationResult := provider.ParseResult(validationValue.Value)
 			require.Equal(t, report.ValidationStatusValid, validationResult.Status)
 			assert.Empty(t, validationResult.Metadata)
 			if test.wantTokenID != "" {
@@ -366,7 +366,7 @@ func TestFastlyValidationUsesTokenIntrospection(t *testing.T) {
 				exprruntime.EvalOptions{},
 			)
 			require.NoError(t, err)
-			result := validatepkg.ParseResult(value.Value)
+			result := provider.ParseResult(value.Value)
 
 			assert.Equal(t, test.status, result.Status)
 			assert.Equal(t, test.reason, result.Reason)
@@ -507,7 +507,7 @@ func TestGitLabValidationKeepsGranularInputPrivate(t *testing.T) {
 		exprruntime.EvalOptions{},
 	)
 	require.NoError(t, err)
-	result := validatepkg.ParseResult(value.Value)
+	result := provider.ParseResult(value.Value)
 
 	assert.Equal(t, report.ValidationStatusValid, result.Status)
 	assert.Empty(t, result.Metadata)
