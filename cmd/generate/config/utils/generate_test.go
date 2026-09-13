@@ -194,6 +194,25 @@ func TestGenerateUniqueTokenProseRegex(t *testing.T) {
 				"abcabc",
 				"_abc_",
 				"/*abc*/",
+				// punctuation followed by more text is a separator inside a longer
+				// string, not punctuation ending a token
+				"abc.png",
+				"abc.example.com",
+				"(abc)x",
+				"abc,def",
+			},
+		},
+		{
+			name:              "punctuation run still terminates",
+			secretRegex:       `[a-c]{3}`,
+			isCaseInsensitive: false,
+			validStrings: []string{
+				"(abc).",
+				"[abc],",
+				"abc?!",
+			},
+			invalidStrings: []string{
+				"(abc).x",
 			},
 		},
 	}
