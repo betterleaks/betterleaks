@@ -141,6 +141,11 @@ type Config struct {
 	// Translated from global Allowlists regex/stopword checks.
 	Filter string
 
+	// pendingRuleAllowlists carries targeted global allowlists through config
+	// extensions until all rules have been assembled. It is consumed and
+	// cleared before the translated config is returned to callers.
+	pendingRuleAllowlists map[string][]*Allowlist
+
 	// prefilterProgram and filterProgram hold global programs compiled by
 	// CompileFilters. Per-rule filter and validation compilation is lazy.
 	prefilterProgram exprruntime.Program
@@ -183,10 +188,10 @@ func Default() (*Config, error) {
 
 func (rc *rawConfig) translate(depth int) (*Config, error) {
 	var (
-		keywords       = make(map[string]struct{})
-		orderedRules   []string
-		rulesMap       = make(map[string]Rule)
-		ruleAllowlists = make(map[string][]*Allowlist)
+		keywords              = make(map[string]struct{})
+		orderedRules          []string
+		rulesMap              = make(map[string]Rule)
+		pendingRuleAllowlists = make(map[string][]*Allowlist)
 	)
 
 	// Validate individual rules.
@@ -309,6 +314,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		BetterleaksMinVersion: rc.BetterleaksMinVersion,
 		Prefilter:             rc.Prefilter,
 		Filter:                rc.Filter,
+		pendingRuleAllowlists: pendingRuleAllowlists,
 	}
 
 	c.Path = rc.path
@@ -337,7 +343,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		if len(a.TargetRules) > 0 {
 			for _, ruleID := range a.TargetRules {
 				// It's not possible to validate |ruleID| until after extend.
-				ruleAllowlists[ruleID] = append(ruleAllowlists[ruleID], allowlist)
+				pendingRuleAllowlists[ruleID] = append(pendingRuleAllowlists[ruleID], allowlist)
 			}
 		} else {
 			c.Allowlists = append(c.Allowlists, allowlist)
@@ -374,7 +380,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		}
 
 		// Populate targeted configs.
-		for ruleID, allowlists := range ruleAllowlists {
+		for ruleID, allowlists := range c.pendingRuleAllowlists {
 			rule, ok := c.Rules[ruleID]
 			if !ok {
 				return nil, fmt.Errorf("[[allowlists]] target rule ID '%s' does not exist", ruleID)
@@ -382,6 +388,9 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			rule.Allowlists = append(rule.Allowlists, allowlists...)
 			c.Rules[ruleID] = rule
 		}
+		// Pending allowlists are only needed while assembling the config. Do not
+		// retain extension bookkeeping in the runtime config.
+		c.pendingRuleAllowlists = nil
 
 	}
 
@@ -718,6 +727,22 @@ func (c *Config) extend(extensionConfig *Config) {
 
 	// append allowlists, not attempting to merge
 	c.Allowlists = append(c.Allowlists, extensionConfig.Allowlists...)
+
+	// Carry targeted global allowlists across extensions. They cannot be
+	// attached until all extension layers have contributed their rules.
+	if len(extensionConfig.pendingRuleAllowlists) > 0 {
+		if c.pendingRuleAllowlists == nil {
+			c.pendingRuleAllowlists = make(map[string][]*Allowlist)
+		}
+		for ruleID, allowlists := range extensionConfig.pendingRuleAllowlists {
+			if _, disabled := disabledRuleIDs[ruleID]; disabled {
+				if _, inherited := extensionConfig.Rules[ruleID]; inherited {
+					continue
+				}
+			}
+			c.pendingRuleAllowlists[ruleID] = append(c.pendingRuleAllowlists[ruleID], allowlists...)
+		}
+	}
 
 	// Current config's global Prefilter/Filter wins over extension's if set.
 	if c.Prefilter == "" {
