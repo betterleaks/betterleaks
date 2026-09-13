@@ -187,6 +187,7 @@ var (
 	bannerPrinted      bool
 	resolvedConfigPath string // set by initConfig to the actual config file path that was loaded
 	loadedConfig       *config.Config
+	configCache        map[string]*config.Config
 )
 
 func initConfig(source string) {
@@ -211,19 +212,25 @@ func initConfig(source string) {
 	if cfgPath != "" {
 		resolvedConfigPath = cfgPath
 		logging.Debug().Msgf("using config %s from `--config`", cfgPath)
-		loadedConfig = mustLoadConfigFile(cfgPath)
+		loadedConfig = cachedConfig("file:"+cfgPath, func() *config.Config {
+			return mustLoadConfigFile(cfgPath)
+		})
 	} else if envPath := getEnvWithFallback("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
 		resolvedConfigPath = envPath
 		logging.Debug().Msgf("using config from env var: %s", envPath)
-		loadedConfig = mustLoadConfigFile(envPath)
+		loadedConfig = cachedConfig("file:"+envPath, func() *config.Config {
+			return mustLoadConfigFile(envPath)
+		})
 	} else if configContent := getEnvWithFallback("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); configContent != "" {
-		cfg, err := config.ParseTOMLString(configContent, "")
-		if err != nil {
-			logging.Fatal().Err(err).Str("content", configContent).Msg("unable to load config from env var")
-		}
-		logging.Debug().Str("content", configContent).Msg("using config from env var content")
+		loadedConfig = cachedConfig("content:"+configContent, func() *config.Config {
+			cfg, err := config.ParseTOMLString(configContent, "")
+			if err != nil {
+				logging.Fatal().Err(err).Str("content", configContent).Msg("unable to load config from env var")
+			}
+			logging.Debug().Str("content", configContent).Msg("using config from env var content")
+			return cfg
+		})
 		// resolvedConfigPath stays "" — inline content, no file to skip.
-		loadedConfig = cfg
 		return
 	} else {
 		fileInfo, err := os.Stat(source)
@@ -234,10 +241,13 @@ func initConfig(source string) {
 		if !fileInfo.IsDir() {
 			logging.Debug().Msgf("unable to load config from %s since --source=%s is a file, using default config",
 				filepath.Join(source, ".betterleaks.toml"), source)
-			loadedConfig, err = config.Default()
-			if err != nil {
-				logging.Fatal().Msgf("err reading toml %s", err.Error())
-			}
+			loadedConfig = cachedConfig("default", func() *config.Config {
+				cfg, loadErr := config.Default()
+				if loadErr != nil {
+					logging.Fatal().Msgf("err reading toml %s", loadErr)
+				}
+				return cfg
+			})
 			// resolvedConfigPath stays "" — using embedded default config.
 			return
 		}
@@ -247,10 +257,13 @@ func initConfig(source string) {
 		if configFile == "" {
 			logging.Debug().Msgf("no config found in path %s, using default config", source)
 
-			loadedConfig, err = config.Default()
-			if err != nil {
-				logging.Fatal().Msgf("err reading default config toml %s", err.Error())
-			}
+			loadedConfig = cachedConfig("default", func() *config.Config {
+				cfg, loadErr := config.Default()
+				if loadErr != nil {
+					logging.Fatal().Msgf("err reading default config toml %s", loadErr)
+				}
+				return cfg
+			})
 			// resolvedConfigPath stays "" — using embedded default config.
 			return
 		} else {
@@ -258,8 +271,28 @@ func initConfig(source string) {
 			logging.Debug().Msgf("using existing config %s", configFile)
 		}
 
-		loadedConfig = mustLoadConfigFile(configFile)
+		loadedConfig = cachedConfig("file:"+configFile, func() *config.Config {
+			return mustLoadConfigFile(configFile)
+		})
 	}
+}
+
+func cachedConfig(key string, load func() *config.Config) *config.Config {
+	if configCache == nil {
+		// Caching is enabled explicitly by runDirectory for the lifetime of a
+		// single directory scan. Other commands must not retain configs across
+		// same-process invocations.
+		return load()
+	}
+
+	if cfg, ok := configCache[key]; ok {
+		logging.Debug().Msgf("reusing cached config %s", key)
+		return cfg
+	}
+
+	cfg := load()
+	configCache[key] = cfg
+	return cfg
 }
 
 func mustLoadConfigFile(path string) *config.Config {
