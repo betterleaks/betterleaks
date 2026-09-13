@@ -1724,6 +1724,32 @@ filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) 
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# cloudflare-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cloudflare-api-token"
+description = "Detected a Cloudflare API Token, potentially compromising cloud application deployments and operational security."
+regex = '''\b((?:cfat|cfut)_[A-Za-z0-9]{40,60})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = [
+    "cfat_",
+    "cfut_",
+]
+validate = '''
+let r = http.get("https://api.cloudflare.com/client/v4/user/tokens/verify", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # cloudflare-global-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]

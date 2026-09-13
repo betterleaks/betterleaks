@@ -148,6 +148,7 @@ func main() {
 		rules.ClickUpPersonalAPIToken(),
 		rules.Clojars(),
 		rules.CloudflareAPIKey(),
+		rules.CloudflareAPIToken(),
 		rules.CloudflareGlobalAPIKey(),
 		rules.CloudflareOriginCAKey(),
 		rules.CloudsmithAPIKey(),
