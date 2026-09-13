@@ -162,6 +162,61 @@ func TestGenerateSemiGenericRegex(t *testing.T) {
 	}
 }
 
+func TestGenerateUniqueTokenProseRegex(t *testing.T) {
+	tests := []struct {
+		name              string
+		secretRegex       string
+		isCaseInsensitive bool
+		validStrings      []string
+		invalidStrings    []string
+	}{
+		{
+			name:              "prose boundaries",
+			secretRegex:       `[a-c]{3}`,
+			isCaseInsensitive: false,
+			validStrings: []string{
+				"abc",
+				" abc ",
+				"'abc'",
+				// the point of this variant: punctuation that ends a token in prose
+				"abc.",
+				"Rotate abc. Then redeploy.",
+				"abc,",
+				"abc:",
+				"abc!",
+				"abc?",
+				"(abc)",
+				"[abc]",
+				"{abc}",
+				"<abc>",
+			},
+			invalidStrings: []string{
+				"abcabc",
+				"_abc_",
+				"/*abc*/",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			regex := GenerateUniqueTokenProseRegex(tt.secretRegex, tt.isCaseInsensitive)
+			for _, validString := range tt.validStrings {
+				if !regex.MatchString(validString) {
+					t.Errorf("Expected match, but got none, \nfor GenerateUniqueTokenProseRegex(/%v/, caseInsensitive=%v).MatchString(`%v`)\n%v",
+						tt.secretRegex, tt.isCaseInsensitive, validString, regex)
+				}
+			}
+			for _, invalidString := range tt.invalidStrings {
+				if regex.MatchString(invalidString) {
+					t.Errorf("Expected no match, but got one, \nfor GenerateUniqueTokenProseRegex(/%v/, caseInsensitive=%v).MatchString(`%v`)\n%v",
+						tt.secretRegex, tt.isCaseInsensitive, invalidString, regex)
+				}
+			}
+		})
+	}
+}
+
 func TestGenerateUniqueTokenRegex(t *testing.T) {
 	tests := []struct {
 		name              string

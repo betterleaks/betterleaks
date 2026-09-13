@@ -29,6 +29,15 @@ const (
 	secretPrefixUnique = `\b(`
 	secretPrefix       = `[\x60'"\s=]{0,5}(`
 	secretSuffix       = `)(?:\\?['"\x60]|[\s;]|\\[nr]|$)`
+
+	// secretSuffixProse also accepts the punctuation that ends a token in running
+	// text. It is opt-in rather than folded into secretSuffix because the safe
+	// terminator set depends on the token body: allowing `.` after a body that can
+	// itself contain dots reintroduces suffix confusion. auth0-domain, whose body
+	// is a dotted domain, would match `example.auth0.com.evil.example`, and
+	// infracost-api-token would match a cache-busted `.png` filename. Only use
+	// this for a body that cannot contain these characters. See issue #356.
+	secretSuffixProse = `)(?:\\?['"\x60]|[\s;]|[.,:!?)\]}>]|\\[nr]|$)`
 )
 
 func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseInsensitive bool) *regexp.Regexp {
@@ -74,6 +83,21 @@ func GenerateUniqueTokenRegex(secretRegex string, isCaseInsensitive bool) *regex
 	sb.WriteString(secretPrefixUnique)
 	sb.WriteString(secretRegex)
 	sb.WriteString(secretSuffix)
+	return regexp.MustCompile(sb.String())
+}
+
+// GenerateUniqueTokenProseRegex is GenerateUniqueTokenRegex with a terminator set
+// that also accepts sentence punctuation, so a token at the end of a sentence or
+// inside brackets is still detected. Read secretSuffixProse before using it: it is
+// only safe for a body that cannot contain `.`, `,`, `)`, `]`, `}` or `>`.
+func GenerateUniqueTokenProseRegex(secretRegex string, isCaseInsensitive bool) *regexp.Regexp {
+	var sb strings.Builder
+	if isCaseInsensitive {
+		sb.WriteString(caseInsensitive)
+	}
+	sb.WriteString(secretPrefixUnique)
+	sb.WriteString(secretRegex)
+	sb.WriteString(secretSuffixProse)
 	return regexp.MustCompile(sb.String())
 }
 

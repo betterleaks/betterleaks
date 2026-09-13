@@ -18,6 +18,8 @@ var api_keys = []string{
 	`cloudflare: "oj9Yoyq0zmOyWmPPob1aoY5YSNNuJ0fbZSOURBlX"`,          // gitleaks:allow
 }
 
+const origin_ca_key_body = "v1.0-aaa334dc886f30631ba0a610-0d98ef66290d7e50aac7c27b5986c99e6f3f1084c881d8ac0eae5de1d1aa0644076ff57022069b3237d19afe60ad045f207ef2b16387ee37b749441b2ae2e9ebe5b4606e846475d4a5"
+
 var origin_ca_keys = []string{
 	`CLOUDFLARE_ORIGIN_CA: v1.0-aaa334dc886f30631ba0a610-0d98ef66290d7e50aac7c27b5986c99e6f3f1084c881d8ac0eae5de1d1aa0644076ff57022069b3237d19afe60ad045f207ef2b16387ee37b749441b2ae2e9ebe5b4606e846475d4a5`,
 	`CLOUDFLARE_ORIGIN_CA: v1.0-15d20c7fccb4234ac5cdd756-d5c2630d1b606535cf9320ae7456b090e0896cec64169a92fae4e931ab0f72f111b2e4ffed5b2bb40f6fba6b2214df23b188a23693d59ce3fb0d28f7e89a2206d98271b002dac695ed`,
@@ -70,14 +72,23 @@ func CloudflareOriginCAKey() *config.Rule {
 		Description: "Detected a Cloudflare Origin CA Key, potentially compromising cloud application deployments and operational security.",
 		RuleID:      "cloudflare-origin-ca-key",
 		Confidence:  "high",
-		Regex:       utils.GenerateUniqueTokenRegex(`v1\.0-`+utils.Hex("24")+"-"+utils.Hex("146"), false),
-		Keywords:    ca_identifiers,
-		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		// The body is two fixed-length hex runs, so it cannot contain sentence
+		// punctuation and the prose terminator set is safe here. See issue #356.
+		Regex:    utils.GenerateUniqueTokenProseRegex(`v1\.0-`+utils.Hex("24")+"-"+utils.Hex("146"), false),
+		Keywords: ca_identifiers,
+		Filter:   `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
 	tps := utils.GenerateSampleSecrets("cloudflare", "v1.0-aaa334dc886f30631ba0a610-0d98ef66290d7e50aac7c27b5986c99e6f3f1084c881d8ac0eae5de1d1aa0644076ff57022069b3237d19afe60ad045f207ef2b16387ee37b749441b2ae2e9ebe5b4606e846475d4a5")
 	tps = append(tps, origin_ca_keys...)
+	// Terminated by sentence punctuation rather than whitespace, which the shared
+	// secretSuffix does not accept.
+	tps = append(tps,
+		`The key is `+origin_ca_key_body+`.`,
+		`Use (`+origin_ca_key_body+`) in staging.`,
+		`keys: `+origin_ca_key_body+`, and more`,
+	)
 	fps := append(global_keys, api_keys...)
 
 	return utils.Validate(r, tps, fps)
