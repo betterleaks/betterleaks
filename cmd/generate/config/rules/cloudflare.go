@@ -82,3 +82,53 @@ func CloudflareOriginCAKey() *config.Rule {
 
 	return utils.Validate(r, tps, fps)
 }
+
+func CloudflareAPIToken() *config.Rule {
+	// define rule
+	//
+	// `cfat_` and `cfut_` are long enough to identify a token on their own, so
+	// this uses GenerateUniqueTokenRegex rather than the semi-generic form the
+	// three rules above use. Those require the word `cloudflare` within about
+	// twenty characters, which a token pasted into a document does not have.
+	//
+	// The body is a range rather than a fixed length. Cloudflare documents 40
+	// characters plus a checksum without giving the checksum's length, so a
+	// range fails open into a match rather than out of one.
+	r := config.Rule{
+		RuleID:      "cloudflare-api-token",
+		Confidence:  "high",
+		Description: "Detected a Cloudflare API Token, potentially compromising cloud application deployments and operational security.",
+		Regex:       utils.GenerateUniqueTokenRegex(`(?:cfat|cfut)_[A-Za-z0-9]{40,60}`, false),
+		Keywords:    []string{"cfat_", "cfut_"},
+		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		ValidateExpr: `let r = http.get("https://api.cloudflare.com/client/v4/user/tokens/verify", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
+	}
+
+	// validate
+	tps := utils.GenerateSampleSecrets("cloudflare", "cfat_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{48}`, 3.5))
+	tps = append(tps,
+		// Alone on a line and in prose, with no identifier nearby. These are the
+		// contexts the three rules above cannot reach.
+		`cfat_`+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{48}`, 3.5),
+		`cfut_`+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{48}`, 3.5),
+		`rotate the token cfat_`+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{48}`, 3.5)+` before Friday`,
+	)
+	fps := []string{
+		// Too short to be a token body.
+		`cfat_` + secrets.NewSecret(`[A-Za-z0-9]{20}`),
+		// A prefix that is not a credential.
+		`cfat_prefix_docs = "https://developers.cloudflare.com/fundamentals/api/"`,
+	}
+	fps = append(fps, global_keys...)
+	fps = append(fps, api_keys...)
+	fps = append(fps, origin_ca_keys...)
+
+	return utils.Validate(r, tps, fps)
+}
