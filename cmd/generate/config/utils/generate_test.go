@@ -210,6 +210,11 @@ func TestGenerateUniqueTokenProseRegex(t *testing.T) {
 				"(abc).",
 				"[abc],",
 				"abc?!",
+				// a closing quote is a boundary too, so a sentence inside a JSON or
+				// YAML string still terminates the token
+				`"abc."`,
+				`'abc,'`,
+				`{"note": "rotate abc."}`,
 			},
 			invalidStrings: []string{
 				"(abc).x",

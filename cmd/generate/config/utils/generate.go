@@ -41,10 +41,12 @@ const (
 	// The punctuation must itself be followed by whitespace or end of input, so
 	// that it is punctuation ending a token in running text rather than a
 	// separator inside a longer string: `<token>.` matches and `<token>.png`
-	// does not. A run is allowed, so `(<token>).` matches too. The cost is that
+	// does not. A closing quote counts as that boundary too, so a token ending a
+	// sentence inside a JSON or YAML string is still found. A run is allowed, so
+	// `(<token>).` matches too. The cost is that
 	// a spaceless list such as `<token>,<token>` is not matched, which the
 	// shared secretSuffix does not match either.
-	secretSuffixProse = `)(?:\\?['"\x60]|[\s;]|[.,:!?)\]}>]+(?:\s|$)|\\[nr]|$)`
+	secretSuffixProse = `)(?:\\?['"\x60]|[\s;]|[.,:!?)\]}>]+(?:\\?['"\x60]|\s|$)|\\[nr]|$)`
 )
 
 func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseInsensitive bool) *regexp.Regexp {
