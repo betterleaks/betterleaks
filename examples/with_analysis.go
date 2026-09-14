@@ -141,8 +141,9 @@ func run() error {
 			ShouldSkip: scanner.SkipFunc(), // Apply the scanner's source prefilter.
 		}
 		summary, err := p.Scan(ctx, source, func(finding report.Finding) error {
-			// The handler receives resolved validation and analysis, including
-			// identity, account, capabilities, and derived severity. Redact a
+			// Finding.Analysis contains status, identity, account, capabilities,
+			// and derived severity. Match groups the matched text and value;
+			// Location contains the source path and coordinates. Redact a
 			// copy before exporting. Returning an error stops the scan.
 			redacted := finding.RedactedCopy(100)
 			// finding.MatchContext is available for local inspection. Redaction
@@ -170,7 +171,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("analyze credential: %w", err)
 	}
-	logger.Info("credential checked", "status", result.Validation.Status,
+	logger.Info("credential checked", "status", result.Analysis.Status,
 		"severity", result.Analysis.Severity)
 	// Credential reports already sanitize supplied secrets and captures.
 	if err := encoder.Encode(result); err != nil {
@@ -185,10 +186,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	logger.Info("credential validated", "status", validation.Validation.Status)
+	logger.Info("credential validated", "status", validation.Analysis.Status)
 
 	// Scanner is useful alone: these findings have confidence and locations,
-	// with empty Validation and Analysis fields.
+	// with an empty Analysis field.
 	logger.Info("local scan complete", "findings", len(scanner.ScanString("API_KEY="+token)))
 	return nil
 }

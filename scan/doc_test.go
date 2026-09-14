@@ -45,7 +45,7 @@ func ExampleWithIgnoredFingerprints() {
 		panic(err)
 	}
 	for _, finding := range scanner.ScanString("secret-fixture secret-live") {
-		fmt.Println(finding.Secret)
+		fmt.Println(finding.Match.Value)
 	}
 	// Output: secret-live
 }

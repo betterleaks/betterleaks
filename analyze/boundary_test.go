@@ -20,24 +20,24 @@ func TestRecheckReplacesResultsWithoutMutatingInput(t *testing.T) {
 	}}
 	a := mustNew(t, cfg)
 	input := report.Finding{
-		RuleID: "key", Secret: "key", Confidence: "high",
-		Validation: report.Validation{Status: report.ValidationStatusValid},
-		Analysis:   report.Analysis{Severity: report.SeverityHigh},
+		RuleID: "key", Match: report.Match{Value: "key"}, Confidence: "high",
+		Analysis: report.Analysis{Severity: report.SeverityHigh, Status: report.ValidationStatusValid},
 		ComponentSets: []report.ComponentSet{{
-			Components: []*report.ComponentFinding{{RuleID: "part", Secret: "companion"}},
-			Validation: report.Validation{Status: report.ValidationStatusValid},
-			Analysis:   report.Analysis{Severity: report.SeverityHigh},
+			Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "companion"}}},
+			Analysis:   report.Analysis{Severity: report.SeverityHigh, Status: report.ValidationStatusValid},
 		}},
 	}
 	for _, resolve := range []func(context.Context, report.Finding) (report.Finding, error){a.Validate, a.Analyze} {
 		result, err := resolve(t.Context(), input)
 		require.NoError(t, err)
 		require.Equal(t, "high", result.Confidence)
-		require.Equal(t, report.ValidationStatusInvalid, result.Validation.Status)
-		require.True(t, result.Analysis.IsZero())
-		require.Equal(t, report.ValidationStatusInvalid, result.ComponentSets[0].Validation.Status)
-		require.True(t, result.ComponentSets[0].Analysis.IsZero())
-		require.Equal(t, report.ValidationStatusValid, input.ComponentSets[0].Validation.Status)
+		require.Equal(t, report.ValidationStatusInvalid, result.Analysis.Status)
+		require.Empty(t, result.Analysis.Severity)
+		require.Nil(t, result.Analysis.Identity)
+		require.Empty(t, result.Analysis.Capabilities)
+		require.Equal(t, report.ValidationStatusInvalid, result.ComponentSets[0].Analysis.Status)
+		require.Equal(t, report.Analysis{Status: report.ValidationStatusInvalid}, result.ComponentSets[0].Analysis)
+		require.Equal(t, report.ValidationStatusValid, input.ComponentSets[0].Analysis.Status)
 		require.Equal(t, report.SeverityHigh, input.ComponentSets[0].Analysis.Severity)
 	}
 }
@@ -51,7 +51,9 @@ func TestValidationOnlyAfterAnalysis(t *testing.T) {
 	require.Equal(t, report.SeverityMedium, result.Analysis.Severity)
 	result, err = a.ValidateCredential(t.Context(), input)
 	require.NoError(t, err)
-	require.True(t, result.Analysis.IsZero())
+	require.Empty(t, result.Analysis.Severity)
+	require.Nil(t, result.Analysis.Identity)
+	require.Empty(t, result.Analysis.Capabilities)
 	cfg.Rules[0].AnalyzeExpr = `invalid syntax ???`
 	_, err = New(cfg, WithPrecompile())
 	require.ErrorContains(t, err, "analysis")
@@ -65,7 +67,7 @@ func TestStreamsOwnCachesAndShareRequestBudgets(t *testing.T) {
 	a := mustNew(t, cfg, WithWorkers(2), WithMaxRequestsPerTarget(1))
 	produce := func(ctx context.Context, yield func(report.Finding) error) error {
 		for _, secret := range []string{"one", "one", "two"} {
-			if err := yield(report.Finding{RuleID: "key", Secret: secret}); err != nil {
+			if err := yield(report.Finding{RuleID: "key", Match: report.Match{Value: secret}}); err != nil {
 				return err
 			}
 		}
@@ -73,7 +75,7 @@ func TestStreamsOwnCachesAndShareRequestBudgets(t *testing.T) {
 	}
 	for run := 1; run <= 2; run++ {
 		statuses := make(map[report.ValidationStatus]int)
-		err := a.AnalyzeStream(t.Context(), produce, func(f report.Finding) error { statuses[f.Validation.Status]++; return nil })
+		err := a.AnalyzeStream(t.Context(), produce, func(f report.Finding) error { statuses[f.Analysis.Status]++; return nil })
 		require.NoError(t, err)
 		require.Equal(t, int32(run), requests.Load(), "one shared request budget per stream, fresh next time")
 		require.Equal(t, 3, statuses[report.ValidationStatusValid]+statuses[report.ValidationStatusNeedsValidation])

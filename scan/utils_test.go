@@ -29,7 +29,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 		RuleID: "generic-username",
 		Location: report.Location{
 			StartLine: 170},
-		Secret:          "invalid",
+		Match:           report.Match{Value: "invalid"},
 		RuleSpecificity: 100,
 	}
 
@@ -38,8 +38,8 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			RuleID: "generic-password",
 			Location: report.Location{
 				StartLine: 170},
-			Match:           "password: 'invalid'",
-			Secret:          "invalid",
+			Match: report.Match{Full: "password: 'invalid'", Value: "invalid"},
+
 			RuleSpecificity: 20,
 			ComponentSets: []report.ComponentSet{
 				{Components: []*report.ComponentFinding{component}},
@@ -54,8 +54,8 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			RuleID: "generic-password",
 			Location: report.Location{
 				StartLine: 170},
-			Match:           "password: 'hunter2'",
-			Secret:          "hunter2",
+			Match: report.Match{Full: "password: 'hunter2'", Value: "hunter2"},
+
 			RuleSpecificity: 20,
 			ComponentSets: []report.ComponentSet{
 				{Components: []*report.ComponentFinding{component}},
@@ -65,8 +65,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			RuleID: "generic-username",
 			Location: report.Location{
 				StartLine: 170},
-			Match:  "login: 'invalid'",
-			Secret: "invalid",
+			Match: report.Match{Full: "login: 'invalid'", Value: "invalid"},
 		}
 
 		assert.Equal(t, []report.Finding{primary}, filterForTest([]report.Finding{primary, standaloneComponent}))
@@ -77,7 +76,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			RuleID: "generic-password",
 			Location: report.Location{
 				StartLine: 170},
-			Secret: "hunter2",
+			Match: report.Match{Value: "hunter2"},
 			ComponentSets: []report.ComponentSet{
 				{Components: []*report.ComponentFinding{{
 					RuleID: "generic-username",
@@ -87,7 +86,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 						StartColumn: 10,
 						EndColumn:   16,
 					},
-					Secret: "invalid",
+					Match: report.Match{Value: "invalid"},
 				}}},
 			},
 		}
@@ -99,7 +98,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 				StartColumn: 10,
 				EndColumn:   16,
 			},
-			Secret: "invalid",
+			Match: report.Match{Value: "invalid"},
 		}
 		unownedStandalone := report.Finding{
 			RuleID: "generic-username",
@@ -109,7 +108,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 				StartColumn: 30,
 				EndColumn:   36,
 			},
-			Secret: "invalid",
+			Match: report.Match{Value: "invalid"},
 		}
 
 		assert.Equal(t,
@@ -123,16 +122,16 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			RuleID: "specific-rule",
 			Location: report.Location{
 				StartLine: 170},
-			Match:           "credential: 'prefix-invalid-suffix'",
-			Secret:          "prefix-invalid-suffix",
+			Match: report.Match{Full: "credential: 'prefix-invalid-suffix'", Value: "prefix-invalid-suffix"},
+
 			RuleSpecificity: 100,
 		}
 		primary := report.Finding{
 			RuleID: "composite-rule",
 			Location: report.Location{
 				StartLine: 169},
-			Match:           "composite: 'hunter2'",
-			Secret:          "hunter2",
+			Match: report.Match{Full: "composite: 'hunter2'", Value: "hunter2"},
+
 			RuleSpecificity: 50,
 			ComponentSets: []report.ComponentSet{
 				{Components: []*report.ComponentFinding{ownedComponent}},
@@ -142,8 +141,8 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			RuleID: "generic-rule",
 			Location: report.Location{
 				StartLine: 170},
-			Match:           "credential: 'invalid'",
-			Secret:          "invalid",
+			Match: report.Match{Full: "credential: 'invalid'", Value: "invalid"},
+
 			RuleSpecificity: 20,
 		}
 
@@ -155,13 +154,13 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			RuleID: "nested-composite",
 			Location: report.Location{
 				StartLine: 170},
-			Secret: "shared",
+			Match: report.Match{Value: "shared"},
 		}
 		outerPrimary := report.Finding{
 			RuleID: "outer-primary",
 			Location: report.Location{
 				StartLine: 169},
-			Secret: "outer",
+			Match: report.Match{Value: "outer"},
 			ComponentSets: []report.ComponentSet{
 				{Components: []*report.ComponentFinding{nestedComponent}},
 			},
@@ -170,12 +169,12 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			RuleID: "nested-composite",
 			Location: report.Location{
 				StartLine: 170},
-			Secret: "shared",
+			Match: report.Match{Value: "shared"},
 			ComponentSets: []report.ComponentSet{
 				{Components: []*report.ComponentFinding{{RuleID: "leaf",
 					Location: report.Location{
 						StartLine: 171},
-					Secret: "leaf"}}},
+					Match: report.Match{Value: "leaf"}}}},
 			},
 		}
 
@@ -187,10 +186,9 @@ func scmLinkFinding(commit, path string, startLine, endLine int) report.Finding 
 	return report.Finding{
 		Attributes: map[string]string{
 			sources.AttrGitSHA: commit,
-			sources.AttrPath:   path,
 		},
 		Location: report.Location{
-			StartLine: startLine, EndLine: endLine},
+			Path: path, StartLine: startLine, EndLine: endLine},
 	}
 }
 

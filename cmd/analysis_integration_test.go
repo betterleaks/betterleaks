@@ -69,15 +69,15 @@ analyze = '''
 			var finding report.Finding
 			require.NoError(t, json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &finding))
 			if !test.wantValidation {
-				assert.Empty(t, finding.Validation.Status)
+				assert.Empty(t, finding.Analysis.Status)
 				assert.True(t, finding.Analysis.IsZero())
 				return
 			}
 
-			assert.Equal(t, report.ValidationStatusValid, finding.Validation.Status)
-			assert.Empty(t, finding.Validation.Metadata)
+			assert.Equal(t, report.ValidationStatusValid, finding.Analysis.Status)
+			assert.Empty(t, finding.Analysis.Metadata)
 			if !test.wantAnalysis {
-				assert.True(t, finding.Analysis.IsZero())
+				assert.Equal(t, report.Analysis{Status: report.ValidationStatusValid}, finding.Analysis)
 				return
 			}
 

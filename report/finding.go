@@ -4,38 +4,32 @@ import (
 	"encoding/json"
 	"maps"
 	"math"
-	"sort"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-// Finding describes a secret found by a rule.
+// Finding describes what a rule matched, where it was found, and optional provider
+// enrichment. Scanner owns discovery fields; Analyzer owns Analysis.
 type Finding struct {
 	RuleID      string `json:"ruleID"`
 	Description string `json:"description"`
 	Confidence  string `json:"confidence"`
 
-	// Regex match that triggered the finding
-	Match string `json:"match"`
+	Match Match `json:"match"`
 
-	// Captured secret
-	Secret string `json:"secret"`
-
-	// MatchContext contains surrounding lines around the match
+	// MatchContext is optional source context, also exposed as finding.context
+	// to expressions. It is populated only when explicitly requested or supplied.
 	MatchContext string `json:"matchContext,omitempty"`
 
-	// CaptureGroups holds named regex capture groups from the match.
-	CaptureGroups map[string]string `json:"captureGroups,omitempty"`
-
 	// Attributes holds extensible source metadata. Well-known keys are defined
-	// by the sources package.
+	// by the sources package. Path is stored in Location; SetAttributes promotes
+	// it when importing source metadata.
 	Attributes map[string]string `json:"attributes,omitempty"`
 
-	Location   Location   `json:"location"`
-	Validation Validation `json:"validation,omitzero"`
-	Analysis   Analysis   `json:"analysis,omitzero"`
+	Location Location `json:"location"`
+	Analysis Analysis `json:"analysis,omitzero"`
 
 	// ComponentSets holds the Cartesian-product combinations of component findings.
 	// Each set is one complete group of components that can be validated independently.
@@ -45,9 +39,6 @@ type Finding struct {
 
 	Line            string `json:"-"`
 	RuleSpecificity int    `json:"-"`
-
-	// Hidden field to hold expression context without bloating the report output.
-	exprContext string
 }
 
 // MarshalJSON omits internal attributes and limits Git message metadata to its
@@ -63,14 +54,16 @@ func (f Finding) MarshalJSON() ([]byte, error) {
 
 func reportAttributes(attributes map[string]string) map[string]string {
 	_, internal := attributes[sources.AttrFSFirstFragment]
+	_, path := attributes[sources.AttrPath]
 	message := attributes[sources.AttrGitMessage]
 	lineEnd := strings.IndexAny(message, "\r\n")
-	if !internal && lineEnd < 0 {
+	if !internal && !path && lineEnd < 0 {
 		return attributes
 	}
 
 	visible := maps.Clone(attributes)
 	delete(visible, sources.AttrFSFirstFragment)
+	delete(visible, sources.AttrPath)
 	if lineEnd >= 0 {
 		visible[sources.AttrGitMessage] = message[:lineEnd]
 		if strings.TrimSpace(message[lineEnd:]) != "" {
@@ -83,46 +76,40 @@ func reportAttributes(attributes map[string]string) map[string]string {
 	return visible
 }
 
-// Location identifies a finding's position in its source.
+// Match groups matched text and the extracted value independently of its source.
+// A component or path rule need not identify a secret.
+type Match struct {
+	Full     string            `json:"full"`
+	Value    string            `json:"value"`
+	Captures map[string]string `json:"captures,omitempty"`
+}
+
+// Location identifies a finding's position in its source. Path has source-defined
+// semantics and is optional. Text coordinates use one-based lines and byte columns.
 type Location struct {
-	StartLine   int `json:"startLine"`
-	EndLine     int `json:"endLine"`
-	StartColumn int `json:"startColumn"`
-	EndColumn   int `json:"endColumn"`
-}
-
-// Validation describes the result of validating a finding.
-type Validation struct {
-	Status   ValidationStatus `json:"status,omitempty"`
-	Reason   string           `json:"reason,omitempty"`
-	Metadata map[string]any   `json:"metadata,omitempty"`
-}
-
-func (v Validation) IsZero() bool {
-	return v.Status == "" && v.Reason == "" && len(v.Metadata) == 0
+	Path        string `json:"path,omitempty"`
+	StartLine   int    `json:"startLine,omitempty"`
+	EndLine     int    `json:"endLine,omitempty"`
+	StartColumn int    `json:"startColumn,omitempty"`
+	EndColumn   int    `json:"endColumn,omitempty"`
 }
 
 // ComponentSet represents one combination of component findings (one element per
 // matched component rule) from the Cartesian product. Each set can be validated
-// independently and carries its own validation result.
+// independently and carries its own Analysis result.
 type ComponentSet struct {
 	Components []*ComponentFinding `json:"components"`
-	Validation Validation          `json:"validation,omitzero"`
 	Analysis   Analysis            `json:"analysis,omitzero"`
 }
 
+// ComponentFinding is the discovery information for one companion match.
 type ComponentFinding struct {
-	// contains a subset of the Finding fields
-	// only used for reporting
-	RuleID   string `json:"ruleID"`
-	Optional bool   `json:"optional,omitempty"`
-	Line     string `json:"-"`
-	Match    string `json:"match"`
-	Secret   string `json:"secret"`
-	// CaptureGroups holds named regex capture groups from the component match.
-	CaptureGroups   map[string]string `json:"captureGroups,omitempty"`
-	Location        Location          `json:"location"`
-	RuleSpecificity int               `json:"-"`
+	RuleID          string   `json:"ruleID"`
+	Optional        bool     `json:"optional,omitempty"`
+	Match           Match    `json:"match"`
+	Location        Location `json:"location"`
+	Line            string   `json:"-"`
+	RuleSpecificity int      `json:"-"`
 }
 
 // BuildComponentSets generates the Cartesian product of the given component findings
@@ -178,71 +165,63 @@ func cartesianFindings(ruleOrder []string, byRule map[string][]*ComponentFinding
 
 // Redact removes sensitive information from a finding.
 func (f *Finding) Redact(percent uint) {
-	secrets := []string{f.Secret}
+	secrets := []string{f.Match.Value}
 	for _, set := range f.ComponentSets {
 		for _, component := range set.Components {
 			if component != nil {
-				secrets = append(secrets, component.Secret)
+				secrets = append(secrets, component.Match.Value)
 			}
 		}
 	}
 
-	secret := MaskSecret(f.Secret, percent)
-	if percent >= 100 {
-		secret = "REDACTED"
+	// Replace all primary and component values in each match and its surrounding
+	// text. Longest values win when credentials overlap; replacements are applied
+	// once so masking one value cannot expose or corrupt another.
+	secrets = credentialSecretsForRedaction(secrets)
+	pairs := make([]string, 0, len(secrets)*2)
+	for _, secret := range secrets {
+		masked := "REDACTED"
+		if percent < 100 {
+			masked = MaskSecret(secret, percent)
+		}
+		pairs = append(pairs, secret, masked)
 	}
-	f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
-	f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
-	f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
-	// Capture groups can contain the secret verbatim and are emitted in JSON,
-	// JUnit, and template reports, so they must be redacted too. Done before
-	// f.Secret is overwritten so the original value is still available to match.
-	for k, v := range f.CaptureGroups {
-		f.CaptureGroups[k] = strings.ReplaceAll(v, f.Secret, secret)
+	replacer := strings.NewReplacer(pairs...)
+	redactMatch := func(match *Match) {
+		match.Full = replacer.Replace(match.Full)
+		match.Value = replacer.Replace(match.Value)
+		for key, value := range match.Captures {
+			match.Captures[key] = replacer.Replace(value)
+		}
 	}
-	f.Secret = secret
-
+	redactMatch(&f.Match)
+	f.Line = replacer.Replace(f.Line)
+	f.MatchContext = replacer.Replace(f.MatchContext)
 	seen := make(map[*ComponentFinding]struct{})
 	for _, set := range f.ComponentSets {
-		for _, comp := range set.Components {
-			if _, ok := seen[comp]; ok {
+		for _, component := range set.Components {
+			if component == nil {
 				continue
 			}
-			seen[comp] = struct{}{}
-			compSecret := MaskSecret(comp.Secret, percent)
-			if percent >= 100 {
-				compSecret = "REDACTED"
+			if _, ok := seen[component]; ok {
+				continue
 			}
-			comp.Line = strings.ReplaceAll(comp.Line, comp.Secret, compSecret)
-			comp.Match = strings.ReplaceAll(comp.Match, comp.Secret, compSecret)
-			for k, v := range comp.CaptureGroups {
-				comp.CaptureGroups[k] = strings.ReplaceAll(v, comp.Secret, compSecret)
-			}
-			comp.Secret = compSecret
+			seen[component] = struct{}{}
+			redactMatch(&component.Match)
+			component.Line = replacer.Replace(component.Line)
 		}
 	}
 
-	f.Validation = sanitizeValidation(f.Validation, secrets)
 	f.Analysis = SanitizeAnalysis(f.Analysis, secrets)
 	for i := range f.ComponentSets {
-		f.ComponentSets[i].Validation = sanitizeValidation(f.ComponentSets[i].Validation, secrets)
 		f.ComponentSets[i].Analysis = SanitizeAnalysis(f.ComponentSets[i].Analysis, secrets)
 	}
-}
-
-// sanitizeValidation fully masks credential material in provider-controlled
-// output, including debug metadata, without mutating shared metadata maps.
-func sanitizeValidation(validation Validation, secrets []string) Validation {
-	secrets = credentialSecretsForRedaction(secrets)
-	validation.Reason = sanitizeCredentialString(validation.Reason, secrets)
-	validation.Metadata = sanitizeCredentialMetadata(validation.Metadata, secrets, true)
-	return validation
 }
 
 // RedactedCopy returns a redacted finding without modifying maps, component
 // findings, or component sets shared with the original finding.
 func (f Finding) RedactedCopy(percent uint) Finding {
-	f.CaptureGroups = maps.Clone(f.CaptureGroups)
+	f.Match.Captures = maps.Clone(f.Match.Captures)
 
 	if len(f.ComponentSets) > 0 {
 		componentCopies := make(map[*ComponentFinding]*ComponentFinding)
@@ -257,7 +236,7 @@ func (f Finding) RedactedCopy(percent uint) Finding {
 				componentCopy, ok := componentCopies[component]
 				if !ok {
 					copyValue := *component
-					copyValue.CaptureGroups = maps.Clone(component.CaptureGroups)
+					copyValue.Match.Captures = maps.Clone(component.Match.Captures)
 					componentCopy = &copyValue
 					componentCopies[component] = componentCopy
 				}
@@ -287,10 +266,6 @@ func MaskSecret(secret string, percent uint) string {
 	keep := int(math.RoundToEven(total * prc / float64(100)))
 
 	return string(runes[:keep]) + "..."
-}
-
-func (f *Finding) SetExprContext(context string) {
-	f.exprContext = context
 }
 
 // Print writes a verbose finding using the pretty box format.
@@ -335,16 +310,12 @@ func locateMatch(rawLine, rawMatch string, startCol int) int {
 	return strings.Index(rawLine, rawMatch)
 }
 
-func sortedMapKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 func (f *Finding) SetAttr(key, value string) {
+	if key == sources.AttrPath {
+		f.Location.Path = value
+		delete(f.Attributes, key)
+		return
+	}
 	if key == confidence.Attribute {
 		f.Confidence = value
 		delete(f.Attributes, key)
@@ -357,6 +328,9 @@ func (f *Finding) SetAttr(key, value string) {
 }
 
 func (f Finding) Attr(key string) string {
+	if key == sources.AttrPath {
+		return f.Location.Path
+	}
 	if key == confidence.Attribute {
 		return f.Confidence
 	}
@@ -366,26 +340,40 @@ func (f Finding) Attr(key string) string {
 	return ""
 }
 
-// SetAttributes stores a copy of attrs, promoting confidence into its typed
-// Finding field.
+// SetAttributes stores a copy of attrs, promoting path and confidence into typed fields.
 func (f *Finding) SetAttributes(attrs map[string]string) {
 	f.Attributes = maps.Clone(attrs)
+	f.Location.Path = attrs[sources.AttrPath]
+	delete(f.Attributes, sources.AttrPath)
 	if value, ok := f.Attributes[confidence.Attribute]; ok {
 		f.Confidence = value
 		delete(f.Attributes, confidence.Attribute)
 	}
 }
 
+// ExprAttributes returns the source attributes used by rule expressions, including
+// the promoted path. The map is independent of the finding so local helpers may
+// write to it. Report consumers should use Location.Path.
+func (f Finding) ExprAttributes() map[string]string {
+	attrs := make(map[string]string, len(f.Attributes)+1)
+	maps.Copy(attrs, f.Attributes)
+	delete(attrs, sources.AttrPath)
+	if f.Location.Path != "" {
+		attrs[sources.AttrPath] = f.Location.Path
+	}
+	return attrs
+}
+
 // ToExprMap returns the fixed-shape map[string]string used as the `finding`
 // variable in filter, validation, and analysis expressions.
 func (f *Finding) ToExprMap() map[string]string {
 	return map[string]string{
-		"secret":      f.Secret,
-		"match":       f.Match,
+		"secret":      f.Match.Value,
+		"match":       f.Match.Full,
 		"line":        f.Line,
 		"rule_id":     f.RuleID,
 		"description": f.Description,
 		"confidence":  f.Confidence,
-		"context":     f.exprContext,
+		"context":     f.MatchContext,
 	}
 }

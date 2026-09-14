@@ -30,7 +30,7 @@ var linkCleaner = strings.NewReplacer(
 func createScmLink(platform, remoteURL string, finding report.Finding) string {
 	p, _ := scm.PlatformFromString(platform)
 	commitSha := finding.Attr(sources.AttrGitSHA)
-	path := finding.Attr(sources.AttrPath)
+	path := finding.Location.Path
 	location := finding.Location
 	if p == scm.UnknownPlatform || p == scm.NoPlatform || commitSha == "" {
 		return ""
@@ -184,7 +184,7 @@ func (d *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) 
 	for _, f := range findings {
 		for _, set := range f.ComponentSets {
 			for _, comp := range set.Components {
-				componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", comp.RuleID, comp.Location.StartLine, comp.Location.StartColumn, comp.Location.EndLine, comp.Location.EndColumn, comp.Secret)] = struct{}{}
+				componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", comp.RuleID, comp.Location.StartLine, comp.Location.StartColumn, comp.Location.EndLine, comp.Location.EndColumn, comp.Match.Value)] = struct{}{}
 			}
 		}
 	}
@@ -195,9 +195,9 @@ func (d *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) 
 
 		// Skip findings already surfaced as the same rule's component of a
 		// composite finding in this batch.
-		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.Location.StartLine, f.Location.StartColumn, f.Location.EndLine, f.Location.EndColumn, f.Secret)]
+		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.Location.StartLine, f.Location.StartColumn, f.Location.EndLine, f.Location.EndColumn, f.Match.Value)]
 		if isComponent {
-			redactedMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
+			redactedMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
 			logTrace(d.logger, "skipping finding already used as a component", "rule_id", f.RuleID, "finding", redactedMatch)
 			include = false
 		} else if d.isSuppressedByHigherSpecificityFinding(f, index) {
@@ -257,10 +257,10 @@ func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 		if f.Location.StartLine == fPrime.Location.StartLine &&
 			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
 			f.RuleID != fPrime.RuleID &&
-			strings.Contains(fPrime.Secret, f.Secret) &&
+			strings.Contains(fPrime.Match.Value, f.Match.Value) &&
 			fPrime.RuleSpecificity > f.RuleSpecificity {
-			genericMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
-			betterMatch := strings.ReplaceAll(fPrime.Match, fPrime.Secret, "REDACTED")
+			genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
+			betterMatch := strings.ReplaceAll(fPrime.Match.Full, fPrime.Match.Value, "REDACTED")
 			d.logger.Debug("skipping finding because a more specific rule takes precedence",
 				"rule_id", f.RuleID,
 				"finding", genericMatch,
@@ -274,10 +274,10 @@ func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 				if f.RuleID != fPrime.RuleID &&
 					f.Location.StartLine == comp.Location.StartLine &&
 					f.RuleID != comp.RuleID &&
-					strings.Contains(comp.Secret, f.Secret) &&
+					strings.Contains(comp.Match.Value, f.Match.Value) &&
 					comp.RuleSpecificity > f.RuleSpecificity {
-					genericMatch := strings.ReplaceAll(f.Match, f.Secret, "REDACTED")
-					betterMatch := strings.ReplaceAll(comp.Match, comp.Secret, "REDACTED")
+					genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
+					betterMatch := strings.ReplaceAll(comp.Match.Full, comp.Match.Value, "REDACTED")
 					logTrace(d.logger, "skipping finding because a more specific component takes precedence",
 						"rule_id", f.RuleID,
 						"finding", genericMatch,

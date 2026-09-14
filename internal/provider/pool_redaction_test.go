@@ -31,17 +31,19 @@ func TestProviderDebugIsRedactedInFinding(t *testing.T) {
 	pool.Emit = func(f report.Finding) { results <- f }
 	const secret = "synthetic-debug-credential"
 	require.NoError(t, pool.SubmitContext(t.Context(), report.Finding{
-		RuleID: "debug-test", Secret: secret,
+		RuleID: "debug-test", Match: report.Match{Value: secret},
 	}, program))
 	pool.Close()
 	finding := <-results
-	require.Equal(t, report.ValidationStatusValid, finding.Validation.Status)
-	require.Contains(t, finding.Validation.Metadata["req_url"], secret)
-	require.Equal(t, secret, finding.Validation.Metadata["req_body"])
-	require.Equal(t, secret, finding.Validation.Metadata["resp_body"])
+	require.Equal(t, report.ValidationStatusValid, finding.Analysis.Status)
+	diagnostics := finding.Analysis.Debug["validation"].(map[string]any)
+	require.Contains(t, diagnostics["req_url"], "[redacted]")
+	require.Equal(t, "[redacted]", diagnostics["req_body"])
+	require.Equal(t, "[redacted]", diagnostics["resp_body"])
+	require.Empty(t, finding.Analysis.Metadata)
 	redacted := finding.RedactedCopy(100)
 	encoded, err := json.Marshal(redacted)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), secret)
-	require.Equal(t, "[redacted]", redacted.Validation.Reason)
+	require.Equal(t, "[redacted]", redacted.Analysis.Reason)
 }

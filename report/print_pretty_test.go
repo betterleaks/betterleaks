@@ -50,14 +50,10 @@ func TestPrintComponentFindingsOmitsAnalysis(t *testing.T) {
 	finding := Finding{ComponentSets: []ComponentSet{{
 		Components: []*ComponentFinding{{
 			RuleID:   "cloudflare-account-id.1",
-			Secret:   "account-id",
+			Match:    Match{Value: "account-id"},
 			Location: Location{StartLine: 3},
 		}},
-		Validation: Validation{Status: ValidationStatusValid},
-		Analysis: Analysis{
-			Severity:     SeverityHigh,
-			Capabilities: []Capability{CapabilityRead, CapabilityWrite},
-		},
+		Analysis: Analysis{Severity: SeverityHigh, Capabilities: []Capability{CapabilityRead, CapabilityWrite}, Status: ValidationStatusValid},
 	}}}
 	finding.PrintComponentFindings(true, 0)
 	require.NoError(t, writer.Close())

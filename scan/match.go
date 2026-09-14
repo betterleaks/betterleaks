@@ -31,7 +31,7 @@ func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Findi
 	finding := report.Finding{
 		RuleID:          r.rule.ID,
 		Description:     r.rule.Description,
-		Match:           "file detected: " + path,
+		Match:           report.Match{Full: "file detected: " + path},
 		Tags:            append([]string{}, r.rule.Tags...),
 		RuleSpecificity: r.rule.Specificity,
 	}
@@ -44,13 +44,13 @@ func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Findi
 
 // promoteConfidence moves the value written by setConfidence from the
 // mutable expression attributes into Finding's typed field.
-func promoteConfidence(finding *report.Finding, findingMap map[string]any) {
-	value, ok := finding.Attributes[confidence.Attribute]
+func promoteConfidence(finding *report.Finding, findingMap map[string]any, attributes map[string]string) {
+	value, ok := attributes[confidence.Attribute]
 	if !ok {
 		return
 	}
 	finding.Confidence = value
-	delete(finding.Attributes, confidence.Attribute)
+	delete(attributes, confidence.Attribute)
 	findingMap["confidence"] = value
 }
 
@@ -136,7 +136,7 @@ ScanLoop:
 						// These findings have their components assembled. Recursive
 						// component matching never applies fingerprint suppression.
 						if len(d.ignoredFingerprints) > 0 {
-							if _, ignored := d.ignoredFingerprints[fingerprint.Sum([]byte(finding.Secret))]; ignored {
+							if _, ignored := d.ignoredFingerprints[fingerprint.Sum([]byte(finding.Match.Value))]; ignored {
 								continue
 							}
 						}
@@ -213,7 +213,7 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 				rule.Components[componentIndex] = &copy
 			}
 		}
-		compiled := compiledRule{rule: rule, filter: &lazyFilter{}, needsExprContext: rule.Filter != "" || rule.ValidateExpr != "" || rule.AnalyzeExpr != ""}
+		compiled := compiledRule{rule: rule, filter: &lazyFilter{}}
 		if rule.Regex != "" {
 			var err error
 			compiled.regex, err = blregexp.Compile(rule.Regex)
@@ -337,8 +337,7 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			RuleID:          r.rule.ID,
 			Description:     r.rule.Description,
 			Line:            strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
-			Match:           secret,
-			Secret:          secret,
+			Match:           report.Match{Full: secret, Value: secret},
 			Tags:            tags,
 			RuleSpecificity: r.rule.Specificity,
 			Location: report.Location{
@@ -364,7 +363,7 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		// move to filter?
 		if !d.ignoreAllowComments && containsAllowSignature(finding.Line) {
-			logTrace(logger, "skipping finding: allow signature found", "finding", finding.Secret)
+			logTrace(logger, "skipping finding: allow signature found", "finding", finding.Match.Value)
 			continue
 		}
 		if currentLine == "" {
@@ -373,19 +372,19 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		// Set the value of |secret|, if the pattern contains at least one capture group.
 		// (The first element is the full match, hence we check >= 2.)
-		groups := r.regex.FindStringSubmatch(finding.Secret)
+		groups := r.regex.FindStringSubmatch(finding.Match.Value)
 		if len(groups) >= 2 {
 			if r.rule.SecretGroup > 0 {
 				if len(groups) <= r.rule.SecretGroup {
 					// Config validation should prevent this
 					continue
 				}
-				finding.Secret = groups[r.rule.SecretGroup]
+				finding.Match.Value = groups[r.rule.SecretGroup]
 			} else {
 				// If |secretGroup| is not set, we will use the first suitable capture group.
 				for _, s := range groups[1:] {
 					if len(s) > 0 {
-						finding.Secret = s
+						finding.Match.Value = s
 						break
 					}
 				}
@@ -400,7 +399,7 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 				}
 			}
 			if len(captures) > 0 {
-				finding.CaptureGroups = captures
+				finding.Match.Captures = captures
 			}
 		}
 
@@ -408,32 +407,26 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			continue
 		}
 
-		entropy := shannonEntropy(finding.Secret)
+		entropy := shannonEntropy(finding.Match.Value)
 
 		hasGlobalFilter := d.globalFilterExpr != ""
 		hasRuleFilter := r.rule.Filter != ""
-		// Validation/filter expressions need context text in the finding map.
-		if r.needsExprContext || hasGlobalFilter {
-			finding.SetExprContext(strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, contextwindow.Spec{
-				Mode:        contextwindow.ModeBox,
-				LinesBefore: 20,
-				LinesAfter:  20,
-				ColsBefore:  350,
-				ColsAfter:   350,
-			})))
+		// Context is opt-in. Filters can slice fragment_raw using match offsets
+		// without retaining an additional context window on every finding.
+		if !d.matchContext.IsZero() {
+			finding.MatchContext = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, d.matchContext))
 		}
 
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]any
+		var exprAttributes map[string]string
 		if hasGlobalFilter || hasRuleFilter {
-			if finding.Attributes == nil {
-				finding.Attributes = make(map[string]string)
-			}
+			exprAttributes = finding.ExprAttributes()
 			findingMap = make(map[string]any, 12)
 			for key, value := range finding.ToExprMap() {
 				findingMap[key] = value
 			}
-			findingMap["captures"] = finding.CaptureGroups
+			findingMap["captures"] = finding.Match.Captures
 			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
 			findingMap["fragment_raw"] = currentRaw
 			findingMap["match_start_idx"] = filterMatchStartIdx
@@ -457,12 +450,12 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		if prg, ok, err := d.globalFilterProgram(); err != nil {
 			logger.Warn("global filter compile error", "error", err)
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
-			promoteConfidence(&finding, findingMap)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, exprAttributes)
+			promoteConfidence(&finding, findingMap, exprAttributes)
 			if err != nil {
 				logger.Warn("global filter eval error", "error", err)
 			} else if skip {
-				logTrace(logger, "skipping finding: global filter", "finding", finding.Secret)
+				logTrace(logger, "skipping finding: global filter", "finding", finding.Match.Value)
 				continue
 			}
 		}
@@ -471,19 +464,16 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
 			logger.Warn("rule filter compile error", "error", err)
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, finding.Attributes)
-			promoteConfidence(&finding, findingMap)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, exprAttributes)
+			promoteConfidence(&finding, findingMap, exprAttributes)
 			if err != nil {
 				logger.Warn("rule filter eval error", "error", err)
 			} else if skip {
-				logTrace(logger, "skipping finding: rule filter", "finding", finding.Secret)
+				logTrace(logger, "skipping finding: rule filter", "finding", finding.Match.Value)
 				continue
 			}
 		}
 
-		if !d.matchContext.IsZero() {
-			finding.MatchContext = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, d.matchContext))
-		}
 		findings = append(findings, finding)
 	}
 
@@ -550,8 +540,6 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 						Optional:        component.Optional,
 						Line:            found.Line,
 						Match:           found.Match,
-						Secret:          found.Secret,
-						CaptureGroups:   found.CaptureGroups,
 						Location:        found.Location,
 						RuleSpecificity: found.RuleSpecificity,
 					})

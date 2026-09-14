@@ -39,8 +39,10 @@ func KnownCapabilities() []Capability {
 	}
 }
 
-// Analysis is the normalized output of a credential analysis program.
+// Analysis describes credential state and optional identity and permission evidence.
+// Status comes from validation; severity is derived from positively observed grants.
 type Analysis struct {
+	Status       ValidationStatus  `json:"status,omitempty"`
 	Reason       string            `json:"reason,omitempty"`
 	Severity     Severity          `json:"severity,omitempty"`
 	Identity     *AnalysisIdentity `json:"identity,omitempty"`
@@ -50,7 +52,7 @@ type Analysis struct {
 }
 
 func (a Analysis) IsZero() bool {
-	return a.Reason == "" && a.Severity == "" &&
+	return a.Status == "" && a.Reason == "" && a.Severity == "" &&
 		a.Identity == nil && len(a.Capabilities) == 0 &&
 		len(a.Metadata) == 0 && len(a.Debug) == 0
 }
@@ -107,6 +109,7 @@ func severityStyle(severity Severity, noColor bool) color.Style {
 // primary secret and any component secrets.
 func SanitizeAnalysis(analysis Analysis, secrets []string) Analysis {
 	secrets = credentialSecretsForRedaction(secrets)
+	analysis.Capabilities = append([]Capability(nil), analysis.Capabilities...)
 	analysis.Reason = sanitizeCredentialString(analysis.Reason, secrets)
 	analysis.Metadata = sanitizeCredentialMetadata(analysis.Metadata, secrets, false)
 	analysis.Debug = sanitizeCredentialMetadata(analysis.Debug, secrets, true)

@@ -26,8 +26,8 @@ func TestScannerOwnsRegexesFromPatternStrings(t *testing.T) {
 		fragment := sources.Fragment{Raw: "token=secret", Attributes: map[string]string{sources.AttrPath: "app.env"}}
 		findings := scanner.detectFragment(t.Context(), fragment)
 		require.Len(t, findings, 1)
-		require.Equal(t, "secret", findings[0].Secret)
-		require.Equal(t, "secret", findings[0].CaptureGroups["secret"])
+		require.Equal(t, "secret", findings[0].Match.Value)
+		require.Equal(t, "secret", findings[0].Match.Captures["secret"])
 		fragment.Attributes[sources.AttrPath] = "app.txt"
 		require.Empty(t, scanner.detectFragment(t.Context(), fragment))
 	}

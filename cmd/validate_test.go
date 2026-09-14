@@ -19,7 +19,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/analyze"
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/report"
-	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func TestValidateCommandJSONL(t *testing.T) {
@@ -74,27 +73,27 @@ attributes["path"] == "betterleaks://validate" ? {
 	if got.RuleID != "test-token" {
 		t.Fatalf("rule ID = %q", got.RuleID)
 	}
-	if got.Attributes[sources.AttrPath] != "betterleaks://validate" {
+	if len(got.Attributes) != 0 {
 		t.Fatalf("attributes = %#v", got.Attributes)
 	}
-	if got.Validation.Status != report.ValidationStatusValid {
-		t.Fatalf("status = %q", got.Validation.Status)
+	if got.Analysis.Status != report.ValidationStatusValid {
+		t.Fatalf("status = %q", got.Analysis.Status)
 	}
-	if got.Validation.Reason != "tenant=[redacted]" {
-		t.Fatalf("sanitized reason = %q", got.Validation.Reason)
+	if got.Analysis.Reason != "tenant=[redacted]" {
+		t.Fatalf("sanitized reason = %q", got.Analysis.Reason)
 	}
-	if got.Validation.Metadata["owner"] != "alice" {
-		t.Fatalf("owner metadata = %#v", got.Validation.Metadata["owner"])
+	if got.Analysis.Metadata["owner"] != "alice" {
+		t.Fatalf("owner metadata = %#v", got.Analysis.Metadata["owner"])
 	}
-	if got.Validation.Metadata["echo"] != "credential=[redacted]" {
-		t.Fatalf("sanitized metadata = %#v", got.Validation.Metadata["echo"])
+	if got.Analysis.Metadata["echo"] != "credential=[redacted]" {
+		t.Fatalf("sanitized metadata = %#v", got.Analysis.Metadata["echo"])
 	}
-	captureEcho, ok := got.Validation.Metadata["capture_echo"].(map[string]any)
+	captureEcho, ok := got.Analysis.Metadata["capture_echo"].(map[string]any)
 	if !ok || captureEcho["tenant"] != "[redacted]" {
-		t.Fatalf("sanitized capture metadata = %#v", got.Validation.Metadata["capture_echo"])
+		t.Fatalf("sanitized capture metadata = %#v", got.Analysis.Metadata["capture_echo"])
 	}
-	if _, ok := got.Validation.Metadata["empty"]; ok {
-		t.Fatalf("empty metadata was not removed: %#v", got.Validation.Metadata)
+	if _, ok := got.Analysis.Metadata["empty"]; ok {
+		t.Fatalf("empty metadata was not removed: %#v", got.Analysis.Metadata)
 	}
 	if strings.Count(stdout.String(), "\n") != 1 {
 		t.Fatalf("JSONL output must be exactly one line: %q", stdout.String())
@@ -163,7 +162,7 @@ let response = http.get(%q, {});
 				if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 					t.Fatal(err)
 				}
-				if string(result.Validation.Status) != test.status || result.Analysis.IsZero() == test.wantAnalysis {
+				if string(result.Analysis.Status) != test.status || (result.Analysis.Severity != report.SeverityNone) != test.wantAnalysis {
 					t.Fatalf("unexpected result: %+v", result)
 				}
 				if test.wantAnalysis && result.Analysis.Severity != report.SeverityMedium {
@@ -200,8 +199,8 @@ finding["secret"] == "from-stdin" ? {"result": "valid"} : {"result": "invalid"}
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if got.Validation.Status != report.ValidationStatusValid {
-		t.Fatalf("status = %q", got.Validation.Status)
+	if got.Analysis.Status != report.ValidationStatusValid {
+		t.Fatalf("status = %q", got.Analysis.Status)
 	}
 	if strings.Contains(stdout.String(), "from-stdin") {
 		t.Fatalf("report contains supplied secret: %s", stdout.String())
@@ -281,22 +280,22 @@ components = [{ id = "account-id" }]
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if got.Validation.Status != report.ValidationStatusValid {
-		t.Fatalf("status = %q", got.Validation.Status)
+	if got.Analysis.Status != report.ValidationStatusValid {
+		t.Fatalf("status = %q", got.Analysis.Status)
 	}
-	if len(got.Validation.ComponentSets) != 1 {
-		t.Fatalf("component sets = %#v", got.Validation.ComponentSets)
+	if len(got.ComponentSets) != 1 {
+		t.Fatalf("component sets = %#v", got.ComponentSets)
 	}
-	set := got.Validation.ComponentSets[0]
-	if set.Status != report.ValidationStatusValid {
-		t.Fatalf("component set status = %q", set.Status)
+	set := got.ComponentSets[0]
+	if set.Analysis.Status != report.ValidationStatusValid {
+		t.Fatalf("component set status = %q", set.Analysis.Status)
 	}
 	if len(set.Components) != 1 || set.Components[0].RuleID != "account-id" || set.Components[0].Optional {
 		t.Fatalf("components = %#v", set.Components)
 	}
-	nested, ok := got.Validation.Metadata["nested"].(map[string]any)
+	nested, ok := got.Analysis.Metadata["nested"].(map[string]any)
 	if !ok || nested["component"] != "[redacted]" {
-		t.Fatalf("nested metadata was not sanitized: %#v", got.Validation.Metadata["nested"])
+		t.Fatalf("nested metadata was not sanitized: %#v", got.Analysis.Metadata["nested"])
 	}
 }
 
@@ -368,13 +367,13 @@ components["required-part"].secret == "required-secret" &&
 			if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 				t.Fatalf("decode report: %v", err)
 			}
-			if got.Validation.Status != report.ValidationStatusValid {
-				t.Fatalf("status = %q", got.Validation.Status)
+			if got.Analysis.Status != report.ValidationStatusValid {
+				t.Fatalf("status = %q", got.Analysis.Status)
 			}
-			if len(got.Validation.ComponentSets) != 1 {
-				t.Fatalf("component sets = %#v", got.Validation.ComponentSets)
+			if len(got.ComponentSets) != 1 {
+				t.Fatalf("component sets = %#v", got.ComponentSets)
 			}
-			components := got.Validation.ComponentSets[0].Components
+			components := got.ComponentSets[0].Components
 			present, optional := findCredentialComponent(components, "optional-part")
 			if present != test.wantOptional {
 				t.Fatalf("optional component present = %t, want %t; components = %#v", present, test.wantOptional, components)
@@ -453,11 +452,11 @@ components = [{ id = "client-id" }]
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if got.Validation.Status != report.ValidationStatusValid {
-		t.Fatalf("status = %q", got.Validation.Status)
+	if got.Analysis.Status != report.ValidationStatusValid {
+		t.Fatalf("status = %q", got.Analysis.Status)
 	}
-	if got.Validation.Metadata["echo"] != "[redacted]:[redacted]" {
-		t.Fatalf("sanitized metadata = %#v", got.Validation.Metadata["echo"])
+	if got.Analysis.Metadata["echo"] != "[redacted]:[redacted]" {
+		t.Fatalf("sanitized metadata = %#v", got.Analysis.Metadata["echo"])
 	}
 }
 
@@ -570,14 +569,14 @@ let r2 = http.get(%q, {});
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if got.Validation.Status != report.ValidationStatusNeedsValidation {
-		t.Fatalf("status = %q, metadata = %#v", got.Validation.Status, got.Validation.Metadata)
+	if got.Analysis.Status != report.ValidationStatusNeedsValidation {
+		t.Fatalf("status = %q, metadata = %#v", got.Analysis.Status, got.Analysis.Metadata)
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("provider requests = %d, want 1", requests.Load())
 	}
-	if got.Validation.Metadata["betterleaks_max_requests_hit"] != true {
-		t.Fatalf("request-limit metadata = %#v", got.Validation.Metadata)
+	if got.Analysis.Metadata["betterleaks_max_requests_hit"] != true {
+		t.Fatalf("request-limit metadata = %#v", got.Analysis.Metadata)
 	}
 }
 

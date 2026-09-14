@@ -102,10 +102,10 @@ func (p *Pipeline) Scan(ctx context.Context, source sources.Source, handler func
 	}
 	summary.ValidationCounts = make(map[report.ValidationStatus]int)
 	emit := func(f report.Finding) error {
-		if f.Validation.Status != report.ValidationStatusNone {
-			summary.ValidationCounts[f.Validation.Status]++
+		if f.Analysis.Status != report.ValidationStatusNone {
+			summary.ValidationCounts[f.Analysis.Status]++
 		}
-		if len(p.statuses) != 0 && !slices.Contains(p.statuses, f.Validation.Status) {
+		if len(p.statuses) != 0 && !slices.Contains(p.statuses, f.Analysis.Status) {
 			return nil
 		}
 		summary.Findings++

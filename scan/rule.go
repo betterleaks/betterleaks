@@ -12,6 +12,4 @@ type compiledRule struct {
 	regex  *regexp.Regexp
 	path   *regexp.Regexp
 	filter *lazyFilter
-	// Context is part of the finding handoff; provider programs are never compiled here.
-	needsExprContext bool
 }

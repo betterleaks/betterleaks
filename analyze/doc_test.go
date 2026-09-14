@@ -31,7 +31,7 @@ func ExampleAnalyzer_AnalyzeCredential() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(result.Validation.Status)
+	fmt.Println(result.Analysis.Status)
 	fmt.Println(result.Analysis.Identity.Username)
 	fmt.Println(result.Analysis.Severity)
 	// Output:

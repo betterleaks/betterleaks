@@ -813,48 +813,45 @@ printf '%s\n' "$GITHUB_TOKEN" |
 `--simple` can be combined with `--no-color` for machine-readable output and
 cannot be combined with JSONL.
 
-JSONL output uses a versioned credential-report shape. Each invocation emits
-one compact object followed by a newline. Finding attributes are top-level,
-while validation has its own namespace so a future `analysis` object can be
-added alongside it:
+JSONL output uses a versioned credential report. Each invocation emits one
+compact object followed by a newline. `analysis` describes liveness and any
+available identity and permission evidence. Direct reports omit matched values
+and source locations; supplied source-independent attributes remain at the root.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "rule_id": "github-pat",
-  "attributes": {
-    "path": "betterleaks://validate"
-  },
-  "validation": {
+  "analysis": {
     "status": "valid",
-    "metadata": {
-      "username": "octocat"
-    }
+    "identity": {"username": "octocat"},
+    "capabilities": ["read"],
+    "severity": "medium"
   }
 }
 ```
 
-Multipart JSONL records use the same component terminology as rule
-configuration and identify optional components explicitly:
+Multipart records put credential combinations at the root. Each combination
+has its own `analysis` result and identifies optional components explicitly:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "rule_id": "example-credential",
-  "validation": {
-    "status": "valid",
-    "component_sets": [
-      {
-        "status": "valid",
-        "components": [
-          {"rule_id": "account-id"},
-          {"rule_id": "region", "optional": true}
-        ]
-      }
-    ]
-  }
+  "analysis": {"status": "valid"},
+  "component_sets": [
+    {
+      "analysis": {"status": "valid"},
+      "components": [
+        {"rule_id": "account-id"},
+        {"rule_id": "region", "optional": true}
+      ]
+    }
+  ]
 }
 ```
+
+See the [credential report schema](schemas/credential.schema.json).
 
 ```sh
 # JSONL on stdout
@@ -868,7 +865,7 @@ printf '%s\n' "$GITHUB_TOKEN" |
 Output never includes the supplied primary, component,
 or capture values. If a validator returns one in its reason or metadata, the
 matching value is replaced with `[redacted]`. Attributes are sanitized the same
-way. Validation metadata may still contain sensitive identity or account
+way. Analysis metadata may still contain sensitive identity or account
 information.
 
 `--provider-debug` is not supported by `validate` because raw debug request

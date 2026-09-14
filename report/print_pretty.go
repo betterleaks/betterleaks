@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -136,8 +137,8 @@ func lineNumWidth(startLine, lineCount int) int {
 func normalizeSnippet(f Finding) Finding {
 	out := f
 	out.Line = strings.TrimRight(f.Line, "\r\n")
-	out.Match = strings.TrimRight(f.Match, "\r\n")
-	out.Secret = strings.TrimRight(f.Secret, "\r\n")
+	out.Match.Full = strings.TrimRight(f.Match.Full, "\r\n")
+	out.Match.Value = strings.TrimRight(f.Match.Value, "\r\n")
 	n := 0
 	for n < len(out.Line) && (out.Line[n] == '\n' || out.Line[n] == '\r') {
 		n++
@@ -152,8 +153,8 @@ func normalizeSnippet(f Finding) Finding {
 	}
 	if terminalControlRe.MatchString(out.Line) {
 		out.Line = terminalControlRe.ReplaceAllString(out.Line, "")
-		out.Match = terminalControlRe.ReplaceAllString(out.Match, "")
-		out.Secret = terminalControlRe.ReplaceAllString(out.Secret, "")
+		out.Match.Full = terminalControlRe.ReplaceAllString(out.Match.Full, "")
+		out.Match.Value = terminalControlRe.ReplaceAllString(out.Match.Value, "")
 		out.Location.StartColumn = 0
 	}
 	return out
@@ -354,14 +355,15 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 		return
 	}
 
-	sort.SliceStable(f.ComponentSets, func(i, j int) bool {
-		return f.ComponentSets[i].Validation.Status == ValidationStatusValid &&
-			f.ComponentSets[j].Validation.Status != ValidationStatusValid
+	sets := slices.Clone(f.ComponentSets)
+	sort.SliceStable(sets, func(i, j int) bool {
+		return sets[i].Analysis.Status == ValidationStatusValid &&
+			sets[j].Analysis.Status != ValidationStatusValid
 	})
 
 	hasValid := false
-	for _, set := range f.ComponentSets {
-		if set.Validation.Status == ValidationStatusValid {
+	for _, set := range sets {
+		if set.Analysis.Status == ValidationStatusValid {
 			hasValid = true
 			break
 		}
@@ -370,13 +372,16 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 	var toRender []ComponentSet
 	maxKey := 0
 	invalidCount := 0
-	for _, set := range f.ComponentSets {
-		if hasValid && set.Validation.Status != ValidationStatusValid {
+	for _, set := range sets {
+		if hasValid && set.Analysis.Status != ValidationStatusValid {
 			invalidCount++
 			continue
 		}
 		toRender = append(toRender, set)
 		for _, comp := range set.Components {
+			if comp == nil {
+				continue
+			}
 			k := fmt.Sprintf("%s:%d", comp.RuleID, comp.Location.StartLine)
 			if len(k) > maxKey {
 				maxKey = len(k)
@@ -390,11 +395,14 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 	// Each set's first row carries the status icon; continuation rows leave the
 	// icon column blank. The icon's presence-or-absence is the set delimiter.
 	for _, set := range toRender {
-		icon := prettySetIcon(string(set.Validation.Status), noColor)
+		icon := prettySetIcon(string(set.Analysis.Status), noColor)
 		for j, comp := range set.Components {
+			if comp == nil {
+				continue
+			}
 			key := fmt.Sprintf("%s:%d", comp.RuleID, comp.Location.StartLine)
 			dots := strings.Repeat(".", maxKey+6-len(key))
-			val := redactForDisplay(comp.Secret, redact)
+			val := redactForDisplay(comp.Match.Value, redact)
 			if j == 0 {
 				fmt.Printf("│   %s  %s %s %s\n", icon, key, dots, val)
 			} else {
@@ -455,17 +463,11 @@ func writeFooter() {
 
 func (f Finding) printPretty(noColor bool, redact uint) {
 	if redact > 0 {
-		secret := MaskSecret(f.Secret, redact)
-		if redact >= 100 {
-			secret = "REDACTED"
-		}
-		f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
-		f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
-		f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
-		f.Secret = secret
+		f = f.RedactedCopy(redact)
+		redact = 0 // Component values were already masked with the full finding.
 	}
 
-	if strings.HasPrefix(strings.TrimSpace(f.Match), "file detected:") {
+	if strings.HasPrefix(strings.TrimSpace(f.Match.Full), "file detected:") {
 		f.printPrettyFileOnly(noColor, redact)
 		return
 	}
@@ -492,7 +494,7 @@ func (f Finding) printPretty(noColor bool, redact uint) {
 		lines[i], mappings[i] = expandTabsForBody(l, gutterCols)
 	}
 
-	startByte, lenByte, ok := secretByteBounds(work.Line, work.Match, work.Secret, work.Location.StartColumn)
+	startByte, lenByte, ok := secretByteBounds(work.Line, work.Match.Full, work.Match.Value, work.Location.StartColumn)
 	if !ok {
 		renderLinesOnly(lines, work.Location.StartLine, pad, budget)
 		(&work).printPrettyMeta(noColor, redact)
@@ -590,8 +592,8 @@ func renderMultiLine(lines []string, startLine, segIdx, secretByteInSeg, bytesIn
 }
 
 func (f Finding) printPrettyFileOnly(noColor bool, redact uint) {
-	f.Match = strings.TrimRight(f.Match, "\r\n")
-	f.Secret = strings.TrimRight(f.Secret, "\r\n")
+	f.Match.Full = strings.TrimRight(f.Match.Full, "\r\n")
+	f.Match.Value = strings.TrimRight(f.Match.Value, "\r\n")
 
 	writeHeader(f)
 	fp := &f
@@ -608,13 +610,24 @@ func dotLeader(key, value string, maxKey int) {
 }
 
 func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
-	if f.Confidence != "" {
+	if f.Location.Path != "" || f.Confidence != "" {
+		maxKey := len("path")
+		if f.Confidence != "" {
+			maxKey = len("confidence")
+		}
 		fmt.Println("│")
-		dotLeader("confidence", strings.ToUpper(f.Confidence), len("confidence"))
+		if f.Location.Path != "" {
+			dotLeader("path", f.Location.Path, maxKey)
+		}
+		if f.Confidence != "" {
+			dotLeader("confidence", strings.ToUpper(f.Confidence), maxKey)
+		}
 	}
 	attributes := reportAttributes(f.Attributes)
 	if len(attributes) > 0 {
-		fmt.Println("│")
+		if f.Location.Path == "" && f.Confidence == "" {
+			fmt.Println("│")
+		}
 		fmt.Printf("│ attributes:\n")
 		maxK := 0
 		keys := make([]string, 0, len(attributes))
@@ -629,27 +642,6 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 			dotLeader(k, attributes[k], maxK)
 		}
 	}
-	if !f.Validation.IsZero() {
-		fmt.Printf("│ validation:\n")
-		maxVK := 6 // "status"/"reason" baseline
-		vk := sortedMapKeys(f.Validation.Metadata)
-		for _, k := range vk {
-			if len(k) > maxVK {
-				maxVK = len(k)
-			}
-		}
-		vs := strings.ToUpper(string(f.Validation.Status))
-		if !noColor {
-			vs = validationStyle(string(f.Validation.Status), noColor).Render(vs)
-		}
-		dotLeader("status", vs, maxVK)
-		if f.Validation.Reason != "" {
-			dotLeader("reason", f.Validation.Reason, maxVK)
-		}
-		for _, k := range vk {
-			dotLeader(k, formatMetadataValue(f.Validation.Metadata[k]), maxVK)
-		}
-	}
 	if !f.Analysis.IsZero() {
 		f.printPrettyAnalysis(noColor)
 	}
@@ -658,6 +650,7 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 
 func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
 	values := map[string]string{
+		"status":       formatCredentialStatus(analysis.Status, noColor),
 		"severity":     formatAnalysisSeverity(analysis.Severity, noColor),
 		"reason":       analysis.Reason,
 		"capabilities": capabilitiesText(analysis.Capabilities),

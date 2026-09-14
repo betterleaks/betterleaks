@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Betterleaks v2 finding",
-  "description": "One serialized report.Finding, as emitted on each JSONL line or in a JSON report array. Describes the v2 format at c91c0c2; it does not describe the standalone validate command's credential report.",
+  "description": "One serialized report.Finding, emitted on each JSONL line or in a JSON report array. Discovery supplies match and location; optional analysis describes credential state, identity, and permissions.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -9,7 +9,6 @@
     "description",
     "confidence",
     "match",
-    "secret",
     "location",
     "tags"
   ],
@@ -25,54 +24,55 @@
     "confidence": {
       "type": "string",
       "description": "Detection confidence, normally low, medium, high, or an empty string when unclassified. Custom source attributes can supply other strings; this field is intentionally not an enum.",
-      "examples": ["", "low", "medium", "high"]
+      "examples": [
+        "",
+        "low",
+        "medium",
+        "high"
+      ]
     },
     "match": {
-      "type": "string",
-      "description": "Text that triggered the rule, or a description for a path-only match. May be redacted."
-    },
-    "secret": {
-      "type": "string",
-      "description": "Captured secret. May be empty for path-only findings, masked, or replaced with REDACTED."
+      "$ref": "#/$defs/match"
     },
     "matchContext": {
       "type": "string",
       "description": "Requested surrounding context, omitted when empty."
     },
-    "captureGroups": {
-      "$ref": "#/$defs/stringMap",
-      "description": "Named regex captures from the primary match."
-    },
     "attributes": {
       "$ref": "#/$defs/stringMap",
-      "description": "Extensible source metadata, such as path, resource, git.sha, or git.author_name. fs.first_fragment is omitted by the serializer. git.message is abbreviated to its first line, with ... when further nonblank text is omitted."
+      "description": "Extensible source metadata such as resource, git.sha, or git.author_name. Path is promoted into location.path. fs.first_fragment is omitted; git.message is abbreviated to its first line with ... for further nonblank text."
     },
     "location": {
       "$ref": "#/$defs/location"
     },
-    "validation": {
-      "$ref": "#/$defs/validation",
-      "description": "Validation result; omitted when status, reason, and metadata are all empty."
-    },
     "analysis": {
       "$ref": "#/$defs/analysis",
-      "description": "Credential analysis; omitted when all analysis fields are empty."
+      "description": "Credential state and optional identity and permission evidence. Omitted when no provider result exists."
     },
     "componentSets": {
       "type": "array",
-      "description": "Multipart credential combinations, each with its own validation and analysis. Omitted when empty.",
-      "items": {"$ref": "#/$defs/componentSet"}
+      "description": "Multipart credential combinations, each with its own analysis result. Omitted when empty.",
+      "items": {
+        "$ref": "#/$defs/componentSet"
+      }
     },
     "tags": {
-      "type": ["array", "null"],
+      "type": [
+        "array",
+        "null"
+      ],
       "description": "Rule and detection tags. Always emitted; a nil Go slice serializes as null.",
-      "items": {"type": "string"}
+      "items": {
+        "type": "string"
+      }
     }
   },
   "$defs": {
     "stringMap": {
       "type": "object",
-      "additionalProperties": {"type": "string"}
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "metadata": {
       "type": "object",
@@ -81,33 +81,43 @@
     },
     "location": {
       "type": "object",
-      "description": "Source-relative match position. Text matches normally use one-based lines and byte columns; zero values are possible for path-only or otherwise unlocated findings. Message findings use message-relative positions. No file path is required.",
-      "additionalProperties": false,
-      "required": ["startLine", "endLine", "startColumn", "endColumn"],
-      "properties": {
-        "startLine": {"type": "integer"},
-        "endLine": {"type": "integer"},
-        "startColumn": {"type": "integer"},
-        "endColumn": {"type": "integer"}
-      }
-    },
-    "validation": {
-      "type": "object",
+      "description": "Source-relative position. Text matches normally use one-based lines and byte columns; unavailable coordinates and paths are omitted. Message coordinates are message-relative.",
       "additionalProperties": false,
       "properties": {
-        "status": {
+        "path": {
           "type": "string",
-          "description": "Credential liveness result. An empty Go status is omitted; none is a CLI selector, not a serialized status.",
-          "enum": ["valid", "needs_validation", "invalid", "revoked", "unknown", "error"]
+          "description": "Optional source-defined path, such as a file, Git object, or archive member."
         },
-        "reason": {"type": "string"},
-        "metadata": {"$ref": "#/$defs/metadata"}
+        "startLine": {
+          "type": "integer"
+        },
+        "endLine": {
+          "type": "integer"
+        },
+        "startColumn": {
+          "type": "integer"
+        },
+        "endColumn": {
+          "type": "integer"
+        }
       }
     },
     "analysis": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "status": {
+          "type": "string",
+          "description": "Credential liveness result. An empty Go status is omitted; none is a CLI selector, not a serialized status.",
+          "enum": [
+            "valid",
+            "needs_validation",
+            "invalid",
+            "revoked",
+            "unknown",
+            "error"
+          ]
+        },
         "reason": {
           "type": "string",
           "description": "Explanation of the result, including unavailable evidence or analysis failure."
@@ -115,21 +125,37 @@
         "severity": {
           "type": "string",
           "description": "Provider-neutral lower bound derived by Betterleaks from positively observed capabilities. Independent of detection confidence and credential validity.",
-          "enum": ["unknown", "low", "medium", "high"]
+          "enum": [
+            "unknown",
+            "low",
+            "medium",
+            "high"
+          ]
         },
-        "identity": {"$ref": "#/$defs/identity"},
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
         "capabilities": {
           "type": "array",
           "description": "Positively observed grants. An absent capability means unknown, not denied.",
           "items": {
             "type": "string",
-            "enum": ["read", "write", "read_secrets", "create_credentials", "manage_users", "admin"]
+            "enum": [
+              "read",
+              "write",
+              "read_secrets",
+              "create_credentials",
+              "manage_users",
+              "admin"
+            ]
           }
         },
-        "metadata": {"$ref": "#/$defs/metadata"},
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
         "debug": {
           "$ref": "#/$defs/metadata",
-          "description": "Optional provider HTTP diagnostics, included when provider debugging is enabled."
+          "description": "Optional sanitized provider diagnostics, grouped by validation and analysis Expr stage."
         }
       }
     },
@@ -138,11 +164,21 @@
       "description": "Available identity of the principal associated with the credential. Fields may be omitted independently.",
       "additionalProperties": false,
       "properties": {
-        "id": {"type": "string"},
-        "username": {"type": "string"},
-        "name": {"type": "string"},
-        "email": {"type": "string"},
-        "account": {"$ref": "#/$defs/account"}
+        "id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "account": {
+          "$ref": "#/$defs/account"
+        }
       }
     },
     "account": {
@@ -150,47 +186,93 @@
       "description": "One unambiguous account or tenant reached by the credential. Omitted when analysis cannot identify a single account.",
       "additionalProperties": false,
       "properties": {
-        "id": {"type": "string"},
-        "name": {"type": "string"},
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
         "domains": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
     "componentSet": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["components"],
+      "required": [
+        "components"
+      ],
       "properties": {
         "components": {
-          "type": ["array", "null"],
+          "type": [
+            "array",
+            "null"
+          ],
           "description": "One credential combination. Normally an array of component findings; nil SDK slices and pointers serialize as null.",
           "items": {
             "anyOf": [
-              {"$ref": "#/$defs/componentFinding"},
-              {"type": "null"}
+              {
+                "$ref": "#/$defs/componentFinding"
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         },
-        "validation": {"$ref": "#/$defs/validation"},
-        "analysis": {"$ref": "#/$defs/analysis"}
+        "analysis": {
+          "$ref": "#/$defs/analysis"
+        }
       }
     },
     "componentFinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ruleID", "match", "secret", "location"],
+      "required": [
+        "ruleID",
+        "match",
+        "location"
+      ],
       "properties": {
-        "ruleID": {"type": "string"},
+        "ruleID": {
+          "type": "string"
+        },
         "optional": {
           "type": "boolean",
           "description": "Whether this component is optional in the primary rule. Omitted when false."
         },
-        "match": {"type": "string"},
-        "secret": {"type": "string"},
-        "captureGroups": {"$ref": "#/$defs/stringMap"},
-        "location": {"$ref": "#/$defs/location"}
+        "match": {
+          "$ref": "#/$defs/match"
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        }
+      }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "full",
+        "value"
+      ],
+      "properties": {
+        "full": {
+          "type": "string",
+          "description": "Matched text, or a description for a path-only rule. May be redacted."
+        },
+        "value": {
+          "type": "string",
+          "description": "Extracted value. May be a non-secret component, empty for path-only findings, or redacted."
+        },
+        "captures": {
+          "$ref": "#/$defs/stringMap",
+          "description": "Named regex captures from this match."
+        }
       }
     }
   },
@@ -199,25 +281,55 @@
       "ruleID": "example-token",
       "description": "Example token",
       "confidence": "",
-      "match": "REDACTED",
-      "secret": "REDACTED",
-      "location": {"startLine": 1, "endLine": 1, "startColumn": 1, "endColumn": 20},
+      "match": {
+        "full": "REDACTED",
+        "value": "REDACTED"
+      },
+      "location": {
+        "startLine": 1,
+        "endLine": 1,
+        "startColumn": 1,
+        "endColumn": 20
+      },
       "tags": []
     },
     {
       "ruleID": "example-token",
       "description": "Example token with analysis",
       "confidence": "high",
-      "match": "REDACTED",
-      "secret": "REDACTED",
-      "attributes": {"path": "service/.env", "resource": "file"},
-      "location": {"startLine": 12, "endLine": 12, "startColumn": 14, "endColumn": 53},
-      "validation": {"status": "valid"},
+      "match": {
+        "full": "REDACTED",
+        "value": "REDACTED"
+      },
+      "attributes": {
+        "resource": "file"
+      },
+      "location": {
+        "startLine": 12,
+        "endLine": 12,
+        "startColumn": 14,
+        "endColumn": 53,
+        "path": "service/.env"
+      },
       "analysis": {
+        "status": "valid",
         "severity": "high",
-        "identity": {"username": "example-user", "account": {"id": "example-account"}},
-        "capabilities": ["read", "write"],
-        "metadata": {"scopes": ["example:read", "example:write"]}
+        "identity": {
+          "username": "example-user",
+          "account": {
+            "id": "example-account"
+          }
+        },
+        "capabilities": [
+          "read",
+          "write"
+        ],
+        "metadata": {
+          "scopes": [
+            "example:read",
+            "example:write"
+          ]
+        }
       },
       "tags": []
     }

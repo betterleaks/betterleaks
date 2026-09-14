@@ -131,7 +131,9 @@ func main() {
 
 `scan.Scanner` finds credentials locally. `analyze.Analyzer` determines whether
 they work, who owns them, and what permissions they have. Detection confidence,
-validation state, and permission-derived severity are separate report fields.
+`Analysis.Status`, and permission-derived `Analysis.Severity` remain distinct
+concepts. A finding groups matched text in `Match` and its optional path and
+coordinates in `Location`.
 
 Use `config.LoadFile` for custom rules and `scan.WithLogger` for diagnostics.
 `Scanner.Scan` streams findings from a source; `Scanner.ScanString` handles small
@@ -151,8 +153,8 @@ result, err := analyzer.AnalyzeCredential(ctx, analyze.Credential{
 if err != nil {
     return err
 }
-// result.Validation contains liveness; result.Analysis contains identity,
-// capabilities, and severity when the credential is valid and analysis exists.
+// result.Analysis.Status describes liveness. The same Analysis also contains
+// identity, capabilities, and derived severity when enrichment is available.
 ```
 
 Call `analyzer.ValidateCredential` for liveness alone. Supply named `Captures`

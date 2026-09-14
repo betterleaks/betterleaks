@@ -15,7 +15,7 @@ func TestCredentialReportRedactsOverlappingSecretsAndMetadataKeys(t *testing.T) 
 		Attributes: map[string]string{
 			"credential-abcdef": "abcdef abc",
 		},
-		Validation: Validation{
+		Analysis: Analysis{
 			Status: ValidationStatusValid,
 			Metadata: map[string]any{
 				"credential-abcdef": "abcdef abc",
@@ -23,9 +23,9 @@ func TestCredentialReportRedactsOverlappingSecretsAndMetadataKeys(t *testing.T) 
 		},
 	}, []string{"abc", "abcdef"})
 
-	value, ok := got.Validation.Metadata["credential-[redacted]"]
+	value, ok := got.Analysis.Metadata["credential-[redacted]"]
 	if !ok {
-		t.Fatalf("sanitized metadata keys = %#v", got.Validation.Metadata)
+		t.Fatalf("sanitized metadata keys = %#v", got.Analysis.Metadata)
 	}
 	if value != "[redacted] [redacted]" {
 		t.Fatalf("sanitized metadata value = %#v", value)
@@ -47,30 +47,29 @@ func TestCredentialReportOmitsInternalAttributes(t *testing.T) {
 	if _, ok := got.Attributes[sources.AttrFSFirstFragment]; ok {
 		t.Fatalf("internal attribute included in credential report: %#v", got.Attributes)
 	}
-	if got.Attributes[sources.AttrPath] != "secrets.txt" {
+	if len(got.Attributes) != 0 {
 		t.Fatalf("report attributes = %#v", got.Attributes)
 	}
 }
 
 func TestCredentialReportAnalysis(t *testing.T) {
 	analysis := Analysis{
+		Status:   ValidationStatusValid,
 		Severity: SeverityMedium,
 		Identity: &AnalysisIdentity{Username: "owner-secret-value"},
 		Metadata: map[string]any{"credential": "secret-value"},
 	}
 	finding := Finding{
-		RuleID:     "demo",
-		Validation: Validation{Status: ValidationStatusValid},
-		Analysis:   analysis,
+		RuleID:   "demo",
+		Analysis: analysis,
 		ComponentSets: []ComponentSet{{
-			Validation: Validation{Status: ValidationStatusValid},
 			Analysis:   analysis,
 			Components: []*ComponentFinding{{RuleID: "part"}},
 		}},
 	}
 	result := NewCredentialReport(finding, []string{"secret-value"})
 	if result.Analysis.Identity.Username != "owner-[redacted]" ||
-		result.Validation.ComponentSets[0].Analysis.Identity.Username != "owner-[redacted]" {
+		result.ComponentSets[0].Analysis.Identity.Username != "owner-[redacted]" {
 		t.Fatalf("analysis was not sanitized: %#v", result)
 	}
 	if analysis.Identity.Username != "owner-secret-value" {
@@ -94,7 +93,7 @@ func TestCredentialReportAnalysis(t *testing.T) {
 func TestCredentialReportOmitsEmptyValidationMetadata(t *testing.T) {
 	got := NewCredentialReport(Finding{
 		RuleID: "test",
-		Validation: Validation{
+		Analysis: Analysis{
 			Status: ValidationStatusValid,
 			Metadata: map[string]any{
 				"empty": "",
@@ -105,14 +104,14 @@ func TestCredentialReportOmitsEmptyValidationMetadata(t *testing.T) {
 		},
 	}, nil)
 
-	if _, ok := got.Validation.Metadata["empty"]; ok {
-		t.Fatalf("empty string included in metadata: %#v", got.Validation.Metadata)
+	if _, ok := got.Analysis.Metadata["empty"]; ok {
+		t.Fatalf("empty string included in metadata: %#v", got.Analysis.Metadata)
 	}
-	if _, ok := got.Validation.Metadata["nil"]; ok {
-		t.Fatalf("nil included in metadata: %#v", got.Validation.Metadata)
+	if _, ok := got.Analysis.Metadata["nil"]; ok {
+		t.Fatalf("nil included in metadata: %#v", got.Analysis.Metadata)
 	}
-	if got.Validation.Metadata["false"] != false || got.Validation.Metadata["zero"] != 0 {
-		t.Fatalf("meaningful zero values omitted from metadata: %#v", got.Validation.Metadata)
+	if got.Analysis.Metadata["false"] != false || got.Analysis.Metadata["zero"] != 0 {
+		t.Fatalf("meaningful zero values omitted from metadata: %#v", got.Analysis.Metadata)
 	}
 }
 
@@ -120,21 +119,21 @@ func TestCredentialReporterWritesText(t *testing.T) {
 	result := CredentialReport{
 		SchemaVersion: CredentialReportSchemaVersion,
 		RuleID:        "test-rule",
-		Validation: CredentialValidationReport{
+		Analysis: Analysis{
 			Status: ValidationStatusValid,
 			Reason: "Authenticated",
 			Metadata: map[string]any{
 				"zeta":  int64(2),
 				"alpha": "owner",
 			},
-			ComponentSets: []CredentialComponentSetReport{{
-				Status: ValidationStatusValid,
-				Components: []CredentialComponentReport{
-					{RuleID: "component"},
-					{RuleID: "context", Optional: true},
-				},
-			}},
 		},
+		ComponentSets: []CredentialComponentSetReport{{
+			Analysis: Analysis{Status: ValidationStatusValid},
+			Components: []CredentialComponentReport{
+				{RuleID: "component"},
+				{RuleID: "context", Optional: true},
+			},
+		}},
 	}
 	var output bytes.Buffer
 	reporter := CredentialReporter{Format: CredentialReportFormatPretty, NoColor: true}
@@ -144,10 +143,11 @@ func TestCredentialReporterWritesText(t *testing.T) {
 	want := `
 ┌─test-rule──○
 │
-│ validation:
-│   status ...... VALID
-│   reason ...... Authenticated
+│
+│ analysis:
 │   alpha ....... "owner"
+│   reason ...... Authenticated
+│   status ...... VALID
 │   zeta ........ 2
 │
 │ components:
@@ -162,10 +162,10 @@ func TestCredentialReporterWritesText(t *testing.T) {
 
 func TestCredentialReportUsesComponentSchema(t *testing.T) {
 	result := NewCredentialReport(Finding{
-		RuleID:     "test-rule",
-		Validation: Validation{Status: ValidationStatusValid},
+		RuleID:   "test-rule",
+		Analysis: Analysis{Status: ValidationStatusValid},
 		ComponentSets: []ComponentSet{{
-			Validation: Validation{Status: ValidationStatusValid},
+			Analysis: Analysis{Status: ValidationStatusValid},
 			Components: []*ComponentFinding{
 				{RuleID: "required-component"},
 				{RuleID: "optional-component", Optional: true},
@@ -215,7 +215,7 @@ func TestCredentialReporterWritesJSONL(t *testing.T) {
 	result := CredentialReport{
 		SchemaVersion: CredentialReportSchemaVersion,
 		RuleID:        "test-rule",
-		Validation: CredentialValidationReport{
+		Analysis: Analysis{
 			Status: ValidationStatusValid,
 		},
 	}
@@ -225,7 +225,7 @@ func TestCredentialReporterWritesJSONL(t *testing.T) {
 	if err := reporter.Write(&output, result); err != nil {
 		t.Fatalf("write JSONL: %v", err)
 	}
-	want := `{"schema_version":1,"rule_id":"test-rule","validation":{"status":"valid"}}` + "\n"
+	want := `{"schema_version":2,"rule_id":"test-rule","analysis":{"status":"valid"}}` + "\n"
 	if output.String() != want {
 		t.Fatalf("JSONL output = %q, want %q", output.String(), want)
 	}

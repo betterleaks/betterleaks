@@ -11,29 +11,20 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-const CredentialReportSchemaVersion = 1
+const CredentialReportSchemaVersion = 2
 
-// CredentialReport is a sanitized direct validation and optional analysis result.
+// CredentialReport is a sanitized direct credential result. Match material and
+// source locations are omitted because no source discovery was performed.
 type CredentialReport struct {
-	SchemaVersion int                        `json:"schema_version"`
-	RuleID        string                     `json:"rule_id"`
-	Attributes    map[string]string          `json:"attributes,omitempty"`
-	Validation    CredentialValidationReport `json:"validation"`
-	Analysis      Analysis                   `json:"analysis,omitzero"`
-}
-
-// CredentialValidationReport is the validation portion of a credential report.
-type CredentialValidationReport struct {
-	Status        ValidationStatus               `json:"status"`
-	Reason        string                         `json:"reason,omitempty"`
-	Metadata      map[string]any                 `json:"metadata,omitempty"`
+	SchemaVersion int                            `json:"schema_version"`
+	RuleID        string                         `json:"rule_id"`
+	Attributes    map[string]string              `json:"attributes,omitempty"`
+	Analysis      Analysis                       `json:"analysis,omitzero"`
 	ComponentSets []CredentialComponentSetReport `json:"component_sets,omitempty"`
 }
 
-// CredentialComponentSetReport describes one validated set of companion credentials.
+// CredentialComponentSetReport describes one resolved credential combination.
 type CredentialComponentSetReport struct {
-	Status     ValidationStatus            `json:"status,omitempty"`
-	Reason     string                      `json:"reason,omitempty"`
 	Components []CredentialComponentReport `json:"components"`
 	Analysis   Analysis                    `json:"analysis,omitzero"`
 }
@@ -62,25 +53,20 @@ type CredentialRuleSummary struct {
 // NewCredentialReport builds a redacted report from a validated finding.
 func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 	secrets = credentialSecretsForRedaction(secrets)
-	metadata := sanitizeCredentialMetadata(finding.Validation.Metadata, secrets, false)
 	result := CredentialReport{
 		SchemaVersion: CredentialReportSchemaVersion,
 		RuleID:        finding.RuleID,
 		Attributes:    sanitizeCredentialAttributes(finding.Attributes, secrets),
 		Analysis:      SanitizeAnalysis(finding.Analysis, secrets),
-		Validation: CredentialValidationReport{
-			Status:   finding.Validation.Status,
-			Reason:   sanitizeCredentialString(finding.Validation.Reason, secrets),
-			Metadata: metadata,
-		},
 	}
 	for _, set := range finding.ComponentSets {
 		setResult := CredentialComponentSetReport{
-			Status:   set.Validation.Status,
-			Reason:   sanitizeCredentialString(set.Validation.Reason, secrets),
 			Analysis: SanitizeAnalysis(set.Analysis, secrets),
 		}
 		for _, component := range set.Components {
+			if component == nil {
+				continue
+			}
 			setResult.Components = append(setResult.Components, CredentialComponentReport{
 				RuleID:   component.RuleID,
 				Optional: component.Optional,
@@ -89,7 +75,7 @@ func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 		sort.Slice(setResult.Components, func(i, j int) bool {
 			return setResult.Components[i].RuleID < setResult.Components[j].RuleID
 		})
-		result.Validation.ComponentSets = append(result.Validation.ComponentSets, setResult)
+		result.ComponentSets = append(result.ComponentSets, setResult)
 	}
 	return result
 }
@@ -100,7 +86,7 @@ func sanitizeCredentialAttributes(attributes map[string]string, secrets []string
 	}
 	out := make(map[string]string, len(attributes))
 	for key, value := range attributes {
-		if key == sources.AttrFSFirstFragment {
+		if key == sources.AttrFSFirstFragment || key == sources.AttrPath {
 			continue
 		}
 		out[sanitizeCredentialString(key, secrets)] = sanitizeCredentialString(value, secrets)
@@ -227,7 +213,7 @@ func (r CredentialReporter) Write(w io.Writer, result CredentialReport) error {
 	switch r.Format {
 	case CredentialReportFormatPretty:
 		if r.Simple {
-			return writeCredentialStatus(w, result.Validation.Status, r.NoColor)
+			return writeCredentialStatus(w, result.Analysis.Status, r.NoColor)
 		}
 		return writeCredentialText(w, result, r.NoColor)
 	case CredentialReportFormatJSONL:
@@ -256,54 +242,39 @@ func writeCredentialJSONL(w io.Writer, value any) error {
 }
 
 func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) error {
-	if _, err := fmt.Fprintf(w, "\n┌─%s──○\n│\n│ validation:\n", result.RuleID); err != nil {
+	if _, err := fmt.Fprintf(w, "\n┌─%s──○\n│\n", result.RuleID); err != nil {
+		return err
+	}
+	if err := writeCredentialAnalysis(w, result.Analysis, noColor); err != nil {
 		return err
 	}
 
-	maxKey := len("status")
-	if result.Validation.Reason != "" {
-		maxKey = max(maxKey, len("reason"))
-	}
-	for key := range result.Validation.Metadata {
-		maxKey = max(maxKey, len(key))
-	}
-
-	status := formatCredentialStatus(result.Validation.Status, noColor)
-	if err := writeCredentialDotLeader(w, "status", status, maxKey); err != nil {
-		return err
-	}
-	if result.Validation.Reason != "" {
-		if err := writeCredentialDotLeader(w, "reason", result.Validation.Reason, maxKey); err != nil {
-			return err
-		}
-	}
-	for _, key := range sortedAnyMapKeys(result.Validation.Metadata) {
-		if err := writeCredentialDotLeader(w, key, formatMetadataValue(result.Validation.Metadata[key]), maxKey); err != nil {
-			return err
-		}
-	}
-
-	if len(result.Validation.ComponentSets) > 0 {
+	if len(result.ComponentSets) > 0 {
 		if _, err := fmt.Fprintln(w, "│\n│ components:"); err != nil {
 			return err
 		}
-		for _, set := range result.Validation.ComponentSets {
-			icon := formatCredentialStatusIcon(set.Status, noColor)
+		for _, set := range result.ComponentSets {
+			icon := formatCredentialStatusIcon(set.Analysis.Status, noColor)
 			if _, err := fmt.Fprintf(w, "│   %s  %s\n", icon, formatCredentialComponents(set.Components)); err != nil {
 				return err
 			}
-			if set.Reason != "" {
-				if _, err := fmt.Fprintf(w, "│      reason: %s\n", set.Reason); err != nil {
+			if set.Analysis.Reason != "" {
+				if _, err := fmt.Fprintf(w, "│      reason: %s\n", set.Analysis.Reason); err != nil {
 					return err
 				}
 			}
 		}
 	}
-	if !result.Analysis.IsZero() {
+	_, err := fmt.Fprint(w, "└○\n\n")
+	return err
+}
+
+func writeCredentialAnalysis(w io.Writer, analysis Analysis, noColor bool) error {
+	if !analysis.IsZero() {
 		if _, err := fmt.Fprintln(w, "│\n│ analysis:"); err != nil {
 			return err
 		}
-		values := analysisDisplayValues(result.Analysis, noColor)
+		values := analysisDisplayValues(analysis, noColor)
 		keys := make([]string, 0, len(values))
 		width := 0
 		for key, value := range values {
@@ -319,8 +290,7 @@ func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) err
 			}
 		}
 	}
-	_, err := fmt.Fprint(w, "└○\n\n")
-	return err
+	return nil
 }
 
 func writeCredentialStatus(w io.Writer, status ValidationStatus, noColor bool) error {
@@ -379,15 +349,6 @@ func formatCredentialComponents(components []CredentialComponentReport) string {
 		formatted = append(formatted, label)
 	}
 	return strings.Join(formatted, ", ")
-}
-
-func sortedAnyMapKeys(values map[string]any) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func formatMetadataValue(value any) string {

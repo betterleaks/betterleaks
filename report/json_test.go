@@ -17,16 +17,15 @@ var simpleFinding = Finding{
 	Description: "",
 	RuleID:      "test-rule",
 	Confidence:  "medium",
-	Match:       "line containing secret",
-	Secret:      "a secret",
+	Match:       Match{Full: "line containing secret", Value: "a secret"},
 	Location: Location{
+		Path:        "auth.py",
 		StartLine:   1,
 		EndLine:     2,
 		StartColumn: 1,
 		EndColumn:   2,
 	},
 	Attributes: map[string]string{
-		sources.AttrPath:           "auth.py",
 		sources.AttrGitSHA:         "0000000000000000",
 		sources.AttrGitAuthorName:  "John Doe",
 		sources.AttrGitAuthorEmail: "johndoe@gmail.com",

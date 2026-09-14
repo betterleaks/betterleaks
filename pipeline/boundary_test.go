@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -136,17 +137,30 @@ func TestStatusPolicyAndValidationOnly(t *testing.T) {
 	require.Empty(t, summary.ValidationCounts)
 }
 
-func TestExpressionContextSurvivesHandoff(t *testing.T) {
+func TestExplicitContextSurvivesHandoff(t *testing.T) {
 	cfg := testConfig()
-	cfg.Rules[0].ValidateExpr = `finding.context contains "tenant=acme" ? {"result":"valid","analysis":{"owner":"acme"}} : {"result":"invalid"}`
+	cfg.Rules[0].ValidateExpr = `(finding.context contains "tenant=acme") && attributes.path == "archive.zip!app.env" ? {"result":"valid","analysis":{"owner":"acme"}} : {"result":"invalid"}`
 	cfg.Rules[0].AnalyzeExpr = `{"identity":{"id":validation.analysis.owner},"capabilities":["read"]}`
-	p := mustPipeline(t, cfg)
+	p := mustPipeline(t, cfg, scan.WithMatchContext("2L"))
 	var finding report.Finding
-	_, err := p.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("tenant=acme\nsecret-alpha")}, func(f report.Finding) error { finding = f; return nil })
+	_, err := p.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("tenant=acme\nsecret-alpha"), Attributes: map[string]string{sources.AttrPath: "archive.zip!app.env"}}, func(f report.Finding) error { finding = f; return nil })
 	require.NoError(t, err)
-	require.Equal(t, report.ValidationStatusValid, finding.Validation.Status)
+	require.Equal(t, report.ValidationStatusValid, finding.Analysis.Status)
+	require.Equal(t, "archive.zip!app.env", finding.Location.Path)
+	require.NotContains(t, finding.Attributes, sources.AttrPath)
 	require.Equal(t, "acme", finding.Analysis.Identity.ID)
-	require.Empty(t, finding.Validation.Metadata, "private validation evidence must not enter reports")
+	require.Empty(t, finding.Analysis.Metadata, "private validation evidence must not enter reports")
+	require.Equal(t, "tenant=acme\nsecret-alpha", finding.MatchContext)
+	// Explicit context survives serialization without hidden finding state.
+	encoded, err := json.Marshal(finding)
+	require.NoError(t, err)
+	var restored report.Finding
+	require.NoError(t, json.Unmarshal(encoded, &restored))
+	analyzer, err := analyze.New(cfg)
+	require.NoError(t, err)
+	resolved, err := analyzer.Analyze(t.Context(), restored)
+	require.NoError(t, err)
+	require.Equal(t, finding.Analysis, resolved.Analysis)
 }
 
 func TestCancellationInterruptsProviderRequests(t *testing.T) {

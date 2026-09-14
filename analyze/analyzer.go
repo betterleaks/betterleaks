@@ -112,13 +112,13 @@ func (a *Analyzer) programsFor(rule config.Rule, analysis bool) (programs, error
 // Validate determines a finding's credential state without running analysis.
 // The input is not mutated. Rules without validation return an unresolved
 // finding. Unknown rules and compilation failures return Go errors; provider
-// failures are represented by Validation.Status.
+// failures are represented by Analysis.Status.
 func (a *Analyzer) Validate(ctx context.Context, finding report.Finding) (report.Finding, error) {
 	return a.resolve(ctx, finding, false)
 }
 
 // Analyze validates a finding and resolves identity and permissions when valid.
-// A finding carries all required captures, components, and expression context;
+// A finding supplies captures, components, and any explicitly retained context;
 // the analyzer never needs to read the original source.
 func (a *Analyzer) Analyze(ctx context.Context, finding report.Finding) (report.Finding, error) {
 	return a.resolve(ctx, finding, true)

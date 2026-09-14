@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,14 +44,14 @@ func TestPoolDebugMetadata(t *testing.T) {
 	if result.Metadata["status"] != int64(http.StatusAccepted) {
 		t.Fatalf("status metadata = %v", result.Metadata["status"])
 	}
-	if result.Metadata["resp_status"] != int64(http.StatusAccepted) {
-		t.Fatalf("resp_status metadata = %v", result.Metadata["resp_status"])
+	if result.Debug["resp_status"] != int64(http.StatusAccepted) {
+		t.Fatalf("resp_status metadata = %v", result.Debug["resp_status"])
 	}
-	if result.Metadata["resp_header_x-trace"] != "seen" {
-		t.Fatalf("resp_header_x-trace = %v", result.Metadata["resp_header_x-trace"])
+	if result.Debug["resp_header_x-trace"] != "seen" {
+		t.Fatalf("resp_header_x-trace = %v", result.Debug["resp_header_x-trace"])
 	}
-	if result.Metadata["resp_body"] != `{"debug":true}` {
-		t.Fatalf("resp_body = %v", result.Metadata["resp_body"])
+	if result.Debug["resp_body"] != `{"debug":true}` {
+		t.Fatalf("resp_body = %v", result.Debug["resp_body"])
 	}
 
 	if _, err := p.evalWithCaptures(prg, "rule", "secret", finding, nil, nil); err != nil {
@@ -162,22 +163,21 @@ func TestPoolExposesCanonicalComponentBindings(t *testing.T) {
 	p := NewPool(1, rt)
 	p.Emit = func(finding report.Finding) { emitted <- finding }
 	p.Submit(report.Finding{
-		RuleID:        "primary",
-		Secret:        "secret",
-		CaptureGroups: map[string]string{"primary_group": "named-value"},
+		RuleID: "primary",
+		Match:  report.Match{Value: "secret", Captures: map[string]string{"primary_group": "named-value"}},
+
 		ComponentSets: []report.ComponentSet{
 			{Components: []*report.ComponentFinding{{
-				RuleID:        "required-component",
-				Secret:        "account",
-				CaptureGroups: map[string]string{"kind": "tenant"},
+				RuleID: "required-component",
+				Match:  report.Match{Value: "account", Captures: map[string]string{"kind": "tenant"}},
 			}}},
 		},
 	}, prg)
 	p.Close()
 
 	got := <-emitted
-	if got.Validation.Status != report.ValidationStatusValid {
-		t.Fatalf("validation status = %q, want valid (canonical and legacy bindings must both work)", got.Validation.Status)
+	if got.Analysis.Status != report.ValidationStatusValid {
+		t.Fatalf("validation status = %q, want valid (canonical and legacy bindings must both work)", got.Analysis.Status)
 	}
 }
 
@@ -211,5 +211,42 @@ func TestCacheKeyIncludesComponentCaptures(t *testing.T) {
 	})
 	if first == second {
 		t.Fatal("component named capture groups must contribute to the validation cache key")
+	}
+}
+
+func TestPoolDeduplicatesFailedCombinationsWithinFinding(t *testing.T) {
+	var requests atomic.Int32
+	rt, err := exprruntime.New(&http.Client{Transport: validationRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		requests.Add(1)
+		return nil, errors.New("provider unavailable")
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := rt.CompileValidation(`let r = http.get("https://provider.invalid/check", {}); {"result":"valid"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := NewPoolContext(t.Context(), 1, rt)
+	results := make(chan report.Finding, 2)
+	pool.Emit = func(f report.Finding) { results <- f }
+	finding := report.Finding{RuleID: "test", Match: report.Match{Value: "primary"}, ComponentSets: []report.ComponentSet{
+		{Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "companion"}, Location: report.Location{StartLine: 1}}}},
+		{Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "companion"}, Location: report.Location{StartLine: 2}}}},
+	}}
+	for range 2 {
+		if err := pool.SubmitContext(t.Context(), finding, program); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pool.Close()
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("provider requests = %d, want one per finding", got)
+	}
+	for range 2 {
+		result := <-results
+		if result.Analysis.Status != report.ValidationStatusError || len(result.ComponentSets) != 2 {
+			t.Fatalf("unexpected failed result: status=%s sets=%d", result.Analysis.Status, len(result.ComponentSets))
+		}
 	}
 }

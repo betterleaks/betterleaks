@@ -11,7 +11,8 @@
 // small inputs. Calls may run concurrently with independent sources.
 //
 // Findings carry detection confidence, captures, complete component combinations,
-// and private expression context. Validation and Analysis remain empty. Use
+// and optional MatchContext requested with WithMatchContext. Analysis remains
+// empty; filters extract other context directly from their source fragment. Use
 // analyze.Analyzer to resolve credential state and permissions, or pipeline to
 // compose both engines with independent workers and bounded queues.
 package scan

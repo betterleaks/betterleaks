@@ -104,6 +104,12 @@ equivalent: `finding.secret` and `finding["secret"]` are both supported.
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
 
+`finding.context` is the explicitly captured `Finding.MatchContext`, or an empty
+string when none was requested. Use `--match-context 5L` or
+`scan.WithMatchContext("5L")` to retain context for provider expressions.
+SDK callers may also supply `MatchContext` when analyzing an existing finding.
+This text is included in JSON reports; there is no separate hidden context copy.
+
 Filter expressions also receive `finding["fragment_raw"]` and the byte offsets
 `match_start_idx`, `match_end_idx`, `match_line_start_idx`, and
 `match_line_end_idx`. These can be combined with Expr string slicing:
@@ -297,7 +303,7 @@ validation expressions. They also receive an `analysis` namespace:
 The successful validation result remains available through `validation`.
 Validation expressions can place provider evidence in the reserved `analysis`
 object. Analysis expressions read that private, cached value through
-`validation.analysis`; it is never included in validation reports.
+`validation.analysis`; it is never included in reports.
 Providers that return a delimited scope header can normalize it once in their
 validation expression with `strings.splitTrim(value, separator)`.
 
@@ -369,13 +375,15 @@ statuses are:
 The `result` value must be a string naming one of these statuses (case-insensitive).
 A missing, non-string, or unrecognized result produces `error` with an explanation.
 Use `unknown` explicitly when the rule cannot establish credential liveness.
-The optional `reason` must be a string and becomes the validation reason.
+The optional `reason` must be a string and contributes to `Analysis.Reason`.
 
-Any additional keys are attached to the finding as validation metadata. The
+Any additional keys are attached to `Analysis.Metadata`. The
 reserved `analysis` key is the exception: it must contain an object and is
 available only to a subsequent analysis expression as `validation.analysis`.
-This lets validation reports stay focused on credential status while analysis
-reuses identity, scope, and permission data from the validation request.
+The public `Analysis` result combines status with identity, scope, and permission
+evidence. The two Expr stages remain an execution detail. Enrichment metadata
+takes precedence on duplicate public keys; different reasons from both stages
+are joined with a semicolon. Enrichment failures retain the validation status.
 
 ### Validation functions
 
@@ -493,7 +501,7 @@ combination's validation result. Expressions do not iterate over all component
 sets. Filters run before assembly and cannot inspect `components` or provider
 results.
 
-Direct SDK validation supplies this same structure through `validate.Credential`:
+Direct SDK validation supplies this same structure through `analyze.Credential`:
 `Secret` becomes `finding.secret`, `Captures` becomes `finding.captures`, and
 each `Components[id]` supplies `components[id].secret` and `.captures`.
 Direct validation skips filters and requires callers to supply capture values;
@@ -538,6 +546,9 @@ expression can ask an LLM whether the candidate looks like a real secret. Use
 `toJSON(...)` for quoted/escaped prompt fragments, `env.get(...)` plus
 `--provider-env-vars` for provider API keys, and `strings.obfuscate(...)`
 when you want to avoid sending the raw candidate to a third-party API.
+
+For the context-based prompt below, request a window such as `--match-context 5L`.
+Without it, `finding.context` is empty.
 
 Treat positive model output as `"needs_validation"` unless the credential was
 authoritatively verified through a live service.

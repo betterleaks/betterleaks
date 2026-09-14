@@ -80,11 +80,9 @@ func (a *Analyzer) stream(ctx context.Context, produce Producer, handler func(re
 			}
 			// Rechecks replace old conclusions. Component results belong to this
 			// evaluation, not the caller's backing slice.
-			f.Validation = report.Validation{}
 			f.Analysis = report.Analysis{}
 			f.ComponentSets = slices.Clone(f.ComponentSets)
 			for i := range f.ComponentSets {
-				f.ComponentSets[i].Validation = report.Validation{}
 				f.ComponentSets[i].Analysis = report.Analysis{}
 			}
 			if programs.validation == nil {
@@ -109,7 +107,6 @@ func (a *Analyzer) stream(ctx context.Context, produce Producer, handler func(re
 		if handlerErr != nil || ctx.Err() != nil {
 			continue
 		}
-		finding.Validation.Metadata = stripEmptyMeta(finding.Validation.Metadata)
 		if handler != nil {
 			if err := handler(finding); err != nil {
 				handlerErr = fmt.Errorf("handle finding: %w", err)
@@ -118,21 +115,4 @@ func (a *Analyzer) stream(ctx context.Context, produce Producer, handler func(re
 		}
 	}
 	return errors.Join(handlerErr, producerErr, ctx.Err())
-}
-
-// stripEmptyMeta removes empty provider fields without mutating cached output.
-func stripEmptyMeta(m map[string]any) map[string]any {
-	if len(m) == 0 {
-		return m
-	}
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		if s, ok := v.(string); ok && s == "" {
-			continue
-		}
-		if v != nil {
-			out[k] = v
-		}
-	}
-	return out
 }

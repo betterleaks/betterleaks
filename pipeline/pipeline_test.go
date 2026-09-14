@@ -84,14 +84,14 @@ func TestIgnoredFingerprintsSkipProviderRequests(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
-	assert.Equal(t, "secret-visible", findings[0].Secret)
+	assert.Equal(t, "secret-visible", findings[0].Match.Value)
 	assert.Equal(t, report.SeverityMedium, findings[0].Analysis.Severity)
 	assert.Equal(t, 1, summary.Findings)
 	assert.Equal(t, map[report.ValidationStatus]int{report.ValidationStatusValid: 1}, summary.ValidationCounts)
 	assert.Equal(t, int32(2), requests.Load())
 	count := 0
 	_, err = runner.Scan(t.Context(), source, func(f report.Finding) error {
-		assert.Equal(t, "secret-visible", f.Secret)
+		assert.Equal(t, "secret-visible", f.Match.Value)
 		count++
 		return nil
 	})
@@ -117,7 +117,7 @@ func TestPipelineScanIsReusableWithValidation(t *testing.T) {
 		})
 		require.NoError(t, scanErr)
 		require.Len(t, findings, 1)
-		assert.Equal(t, report.ValidationStatusValid, findings[0].Validation.Status)
+		assert.Equal(t, report.ValidationStatusValid, findings[0].Analysis.Status)
 		assert.Equal(t, uint64(len(content)), summary.BytesInspected)
 		assert.Equal(t, 1, summary.Findings)
 		assert.Equal(t, 1, summary.ValidationCounts[report.ValidationStatusValid])
@@ -149,14 +149,16 @@ func TestScanValidationAndEmptyAnalysisContracts(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.Len(t, findings, 1)
-			assert.Equal(t, test.status, findings[0].Validation.Status)
+			assert.Equal(t, test.status, findings[0].Analysis.Status)
 			assert.Equal(t, 1, summary.ValidationCounts[test.status])
 			assert.Equal(t, test.severity, findings[0].Analysis.Severity)
 			if test.status == report.ValidationStatusError {
-				assert.NotEmpty(t, findings[0].Validation.Reason)
+				assert.NotEmpty(t, findings[0].Analysis.Reason)
 			}
 			if test.status != report.ValidationStatusValid {
-				assert.True(t, findings[0].Analysis.IsZero(), "analysis must not run without valid credentials")
+				assert.Empty(t, findings[0].Analysis.Severity, "permission analysis must not run without valid credentials")
+				assert.Nil(t, findings[0].Analysis.Identity)
+				assert.Empty(t, findings[0].Analysis.Capabilities)
 			}
 		})
 	}
@@ -198,7 +200,7 @@ func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 	require.Len(t, findings, 1)
 	require.Len(t, findings[0].ComponentSets, 2, "component filtering precedes assembly")
 	for _, set := range findings[0].ComponentSets {
-		require.Equal(t, report.ValidationStatusValid, set.Validation.Status)
+		require.Equal(t, report.ValidationStatusValid, set.Analysis.Status)
 		require.Len(t, set.Components, 1)
 		component := set.Components[0]
 		validator, err := analyze.New(cfg)
@@ -206,14 +208,14 @@ func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 		direct, err := validator.AnalyzeCredential(t.Context(), analyze.Credential{
 			RuleID: "primary", Secret: "primary", Captures: map[string]string{"tenant": "acme"},
 			Components: map[string]analyze.CredentialComponent{
-				"part": {Secret: component.Secret, Captures: map[string]string{"tenant": "companion"}},
+				"part": {Secret: component.Match.Value, Captures: map[string]string{"tenant": "companion"}},
 			},
 		})
 		require.NoError(t, err)
-		require.Equal(t, set.Validation.Status, direct.Validation.Status)
+		require.Equal(t, set.Analysis.Status, direct.Analysis.Status)
 		require.Equal(t, set.Analysis, direct.Analysis)
 		want := []report.Capability{report.CapabilityRead}
-		if component.Secret == "writekey" {
+		if component.Match.Value == "writekey" {
 			want = []report.Capability{report.CapabilityWrite}
 		}
 		require.Equal(t, want, set.Analysis.Capabilities)

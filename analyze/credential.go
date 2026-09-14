@@ -134,11 +134,13 @@ func credentialFinding(rule config.Rule, input Credential, expressions []string)
 		attrs[sources.AttrPath] = "betterleaks://validate"
 	}
 	finding := report.Finding{
-		RuleID: rule.ID, Description: rule.Description,
-		Match: input.Secret, Secret: input.Secret, Line: input.Secret,
-		CaptureGroups: maps.Clone(input.Captures), RuleSpecificity: rule.Specificity,
-		Tags:     slices.Clone(rule.Tags),
-		Location: report.Location{StartLine: 1, EndLine: 1, StartColumn: 1},
+		RuleID:          rule.ID,
+		Description:     rule.Description,
+		Match:           report.Match{Full: input.Secret, Value: input.Secret, Captures: maps.Clone(input.Captures)},
+		Line:            input.Secret,
+		RuleSpecificity: rule.Specificity,
+		Tags:            slices.Clone(rule.Tags),
+		Location:        report.Location{StartLine: 1, EndLine: 1, StartColumn: 1},
 	}
 	finding.SetAttributes(attrs)
 	secrets := []string{input.Secret}
@@ -159,9 +161,11 @@ func credentialFinding(rule config.Rule, input Credential, expressions []string)
 			secrets = append(secrets, value)
 		}
 		components = append(components, &report.ComponentFinding{
-			RuleID: id, Optional: optional[id], Secret: component.Secret, Match: component.Secret, Line: component.Secret,
-			CaptureGroups: maps.Clone(component.Captures),
-			Location:      report.Location{StartLine: 1, EndLine: 1, StartColumn: 1},
+			RuleID:   id,
+			Optional: optional[id],
+			Match:    report.Match{Full: component.Secret, Value: component.Secret, Captures: maps.Clone(component.Captures)},
+			Line:     component.Secret,
+			Location: report.Location{StartLine: 1, EndLine: 1, StartColumn: 1},
 		})
 	}
 	if len(components) > 0 {

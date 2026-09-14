@@ -89,7 +89,7 @@ func (p *Pool) SubmitWithAnalysisContext(ctx context.Context, finding report.Fin
 		finding:         finding,
 		program:         validationProgram,
 		analysisProgram: analysisProgram,
-		captures:        finding.CaptureGroups,
+		captures:        finding.Match.Captures,
 	}
 
 	select {
@@ -122,122 +122,110 @@ func (p *Pool) worker() {
 	defer p.wg.Done()
 	for job := range p.jobs {
 		f := job.finding
-
+		finding := f.ToExprMap()
+		attributes := f.ExprAttributes()
 		if len(f.ComponentSets) == 0 {
-			// Simple path: no matched components, validate the secret with its own captures.
-			result, err := p.evalWithCaptures(job.program, job.finding.RuleID, job.finding.Secret, f.ToExprMap(), job.captures, f.Attributes)
-			if err != nil {
-				f.Validation.Status = report.ValidationStatusError
-				f.Validation.Reason = err.Error()
-			} else {
-				f.Validation.Status = result.Status
-				f.Validation.Reason = result.Reason
-				f.Validation.Metadata = result.Metadata
-			}
-			if f.Validation.Status == report.ValidationStatusValid && job.analysisProgram != nil {
-				cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, job.captures, nil)
-				f.Analysis = p.evalAnalysisWithCacheKey(cacheKey, job.analysisProgram, f.ToExprMap(), job.captures, nil, f.Attributes, result)
-				f.Analysis = report.SanitizeAnalysis(f.Analysis, []string{f.Secret})
-			}
-			if p.Emit != nil {
-				p.Emit(f)
-			}
-			continue
-		}
-
-		// Composite path: iterate pre-built component sets on the finding, validate
-		// each, write per-set status, and roll up to a finding-level status.
-		setResults := make(map[string]*Result, len(f.ComponentSets))
-		var (
-			overallStatus report.ValidationStatus
-			bestResult    *Result
-			bestAnalysis  report.Analysis
-		)
-
-		for i := range f.ComponentSets {
-			set := &f.ComponentSets[i]
-
-			// Build the structured component binding for this combination. Primary
-			// named regex captures remain isolated in job.captures.
-			components := make(map[string]any, len(set.Components))
-			cacheComponents := make(map[string]cacheComponent, len(set.Components))
-			for _, comp := range set.Components {
-				captures := comp.CaptureGroups
-				if captures == nil {
-					captures = map[string]string{}
+			key := CacheKey(f.RuleID, f.Match.Value, job.captures, nil)
+			f.Analysis = p.resolveAnalysis(key, job, finding, attributes, nil, []string{f.Match.Value}, nil)
+		} else {
+			validationResults := make(map[string]*Result, len(f.ComponentSets))
+			f.ComponentSets = slices.Clone(f.ComponentSets)
+			f.Analysis = report.Analysis{}
+			for i := range f.ComponentSets {
+				set := &f.ComponentSets[i]
+				components := make(map[string]any, len(set.Components))
+				cacheComponents := make(map[string]cacheComponent, len(set.Components))
+				for _, comp := range set.Components {
+					if comp == nil {
+						continue
+					}
+					captures := comp.Match.Captures
+					if captures == nil {
+						captures = map[string]string{}
+					}
+					components[comp.RuleID] = map[string]any{"secret": comp.Match.Value, "captures": captures}
+					cacheComponents[comp.RuleID] = cacheComponent{Secret: comp.Match.Value, Captures: captures}
 				}
-				components[comp.RuleID] = map[string]any{
-					"secret":   comp.Secret,
-					"captures": captures,
-				}
-				cacheComponents[comp.RuleID] = cacheComponent{
-					Secret:   comp.Secret,
-					Captures: captures,
+				key := CacheKey(f.RuleID, f.Match.Value, job.captures, cacheComponents)
+				set.Analysis = p.resolveAnalysis(key, job, finding, attributes, components, componentSetSecrets(f.Match.Value, set.Components), validationResults)
+				// Select one complete result. Mixing liveness from one combination with
+				// permissions or identity from another would describe a nonexistent credential.
+				if betterAnalysis(f.Analysis, set.Analysis) {
+					f.Analysis = set.Analysis
 				}
 			}
-
-			cacheKey := CacheKey(job.finding.RuleID, job.finding.Secret, job.captures, cacheComponents)
-
-			var result *Result
-			if r, seen := setResults[cacheKey]; seen {
-				result = r
-			} else {
-				var err error
-				result, err = p.evalWithCacheKey(cacheKey, job.program, f.ToExprMap(), job.captures, components, f.Attributes)
-				if err != nil {
-					result = &Result{Status: report.ValidationStatusError, Reason: err.Error(), Metadata: map[string]any{}}
+			// Preserve the existing reporting policy: successful combinations are
+			// sufficient when at least one works; otherwise retain every attempted set.
+			if slices.ContainsFunc(f.ComponentSets, func(s report.ComponentSet) bool {
+				return s.Analysis.Status == report.ValidationStatusValid
+			}) {
+				valid := make([]report.ComponentSet, 0, len(f.ComponentSets))
+				for _, set := range f.ComponentSets {
+					if set.Analysis.Status == report.ValidationStatusValid {
+						valid = append(valid, set)
+					}
 				}
-				setResults[cacheKey] = result
-			}
-
-			// Write status onto this set.
-			set.Validation.Status = result.Status
-			set.Validation.Reason = result.Reason
-			set.Validation.Metadata = result.Metadata
-			if result.Status == report.ValidationStatusValid && job.analysisProgram != nil {
-				set.Analysis = p.evalAnalysisWithCacheKey(cacheKey, job.analysisProgram, f.ToExprMap(), job.captures, components, f.Attributes, result)
-				set.Analysis = report.SanitizeAnalysis(set.Analysis, componentSetSecrets(f.Secret, set.Components))
-				if betterAnalysis(bestAnalysis, set.Analysis) {
-					bestAnalysis = set.Analysis
-				}
-			}
-
-			// Roll up finding-level status: pick the best (highest-priority) result.
-			newStatus := BetterStatus(overallStatus, result.Status)
-			if newStatus != overallStatus || bestResult == nil {
-				overallStatus = newStatus
-				bestResult = result
+				f.ComponentSets = valid
 			}
 		}
-
-		// Set finding-level status from rollup.
-		if bestResult != nil {
-			f.Validation.Status = overallStatus
-			f.Validation.Reason = bestResult.Reason
-			f.Validation.Metadata = bestResult.Metadata
-		}
-		f.Analysis = bestAnalysis
-
-		// When at least one component set validates, keep only valid sets on the
-		// emitted finding so reports are not cluttered with failed combinations.
-		// We build a new slice so we do not compact a backing array that other
-		// copies of this Finding may still reference.
-		if slices.ContainsFunc(f.ComponentSets, func(s report.ComponentSet) bool {
-			return s.Validation.Status == report.ValidationStatusValid
-		}) {
-			validOnly := make([]report.ComponentSet, 0, len(f.ComponentSets))
-			for _, s := range f.ComponentSets {
-				if s.Validation.Status == report.ValidationStatusValid {
-					validOnly = append(validOnly, s)
-				}
-			}
-			f.ComponentSets = validOnly
-		}
-
 		if p.Emit != nil {
 			p.Emit(f)
 		}
 	}
+}
+
+// resolveAnalysis keeps the two Expr stages private and publishes one result.
+// Enrichment cannot replace liveness, including when it fails or hits a limit.
+func (p *Pool) resolveAnalysis(key string, job validationJob, finding, attributes map[string]string, components map[string]any, secrets []string, validationResults map[string]*Result) report.Analysis {
+	validation := validationResults[key]
+	if validation == nil {
+		var err error
+		validation, err = p.evalWithCacheKey(key, job.program, finding, job.captures, components, attributes)
+		if err != nil {
+			validation = &Result{Status: report.ValidationStatusError, Reason: err.Error()}
+		}
+		// Repeated locations of the same component combination share even failures
+		// within this finding. Later findings may retry transient provider errors.
+		if validationResults != nil {
+			validationResults[key] = validation
+		}
+	}
+	var enrichment report.Analysis
+	if validation.Status == report.ValidationStatusValid && job.analysisProgram != nil {
+		enrichment = p.evalAnalysisWithCacheKey(key, job.analysisProgram, finding, job.captures, components, attributes, validation)
+	}
+	return report.SanitizeAnalysis(combineAnalysis(validation, enrichment), secrets)
+}
+
+// combineAnalysis preserves both explanations. Enrichment metadata takes
+// precedence on duplicate keys. Debug diagnostics are grouped by Expr stage;
+// validation's private Analysis evidence is never copied into the report.
+func combineAnalysis(validation *Result, enrichment report.Analysis) report.Analysis {
+	result := enrichment
+	result.Status = validation.Status
+	result.Reason = validation.Reason
+	if enrichment.Reason != "" && enrichment.Reason != result.Reason {
+		if result.Reason != "" {
+			result.Reason += "; "
+		}
+		result.Reason += enrichment.Reason
+	}
+	if len(validation.Metadata) > 0 || len(enrichment.Metadata) > 0 {
+		result.Metadata = make(map[string]any, len(validation.Metadata)+len(enrichment.Metadata))
+		maps.Copy(result.Metadata, validation.Metadata)
+		maps.Copy(result.Metadata, enrichment.Metadata)
+	}
+	result.Debug = nil
+	if len(validation.Debug) > 0 || len(enrichment.Debug) > 0 {
+		result.Debug = make(map[string]any, 2)
+		if len(validation.Debug) > 0 {
+			result.Debug["validation"] = validation.Debug
+		}
+		if len(enrichment.Debug) > 0 {
+			result.Debug["analysis"] = enrichment.Debug
+		}
+	}
+	return result
 }
 
 func (p *Pool) evalAnalysisWithCacheKey(cacheKey string, program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation *Result) report.Analysis {
@@ -308,7 +296,7 @@ func componentSetSecrets(primary string, components []*report.ComponentFinding) 
 	secrets = append(secrets, primary)
 	for _, component := range components {
 		if component != nil {
-			secrets = append(secrets, component.Secret)
+			secrets = append(secrets, component.Match.Value)
 		}
 	}
 	return secrets
@@ -320,6 +308,9 @@ func betterAnalysis(current, candidate report.Analysis) bool {
 	}
 	if current.IsZero() {
 		return true
+	}
+	if candidate.Status != current.Status {
+		return BetterStatus(current.Status, candidate.Status) == candidate.Status
 	}
 	candidateSeverity := analysisSeverityRank(candidate.Severity)
 	currentSeverity := analysisSeverityRank(current.Severity)
@@ -379,7 +370,6 @@ func (p *Pool) evalProgram(program exprruntime.Program, finding, captures map[st
 		if hit.RuleID != "" {
 			metadata["betterleaks_validation_rule_id"] = hit.RuleID
 		}
-		maps.Copy(metadata, result.Debug)
 		return &Result{
 			Status: report.ValidationStatusNeedsValidation,
 			Reason: fmt.Sprintf(
@@ -388,19 +378,13 @@ func (p *Pool) evalProgram(program exprruntime.Program, finding, captures map[st
 				hit.RequestsSent,
 			),
 			Metadata: metadata,
+			Debug:    result.Debug,
 		}, nil
 	}
 	if evalErr != nil {
-		metadata := map[string]any{}
-		maps.Copy(metadata, result.Debug)
-		return &Result{Status: "error", Reason: evalErr.Error(), Metadata: metadata}, nil
+		return &Result{Status: report.ValidationStatusError, Reason: evalErr.Error(), Debug: result.Debug}, nil
 	}
 	r := ParseResult(result.Value)
-	if len(result.Debug) > 0 {
-		if r.Metadata == nil {
-			r.Metadata = map[string]any{}
-		}
-		maps.Copy(r.Metadata, result.Debug)
-	}
+	r.Debug = result.Debug
 	return r, nil
 }

@@ -55,7 +55,7 @@ func TestValidateCredentialPipeline(t *testing.T) {
 			}
 			result, err := resolve(t.Context(), Credential{RuleID: "credential", Secret: "raw-secret"})
 			require.NoError(t, err)
-			assert.Equal(t, tc.status, result.Validation.Status)
+			assert.Equal(t, tc.status, result.Analysis.Status)
 			assert.Equal(t, tc.severity, result.Analysis.Severity)
 			if tc.name == "analysis" {
 				require.NotNil(t, result.Analysis.Identity)
@@ -111,29 +111,30 @@ func TestValidateCredentialComponentsAndRedaction(t *testing.T) {
 		{ID: "part", Regex: `part`}, {ID: "optional", Regex: `optional`},
 	}}
 	d := mustNew(t, cfg)
-	input := Credential{RuleID: "key", Secret: " raw-secret\n", Captures: map[string]string{"tenant": "private-tenant"}, Components: map[string]CredentialComponent{"part": {Secret: "companion-secret", Captures: map[string]string{"region": "private-region"}}}, Attributes: map[string]string{sources.AttrPath: "direct.env"}}
+	input := Credential{RuleID: "key", Secret: " raw-secret\n", Captures: map[string]string{"tenant": "private-tenant"}, Components: map[string]CredentialComponent{"part": {Secret: "companion-secret", Captures: map[string]string{"region": "private-region"}}}, Attributes: map[string]string{sources.AttrPath: "direct.env", "application": "demo"}}
 	result, err := d.AnalyzeCredential(t.Context(), input)
 	require.NoError(t, err)
-	require.Equal(t, report.ValidationStatusValid, result.Validation.Status)
+	require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
 	require.Equal(t, report.SeverityMedium, result.Analysis.Severity)
 	require.Equal(t, "demo-user", result.Analysis.Identity.Username)
-	require.Len(t, result.Validation.ComponentSets, 1)
-	require.Len(t, result.Validation.ComponentSets[0].Components, 1)
-	require.Equal(t, result.Analysis, result.Validation.ComponentSets[0].Analysis)
+	require.Len(t, result.ComponentSets, 1)
+	require.Len(t, result.ComponentSets[0].Components, 1)
+	require.Equal(t, result.Analysis, result.ComponentSets[0].Analysis)
 	data, err := json.Marshal(result)
 	require.NoError(t, err)
 	for _, secret := range []string{"raw-secret", "private-tenant", "companion-secret", "private-region"} {
 		require.NotContains(t, string(data), secret)
 	}
-	result.Attributes[sources.AttrPath] = "changed"
+	result.Attributes["application"] = "changed"
+	require.Equal(t, "demo", input.Attributes["application"])
 	require.Equal(t, "direct.env", input.Attributes[sources.AttrPath])
 	require.Equal(t, "private-tenant", input.Captures["tenant"])
 	require.Equal(t, "private-region", input.Components["part"].Captures["region"])
 	input.Components["optional"] = CredentialComponent{Secret: "optional-secret"}
 	result, err = d.AnalyzeCredential(t.Context(), input)
 	require.NoError(t, err)
-	require.Len(t, result.Validation.ComponentSets[0].Components, 2)
-	assert.True(t, result.Validation.ComponentSets[0].Components[0].Optional)
+	require.Len(t, result.ComponentSets[0].Components, 2)
+	assert.True(t, result.ComponentSets[0].Components[0].Optional)
 }
 
 func TestValidateCredentialProviderLimitsAndCancellation(t *testing.T) {
@@ -145,7 +146,7 @@ func TestValidateCredentialProviderLimitsAndCancellation(t *testing.T) {
 	for range 2 {
 		result, err := d.AnalyzeCredential(t.Context(), Credential{RuleID: "key", Secret: "raw"})
 		require.NoError(t, err)
-		require.Equal(t, report.ValidationStatusNeedsValidation, result.Validation.Status)
+		require.Equal(t, report.ValidationStatusNeedsValidation, result.Analysis.Status)
 	}
 	require.Equal(t, int32(2), requests.Load(), "each call gets a fresh request budget")
 	ctx, cancel := context.WithCancel(t.Context())
@@ -224,12 +225,12 @@ let response = http.get(%q + "?secret=" + finding["secret"], {});
 	denied := mustNew(t, cfg, WithDebug(true))
 	result, err := denied.AnalyzeCredential(t.Context(), input)
 	require.NoError(t, err)
-	require.Equal(t, report.ValidationStatusError, result.Validation.Status)
+	require.Equal(t, report.ValidationStatusError, result.Analysis.Status)
 	allowed := mustNew(t, cfg, WithDebug(true), WithEnvVars("BETTERLEAKS_DIRECT_TEST"))
 	result, err = allowed.AnalyzeCredential(t.Context(), input)
 	require.NoError(t, err)
-	require.Equal(t, report.ValidationStatusValid, result.Validation.Status)
-	require.NotEmpty(t, result.Validation.Metadata, "debug metadata should be present")
+	require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
+	require.NotEmpty(t, result.Analysis.Debug["validation"], "debug diagnostics should be present")
 	encoded, err := json.Marshal(result)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), input.Secret)

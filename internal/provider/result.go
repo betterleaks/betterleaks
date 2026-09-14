@@ -19,6 +19,8 @@ var validStatuses = map[report.ValidationStatus]bool{
 
 // Result holds the outcome of a validation expression evaluation.
 type Result struct {
+	// Debug holds runtime diagnostics separately from public provider metadata.
+	Debug    map[string]any
 	Status   report.ValidationStatus // valid, invalid, revoked, unknown, error
 	Reason   string                  // human-readable explanation
 	Metadata map[string]any          // public fields from the validation result map

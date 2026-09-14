@@ -59,6 +59,6 @@ func TestNewSnapshotsInputsAndIgnoresScanExpressions(t *testing.T) {
 	rates["key"] = -1
 	result, err := v.ValidateCredential(t.Context(), Credential{RuleID: "key", Secret: "input", Components: map[string]CredentialComponent{"part": {Secret: "companion"}}})
 	require.NoError(t, err)
-	require.Equal(t, report.ValidationStatusValid, result.Validation.Status)
+	require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
 	require.Equal(t, []string{"original"}, v.rules["key"].Tags)
 }

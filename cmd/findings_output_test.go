@@ -22,10 +22,12 @@ func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {
 	collector, err := newFindingCollector(flags, true, sink)
 	require.NoError(t, err)
 	finding := testOutputFinding("default")
-	finding.Attributes = map[string]string{
+	finding.Confidence = "low"
+	finding.SetAttributes(map[string]string{
 		sources.AttrPath:            "secrets.txt",
+		sources.AttrResource:        sources.ResourceFileContent,
 		sources.AttrFSFirstFragment: "true",
-	}
+	})
 
 	output := captureFindingStdout(t, func() {
 		require.NoError(t, collector.Add(finding))
@@ -33,7 +35,7 @@ func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {
 	})
 
 	require.Contains(t, output, "default")
-	require.Contains(t, output, sources.AttrPath)
+	require.Contains(t, output, "path ............ secrets.txt\n│   confidence ...... LOW\n│ attributes:")
 	require.NotContains(t, output, sources.AttrFSFirstFragment)
 	require.Equal(t, 1, collector.Count())
 }
@@ -53,7 +55,7 @@ func TestFindingCollectorWritesJSONLToStdout(t *testing.T) {
 		var finding report.Finding
 		require.NoError(t, json.Unmarshal([]byte(line), &finding))
 		require.Equal(t, []string{"first", "second"}[i], finding.RuleID)
-		require.Equal(t, "REDACTED", finding.Secret)
+		require.Equal(t, "REDACTED", finding.Match.Value)
 	}
 }
 
@@ -255,8 +257,7 @@ func testOutputFinding(ruleID string) report.Finding {
 	return report.Finding{
 		RuleID: ruleID,
 		Line:   "token=supersecret\n",
-		Match:  "supersecret",
-		Secret: "supersecret",
+		Match:  report.Match{Full: "supersecret", Value: "supersecret"},
 		Location: report.Location{
 			StartLine:   1,
 			EndLine:     1,
@@ -281,4 +282,30 @@ func captureFindingStdout(t *testing.T, fn func()) string {
 	require.NoError(t, err)
 	require.NoError(t, r.Close())
 	return string(contents)
+}
+
+func TestFindingCollectorPrettyRedactsCompanionsAndAnalysis(t *testing.T) {
+	flags, sink := newFindingOutputCommand(false, "", false, 100)
+	collector, err := newFindingCollector(flags, true, sink)
+	require.NoError(t, err)
+	const primary, companion = "test-primary", "test-companion"
+	finding := report.Finding{
+		RuleID:        "multipart",
+		Match:         report.Match{Full: primary + " " + companion, Value: primary},
+		Line:          primary + " " + companion,
+		Location:      report.Location{Path: "service.env", StartLine: 1, StartColumn: 1},
+		Analysis:      report.Analysis{Status: report.ValidationStatusValid, Reason: primary + " " + companion},
+		ComponentSets: []report.ComponentSet{{Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: companion}}}}},
+	}
+	output := captureFindingStdout(t, func() {
+		require.NoError(t, collector.Add(finding))
+		require.NoError(t, collector.Close())
+	})
+	require.NotContains(t, output, primary)
+	require.NotContains(t, output, companion)
+	require.Contains(t, output, "service.env")
+	require.Contains(t, output, "VALID")
+	require.Equal(t, 1, strings.Count(output, "analysis:"))
+	require.NotContains(t, output, "validation:")
+	require.Equal(t, companion, finding.ComponentSets[0].Components[0].Match.Value)
 }
