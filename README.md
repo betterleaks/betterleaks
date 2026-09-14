@@ -95,7 +95,7 @@ For more advanced scanning examples check out the [scanning doc](docs/scanning.m
 
 ### Go SDK
 
-Betterleaks can also be embedded as a Go library. Detectors are silent by
+Betterleaks can also be embedded as a Go library. Scanners and analyzers are silent by
 default and safe to reuse across scans.
 
 ```sh
@@ -109,7 +109,7 @@ import (
 	"fmt"
 
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/scan"
 )
 
 func main() {
@@ -117,34 +117,34 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	detector, err := detect.NewDetector(cfg)
+	scanner, err := scan.New(cfg)
 	if err != nil {
 		panic(err)
 	}
 
 	const token = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5" // betterleaks:allow
-	for _, finding := range detector.DetectString("GITHUB_TOKEN=" + token) {
+	for _, finding := range scanner.ScanString("GITHUB_TOKEN=" + token) {
 		fmt.Println(finding.RuleID)
 	}
 }
 ```
 
-Use `config.LoadFile` to load an application-owned `betterleaks.toml`,
-`detect.WithAnalysis` to enable provider validation and analysis, and
-`detect.WithLogger` to attach an application-owned `slog.Logger`. For streaming
-input, pass a `sources.Reader` to `Detector.Scan`.
+`scan.Scanner` finds credentials locally. `analyze.Analyzer` determines whether
+they work, who owns them, and what permissions they have. Detection confidence,
+validation state, and permission-derived severity are separate report fields.
 
-For an already-extracted secret, use the public `validate` package:
+Use `config.LoadFile` for custom rules and `scan.WithLogger` for diagnostics.
+`Scanner.Scan` streams findings from a source; `Scanner.ScanString` handles small
+inputs. Neither executes provider programs.
+
+For an already-extracted secret:
 
 ```go
-validator, err := validate.NewValidator(cfg, validate.Options{
-    Analysis: true,
-    Timeout: 5 * time.Second,
-})
+analyzer, err := analyze.New(cfg, analyze.WithTimeout(5*time.Second))
 if err != nil {
     return err
 }
-result, err := validator.ValidateCredential(ctx, validate.Credential{
+result, err := analyzer.AnalyzeCredential(ctx, analyze.Credential{
     RuleID: "github-pat",
     Secret: token,
 })
@@ -155,13 +155,36 @@ if err != nil {
 // capabilities, and severity when the credential is valid and analysis exists.
 ```
 
-Set `Analysis: false` (the default) for validation alone. Supply named `Captures` and
-`Components` (a map of component rule IDs to `validate.CredentialComponent`) when
-the rule needs them. Direct validation bypasses detection and scan filters,
-including status filters and fingerprint ignores. Results sanitize supplied
-credential values; provider failures appear in the result, while invalid input,
-compilation errors, and cancellation return Go errors. Each call owns its
-provider runtime and request limits. See [the runnable analysis example](examples/with_analysis.go).
+Call `analyzer.ValidateCredential` for liveness alone. Supply named `Captures`
+and `Components` when required by the rule. Direct credential operations bypass
+scan filters and sanitize supplied secret material in their reports.
+`analyzer.Validate` and `analyzer.Analyze` accept existing `report.Finding` values
+and return enriched findings without modifying the input.
+
+Compose discovery and provider work with the pipeline:
+
+```go
+p, err := pipeline.New(scanner, analyzer,
+    pipeline.WithValidationStatuses(report.ValidationStatusValid),
+)
+if err != nil {
+    return err
+}
+summary, err := p.Scan(ctx, source, handler)
+```
+
+Detection and provider workers have independent concurrency limits and bounded
+queues. Handlers run serially; returning an error cancels the operation and waits
+for its workers. Status filters affect output, while the summary counts all
+validation outcomes. A nil analyzer selects local discovery only. Remote sources
+can still make requests to acquire their content.
+
+Engines may be reused concurrently with independent sources. Each provider
+operation owns its result caches and request limits; compiled programs are
+reused. `scan.WithPrecompile` checks detection regexes and filters;
+`analyze.WithPrecompile` checks validation and analysis programs. See the
+[runnable analysis example](examples/with_analysis.go) and
+[SDK architecture guide](docs/architecture.md).
 
 Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
 `sources.Git`. Provider integrations have their own packages:
@@ -172,9 +195,9 @@ import "github.com/betterleaks/betterleaks/v2/sources/github"
 src := &github.Source{
     URL: "https://github.com/example/project",
     Token: token,
-    ShouldSkip: detector.SkipFunc(),
+    ShouldSkip: scanner.SkipFunc(),
 }
-summary, err := detector.Scan(ctx, src, handler)
+summary, err := scanner.Scan(ctx, src, handler)
 ```
 
 GitLab, Hugging Face, and S3 use `sources/gitlab`, `sources/huggingface`, and
@@ -182,7 +205,7 @@ GitLab, Hugging Face, and S3 use `sources/gitlab`, `sources/huggingface`, and
 as well: `github.AttrOwner` and `github.ResourceIssue`, for example. Attribute
 strings such as `"github.owner"` and `"github.issue"` are unchanged.
 
-See the [`detect` package documentation](https://pkg.go.dev/github.com/betterleaks/betterleaks/v2/detect)
+See the [`scan` package documentation](https://pkg.go.dev/github.com/betterleaks/betterleaks/v2/scan)
 for complete default-config and custom-config examples.
 
 ### Configuration

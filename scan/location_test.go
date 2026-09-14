@@ -1,4 +1,4 @@
-package detect
+package scan
 
 import (
 	"testing"

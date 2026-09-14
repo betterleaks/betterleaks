@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
@@ -30,8 +30,8 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 
 	cfg := Config(runtime)
 
-	// create detector
-	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "", detect.WithJobs(resolveJobPlan(options.Jobs, streamJobProfile).Detector))
+	// create runner
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, "", scan.WithJobs(resolveJobPlan(options.Jobs, streamJobProfile).Scanner))
 
 	// parse flag(s)
 	attrs, err := parseSetAttrValues(options.SetAttr)
@@ -40,13 +40,13 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 	}
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
-	source := newStdinSource(runtime.stdin, attrs, detector.SkipFunc())
-	summary, scanErr := detector.Scan(runtime.Context, source, findings.Add)
+	source := newStdinSource(runtime.stdin, attrs, runner.SkipFunc())
+	summary, scanErr := runner.Scan(runtime.Context, source, findings.Add)
 	if scanErr != nil {
 		runtime.fatal("failed scan input from stdin", "error", scanErr)
 	}
 
-	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, nil)
+	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, nil)
 }
 
 func newStdinSource(content io.Reader, attrs map[string]string, shouldSkip sources.SkipFunc) sources.Source {

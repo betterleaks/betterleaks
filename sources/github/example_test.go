@@ -11,7 +11,7 @@ func ExampleSource() {
 		URL:       "https://github.com/example/project",
 		Resources: github.ResourceSet{github.ResourceTypeRepos: true},
 	}
-	// Pass src to detector.Scan(ctx, src, handler) to scan the repository.
+	// Pass src to scanner.Scan(ctx, src, handler) to scan the repository.
 	fmt.Println(src.URL)
 	fmt.Println(github.AttrOwner, github.ResourceRepo)
 	// Output:

@@ -219,7 +219,7 @@ crypto.sha256(finding["secret"]) in [
 
 The constant list on the right side of `in` is compiled into a lookup map.
 This explicit global filter also applies to internal component matches.
-`.betterleaksignore` entries are handled separately by the detector after
+`.betterleaksignore` entries are handled separately by the scanner after
 component assembly, so ignoring a component secret does not prevent other
 credentials from using it. Ignore files do not modify the configured filter.
 
@@ -277,8 +277,7 @@ validation without analysis, or `--offline` to disable both. Analysis returns a
 small identity and positive-only capability model; severity is derived by
 Betterleaks rather than assigned by the rule. Analysis without positive capability
 evidence has `unknown` severity, including an empty analysis result. See the
-[credential access analysis design](credential-access-analysis.md) for the
-result schema and provider mappings.
+[finding schema](schemas/finding.schema.json) for the normalized result shape.
 
 Validation and analysis expressions can make outbound requests and should be
 loaded only from trusted configuration. `--offline` disables these provider

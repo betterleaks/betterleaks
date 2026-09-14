@@ -3,7 +3,7 @@
 // Run with: go run examples/with_analysis.go
 // This example detects plaintext and Base64 credentials, validates and analyzes
 // them with local mock rules, and streams redacted findings as JSONL to stdout.
-// It also validates an already-extracted credential through the direct SDK API.
+// It also analyzes and validates an already-extracted credential directly.
 // No network requests are made. Scan summaries and diagnostics go to stderr.
 package main
 
@@ -18,12 +18,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/analyze"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/detect"
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
+	"github.com/betterleaks/betterleaks/v2/pipeline"
 	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	"github.com/betterleaks/betterleaks/v2/validate"
 )
 
 const mockAnalysisConfig = `
@@ -61,7 +62,7 @@ func main() {
 
 func run() error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo, // Use LevelDebug for detector diagnostics.
+		Level: slog.LevelInfo, // Use LevelDebug for scanner diagnostics.
 	}))
 	cfg, err := config.ParseTOMLString(mockAnalysisConfig, "mock-analysis.toml")
 	if err != nil {
@@ -72,33 +73,42 @@ func run() error {
 	const encodedToken = "mock_fedcba9876543210fedcba9876543210" // betterleaks:allow
 	const fixtureToken = "mock_00000000000000000000000000000000" // betterleaks:allow
 
-	detector, err := detect.NewDetector(cfg,
-		detect.WithLogger(logger),
-		detect.WithJobs(1), // Detection workers; 0 uses GOMAXPROCS.
-		detect.WithMatchContext("10L"),
-		detect.WithMaxDecodeDepth(3), // Also find credentials inside encoded text.
-		detect.WithMinimumConfidence(detect.ConfidenceHigh),
-		detect.WithPrecompile(),               // Report regex/expression compilation errors now.
-		detect.WithIgnoreAllowComments(false), // Honor betterleaks:allow comments.
-		detect.WithExcludedPaths("archived.env"),
+	scanner, err := scan.New(cfg,
+		scan.WithLogger(logger),
+		scan.WithJobs(1), // Detection workers; 0 uses GOMAXPROCS.
+		scan.WithMatchContext("10L"),
+		scan.WithMaxDecodeDepth(3), // Also find credentials inside encoded text.
+		scan.WithMinimumConfidence(scan.ConfidenceHigh),
+		scan.WithPrecompile(),               // Report regex/expression compilation errors now.
+		scan.WithIgnoreAllowComments(false), // Honor betterleaks:allow comments.
+		scan.WithExcludedPaths("archived.env"),
 		// Ignore this exact primary secret across all rules and locations,
 		// before spending any work on validation or analysis.
-		detect.WithIgnoredFingerprints(fingerprint.Sum([]byte(fixtureToken))),
-		// WithAnalysis also enables validation. Analysis runs for valid
-		// credentials whose rules supply an analyze expression.
-		detect.WithAnalysis(detect.ProviderOptions{
-			Workers:  4, // Provider workers are separate from detection workers.
-			Statuses: []report.ValidationStatus{report.ValidationStatusValid},
-			// These request controls apply when rules make provider HTTP calls.
-			Timeout:              5 * time.Second,
-			MaxRequestsPerTarget: 8,
-			RequestsPerSecond:    5,
-			RequestsPerSecondByRule: map[string]float64{
-				"mock-api-key": 2,
-			},
-			// Only these environment variables are accessible to rule programs.
-			EnvVars: []string{"EXAMPLE_API_BASE_URL"},
-		}),
+		scan.WithIgnoredFingerprints(fingerprint.Sum([]byte(fixtureToken))),
+	)
+	if err != nil {
+		return fmt.Errorf("create scanner: %w", err)
+	}
+
+	// Analyzer owns provider programs and request controls. Its workers operate
+	// independently of discovery. Each pipeline scan gets fresh caches and limits.
+	analyzer, err := analyze.New(cfg,
+		analyze.WithLogger(logger),
+		analyze.WithWorkers(4),
+		analyze.WithTimeout(5*time.Second),
+		analyze.WithMaxRequestsPerTarget(8),
+		analyze.WithRequestsPerSecond(5),
+		analyze.WithRequestsPerSecondByRule(map[string]float64{"mock-api-key": 2}),
+		analyze.WithEnvVars("EXAMPLE_API_BASE_URL"),
+		analyze.WithPrecompile(),
+	)
+	if err != nil {
+		return fmt.Errorf("create analyzer: %w", err)
+	}
+
+	// Output policy belongs to the pipeline. Analyzer always returns its result.
+	p, err := pipeline.New(scanner, analyzer,
+		pipeline.WithValidationStatuses(report.ValidationStatusValid),
 	)
 	if err != nil {
 		return err
@@ -119,7 +129,7 @@ func run() error {
 	}, "\n")
 
 	encoder := json.NewEncoder(os.Stdout)
-	// Reuse the compiled detector for sequential scans. Each Reader is fresh
+	// Reuse the scanner and analyzer for sequential scans. Each Reader is fresh
 	// because scanning consumes its input. The second path is excluded above.
 	for _, path := range []string{"application.env", "archived.env"} {
 		source := &sources.Reader{
@@ -128,9 +138,9 @@ func run() error {
 				sources.AttrPath:     path,
 				sources.AttrResource: sources.ResourceFileContent,
 			},
-			ShouldSkip: detector.SkipFunc(), // Apply the detector's source prefilter.
+			ShouldSkip: scanner.SkipFunc(), // Apply the scanner's source prefilter.
 		}
-		summary, err := detector.Scan(ctx, source, func(finding report.Finding) error {
+		summary, err := p.Scan(ctx, source, func(finding report.Finding) error {
 			// The handler receives resolved validation and analysis, including
 			// identity, account, capabilities, and derived severity. Redact a
 			// copy before exporting. Returning an error stops the scan.
@@ -149,25 +159,36 @@ func run() error {
 		}
 	}
 
-	// Already have a credential? No Reader, regex matching, or Scan is needed.
+	// Already have a credential? No Reader, regex matching, or Scanner is needed.
 	// This deliberately checks the fixture ignored by scans above: explicit
-	// validation bypasses scan filters, fingerprint ignores, and status filters.
-	validator, err := validate.NewValidator(cfg, validate.Options{Analysis: true, Timeout: 5 * time.Second})
-	if err != nil {
-		return err
-	}
-	result, err := validator.ValidateCredential(ctx, validate.Credential{
-		RuleID: "mock-api-key",
-		Secret: fixtureToken,
-		Attributes: map[string]string{
-			"application": "example-service",
-		},
+	// credential analysis bypasses scan filters, fingerprint ignores, and status filters.
+	result, err := analyzer.AnalyzeCredential(ctx, analyze.Credential{
+		RuleID:     "mock-api-key",
+		Secret:     fixtureToken,
+		Attributes: map[string]string{"application": "example-service"},
 	})
 	if err != nil {
-		return fmt.Errorf("validate credential: %w", err)
+		return fmt.Errorf("analyze credential: %w", err)
 	}
 	logger.Info("credential checked", "status", result.Validation.Status,
 		"severity", result.Analysis.Severity)
 	// Credential reports already sanitize supplied secrets and captures.
-	return encoder.Encode(result)
+	if err := encoder.Encode(result); err != nil {
+		return err
+	}
+
+	// Liveness alone never runs the analysis expression, even on an Analyzer
+	// already used for permission analysis.
+	validation, err := analyzer.ValidateCredential(ctx, analyze.Credential{
+		RuleID: "mock-api-key", Secret: token,
+	})
+	if err != nil {
+		return err
+	}
+	logger.Info("credential validated", "status", validation.Validation.Status)
+
+	// Scanner is useful alone: these findings have confidence and locations,
+	// with empty Validation and Analysis fields.
+	logger.Info("local scan complete", "findings", len(scanner.ScanString("API_KEY="+token)))
+	return nil
 }

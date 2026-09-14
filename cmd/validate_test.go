@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/analyze"
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	"github.com/betterleaks/betterleaks/v2/validate"
 )
 
 func TestValidateCommandJSONL(t *testing.T) {
@@ -744,7 +744,7 @@ validate = '''{"result": "valid"}'''
 func TestValidateCredentialHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := (*validate.Validator)(nil).ValidateCredential(ctx, validate.Credential{})
+	_, err := (*analyze.Analyzer)(nil).ValidateCredential(ctx, analyze.Credential{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}

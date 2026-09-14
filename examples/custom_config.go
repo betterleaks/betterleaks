@@ -7,7 +7,7 @@ import (
 	"log"
 
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/scan"
 )
 
 const customConfig = `
@@ -26,13 +26,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	detector, err := detect.NewDetector(cfg)
+	scanner, err := scan.New(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	const content = "API_KEY=example_0123456789abcdef0123456789abcdef" // betterleaks:allow
-	for _, finding := range detector.DetectString(content) {
+	for _, finding := range scanner.ScanString(content) {
 		fmt.Printf("%s: %s\n", finding.RuleID, finding.Description)
 	}
 }

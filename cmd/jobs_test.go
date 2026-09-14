@@ -25,29 +25,29 @@ func TestResolveJobPlan(t *testing.T) {
 	cpus := max(runtime.GOMAXPROCS(0), 1)
 
 	explicitJobs := cpus + 3
-	wantExplicit := jobPlan{Source: explicitJobs, Detector: cpus}
+	wantExplicit := jobPlan{Source: explicitJobs, Scanner: cpus}
 	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, directoryJobProfile))
 	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, objectJobProfile))
 	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, streamJobProfile))
-	require.Equal(t, jobPlan{Source: cpus, Detector: cpus}, resolveJobPlan(explicitJobs, gitJobProfile))
+	require.Equal(t, jobPlan{Source: cpus, Scanner: cpus}, resolveJobPlan(explicitJobs, gitJobProfile))
 	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, providerJobProfile))
 
 	require.Equal(t,
-		jobPlan{Source: max(cpus, min(cpus*automaticFileJobsPerCPU, maxAutomaticFileJobs)), Detector: cpus},
+		jobPlan{Source: max(cpus, min(cpus*automaticFileJobsPerCPU, maxAutomaticFileJobs)), Scanner: cpus},
 		resolveJobPlan(0, directoryJobProfile),
 	)
 	require.Equal(t,
-		jobPlan{Source: cpus * automaticObjectJobsPerCPU, Detector: cpus},
+		jobPlan{Source: cpus * automaticObjectJobsPerCPU, Scanner: cpus},
 		resolveJobPlan(0, objectJobProfile),
 	)
-	require.Equal(t, jobPlan{Source: cpus, Detector: cpus}, resolveJobPlan(0, streamJobProfile))
-	require.Equal(t, jobPlan{Source: min(cpus, maxAutomaticGitJobs), Detector: cpus}, resolveJobPlan(0, gitJobProfile))
+	require.Equal(t, jobPlan{Source: cpus, Scanner: cpus}, resolveJobPlan(0, streamJobProfile))
+	require.Equal(t, jobPlan{Source: min(cpus, maxAutomaticGitJobs), Scanner: cpus}, resolveJobPlan(0, gitJobProfile))
 	providerJobs := min(cpus, maxAutomaticProviderJobs)
-	require.Equal(t, jobPlan{Source: providerJobs, Detector: providerJobs}, resolveJobPlan(0, providerJobProfile))
+	require.Equal(t, jobPlan{Source: providerJobs, Scanner: providerJobs}, resolveJobPlan(0, providerJobProfile))
 }
 
 func TestResolveJobPlanOneJobIsSerial(t *testing.T) {
-	want := jobPlan{Source: 1, Detector: 1}
+	want := jobPlan{Source: 1, Scanner: 1}
 	require.Equal(t, want, resolveJobPlan(1, directoryJobProfile))
 	require.Equal(t, want, resolveJobPlan(1, objectJobProfile))
 	require.Equal(t, want, resolveJobPlan(1, streamJobProfile))

@@ -1,4 +1,4 @@
-package detect_test
+package scan_test
 
 import (
 	"context"
@@ -6,12 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/detect"
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
@@ -20,13 +19,13 @@ func Example() {
 	if err != nil {
 		panic(err)
 	}
-	detector, err := detect.NewDetector(cfg)
+	scanner, err := scan.New(cfg)
 	if err != nil {
 		panic(err)
 	}
 
 	const token = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5" // betterleaks:allow
-	for _, finding := range detector.DetectString("GITHUB_TOKEN=" + token) {
+	for _, finding := range scanner.ScanString("GITHUB_TOKEN=" + token) {
 		fmt.Println(finding.RuleID)
 	}
 
@@ -41,11 +40,11 @@ func ExampleWithIgnoredFingerprints() {
 		panic("invalid ignore policy")
 	}
 	cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: `secret-[a-z]+`}}}
-	detector, err := detect.NewDetector(cfg, detect.WithIgnoredFingerprints(hashes...))
+	scanner, err := scan.New(cfg, scan.WithIgnoredFingerprints(hashes...))
 	if err != nil {
 		panic(err)
 	}
-	for _, finding := range detector.DetectString("secret-fixture secret-live") {
+	for _, finding := range scanner.ScanString("secret-fixture secret-live") {
 		fmt.Println(finding.Secret)
 	}
 	// Output: secret-live
@@ -58,13 +57,8 @@ func Example_customConfig() {
 	if err != nil {
 		panic(err)
 	}
-	detector, err := detect.NewDetector(cfg,
-		detect.WithLogger(logger),
-		// Analysis includes validation and only analyzes valid credentials.
-		detect.WithAnalysis(detect.ProviderOptions{
-			Workers: 10,
-			Timeout: 10 * time.Second,
-		}),
+	scanner, err := scan.New(cfg,
+		scan.WithLogger(logger),
 	)
 	if err != nil {
 		panic(err)
@@ -72,14 +66,10 @@ func Example_customConfig() {
 
 	source := &sources.Reader{
 		Content:    os.Stdin,
-		ShouldSkip: detector.SkipFunc(),
+		ShouldSkip: scanner.SkipFunc(),
 	}
-	_, err = detector.Scan(context.Background(), source, func(finding report.Finding) error {
-		fmt.Printf("%s: validation=%s severity=%s\n",
-			finding.RuleID,
-			finding.Validation.Status,
-			finding.Analysis.Severity,
-		)
+	_, err = scanner.Scan(context.Background(), source, func(finding report.Finding) error {
+		fmt.Println(finding.RuleID, finding.Confidence)
 		return nil
 	})
 	if err != nil {

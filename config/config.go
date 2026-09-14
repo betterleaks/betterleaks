@@ -80,7 +80,7 @@ type Config struct {
 	Path        string
 	Description string
 	// Rules is the resolved rule set in deterministic configuration order.
-	// Detector construction derives all lookup and dispatch indexes from it.
+	// Scanner construction derives all lookup and dispatch indexes from it.
 	Rules []Rule
 
 	MinVersion string

@@ -1,4 +1,4 @@
-package detect
+package scan
 
 import (
 	// "encoding/json"
@@ -173,11 +173,11 @@ func shannonEntropy(data string) (entropy float64) {
 }
 
 // filter will dedupe and redact findings
-func (d *Detector) filter(findings []report.Finding) []report.Finding {
+func (d *Scanner) filter(findings []report.Finding) []report.Finding {
 	return d.filterIndexed(findings, newFindingIndex(findings))
 }
 
-func (d *Detector) filterIndexed(findings []report.Finding, index *findingIndex) []report.Finding {
+func (d *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) []report.Finding {
 	// Collect every component finding's (rule, line, secret) identity so the
 	// corresponding top-level finding can be suppressed.
 	componentSet := make(map[string]struct{})
@@ -248,7 +248,7 @@ func (index *findingIndex) add(i int) {
 	}
 }
 
-func (d *Detector) isSuppressedByHigherSpecificityFinding(f report.Finding, index *findingIndex) bool {
+func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index *findingIndex) bool {
 	if index == nil {
 		return false
 	}
@@ -290,24 +290,6 @@ func (d *Detector) isSuppressedByHigherSpecificityFinding(f report.Finding, inde
 		}
 	}
 	return false
-}
-
-// stripEmptyMeta removes keys whose value is an empty string or nil.
-func stripEmptyMeta(m map[string]any) map[string]any {
-	if len(m) == 0 {
-		return m
-	}
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		if s, ok := v.(string); ok && s == "" {
-			continue
-		}
-		if v == nil {
-			continue
-		}
-		out[k] = v
-	}
-	return out
 }
 
 // containsAllowSignature checks whether the line contains an allow comment.

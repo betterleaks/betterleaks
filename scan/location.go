@@ -1,11 +1,11 @@
-package detect
+package scan
 
 import (
 	"slices"
 	"strings"
 )
 
-// matchLocation is the detector's internal position data for a regex match.
+// matchLocation is the scanner's internal position data for a regex match.
 type matchLocation struct {
 	startLine      int
 	endLine        int

@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources/gitlab"
 )
 
@@ -36,7 +36,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 
 	cfg := Config(runtime)
 	jobs := resolveJobPlan(options.Jobs, providerJobProfile)
-	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "", detect.WithJobs(jobs.Detector))
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, "", scan.WithJobs(jobs.Scanner))
 
 	targetURL := options.TargetURL
 
@@ -70,7 +70,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 		ExcludeRepos:     options.ExcludeRepo,
 		AllGroups:        options.AllGroups,
 		IncludeSubgroups: options.IncludeSubgroups,
-		ShouldSkip:       detector.SkipFunc(),
+		ShouldSkip:       runner.SkipFunc(),
 		MaxArchiveDepth:  options.MaxArchiveDepth,
 		Jobs:             jobs.Source,
 		LogOpts:          options.LogOpts,
@@ -82,9 +82,9 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
-	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)
+	summary, scanErr := runner.Scan(runtime.Context, src, findings.Add)
 	if scanErr != nil {
 		runtime.Logger().Error("scan error", "error", scanErr)
 	}
-	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
+	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
 }

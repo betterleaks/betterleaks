@@ -1,4 +1,4 @@
-package provider
+package analyze
 
 import (
 	"regexp/syntax"

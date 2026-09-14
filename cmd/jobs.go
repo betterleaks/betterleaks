@@ -21,8 +21,8 @@ const (
 )
 
 type jobPlan struct {
-	Source   int
-	Detector int
+	Source  int
+	Scanner int
 }
 
 func resolveJobPlan(configured int, profile jobProfile) jobPlan {
@@ -33,29 +33,29 @@ func resolveJobPlan(configured int, profile jobProfile) jobPlan {
 			sourceJobs = min(sourceJobs, processorJobs)
 		}
 		return jobPlan{
-			Source:   sourceJobs,
-			Detector: min(configured, processorJobs),
+			Source:  sourceJobs,
+			Scanner: min(configured, processorJobs),
 		}
 	}
 
 	switch profile {
 	case directoryJobProfile:
 		return jobPlan{
-			Source:   max(processorJobs, min(processorJobs*automaticFileJobsPerCPU, maxAutomaticFileJobs)),
-			Detector: processorJobs,
+			Source:  max(processorJobs, min(processorJobs*automaticFileJobsPerCPU, maxAutomaticFileJobs)),
+			Scanner: processorJobs,
 		}
 	case objectJobProfile:
 		return jobPlan{
-			Source:   processorJobs * automaticObjectJobsPerCPU,
-			Detector: processorJobs,
+			Source:  processorJobs * automaticObjectJobsPerCPU,
+			Scanner: processorJobs,
 		}
 	case streamJobProfile:
-		return jobPlan{Source: processorJobs, Detector: processorJobs}
+		return jobPlan{Source: processorJobs, Scanner: processorJobs}
 	case gitJobProfile:
-		return jobPlan{Source: min(processorJobs, maxAutomaticGitJobs), Detector: processorJobs}
+		return jobPlan{Source: min(processorJobs, maxAutomaticGitJobs), Scanner: processorJobs}
 	case providerJobProfile:
 		jobs := min(processorJobs, maxAutomaticProviderJobs)
-		return jobPlan{Source: jobs, Detector: jobs}
+		return jobPlan{Source: jobs, Scanner: jobs}
 	default:
 		panic("unknown job profile")
 	}

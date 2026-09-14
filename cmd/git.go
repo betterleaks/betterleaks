@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
@@ -63,9 +63,9 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 
 	cfg := Config(runtime)
 
-	// create detector
+	// create runner
 	jobs := resolveJobPlan(options.Jobs, gitJobProfile)
-	detector := Detector(runtime, globals, &options.ScanFlags, cfg, source, detect.WithJobs(jobs.Detector))
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, source, scan.WithJobs(jobs.Scanner))
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
@@ -83,7 +83,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		src = &sources.Git{
 			Logger:          runtime.Logger(),
 			Cmd:             gitCmd,
-			ShouldSkip:      detector.SkipFunc(),
+			ShouldSkip:      runner.SkipFunc(),
 			Platform:        scm.NoPlatform,
 			MaxArchiveDepth: options.MaxArchiveDepth,
 			Jobs:            jobs.Source,
@@ -98,7 +98,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		src = &sources.Git{
 			Logger:          runtime.Logger(),
 			RepoPath:        source,
-			ShouldSkip:      detector.SkipFunc(),
+			ShouldSkip:      runner.SkipFunc(),
 			Platform:        resolvedPlatform,
 			RemoteURL:       remoteURL,
 			MaxArchiveDepth: options.MaxArchiveDepth,
@@ -108,10 +108,10 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		}
 	}
 
-	summary, err := detector.Scan(runtime.Context, src, findings.Add)
+	summary, err := runner.Scan(runtime.Context, src, findings.Add)
 	if err != nil {
 		runtime.Logger().Error("failed to scan Git repository", "error", err)
 	}
 
-	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, err)
+	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, err)
 }

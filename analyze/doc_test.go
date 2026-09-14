@@ -1,15 +1,15 @@
-package validate_test
+package analyze_test
 
 import (
 	"context"
 	"fmt"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/analyze"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/validate"
 )
 
-func ExampleValidator_ValidateCredential() {
+func ExampleAnalyzer_AnalyzeCredential() {
 	// Mock provider programs keep this example independent of network services.
 	cfg := &config.Config{Rules: []config.Rule{{
 		ID:           "demo-token",
@@ -18,14 +18,11 @@ func ExampleValidator_ValidateCredential() {
 		ValidateExpr: `finding.captures.tenant == "acme" ? {"result": "valid", "analysis": {"owner": "demo-user"}} : {"result": "invalid"}`,
 		AnalyzeExpr:  `{"identity": {"username": validation["analysis"]["owner"]}, "capabilities": ["read"]}`,
 	}}}
-	validator, err := validate.NewValidator(cfg, validate.Options{
-		Analysis: true,
-		Timeout:  5 * time.Second,
-	})
+	validator, err := analyze.New(cfg, analyze.WithTimeout(5*time.Second))
 	if err != nil {
 		panic(err)
 	}
-	result, err := validator.ValidateCredential(context.Background(), validate.Credential{
+	result, err := validator.AnalyzeCredential(context.Background(), analyze.Credential{
 		RuleID: "demo-token",
 		Secret: "example",
 		// Supply the named inputs the detection regex would otherwise extract.

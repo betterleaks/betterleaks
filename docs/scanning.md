@@ -96,7 +96,7 @@ SHA-256 digest of the exact secret bytes:
 sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 ```
 
-The detector checks ignore fingerprints against each completed finding's primary
+The scanner checks ignore fingerprints against each completed finding's primary
 secret after assembling components and before validation or analysis. Ignoring a
 component secret suppresses its standalone finding, but the component remains
 available to assemble other credentials. Ignoring a primary secret suppresses
@@ -117,10 +117,10 @@ crypto.sha256(finding["secret"]) in [
 Both forms hash exact secret bytes, but an explicit global filter runs before
 component assembly and can therefore prevent a multipart finding from forming.
 
-SDK callers can pass hashes directly to `detect.WithIgnoredFingerprints(hashes...)`.
+SDK callers can pass hashes directly to `scan.WithIgnoredFingerprints(hashes...)`.
 The public `fingerprint` package provides `Sum`, `Parse`, `Format`, and `Load`.
 `Load` accepts an `io.Reader` and returns deduplicated hashes, line diagnostics,
-and a read error. The detector copies supplied hashes and performs no ignore-file
+and a read error. The scanner copies supplied hashes and performs no ignore-file
 discovery; callers control which policy to load.
 
 Blank lines and full-line `#` comments are allowed. Hex digits may be uppercase

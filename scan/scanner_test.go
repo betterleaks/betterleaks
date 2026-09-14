@@ -1,4 +1,4 @@
-package detect
+package scan
 
 import (
 	"bytes"
@@ -8,31 +8,26 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/detect/codec"
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
+	"github.com/betterleaks/betterleaks/v2/internal/codec"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
-	credentialvalidate "github.com/betterleaks/betterleaks/v2/validate"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const maxDecodeDepth = 8
@@ -126,18 +121,18 @@ func loadTestConfig(t *testing.T, cfgName string) *config.Config {
 	return cfg
 }
 
-func newDefaultTestDetector(t *testing.T) *Detector {
+func newDefaultTestScanner(t *testing.T) *Scanner {
 	t.Helper()
 	cfg, err := config.Default()
 	require.NoError(t, err)
-	return mustNewDetector(t, cfg)
+	return mustNew(t, cfg)
 }
 
-func mustNewDetector(t *testing.T, cfg *config.Config, options ...Option) *Detector {
+func mustNew(t *testing.T, cfg *config.Config, options ...Option) *Scanner {
 	t.Helper()
-	detector, err := NewDetector(cfg, options...)
+	scanner, err := New(cfg, options...)
 	require.NoError(t, err)
-	return detector
+	return scanner
 }
 
 func testConfig() *config.Config {
@@ -156,16 +151,16 @@ func TestIgnoredFingerprintsUseExtractedSecret(t *testing.T) {
 		"token=secret-ignored token=secret-visible",
 		base64.StdEncoding.EncodeToString([]byte("token=secret-ignored token=secret-visible")),
 	} {
-		baseline := mustNewDetector(t, cfg, WithMaxDecodeDepth(2))
-		require.Len(t, baseline.DetectString(input), 2)
-		detector := mustNewDetector(t, cfg, WithMaxDecodeDepth(2), WithIgnoredFingerprints(ignored))
-		findings := detector.DetectString(input)
+		baseline := mustNew(t, cfg, WithMaxDecodeDepth(2))
+		require.Len(t, baseline.ScanString(input), 2)
+		scanner := mustNew(t, cfg, WithMaxDecodeDepth(2), WithIgnoredFingerprints(ignored))
+		findings := scanner.ScanString(input)
 		require.Len(t, findings, 1)
 		assert.Equal(t, "secret-visible", findings[0].Secret)
 	}
 	// A fingerprint of the entire regex match must not suppress its capture.
-	detector := mustNewDetector(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("token=secret-ignored"))))
-	require.Len(t, detector.DetectString("token=secret-ignored"), 1)
+	scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("token=secret-ignored"))))
+	require.Len(t, scanner.ScanString("token=secret-ignored"), 1)
 }
 
 func TestIgnoredFingerprintsPreserveComponents(t *testing.T) {
@@ -175,19 +170,19 @@ func TestIgnoredFingerprintsPreserveComponents(t *testing.T) {
 				{ID: "primary", Regex: `primary-token`, Components: []*config.Component{{RuleID: "component", Within: "2L", Optional: optional}}},
 				{ID: "component", Regex: `companion-token`, SkipReport: skipReport},
 			}}
-			detector := mustNewDetector(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("companion-token"))))
-			findings := detector.DetectString("primary-token companion-token")
+			scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("companion-token"))))
+			findings := scanner.ScanString("primary-token companion-token")
 			require.Len(t, findings, 1)
 			assert.Equal(t, "primary", findings[0].RuleID)
 			require.Len(t, findings[0].ComponentSets, 1)
 			require.Len(t, findings[0].ComponentSets[0].Components, 1)
 			assert.Equal(t, "companion-token", findings[0].ComponentSets[0].Components[0].Secret)
-			assert.Empty(t, detector.DetectString("companion-token"))
+			assert.Empty(t, scanner.ScanString("companion-token"))
 			// An ignored primary suppresses the assembled finding itself.
-			detector = mustNewDetector(t, cfg, WithIgnoredFingerprints(
+			scanner = mustNew(t, cfg, WithIgnoredFingerprints(
 				fingerprint.Sum([]byte("primary-token")), fingerprint.Sum([]byte("companion-token")),
 			))
-			assert.Empty(t, detector.DetectString("primary-token companion-token"))
+			assert.Empty(t, scanner.ScanString("primary-token companion-token"))
 		}
 	}
 	// Explicit global filters retain their original component filtering semantics.
@@ -198,7 +193,7 @@ func TestIgnoredFingerprintsPreserveComponents(t *testing.T) {
 			{ID: "component", Regex: `companion-token`, SkipReport: true},
 		},
 	}
-	assert.Empty(t, mustNewDetector(t, cfg).DetectString("primary-token companion-token"))
+	assert.Empty(t, mustNew(t, cfg).ScanString("primary-token companion-token"))
 }
 
 func TestIgnoredFingerprintsSnapshotAndReuse(t *testing.T) {
@@ -206,56 +201,18 @@ func TestIgnoredFingerprintsSnapshotAndReuse(t *testing.T) {
 	option := WithIgnoredFingerprints(hashes...)
 	hashes[0] = fingerprint.Sum([]byte("secret-beta"))
 	for range 2 {
-		detector := mustNewDetector(t, testConfig(), option, option, WithIgnoredFingerprints(), WithIgnoredFingerprints(hashes...))
+		scanner := mustNew(t, testConfig(), option, option, WithIgnoredFingerprints(), WithIgnoredFingerprints(hashes...))
 		for range 2 {
-			findings := detector.DetectString("secret-alpha secret-beta secret-gamma")
+			findings := scanner.ScanString("secret-alpha secret-beta secret-gamma")
 			require.Len(t, findings, 1)
 			assert.Equal(t, "secret-gamma", findings[0].Secret)
 		}
 	}
-	assert.Len(t, mustNewDetector(t, testConfig(), WithIgnoredFingerprints()).DetectString("secret-alpha secret-beta"), 2)
-	assert.Len(t, mustNewDetector(t, testConfig()).DetectString("secret-alpha secret-beta"), 2)
+	assert.Len(t, mustNew(t, testConfig(), WithIgnoredFingerprints()).ScanString("secret-alpha secret-beta"), 2)
+	assert.Len(t, mustNew(t, testConfig()).ScanString("secret-alpha secret-beta"), 2)
 }
 
-func TestIgnoredFingerprintsSkipProviderRequests(t *testing.T) {
-	var requests, ignoredRequests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		if r.URL.Query().Get("secret") == "secret-ignored" {
-			ignoredRequests.Add(1)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testConfig()
-	cfg.Rules[0].ValidateExpr = fmt.Sprintf(`let r = http.get(%q + "?secret=" + finding["secret"], {}); {"result": r.status == 200 ? "valid" : "error"}`, server.URL)
-	cfg.Rules[0].AnalyzeExpr = fmt.Sprintf(`let r = http.get(%q + "?secret=" + finding["secret"], {}); {"capabilities": r.status == 200 ? ["read"] : []}`, server.URL)
-	detector := mustNewDetector(t, cfg, WithAnalysis(ProviderOptions{Workers: 1}), WithIgnoredFingerprints(fingerprint.Sum([]byte("secret-ignored"))))
-	source := fragmentSource{fragments: []sources.Fragment{{Raw: "secret-ignored secret-visible", Attributes: map[string]string{sources.AttrPath: "one.txt"}}, {Raw: "secret-ignored", Attributes: map[string]string{sources.AttrPath: "two.txt"}}}}
-	var findings []report.Finding
-	summary, err := detector.Scan(t.Context(), source, func(f report.Finding) error {
-		findings = append(findings, f)
-		return nil
-	})
-	require.NoError(t, err)
-	require.Len(t, findings, 1)
-	assert.Equal(t, "secret-visible", findings[0].Secret)
-	assert.Equal(t, report.SeverityMedium, findings[0].Analysis.Severity)
-	assert.Equal(t, 1, summary.Findings)
-	assert.Equal(t, map[report.ValidationStatus]int{report.ValidationStatusValid: 1}, summary.ValidationCounts)
-	assert.Equal(t, int32(2), requests.Load())
-	count := 0
-	for result := range detector.Run(t.Context(), source) {
-		require.NoError(t, result.Err)
-		assert.Equal(t, "secret-visible", result.Finding.Secret)
-		count++
-	}
-	assert.Equal(t, 1, count)
-	assert.Equal(t, int32(4), requests.Load())
-	assert.Zero(t, ignoredRequests.Load())
-}
-
-func TestDetectorLoggerIsOptIn(t *testing.T) {
+func TestScannerLoggerIsOptIn(t *testing.T) {
 	cfg := &config.Config{
 		Filter: `missingFunction()`,
 		Rules: []config.Rule{{
@@ -264,173 +221,59 @@ func TestDetectorLoggerIsOptIn(t *testing.T) {
 		}},
 	}
 
-	silent := mustNewDetector(t, cfg)
+	silent := mustNew(t, cfg)
 	assert.Equal(t, slog.DiscardHandler, silent.logger.Handler())
 
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	detector := mustNewDetector(t, cfg, WithLogger(logger))
-	require.Len(t, detector.DetectString("secret-alpha"), 1)
+	scanner := mustNew(t, cfg, WithLogger(logger))
+	require.Len(t, scanner.ScanString("secret-alpha"), 1)
 	assert.Contains(t, output.String(), "global filter compile error")
 }
 
 func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
-	detector := &Detector{logger: discardLogger}
+	scanner := &Scanner{logger: discardLogger}
 	fragment := sources.Fragment{Raw: "ordinary input"}
 	rule := &compiledRule{rule: config.Rule{ID: "test-secret", SkipReport: true}}
 
 	var findings []report.Finding
 	allocations := testing.AllocsPerRun(1_000, func() {
-		findings = detector.detectFragmentWithRule(nil, fragment, fragment.Raw, rule, nil, nil, detectionState{})
+		findings = scanner.detectFragmentWithRule(nil, fragment, fragment.Raw, rule, nil, nil, detectionState{})
 	})
 	runtime.KeepAlive(findings)
 	assert.Zero(t, allocations)
 }
 
 func TestGitleaksAllowCommentSuppressesFinding(t *testing.T) {
-	detector := mustNewDetector(t, testConfig())
-	require.Empty(t, detector.DetectString("secret-alpha // gitleaks:allow"))
+	scanner := mustNew(t, testConfig())
+	require.Empty(t, scanner.ScanString("secret-alpha // gitleaks:allow"))
 }
 
-func TestDetectorScanIsReusableWithValidation(t *testing.T) {
-	cfg := testConfig()
-	cfg.Rules[0].ValidateExpr = `{"result": "valid"}`
-	detector, err := NewDetector(cfg, WithValidation(ProviderOptions{
-		Workers:  1,
-		Statuses: []report.ValidationStatus{report.ValidationStatusValid},
-	}))
-	require.NoError(t, err)
-	require.True(t, detector.ValidationEnabled())
-
-	const content = "secret-alpha"
-	for range 2 {
-		var findings []report.Finding
-		summary, scanErr := detector.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: content}}}, func(finding report.Finding) error {
-			findings = append(findings, finding)
-			return nil
-		})
-		require.NoError(t, scanErr)
-		require.Len(t, findings, 1)
-		assert.Equal(t, report.ValidationStatusValid, findings[0].Validation.Status)
-		assert.Equal(t, uint64(len(content)), summary.BytesInspected)
-		assert.Equal(t, 1, summary.Findings)
-		assert.Equal(t, 1, summary.ValidationCounts[report.ValidationStatusValid])
-	}
-}
-
-func TestValidationRequiresExplicitOption(t *testing.T) {
-	cfg := testConfig()
-	cfg.Rules[0].ValidateExpr = `{"result": "valid"}`
-
-	detector, err := NewDetector(cfg)
-	require.NoError(t, err)
-	assert.False(t, detector.ValidationEnabled())
-
-	detector, err = NewDetector(cfg, WithValidation(ProviderOptions{}))
-	require.NoError(t, err)
-	assert.True(t, detector.ValidationEnabled())
-}
-
-func TestScanValidationAndEmptyAnalysisContracts(t *testing.T) {
-	for _, test := range []struct {
-		name, validation, analysis string
-		status                     report.ValidationStatus
-		severity                   report.Severity
-	}{
-		{"missing result", `{"foo": "bar"}`, `{"capabilities": ["admin"]}`, report.ValidationStatusError, report.SeverityNone},
-		{"wrong result type", `{"result": 123}`, `{"capabilities": ["admin"]}`, report.ValidationStatusError, report.SeverityNone},
-		{"unknown status", `{"result": "bogus"}`, `{"capabilities": ["admin"]}`, report.ValidationStatusError, report.SeverityNone},
-		{"intentional unknown", `{"result": "unknown"}`, `{"capabilities": ["admin"]}`, report.ValidationStatusUnknown, report.SeverityNone},
-		{"empty analysis", `{"result": "valid"}`, `{}`, report.ValidationStatusValid, report.SeverityUnknown},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			cfg := testConfig()
-			cfg.Rules[0].ValidateExpr = test.validation
-			cfg.Rules[0].AnalyzeExpr = test.analysis
-			detector, err := NewDetector(cfg, WithAnalysis(ProviderOptions{Workers: 1}))
-			require.NoError(t, err)
-			var findings []report.Finding
-			summary, err := detector.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(f report.Finding) error {
-				findings = append(findings, f)
-				return nil
-			})
-			require.NoError(t, err)
-			require.Len(t, findings, 1)
-			assert.Equal(t, test.status, findings[0].Validation.Status)
-			assert.Equal(t, 1, summary.ValidationCounts[test.status])
-			assert.Equal(t, test.severity, findings[0].Analysis.Severity)
-			if test.status == report.ValidationStatusError {
-				assert.NotEmpty(t, findings[0].Validation.Reason)
-			}
-			if test.status != report.ValidationStatusValid {
-				assert.True(t, findings[0].Analysis.IsZero(), "analysis must not run without valid credentials")
-			}
-		})
-	}
-}
-
-func TestAnalysisRequiresExplicitOptionAndImpliesValidation(t *testing.T) {
-	cfg := testConfig()
-	cfg.Rules[0].ValidateExpr = `{"result": "valid", "analysis": {"owner": "user-1"}}`
-	cfg.Rules[0].AnalyzeExpr = `{
-		"identity": {"id": validation["analysis"]["owner"]},
-		"capabilities": ["read"]
-	}`
-
-	detector, err := NewDetector(cfg)
-	require.NoError(t, err)
-	assert.False(t, detector.ValidationEnabled())
-	assert.False(t, detector.AnalysisEnabled())
-
-	detector, err = NewDetector(cfg, WithValidation(ProviderOptions{}))
-	require.NoError(t, err)
-	assert.True(t, detector.ValidationEnabled())
-	assert.False(t, detector.AnalysisEnabled())
-
-	detector, err = NewDetector(cfg, WithAnalysis(ProviderOptions{Workers: 1}))
-	require.NoError(t, err)
-	assert.True(t, detector.ValidationEnabled())
-	assert.True(t, detector.AnalysisEnabled())
-
-	var findings []report.Finding
-	_, scanErr := detector.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(finding report.Finding) error {
-		findings = append(findings, finding)
-		return nil
-	})
-	require.NoError(t, scanErr)
-	require.Len(t, findings, 1)
-	assert.Equal(t, report.ValidationStatusValid, findings[0].Validation.Status)
-	assert.Empty(t, findings[0].Validation.Metadata)
-	assert.Equal(t, report.SeverityMedium, findings[0].Analysis.Severity)
-	require.NotNil(t, findings[0].Analysis.Identity)
-	assert.Equal(t, "user-1", findings[0].Analysis.Identity.ID)
-}
-
-func TestDetectorSkipFunc(t *testing.T) {
+func TestScannerSkipFunc(t *testing.T) {
 	cfg := testConfig()
 	cfg.Prefilter = `attributes["path"] == "ignored.txt"`
-	detector, err := NewDetector(cfg)
+	scanner, err := New(cfg)
 	require.NoError(t, err)
 
-	skip := detector.SkipFunc()
+	skip := scanner.SkipFunc()
 	require.NotNil(t, skip)
 	assert.True(t, skip(map[string]string{sources.AttrPath: "ignored.txt"}))
 	assert.False(t, skip(map[string]string{sources.AttrPath: "kept.txt"}))
 }
 
-func TestDetectorScanReturnsHandlerAndSourceErrors(t *testing.T) {
-	detector, err := NewDetector(testConfig())
+func TestScannerScanReturnsHandlerAndSourceErrors(t *testing.T) {
+	scanner, err := New(testConfig())
 	require.NoError(t, err)
 
 	handlerErr := errors.New("store finding")
-	summary, scanErr := detector.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(report.Finding) error {
+	summary, scanErr := scanner.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(report.Finding) error {
 		return handlerErr
 	})
 	assert.ErrorIs(t, scanErr, handlerErr)
 	assert.Equal(t, 1, summary.Findings)
 
 	sourceErr := errors.New("read source")
-	_, scanErr = detector.Scan(t.Context(), fragmentSource{err: sourceErr}, nil)
+	_, scanErr = scanner.Scan(t.Context(), fragmentSource{err: sourceErr}, nil)
 	assert.ErrorIs(t, scanErr, sourceErr)
 }
 
@@ -438,43 +281,39 @@ func TestWithPrecompileIsTheEagerCompilationPath(t *testing.T) {
 	cfg := testConfig()
 	cfg.Filter = `missingFunction()`
 
-	_, err := NewDetector(cfg)
+	_, err := New(cfg)
 	require.NoError(t, err, "expressions remain lazy by default")
 
-	_, err = NewDetector(cfg, WithPrecompile())
+	_, err = New(cfg, WithPrecompile())
 	require.ErrorContains(t, err, "compiling global filter")
 
 	cfg = testConfig()
 	cfg.Rules[0].ValidateExpr = `missingFunction()`
-	_, err = NewDetector(cfg, WithPrecompile())
-	require.ErrorContains(t, err, "validation")
+	_, err = New(cfg, WithPrecompile())
+	require.NoError(t, err, "scanner never compiles provider expressions")
 }
 
-func TestNewDetectorValidatesOptions(t *testing.T) {
-	_, err := NewDetector(nil)
+func TestNewValidatesOptions(t *testing.T) {
+	_, err := New(nil)
 	assert.Error(t, err)
 
-	_, err = NewDetector(testConfig(), WithJobs(-1))
+	_, err = New(testConfig(), WithJobs(-1))
 	assert.ErrorContains(t, err, "jobs")
 
-	_, err = NewDetector(testConfig(), WithMatchContext("bad"))
+	_, err = New(testConfig(), WithMatchContext("bad"))
 	assert.ErrorContains(t, err, "match context")
 
-	_, err = NewDetector(testConfig(), WithLogger(nil))
+	_, err = New(testConfig(), WithLogger(nil))
 	assert.NoError(t, err)
 
-	_, err = NewDetector(testConfig(), WithValidation(ProviderOptions{
-		Statuses: []report.ValidationStatus{"surprising"},
-	}))
-	assert.ErrorContains(t, err, "invalid validation status")
 }
 
-func collectSourceFindings(ctx context.Context, detector *Detector, source sources.Source) ([]report.Finding, error) {
+func collectSourceFindings(ctx context.Context, scanner *Scanner, source sources.Source) ([]report.Finding, error) {
 	var (
 		findings []report.Finding
 		scanErr  error
 	)
-	for result := range detector.Run(ctx, source) {
+	for result := range scanner.Run(ctx, source) {
 		if result.Err != nil {
 			scanErr = errors.Join(scanErr, result.Err)
 			continue
@@ -485,14 +324,14 @@ func collectSourceFindings(ctx context.Context, detector *Detector, source sourc
 }
 
 func TestRunStreamsFindings(t *testing.T) {
-	detector := mustNewDetector(t, loadTestConfig(t, "simple"))
+	scanner := mustNew(t, loadTestConfig(t, "simple"))
 	const content = "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	source := &sources.Reader{
 		Content: strings.NewReader(content),
 	}
 
 	var findings []report.Finding
-	for result := range detector.Run(t.Context(), source) {
+	for result := range scanner.Run(t.Context(), source) {
 		require.NoError(t, result.Err)
 		findings = append(findings, result.Finding)
 	}
@@ -511,21 +350,21 @@ func TestRunStreamsFindings(t *testing.T) {
 func TestRunWithMultipleJobs(t *testing.T) {
 	const fragmentCount = 100
 
-	detector := mustNewDetector(t, loadTestConfig(t, "simple"), WithJobs(4))
+	scanner := mustNew(t, loadTestConfig(t, "simple"), WithJobs(4))
 
-	findings, err := collectSourceFindings(t.Context(), detector, repeatedFragmentSource{count: fragmentCount})
+	findings, err := collectSourceFindings(t.Context(), scanner, repeatedFragmentSource{count: fragmentCount})
 	require.NoError(t, err)
 	require.Len(t, findings, fragmentCount)
 }
 
 func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
-	detector := mustNewDetector(t, loadTestConfig(t, "simple"), WithJobs(2))
+	scanner := mustNew(t, loadTestConfig(t, "simple"), WithJobs(2))
 	source := cancelAwareSource{stopped: make(chan struct{})}
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
-	for result := range detector.Run(ctx, source) {
+	for result := range scanner.Run(ctx, source) {
 		require.NoError(t, result.Err)
 		break
 	}
@@ -533,18 +372,18 @@ func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
 	select {
 	case <-source.stopped:
 	default:
-		t.Fatal("source was still running after detector iteration stopped")
+		t.Fatal("source was still running after scanner iteration stopped")
 	}
 }
 
 func TestRunCancellationDoesNotEmitErrors(t *testing.T) {
-	detector := mustNewDetector(t, loadTestConfig(t, "simple"), WithJobs(4))
+	scanner := mustNew(t, loadTestConfig(t, "simple"), WithJobs(4))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	found := false
-	for result := range detector.Run(ctx, repeatedFragmentSource{count: 1000}) {
+	for result := range scanner.Run(ctx, repeatedFragmentSource{count: 1000}) {
 		require.NoError(t, result.Err)
 		if !found {
 			found = true
@@ -563,7 +402,7 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 		Rules: []config.Rule{rule},
 	}
 	timingCollector := ruletiming.NewCollector()
-	detector := mustNewDetector(t, cfg)
+	scanner := mustNew(t, cfg)
 	source := &sources.File{
 		Content: strings.NewReader("aa\n\nbb\n\n"),
 		Path:    "bundle.p12",
@@ -571,7 +410,7 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	}
 
 	var findings []report.Finding
-	for result := range detector.Run(ruletiming.WithCollector(t.Context(), timingCollector), source) {
+	for result := range scanner.Run(ruletiming.WithCollector(t.Context(), timingCollector), source) {
 		require.NoError(t, result.Err)
 		findings = append(findings, result.Finding)
 	}
@@ -592,37 +431,37 @@ func TestCandidateBitmap(t *testing.T) {
 	cfg := &config.Config{
 		Rules: rules,
 	}
-	d := mustNewDetector(t, cfg)
-	require.Empty(t, d.DetectString("stale HIGHSECRET"))
+	d := mustNew(t, cfg)
+	require.Empty(t, d.ScanString("stale HIGHSECRET"))
 
 	// Cancellation after candidates are marked must not leak them into the next scan.
 	require.Empty(t, d.detectFragment(newCancelOnSecondCheck(), sources.Fragment{Raw: "cancel ALWAYSSECRET"}))
-	require.Equal(t, []string{"always"}, findingRuleIDs(d.DetectString("ALWAYSSECRET")))
+	require.Equal(t, []string{"always"}, findingRuleIDs(d.ScanString("ALWAYSSECRET")))
 
 	// One keyword selects multiple rules, multiple keywords select one rule,
 	// rules without keywords always run, and specificity order is retained.
-	require.Equal(t, []string{"high", "low", "always"}, findingRuleIDs(d.DetectString("shared HIGHSECRET LOWSECRET ALWAYSSECRET")))
-	require.Equal(t, []string{"high", "always"}, findingRuleIDs(d.DetectString("alias HIGHSECRET ALWAYSSECRET")))
+	require.Equal(t, []string{"high", "low", "always"}, findingRuleIDs(d.ScanString("shared HIGHSECRET LOWSECRET ALWAYSSECRET")))
+	require.Equal(t, []string{"high", "always"}, findingRuleIDs(d.ScanString("alias HIGHSECRET ALWAYSSECRET")))
 }
 
-func TestNewDetectorSnapshotsConfigWithoutMutatingIt(t *testing.T) {
+func TestNewSnapshotsConfigWithoutMutatingIt(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
 		{ID: "low", Specificity: 10, Keywords: []string{"MiXeD"}, Regex: `LOWSECRET`},
 		{ID: "high", Specificity: 20, Keywords: []string{"MiXeD"}, Regex: `HIGHSECRET`},
 	}}
 
-	d := mustNewDetector(t, cfg)
+	d := mustNew(t, cfg)
 	require.Equal(t, []string{"low", "high"}, []string{cfg.Rules[0].ID, cfg.Rules[1].ID})
 	require.Equal(t, "MiXeD", cfg.Rules[0].Keywords[0])
 	require.Equal(t, []string{"high", "low"}, []string{d.rulesBySpecificity[0].rule.ID, d.rulesBySpecificity[1].rule.ID})
 
-	// Detector behavior is isolated from later changes to the caller's config.
+	// Scanner behavior is isolated from later changes to the caller's config.
 	cfg.Rules[0].Keywords[0] = "changed"
 	cfg.Rules[0].Regex = `CHANGED`
 	cfg.Rules[1] = config.Rule{ID: "replacement", Keywords: []string{"changed"}, Regex: `CHANGED`}
 	cfg.Filter = "true"
 
-	require.Equal(t, []string{"high", "low"}, findingRuleIDs(d.DetectString("mixed HIGHSECRET LOWSECRET")))
+	require.Equal(t, []string{"high", "low"}, findingRuleIDs(d.ScanString("mixed HIGHSECRET LOWSECRET")))
 }
 
 func findingRuleIDs(findings []report.Finding) []string {
@@ -780,14 +619,14 @@ regex = '''optional=([a-z]+)'''
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := mustNewDetector(t, cfg)
+	scanner := mustNew(t, cfg)
 
 	t.Run("required component gates finding", func(t *testing.T) {
-		assert.Empty(t, detector.DetectString("primary=secret\noptional=session"))
+		assert.Empty(t, scanner.ScanString("primary=secret\noptional=session"))
 	})
 
 	t.Run("absent optional component is omitted", func(t *testing.T) {
-		findings := detector.DetectString("primary=secret\nrequired=account")
+		findings := scanner.ScanString("primary=secret\nrequired=account")
 		require.Len(t, findings, 1)
 		require.Len(t, findings[0].ComponentSets, 1)
 		require.Len(t, findings[0].ComponentSets[0].Components, 1)
@@ -797,7 +636,7 @@ skipReport = true
 	})
 
 	t.Run("present optional component joins combinations", func(t *testing.T) {
-		findings := detector.DetectString("primary=secret\nrequired=account\noptional=first\noptional=second")
+		findings := scanner.ScanString("primary=secret\nrequired=account\noptional=first\noptional=second")
 		require.Len(t, findings, 1)
 		require.Len(t, findings[0].ComponentSets, 2)
 		for _, set := range findings[0].ComponentSets {
@@ -816,7 +655,7 @@ func TestComponentMatchingDoesNotExpandNestedComponents(t *testing.T) {
 		{ID: "component", Regex: `component=([a-z]+)`, SkipReport: true, Components: []*config.Component{{RuleID: "nested"}}},
 		{ID: "nested", Regex: `nested=([a-z]+)`, SkipReport: true},
 	}}
-	detector := mustNewDetector(t, cfg, WithJobs(4))
+	scanner := mustNew(t, cfg, WithJobs(4))
 	for _, timed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("timed=%t", timed), func(t *testing.T) {
 			ctx := t.Context()
@@ -830,7 +669,7 @@ func TestComponentMatchingDoesNotExpandNestedComponents(t *testing.T) {
 					{Raw: "primary=unpaired"},
 				}}
 				var findings []report.Finding
-				summary, err := detector.Scan(ctx, source, func(finding report.Finding) error {
+				summary, err := scanner.Scan(ctx, source, func(finding report.Finding) error {
 					findings = append(findings, finding)
 					return nil
 				})
@@ -863,32 +702,32 @@ specificity = 100
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := mustNewDetector(t, cfg)
+	scanner := mustNew(t, cfg)
 
-	findings := detector.DetectString("primary=secret")
+	findings := scanner.ScanString("primary=secret")
 	require.Len(t, findings, 1)
 	assert.Empty(t, findings[0].ComponentSets)
 
-	findings = detector.DetectString("primary=secret\noptional=session")
+	findings = scanner.ScanString("primary=secret\noptional=session")
 	require.Len(t, findings, 1)
 	require.Len(t, findings[0].ComponentSets, 1)
 	require.Len(t, findings[0].ComponentSets[0].Components, 1)
 	assert.True(t, findings[0].ComponentSets[0].Components[0].Optional)
 
-	findings = detector.DetectString("primary=shared optional=shared")
+	findings = scanner.ScanString("primary=shared optional=shared")
 	require.Len(t, findings, 1, "a primary must not be suppressed by its own same-line, same-value component")
 	require.Len(t, findings[0].ComponentSets, 1)
 	assert.Equal(t, "shared", findings[0].ComponentSets[0].Components[0].Secret)
 }
 
 func TestGenericPasswordConfidenceAndContext(t *testing.T) {
-	detector := newDefaultTestDetector(t)
+	scanner := newDefaultTestScanner(t)
 
 	genericPasswordFindings := func(raw string, path ...string) []report.Finding {
 		t.Helper()
-		detected := detector.DetectString(raw)
+		detected := scanner.ScanString(raw)
 		if len(path) > 0 {
-			detected = detector.detectFragment(context.Background(), sources.Fragment{
+			detected = scanner.detectFragment(context.Background(), sources.Fragment{
 				Raw:        raw,
 				Attributes: map[string]string{sources.AttrPath: path[0]},
 			})
@@ -1310,13 +1149,13 @@ end`
 }
 
 func TestGenericCredentialURI(t *testing.T) {
-	detector := newDefaultTestDetector(t)
+	scanner := newDefaultTestScanner(t)
 
 	findingsForRule := func(raw, ruleID string, path ...string) []report.Finding {
 		t.Helper()
-		detected := detector.DetectString(raw)
+		detected := scanner.ScanString(raw)
 		if len(path) > 0 {
-			detected = detector.detectFragment(context.Background(), sources.Fragment{
+			detected = scanner.detectFragment(context.Background(), sources.Fragment{
 				Raw:        raw,
 				Attributes: map[string]string{sources.AttrPath: path[0]},
 			})
@@ -1554,7 +1393,7 @@ func TestGenericCredentialURI(t *testing.T) {
 
 	// Provider-specific rules should suppress this generic fallback when they
 	// accept the same credential.
-	mongodb := detector.DetectString(`MONGO_URL="mongodb://svc-reader:q9V7nB2K4xL8@mongo.internal:27017/app"`)
+	mongodb := scanner.ScanString(`MONGO_URL="mongodb://svc-reader:q9V7nB2K4xL8@mongo.internal:27017/app"`)
 	var mongodbRules []string
 	for _, finding := range mongodb {
 		if finding.RuleID == "mongodb-connection-string" || finding.RuleID == "generic-credential-uri" {
@@ -1658,13 +1497,13 @@ regex = '''optional=([a-z]+)'''
 skipReport = true
 `, "")
 	require.NoError(t, err)
-	detector := mustNewDetector(t, cfg)
+	scanner := mustNew(t, cfg)
 
-	findings := detector.DetectString("optional=session\nprimary=secret")
+	findings := scanner.ScanString("optional=session\nprimary=secret")
 	require.Len(t, findings, 1)
 	require.Len(t, findings[0].ComponentSets, 1)
 
-	findings = detector.DetectString("primary=secret\noptional=session")
+	findings = scanner.ScanString("primary=secret\noptional=session")
 	require.Len(t, findings, 1)
 	assert.Empty(t, findings[0].ComponentSets)
 }
@@ -1679,7 +1518,7 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 		Rules: []config.Rule{rule},
 	}
 
-	d := mustNewDetector(t, cfg)
+	d := mustNew(t, cfg)
 	findings := d.detectFragment(context.Background(), sources.Fragment{Raw: "red-herring " + strings.Repeat("x", 55) + " ABCDEFGHIJKLMNOPQRST"})
 
 	require.Len(t, findings, 1)
@@ -1693,8 +1532,8 @@ func TestConfidenceAttributeAndFilter(t *testing.T) {
 		Rules: []config.Rule{low, promoted},
 	}
 
-	detector := mustNewDetector(t, cfg, WithMinimumConfidence(ConfidenceHigh))
-	findings := detector.DetectString("ABCDEFGHIJKLMNOPQRST")
+	scanner := mustNew(t, cfg, WithMinimumConfidence(ConfidenceHigh))
+	findings := scanner.ScanString("ABCDEFGHIJKLMNOPQRST")
 	require.Len(t, findings, 1)
 	require.Equal(t, "promoted", findings[0].RuleID)
 	require.Equal(t, "high", findings[0].Confidence)
@@ -1721,7 +1560,7 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 			cfg := &config.Config{
 				Rules: []config.Rule{rule},
 			}
-			d := mustNewDetector(t, cfg, WithMaxDecodeDepth(1))
+			d := mustNew(t, cfg, WithMaxDecodeDepth(1))
 
 			require.Len(t, d.detectFragment(context.Background(), sources.Fragment{Raw: raw}), tc.findings)
 		})
@@ -1738,7 +1577,7 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 		Rules: []config.Rule{rule},
 	}
 
-	require.Empty(t, mustNewDetector(t, cfg).detectFragment(context.Background(), sources.Fragment{Raw: "prefix\nSECRET"}))
+	require.Empty(t, mustNew(t, cfg).detectFragment(context.Background(), sources.Fragment{Raw: "prefix\nSECRET"}))
 }
 
 func TestFilterContextCanStayOnMatchLine(t *testing.T) {
@@ -1751,7 +1590,7 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 		Rules: []config.Rule{rule},
 	}
 
-	require.Len(t, mustNewDetector(t, cfg).detectFragment(context.Background(), sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
+	require.Len(t, mustNew(t, cfg).detectFragment(context.Background(), sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
 }
 
 func TestDetect(t *testing.T) {
@@ -2362,7 +2201,7 @@ func TestDetect(t *testing.T) {
 			cfg := loadTestConfig(t, tt.cfgName)
 			cfg.Path = filepath.Join(configPath, tt.cfgName+".toml")
 			assert.Nil(t, tt.wantError)
-			d := mustNewDetector(t, cfg, WithMaxDecodeDepth(maxDecodeDepth))
+			d := mustNew(t, cfg, WithMaxDecodeDepth(maxDecodeDepth))
 			findings := d.detectFragment(context.Background(), tt.fragment)
 
 			compare(t, findings, tt.expectedFindings)
@@ -2738,17 +2577,17 @@ func TestFromGit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(strings.Join([]string{tt.cfgName, tt.source, tt.logOpts}, "/"), func(t *testing.T) {
 			cfg := loadTestConfig(t, "simple")
-			detector := mustNewDetector(t, cfg)
+			scanner := mustNew(t, cfg)
 
 			gitCmd, err := sources.NewGitLogCmd(tt.source, tt.logOpts)
 			require.NoError(t, err)
 			platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
 			findings, err := collectSourceFindings(
-				t.Context(), detector,
+				t.Context(), scanner,
 
 				&sources.Git{
 					Cmd:             gitCmd,
-					ShouldSkip:      detector.SkipFunc(),
+					ShouldSkip:      scanner.SkipFunc(),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
 					MaxArchiveDepth: 8,
@@ -2804,16 +2643,16 @@ func TestFromGitStaged(t *testing.T) {
 	defer moveDotGit(t, ".git", "dotGit")
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
-		detector := mustNewDetector(t, cfg)
+		scanner := mustNew(t, cfg)
 		gitCmd, err := sources.NewGitDiffCmd(tt.source, true)
 		require.NoError(t, err)
 		platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
 		findings, err := collectSourceFindings(
-			t.Context(), detector,
+			t.Context(), scanner,
 
 			&sources.Git{
 				Cmd:        gitCmd,
-				ShouldSkip: detector.SkipFunc(),
+				ShouldSkip: scanner.SkipFunc(),
 				Platform:   platform,
 				RemoteURL:  remoteURL,
 			})
@@ -2911,13 +2750,13 @@ func TestFromFiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
 			cfg := loadTestConfig(t, tt.cfgName)
-			detector := mustNewDetector(t, cfg)
+			scanner := mustNew(t, cfg)
 
 			findings, err := collectSourceFindings(
-				t.Context(), detector,
+				t.Context(), scanner,
 
 				&sources.Files{
-					ShouldSkip:     detector.SkipFunc(),
+					ShouldSkip:     scanner.SkipFunc(),
 					FollowSymlinks: true,
 					Path:           tt.source,
 				})
@@ -3421,12 +3260,12 @@ func TestDetectWithArchives(t *testing.T) {
 			}
 
 			cfg := loadTestConfig(t, tt.cfgName)
-			detector := mustNewDetector(t, cfg)
+			scanner := mustNew(t, cfg)
 			findings, err := collectSourceFindings(
-				ctx, detector,
+				ctx, scanner,
 				&sources.Files{
 					Path:            tt.source,
-					ShouldSkip:      detector.SkipFunc(),
+					ShouldSkip:      scanner.SkipFunc(),
 					MaxArchiveDepth: 8,
 				})
 
@@ -3480,12 +3319,12 @@ func TestDetectWithSymlinks(t *testing.T) {
 
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
-		detector := mustNewDetector(t, cfg)
+		scanner := mustNew(t, cfg)
 		findings, err := collectSourceFindings(
-			t.Context(), detector,
+			t.Context(), scanner,
 
 			&sources.Files{
-				ShouldSkip:     detector.SkipFunc(),
+				ShouldSkip:     scanner.SkipFunc(),
 				FollowSymlinks: true,
 				Path:           tt.source,
 			})
@@ -3631,10 +3470,10 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		},
 	}
 
-	d := newDefaultTestDetector(t)
+	d := newDefaultTestScanner(t)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			rules, _, err := snapshotDetectorRules(&config.Config{Rules: []config.Rule{test.rule}})
+			rules, _, err := snapshotRules(&config.Config{Rules: []config.Rule{test.rule}})
 			require.NoError(t, err)
 			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, &rules[0], []*codec.EncodedSegment{}, nil, detectionState{})
 			compare(t, actual, test.expected)
@@ -3654,8 +3493,8 @@ func TestFiltersReceiveNamedCaptures(t *testing.T) {
 			} else {
 				cfg.Rules[0].Filter = filter
 			}
-			d := mustNewDetector(t, cfg, WithPrecompile())
-			findings := d.DetectString("example:key-fixture alice:key-live")
+			d := mustNew(t, cfg, WithPrecompile())
+			findings := d.ScanString("example:key-fixture alice:key-live")
 			require.Len(t, findings, 1)
 			require.Equal(t, "key-live", findings[0].Secret)
 			require.Equal(t, "alice", findings[0].CaptureGroups["username"])
@@ -3666,64 +3505,6 @@ func TestFiltersReceiveNamedCaptures(t *testing.T) {
 		cfg := &config.Config{Rules: []config.Rule{{ID: "empty", Regex: pattern,
 			Filter: `len(finding.captures) == 0 && (finding.captures?.missing ?? "fallback") == "fallback"`,
 		}}}
-		require.Empty(t, mustNewDetector(t, cfg, WithPrecompile()).DetectString("key"))
-	}
-}
-
-func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
-	cfg := &config.Config{Rules: []config.Rule{
-		{
-			ID: "primary", Regex: `(?P<tenant>acme):(?P<key>primary)`, SecretGroup: 2,
-			// Inspect this match's captures before any companion is assembled.
-			Filter:     `finding.captures.tenant != "acme"`,
-			Components: []*config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}},
-			ValidateExpr: `finding.secret == "primary" && finding.captures.tenant == "acme"
-&& components["part"].captures.tenant == "companion"
-&& (components["optional"]?.secret ?? "absent") == "absent"
-? {"result": "valid", "analysis": {"selected": components["part"].secret}}
-: {"result": "invalid"}`,
-			AnalyzeExpr: `finding.captures.tenant == "acme"
-&& components["part"].captures.tenant == "companion"
-&& validation.analysis.selected == components["part"].secret
-? {"capabilities": components["part"].secret == "readkey" ? ["read"] : ["write"]}
-: {"reason": "credential inputs changed between stages"}`,
-		},
-		{
-			ID: "part", Regex: `(?P<tenant>companion|fixture):(?P<key>readkey|writekey)`, SecretGroup: 2,
-			Filter: `finding.captures.tenant == "fixture"`, SkipReport: true,
-		},
-		{ID: "optional", Regex: `optional-key`, SkipReport: true},
-	}}
-	d := mustNewDetector(t, cfg, WithAnalysis(ProviderOptions{}), WithPrecompile())
-	var findings []report.Finding
-	_, err := d.Scan(t.Context(), &sources.Reader{Content: strings.NewReader(
-		"acme:primary companion:readkey companion:writekey fixture:readkey"),
-	}, func(f report.Finding) error {
-		findings = append(findings, f)
-		return nil
-	})
-	require.NoError(t, err)
-	require.Len(t, findings, 1)
-	require.Len(t, findings[0].ComponentSets, 2, "component filtering precedes assembly")
-	for _, set := range findings[0].ComponentSets {
-		require.Equal(t, report.ValidationStatusValid, set.Validation.Status)
-		require.Len(t, set.Components, 1)
-		component := set.Components[0]
-		validator, err := credentialvalidate.NewValidator(cfg, credentialvalidate.Options{Analysis: true})
-		require.NoError(t, err)
-		direct, err := validator.ValidateCredential(t.Context(), credentialvalidate.Credential{
-			RuleID: "primary", Secret: "primary", Captures: map[string]string{"tenant": "acme"},
-			Components: map[string]credentialvalidate.CredentialComponent{
-				"part": {Secret: component.Secret, Captures: map[string]string{"tenant": "companion"}},
-			},
-		})
-		require.NoError(t, err)
-		require.Equal(t, set.Validation.Status, direct.Validation.Status)
-		require.Equal(t, set.Analysis, direct.Analysis)
-		want := []report.Capability{report.CapabilityRead}
-		if component.Secret == "writekey" {
-			want = []report.Capability{report.CapabilityWrite}
-		}
-		require.Equal(t, want, set.Analysis.Capabilities)
+		require.Empty(t, mustNew(t, cfg, WithPrecompile()).ScanString("key"))
 	}
 }

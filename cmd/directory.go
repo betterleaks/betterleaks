@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/pipeline"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
@@ -36,7 +37,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
 	var (
-		summary           detect.ScanSummary
+		summary           pipeline.ScanSummary
 		validationEnabled bool
 		scanErrs          []error
 	)
@@ -44,12 +45,12 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 	for _, source := range sourcesList {
 		initConfig(runtime, globals, &options.ScanFlags, source)
 		cfg := Config(runtime)
-		detector := Detector(runtime, globals, &options.ScanFlags, cfg, source, detect.WithJobs(jobs.Detector))
-		validationEnabled = validationEnabled || detector.ValidationEnabled()
+		runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, source, scan.WithJobs(jobs.Scanner))
+		validationEnabled = validationEnabled || runner.ValidationEnabled()
 
 		s := &sources.Files{
 			Logger:          runtime.Logger(),
-			ShouldSkip:      findings.FileSkipFunc(detector.SkipFunc()),
+			ShouldSkip:      findings.FileSkipFunc(runner.SkipFunc()),
 			FollowSymlinks:  options.FollowSymlinks,
 			MaxFileSize:     options.MaxTargetMegabytes * 1_000_000,
 			Path:            source,
@@ -57,7 +58,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 			Jobs:            jobs.Source,
 		}
 
-		nextSummary, scanErr := detector.Scan(runtime.Context, s, findings.Add)
+		nextSummary, scanErr := runner.Scan(runtime.Context, s, findings.Add)
 		addScanSummary(&summary, nextSummary)
 		if scanErr != nil {
 			scanErrs = append(scanErrs, scanErr)

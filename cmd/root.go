@@ -12,13 +12,15 @@ import (
 	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/betterleaks/betterleaks/v2/analyze"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/detect"
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/pipeline"
 	"github.com/betterleaks/betterleaks/v2/regexp"
 	regexpre2 "github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/version"
 )
 
@@ -382,10 +384,10 @@ func Config(runtime *commandRuntime) *config.Config {
 	return &cfg
 }
 
-func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, cfg *config.Config, source string, extraOptions ...detect.Option) *detect.Detector {
+func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, cfg *config.Config, source string, extraOptions ...scan.Option) *pipeline.Pipeline {
 	var err error
 
-	// Apply rule overrides before taking the detector's immutable rule snapshot.
+	// Apply rule overrides before either engine snapshots the configuration.
 	if err := applyRuleSelection(runtime.Logger(), flags, cfg); err != nil {
 		runtime.fatal("unable to apply rule selection", "error", err)
 	}
@@ -397,56 +399,61 @@ func Detector(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, c
 	if err != nil {
 		runtime.fatal("provider-rps-rule", "error", err)
 	}
-	detectorOptions, err := applyIgnorePolicy(runtime, flags.IgnoreFile, source)
+	scannerOptions, err := applyIgnorePolicy(runtime, flags.IgnoreFile, source)
 	if err != nil {
 		runtime.fatal("unable to load ignore file", "error", err)
 	}
-	detectorOptions = append(detectorOptions,
-		detect.WithJobs(flags.Jobs),
-		detect.WithMaxDecodeDepth(flags.MaxDecodeDepth),
-		detect.WithMinimumConfidence(detect.Confidence(flags.Confidence)),
-		detect.WithIgnoreAllowComments(flags.IgnoreAllowComments),
+	scannerOptions = append(scannerOptions,
+		scan.WithJobs(flags.Jobs),
+		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
+		scan.WithMinimumConfidence(scan.Confidence(flags.Confidence)),
+		scan.WithIgnoreAllowComments(flags.IgnoreAllowComments),
 	)
 	if flags.MatchContext != "" {
-		detectorOptions = append(detectorOptions, detect.WithMatchContext(flags.MatchContext))
+		scannerOptions = append(scannerOptions, scan.WithMatchContext(flags.MatchContext))
 	}
-	validationEnabled := flags.validationEnabled()
-	analysisEnabled := flags.analysisEnabled()
-	if validationEnabled {
+	scannerOptions = append(scannerOptions, scan.WithLogger(runtime.Logger()))
+	scannerOptions = append(scannerOptions, extraOptions...)
+	scanner, err := scan.New(cfg, scannerOptions...)
+	if err != nil {
+		runtime.fatal("unable to create scanner", "error", err)
+	}
+	var analyzer *analyze.Analyzer
+	var pipelineOptions []pipeline.Option
+	if flags.validationEnabled() {
 		statuses, statusErr := parseValidationStatuses(flags.ValidationStatus)
 		if statusErr != nil {
 			runtime.fatal("validation-status", "error", statusErr)
 		}
-		providerOptions := detect.ProviderOptions{
-			Debug:                   flags.ProviderDebug,
-			Workers:                 flags.ProviderWorkers,
-			Statuses:                statuses,
-			MaxRequestsPerTarget:    flags.ProviderMaxRequests,
-			RequestsPerSecond:       flags.ProviderRPS,
-			RequestsPerSecondByRule: providerRPSByRule,
-			EnvVars:                 flags.ProviderEnvVars,
-			Timeout:                 flags.ProviderTimeout,
+		pipelineOptions = append(pipelineOptions, pipeline.WithValidationStatuses(statuses...))
+		analyzer, err = analyze.New(cfg,
+			analyze.WithLogger(runtime.Logger()),
+			analyze.WithWorkers(flags.ProviderWorkers),
+			analyze.WithDebug(flags.ProviderDebug),
+			analyze.WithTimeout(flags.ProviderTimeout),
+			analyze.WithMaxRequestsPerTarget(flags.ProviderMaxRequests),
+			analyze.WithRequestsPerSecond(flags.ProviderRPS),
+			analyze.WithRequestsPerSecondByRule(providerRPSByRule),
+			analyze.WithEnvVars(flags.ProviderEnvVars...),
+		)
+		if err != nil {
+			runtime.fatal("unable to create analyzer", "error", err)
 		}
-		if analysisEnabled {
-			detectorOptions = append(detectorOptions, detect.WithAnalysis(providerOptions))
-		} else {
-			detectorOptions = append(detectorOptions, detect.WithValidation(providerOptions))
+		if !flags.analysisEnabled() {
+			pipelineOptions = append(pipelineOptions, pipeline.WithValidationOnly())
+		}
+		if !analyzer.HasValidation() {
+			runtime.Logger().Debug("no enabled rules have validation expressions")
+		}
+		if flags.analysisEnabled() && !analyzer.HasAnalysis() {
+			runtime.Logger().Debug("no enabled rules have analysis expressions")
 		}
 	}
-	detectorOptions = append(detectorOptions, detect.WithLogger(runtime.Logger()))
-	detectorOptions = append(detectorOptions, extraOptions...)
-	detector, err := detect.NewDetector(cfg, detectorOptions...)
+	runner, err := pipeline.New(scanner, analyzer, pipelineOptions...)
 	if err != nil {
-		runtime.fatal("unable to create detector", "error", err)
+		runtime.fatal("unable to create pipeline", "error", err)
 	}
-	if validationEnabled && !detector.ValidationEnabled() {
-		runtime.Logger().Debug("no enabled rules have validation expressions")
-	}
-	if analysisEnabled && !detector.AnalysisEnabled() {
-		runtime.Logger().Debug("no enabled rules have analysis expressions")
-	}
-
-	return detector
+	return runner
 }
 
 func parseValidationStatuses(value string) ([]report.ValidationStatus, error) {
@@ -476,7 +483,7 @@ func parseValidationStatuses(value string) ([]report.ValidationStatus, error) {
 	return statuses, nil
 }
 
-func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string) ([]detect.Option, error) {
+func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string) ([]scan.Option, error) {
 	path := explicitPath
 	explicit := path != ""
 	if !explicit {
@@ -534,12 +541,12 @@ func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string) ([]
 			}
 		}
 	}
-	var options []detect.Option
+	var options []scan.Option
 	if len(excluded) > 0 {
-		options = append(options, detect.WithExcludedPaths(excluded...))
+		options = append(options, scan.WithExcludedPaths(excluded...))
 	}
 	if len(hashes) > 0 {
-		options = append(options, detect.WithIgnoredFingerprints(hashes...))
+		options = append(options, scan.WithIgnoredFingerprints(hashes...))
 	}
 	return options, nil
 }
@@ -571,7 +578,7 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func addScanSummary(total *detect.ScanSummary, next detect.ScanSummary) {
+func addScanSummary(total *pipeline.ScanSummary, next pipeline.ScanSummary) {
 	total.BytesInspected += next.BytesInspected
 	total.Findings += next.Findings
 	if total.ValidationCounts == nil {
@@ -582,7 +589,7 @@ func addScanSummary(total *detect.ScanSummary, next detect.ScanSummary) {
 	}
 }
 
-func findingSummaryAndExit(runtime *commandRuntime, summary detect.ScanSummary, validationEnabled bool, findings *findingCollector, exitCode int, start time.Time, err error) {
+func findingSummaryAndExit(runtime *commandRuntime, summary pipeline.ScanSummary, validationEnabled bool, findings *findingCollector, exitCode int, start time.Time, err error) {
 	// Finalize streaming reports first. In particular, JSON needs its closing
 	// bracket even when the command context was canceled by an interrupt.
 	if outputErr := findings.Close(); outputErr != nil {

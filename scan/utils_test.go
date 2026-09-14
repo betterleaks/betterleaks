@@ -1,19 +1,18 @@
-package detect
+package scan
 
 import (
 	"log/slog"
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/stretchr/testify/assert"
 )
 
 func filterForTest(findings []report.Finding) []report.Finding {
-	detector := Detector{logger: slog.New(slog.DiscardHandler)}
-	return detector.filter(findings)
+	scanner := Scanner{logger: slog.New(slog.DiscardHandler)}
+	return scanner.filter(findings)
 }
 
 func TestSamePath(t *testing.T) {

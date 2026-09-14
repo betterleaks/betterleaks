@@ -1,4 +1,4 @@
-package validate
+package analyze
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/internal/provider"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
@@ -39,26 +38,31 @@ type CredentialComponent struct {
 	Captures map[string]string
 }
 
-// ValidateCredential validates an already-extracted credential and optionally
-// analyzes it. It bypasses detection, decoding, and scan filters. Missing
-// analysis leaves Analysis empty. Invalid input, compilation failures, and
-// cancellation return Go errors. Provider failures appear in Validation.Status
-// and Analysis.Reason. Supplied credential values are sanitized in reports.
-//
-// Calls may run concurrently. Each call owns its runtime, cache, and request
-// limits; limits are not shared between calls. Input maps are copied; callers
-// must not mutate them during the call.
-func (v *Validator) ValidateCredential(ctx context.Context, credential Credential) (report.CredentialReport, error) {
+// ValidateCredential checks an already-extracted credential without running
+// analysis. It bypasses discovery and scan policy. Supplied secret material is
+// sanitized in the returned report. Each call has independent request limits.
+func (a *Analyzer) ValidateCredential(ctx context.Context, credential Credential) (report.CredentialReport, error) {
+	return a.resolveCredential(ctx, credential, false)
+}
+
+// AnalyzeCredential validates a credential, then resolves its identity and
+// permissions when valid. Validation's private output is available to analysis
+// but never exported in the report. Calls may run concurrently.
+func (a *Analyzer) AnalyzeCredential(ctx context.Context, credential Credential) (report.CredentialReport, error) {
+	return a.resolveCredential(ctx, credential, true)
+}
+
+func (a *Analyzer) resolveCredential(ctx context.Context, credential Credential, analysis bool) (report.CredentialReport, error) {
 	if ctx == nil {
 		return report.CredentialReport{}, errors.New("context must not be nil")
 	}
 	if err := ctx.Err(); err != nil {
 		return report.CredentialReport{}, err
 	}
-	if v == nil || v.runtime == nil {
-		return report.CredentialReport{}, errors.New("validator must be constructed with NewValidator")
+	if a == nil || a.runtime == nil {
+		return report.CredentialReport{}, errors.New("analyzer must be constructed with New")
 	}
-	rule, ok := v.rules[credential.RuleID]
+	rule, ok := a.rules[credential.RuleID]
 	if !ok {
 		return report.CredentialReport{}, fmt.Errorf("rule %q not found in config", credential.RuleID)
 	}
@@ -66,38 +70,16 @@ func (v *Validator) ValidateCredential(ctx context.Context, credential Credentia
 		return report.CredentialReport{}, fmt.Errorf("rule %q does not define validation", credential.RuleID)
 	}
 	expressions := []string{rule.ValidateExpr}
-	if v.options.Analysis {
+	if analysis {
 		expressions = append(expressions, rule.AnalyzeExpr)
 	}
 	finding, secrets, err := credentialFinding(rule, credential, expressions)
 	if err != nil {
 		return report.CredentialReport{}, err
 	}
-	programs, err := v.programsFor(rule)
+	result, err := a.resolve(ctx, finding, analysis)
 	if err != nil {
 		return report.CredentialReport{}, err
-	}
-	// Each direct call uses one worker and a fresh provider runtime.
-	pool, err := provider.NewConfiguredPool(ctx, 1, v.options.runtimeOptions())
-	if err != nil {
-		return report.CredentialReport{}, err
-	}
-	var result report.Finding
-	emitted := false
-	pool.Emit = func(f report.Finding) {
-		result = f
-		emitted = true
-	}
-	submitErr := pool.SubmitWithAnalysisContext(ctx, finding, programs.validation, programs.analysis)
-	pool.Close() // Wait for evaluation and synchronize access to result.
-	if err := ctx.Err(); err != nil {
-		return report.CredentialReport{}, err
-	}
-	if submitErr != nil {
-		return report.CredentialReport{}, submitErr
-	}
-	if !emitted {
-		return report.CredentialReport{}, errors.New("validation did not produce a result")
 	}
 	return report.NewCredentialReport(result, secrets), nil
 }
@@ -110,7 +92,7 @@ func credentialFinding(rule config.Rule, input Credential, expressions []string)
 		return report.Finding{}, nil, err
 	}
 	var missingCaptures []string
-	for _, name := range provider.RequiredCaptures(rule, expressions...) {
+	for _, name := range RequiredCaptures(rule, expressions...) {
 		if input.Captures[name] == "" {
 			missingCaptures = append(missingCaptures, name)
 		}

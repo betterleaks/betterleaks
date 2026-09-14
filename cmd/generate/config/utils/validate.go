@@ -8,16 +8,17 @@ import (
 	"context"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/v2/analyze"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/detect"
 	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func Validate(rule config.Rule, truePositives []string, falsePositives []string) *config.Rule {
 	r := &rule
-	d := createSingleRuleDetector(r)
+	d := createSingleRuleScanner(r)
 	for _, tp := range truePositives {
 		count, err := countFindings(d, sources.Fragment{Raw: tp})
 		if err != nil {
@@ -49,7 +50,7 @@ func Validate(rule config.Rule, truePositives []string, falsePositives []string)
 
 func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falsePositives map[string]string) *config.Rule {
 	r := &rule
-	d := createSingleRuleDetector(r)
+	d := createSingleRuleScanner(r)
 	for path, tp := range truePositives {
 		f := sources.Fragment{
 			Raw: tp,
@@ -93,7 +94,7 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 	return r
 }
 
-func createSingleRuleDetector(r *config.Rule) *detect.Detector {
+func createSingleRuleScanner(r *config.Rule) *scan.Scanner {
 	// normalize keywords like in the config package
 	var (
 		uniqueKeywords = make(map[string]struct{})
@@ -117,14 +118,19 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 	cfg := base.CreateGlobalConfig()
 	cfg.Rules = []config.Rule{testRule}
 
-	detector, err := detect.NewDetector(cfg, detect.WithPrecompile())
+	scanner, err := scan.New(cfg, scan.WithPrecompile())
 	if err != nil {
-		logging.Fatal("Failed to create rule detector.", "error", err, "rule", r.ID)
+		logging.Fatal("Failed to create rule scanner.", "error", err, "rule", r.ID)
 	}
-	return detector
+	// Rule generation checks both expression scopes explicitly. Scanner's
+	// precompile option intentionally covers discovery alone.
+	if _, err := analyze.New(cfg, analyze.WithPrecompile()); err != nil {
+		logging.Fatal("Failed to compile provider programs.", "error", err, "rule", r.ID)
+	}
+	return scanner
 }
 
-func countFindings(d *detect.Detector, fragment sources.Fragment) (int, error) {
+func countFindings(d *scan.Scanner, fragment sources.Fragment) (int, error) {
 	count := 0
 	for result := range d.Run(context.Background(), fragmentSource{fragment: fragment}) {
 		if result.Err != nil {

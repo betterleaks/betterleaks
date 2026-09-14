@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/betterleaks/betterleaks/v2/detect"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources/github"
 )
 
@@ -34,7 +34,7 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 
 	cfg := Config(runtime)
 	jobs := resolveJobPlan(options.Jobs, providerJobProfile)
-	detector := Detector(runtime, globals, &options.ScanFlags, cfg, "", detect.WithJobs(jobs.Detector))
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, "", scan.WithJobs(jobs.Scanner))
 
 	targetURL := options.TargetURL
 
@@ -67,7 +67,7 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		Include:         options.Include,
 		Exclude:         options.Exclude,
 		ExcludeRepos:    options.ExcludeRepo,
-		ShouldSkip:      detector.SkipFunc(),
+		ShouldSkip:      runner.SkipFunc(),
 		MaxArchiveDepth: options.MaxArchiveDepth,
 		Jobs:            jobs.Source,
 		LogOpts:         options.LogOpts,
@@ -82,11 +82,11 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
-	summary, scanErr := detector.Scan(runtime.Context, src, findings.Add)
+	summary, scanErr := runner.Scan(runtime.Context, src, findings.Add)
 	if scanErr != nil {
 		runtime.Logger().Error("scan error", "error", scanErr)
 	}
-	findingSummaryAndExit(runtime, summary, detector.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
+	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
 }
 
 // parseDateFlag parses a date string as either YYYY-MM-DD or RFC3339.
