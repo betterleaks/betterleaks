@@ -27,7 +27,7 @@ func TestPoolDebugMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exprruntime.New: %v", err)
 	}
-	prg, err := rt.CompileValidation(`let r = http.get("` + srv.URL + `", {}); {"result": "valid", "status": r.status}`)
+	prg, err := rt.CompileValidation(`let r = http.get("` + srv.URL + `", {}); {"result": "valid", "metadata": {"status": r.status}}`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

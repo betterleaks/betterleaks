@@ -59,12 +59,10 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
 		},
 		ValidateExpr: `let r = azure.validateServicePrincipal((components["azure-tenant-id"]?.secret ?? ""), (components["azure-client-id"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "tenant_id": r.tenant_id,
-  "client_id": r.client_id
+  "metadata": {"tenant_id": r.tenant_id, "client_id": r.client_id}
 } : r.status in [400, 401, 403, 404] ? {
   "result": "invalid",
-  "error_code": r.error_code,
-  "error_message": r.error_message
+  "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
 		Filter: `entropy(finding["secret"]) <= 3.0`,
@@ -129,12 +127,10 @@ func AzureStorageAccountKey() *config.Rule {
 		},
 		ValidateExpr: `let r = azure.validateStorage((components["azure-storage-account-name"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "account": r.account,
-  "containers": r.containers
+  "metadata": {"account": r.account, "containers": r.containers}
 } : r.status in [400, 401, 403, 404] ? {
   "result": "invalid",
-  "error_code": r.error_code,
-  "error_message": r.error_message
+  "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
 		Filter: `entropy(finding["secret"]) <= 4.0`,
@@ -156,12 +152,10 @@ func AzureAppConfigurationConnectionString() *config.Rule {
   finding["secret"]
 ); r.status == 200 ? {
   "result": "valid",
-  "endpoint": r.endpoint,
-  "id": r.id
+  "metadata": {"endpoint": r.endpoint, "id": r.id}
 } : r.status in [400, 401, 403, 404] ? {
   "result": "invalid",
-  "error_code": r.error_code,
-  "error_message": r.error_message
+  "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
 		Filter: `entropy(finding["secret"]) <= 3.5`,
@@ -180,12 +174,10 @@ func AzureServiceBusConnectionString() *config.Rule {
 		Keywords:    []string{"Endpoint=sb://", "SharedAccessKey"},
 		ValidateExpr: `let r = azure.validateServiceBusSAS(finding["secret"]); r.status in [200, 201, 202, 204] ? {
   "result": "valid",
-  "host": r.host,
-  "entity_path": r.entity_path
+  "metadata": {"host": r.host, "entity_path": r.entity_path}
 } : r.status in [400, 401, 403, 404] ? {
   "result": "invalid",
-  "error_code": r.error_code,
-  "error_message": r.error_message
+  "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
 		Filter: `entropy(finding["secret"]) <= 3.0`,

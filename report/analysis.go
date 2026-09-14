@@ -9,7 +9,6 @@ type Severity string
 const (
 	SeverityNone    Severity = ""
 	SeverityUnknown Severity = "unknown"
-	SeverityLow     Severity = "low"
 	SeverityMedium  Severity = "medium"
 	SeverityHigh    Severity = "high"
 )
@@ -42,17 +41,19 @@ func KnownCapabilities() []Capability {
 // Analysis describes credential state and optional identity and permission evidence.
 // Status comes from validation; severity is derived from positively observed grants.
 type Analysis struct {
-	Status       ValidationStatus  `json:"status,omitempty"`
-	Reason       string            `json:"reason,omitempty"`
-	Severity     Severity          `json:"severity,omitempty"`
-	Identity     *AnalysisIdentity `json:"identity,omitempty"`
-	Capabilities []Capability      `json:"capabilities,omitempty"`
-	Metadata     map[string]any    `json:"metadata,omitempty"`
-	Debug        map[string]any    `json:"debug,omitempty"`
+	Status         ValidationStatus  `json:"status,omitempty"`
+	StatusReason   string            `json:"status_reason,omitempty"`
+	StatusMetadata map[string]any    `json:"status_metadata,omitempty"`
+	Reason         string            `json:"reason,omitempty"`
+	Severity       Severity          `json:"severity,omitempty"`
+	Identity       *AnalysisIdentity `json:"identity,omitempty"`
+	Capabilities   []Capability      `json:"capabilities,omitempty"`
+	Metadata       map[string]any    `json:"metadata,omitempty"`
+	Debug          map[string]any    `json:"debug,omitempty"`
 }
 
 func (a Analysis) IsZero() bool {
-	return a.Status == "" && a.Reason == "" && a.Severity == "" &&
+	return a.Status == "" && a.StatusReason == "" && len(a.StatusMetadata) == 0 && a.Reason == "" && a.Severity == "" &&
 		a.Identity == nil && len(a.Capabilities) == 0 &&
 		len(a.Metadata) == 0 && len(a.Debug) == 0
 }
@@ -105,11 +106,13 @@ func severityStyle(severity Severity, noColor bool) color.Style {
 }
 
 // SanitizeAnalysis removes credential material from all provider-controlled
-// strings before analysis enters a report. Callers should pass both the
-// primary secret and any component secrets.
+// strings before analysis enters a report. Callers should include primary and
+// component values and all captures (Finding.CredentialValues supplies these).
 func SanitizeAnalysis(analysis Analysis, secrets []string) Analysis {
 	secrets = credentialSecretsForRedaction(secrets)
 	analysis.Capabilities = append([]Capability(nil), analysis.Capabilities...)
+	analysis.StatusReason = sanitizeCredentialString(analysis.StatusReason, secrets)
+	analysis.StatusMetadata = sanitizeCredentialMetadata(analysis.StatusMetadata, secrets, false)
 	analysis.Reason = sanitizeCredentialString(analysis.Reason, secrets)
 	analysis.Metadata = sanitizeCredentialMetadata(analysis.Metadata, secrets, false)
 	analysis.Debug = sanitizeCredentialMetadata(analysis.Debug, secrets, true)
@@ -134,4 +137,11 @@ func SanitizeAnalysis(analysis Analysis, secrets []string) Analysis {
 	}
 	analysis.Identity = &identity
 	return analysis
+}
+
+func cloneAnalysis(a Analysis) Analysis {
+	copy := SanitizeAnalysis(a, nil)
+	copy.Metadata = sanitizeCredentialMetadata(a.Metadata, nil, true)
+	copy.StatusMetadata = sanitizeCredentialMetadata(a.StatusMetadata, nil, true)
+	return copy
 }

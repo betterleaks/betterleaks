@@ -6,8 +6,9 @@ import (
 	"fmt"
 )
 
-// CacheKey identifies a validation input. Captures and components occupy
-// separate namespaces so identical user-defined keys cannot collide.
+// CacheKey identifies a credential, not an occurrence. Source provenance and
+// context are intentionally excluded so repeated credentials share provider work.
+// Captures and components occupy separate namespaces to prevent collisions.
 func CacheKey(ruleID, secret string, captures map[string]string, components map[string]cacheComponent) string {
 	encoded, err := json.Marshal(struct {
 		RuleID     string                    `json:"rule_id"`

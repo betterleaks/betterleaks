@@ -21,13 +21,13 @@ func OpsgenieAPIKey() *config.Rule {
     "Accept": "application/json"
   }); us.status in [200, 403] ? {
     "result": "valid",
-    "region": "us"
+    "metadata": {"region": "us"}
   } : (let eu = http.get("https://api.eu.opsgenie.com/v2/account", {
     "Authorization": "GenieKey " + finding["secret"],
     "Accept": "application/json"
   }); eu.status in [200, 403] ? {
     "result": "valid",
-    "region": "eu"
+    "metadata": {"region": "eu"}
   } : us.status == 401 && eu.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"

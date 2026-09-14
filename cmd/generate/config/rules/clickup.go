@@ -17,8 +17,7 @@ func ClickUpPersonalAPIToken() *config.Rule {
     "Authorization": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
-    "username": (r.json?.user?.username ?? ""),
-    "email": (r.json?.user?.email ?? "")
+    "metadata": {"username": (r.json?.user?.username ?? ""), "email": (r.json?.user?.email ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

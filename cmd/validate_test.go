@@ -31,13 +31,13 @@ regex = '''(test-token)'''
 validate = '''
 finding["secret"] == %q &&
 finding.captures["tenant"] == "acme" &&
-attributes["path"] == "betterleaks://validate" ? {
+finding.secret != "" ? {
   "result": "valid",
   "reason": "tenant=" + finding.captures["tenant"],
-  "owner": "alice",
+  "metadata": {"owner": "alice",
   "echo": "credential=" + finding["secret"],
   "capture_echo": {"tenant": finding.captures["tenant"]},
-  "empty": ""
+  "empty": ""}
 } : {
   "result": "invalid"
 }
@@ -79,21 +79,21 @@ attributes["path"] == "betterleaks://validate" ? {
 	if got.Analysis.Status != report.ValidationStatusValid {
 		t.Fatalf("status = %q", got.Analysis.Status)
 	}
-	if got.Analysis.Reason != "tenant=[redacted]" {
-		t.Fatalf("sanitized reason = %q", got.Analysis.Reason)
+	if got.Analysis.StatusReason != "tenant=[redacted]" {
+		t.Fatalf("sanitized reason = %q", got.Analysis.StatusReason)
 	}
-	if got.Analysis.Metadata["owner"] != "alice" {
-		t.Fatalf("owner metadata = %#v", got.Analysis.Metadata["owner"])
+	if got.Analysis.StatusMetadata["owner"] != "alice" {
+		t.Fatalf("owner metadata = %#v", got.Analysis.StatusMetadata["owner"])
 	}
-	if got.Analysis.Metadata["echo"] != "credential=[redacted]" {
-		t.Fatalf("sanitized metadata = %#v", got.Analysis.Metadata["echo"])
+	if got.Analysis.StatusMetadata["echo"] != "credential=[redacted]" {
+		t.Fatalf("sanitized metadata = %#v", got.Analysis.StatusMetadata["echo"])
 	}
-	captureEcho, ok := got.Analysis.Metadata["capture_echo"].(map[string]any)
+	captureEcho, ok := got.Analysis.StatusMetadata["capture_echo"].(map[string]any)
 	if !ok || captureEcho["tenant"] != "[redacted]" {
-		t.Fatalf("sanitized capture metadata = %#v", got.Analysis.Metadata["capture_echo"])
+		t.Fatalf("sanitized capture metadata = %#v", got.Analysis.StatusMetadata["capture_echo"])
 	}
-	if _, ok := got.Analysis.Metadata["empty"]; ok {
-		t.Fatalf("empty metadata was not removed: %#v", got.Analysis.Metadata)
+	if _, ok := got.Analysis.StatusMetadata["empty"]; ok {
+		t.Fatalf("empty metadata was not removed: %#v", got.Analysis.StatusMetadata)
 	}
 	if strings.Count(stdout.String(), "\n") != 1 {
 		t.Fatalf("JSONL output must be exactly one line: %q", stdout.String())
@@ -212,7 +212,7 @@ func TestValidateCommandSimple(t *testing.T) {
 [[rules]]
 id = "simple-token"
 regex = '''(simple-token)'''
-validate = '''{"result": "valid", "reason": "Authenticated", "owner": "alice"}'''
+validate = '''{"result": "valid", "reason": "Authenticated", "metadata": {"owner": "alice"}}'''
 `)
 
 	root, stdout := newValidateTestRoot(t)
@@ -250,7 +250,7 @@ len(finding.captures) == 0 &&
 components["account-id"].secret == "acct-secret" &&
 components["account-id"].captures["region"] == "us" ? {
   "result": "valid",
-  "nested": {"component": components["account-id"].secret}
+  "metadata": {"nested": {"component": components["account-id"].secret}}
 } : {
   "result": "invalid"
 }
@@ -293,9 +293,9 @@ components = [{ id = "account-id" }]
 	if len(set.Components) != 1 || set.Components[0].RuleID != "account-id" || set.Components[0].Optional {
 		t.Fatalf("components = %#v", set.Components)
 	}
-	nested, ok := got.Analysis.Metadata["nested"].(map[string]any)
+	nested, ok := got.Analysis.StatusMetadata["nested"].(map[string]any)
 	if !ok || nested["component"] != "[redacted]" {
-		t.Fatalf("nested metadata was not sanitized: %#v", got.Analysis.Metadata["nested"])
+		t.Fatalf("nested metadata was not sanitized: %#v", got.Analysis.StatusMetadata["nested"])
 	}
 }
 
@@ -422,7 +422,7 @@ finding["secret"] == "secret-primary" &&
 components["client-id"].secret == "client-primary" &&
 components["client-id"].captures["tenant"] == "acme" ? {
   "result": "valid",
-  "echo": finding["secret"] + ":" + components["client-id"].secret
+  "metadata": {"echo": finding["secret"] + ":" + components["client-id"].secret}
 } : {
   "result": "invalid"
 }
@@ -455,8 +455,8 @@ components = [{ id = "client-id" }]
 	if got.Analysis.Status != report.ValidationStatusValid {
 		t.Fatalf("status = %q", got.Analysis.Status)
 	}
-	if got.Analysis.Metadata["echo"] != "[redacted]:[redacted]" {
-		t.Fatalf("sanitized metadata = %#v", got.Analysis.Metadata["echo"])
+	if got.Analysis.StatusMetadata["echo"] != "[redacted]:[redacted]" {
+		t.Fatalf("sanitized metadata = %#v", got.Analysis.StatusMetadata["echo"])
 	}
 }
 
@@ -495,7 +495,7 @@ id = "capture-dependent"
 regex = '''(?P<tenant>[a-z]+)-(?P<id>[a-z]+)-(?P<credential>secret-[a-z]+)'''
 secretGroup = 3
 validate = '''
-(finding["captures"]?.tenant ?? "") == "acme" ? {"result": "valid"} : {"result": "invalid"}
+finding.captures.tenant == "acme" ? {"result": "valid"} : {"result": "invalid"}
 '''
 `)
 
@@ -570,13 +570,13 @@ let r2 = http.get(%q, {});
 		t.Fatalf("decode report: %v", err)
 	}
 	if got.Analysis.Status != report.ValidationStatusNeedsValidation {
-		t.Fatalf("status = %q, metadata = %#v", got.Analysis.Status, got.Analysis.Metadata)
+		t.Fatalf("status = %q, metadata = %#v", got.Analysis.Status, got.Analysis.StatusMetadata)
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("provider requests = %d, want 1", requests.Load())
 	}
-	if got.Analysis.Metadata["betterleaks_max_requests_hit"] != true {
-		t.Fatalf("request-limit metadata = %#v", got.Analysis.Metadata)
+	if got.Analysis.StatusMetadata["betterleaks_max_requests_hit"] != true {
+		t.Fatalf("request-limit metadata = %#v", got.Analysis.StatusMetadata)
 	}
 }
 
@@ -626,7 +626,7 @@ id = "validated"
 description = "Validated rule"
 regex = '''(?P<context>context)-(validated)'''
 secretGroup = 2
-validate = '''(finding["captures"]?.context ?? "") != "" ? {"result": "valid"} : {"result": "invalid"}'''
+validate = '''finding.captures.context != "" ? {"result": "valid"} : {"result": "invalid"}'''
 
 components = [
   { id = "component" },

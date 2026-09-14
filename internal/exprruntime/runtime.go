@@ -197,7 +197,14 @@ func (e *Runtime) compile(mode compileMode, expression string, counter *tokenize
 	e.mu.RUnlock()
 
 	b, options := e.compileBindings(mode, counter)
-	vmPrg, err := expr.Compile(expression, append([]expr.Option{expr.Env(compileEnv(b))}, options...)...)
+	env := compileEnv(b)
+	if mode == modeValidation || mode == modeAnalysis {
+		env["finding"] = types.Map{
+			"secret": types.String, "rule_id": types.String,
+			"captures": types.Map{types.Extra: types.Any},
+		}
+	}
+	vmPrg, err := expr.Compile(expression, append([]expr.Option{expr.Env(env)}, options...)...)
 	if err != nil {
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
@@ -417,26 +424,32 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 	if captures == nil {
 		captures = emptyStringMap
 	}
-	if components == nil {
-		components = map[string]any{}
+	componentInputs := make(map[string]any, len(components))
+	for id, value := range components {
+		component, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		captures := component["captures"]
+		if strings, ok := captures.(map[string]string); ok {
+			captures = captureBindings(strings)
+		}
+		componentInputs[id] = map[string]any{"secret": component["secret"], "captures": captures}
 	}
-	if attributes == nil {
-		attributes = emptyStringMap
+	components = componentInputs
+	findingWithCaptures := map[string]any{
+		"secret": finding["secret"], "rule_id": finding["rule_id"], "captures": captureBindings(captures),
 	}
-	findingWithCaptures := make(map[string]any, len(finding)+1)
-	for key, value := range finding {
-		findingWithCaptures[key] = value
-	}
-	findingWithCaptures["captures"] = captures
+
 	rt := &runtimeBindings{
 		validation: e,
 		ctx:        ctx,
 		finding:    findingWithCaptures,
-		attrs:      attributes,
 		components: components,
 		debug:      state,
 	}
 	b := baseBindings(rt)
+	delete(b, "attributes")
 	b["ctx"] = rt.ctx
 	b["finding"] = rt.finding
 	b["components"] = rt.components
@@ -491,7 +504,6 @@ func baseBindings(rt *runtimeBindings) bindings {
 
 func setCompileMaps(b bindings) {
 	b["finding"] = map[string]any{"captures": map[string]any{}}
-	b["attributes"] = map[string]any{}
 	b["components"] = map[string]any{}
 }
 
@@ -541,4 +553,14 @@ func (rt *runtimeBindings) envGetOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// Capture maps use interface values so missing names are nil in Expr. That
+// preserves optional access and null-coalescing semantics for absent captures.
+func captureBindings(captures map[string]string) map[string]any {
+	values := make(map[string]any, len(captures))
+	for name, value := range captures {
+		values[name] = value
+	}
+	return values
 }

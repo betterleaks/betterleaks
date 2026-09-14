@@ -102,7 +102,7 @@ func TestContextRetentionIsExplicit(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testConfig()
-			cfg.Rules[0].ValidateExpr = `{"result":"valid", "evidence":finding.context}`
+			cfg.Rules[0].ValidateExpr = `{"result":"valid", "metadata": {"evidence":finding.context}}`
 			cfg.Rules[0].AnalyzeExpr = `{"reason":finding.context}`
 			// Local context extraction needs no retained copy. The optional context
 			// binding must reflect exactly the window the caller requested.

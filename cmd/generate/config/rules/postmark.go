@@ -21,13 +21,13 @@ func PostmarkAPIToken() *config.Rule {
     "Accept": "application/json"
   }); server.status == 200 && (server.body contains "\"ID\"") ? {
     "result": "valid",
-    "type": "server"
+    "metadata": {"type": "server"}
   } : (let account = http.get("https://api.postmarkapp.com/domains?count=1&offset=0", {
     "X-Postmark-Account-Token": finding["secret"],
     "Accept": "application/json"
   }); account.status == 200 ? {
     "result": "valid",
-    "type": "account"
+    "metadata": {"type": "account"}
   } : server.status == 401 && account.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"

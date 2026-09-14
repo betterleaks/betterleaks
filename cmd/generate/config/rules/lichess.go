@@ -19,7 +19,7 @@ func LichessPersonalAccessToken() *config.Rule {
     "Accept": "application/json"
   }); r.status == 200 ? {
     "result": "valid",
-    "username": (r.json?.username ?? "")
+    "metadata": {"username": (r.json?.username ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

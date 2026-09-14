@@ -41,11 +41,9 @@ func TestGCPValidateExprBinding_ServiceAccountValid(t *testing.T) {
 	env.GCPTokenEndpoint = ts.URL
 
 	prg, err := env.CompileValidation(`let r = gcp.validate(finding["secret"]); r.status == 200 ? {
-    "result": "valid",
-    "project_id": r.project_id,
-    "client_email": r.client_email,
-    "credential_type": r.credential_type
-  } : r.status in [400, 401] ? {
+  "result": "valid",
+  "metadata": {"project_id": r.project_id, "client_email": r.client_email, "credential_type": r.credential_type}
+} : r.status in [400, 401] ? {
     "result": "invalid",
     "reason": r.error_code
   } : validate.unknown(r)`)
@@ -62,14 +60,14 @@ func TestGCPValidateExprBinding_ServiceAccountValid(t *testing.T) {
 	if result["result"] != "valid" {
 		t.Fatalf("expected valid, got %v", result["result"])
 	}
-	if result["project_id"] != "test-project" {
-		t.Errorf("unexpected project_id: %v", result["project_id"])
+	if result["metadata"].(map[string]any)["project_id"] != "test-project" {
+		t.Errorf("unexpected project_id: %v", result["metadata"].(map[string]any)["project_id"])
 	}
-	if result["client_email"] != "svc@test-project.iam.gserviceaccount.com" {
-		t.Errorf("unexpected client_email: %v", result["client_email"])
+	if result["metadata"].(map[string]any)["client_email"] != "svc@test-project.iam.gserviceaccount.com" {
+		t.Errorf("unexpected client_email: %v", result["metadata"].(map[string]any)["client_email"])
 	}
-	if result["credential_type"] != "service_account" {
-		t.Errorf("unexpected credential_type: %v", result["credential_type"])
+	if result["metadata"].(map[string]any)["credential_type"] != "service_account" {
+		t.Errorf("unexpected credential_type: %v", result["metadata"].(map[string]any)["credential_type"])
 	}
 }
 
@@ -104,7 +102,7 @@ func TestGCPValidateExprBinding_ApplicationDefaultCredentialsInvalid(t *testing.
     "result": "valid"
   } : r.status in [400, 401] ? {
     "result": "invalid",
-    "error_code": r.error_code
+    "metadata": {"error_code": r.error_code}
   } : validate.unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
@@ -120,8 +118,8 @@ func TestGCPValidateExprBinding_ApplicationDefaultCredentialsInvalid(t *testing.
 	if result["result"] != "invalid" {
 		t.Fatalf("expected invalid, got %v", result["result"])
 	}
-	if result["error_code"] != "invalid_grant" {
-		t.Errorf("unexpected error_code: %v", result["error_code"])
+	if result["metadata"].(map[string]any)["error_code"] != "invalid_grant" {
+		t.Errorf("unexpected error_code: %v", result["metadata"].(map[string]any)["error_code"])
 	}
 }
 

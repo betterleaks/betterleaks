@@ -326,7 +326,7 @@ func (c *Config) Validate() error {
 	if c == nil {
 		return errors.New("config is required")
 	}
-	ruleIDs := make(map[string]struct{}, len(c.Rules))
+	ruleIDs := make(map[string]Rule, len(c.Rules))
 	for i := range c.Rules {
 		rule := c.Rules[i]
 		if err := rule.Validate(); err != nil {
@@ -335,15 +335,22 @@ func (c *Config) Validate() error {
 		if _, exists := ruleIDs[rule.ID]; exists {
 			return fmt.Errorf("duplicate rule ID %q", rule.ID)
 		}
-		ruleIDs[rule.ID] = struct{}{}
+		ruleIDs[rule.ID] = rule
 	}
 	for _, rule := range c.Rules {
 		for _, component := range rule.Components {
 			if component == nil {
 				continue // Rule.Validate reports this with rule context.
 			}
-			if _, ok := ruleIDs[component.RuleID]; !ok {
+			componentRule, ok := ruleIDs[component.RuleID]
+			if !ok {
 				return fmt.Errorf("%s: component rule ID %q does not exist", rule.ID, component.RuleID)
+			}
+			if len(componentRule.Components) != 0 {
+				return fmt.Errorf("%s: component rule %q must not itself have components", rule.ID, component.RuleID)
+			}
+			if componentRule.Regex == "" {
+				return fmt.Errorf("%s: path-only rule %q cannot be a credential component", rule.ID, component.RuleID)
 			}
 		}
 	}

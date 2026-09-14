@@ -62,7 +62,7 @@ func AnthropicAdminApiKey() *config.Rule {
     "anthropic-version": "2023-06-01"
   }); r.status == 200 && (r.json?.id ?? "") != "" && (r.json?.type ?? "") == "organization" ? {
     "result": "valid",
-    "organization": (r.json?.name ?? "")
+    "metadata": {"organization": (r.json?.name ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

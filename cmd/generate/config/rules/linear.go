@@ -19,8 +19,7 @@ func LinearAPIToken() *config.Rule {
     "Content-Type": "application/json"
   }, "{\"query\": \"query { viewer { id name email } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") ? {
     "result": "valid",
-    "email": (r.json?.data?.viewer?.email ?? ""),
-    "name": (r.json?.data?.viewer?.name ?? "")
+    "metadata": {"email": (r.json?.data?.viewer?.email ?? ""), "name": (r.json?.data?.viewer?.name ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

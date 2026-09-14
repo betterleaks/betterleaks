@@ -34,8 +34,7 @@ func TestAzureValidateStorageExprBindingValid(t *testing.T) {
 
 	prg, err := env.CompileValidation(`let r = azure.validateStorage((components["account"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "account": r.account,
-  "containers": r.containers
+  "metadata": {"account": r.account, "containers": r.containers}
 } : validate.unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
@@ -50,8 +49,8 @@ func TestAzureValidateStorageExprBindingValid(t *testing.T) {
 	if result["result"] != "valid" {
 		t.Fatalf("expected valid, got %v", result)
 	}
-	if result["account"] != "acct" {
-		t.Errorf("unexpected account %v", result["account"])
+	if result["metadata"].(map[string]any)["account"] != "acct" {
+		t.Errorf("unexpected account %v", result["metadata"].(map[string]any)["account"])
 	}
 }
 
@@ -79,7 +78,7 @@ func TestAzureValidateServicePrincipalInvalid(t *testing.T) {
 
 	prg, err := env.CompileValidation(`let r = azure.validateServicePrincipal((components["tenant"]?.secret ?? ""), (components["client"]?.secret ?? ""), finding["secret"]); r.status in [400, 401, 403] ? {
   "result": "invalid",
-  "error_code": r.error_code
+  "metadata": {"error_code": r.error_code}
 } : validate.unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
@@ -92,7 +91,7 @@ func TestAzureValidateServicePrincipalInvalid(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 	result := got.(map[string]any)
-	if result["result"] != "invalid" || result["error_code"] != "invalid_client" {
+	if result["result"] != "invalid" || result["metadata"].(map[string]any)["error_code"] != "invalid_client" {
 		t.Fatalf("unexpected result %v", result)
 	}
 }
@@ -126,7 +125,7 @@ func TestAzureValidateAppConfigValid(t *testing.T) {
   finding["secret"]
 ); r.status == 200 ? {
   "result": "valid",
-  "id": r.id
+  "metadata": {"id": r.id}
 } : validate.unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
@@ -136,7 +135,7 @@ func TestAzureValidateAppConfigValid(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 	result := got.(map[string]any)
-	if result["result"] != "valid" || result["id"] != "id123" {
+	if result["result"] != "valid" || result["metadata"].(map[string]any)["id"] != "id123" {
 		t.Fatalf("unexpected result %v", result)
 	}
 }
@@ -168,7 +167,7 @@ func TestAzureValidateServiceBusSASValid(t *testing.T) {
 
 	prg, err := env.CompileValidation(`let r = azure.validateServiceBusSAS(finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "entity_path": r.entity_path
+  "metadata": {"entity_path": r.entity_path}
 } : validate.unknown(r)`)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
@@ -178,7 +177,7 @@ func TestAzureValidateServiceBusSASValid(t *testing.T) {
 		t.Fatalf("eval: %v", err)
 	}
 	result := got.(map[string]any)
-	if result["result"] != "valid" || result["entity_path"] != "orders" {
+	if result["result"] != "valid" || result["metadata"].(map[string]any)["entity_path"] != "orders" {
 		t.Fatalf("unexpected result %v", result)
 	}
 }

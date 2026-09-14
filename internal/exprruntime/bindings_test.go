@@ -150,28 +150,17 @@ func TestBindings(t *testing.T) {
 	}
 }
 
-func TestValidationAttributes(t *testing.T) {
+func TestProviderBindingsExcludeOccurrence(t *testing.T) {
 	env, err := New(nil)
 	if err != nil {
-		t.Fatalf("exprruntime.New: %v", err)
+		t.Fatal(err)
 	}
-
-	prg, err := env.CompileValidation(`attributes["path"] == "service/config.yml" ? {"result": "valid"} : {"result": "invalid"}`)
-	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
-
-	got, err := env.EvalWithAttributes(prg, nil, nil, map[string]string{"path": "service/config.yml"})
-	if err != nil {
-		t.Fatalf("eval: %v", err)
-	}
-
-	result, ok := got.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map result, got %T", got)
-	}
-	if result["result"] != "valid" {
-		t.Fatalf("result = %v, want valid", result["result"])
+	for _, expression := range []string{`attributes["path"]`, `finding.line`, `finding.context`, `finding.match`, `finding.confidence`, `finding.description`} {
+		for _, compile := range []func(string) (Program, error){env.CompileValidation, env.CompileAnalysis} {
+			if _, err := compile(expression); err == nil {
+				t.Errorf("accepted occurrence input %s", expression)
+			}
+		}
 	}
 }
 

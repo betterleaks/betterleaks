@@ -15,6 +15,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/ahocorasick"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/internal/limits"
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 )
 
@@ -29,7 +30,7 @@ const (
 
 	// maxComponentSets caps the Cartesian product of component-finding combinations
 	// to prevent excessive memory use with large multi-part rules.
-	maxComponentSets = 100
+	maxComponentSets = limits.ComponentSets
 )
 
 func logTrace(logger *slog.Logger, msg string, args ...any) {
@@ -66,7 +67,6 @@ type Scanner struct {
 	prefilter        *ahocorasick.Matcher
 	prefilterProgram exprruntime.Program
 	globalFilterExpr string
-	configPath       string
 	excludedPaths    []string
 
 	tokenCounter     *tokenizer.Counter
@@ -154,7 +154,6 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		excludedPaths:       slices.Clone(settings.excludedPaths),
 		jobs:                settings.jobs,
 		logger:              settings.logger,
-		configPath:          cfg.Path,
 		globalFilterExpr:    cfg.Filter,
 		prefilter:           ahocorasick.Compile(keywords, true),
 		exprRuntime:         exprRuntime,

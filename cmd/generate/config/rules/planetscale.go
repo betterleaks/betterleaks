@@ -65,7 +65,7 @@ func PlanetScaleAPIToken() *config.Rule {
     "Authorization": (components["planetscale-id"]?.secret ?? "") + ":" + finding["secret"]
   }); r.status == 200 && (r.json?.type ?? "") == "list" ? {
     "result": "valid",
-    "organization": r.json?.data?.[0]?.name ?? ""
+    "metadata": {"organization": r.json?.data?.[0]?.name ?? ""}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

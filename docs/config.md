@@ -45,7 +45,7 @@ Betterleaks uses [Expr](https://expr-lang.org/) for `prefilter`, `filter`,
   `attributes` and `finding`, including `finding.captures`. Returning `true`
   discards that match. A component rule's filter sees its own match as `finding`.
 - `validate` runs after filtering and component assembly when validation is
-  enabled. It has `attributes`, `finding`, and one combination of `components`.
+  enabled. It has credential-only `finding` fields and one combination of `components`.
 - `analyze` runs for each valid combination when analysis is enabled. It has
   the same inputs plus that combination's `validation` result.
 
@@ -62,9 +62,9 @@ r.json?.login ?? ""
 
 | Name | Scope | Description |
 | :--- | :--- | :--- |
-| `attributes` | prefilter, filter, validate, analyze | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, `fs.symlink`, and the read-only `fs.first_fragment` (`"true"` for a file's first chunk and `"false"` thereafter). |
-| `finding` | filter, validate, analyze | Primary match data. `finding.secret` is its selected value; `finding.captures` contains its named regex groups. Other keys include `match`, `line`, `rule_id`, and `description`. |
-| `components` | validate, analyze | One combination of companion matches, keyed by referenced rule ID. Each has `secret` and `captures` fields. Absent optional components have no entry. |
+| `attributes` | prefilter, filter | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, `fs.symlink`, and the read-only `fs.first_fragment` (`"true"` for a file's first chunk and `"false"` thereafter). |
+| `finding` | filter, validate, analyze | Primary match data. `finding.secret` is its selected value; `finding.captures` contains its named regex groups. Provider programs can read only `secret`, `captures`, and `rule_id`. Filters also receive `match`, `line`, `description`, `confidence`, context and fragment offsets. |
+| `components` | validate, analyze | One combination of component matches, keyed by referenced rule ID. Each has `secret` and `captures` fields. Absent optional components have no entry. |
 | `validation` | analyze | This combination's validation `status`, `reason`, public `metadata`, and private `analysis` handoff data. |
 
 Use these canonical paths in rule expressions:
@@ -92,7 +92,7 @@ finding.captures["username"] == "example"
 && finding.captures["host"] == "example.invalid"
 ```
 
-Validation and analysis read those same paths. A companion rule's named
+Validation and analysis read those same paths. A component rule's named
 captures stay under `components[id].captures`, even if they have the same names
 as the primary rule's captures.
 
@@ -106,8 +106,8 @@ The full attributes source is maintained in
 
 `finding.context` is the explicitly captured `Finding.MatchContext`, or an empty
 string when none was requested. Use `--match-context 5L` or
-`scan.WithMatchContext("5L")` to retain context for provider expressions.
-SDK callers may also supply `MatchContext` when analyzing an existing finding.
+`scan.WithMatchContext("5L")` to retain context for local filters and reporting.
+Analyzer preserves this field but provider expressions cannot read it.
 This text is included in JSON reports; there is no separate hidden context copy.
 
 Filter expressions also receive `finding["fragment_raw"]` and the byte offsets
@@ -375,15 +375,20 @@ statuses are:
 The `result` value must be a string naming one of these statuses (case-insensitive).
 A missing, non-string, or unrecognized result produces `error` with an explanation.
 Use `unknown` explicitly when the rule cannot establish credential liveness.
-The optional `reason` must be a string and contributes to `Analysis.Reason`.
+The optional `reason` must be a string and becomes `Analysis.StatusReason`.
 
-Any additional keys are attached to `Analysis.Metadata`. The
-reserved `analysis` key is the exception: it must contain an object and is
-available only to a subsequent analysis expression as `validation.analysis`.
-The public `Analysis` result combines status with identity, scope, and permission
-evidence. The two Expr stages remain an execution detail. Enrichment metadata
-takes precedence on duplicate public keys; different reasons from both stages
-are joined with a semicolon. Enrichment failures retain the validation status.
+Validation has a closed result contract:
+
+```expr
+{"result": "valid", "reason": "Accepted", "metadata": {"account": "demo"}, "analysis": {"private_evidence": "..."}}
+```
+
+`metadata` is an optional object exported as `Analysis.StatusMetadata`.
+`analysis` is an optional private object available only to the subsequent
+expression as `validation.analysis`. Unknown top-level keys are errors.
+Enrichment writes its own `Analysis.Reason` and `Analysis.Metadata`; neither
+replaces the status explanation or metadata. Enrichment failures retain the
+validation status.
 
 ### Validation functions
 
@@ -547,8 +552,9 @@ expression can ask an LLM whether the candidate looks like a real secret. Use
 `--provider-env-vars` for provider API keys, and `strings.obfuscate(...)`
 when you want to avoid sending the raw candidate to a third-party API.
 
-For the context-based prompt below, request a window such as `--match-context 5L`.
-Without it, `finding.context` is empty.
+Provider programs see credential material only. Occurrence-based classification
+belongs in local filters; context and paths are not provider inputs. The example
+below assesses only the obfuscated credential and cannot establish liveness.
 
 Treat positive model output as `"needs_validation"` unless the credential was
 authoritatively verified through a live service.
@@ -567,7 +573,6 @@ failsTokenEfficiency(finding["secret"])
 
 validate = '''
 let obf_secret = strings.obfuscate(finding["secret"]);
-let obf_context = replace(finding["context"], finding["secret"], obf_secret);
 let r = http.post(
   "https://api.openai.com/v1/chat/completions",
   {
@@ -586,7 +591,7 @@ let r = http.post(
         ) +
       "}," +
       "{\"role\":\"user\",\"content\":" +
-        toJSON("Candidate: " + obf_secret + "\n\nSurrounding code:\n" + obf_context) +
+        toJSON("Candidate: " + obf_secret) +
       "}" +
     "]" +
   "}"
@@ -594,10 +599,10 @@ let r = http.post(
 let content = r.json?.choices?.[0]?.message?.content ?? "";
 r.status == 200 && r.body contains "VERDICT_SECRET" ? {
   "result": "needs_validation",
-  "justification": content
+  "metadata": {"justification": content}
 } : r.status == 200 && r.body contains "VERDICT_NOT" ? {
   "result": "invalid",
-  "justification": content
+  "metadata": {"justification": content}
 } : validate.unknown(r)
 '''
 ```
@@ -622,3 +627,25 @@ For contributors adding a new Expr function:
 3. Register the function in `baseEnv`.
 4. Add focused tests for compile and evaluation behavior.
 5. Run `go test ./internal/exprruntime`.
+
+## Credential boundaries
+
+Provider caching identifies a credential by rule ID, primary value, captures and
+component credentials. Paths, source attributes, confidence, full matches, lines
+and context never participate in provider execution or cache identity. Repeated
+occurrences therefore share provider work within one Analyzer operation.
+
+Components must be flat: a referenced component rule cannot have components of
+its own and must match content. Path-only rules may use local filters, but cannot
+declare components, validation or analysis. Their content text and offsets are
+empty/zero in filter expressions.
+
+Discovery and Analyzer input are bounded to 100 component combinations per
+finding. `component_sets_truncated` records omitted combinations. A tested valid
+combination establishes validity; otherwise a truncated search yields
+`needs_validation`, preserving each attempted set's actual result.
+
+`Analyzer.Requirements` describes primary and component captures required by both
+provider stages. Optional access and `??` fallbacks do not require a capture;
+dynamic keys cannot be inferred. An explicitly selected named secret group is
+populated from the value, and contradictory supplied values are rejected.

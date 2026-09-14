@@ -5,7 +5,8 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "ruleID",
+    "schema_version",
+    "rule_id",
     "description",
     "confidence",
     "match",
@@ -13,7 +14,7 @@
     "tags"
   ],
   "properties": {
-    "ruleID": {
+    "rule_id": {
       "type": "string",
       "description": "Identifier of the detection rule."
     },
@@ -34,7 +35,7 @@
     "match": {
       "$ref": "#/$defs/match"
     },
-    "matchContext": {
+    "match_context": {
       "type": "string",
       "description": "Requested surrounding context, omitted when empty."
     },
@@ -49,12 +50,13 @@
       "$ref": "#/$defs/analysis",
       "description": "Credential state and optional identity and permission evidence. Omitted when no provider result exists."
     },
-    "componentSets": {
+    "component_sets": {
       "type": "array",
       "description": "Multipart credential combinations, each with its own analysis result. Omitted when empty.",
       "items": {
         "$ref": "#/$defs/componentSet"
-      }
+      },
+      "maxItems": 100
     },
     "tags": {
       "type": [
@@ -65,6 +67,14 @@
       "items": {
         "type": "string"
       }
+    },
+    "schema_version": {
+      "const": 2,
+      "description": "Shared v2 report schema version."
+    },
+    "component_sets_truncated": {
+      "type": "boolean",
+      "description": "True when the hard combination limit omitted possible credentials. Invalid attempted sets cannot establish an exhaustive invalid result."
     }
   },
   "$defs": {
@@ -88,16 +98,16 @@
           "type": "string",
           "description": "Optional source-defined path, such as a file, Git object, or archive member."
         },
-        "startLine": {
+        "start_line": {
           "type": "integer"
         },
-        "endLine": {
+        "end_line": {
           "type": "integer"
         },
-        "startColumn": {
+        "start_column": {
           "type": "integer"
         },
-        "endColumn": {
+        "end_column": {
           "type": "integer"
         }
       }
@@ -120,14 +130,13 @@
         },
         "reason": {
           "type": "string",
-          "description": "Explanation of the result, including unavailable evidence or analysis failure."
+          "description": "Explanation of permission enrichment, including incomplete evidence or failure."
         },
         "severity": {
           "type": "string",
           "description": "Provider-neutral lower bound derived by Betterleaks from positively observed capabilities. Independent of detection confidence and credential validity.",
           "enum": [
             "unknown",
-            "low",
             "medium",
             "high"
           ]
@@ -156,6 +165,14 @@
         "debug": {
           "$ref": "#/$defs/metadata",
           "description": "Optional sanitized provider diagnostics, grouped by validation and analysis Expr stage."
+        },
+        "status_reason": {
+          "type": "string",
+          "description": "Explanation of the credential state or incomplete validation."
+        },
+        "status_metadata": {
+          "$ref": "#/$defs/metadata",
+          "description": "Explicit public metadata produced by validation, independent of enrichment metadata."
         }
       }
     },
@@ -233,12 +250,12 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "ruleID",
+        "rule_id",
         "match",
         "location"
       ],
       "properties": {
-        "ruleID": {
+        "rule_id": {
           "type": "string"
         },
         "optional": {
@@ -278,7 +295,7 @@
   },
   "examples": [
     {
-      "ruleID": "example-token",
+      "rule_id": "example-token",
       "description": "Example token",
       "confidence": "",
       "match": {
@@ -286,15 +303,16 @@
         "value": "REDACTED"
       },
       "location": {
-        "startLine": 1,
-        "endLine": 1,
-        "startColumn": 1,
-        "endColumn": 20
+        "start_line": 1,
+        "end_line": 1,
+        "start_column": 1,
+        "end_column": 20
       },
-      "tags": []
+      "tags": [],
+      "schema_version": 2
     },
     {
-      "ruleID": "example-token",
+      "rule_id": "example-token",
       "description": "Example token with analysis",
       "confidence": "high",
       "match": {
@@ -305,10 +323,10 @@
         "resource": "file"
       },
       "location": {
-        "startLine": 12,
-        "endLine": 12,
-        "startColumn": 14,
-        "endColumn": 53,
+        "start_line": 12,
+        "end_line": 12,
+        "start_column": 14,
+        "end_column": 53,
         "path": "service/.env"
       },
       "analysis": {
@@ -331,7 +349,8 @@
           ]
         }
       },
-      "tags": []
+      "tags": [],
+      "schema_version": 2
     }
   ]
 }

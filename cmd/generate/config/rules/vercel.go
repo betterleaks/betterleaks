@@ -126,9 +126,7 @@ func VercelIntegrationToken() *config.Rule {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains "\"user\"") ? {
     "result": "valid",
-    "email": (r.json?.user?.email ?? ""),
-    "username": (r.json?.user?.username ?? ""),
-    "user_id": (r.json?.user?.id ?? "")
+    "metadata": {"email": (r.json?.user?.email ?? ""), "username": (r.json?.user?.username ?? ""), "user_id": (r.json?.user?.id ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -160,8 +158,7 @@ func VercelAppAccessToken() *config.Rule {
     "Authorization": "Bearer " + finding["secret"]
   }, ""); r.status == 200 && (r.body contains "\"sub\"") ? {
     "result": "valid",
-    "email": (r.json?.email ?? ""),
-    "user_id": (r.json?.sub ?? "")
+    "metadata": {"email": (r.json?.email ?? ""), "user_id": (r.json?.sub ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

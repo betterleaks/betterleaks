@@ -27,7 +27,7 @@ r.status == 200 && has_sensitive_acl ? {
 } : r.status == 200 && "search" in acl ? {
   "result": "invalid",
   "reason": "Public Algolia Search API key",
-  "acl": acl
+  "metadata": {"acl": acl}
 } : validate.unknown(r)`
 
 const algoliaAnalyzeExpr = `let input = validation.analysis;

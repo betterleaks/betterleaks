@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 	"sync"
 
@@ -122,11 +121,12 @@ func (p *Pool) worker() {
 	defer p.wg.Done()
 	for job := range p.jobs {
 		f := job.finding
-		finding := f.ToExprMap()
-		attributes := f.ExprAttributes()
+		finding := map[string]string{"secret": f.Match.Value, "rule_id": f.RuleID}
+		var attributes map[string]string
+		secrets := f.CredentialValues()
 		if len(f.ComponentSets) == 0 {
 			key := CacheKey(f.RuleID, f.Match.Value, job.captures, nil)
-			f.Analysis = p.resolveAnalysis(key, job, finding, attributes, nil, []string{f.Match.Value}, nil)
+			f.Analysis = p.resolveAnalysis(key, job, finding, attributes, nil, secrets, nil)
 		} else {
 			validationResults := make(map[string]*Result, len(f.ComponentSets))
 			f.ComponentSets = slices.Clone(f.ComponentSets)
@@ -147,7 +147,7 @@ func (p *Pool) worker() {
 					cacheComponents[comp.RuleID] = cacheComponent{Secret: comp.Match.Value, Captures: captures}
 				}
 				key := CacheKey(f.RuleID, f.Match.Value, job.captures, cacheComponents)
-				set.Analysis = p.resolveAnalysis(key, job, finding, attributes, components, componentSetSecrets(f.Match.Value, set.Components), validationResults)
+				set.Analysis = p.resolveAnalysis(key, job, finding, attributes, components, secrets, validationResults)
 				// Select one complete result. Mixing liveness from one combination with
 				// permissions or identity from another would describe a nonexistent credential.
 				if betterAnalysis(f.Analysis, set.Analysis) {
@@ -168,6 +168,11 @@ func (p *Pool) worker() {
 				f.ComponentSets = valid
 			}
 		}
+		if f.ComponentSetsTruncated && f.Analysis.Status != report.ValidationStatusValid {
+			f.Analysis.Status = report.ValidationStatusNeedsValidation
+			f.Analysis.StatusReason = "Component combination limit reached; credential search is incomplete"
+		}
+
 		if p.Emit != nil {
 			p.Emit(f)
 		}
@@ -197,24 +202,13 @@ func (p *Pool) resolveAnalysis(key string, job validationJob, finding, attribute
 	return report.SanitizeAnalysis(combineAnalysis(validation, enrichment), secrets)
 }
 
-// combineAnalysis preserves both explanations. Enrichment metadata takes
-// precedence on duplicate keys. Debug diagnostics are grouped by Expr stage;
-// validation's private Analysis evidence is never copied into the report.
+// combineAnalysis keeps credential-state evidence separate from enrichment.
+// Private validation analysis input never enters the public report.
 func combineAnalysis(validation *Result, enrichment report.Analysis) report.Analysis {
 	result := enrichment
 	result.Status = validation.Status
-	result.Reason = validation.Reason
-	if enrichment.Reason != "" && enrichment.Reason != result.Reason {
-		if result.Reason != "" {
-			result.Reason += "; "
-		}
-		result.Reason += enrichment.Reason
-	}
-	if len(validation.Metadata) > 0 || len(enrichment.Metadata) > 0 {
-		result.Metadata = make(map[string]any, len(validation.Metadata)+len(enrichment.Metadata))
-		maps.Copy(result.Metadata, validation.Metadata)
-		maps.Copy(result.Metadata, enrichment.Metadata)
-	}
+	result.StatusReason = validation.Reason
+	result.StatusMetadata = validation.Metadata
 	result.Debug = nil
 	if len(validation.Debug) > 0 || len(enrichment.Debug) > 0 {
 		result.Debug = make(map[string]any, 2)
@@ -291,17 +285,6 @@ func (p *Pool) evalAnalysisProgram(program exprruntime.Program, finding, capture
 	return analysisResult, nil
 }
 
-func componentSetSecrets(primary string, components []*report.ComponentFinding) []string {
-	secrets := make([]string, 0, len(components)+1)
-	secrets = append(secrets, primary)
-	for _, component := range components {
-		if component != nil {
-			secrets = append(secrets, component.Match.Value)
-		}
-	}
-	return secrets
-}
-
 func betterAnalysis(current, candidate report.Analysis) bool {
 	if candidate.IsZero() {
 		return false
@@ -332,8 +315,6 @@ func analysisSeverityRank(severity report.Severity) int {
 		return 3
 	case report.SeverityMedium:
 		return 2
-	case report.SeverityLow:
-		return 1
 	default:
 		return 0
 	}

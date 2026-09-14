@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 
 	"github.com/betterleaks/betterleaks/v2/internal/provider"
 	"github.com/betterleaks/betterleaks/v2/report"
@@ -13,8 +12,9 @@ import (
 
 // Producer supplies findings to a bounded provider queue. It must honor ctx,
 // stop when yield returns an error, and finish all calls to yield before
-// returning. Calls to yield may be concurrent. Finding inputs must remain
-// unchanged until the operation completes.
+// returning. Calls to yield may be concurrent. After yield returns, the producer
+// may reuse or mutate its input; Analyzer snapshots mutable finding data before
+// accepting it.
 type Producer func(ctx context.Context, yield func(report.Finding) error) error
 
 // AnalyzeStream validates and analyzes findings with independent provider
@@ -78,16 +78,22 @@ func (a *Analyzer) stream(ctx context.Context, produce Producer, handler func(re
 			if err != nil {
 				return err
 			}
-			// Rechecks replace old conclusions. Component results belong to this
-			// evaluation, not the caller's backing slice.
+			if len(f.ComponentSets) > maxComponentSets {
+				return fmt.Errorf("component sets exceed limit of %d", maxComponentSets)
+			}
+			// Snapshot before enqueueing: callers regain ownership when yield returns.
+			f = f.Clone()
 			f.Analysis = report.Analysis{}
-			f.ComponentSets = slices.Clone(f.ComponentSets)
 			for i := range f.ComponentSets {
 				f.ComponentSets[i].Analysis = report.Analysis{}
 			}
 			if programs.validation == nil {
 				return emit(f)
 			}
+			if err := a.validateFindingInput(&f, rule, programs.requirements); err != nil {
+				return fmt.Errorf("rule %q: %w", rule.ID, err)
+			}
+
 			return pool.SubmitWithAnalysisContext(runCtx, f, programs.validation, programs.analysis)
 		})
 		pool.Close()

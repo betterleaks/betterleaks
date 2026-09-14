@@ -15,6 +15,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/codec"
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/report"
@@ -73,9 +74,9 @@ func (d *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
-	// Skip configuration and policy files to prevent self-scanning.
+	// Apply explicit source policy. Config.Path is provenance only.
 	if path := fragment.Attr(sources.AttrPath); path != "" {
-		if samePath(path, d.configPath) || d.pathExcluded(path) {
+		if d.pathExcluded(path) {
 			return nil
 		}
 	}
@@ -266,7 +267,10 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			return findings
 		}
 		if rulePathMatchesFragment(r.path, fragment) {
-			return append(findings, newPathOnlyFinding(r, fragment))
+			finding := newPathOnlyFinding(r, fragment)
+			if !d.filterPathFinding(r, &finding) {
+				return append(findings, finding)
+			}
 		}
 		return findings
 	}
@@ -644,4 +648,41 @@ func findingEndOffset(lineStarts []int, fragmentStartLine int, finding report.Fi
 		return 0, false
 	}
 	return lineStarts[line] + finding.Location.EndColumn, true
+}
+
+// Path findings have metadata but no content match. They still obey local
+// filters; content offsets and fragment text are explicitly empty.
+func (d *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bool {
+	if d.globalFilterExpr == "" && r.rule.Filter == "" {
+		return false
+	}
+	attrs := finding.ExprAttributes()
+	values := make(map[string]any, 15)
+	for key, value := range finding.ToExprMap() {
+		values[key] = value
+	}
+	values["captures"] = map[string]string{}
+	values["entropy"] = "0"
+	values["fragment_raw"] = ""
+	for _, key := range []string{"match_start_idx", "match_end_idx", "match_line_start_idx", "match_line_end_idx"} {
+		values[key] = 0
+	}
+	for _, compile := range []func() (exprruntime.Program, bool, error){d.globalFilterProgram, func() (exprruntime.Program, bool, error) { return d.ruleFilterProgram(r) }} {
+		prg, ok, err := compile()
+		if err != nil {
+			d.logger.Warn("path filter compile error", "error", err)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		skip, err := d.exprRuntime.EvalFilter(prg, values, attrs)
+		promoteConfidence(finding, values, attrs)
+		if err != nil {
+			d.logger.Warn("path filter eval error", "error", err)
+		} else if skip {
+			return true
+		}
+	}
+	return false
 }

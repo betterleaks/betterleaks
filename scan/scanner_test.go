@@ -647,44 +647,14 @@ skipReport = true
 	})
 }
 
-// A component's own required components do not gate its use by a primary rule.
-// This also ensures component mode does not leak into other fragments or scans.
-func TestComponentMatchingDoesNotExpandNestedComponents(t *testing.T) {
+func TestNestedComponentsRejected(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
 		{ID: "primary", Regex: `primary=([a-z]+)`, Components: []*config.Component{{RuleID: "component"}}},
-		{ID: "component", Regex: `component=([a-z]+)`, SkipReport: true, Components: []*config.Component{{RuleID: "nested"}}},
-		{ID: "nested", Regex: `nested=([a-z]+)`, SkipReport: true},
+		{ID: "component", Regex: `component=([a-z]+)`, Components: []*config.Component{{RuleID: "nested"}}},
+		{ID: "nested", Regex: `nested=([a-z]+)`},
 	}}
-	scanner := mustNew(t, cfg, WithJobs(4))
-	for _, timed := range []bool{false, true} {
-		t.Run(fmt.Sprintf("timed=%t", timed), func(t *testing.T) {
-			ctx := t.Context()
-			if timed {
-				ctx = ruletiming.WithCollector(ctx, ruletiming.NewCollector())
-			}
-			for range 2 {
-				source := fragmentSource{fragments: []sources.Fragment{
-					{Raw: "primary=secret\ncomponent=account"},
-					{Raw: "component=standalone"},
-					{Raw: "primary=unpaired"},
-				}}
-				var findings []report.Finding
-				summary, err := scanner.Scan(ctx, source, func(finding report.Finding) error {
-					findings = append(findings, finding)
-					return nil
-				})
-				require.NoError(t, err)
-				require.Equal(t, 1, summary.Findings)
-				require.Len(t, findings, 1)
-				require.Equal(t, "primary", findings[0].RuleID)
-				require.Len(t, findings[0].ComponentSets, 1)
-				require.Len(t, findings[0].ComponentSets[0].Components, 1)
-				component := findings[0].ComponentSets[0].Components[0]
-				require.Equal(t, "component", component.RuleID)
-				require.Equal(t, "account", component.Match.Value)
-			}
-		})
-	}
+	_, err := New(cfg)
+	require.ErrorContains(t, err, "must not itself have components")
 }
 
 func TestOptionalOnlyComponents(t *testing.T) {
@@ -1793,13 +1763,7 @@ func TestDetect(t *testing.T) {
 				},
 			},
 		},
-		"ignore finding - our config file": {
-			cfgName: "simple",
-			fragment: sources.Fragment{
-				Raw:        `awsToken := \"AKIALALEMEL33243OLIA\"`,
-				Attributes: map[string]string{sources.AttrPath: filepath.Join(configPath, "simple.toml")},
-			},
-		},
+
 		"ignore finding - doesn't match path": {
 			cfgName: "generic_with_py_path",
 			fragment: sources.Fragment{

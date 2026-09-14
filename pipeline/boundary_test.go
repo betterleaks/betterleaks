@@ -57,8 +57,8 @@ func TestProviderWorkersAreIndependentAndBounded(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		summary, err := p.Scan(ctx, &sources.Reader{Content: strings.NewReader("secret-alpha secret-beta secret-gamma")}, nil)
-		if err == nil && summary.Findings != workers {
-			err = fmt.Errorf("got %d findings", summary.Findings)
+		if err == nil && summary.EmittedFindings != workers {
+			err = fmt.Errorf("got %d findings", summary.EmittedFindings)
 		}
 		done <- err
 	}()
@@ -104,7 +104,7 @@ func TestHandlerFailureCancelsAndJoinsWorkers(t *testing.T) {
 	summary, err := p.Scan(ctx, source, func(report.Finding) error { calls++; return want })
 	require.ErrorIs(t, err, want)
 	require.Equal(t, 1, calls)
-	require.Equal(t, 1, summary.Findings)
+	require.Equal(t, 1, summary.EmittedFindings)
 	require.Less(t, source.produced.Load(), int32(1000), "bounded queues must propagate backpressure")
 	select {
 	case <-source.stopped:
@@ -125,7 +125,7 @@ func TestStatusPolicyAndValidationOnly(t *testing.T) {
 	require.NoError(t, err)
 	summary, err := p.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("secret-live secret-fixture")}, nil)
 	require.NoError(t, err)
-	require.Equal(t, 1, summary.Findings)
+	require.Equal(t, 1, summary.EmittedFindings)
 	require.Equal(t, map[report.ValidationStatus]int{report.ValidationStatusValid: 1, report.ValidationStatusInvalid: 1}, summary.ValidationCounts)
 	_, err = New(scanner, analyzer, WithValidationStatuses("surprising"))
 	require.ErrorContains(t, err, "invalid validation status")
@@ -133,13 +133,13 @@ func TestStatusPolicyAndValidationOnly(t *testing.T) {
 	require.NoError(t, err)
 	summary, err = local.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("secret-live")}, nil)
 	require.NoError(t, err)
-	require.Equal(t, 1, summary.Findings)
-	require.Empty(t, summary.ValidationCounts)
+	require.Equal(t, 1, summary.EmittedFindings)
+	require.Equal(t, map[report.ValidationStatus]int{report.ValidationStatusNone: 1}, summary.ValidationCounts)
 }
 
 func TestExplicitContextSurvivesHandoff(t *testing.T) {
 	cfg := testConfig()
-	cfg.Rules[0].ValidateExpr = `(finding.context contains "tenant=acme") && attributes.path == "archive.zip!app.env" ? {"result":"valid","analysis":{"owner":"acme"}} : {"result":"invalid"}`
+	cfg.Rules[0].ValidateExpr = `finding.secret == "secret-alpha" ? {"result":"valid","analysis":{"owner":"acme"}} : {"result":"invalid"}`
 	cfg.Rules[0].AnalyzeExpr = `{"identity":{"id":validation.analysis.owner},"capabilities":["read"]}`
 	p := mustPipeline(t, cfg, scan.WithMatchContext("2L"))
 	var finding report.Finding

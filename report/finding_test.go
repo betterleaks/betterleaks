@@ -2,6 +2,7 @@ package report
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"unicode/utf8"
 
@@ -61,7 +62,7 @@ func TestRedact_ComponentSets(t *testing.T) {
 	assert.Equal(t, "line REDACTED here", f.ComponentSets[0].Components[0].Line)
 	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[0].Match.Full)
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[0].Match.Captures["token"])
-	assert.Equal(t, "safe", f.ComponentSets[0].Components[0].Match.Captures["label"])
+	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[0].Match.Captures["label"])
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[1].Match.Value)
 	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[1].Match.Full)
 	assert.Equal(t, "primary=[redacted]", f.Analysis.Reason)
@@ -224,7 +225,7 @@ func TestBuildComponentSets_JSONSerialization(t *testing.T) {
 	var parsed map[string]any
 	require.NoError(t, json.Unmarshal(data, &parsed))
 
-	sets, ok := parsed["componentSets"]
+	sets, ok := parsed["component_sets"]
 	require.True(t, ok, "componentSets should be present in JSON")
 	setSlice, ok := sets.([]any)
 	require.True(t, ok)
@@ -271,14 +272,14 @@ func TestFindingJSONSchema(t *testing.T) {
 
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(data, &got))
-	assert.Equal(t, "generic-credential-uri", got["ruleID"])
+	assert.Equal(t, "generic-credential-uri", got["rule_id"])
 	assert.Equal(t, "low", got["confidence"])
 	assert.Equal(t, map[string]any{
-		"path":        "sources/scm/clone.go",
-		"startLine":   float64(189),
-		"endLine":     float64(189),
-		"startColumn": float64(56),
-		"endColumn":   float64(78),
+		"path":         "sources/scm/clone.go",
+		"start_line":   float64(189),
+		"end_line":     float64(189),
+		"start_column": float64(56),
+		"end_column":   float64(78),
 	}, got["location"])
 	assert.Equal(t, map[string]any{
 		"status":       "valid",
@@ -349,8 +350,8 @@ func TestRedactMasksCaptureGroups(t *testing.T) {
 	if f.Match.Captures["token"] != "REDACTED" {
 		t.Errorf("capture group holding the secret must be redacted, got %q", f.Match.Captures["token"])
 	}
-	if f.Match.Captures["user"] != "alice" {
-		t.Errorf("non-secret capture group should be left intact, got %q", f.Match.Captures["user"])
+	if f.Match.Captures["user"] != "REDACTED" {
+		t.Errorf("all captures should be masked, got %q", f.Match.Captures["user"])
 	}
 }
 
@@ -459,15 +460,16 @@ func TestRedactedCopyMasksCompanionValuesAcrossMatches(t *testing.T) {
 	}
 	for _, percent := range []uint{50, 100} {
 		redacted := finding.RedactedCopy(percent)
-		wantPrimary, wantCompanion := "REDACTED", "REDACTED"
+		want := "REDACTED"
 		if percent < 100 {
-			wantPrimary, wantCompanion = MaskSecret(primary, percent), MaskSecret(companion, percent)
+			want = "test-..."
 		}
-		require.Equal(t, wantPrimary+" "+wantCompanion, redacted.Match.Full)
-		require.Equal(t, wantPrimary+" "+wantCompanion, redacted.MatchContext)
-		require.Equal(t, wantCompanion, redacted.Match.Captures["companion"])
-		require.Equal(t, wantCompanion, redacted.ComponentSets[0].Components[0].Match.Value)
-		require.Equal(t, wantPrimary+" "+wantCompanion, redacted.ComponentSets[0].Components[0].Match.Captures["both"])
+		require.Equal(t, want, redacted.Match.Full)
+		require.Equal(t, want, redacted.MatchContext)
+		require.Equal(t, want, redacted.Match.Captures["companion"])
+		require.Equal(t, want, redacted.ComponentSets[0].Components[0].Match.Value)
+		require.Equal(t, want, redacted.ComponentSets[0].Components[0].Match.Captures["both"])
+
 	}
 	require.Equal(t, companion, shared.Match.Value)
 	require.Equal(t, companion, finding.Match.Captures["companion"])
@@ -493,4 +495,45 @@ func TestExprAttributesUseCanonicalPathWithoutMutatingFinding(t *testing.T) {
 	f.SetAttr(sources.AttrPath, "new.env")
 	require.Equal(t, "new.env", f.Location.Path)
 	require.NotContains(t, f.Attributes, sources.AttrPath)
+}
+
+func TestRedactedCopySanitizesSourceAndCaptureMaterial(t *testing.T) {
+	primary, secondary, companion := "private-primary-value", "private-secondary-value", "private-component-value"
+	original := Finding{
+		RuleID: "rule-" + primary, Description: secondary, Confidence: "high",
+		Match:      Match{Full: primary, Value: primary, Captures: map[string]string{"secondary": secondary}},
+		Attributes: map[string]string{"git.message": "fix " + primary + "\n" + secondary, companion: secondary},
+		Location:   Location{Path: primary + ".env"}, Tags: []string{secondary}, MatchContext: companion,
+		ComponentSets: []ComponentSet{{Components: []*ComponentFinding{{RuleID: "component", Match: Match{Value: companion, Captures: map[string]string{"secondary": secondary}}, Location: Location{Path: secondary}}}}},
+		Analysis:      Analysis{Status: ValidationStatusValid, StatusReason: secondary, StatusMetadata: map[string]any{"echo": primary}, Metadata: map[string]any{secondary: []any{companion}}},
+	}
+	redacted := original.RedactedCopy(100)
+	data, err := json.Marshal(redacted)
+	require.NoError(t, err)
+	for _, value := range []string{primary, secondary, companion} {
+		require.NotContains(t, string(data), value)
+	}
+	require.Equal(t, "fix "+primary+"\n"+secondary, original.Attributes["git.message"])
+	require.Equal(t, secondary, original.Tags[0])
+	require.Equal(t, secondary, original.Match.Captures["secondary"])
+	require.Equal(t, primary, original.Analysis.StatusMetadata["echo"])
+	require.Equal(t, secondary, original.ComponentSets[0].Components[0].Location.Path)
+}
+
+func TestComponentSetCapAndTruncation(t *testing.T) {
+	var components []*ComponentFinding
+	for i := 0; i < 100; i++ {
+		components = append(components, &ComponentFinding{RuleID: "part", Match: Match{Value: fmt.Sprint(i)}})
+	}
+	var finding Finding
+	finding.BuildComponentSets(components, 100)
+	require.Len(t, finding.ComponentSets, 100)
+	require.False(t, finding.ComponentSetsTruncated)
+	components = append(components, &ComponentFinding{RuleID: "part", Match: Match{Value: "last"}})
+	finding.BuildComponentSets(components, 1000)
+	require.Len(t, finding.ComponentSets, 100)
+	require.True(t, finding.ComponentSetsTruncated)
+	finding.BuildComponentSets(nil, 100)
+	require.Empty(t, finding.ComponentSets)
+	require.False(t, finding.ComponentSetsTruncated)
 }

@@ -153,7 +153,7 @@ func run() error {
 			return encoder.Encode(redacted)
 		})
 		logger.Info("scan complete", "path", path,
-			"bytes", summary.BytesInspected, "findings", summary.Findings,
+			"bytes", summary.BytesInspected, "findings", summary.EmittedFindings,
 			"validation_counts", summary.ValidationCounts)
 		if err != nil {
 			return fmt.Errorf("scan %s: %w", path, err)

@@ -70,8 +70,11 @@ func New(scanner *scan.Scanner, analyzer *analyze.Analyzer, options ...Option) (
 // ScanSummary describes completed discovery and provider work.
 type ScanSummary struct {
 	BytesInspected uint64
-	// Findings counts findings delivered after status filtering.
-	Findings int
+	// DetectedFindings counts discoveries after local scan filtering.
+	DetectedFindings int
+	// EmittedFindings counts findings delivered after status filtering.
+	// A finding delivered to a failing handler is included.
+	EmittedFindings int
 	// ValidationCounts counts every resolved status before output filtering.
 	ValidationCounts map[report.ValidationStatus]int
 }
@@ -102,13 +105,11 @@ func (p *Pipeline) Scan(ctx context.Context, source sources.Source, handler func
 	}
 	summary.ValidationCounts = make(map[report.ValidationStatus]int)
 	emit := func(f report.Finding) error {
-		if f.Analysis.Status != report.ValidationStatusNone {
-			summary.ValidationCounts[f.Analysis.Status]++
-		}
+		summary.ValidationCounts[f.Analysis.Status]++
 		if len(p.statuses) != 0 && !slices.Contains(p.statuses, f.Analysis.Status) {
 			return nil
 		}
-		summary.Findings++
+		summary.EmittedFindings++
 		if handler != nil {
 			return handler(f)
 		}
@@ -116,7 +117,7 @@ func (p *Pipeline) Scan(ctx context.Context, source sources.Source, handler func
 	}
 	var scanned scan.ScanSummary
 	var err error
-	if p.analyzer == nil {
+	if p.analyzer == nil || !p.analyzer.HasValidation() {
 		// Preserve the direct scan path: no provider runtime, queue, or workers.
 		scanned, err = p.scanner.Scan(ctx, source, emit)
 	} else {
@@ -132,5 +133,6 @@ func (p *Pipeline) Scan(ctx context.Context, source sources.Source, handler func
 		}
 	}
 	summary.BytesInspected = scanned.BytesInspected
+	summary.DetectedFindings = scanned.Findings
 	return summary, err
 }

@@ -151,8 +151,12 @@ func TestCompositeAnalysisRollupUsesOneCombination(t *testing.T) {
 	require.NoError(t, err)
 	validate, err := runtime.CompileValidation(`
  let label = components.account.captures.label;
- {"result": label == "invalid" ? "invalid" : "valid", "reason": "accepted " + label,
- "tenant": label, "shared": "from validation", "analysis": {"owner":label, "private":"unexported-evidence"}}
+ {
+   "result": label == "invalid" ? "invalid" : "valid",
+   "reason": "accepted " + label,
+   "analysis": {"owner":label, "private":"unexported-evidence"},
+   "metadata": {"tenant": label, "shared": "from validation"}
+ }
  `)
 	require.NoError(t, err)
 	enrich, err := runtime.CompileAnalysis(`
@@ -177,19 +181,21 @@ func TestCompositeAnalysisRollupUsesOneCombination(t *testing.T) {
 	require.Len(t, first.ComponentSets, 2)
 	require.Equal(t, report.ValidationStatusValid, first.Analysis.Status)
 	require.Equal(t, report.SeverityHigh, first.Analysis.Severity)
-	require.Equal(t, "admin", first.Analysis.Identity.Username)
-	require.Equal(t, "accepted admin; permissions for admin", first.Analysis.Reason)
-	require.Equal(t, map[string]any{"tenant": "admin", "shared": "from analysis", "permissions_for": "admin"}, first.Analysis.Metadata)
+	require.Equal(t, "[redacted]", first.Analysis.Identity.Username)
+	require.Equal(t, "accepted [redacted]", first.Analysis.StatusReason)
+	require.Equal(t, "permissions for [redacted]", first.Analysis.Reason)
+	require.Equal(t, map[string]any{"tenant": "[redacted]", "shared": "from validation"}, first.Analysis.StatusMetadata)
+	require.Equal(t, map[string]any{"shared": "from analysis", "permissions_for": "[redacted]"}, first.Analysis.Metadata)
 	require.Equal(t, first.ComponentSets[1].Analysis, first.Analysis)
 	encoded, err := json.Marshal(first)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "unexported-evidence")
 	require.True(t, finding.Analysis.IsZero())
 	require.True(t, finding.ComponentSets[0].Analysis.IsZero())
-	first.Analysis.Metadata["tenant"] = "changed"
+	first.Analysis.StatusMetadata["tenant"] = "changed"
 	first.Analysis.Identity.Username = "changed"
 	first.Analysis.Capabilities[0] = report.CapabilityRead
-	require.Equal(t, "admin", second.Analysis.Metadata["tenant"])
-	require.Equal(t, "admin", second.Analysis.Identity.Username)
+	require.Equal(t, "[redacted]", second.Analysis.StatusMetadata["tenant"])
+	require.Equal(t, "[redacted]", second.Analysis.Identity.Username)
 	require.Equal(t, []report.Capability{report.CapabilityAdmin}, second.Analysis.Capabilities)
 }

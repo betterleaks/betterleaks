@@ -86,7 +86,7 @@ func TestIgnoredFingerprintsSkipProviderRequests(t *testing.T) {
 	require.Len(t, findings, 1)
 	assert.Equal(t, "secret-visible", findings[0].Match.Value)
 	assert.Equal(t, report.SeverityMedium, findings[0].Analysis.Severity)
-	assert.Equal(t, 1, summary.Findings)
+	assert.Equal(t, 1, summary.EmittedFindings)
 	assert.Equal(t, map[report.ValidationStatus]int{report.ValidationStatusValid: 1}, summary.ValidationCounts)
 	assert.Equal(t, int32(2), requests.Load())
 	count := 0
@@ -119,7 +119,7 @@ func TestPipelineScanIsReusableWithValidation(t *testing.T) {
 		require.Len(t, findings, 1)
 		assert.Equal(t, report.ValidationStatusValid, findings[0].Analysis.Status)
 		assert.Equal(t, uint64(len(content)), summary.BytesInspected)
-		assert.Equal(t, 1, summary.Findings)
+		assert.Equal(t, 1, summary.EmittedFindings)
 		assert.Equal(t, 1, summary.ValidationCounts[report.ValidationStatusValid])
 	}
 }
@@ -153,7 +153,7 @@ func TestScanValidationAndEmptyAnalysisContracts(t *testing.T) {
 			assert.Equal(t, 1, summary.ValidationCounts[test.status])
 			assert.Equal(t, test.severity, findings[0].Analysis.Severity)
 			if test.status == report.ValidationStatusError {
-				assert.NotEmpty(t, findings[0].Analysis.Reason)
+				assert.NotEmpty(t, findings[0].Analysis.StatusReason+findings[0].Analysis.Reason)
 			}
 			if test.status != report.ValidationStatusValid {
 				assert.Empty(t, findings[0].Analysis.Severity, "permission analysis must not run without valid credentials")
@@ -220,4 +220,19 @@ func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 		}
 		require.Equal(t, want, set.Analysis.Capabilities)
 	}
+}
+
+func TestSummarySeparatesDetectedAndEmitted(t *testing.T) {
+	cfg := &config.Config{Rules: []config.Rule{{ID: "key", Regex: `TOKEN`}}}
+	scanner, err := scan.New(cfg)
+	require.NoError(t, err)
+	analyzer, err := analyze.New(cfg)
+	require.NoError(t, err)
+	p, err := New(scanner, analyzer, WithValidationStatuses(report.ValidationStatusValid))
+	require.NoError(t, err)
+	summary, err := p.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("TOKEN")}, func(f report.Finding) error { t.Fatal("unchecked result passed valid filter"); return nil })
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.DetectedFindings)
+	require.Zero(t, summary.EmittedFindings)
+	require.Equal(t, map[report.ValidationStatus]int{report.ValidationStatusNone: 1}, summary.ValidationCounts)
 }

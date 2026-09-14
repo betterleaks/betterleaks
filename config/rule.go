@@ -123,6 +123,10 @@ func (r *Rule) Validate() error {
 		return fmt.Errorf("%s: analyze expression requires a validate expression", r.ID)
 	}
 
+	if r.Regex == "" && (len(r.Components) > 0 || strings.TrimSpace(r.ValidateExpr) != "" || strings.TrimSpace(r.AnalyzeExpr) != "") {
+		return fmt.Errorf("%s: path-only rules cannot declare components, validation, or analysis", r.ID)
+	}
+
 	seenComponents := make(map[string]struct{}, len(r.Components))
 	for _, component := range r.Components {
 		if component == nil {

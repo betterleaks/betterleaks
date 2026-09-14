@@ -17,7 +17,7 @@ func Replicate() *config.Rule {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"type"') && (r.body contains '"username"') && (r.body contains '"name"') ? {
     "result": "valid",
-    "username": (r.json?.username ?? "")
+    "metadata": {"username": (r.json?.username ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

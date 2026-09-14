@@ -4,24 +4,26 @@ import (
 	"encoding/json"
 	"maps"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
+	"github.com/betterleaks/betterleaks/v2/internal/limits"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 // Finding describes what a rule matched, where it was found, and optional provider
 // enrichment. Scanner owns discovery fields; Analyzer owns Analysis.
 type Finding struct {
-	RuleID      string `json:"ruleID"`
+	RuleID      string `json:"rule_id"`
 	Description string `json:"description"`
 	Confidence  string `json:"confidence"`
 
 	Match Match `json:"match"`
 
 	// MatchContext is optional source context, also exposed as finding.context
-	// to expressions. It is populated only when explicitly requested or supplied.
-	MatchContext string `json:"matchContext,omitempty"`
+	// to local filters. It is populated only when explicitly requested or supplied.
+	MatchContext string `json:"match_context,omitempty"`
 
 	// Attributes holds extensible source metadata. Well-known keys are defined
 	// by the sources package. Path is stored in Location; SetAttributes promotes
@@ -33,7 +35,11 @@ type Finding struct {
 
 	// ComponentSets holds the Cartesian-product combinations of component findings.
 	// Each set is one complete group of components that can be validated independently.
-	ComponentSets []ComponentSet `json:"componentSets,omitempty"`
+	ComponentSets []ComponentSet `json:"component_sets,omitempty"`
+
+	// ComponentSetsTruncated means discovery omitted combinations at its hard limit.
+	// A successful tested set establishes validity; failed tests cannot exhaust the search.
+	ComponentSetsTruncated bool `json:"component_sets_truncated,omitempty"`
 
 	Tags []string `json:"tags"`
 
@@ -43,13 +49,16 @@ type Finding struct {
 
 // MarshalJSON omits internal attributes and limits Git message metadata to its
 // first line. Full attributes remain available on the in-memory finding for
-// filters, validation, and analysis expressions.
+// local filters.
 func (f Finding) MarshalJSON() ([]byte, error) {
 	type wireFinding Finding
 
 	wire := wireFinding(f)
 	wire.Attributes = reportAttributes(f.Attributes)
-	return json.Marshal(wire)
+	return json.Marshal(struct {
+		SchemaVersion int `json:"schema_version"`
+		wireFinding
+	}{SchemaVersion: SchemaVersion, wireFinding: wire})
 }
 
 func reportAttributes(attributes map[string]string) map[string]string {
@@ -88,10 +97,10 @@ type Match struct {
 // semantics and is optional. Text coordinates use one-based lines and byte columns.
 type Location struct {
 	Path        string `json:"path,omitempty"`
-	StartLine   int    `json:"startLine,omitempty"`
-	EndLine     int    `json:"endLine,omitempty"`
-	StartColumn int    `json:"startColumn,omitempty"`
-	EndColumn   int    `json:"endColumn,omitempty"`
+	StartLine   int    `json:"start_line,omitempty"`
+	EndLine     int    `json:"end_line,omitempty"`
+	StartColumn int    `json:"start_column,omitempty"`
+	EndColumn   int    `json:"end_column,omitempty"`
 }
 
 // ComponentSet represents one combination of component findings (one element per
@@ -102,9 +111,9 @@ type ComponentSet struct {
 	Analysis   Analysis            `json:"analysis,omitzero"`
 }
 
-// ComponentFinding is the discovery information for one companion match.
+// ComponentFinding is the discovery information for one component match.
 type ComponentFinding struct {
-	RuleID          string   `json:"ruleID"`
+	RuleID          string   `json:"rule_id"`
 	Optional        bool     `json:"optional,omitempty"`
 	Match           Match    `json:"match"`
 	Location        Location `json:"location"`
@@ -116,6 +125,8 @@ type ComponentFinding struct {
 // grouped by RuleID and populates f.ComponentSets. maxComponentSets caps the total number of
 // combos to prevent excessive memory use.
 func (f *Finding) BuildComponentSets(componentFindings []*ComponentFinding, maxComponentSets int) {
+	maxComponentSets = min(maxComponentSets, limits.ComponentSets)
+	f.ComponentSetsTruncated = false
 	if len(componentFindings) == 0 {
 		f.ComponentSets = nil
 		return
@@ -131,6 +142,19 @@ func (f *Finding) BuildComponentSets(componentFindings []*ComponentFinding, maxC
 		byRule[rf.RuleID] = append(byRule[rf.RuleID], rf)
 	}
 
+	// Count only up to the limit, without overflowing or enumerating extra sets.
+	total := 1
+	for _, id := range ruleOrder {
+		if maxComponentSets <= 0 || total > maxComponentSets/len(byRule[id]) {
+			f.ComponentSetsTruncated = true
+			break
+		}
+		total *= len(byRule[id])
+	}
+	if maxComponentSets <= 0 {
+		f.ComponentSets = nil
+		return
+	}
 	products := cartesianFindings(ruleOrder, byRule, maxComponentSets)
 	f.ComponentSets = make([]ComponentSet, len(products))
 	for i, components := range products {
@@ -141,23 +165,34 @@ func (f *Finding) BuildComponentSets(componentFindings []*ComponentFinding, maxC
 // cartesianFindings computes the Cartesian product over ComponentFinding slices
 // keyed by ruleOrder. It stops early once maxComponentSets is reached.
 func cartesianFindings(ruleOrder []string, byRule map[string][]*ComponentFinding, maxComponentSets int) [][]*ComponentFinding {
-	if len(ruleOrder) == 0 {
-		return [][]*ComponentFinding{{}}
+	if maxComponentSets <= 0 {
+		return nil
 	}
-
-	head := ruleOrder[0]
-	rest := cartesianFindings(ruleOrder[1:], byRule, maxComponentSets)
-
+	for _, id := range ruleOrder {
+		if len(byRule[id]) == 0 {
+			return nil
+		}
+	}
+	// Mixed-radix enumeration retains only the bounded output and one index per
+	// component. Recursive intermediate products can otherwise dwarf the cap.
+	indexes := make([]int, len(ruleOrder))
 	var result [][]*ComponentFinding
-	for _, rf := range byRule[head] {
-		for _, tail := range rest {
-			row := make([]*ComponentFinding, 0, len(tail)+1)
-			row = append(row, rf)
-			row = append(row, tail...)
-			result = append(result, row)
-			if len(result) >= maxComponentSets {
-				return result
+	for len(result) < maxComponentSets {
+		row := make([]*ComponentFinding, len(ruleOrder))
+		for i, id := range ruleOrder {
+			row[i] = byRule[id][indexes[i]]
+		}
+		result = append(result, row)
+		position := len(indexes) - 1
+		for ; position >= 0; position-- {
+			indexes[position]++
+			if indexes[position] < len(byRule[ruleOrder[position]]) {
+				break
 			}
+			indexes[position] = 0
+		}
+		if position < 0 {
+			break
 		}
 	}
 	return result
@@ -165,14 +200,7 @@ func cartesianFindings(ruleOrder []string, byRule map[string][]*ComponentFinding
 
 // Redact removes sensitive information from a finding.
 func (f *Finding) Redact(percent uint) {
-	secrets := []string{f.Match.Value}
-	for _, set := range f.ComponentSets {
-		for _, component := range set.Components {
-			if component != nil {
-				secrets = append(secrets, component.Match.Value)
-			}
-		}
-	}
+	secrets := f.CredentialValues()
 
 	// Replace all primary and component values in each match and its surrounding
 	// text. Longest values win when credentials overlap; replacements are applied
@@ -183,6 +211,15 @@ func (f *Finding) Redact(percent uint) {
 		masked := "REDACTED"
 		if percent < 100 {
 			masked = MaskSecret(secret, percent)
+			for _, other := range secrets {
+				if len(other) < len(secret) {
+					visible := strings.TrimSuffix(masked, "...")
+					if index := strings.Index(visible, other); index >= 0 {
+						keep := len(strings.TrimSuffix(MaskSecret(other, percent), "..."))
+						masked = visible[:index+keep] + "..."
+					}
+				}
+			}
 		}
 		pairs = append(pairs, secret, masked)
 	}
@@ -190,9 +227,15 @@ func (f *Finding) Redact(percent uint) {
 	redactMatch := func(match *Match) {
 		match.Full = replacer.Replace(match.Full)
 		match.Value = replacer.Replace(match.Value)
-		for key, value := range match.Captures {
-			match.Captures[key] = replacer.Replace(value)
-		}
+		match.Captures = redactStrings(match.Captures, replacer.Replace)
+	}
+	f.RuleID = replacer.Replace(f.RuleID)
+	f.Description = replacer.Replace(f.Description)
+	f.Confidence = replacer.Replace(f.Confidence)
+	f.Location.Path = replacer.Replace(f.Location.Path)
+	f.Attributes = redactStrings(f.Attributes, replacer.Replace)
+	for i := range f.Tags {
+		f.Tags[i] = replacer.Replace(f.Tags[i])
 	}
 	redactMatch(&f.Match)
 	f.Line = replacer.Replace(f.Line)
@@ -207,6 +250,8 @@ func (f *Finding) Redact(percent uint) {
 				continue
 			}
 			seen[component] = struct{}{}
+			component.RuleID = replacer.Replace(component.RuleID)
+			component.Location.Path = replacer.Replace(component.Location.Path)
 			redactMatch(&component.Match)
 			component.Line = replacer.Replace(component.Line)
 		}
@@ -221,6 +266,16 @@ func (f *Finding) Redact(percent uint) {
 // RedactedCopy returns a redacted finding without modifying maps, component
 // findings, or component sets shared with the original finding.
 func (f Finding) RedactedCopy(percent uint) Finding {
+	f = f.Clone()
+	f.Redact(percent)
+	return f
+}
+
+// Clone snapshots a finding's mutable maps, slices and component findings.
+func (f Finding) Clone() Finding {
+	f.Attributes = maps.Clone(f.Attributes)
+	f.Tags = slices.Clone(f.Tags)
+	f.Analysis = cloneAnalysis(f.Analysis)
 	f.Match.Captures = maps.Clone(f.Match.Captures)
 
 	if len(f.ComponentSets) > 0 {
@@ -228,6 +283,7 @@ func (f Finding) RedactedCopy(percent uint) Finding {
 		sets := make([]ComponentSet, len(f.ComponentSets))
 		for i, set := range f.ComponentSets {
 			sets[i] = set
+			sets[i].Analysis = cloneAnalysis(set.Analysis)
 			sets[i].Components = make([]*ComponentFinding, len(set.Components))
 			for j, component := range set.Components {
 				if component == nil {
@@ -245,7 +301,6 @@ func (f Finding) RedactedCopy(percent uint) Finding {
 		}
 		f.ComponentSets = sets
 	}
-	f.Redact(percent)
 	return f
 }
 
@@ -376,4 +431,43 @@ func (f *Finding) ToExprMap() map[string]string {
 		"confidence":  f.Confidence,
 		"context":     f.MatchContext,
 	}
+}
+
+// CredentialValues returns primary and component values and captures that must
+// be sanitized before exporting provider results. Empty values are harmless.
+func (f Finding) CredentialValues() []string {
+	values := matchValues(nil, f.Match)
+	seen := make(map[*ComponentFinding]struct{})
+	for _, set := range f.ComponentSets {
+		for _, c := range set.Components {
+			if c == nil {
+				continue
+			}
+			if _, ok := seen[c]; ok {
+				continue
+			}
+			seen[c] = struct{}{}
+			values = matchValues(values, c.Match)
+		}
+	}
+	return values
+}
+
+func matchValues(values []string, match Match) []string {
+	values = append(values, match.Value)
+	for _, value := range match.Captures {
+		values = append(values, value)
+	}
+	return values
+}
+
+func redactStrings(input map[string]string, replace func(string) string) map[string]string {
+	if input == nil {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for k, v := range input {
+		out[replace(k)] = replace(v)
+	}
+	return out
 }

@@ -753,9 +753,11 @@ betterleaks validate --list
 betterleaks validate --list --jsonl
 ```
 
-The list includes required components and named captures. Supply every listed
+The list includes required components and primary/component capture requirements. Supply every listed
 capture with `--capture name=value`; validation stops with an input error when
-one is missing rather than reporting the credential as invalid.
+one is missing rather than reporting the credential as invalid. Component captures
+use `--capture rule-id:name=value`. Optional captures with explicit fallbacks need
+not be supplied.
 
 Pass a credential on stdin when possible so it is not stored in shell history
 or exposed in the process argument list:
@@ -943,3 +945,11 @@ betterleaks filesystem ./artifacts --max-archive-depth 2 --max-decode-depth 5
 ## Related docs
 
 - [docs/config.md](config.md)
+
+All v2 finding and credential JSON uses snake_case and `schema_version: 2`.
+Credential state uses `analysis.status`, `status_reason`, and `status_metadata`;
+permission enrichment uses `reason`, `metadata`, identity and capabilities.
+`component_sets_truncated` means the 100-combination discovery limit omitted
+possible credentials. Such a search cannot establish invalidity unless every
+possible combination was actually tested; a tested successful combination can
+still establish validity.

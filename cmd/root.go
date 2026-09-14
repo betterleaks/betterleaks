@@ -403,6 +403,9 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 	if err != nil {
 		runtime.fatal("unable to load ignore file", "error", err)
 	}
+	if cfg.Path != "" {
+		scannerOptions = append(scannerOptions, scan.WithExcludedPaths(cfg.Path))
+	}
 	scannerOptions = append(scannerOptions,
 		scan.WithJobs(flags.Jobs),
 		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
@@ -580,7 +583,8 @@ func bytesConvert(bytes uint64) string {
 
 func addScanSummary(total *pipeline.ScanSummary, next pipeline.ScanSummary) {
 	total.BytesInspected += next.BytesInspected
-	total.Findings += next.Findings
+	total.DetectedFindings += next.DetectedFindings
+	total.EmittedFindings += next.EmittedFindings
 	if total.ValidationCounts == nil {
 		total.ValidationCounts = make(map[report.ValidationStatus]int)
 	}
@@ -612,6 +616,7 @@ func findingSummaryAndExit(runtime *commandRuntime, summary pipeline.ScanSummary
 			"revoked", summary.ValidationCounts[report.ValidationStatusRevoked],
 			"unknown", summary.ValidationCounts[report.ValidationStatusUnknown],
 			"errors", summary.ValidationCounts[report.ValidationStatusError],
+			"unchecked", summary.ValidationCounts[report.ValidationStatusNone],
 		)
 	}
 

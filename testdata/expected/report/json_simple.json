@@ -1,6 +1,6 @@
 [
   {
-    "ruleID": "test-rule",
+    "rule_id": "test-rule",
     "description": "",
     "confidence": "medium",
     "match": {
@@ -8,10 +8,10 @@
       "value": "a secret"
     },
     "location": {
-      "startLine": 1,
-      "endLine": 2,
-      "startColumn": 1,
-      "endColumn": 2,
+      "start_line": 1,
+      "end_line": 2,
+      "start_column": 1,
+      "end_column": 2,
       "path": "auth.py"
     },
     "attributes": {
@@ -21,6 +21,7 @@
       "git.date": "10-19-2003",
       "git.message": "opps"
     },
-    "tags": []
+    "tags": [],
+    "schema_version": 2
   }
 ]

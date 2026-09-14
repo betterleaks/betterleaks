@@ -18,8 +18,7 @@ func WeightsAndBiases() *config.Rule {
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid",
-    "email": (r.json?.data?.viewer?.email ?? ""),
-    "username": (r.json?.data?.viewer?.username ?? "")
+    "metadata": {"email": (r.json?.data?.viewer?.email ?? ""), "username": (r.json?.data?.viewer?.username ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -49,8 +48,7 @@ func WeightsAndBiasesV1() *config.Rule {
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid",
-    "email": (r.json?.data?.viewer?.email ?? ""),
-    "username": (r.json?.data?.viewer?.username ?? "")
+    "metadata": {"email": (r.json?.data?.viewer?.email ?? ""), "username": (r.json?.data?.viewer?.username ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

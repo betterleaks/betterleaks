@@ -18,9 +18,7 @@ func FigmaPersonalAccessToken() *config.Rule {
     "X-Figma-Token": finding["secret"]
   }); r.status == 200 && !(r.body contains "Invalid token") ? {
     "result": "valid",
-    "email": (r.json?.email ?? ""),
-    "handle": (r.json?.handle ?? ""),
-    "id": (r.json?.id ?? "")
+    "metadata": {"email": (r.json?.email ?? ""), "handle": (r.json?.handle ?? ""), "id": (r.json?.id ?? "")}
   } : r.status in [401, 403] || (r.body contains "Invalid token") ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -49,9 +47,7 @@ func FigmaPersonalAccessHeaderToken() *config.Rule {
     "X-Figma-Token": finding["secret"]
   }); r.status == 200 && !(r.body contains "Invalid token") ? {
     "result": "valid",
-    "email": (r.json?.email ?? ""),
-    "handle": (r.json?.handle ?? ""),
-    "id": (r.json?.id ?? "")
+    "metadata": {"email": (r.json?.email ?? ""), "handle": (r.json?.handle ?? ""), "id": (r.json?.id ?? "")}
   } : r.status in [401, 403] || (r.body contains "Invalid token") ? {
     "result": "invalid",
     "reason": "Unauthorized"

@@ -18,7 +18,7 @@ func SourceGraph() *config.Rule {
     "Content-Type": "application/json"
   }, "{\"query\":\"query ValidateToken { site { id } }\"}"); r.status == 200 && (r.json?.data?.site?.id ?? "") != "" ? {
     "result": "valid",
-    "site_id": (r.json?.data?.site?.id ?? "")
+    "metadata": {"site_id": (r.json?.data?.site?.id ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

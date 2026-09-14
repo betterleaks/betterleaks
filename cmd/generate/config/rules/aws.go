@@ -28,18 +28,14 @@ func AWS() *config.Rule {
 			},
 		},
 		ValidateExpr: `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
-    "result": "valid",
-    "arn": r.arn,
-    "account": r.account,
-    "userid": r.userid
-  } : r.status == 403 && r.error_code == "ExpiredToken" ? {
+  "result": "valid",
+  "metadata": {"arn": r.arn, "account": r.account, "userid": r.userid}
+} : r.status == 403 && r.error_code == "ExpiredToken" ? {
     "result": "revoked",
-    "error_code": r.error_code,
-    "error_message": r.error_message
+    "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : r.status == 403 ? {
     "result": "invalid",
-    "error_code": r.error_code,
-    "error_message": r.error_message
+    "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 `,
 		Filter: "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])",

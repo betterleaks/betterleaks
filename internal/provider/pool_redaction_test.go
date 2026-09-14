@@ -45,5 +45,5 @@ func TestProviderDebugIsRedactedInFinding(t *testing.T) {
 	encoded, err := json.Marshal(redacted)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), secret)
-	require.Equal(t, "[redacted]", redacted.Analysis.Reason)
+	require.Equal(t, "[redacted]", redacted.Analysis.StatusReason)
 }

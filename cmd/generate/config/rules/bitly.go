@@ -16,7 +16,7 @@ func BitlyAccessToken() *config.Rule {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains "\"login\":") ? {
     "result": "valid",
-    "login": (r.json?.login ?? "")
+    "metadata": {"login": (r.json?.login ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

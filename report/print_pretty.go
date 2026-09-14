@@ -351,6 +351,9 @@ func prettySetIcon(status string, noColor bool) string {
 }
 
 func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
+	if f.ComponentSetsTruncated {
+		fmt.Println("│ components: combination limit reached; additional combinations omitted")
+	}
 	if len(f.ComponentSets) == 0 {
 		return
 	}
@@ -650,10 +653,11 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 
 func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
 	values := map[string]string{
-		"status":       formatCredentialStatus(analysis.Status, noColor),
-		"severity":     formatAnalysisSeverity(analysis.Severity, noColor),
-		"reason":       analysis.Reason,
-		"capabilities": capabilitiesText(analysis.Capabilities),
+		"status":        formatCredentialStatus(analysis.Status, noColor),
+		"severity":      formatAnalysisSeverity(analysis.Severity, noColor),
+		"status_reason": analysis.StatusReason,
+		"reason":        analysis.Reason,
+		"capabilities":  capabilitiesText(analysis.Capabilities),
 	}
 	if identity := analysis.Identity; identity != nil {
 		values["identity.id"] = identity.ID
@@ -668,6 +672,9 @@ func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
 	}
 	for key, value := range analysis.Debug {
 		values["debug."+key] = fmt.Sprintf("%v", value)
+	}
+	for key, value := range analysis.StatusMetadata {
+		values["status_metadata."+key] = formatMetadataValue(value)
 	}
 	for key, value := range analysis.Metadata {
 		displayKey := key

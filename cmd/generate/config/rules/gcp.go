@@ -11,47 +11,35 @@ const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/id
     "reason": "Unauthorized"
   } : (let r = http.get("https://generativelanguage.googleapis.com/v1beta/models?key=" + finding["secret"], {}); r.status == 200 && (r.body contains '"models"') ? {
     "result": "valid",
-    "active_google_key": true,
-    "gemini_access": true
+    "metadata": {"active_google_key": true, "gemini_access": true}
   } : r.status == 403 && (r.body contains "API_KEY_HTTP_REFERRER_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked by HTTP referrer restriction",
-    "active_google_key": true,
-    "gemini_access": "unknown",
-    "restriction": "http_referrer"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown", "restriction": "http_referrer"}
   } : r.status == 403 && (r.body contains "API_KEY_IP_ADDRESS_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked by IP address restriction",
-    "active_google_key": true,
-    "gemini_access": "unknown",
-    "restriction": "ip_address"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown", "restriction": "ip_address"}
   } : r.status == 403 && (r.body contains "API_KEY_IOS_APP_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked by iOS app restriction",
-    "active_google_key": true,
-    "gemini_access": "unknown",
-    "restriction": "ios_app"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown", "restriction": "ios_app"}
   } : r.status == 403 && (r.body contains "API_KEY_ANDROID_APP_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked by Android app restriction",
-    "active_google_key": true,
-    "gemini_access": "unknown",
-    "restriction": "android_app"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown", "restriction": "android_app"}
   } : r.status == 403 && (r.body contains "API_KEY_SERVICE_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked from Gemini API",
-    "active_google_key": true,
-    "gemini_access": false
+    "metadata": {"active_google_key": true, "gemini_access": false}
   } : r.status == 403 ? {
     "result": "needs_validation",
     "reason": "Active Google API key with unknown Gemini access",
-    "active_google_key": true,
-    "gemini_access": "unknown"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown"}
   } : r.status == 400 && k.status in [200, 403] ? {
     "result": "needs_validation",
     "reason": "Active Google API key not accepted by Gemini API",
-    "active_google_key": true,
-    "gemini_access": false
+    "metadata": {"active_google_key": true, "gemini_access": false}
   } : r.status == 400 && (r.body contains "API_KEY_INVALID") ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -68,13 +56,11 @@ func GCPApplicationDefaultCredentials() *config.Rule {
 		Regex:       `\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}`,
 		Keywords:    []string{".apps.googleusercontent.com"},
 		ValidateExpr: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
-    "result": "valid",
-    "credential_type": r.credential_type,
-    "client_id": r.client_id
-  } : r.status in [400, 401] ? {
+  "result": "valid",
+  "metadata": {"credential_type": r.credential_type, "client_id": r.client_id}
+} : r.status in [400, 401] ? {
     "result": "invalid",
-    "error_code": r.error_code,
-    "error_message": r.error_message
+    "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 `,
 	}
@@ -93,14 +79,11 @@ func GCPServiceAccount() *config.Rule {
 		Regex:       `\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}`,
 		Keywords:    []string{"provider_x509"},
 		ValidateExpr: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
-    "result": "valid",
-    "credential_type": r.credential_type,
-    "project_id": r.project_id,
-    "client_email": r.client_email
-  } : r.status in [400, 401] ? {
+  "result": "valid",
+  "metadata": {"credential_type": r.credential_type, "project_id": r.project_id, "client_email": r.client_email}
+} : r.status in [400, 401] ? {
     "result": "invalid",
-    "error_code": r.error_code,
-    "error_message": r.error_message
+    "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 `,
 		Filter: `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,

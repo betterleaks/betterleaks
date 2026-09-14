@@ -33,7 +33,7 @@ func TestParseResultMapNormalizesStatus(t *testing.T) {
 	got := parseResultMap(map[string]any{
 		"result":   "VALID",
 		"reason":   "ok",
-		"extra":    "m",
+		"metadata": map[string]any{"extra": "m"},
 		"analysis": map[string]any{"owner": "user-1"},
 	})
 	if got.Status != report.ValidationStatusValid {
@@ -86,7 +86,7 @@ func TestParseResultAcceptsKnownStatuses(t *testing.T) {
 		report.ValidationStatusUnknown, report.ValidationStatusError,
 	} {
 		for _, text := range []string{string(status), strings.ToUpper(string(status))} {
-			got := ParseResult(map[string]any{"result": text, "reason": "provider explanation", "public": true})
+			got := ParseResult(map[string]any{"result": text, "reason": "provider explanation", "metadata": map[string]any{"public": true}})
 			require.Equal(t, status, got.Status)
 			require.Equal(t, "provider explanation", got.Reason)
 			require.Equal(t, true, got.Metadata["public"])
@@ -102,4 +102,21 @@ func TestParseResultMapRejectsInvalidAnalysisInput(t *testing.T) {
 	if got.Reason != "validation analysis must be an object, got []string" {
 		t.Fatalf("reason: got %q", got.Reason)
 	}
+}
+
+func TestValidationResultContractIsClosed(t *testing.T) {
+	for _, value := range []any{
+		map[string]any{"result": "valid", "response_body": "private"},
+		map[string]any{"result": "valid", "metadata": "private"},
+		map[any]any{"result": "valid", 42: "private"},
+		map[string]any{"result": "valid", "metadata": map[any]any{42: "private"}},
+	} {
+		result := ParseResult(value)
+		require.Equal(t, report.ValidationStatusError, result.Status)
+		require.Empty(t, result.Metadata)
+		require.NotContains(t, result.Reason, "private")
+	}
+	result := ParseResult(map[string]any{"result": "valid", "metadata": map[string]any{"owner": "public"}, "analysis": map[string]any{"private": "evidence"}})
+	require.Equal(t, map[string]any{"owner": "public"}, result.Metadata)
+	require.Equal(t, map[string]any{"private": "evidence"}, result.Analysis)
 }

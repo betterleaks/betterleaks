@@ -11,7 +11,10 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-const CredentialReportSchemaVersion = 2
+// SchemaVersion identifies the v2 JSON finding and credential report contracts.
+const SchemaVersion = 2
+
+const CredentialReportSchemaVersion = SchemaVersion
 
 // CredentialReport is a sanitized direct credential result. Match material and
 // source locations are omitted because no source discovery was performed.
@@ -32,8 +35,9 @@ type CredentialComponentSetReport struct {
 // CredentialComponentReport identifies one component and whether the rule
 // declares it optional.
 type CredentialComponentReport struct {
-	RuleID   string `json:"rule_id"`
-	Optional bool   `json:"optional,omitempty"`
+	RuleID   string   `json:"rule_id"`
+	Optional bool     `json:"optional,omitempty"`
+	Captures []string `json:"captures,omitempty"`
 }
 
 // CredentialRuleList is the versioned output produced by validate --list.
@@ -55,7 +59,7 @@ func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 	secrets = credentialSecretsForRedaction(secrets)
 	result := CredentialReport{
 		SchemaVersion: CredentialReportSchemaVersion,
-		RuleID:        finding.RuleID,
+		RuleID:        sanitizeCredentialString(finding.RuleID, secrets),
 		Attributes:    sanitizeCredentialAttributes(finding.Attributes, secrets),
 		Analysis:      SanitizeAnalysis(finding.Analysis, secrets),
 	}
@@ -68,7 +72,7 @@ func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 				continue
 			}
 			setResult.Components = append(setResult.Components, CredentialComponentReport{
-				RuleID:   component.RuleID,
+				RuleID:   sanitizeCredentialString(component.RuleID, secrets),
 				Optional: component.Optional,
 			})
 		}
@@ -258,6 +262,11 @@ func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) err
 			if _, err := fmt.Fprintf(w, "│   %s  %s\n", icon, formatCredentialComponents(set.Components)); err != nil {
 				return err
 			}
+			if set.Analysis.StatusReason != "" {
+				if _, err := fmt.Fprintf(w, "│      status reason: %s\n", set.Analysis.StatusReason); err != nil {
+					return err
+				}
+			}
 			if set.Analysis.Reason != "" {
 				if _, err := fmt.Fprintf(w, "│      reason: %s\n", set.Analysis.Reason); err != nil {
 					return err
@@ -332,7 +341,13 @@ func writeCredentialRuleListText(w io.Writer, result CredentialRuleList) error {
 		return err
 	}
 	for _, rule := range result.Rules {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n", rule.RuleID, formatCredentialComponents(rule.Components), strings.Join(rule.Captures, ", ")); err != nil {
+		captures := append([]string(nil), rule.Captures...)
+		for _, component := range rule.Components {
+			for _, name := range component.Captures {
+				captures = append(captures, component.RuleID+":"+name)
+			}
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n", rule.RuleID, formatCredentialComponents(rule.Components), strings.Join(captures, ", ")); err != nil {
 			return err
 		}
 	}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/analyze"
@@ -49,7 +48,7 @@ func runValidate(runtime *commandRuntime, globals *GlobalFlags, options *Validat
 		if err != nil {
 			return err
 		}
-		return writeCredentialRuleList(runtime, globals, options, newCredentialRuleList(resolved.cfg))
+		return writeCredentialRuleListForConfig(runtime, globals, options, resolved.cfg)
 	}
 
 	ruleID := strings.TrimSpace(options.RuleID)
@@ -145,29 +144,31 @@ func writeCredentialRuleList(runtime *commandRuntime, globals *GlobalFlags, cmd 
 	return credentialReporter(globals, cmd).WriteRuleList(runtime.stdout, result)
 }
 
-func newCredentialRuleList(cfg *configpkg.Config) report.CredentialRuleList {
+func writeCredentialRuleListForConfig(runtime *commandRuntime, globals *GlobalFlags, options *ValidateCmd, cfg *configpkg.Config) error {
+	analyzer, err := analyze.New(cfg)
+	if err != nil {
+		return err
+	}
 	result := report.CredentialRuleList{SchemaVersion: report.CredentialReportSchemaVersion}
 	for _, rule := range cfg.Rules {
 		if strings.TrimSpace(rule.ValidateExpr) == "" {
 			continue
 		}
-		summary := report.CredentialRuleSummary{
-			RuleID:      rule.ID,
-			Description: rule.Description,
-			Captures:    analyze.RequiredCaptures(rule),
+		requirementsFor := analyzer.Requirements
+		if options.NoAnalysis {
+			requirementsFor = analyzer.ValidationRequirements
 		}
-		for _, component := range rule.Components {
-			summary.Components = append(summary.Components, report.CredentialComponentReport{
-				RuleID:   component.RuleID,
-				Optional: component.Optional,
-			})
+		requirements, err := requirementsFor(rule.ID)
+		if err != nil {
+			return err
 		}
-		sort.Slice(summary.Components, func(i, j int) bool {
-			return summary.Components[i].RuleID < summary.Components[j].RuleID
-		})
+		summary := report.CredentialRuleSummary{RuleID: rule.ID, Description: rule.Description, Captures: requirements.Captures}
+		for _, c := range requirements.Components {
+			summary.Components = append(summary.Components, report.CredentialComponentReport{RuleID: c.RuleID, Optional: c.Optional, Captures: c.Captures})
+		}
 		result.Rules = append(result.Rules, summary)
 	}
-	return result
+	return writeCredentialRuleList(runtime, globals, options, result)
 }
 
 type validateCredentialInput struct {

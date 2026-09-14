@@ -16,7 +16,7 @@ func CloudsmithAPIKey() *config.Rule {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.json?.authenticated ?? false) == true ? {
     "result": "valid",
-    "account": (r.json?.slug ?? "")
+    "metadata": {"account": (r.json?.slug ?? "")}
   } : r.status in [401, 403] || (r.status == 200 && (r.json?.authenticated ?? false) == false) ? {
     "result": "invalid",
     "reason": "Unauthorized"

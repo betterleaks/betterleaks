@@ -23,7 +23,7 @@ func ScalewaySecretKey() *config.Rule {
     "Accept": "application/json"
   }); r.status in [200, 403] ? {
     "result": "valid",
-    "permission_status": r.status == 200 ? "Active" : "Restricted but still valid (403)",
+    "metadata": {"permission_status": r.status == 200 ? "Active" : "Restricted but still valid (403)"}
   } : r.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"

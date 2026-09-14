@@ -20,13 +20,13 @@ func NylasAPIKey() *config.Rule {
     "Accept": "application/json"
   }); us.status in [200, 403] ? {
     "result": "valid",
-    "region": "us"
+    "metadata": {"region": "us"}
   } : (let eu = http.get("https://api.eu.nylas.com/v3/webhooks?limit=1", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
   }); eu.status in [200, 403] ? {
     "result": "valid",
-    "region": "eu"
+    "metadata": {"region": "eu"}
   } : us.status == 401 && eu.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"

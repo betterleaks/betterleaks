@@ -309,3 +309,18 @@ func TestFindingCollectorPrettyRedactsCompanionsAndAnalysis(t *testing.T) {
 	require.NotContains(t, output, "validation:")
 	require.Equal(t, companion, finding.ComponentSets[0].Components[0].Match.Value)
 }
+
+func TestCLIExplicitlyExcludesLoadedConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "rules.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("[[rules]]\nid = \"token\"\nregex = '''TOKEN'''\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.env"), []byte("TOKEN"), 0600))
+	root, stdout := newValidateTestRoot(t)
+	root.SetArgs([]string{"dir", dir, "--config", configPath, "--offline", "--jsonl", "--no-color", "--exit-code=0"})
+	require.NoError(t, root.Execute())
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	require.Len(t, lines, 1)
+	var finding report.Finding
+	require.NoError(t, json.Unmarshal([]byte(lines[0]), &finding))
+	require.Equal(t, filepath.Join(dir, "app.env"), finding.Location.Path)
+}

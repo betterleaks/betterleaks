@@ -60,16 +60,12 @@ func PostHogPersonalAPIKey() *config.Rule {
     "Authorization": "Bearer " + finding["secret"]
   }); us.status in [200, 403] ? {
     "result": "valid",
-    "region": "us",
-    "email": (us.json?.email ?? ""),
-    "organization": (us.json?.organization?.name ?? "")
+    "metadata": {"region": "us", "email": (us.json?.email ?? ""), "organization": (us.json?.organization?.name ?? "")}
   } : (let eu = http.get("https://eu.posthog.com/api/users/@me/", {
     "Authorization": "Bearer " + finding["secret"]
   }); eu.status in [200, 403] ? {
     "result": "valid",
-    "region": "eu",
-    "email": (eu.json?.email ?? ""),
-    "organization": (eu.json?.organization?.name ?? "")
+    "metadata": {"region": "eu", "email": (eu.json?.email ?? ""), "organization": (eu.json?.organization?.name ?? "")}
   } : (us.status == 401 && eu.status == 401) ? {
     "result": "invalid",
     "reason": "Unauthorized"

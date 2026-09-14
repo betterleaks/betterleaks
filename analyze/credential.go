@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/config"
@@ -16,23 +15,22 @@ import (
 
 // Credential is an already-extracted secret and the inputs needed by its rule's
 // provider programs. Secret is passed verbatim: it is not matched against the
-// detection regex, decoded, or trimmed. Captures must be supplied explicitly.
+// detection regex, decoded, or trimmed. Additional captures are supplied explicitly.
 // Primary and component secrets must each contain between 1 byte and 1 MiB.
 // Provider expressions read Secret as finding.secret and Captures as
 // finding.captures. Components are exposed as components[ruleID], with the
-// same secret and captures fields for each companion.
+// same secret and captures fields for each component.
 type Credential struct {
 	RuleID   string
 	Secret   string
 	Captures map[string]string
 	// Components contains one credential combination, keyed by component rule ID.
 	Components map[string]CredentialComponent
-	// Attributes are available to provider expressions. A missing path defaults
-	// to betterleaks://validate, as it does for the validate command.
+	// Attributes are report metadata only; provider expressions cannot read them.
 	Attributes map[string]string
 }
 
-// CredentialComponent supplies a companion secret and its named captures.
+// CredentialComponent supplies a component value and its named captures.
 type CredentialComponent struct {
 	Secret   string
 	Captures map[string]string
@@ -69,14 +67,8 @@ func (a *Analyzer) resolveCredential(ctx context.Context, credential Credential,
 	if strings.TrimSpace(rule.ValidateExpr) == "" {
 		return report.CredentialReport{}, fmt.Errorf("rule %q does not define validation", credential.RuleID)
 	}
-	expressions := []string{rule.ValidateExpr}
-	if analysis {
-		expressions = append(expressions, rule.AnalyzeExpr)
-	}
-	finding, secrets, err := credentialFinding(rule, credential, expressions)
-	if err != nil {
-		return report.CredentialReport{}, err
-	}
+	finding := credentialFinding(rule, credential)
+	secrets := finding.CredentialValues()
 	result, err := a.resolve(ctx, finding, analysis)
 	if err != nil {
 		return report.CredentialReport{}, err
@@ -84,46 +76,10 @@ func (a *Analyzer) resolveCredential(ctx context.Context, credential Credential,
 	return report.NewCredentialReport(result, secrets), nil
 }
 
-func credentialFinding(rule config.Rule, input Credential, expressions []string) (report.Finding, []string, error) {
-	if err := validateCredentialSecret("secret", input.Secret); err != nil {
-		return report.Finding{}, nil, err
-	}
-	if err := validateCredentialCaptures(input.Captures); err != nil {
-		return report.Finding{}, nil, err
-	}
-	var missingCaptures []string
-	for _, name := range RequiredCaptures(rule, expressions...) {
-		if input.Captures[name] == "" {
-			missingCaptures = append(missingCaptures, name)
-		}
-	}
-	if len(missingCaptures) > 0 {
-		return report.Finding{}, nil, fmt.Errorf("missing required capture(s) for rule %q: %s", rule.ID, strings.Join(missingCaptures, ", "))
-	}
+func credentialFinding(rule config.Rule, input Credential) report.Finding {
 	optional := make(map[string]bool, len(rule.Components))
-	var missing, extra []string
-	for _, component := range rule.Components {
-		optional[component.RuleID] = component.Optional
-		if _, ok := input.Components[component.RuleID]; !ok && !component.Optional {
-			missing = append(missing, component.RuleID)
-		}
-	}
-	for id := range input.Components {
-		if _, ok := optional[id]; !ok {
-			extra = append(extra, id)
-		}
-	}
-	sort.Strings(missing)
-	sort.Strings(extra)
-	var problems []string
-	if len(missing) > 0 {
-		problems = append(problems, "missing required component(s): "+strings.Join(missing, ", "))
-	}
-	if len(extra) > 0 {
-		problems = append(problems, fmt.Sprintf("component(s) not declared by rule %q: %s", rule.ID, strings.Join(extra, ", ")))
-	}
-	if len(problems) > 0 {
-		return report.Finding{}, nil, errors.New(strings.Join(problems, "; "))
+	for _, c := range rule.Components {
+		optional[c.RuleID] = c.Optional
 	}
 
 	attrs := maps.Clone(input.Attributes)
@@ -143,23 +99,9 @@ func credentialFinding(rule config.Rule, input Credential, expressions []string)
 		Location:        report.Location{StartLine: 1, EndLine: 1, StartColumn: 1},
 	}
 	finding.SetAttributes(attrs)
-	secrets := []string{input.Secret}
-	for _, value := range input.Captures {
-		secrets = append(secrets, value)
-	}
 	components := make([]*report.ComponentFinding, 0, len(input.Components))
 	for _, id := range slices.Sorted(maps.Keys(input.Components)) {
 		component := input.Components[id]
-		if err := validateCredentialSecret(fmt.Sprintf("component %q", id), component.Secret); err != nil {
-			return report.Finding{}, nil, err
-		}
-		if err := validateCredentialCaptures(component.Captures); err != nil {
-			return report.Finding{}, nil, fmt.Errorf("component %q: %w", id, err)
-		}
-		secrets = append(secrets, component.Secret)
-		for _, value := range component.Captures {
-			secrets = append(secrets, value)
-		}
 		components = append(components, &report.ComponentFinding{
 			RuleID:   id,
 			Optional: optional[id],
@@ -171,7 +113,7 @@ func credentialFinding(rule config.Rule, input Credential, expressions []string)
 	if len(components) > 0 {
 		finding.ComponentSets = []report.ComponentSet{{Components: components}}
 	}
-	return finding, secrets, nil
+	return finding
 }
 
 func validateCredentialSecret(label, secret string) error {

@@ -18,8 +18,12 @@ import (
 )
 
 type programs struct {
-	validation exprruntime.Program
-	analysis   exprruntime.Program
+	validation             exprruntime.Program
+	analysis               exprruntime.Program
+	requirements           CredentialRequirements
+	validationRequirements CredentialRequirements
+	analysisRequirements   CredentialRequirements
+	requirementsReady      bool
 }
 
 // Analyzer owns an immutable rule snapshot and compiled provider programs.
@@ -27,13 +31,14 @@ type programs struct {
 // result caches, and request limits; compiled programs are shared across calls.
 // Construction starts no workers and sends no requests.
 type Analyzer struct {
-	rules         map[string]config.Rule
-	options       options
-	runtime       *exprruntime.Runtime
-	mu            sync.Mutex
-	programs      map[string]programs
-	hasValidation bool
-	hasAnalysis   bool
+	rules           map[string]config.Rule
+	primaryCaptures map[string]string
+	options         options
+	runtime         *exprruntime.Runtime
+	mu              sync.Mutex
+	programs        map[string]programs
+	hasValidation   bool
+	hasAnalysis     bool
 }
 
 // New snapshots cfg and validates runtime options. Programs compile lazily
@@ -57,7 +62,7 @@ func New(cfg *config.Config, opts ...Option) (*Analyzer, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Analyzer{rules: make(map[string]config.Rule, len(cfg.Rules)), options: settings, runtime: runtime, programs: make(map[string]programs)}
+	a := &Analyzer{rules: make(map[string]config.Rule, len(cfg.Rules)), primaryCaptures: make(map[string]string, len(cfg.Rules)), options: settings, runtime: runtime, programs: make(map[string]programs)}
 	for _, source := range cfg.Rules {
 		rule := source
 		rule.Tags = slices.Clone(source.Tags)
@@ -68,14 +73,18 @@ func New(cfg *config.Config, opts ...Option) (*Analyzer, error) {
 			rule.Components[i] = &copy
 		}
 		a.rules[rule.ID] = rule
+		a.primaryCaptures[rule.ID] = primaryCapture(rule)
 		a.hasValidation = a.hasValidation || rule.ValidateExpr != ""
 		a.hasAnalysis = a.hasAnalysis || (rule.ValidateExpr != "" && rule.AnalyzeExpr != "")
-		if settings.precompile {
-			if _, err := a.programsFor(rule, true); err != nil {
+	}
+	if settings.precompile {
+		for _, source := range cfg.Rules {
+			if _, err := a.programsFor(a.rules[source.ID], true); err != nil {
 				return nil, err
 			}
 		}
 	}
+
 	return a, nil
 }
 
@@ -102,6 +111,15 @@ func (a *Analyzer) programsFor(rule config.Rule, analysis bool) (programs, error
 			return p, fmt.Errorf("compiling rule %s analysis: %w", rule.ID, err)
 		}
 	}
+	if !p.requirementsReady {
+		p.validationRequirements = a.requirementsFor(rule, false)
+		p.analysisRequirements = a.requirementsFor(rule, true)
+		p.requirementsReady = true
+	}
+	p.requirements = p.validationRequirements
+	if analysis {
+		p.requirements = p.analysisRequirements
+	}
 	a.programs[rule.ID] = p
 	if !analysis {
 		p.analysis = nil
@@ -118,8 +136,8 @@ func (a *Analyzer) Validate(ctx context.Context, finding report.Finding) (report
 }
 
 // Analyze validates a finding and resolves identity and permissions when valid.
-// A finding supplies captures, components, and any explicitly retained context;
-// the analyzer never needs to read the original source.
+// Provider expressions read only credential values and captures. Source context
+// and provenance pass through unchanged and never affect provider resolution.
 func (a *Analyzer) Analyze(ctx context.Context, finding report.Finding) (report.Finding, error) {
 	return a.resolve(ctx, finding, true)
 }

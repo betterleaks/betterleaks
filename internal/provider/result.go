@@ -23,7 +23,7 @@ type Result struct {
 	Debug    map[string]any
 	Status   report.ValidationStatus // valid, invalid, revoked, unknown, error
 	Reason   string                  // human-readable explanation
-	Metadata map[string]any          // public fields from the validation result map
+	Metadata map[string]any          // explicit public metadata
 	Analysis map[string]any          // private fields passed only to credential analysis
 }
 
@@ -35,9 +35,11 @@ func ParseResult(val any) *Result {
 	case map[any]any:
 		m := make(map[string]any, len(v))
 		for k, value := range v {
-			if s, ok := k.(string); ok {
-				m[s] = value
+			s, ok := k.(string)
+			if !ok {
+				return &Result{Status: report.ValidationStatusError, Reason: "validation result keys must be strings"}
 			}
+			m[s] = value
 		}
 		return parseResultMap(m)
 	default:
@@ -74,7 +76,7 @@ func BetterStatus(a, b report.ValidationStatus) report.ValidationStatus {
 
 // reservedKeys are map keys consumed by parseResultMap and excluded from metadata.
 var reservedKeys = map[string]bool{
-	"result": true, "reason": true, "analysis": true,
+	"result": true, "reason": true, "analysis": true, "metadata": true,
 }
 
 // parseResultMap interprets a map result from a validation expression.
@@ -124,9 +126,11 @@ func parseResultMap(m map[string]any) *Result {
 		case map[any]any:
 			result.Analysis = make(map[string]any, len(analysis))
 			for key, value := range analysis {
-				if key, ok := key.(string); ok {
-					result.Analysis[key] = value
+				name, ok := key.(string)
+				if !ok {
+					return &Result{Status: report.ValidationStatusError, Reason: "validation analysis keys must be strings"}
 				}
+				result.Analysis[name] = value
 			}
 		case nil:
 		default:
@@ -135,12 +139,30 @@ func parseResultMap(m map[string]any) *Result {
 		}
 	}
 
-	// Everything else is metadata.
-	for k, v := range m {
-		if !reservedKeys[k] {
-			result.Metadata[k] = v
+	// The result contract is closed: unknown fields are almost always an authoring
+	// error, and must never accidentally publish a provider response body.
+	for key := range m {
+		if !reservedKeys[key] {
+			return &Result{Status: report.ValidationStatusError, Reason: fmt.Sprintf("unknown validation result field %q", key)}
 		}
 	}
-
+	if value, exists := m["metadata"]; exists {
+		switch metadata := value.(type) {
+		case map[string]any:
+			result.Metadata = metadata
+		case map[any]any:
+			result.Metadata = make(map[string]any, len(metadata))
+			for key, value := range metadata {
+				name, ok := key.(string)
+				if !ok {
+					return &Result{Status: report.ValidationStatusError, Reason: "validation metadata keys must be strings"}
+				}
+				result.Metadata[name] = value
+			}
+		case nil:
+		default:
+			return &Result{Status: report.ValidationStatusError, Reason: fmt.Sprintf("validation metadata must be an object, got %T", value)}
+		}
+	}
 	return result
 }
