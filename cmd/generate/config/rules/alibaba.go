@@ -34,7 +34,7 @@ func AlibabaSecretKey() *config.Rule {
 		Description: "Discovered a potential Alibaba Cloud Secret Key, potentially allowing unauthorized operations and data access within Alibaba Cloud.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"alibaba", "aliyun", "secret", "key"}, `[A-Za-z0-9]{30}`, true),
 		Keywords:    []string{"alibaba", "aliyun"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{
 				RuleID: "alibaba-access-key-id",
 				Within: "5L",
@@ -101,7 +101,7 @@ func AlibabaSTSAccessKeySecret() *config.Rule {
 		Description: "Detected an Alibaba Cloud STS AccessKey secret, which may allow temporary Alibaba Cloud API access when paired with an STS AccessKey ID and security token.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"alibaba", "aliyun", "secret", "key"}, `[A-Za-z0-9]{30,64}`, true),
 		Keywords:    []string{"alibaba", "aliyun"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{
 				RuleID: "alibaba-sts-access-key-id",
 				Within: "10L",

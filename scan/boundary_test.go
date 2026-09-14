@@ -115,7 +115,7 @@ func TestContextRetentionIsExplicit(t *testing.T) {
 			findings := scanner.ScanString(content)
 			require.Len(t, findings, 1)
 			require.Equal(t, tc.want, findings[0].MatchContext)
-			require.Equal(t, tc.want, findings[0].ToExprMap()["context"])
+			require.Equal(t, tc.want, exprFinding(findings[0])["context"])
 			require.True(t, findings[0].Analysis.IsZero())
 		})
 	}

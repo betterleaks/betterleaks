@@ -258,7 +258,7 @@ func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
 			f.RuleID != fPrime.RuleID &&
 			strings.Contains(fPrime.Match.Value, f.Match.Value) &&
-			fPrime.RuleSpecificity > f.RuleSpecificity {
+			d.ruleSpecificity(fPrime.RuleID) > d.ruleSpecificity(f.RuleID) {
 			genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
 			betterMatch := strings.ReplaceAll(fPrime.Match.Full, fPrime.Match.Value, "REDACTED")
 			d.logger.Debug("skipping finding because a more specific rule takes precedence",
@@ -275,7 +275,7 @@ func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 					f.Location.StartLine == comp.Location.StartLine &&
 					f.RuleID != comp.RuleID &&
 					strings.Contains(comp.Match.Value, f.Match.Value) &&
-					comp.RuleSpecificity > f.RuleSpecificity {
+					d.ruleSpecificity(comp.RuleID) > d.ruleSpecificity(f.RuleID) {
 					genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
 					betterMatch := strings.ReplaceAll(comp.Match.Full, comp.Match.Value, "REDACTED")
 					logTrace(d.logger, "skipping finding because a more specific component takes precedence",
@@ -300,4 +300,9 @@ func containsAllowSignature(line string) bool {
 		}
 	}
 	return false
+}
+
+// Specificity is immutable rule configuration, not finding data.
+func (d *Scanner) ruleSpecificity(id string) int {
+	return d.rulesBySpecificity[d.ruleIndexByID[id]].rule.Specificity
 }

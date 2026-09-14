@@ -161,12 +161,16 @@ func Default(options ...LoadOption) (*Config, error) {
 func (rc *rawConfig) translate(depth int) (*Config, error) {
 	var (
 		rules         = make([]Rule, 0, len(rc.Rules))
-		ruleIndexes   = make(map[string]int, len(rc.Rules))
+		ruleIDs       = make(map[string]struct{}, len(rc.Rules))
 		componentsSet = make(map[string]struct{})
 	)
 
 	// Validate individual rules.
 	for _, vr := range rc.Rules {
+		if _, exists := ruleIDs[vr.ID]; exists {
+			return nil, fmt.Errorf("duplicate rule ID %q", vr.ID)
+		}
+		ruleIDs[vr.ID] = struct{}{}
 		patterns := Rule{ID: vr.ID, Regex: vr.Regex, Path: vr.Path}
 		if _, err := patterns.validatePatterns(); err != nil {
 			return nil, err
@@ -206,9 +210,9 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 			componentsSet[cr.ID] = struct{}{}
 			for _, component := range *vr.Components {
 				if component == nil {
-					component = &rawComponent{}
+					return nil, fmt.Errorf("%s: component is missing", cr.ID)
 				}
-				cr.Components = append(cr.Components, &Component{
+				cr.Components = append(cr.Components, Component{
 					RuleID:   component.ID,
 					Optional: component.Optional,
 					Within:   component.Within,
@@ -220,17 +224,6 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 		cr.AnalyzeExpr = vr.Analyze
 		cr.Filter = vr.Filter
 
-		if index, exists := ruleIndexes[cr.ID]; exists {
-			// TOML configs historically used last-rule-wins semantics because
-			// rules were loaded into a map. Preserve that compatibility while
-			// keeping the resolved Config rule set canonical and unique.
-			rules[index] = cr
-			if vr.Components == nil {
-				delete(componentsSet, cr.ID)
-			}
-			continue
-		}
-		ruleIndexes[cr.ID] = len(rules)
 		rules = append(rules, cr)
 	}
 
@@ -339,9 +332,6 @@ func (c *Config) Validate() error {
 	}
 	for _, rule := range c.Rules {
 		for _, component := range rule.Components {
-			if component == nil {
-				continue // Rule.Validate reports this with rule context.
-			}
 			componentRule, ok := ruleIDs[component.RuleID]
 			if !ok {
 				return fmt.Errorf("%s: component rule ID %q does not exist", rule.ID, component.RuleID)

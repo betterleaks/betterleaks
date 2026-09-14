@@ -64,7 +64,7 @@ func TestCredentialReportAnalysis(t *testing.T) {
 		Analysis: analysis,
 		ComponentSets: []ComponentSet{{
 			Analysis:   analysis,
-			Components: []*ComponentFinding{{RuleID: "part"}},
+			Components: []ComponentFinding{{RuleID: "part"}},
 		}},
 	}
 	result := NewCredentialReport(finding, []string{"secret-value"})
@@ -166,7 +166,7 @@ func TestCredentialReportUsesComponentSchema(t *testing.T) {
 		Analysis: Analysis{Status: ValidationStatusValid},
 		ComponentSets: []ComponentSet{{
 			Analysis: Analysis{Status: ValidationStatusValid},
-			Components: []*ComponentFinding{
+			Components: []ComponentFinding{
 				{RuleID: "required-component"},
 				{RuleID: "optional-component", Optional: true},
 			},

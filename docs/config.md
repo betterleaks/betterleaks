@@ -20,6 +20,9 @@ independent; Betterleaks does not merge or rewrite their Expr programs.
 Rule-specific filters retain override semantics when a child config redefines
 the same rule.
 
+Rule IDs must be unique within each TOML configuration. Duplicate IDs are errors.
+A child configuration can still override an inherited rule by ID using `[extend]`.
+
 Each `[[rules]]` entry can use:
 
 - `id`: unique rule identifier.
@@ -275,7 +278,7 @@ without a recognized confidence attribute remain included.
 
 Validation verifies whether a detected secret is live by evaluating the rule's
 `validate` Expr expression. Validation is enabled by default. Disable it with
-`--no-validation`, which also disables credential analysis.
+`--offline`, which also disables credential analysis provider requests.
 
 Credential analysis evaluates a rule's `analyze` expression after validation
 returns `valid` and is also enabled by default. Use `--no-analysis` to retain

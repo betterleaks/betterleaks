@@ -129,7 +129,7 @@ func TestPoolAnalyzesValidComponentSets(t *testing.T) {
 	require.NoError(t, pool.SubmitWithAnalysisContext(t.Context(), report.Finding{
 		RuleID: "test-rule",
 		Match:  report.Match{Value: "primary-secret"},
-		ComponentSets: []report.ComponentSet{{Components: []*report.ComponentFinding{{
+		ComponentSets: []report.ComponentSet{{Components: []report.ComponentFinding{{
 			RuleID: "account",
 			Match:  report.Match{Value: "account-secret"},
 		}}}},
@@ -168,7 +168,7 @@ func TestCompositeAnalysisRollupUsesOneCombination(t *testing.T) {
 	require.NoError(t, err)
 	finding := report.Finding{RuleID: "test", Match: report.Match{Value: "primary-credential"}}
 	for _, label := range []string{"reader", "invalid", "admin"} {
-		finding.ComponentSets = append(finding.ComponentSets, report.ComponentSet{Components: []*report.ComponentFinding{{RuleID: "account", Match: report.Match{Value: "credential-" + label, Captures: map[string]string{"label": label}}}}})
+		finding.ComponentSets = append(finding.ComponentSets, report.ComponentSet{Components: []report.ComponentFinding{{RuleID: "account", Match: report.Match{Value: "credential-" + label, Captures: map[string]string{"label": label}}}}})
 	}
 	pool := NewPoolContext(t.Context(), 1, runtime)
 	results := make(chan report.Finding, 2)

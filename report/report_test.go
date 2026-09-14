@@ -14,7 +14,6 @@ const templatePath = "../testdata/report/"
 
 func TestWriteStdout(t *testing.T) {
 	// Arrange
-	reporter := JsonReporter{}
 	buf := testWriter{
 		bytes.NewBuffer(nil),
 	}
@@ -25,7 +24,7 @@ func TestWriteStdout(t *testing.T) {
 	}
 
 	// Act
-	err := reporter.Write(buf, findings)
+	err := WriteJSON(buf, findings)
 	require.NoError(t, err)
 	got := buf.Bytes()
 

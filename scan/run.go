@@ -18,7 +18,7 @@ import (
 type Result struct {
 	// Finding is populated when Err is nil.
 	Finding report.Finding
-	// Err is a recoverable source or pipeline error.
+	// Err is a recoverable source or scan error.
 	Err error
 }
 
@@ -26,7 +26,7 @@ type Result struct {
 type ScanSummary struct {
 	// BytesInspected excludes fragments rejected by the scanner prefilter.
 	BytesInspected uint64
-	// Findings is the number of findings that passed output filters.
+	// Findings is the number of findings that passed local detection filters.
 	Findings int
 }
 
@@ -35,7 +35,7 @@ type ScanSummary struct {
 // scan with an independent source.
 type Handler func(report.Finding) error
 
-// Run executes the pipeline and yields findings and recoverable source errors.
+// Run scans the source and yields findings and recoverable source errors.
 // Findings are not retained. Result order is not guaranteed. Concurrent calls
 // on the same Scanner are safe with independent sources.
 func (d *Scanner) Run(ctx context.Context, source sources.Source) iter.Seq[Result] {
@@ -48,7 +48,7 @@ func (d *Scanner) Run(ctx context.Context, source sources.Source) iter.Seq[Resul
 	}
 }
 
-// Scan executes the pipeline, passes each finding to handler, and returns a
+// Scan scans the source, passes each finding to handler, and returns a
 // per-call summary. Recoverable source errors are joined. Returning an error
 // from handler stops the scan. A nil handler discards findings.
 func (d *Scanner) Scan(ctx context.Context, source sources.Source, handler Handler) (ScanSummary, error) {
@@ -87,7 +87,7 @@ type scanState struct {
 func (d *Scanner) run(ctx context.Context, source sources.Source, yield func(Result) bool) (summary ScanSummary) {
 	state := scanState{}
 	if source == nil {
-		_ = yield(Result{Err: errors.New("pipeline: nil source")})
+		_ = yield(Result{Err: errors.New("scanner: nil source")})
 		return state.summary
 	}
 	if ctx == nil {

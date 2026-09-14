@@ -22,7 +22,7 @@ type Rule struct {
 	SecretGroup int
 
 	// Regex is a Go regular expression pattern used to detect secrets.
-	// An empty pattern disables content matching. The detector owns compilation.
+	// An empty pattern disables content matching. Scanner owns compilation.
 	Regex string
 
 	// Path is a Go regular expression pattern used to filter secrets by path.
@@ -47,7 +47,7 @@ type Rule struct {
 
 	// Components are other rules whose matches contribute to this rule.
 	// Required components gate the rule; optional components are attached when found.
-	Components []*Component
+	Components []Component
 
 	SkipReport bool
 
@@ -129,9 +129,6 @@ func (r *Rule) Validate() error {
 
 	seenComponents := make(map[string]struct{}, len(r.Components))
 	for _, component := range r.Components {
-		if component == nil {
-			return fmt.Errorf("%s: component is nil", r.ID)
-		}
 		if strings.TrimSpace(component.RuleID) == "" {
 			return fmt.Errorf("%s: component rule ID is empty", r.ID)
 		}

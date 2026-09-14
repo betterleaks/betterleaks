@@ -69,14 +69,14 @@ func TestConfigValidateRejectsAmbiguousRuleGraph(t *testing.T) {
 		{
 			name: "missing component",
 			rules: []Rule{
-				{ID: "primary", Regex: validRegex, Components: []*Component{{RuleID: "missing"}}},
+				{ID: "primary", Regex: validRegex, Components: []Component{{RuleID: "missing"}}},
 			},
 			want: `component rule ID "missing" does not exist`,
 		},
 		{
 			name: "self component",
 			rules: []Rule{
-				{ID: "primary", Regex: validRegex, Components: []*Component{{RuleID: "primary"}}},
+				{ID: "primary", Regex: validRegex, Components: []Component{{RuleID: "primary"}}},
 			},
 			want: "cannot reference itself",
 		},
@@ -90,8 +90,8 @@ func TestConfigValidateRejectsAmbiguousRuleGraph(t *testing.T) {
 	}
 }
 
-func TestParseDuplicateRuleIDKeepsLastDefinition(t *testing.T) {
-	cfg, err := ParseTOMLString(`
+func TestParseRejectsDuplicateRuleIDs(t *testing.T) {
+	_, err := ParseTOMLString(`
 [[rules]]
 id = "duplicate"
 description = "first"
@@ -102,10 +102,7 @@ id = "duplicate"
 description = "second"
 regex = "second"
 `, "")
-	require.NoError(t, err)
-	require.Len(t, cfg.Rules, 1)
-	require.Equal(t, "second", cfg.Rules[0].Description)
-	require.Equal(t, "second", cfg.Rules[0].Regex)
+	require.ErrorContains(t, err, `duplicate rule ID "duplicate"`)
 }
 
 func TestRuleValidatePatternStrings(t *testing.T) {
@@ -127,7 +124,7 @@ func TestRuleValidatePatternStrings(t *testing.T) {
 	}
 }
 
-func TestParseRejectsInvalidPatternBeforeDuplicateReplacement(t *testing.T) {
+func TestParseRejectsInvalidPattern(t *testing.T) {
 	_, err := ParseTOMLString(`
 [[rules]]
 id = "duplicate"

@@ -86,7 +86,7 @@ func AlgoliaApiKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{32}`, true),
 		Keywords:    []string{"algolia"},
 		Filter:      `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "algolia-application-id"},
 		},
 		ValidateExpr: algoliaValidateExpr,

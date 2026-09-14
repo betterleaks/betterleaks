@@ -70,7 +70,7 @@ func TestValidateCredentialPipeline(t *testing.T) {
 
 func TestValidateCredentialInputs(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
-		{ID: "primary", Regex: `(?P<tenant>tenant)-(?P<secret>key)`, SecretGroup: 2, ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{"identity":{"id":finding.captures["tenant"]}}`, Components: []*config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}}},
+		{ID: "primary", Regex: `(?P<tenant>tenant)-(?P<secret>key)`, SecretGroup: 2, ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{"identity":{"id":finding.captures["tenant"]}}`, Components: []config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}}},
 		{ID: "part", Regex: `part`}, {ID: "optional", Regex: `optional`},
 	}}
 	d := mustNew(t, cfg)
@@ -107,7 +107,7 @@ func TestValidateCredentialComponentsAndRedaction(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
 		{ID: "key", Regex: `key`, ValidateExpr: `finding["secret"] == " raw-secret\n" && finding.captures["tenant"] == "private-tenant" && components["part"].secret == "companion-secret" && components["part"].captures["region"] == "private-region" ? {"result":"valid", "reason":finding["secret"], "analysis":{"owner":"demo-user"}, "metadata": {"echo":components["part"].captures["region"]}} : {"result":"invalid"}`,
 			AnalyzeExpr: `{"identity":{"username":validation["analysis"]["owner"]},"capabilities":["read"],"metadata":{"echo":finding.captures["tenant"]+components["part"].secret}}`,
-			Components:  []*config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}}},
+			Components:  []config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}}},
 		{ID: "part", Regex: `part`}, {ID: "optional", Regex: `optional`},
 	}}
 	d := mustNew(t, cfg)

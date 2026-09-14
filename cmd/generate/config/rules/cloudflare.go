@@ -165,7 +165,7 @@ func CloudflareAPIKeyV2() *config.Rule {
 		Description: "Detected a Cloudflare API key version 2 (cfut/cfat format), potentially granting access to Cloudflare account and service resources.",
 		Regex:       utils.GenerateUniqueTokenRegex(`cf[ua]t_[A-Za-z0-9]{40}[a-f0-9]{8}`, false),
 		Keywords:    []string{"cfut_", "cfat_"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "cloudflare-account-id.1", Optional: true, Within: "5L"},
 		},
 		ValidateExpr: cloudflareAPITokenValidateExpr,

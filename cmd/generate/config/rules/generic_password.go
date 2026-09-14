@@ -21,7 +21,7 @@ func GenericPassword() *config.Rule {
 			"authenticate(", "authenticate (",
 		},
 		Specificity: 20,
-		Components: []*config.Component{
+		Components: []config.Component{
 			{
 				RuleID:   "generic-username",
 				Optional: true,

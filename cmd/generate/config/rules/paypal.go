@@ -47,7 +47,7 @@ func PayPalClientSecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"paypal"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "paypal-client-id.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.post("https://api-m.paypal.com/v1/oauth2/token", {

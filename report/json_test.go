@@ -3,6 +3,8 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,35 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestJSONWritersRespectOutputOwnership(t *testing.T) {
+	for name, newWriter := range map[string]func(io.Writer) (FindingWriter, error){
+		"json": NewJSONWriter, "jsonl": NewJSONLWriter,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := newWriter(nil)
+			require.Error(t, err)
+			var output bytes.Buffer
+			writer, err := newWriter(&output)
+			require.NoError(t, err)
+			require.NoError(t, writer.WriteFinding(simpleFinding))
+			require.NoError(t, writer.Close())
+			finished := output.String()
+			require.NoError(t, writer.Close())
+			require.Equal(t, finished, output.String())
+			require.Error(t, writer.WriteFinding(simpleFinding))
+			_, err = output.WriteString("caller still owns output")
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestJSONWritersPropagateOutputErrors(t *testing.T) {
+	want := errors.New("output disconnected")
+	for _, write := range []func(io.Writer, []Finding) error{WriteJSON, WriteJSONL} {
+		require.ErrorIs(t, write(&failingPrettyWriter{err: want}, []Finding{simpleFinding}), want)
+	}
+}
 
 var simpleFinding = Finding{
 	Description: "",
@@ -37,7 +68,7 @@ var simpleFinding = Finding{
 
 func TestJSONFindingWriterStreams(t *testing.T) {
 	var output bytes.Buffer
-	writer, err := (&JsonReporter{}).NewWriter(&output)
+	writer, err := NewJSONWriter(&output)
 	require.NoError(t, err)
 
 	first := simpleFinding
@@ -57,7 +88,7 @@ func TestJSONFindingWriterStreams(t *testing.T) {
 
 func TestJSONFindingWriterFinalizesEmptyReport(t *testing.T) {
 	var output bytes.Buffer
-	writer, err := (&JsonReporter{}).NewWriter(&output)
+	writer, err := NewJSONWriter(&output)
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 	require.Equal(t, "[]\n", output.String())
@@ -70,7 +101,7 @@ func TestWriteJSONL(t *testing.T) {
 	second.RuleID = "second"
 
 	var output bytes.Buffer
-	require.NoError(t, (&JsonlReporter{}).Write(testWriter{Buffer: &output}, []Finding{first, second}))
+	require.NoError(t, WriteJSONL(testWriter{Buffer: &output}, []Finding{first, second}))
 
 	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
 	require.Len(t, lines, 2)
@@ -83,7 +114,7 @@ func TestWriteJSONL(t *testing.T) {
 
 func TestWriteEmptyJSONL(t *testing.T) {
 	var output bytes.Buffer
-	require.NoError(t, (&JsonlReporter{}).Write(testWriter{Buffer: &output}, nil))
+	require.NoError(t, WriteJSONL(testWriter{Buffer: &output}, nil))
 	require.Empty(t, output.String())
 }
 
@@ -107,14 +138,13 @@ func TestWriteJSON(t *testing.T) {
 			findings:       []Finding{}},
 	}
 
-	reporter := JsonReporter{}
 	for _, test := range tests {
 		t.Run(test.testReportName, func(t *testing.T) {
 			tmpfile, err := os.Create(filepath.Join(t.TempDir(), test.testReportName+".json"))
 			require.NoError(t, err)
 			defer tmpfile.Close()
 
-			err = reporter.Write(tmpfile, test.findings)
+			err = WriteJSON(tmpfile, test.findings)
 			require.NoError(t, err)
 			assert.FileExists(t, tmpfile.Name())
 

@@ -45,7 +45,7 @@ func MuxAccessTokenSecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"mux"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "mux-access-token-id.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.get("https://api.mux.com/video/v1/assets?limit=1", {

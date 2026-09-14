@@ -51,6 +51,10 @@ func WithValidationStatuses(statuses ...report.ValidationStatus) Option {
 
 // New composes a scanner and optional analyzer. A nil analyzer performs local
 // discovery only. Construction starts no workers and performs no provider work.
+// Scanner and Analyzer must use compatible resolved configurations: every emitted
+// rule and its credential requirements must be understood by Analyzer. Using the
+// same configuration for both is sufficient. Incompatibilities return errors when
+// findings reach Analyzer.
 func New(scanner *scan.Scanner, analyzer *analyze.Analyzer, options ...Option) (*Pipeline, error) {
 	if scanner == nil {
 		return nil, errors.New("scanner is required")

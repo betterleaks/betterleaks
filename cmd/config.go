@@ -171,7 +171,7 @@ func fakeFinding() map[string]any {
 		"secret":               "betterleaks-check-secret",
 		"match":                "betterleaks-check-match",
 		"line":                 raw,
-		"rule_id":               "betterleaks-check-rule",
+		"rule_id":              "betterleaks-check-rule",
 		"description":          "betterleaks check rule",
 		"fragment_raw":         raw,
 		"match_start_idx":      0,

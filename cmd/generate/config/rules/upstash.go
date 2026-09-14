@@ -39,7 +39,7 @@ func UpstashRedisRESTToken() *config.Rule {
 			false,
 		),
 		Keywords: []string{"upstash"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "upstash-redis-rest-url.1", Within: "5L"},
 		},
 		ValidateExpr: `let endpoint = (components["upstash-redis-rest-url.1"]?.secret ?? "");

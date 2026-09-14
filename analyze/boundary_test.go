@@ -15,7 +15,7 @@ import (
 
 func TestRecheckReplacesResultsWithoutMutatingInput(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
-		{ID: "key", Regex: `key`, ValidateExpr: `{"result":"invalid"}`, AnalyzeExpr: `{"capabilities":["admin"]}`, Components: []*config.Component{{RuleID: "part"}}},
+		{ID: "key", Regex: `key`, ValidateExpr: `{"result":"invalid"}`, AnalyzeExpr: `{"capabilities":["admin"]}`, Components: []config.Component{{RuleID: "part"}}},
 		{ID: "part", Regex: `part`},
 	}}
 	a := mustNew(t, cfg)
@@ -23,7 +23,7 @@ func TestRecheckReplacesResultsWithoutMutatingInput(t *testing.T) {
 		RuleID: "key", Match: report.Match{Value: "key"}, Confidence: "high",
 		Analysis: report.Analysis{Severity: report.SeverityHigh, Status: report.ValidationStatusValid},
 		ComponentSets: []report.ComponentSet{{
-			Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "companion"}}},
+			Components: []report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "companion"}}},
 			Analysis:   report.Analysis{Severity: report.SeverityHigh, Status: report.ValidationStatusValid},
 		}},
 	}

@@ -1,12 +1,12 @@
 package report
 
 import (
+	"errors"
 	"fmt"
-	"os"
+	"io"
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/internal/color"
@@ -30,15 +30,43 @@ const (
 	minLineNumWidth = 1
 )
 
-// terminalCols reads $COLUMNS, falling back to defaultTermCols. Re-read per finding
-// so tests and resizes pick up new values without a process restart.
-func terminalCols() int {
-	if v := os.Getenv("COLUMNS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= minTermCols {
-			return n
-		}
+// PrettyOptions controls presentation without consulting process-global state.
+type PrettyOptions struct {
+	NoColor bool
+	Redact  uint
+	// Width is the terminal width in columns. Zero uses 100; values below 60 use 60.
+	Width int
+}
+
+// WritePretty writes one finding to w. The caller owns the writer.
+func WritePretty(w io.Writer, finding Finding, options PrettyOptions) error {
+	if w == nil {
+		return errors.New("report writer is nil")
 	}
-	return defaultTermCols
+	if options.Width == 0 {
+		options.Width = defaultTermCols
+	}
+	p := prettyRenderer{w: w, width: max(options.Width, minTermCols)}
+	p.finding(finding, options.NoColor, options.Redact)
+	return p.err
+}
+
+type prettyRenderer struct {
+	w     io.Writer
+	width int
+	err   error
+}
+
+func (p *prettyRenderer) printf(format string, args ...any) {
+	if p.err == nil {
+		_, p.err = fmt.Fprintf(p.w, format, args...)
+	}
+}
+
+func (p *prettyRenderer) println(args ...any) {
+	if p.err == nil {
+		_, p.err = fmt.Fprintln(p.w, args...)
+	}
 }
 
 // displayWidth returns the number of display columns s occupies. Tabs are
@@ -350,9 +378,9 @@ func prettySetIcon(status string, noColor bool) string {
 	}
 }
 
-func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
+func (p *prettyRenderer) components(f Finding, noColor bool, redact uint) {
 	if f.ComponentSetsTruncated {
-		fmt.Println("│ components: combination limit reached; additional combinations omitted")
+		p.println("│ components: combination limit reached; additional combinations omitted")
 	}
 	if len(f.ComponentSets) == 0 {
 		return
@@ -382,9 +410,6 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 		}
 		toRender = append(toRender, set)
 		for _, comp := range set.Components {
-			if comp == nil {
-				continue
-			}
 			k := fmt.Sprintf("%s:%d", comp.RuleID, comp.Location.StartLine)
 			if len(k) > maxKey {
 				maxKey = len(k)
@@ -393,23 +418,20 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 	}
 
 	cGrey := color.New().Foreground("#888888")
-	fmt.Printf("│ components:\n")
+	p.printf("│ components:\n")
 
 	// Each set's first row carries the status icon; continuation rows leave the
 	// icon column blank. The icon's presence-or-absence is the set delimiter.
 	for _, set := range toRender {
 		icon := prettySetIcon(string(set.Analysis.Status), noColor)
 		for j, comp := range set.Components {
-			if comp == nil {
-				continue
-			}
 			key := fmt.Sprintf("%s:%d", comp.RuleID, comp.Location.StartLine)
 			dots := strings.Repeat(".", maxKey+6-len(key))
 			val := redactForDisplay(comp.Match.Value, redact)
 			if j == 0 {
-				fmt.Printf("│   %s  %s %s %s\n", icon, key, dots, val)
+				p.printf("│   %s  %s %s %s\n", icon, key, dots, val)
 			} else {
-				fmt.Printf("│      %s %s %s\n", key, dots, val)
+				p.printf("│      %s %s %s\n", key, dots, val)
 			}
 		}
 	}
@@ -422,20 +444,20 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 		if !noColor {
 			summary = cGrey.Render(summary)
 		}
-		fmt.Printf("│   %s\n", summary)
+		p.printf("│   %s\n", summary)
 	}
 }
 
-func writeHeader(f Finding) {
-	fmt.Printf("┌─%s──○\n", f.RuleID)
-	fmt.Println("│")
+func (p *prettyRenderer) writeHeader(f Finding) {
+	p.printf("┌─%s──○\n", f.RuleID)
+	p.println("│")
 }
 
-func writeRow(lineNum, pad int, body string) {
-	fmt.Printf("│ %-*d │ %s\n", pad, lineNum, body)
+func (p *prettyRenderer) writeRow(lineNum, pad int, body string) {
+	p.printf("│ %-*d │ %s\n", pad, lineNum, body)
 }
 
-func writeCaretRow(pad, padCols, ptrCols int, ptrTruncated bool, label string, noColor bool) {
+func (p *prettyRenderer) writeCaretRow(pad, padCols, ptrCols int, ptrTruncated bool, label string, noColor bool) {
 	if ptrCols < 0 {
 		ptrCols = 0
 	}
@@ -452,31 +474,31 @@ func writeCaretRow(pad, padCols, ptrCols int, ptrTruncated bool, label string, n
 	if !noColor {
 		body = color.New().Bold().Foreground("#ef4444").Render(body)
 	}
-	fmt.Printf("%s%s\n", gutter, body)
+	p.printf("%s%s\n", gutter, body)
 }
 
-func writeMoreLinesRow(pad, hidden int) {
+func (p *prettyRenderer) writeMoreLinesRow(pad, hidden int) {
 	gutter := "│ " + strings.Repeat(" ", pad) + " │ "
-	fmt.Printf("%s%s (%d more lines)\n", gutter, windowEllipsis, hidden)
+	p.printf("%s%s (%d more lines)\n", gutter, windowEllipsis, hidden)
 }
 
-func writeFooter() {
-	fmt.Printf("└○\n\n\n")
+func (p *prettyRenderer) writeFooter() {
+	p.printf("└○\n\n\n")
 }
 
-func (f Finding) printPretty(noColor bool, redact uint) {
+func (p *prettyRenderer) finding(f Finding, noColor bool, redact uint) {
 	if redact > 0 {
 		f = f.RedactedCopy(redact)
 		redact = 0 // Component values were already masked with the full finding.
 	}
 
 	if strings.HasPrefix(strings.TrimSpace(f.Match.Full), "file detected:") {
-		f.printPrettyFileOnly(noColor, redact)
+		p.fileOnly(f, noColor, redact)
 		return
 	}
 
 	work := normalizeSnippet(f)
-	writeHeader(work)
+	p.writeHeader(work)
 
 	rawLines := splitLines(work.Line)
 	if len(rawLines) == 0 {
@@ -486,7 +508,7 @@ func (f Finding) printPretty(noColor bool, redact uint) {
 	// gutterCols is the terminal display width of "│ %*d │ " — 5 single-column
 	// runes (│ + 2 spaces + │ + 1 separator space) plus `pad` digits.
 	gutterCols := pad + 5
-	budget := max(terminalCols()-gutterCols, minTermCols-10)
+	budget := max(p.width-gutterCols, minTermCols-10)
 
 	// Pre-expand tabs in every line so byte positions in the rendered output
 	// equal display columns. The caret pipeline below operates entirely on the
@@ -499,9 +521,9 @@ func (f Finding) printPretty(noColor bool, redact uint) {
 
 	startByte, lenByte, ok := secretByteBounds(work.Line, work.Match.Full, work.Match.Value, work.Location.StartColumn)
 	if !ok {
-		renderLinesOnly(lines, work.Location.StartLine, pad, budget)
-		(&work).printPrettyMeta(noColor, redact)
-		writeFooter()
+		p.renderLinesOnly(lines, work.Location.StartLine, pad, budget)
+		p.meta(work, noColor, redact)
+		p.writeFooter()
 		return
 	}
 
@@ -513,28 +535,28 @@ func (f Finding) printPretty(noColor bool, redact uint) {
 	bytesInSeg := mapping[min(secretByteInSegRaw+rawBytesInSeg, len(mapping)-1)] - secretByteInSeg
 
 	if len(lines) == 1 {
-		renderLineWithCaret(lines[segIdx], work.Location.StartLine, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
+		p.renderLineWithCaret(lines[segIdx], work.Location.StartLine, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
 	} else {
-		renderMultiLine(lines, work.Location.StartLine, segIdx, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
+		p.renderMultiLine(lines, work.Location.StartLine, segIdx, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
 	}
 
-	(&work).printPrettyMeta(noColor, redact)
-	writeFooter()
+	p.meta(work, noColor, redact)
+	p.writeFooter()
 }
 
-func renderLineWithCaret(secretLine string, lineNum, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad int, noColor bool) {
+func (p *prettyRenderer) renderLineWithCaret(secretLine string, lineNum, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad int, noColor bool) {
 	display, secretStartCol, secretLenCol, winTrunc := windowLine(secretLine, secretByteInSeg, bytesInSeg, budget)
-	writeRow(lineNum, pad, display)
+	p.writeRow(lineNum, pad, display)
 
 	ptrTrunc := winTrunc || bytesInSeg < fullSecretLen
 	label := ""
 	if ptrTrunc {
 		label = fmt.Sprintf(" (%d bytes)", fullSecretLen)
 	}
-	writeCaretRow(pad, secretStartCol, secretLenCol, ptrTrunc, label, noColor)
+	p.writeCaretRow(pad, secretStartCol, secretLenCol, ptrTrunc, label, noColor)
 }
 
-func renderLinesOnly(lines []string, startLine, pad, budget int) {
+func (p *prettyRenderer) renderLinesOnly(lines []string, startLine, pad, budget int) {
 	n := len(lines)
 	mark := make([]bool, n)
 	for i := 0; i < maxHeadLines && i < n; i++ {
@@ -547,19 +569,19 @@ func renderLinesOnly(lines []string, startLine, pad, budget int) {
 	}
 	for i := 0; i < n; i++ {
 		if mark[i] {
-			writeRow(startLine+i, pad, fitToBudget(lines[i], budget))
+			p.writeRow(startLine+i, pad, fitToBudget(lines[i], budget))
 			continue
 		}
 		j := i
 		for j < n && !mark[j] {
 			j++
 		}
-		writeMoreLinesRow(pad, j-i)
+		p.writeMoreLinesRow(pad, j-i)
 		i = j - 1
 	}
 }
 
-func renderMultiLine(lines []string, startLine, segIdx, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad int, noColor bool) {
+func (p *prettyRenderer) renderMultiLine(lines []string, startLine, segIdx, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad int, noColor bool) {
 	n := len(lines)
 	mark := make([]bool, n)
 	for i := 0; i < maxHeadLines && i < n; i++ {
@@ -574,10 +596,10 @@ func renderMultiLine(lines []string, startLine, segIdx, secretByteInSeg, bytesIn
 
 	emitLine := func(i int) {
 		if i == segIdx {
-			renderLineWithCaret(lines[i], startLine+i, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad, noColor)
+			p.renderLineWithCaret(lines[i], startLine+i, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad, noColor)
 			return
 		}
-		writeRow(startLine+i, pad, fitToBudget(lines[i], budget))
+		p.writeRow(startLine+i, pad, fitToBudget(lines[i], budget))
 	}
 
 	for i := 0; i < n; i++ {
@@ -589,49 +611,48 @@ func renderMultiLine(lines []string, startLine, segIdx, secretByteInSeg, bytesIn
 		for j < n && !mark[j] {
 			j++
 		}
-		writeMoreLinesRow(pad, j-i)
+		p.writeMoreLinesRow(pad, j-i)
 		i = j - 1
 	}
 }
 
-func (f Finding) printPrettyFileOnly(noColor bool, redact uint) {
+func (p *prettyRenderer) fileOnly(f Finding, noColor bool, redact uint) {
 	f.Match.Full = strings.TrimRight(f.Match.Full, "\r\n")
 	f.Match.Value = strings.TrimRight(f.Match.Value, "\r\n")
 
-	writeHeader(f)
-	fp := &f
-	fp.printPrettyMeta(noColor, redact)
-	writeFooter()
+	p.writeHeader(f)
+	p.meta(f, noColor, redact)
+	p.writeFooter()
 }
 
 // dotLeader prints "│   <key> <dots> <value>" where dots pad so that
 // `key + " " + dots` aligns to a fixed width of `maxKey + 7` columns (matching
 // the longest key, with a minimum of 6 trailing dots after it).
-func dotLeader(key, value string, maxKey int) {
+func (p *prettyRenderer) dotLeader(key, value string, maxKey int) {
 	dots := strings.Repeat(".", maxKey+6-len(key))
-	fmt.Printf("│   %s %s %s\n", key, dots, value)
+	p.printf("│   %s %s %s\n", key, dots, value)
 }
 
-func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
+func (p *prettyRenderer) meta(f Finding, noColor bool, redact uint) {
 	if f.Location.Path != "" || f.Confidence != "" {
 		maxKey := len("path")
 		if f.Confidence != "" {
 			maxKey = len("confidence")
 		}
-		fmt.Println("│")
+		p.println("│")
 		if f.Location.Path != "" {
-			dotLeader("path", f.Location.Path, maxKey)
+			p.dotLeader("path", f.Location.Path, maxKey)
 		}
 		if f.Confidence != "" {
-			dotLeader("confidence", strings.ToUpper(f.Confidence), maxKey)
+			p.dotLeader("confidence", strings.ToUpper(f.Confidence), maxKey)
 		}
 	}
 	attributes := reportAttributes(f.Attributes)
 	if len(attributes) > 0 {
 		if f.Location.Path == "" && f.Confidence == "" {
-			fmt.Println("│")
+			p.println("│")
 		}
-		fmt.Printf("│ attributes:\n")
+		p.printf("│ attributes:\n")
 		maxK := 0
 		keys := make([]string, 0, len(attributes))
 		for k := range attributes {
@@ -642,13 +663,13 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			dotLeader(k, attributes[k], maxK)
+			p.dotLeader(k, attributes[k], maxK)
 		}
 	}
 	if !f.Analysis.IsZero() {
-		f.printPrettyAnalysis(noColor)
+		p.analysis(f, noColor)
 	}
-	f.PrintComponentFindings(noColor, redact)
+	p.components(f, noColor, redact)
 }
 
 func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
@@ -690,7 +711,7 @@ func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
 	return values
 }
 
-func (f *Finding) printPrettyAnalysis(noColor bool) {
+func (p *prettyRenderer) analysis(f Finding, noColor bool) {
 	values := analysisDisplayValues(f.Analysis, noColor)
 
 	keys := make([]string, 0, len(values))
@@ -703,9 +724,9 @@ func (f *Finding) printPrettyAnalysis(noColor bool) {
 		maxKey = max(maxKey, len(key))
 	}
 	sort.Strings(keys)
-	fmt.Printf("│ analysis:\n")
+	p.printf("│ analysis:\n")
 	for _, key := range keys {
-		dotLeader(key, values[key], maxKey)
+		p.dotLeader(key, values[key], maxKey)
 	}
 }
 

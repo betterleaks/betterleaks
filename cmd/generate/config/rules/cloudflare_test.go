@@ -26,7 +26,7 @@ func (transport cloudflareFixtureTransport) RoundTrip(request *http.Request) (*h
 
 func TestCloudflareAPIKeyV2Formats(t *testing.T) {
 	rule := CloudflareAPIKeyV2()
-	require.Equal(t, []*config.Component{{RuleID: "cloudflare-account-id.1", Optional: true, Within: "5L"}}, rule.Components)
+	require.Equal(t, []config.Component{{RuleID: "cloudflare-account-id.1", Optional: true, Within: "5L"}}, rule.Components)
 
 	tests := []struct {
 		name  string

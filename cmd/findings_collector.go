@@ -6,11 +6,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
+
+const stdoutReportPath = "-"
 
 // findingCollector counts and writes findings as they arrive. Reports are
 // streamed so enabling --output does not retain every finding in memory.
@@ -18,6 +21,7 @@ type findingCollector struct {
 	count int
 
 	pretty  bool
+	stdout  io.Writer
 	noColor bool
 	redact  uint
 
@@ -32,16 +36,17 @@ type findingCollector struct {
 func newFindingCollector(flags *ScanFlags, noColor bool, stdout io.Writer) (*findingCollector, error) {
 	collector := &findingCollector{
 		noColor:    noColor,
+		stdout:     stdout,
 		redact:     uint(flags.Redact),
 		reportPath: flags.Output,
 	}
 
 	// A report directed to stdout owns the stream, preventing pretty or JSONL
 	// finding output from being interleaved with the report document.
-	if !flags.Silent && flags.Output != report.StdoutReportPath {
+	if !flags.Silent && flags.Output != stdoutReportPath {
 		if flags.JSONL {
 			var err error
-			collector.stdoutWriter, err = (&report.JsonlReporter{}).NewWriter(stdout)
+			collector.stdoutWriter, err = report.NewJSONLWriter(stdout)
 			if err != nil {
 				return nil, err
 			}
@@ -58,7 +63,7 @@ func newFindingCollector(flags *ScanFlags, noColor bool, stdout io.Writer) (*fin
 	if err != nil {
 		return nil, err
 	}
-	if flags.Output == report.StdoutReportPath {
+	if flags.Output == stdoutReportPath {
 		collector.reportOutput = nopWriteCloser{Writer: stdout}
 	} else {
 		collector.reportOutput, err = os.Create(flags.Output)
@@ -67,7 +72,7 @@ func newFindingCollector(flags *ScanFlags, noColor bool, stdout io.Writer) (*fin
 		}
 		collector.closeReport = true
 	}
-	collector.reportWriter, err = reporter.NewWriter(collector.reportOutput)
+	collector.reportWriter, err = reporter(collector.reportOutput)
 	if err != nil {
 		if collector.closeReport {
 			_ = collector.reportOutput.Close()
@@ -85,19 +90,19 @@ func mustNewFindingCollector(runtime *commandRuntime, flags *ScanFlags, noColor 
 	return collector
 }
 
-func reporterForPath(path string, stdoutJSONL bool) (report.StreamingReporter, error) {
-	if path == report.StdoutReportPath {
+func reporterForPath(path string, stdoutJSONL bool) (func(io.Writer) (report.FindingWriter, error), error) {
+	if path == stdoutReportPath {
 		if stdoutJSONL {
-			return &report.JsonlReporter{}, nil
+			return report.NewJSONLWriter, nil
 		}
-		return &report.JsonReporter{}, nil
+		return report.NewJSONWriter, nil
 	}
 
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".json":
-		return &report.JsonReporter{}, nil
+		return report.NewJSONWriter, nil
 	case ".jsonl":
-		return &report.JsonlReporter{}, nil
+		return report.NewJSONLWriter, nil
 	default:
 		return nil, fmt.Errorf("output path %q must end in .json or .jsonl", path)
 	}
@@ -110,7 +115,13 @@ func (c *findingCollector) Add(finding report.Finding) error {
 	c.count++
 
 	if c.pretty {
-		finding.Print(c.noColor, c.redact)
+		width, _ := strconv.Atoi(os.Getenv("COLUMNS"))
+		if width < 60 {
+			width = 100
+		}
+		if err := report.WritePretty(c.stdout, finding, report.PrettyOptions{NoColor: c.noColor, Redact: c.redact, Width: width}); err != nil {
+			return err
+		}
 	}
 	if c.stdoutWriter == nil && c.reportWriter == nil {
 		return nil
@@ -140,7 +151,7 @@ func (c *findingCollector) Count() int {
 // report file. Files invokes this callback before opening a path, which keeps a
 // scan from consuming the report while the collector is appending to it.
 func (c *findingCollector) FileSkipFunc(configured sources.SkipFunc) sources.SkipFunc {
-	if c.reportPath == "" || c.reportPath == report.StdoutReportPath {
+	if c.reportPath == "" || c.reportPath == stdoutReportPath {
 		return configured
 	}
 

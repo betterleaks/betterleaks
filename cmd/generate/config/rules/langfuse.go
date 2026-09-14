@@ -38,7 +38,7 @@ func LangfuseSecretKey() *config.Rule {
 		Description: "Langfuse secret key, which authenticates project API access when paired with its public key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-lf-`+uuidPattern(), false),
 		Keywords:    []string{"sk-lf-"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "langfuse-public-key.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.get("https://cloud.langfuse.com/api/public/projects", {

@@ -39,7 +39,7 @@ func SalesforceAccessToken() *config.Rule {
 		Description: "Salesforce access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`00[A-Za-z0-9]{13}![A-Za-z0-9._-]{80,260}`, false),
 		Keywords:    []string{"salesforce.com"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "salesforce-instance-url.1", Within: "30L"},
 		},
 		ValidateExpr: `let r = http.get("https://" + (components["salesforce-instance-url.1"]?.secret ?? "") + "/services/data/v67.0/limits", {

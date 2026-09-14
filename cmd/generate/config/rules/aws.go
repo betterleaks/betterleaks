@@ -36,7 +36,7 @@ func AWS() *config.Rule {
 			"ABIA", // AWS STS service bearer token
 			"ACCA", // Context-specific credential
 		},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{
 				RuleID: "aws-secret-access-key",
 				Within: "5L",

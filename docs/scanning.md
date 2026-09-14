@@ -2,6 +2,25 @@
 
 Use `--help` for full flag descriptions. This page is for patterns.
 
+## Provider modes and v1 flag migration
+
+Scan commands validate and analyze supported credentials by default.
+`--no-analysis` retains validation only. `--offline` disables both provider stages;
+fetching a remote source can still use the network. `--no-validation` has been
+removed in favor of `--offline`.
+
+The v1 provider-control aliases are no longer accepted:
+
+| Old flag | v2 flag |
+| :--- | :--- |
+| `--validation-workers` | `--provider-workers` |
+| `--validation-debug` | `--provider-debug` |
+| `--validation-timeout` | `--provider-timeout` |
+| `--validation-max-requests` | `--provider-max-requests` |
+| `--validation-rps` | `--provider-rps` |
+| `--validation-rps-rule` | `--provider-rps-rule` |
+| `--validation-env-vars` | `--provider-env-vars` |
+
 ## Parallel jobs
 
 Use `-j` or `--jobs` to control pipeline width. A positive value bounds source

@@ -86,7 +86,7 @@ func TestApplyRuleSelection(t *testing.T) {
 				{
 					ID:       "github",
 					Keywords: []string{"github"},
-					Components: []*config.Component{
+					Components: []config.Component{
 						{RuleID: "github-client-id"},
 					},
 				},

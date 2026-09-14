@@ -72,7 +72,7 @@ func OVHApplicationSecret() *config.Rule {
             "result": "invalid",
             "reason": "Unauthorized"
           } : validate.unknown(r)))))`,
-		Components: []*config.Component{
+		Components: []config.Component{
 			{
 				RuleID: "ovh-application-key",
 				Within: "20L",

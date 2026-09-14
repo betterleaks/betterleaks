@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +16,17 @@ import (
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
+
+type failedFindingOutput struct{ err error }
+
+func (w failedFindingOutput) Write([]byte) (int, error) { return 0, w.err }
+
+func TestFindingCollectorPropagatesPrettyOutputError(t *testing.T) {
+	want := errors.New("output disconnected")
+	collector, err := newFindingCollector(&ScanFlags{}, true, failedFindingOutput{err: want})
+	require.NoError(t, err)
+	require.ErrorIs(t, collector.Add(testOutputFinding("test")), want)
+}
 
 func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {
 	flags, sink := newFindingOutputCommand(false, "", false, 0)
@@ -29,10 +40,9 @@ func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {
 		sources.AttrFSFirstFragment: "true",
 	})
 
-	output := captureFindingStdout(t, func() {
-		require.NoError(t, collector.Add(finding))
-		require.NoError(t, collector.Close())
-	})
+	require.NoError(t, collector.Add(finding))
+	require.NoError(t, collector.Close())
+	output := sink.String()
 
 	require.Contains(t, output, "default")
 	require.Contains(t, output, "path ............ secrets.txt\n│   confidence ...... LOW\n│ attributes:")
@@ -125,7 +135,7 @@ func TestFindingCollectorReportToStdoutOwnsStream(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			flags, output := newFindingOutputCommand(test.jsonl, report.StdoutReportPath, false, 0)
+			flags, output := newFindingOutputCommand(test.jsonl, stdoutReportPath, false, 0)
 			collector, err := newFindingCollector(flags, true, output)
 			require.NoError(t, err)
 			require.False(t, collector.pretty)
@@ -268,22 +278,6 @@ func testOutputFinding(ruleID string) report.Finding {
 	}
 }
 
-func captureFindingStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	original := os.Stdout
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	os.Stdout = w
-	defer func() { os.Stdout = original }()
-
-	fn()
-	require.NoError(t, w.Close())
-	contents, err := io.ReadAll(r)
-	require.NoError(t, err)
-	require.NoError(t, r.Close())
-	return string(contents)
-}
-
 func TestFindingCollectorPrettyRedactsCompanionsAndAnalysis(t *testing.T) {
 	flags, sink := newFindingOutputCommand(false, "", false, 100)
 	collector, err := newFindingCollector(flags, true, sink)
@@ -295,12 +289,11 @@ func TestFindingCollectorPrettyRedactsCompanionsAndAnalysis(t *testing.T) {
 		Line:          primary + " " + companion,
 		Location:      report.Location{Path: "service.env", StartLine: 1, StartColumn: 1},
 		Analysis:      report.Analysis{Status: report.ValidationStatusValid, Reason: primary + " " + companion},
-		ComponentSets: []report.ComponentSet{{Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: companion}}}}},
+		ComponentSets: []report.ComponentSet{{Components: []report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: companion}}}}},
 	}
-	output := captureFindingStdout(t, func() {
-		require.NoError(t, collector.Add(finding))
-		require.NoError(t, collector.Close())
-	})
+	require.NoError(t, collector.Add(finding))
+	require.NoError(t, collector.Close())
+	output := sink.String()
 	require.NotContains(t, output, primary)
 	require.NotContains(t, output, companion)
 	require.Contains(t, output, "service.env")

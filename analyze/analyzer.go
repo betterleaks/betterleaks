@@ -67,11 +67,7 @@ func New(cfg *config.Config, opts ...Option) (*Analyzer, error) {
 		rule := source
 		rule.Tags = slices.Clone(source.Tags)
 		rule.Keywords = slices.Clone(source.Keywords)
-		rule.Components = make([]*config.Component, len(source.Components))
-		for i, component := range source.Components {
-			copy := *component
-			rule.Components[i] = &copy
-		}
+		rule.Components = slices.Clone(source.Components)
 		a.rules[rule.ID] = rule
 		a.primaryCaptures[rule.ID] = primaryCapture(rule)
 		a.hasValidation = a.hasValidation || rule.ValidateExpr != ""

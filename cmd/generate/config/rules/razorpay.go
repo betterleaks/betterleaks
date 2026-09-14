@@ -44,7 +44,7 @@ func RazorpayKeySecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"razorpay"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "razorpay-key-id.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.get("https://api.razorpay.com/v1/items?count=1", {

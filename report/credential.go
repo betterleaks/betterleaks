@@ -68,9 +68,6 @@ func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 			Analysis: SanitizeAnalysis(set.Analysis, secrets),
 		}
 		for _, component := range set.Components {
-			if component == nil {
-				continue
-			}
 			setResult.Components = append(setResult.Components, CredentialComponentReport{
 				RuleID:   sanitizeCredentialString(component.RuleID, secrets),
 				Optional: component.Optional,

@@ -80,7 +80,7 @@ func ZohoClientSecret() *config.Rule {
 		Description: "Zoho OAuth client secret, which may allow OAuth client authentication when paired with the associated client ID.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"zoho"}, utils.Hex("42"), true),
 		Keywords:    []string{"zoho"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "zoho-client-id.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.post("https://accounts.zoho.com/oauth/v2/token", {

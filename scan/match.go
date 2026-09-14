@@ -30,11 +30,10 @@ func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragmen
 func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Finding {
 	path := fragment.Attr(sources.AttrPath)
 	finding := report.Finding{
-		RuleID:          r.rule.ID,
-		Description:     r.rule.Description,
-		Match:           report.Match{Full: "file detected: " + path},
-		Tags:            append([]string{}, r.rule.Tags...),
-		RuleSpecificity: r.rule.Specificity,
+		RuleID:      r.rule.ID,
+		Description: r.rule.Description,
+		Match:       report.Match{Full: "file detected: " + path},
+		Tags:        append([]string{}, r.rule.Tags...),
 	}
 	finding.SetAttributes(fragment.Attributes)
 	if r.rule.Confidence != "" {
@@ -207,13 +206,7 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 		rule := source
 		rule.Keywords = slices.Clone(source.Keywords)
 		rule.Tags = slices.Clone(source.Tags)
-		if len(source.Components) > 0 {
-			rule.Components = make([]*config.Component, len(source.Components))
-			for componentIndex, component := range source.Components {
-				copy := *component
-				rule.Components[componentIndex] = &copy
-			}
-		}
+		rule.Components = slices.Clone(source.Components)
 		compiled := compiledRule{rule: rule, filter: &lazyFilter{}}
 		if rule.Regex != "" {
 			var err error
@@ -338,12 +331,11 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
-			RuleID:          r.rule.ID,
-			Description:     r.rule.Description,
-			Line:            strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
-			Match:           report.Match{Full: secret, Value: secret},
-			Tags:            tags,
-			RuleSpecificity: r.rule.Specificity,
+			RuleID:      r.rule.ID,
+			Description: r.rule.Description,
+			Line:        strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
+			Match:       report.Match{Full: secret, Value: secret},
+			Tags:        tags,
 			Location: report.Location{
 				StartLine:   prevFragmentEndLine + loc.startLine,
 				EndLine:     prevFragmentEndLine + loc.endLine,
@@ -423,11 +415,11 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		// Build finding map once, only when at least one filter program is compiled.
 		var findingMap map[string]any
-		var exprAttributes map[string]string
+		var filterAttributes map[string]string
 		if hasGlobalFilter || hasRuleFilter {
-			exprAttributes = finding.ExprAttributes()
+			filterAttributes = exprAttributes(finding)
 			findingMap = make(map[string]any, 12)
-			for key, value := range finding.ToExprMap() {
+			for key, value := range exprFinding(finding) {
 				findingMap[key] = value
 			}
 			findingMap["captures"] = finding.Match.Captures
@@ -454,8 +446,8 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		if prg, ok, err := d.globalFilterProgram(); err != nil {
 			logger.Warn("global filter compile error", "error", err)
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, exprAttributes)
-			promoteConfidence(&finding, findingMap, exprAttributes)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
+			promoteConfidence(&finding, findingMap, filterAttributes)
 			if err != nil {
 				logger.Warn("global filter eval error", "error", err)
 			} else if skip {
@@ -468,8 +460,8 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
 			logger.Warn("rule filter compile error", "error", err)
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, exprAttributes)
-			promoteConfidence(&finding, findingMap, exprAttributes)
+			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
+			promoteConfidence(&finding, findingMap, filterAttributes)
 			if err != nil {
 				logger.Warn("rule filter eval error", "error", err)
 			} else if skip {
@@ -528,7 +520,7 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 
 	// Process each primary finding against the pre-collected component findings.
 	for _, primaryFinding := range primaryFindings {
-		var componentFindings []*report.ComponentFinding
+		var componentFindings []report.ComponentFinding
 
 		for _, component := range r.rule.Components {
 			foundComponentFindings, exists := allComponentFindings[component.RuleID]
@@ -539,13 +531,12 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 
 			for _, found := range foundComponentFindings {
 				if withinProximity(fragment.Raw, fragment.StartLine, primaryFinding, found, window) {
-					componentFindings = append(componentFindings, &report.ComponentFinding{
-						RuleID:          found.RuleID,
-						Optional:        component.Optional,
-						Line:            found.Line,
-						Match:           found.Match,
-						Location:        found.Location,
-						RuleSpecificity: found.RuleSpecificity,
+					componentFindings = append(componentFindings, report.ComponentFinding{
+						RuleID:   found.RuleID,
+						Optional: component.Optional,
+						Line:     found.Line,
+						Match:    found.Match,
+						Location: found.Location,
 					})
 				}
 			}
@@ -553,7 +544,7 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 
 		if d.hasAllRequiredComponents(componentFindings, r.rule.Components) {
 			newFinding := primaryFinding
-			newFinding.BuildComponentSets(componentFindings, maxComponentSets)
+			newFinding.ComponentSets, newFinding.ComponentSetsTruncated = buildComponentSets(componentFindings, maxComponentSets)
 			finalFindings = append(finalFindings, newFinding)
 
 			logger.Debug("multi-part rule satisfied",
@@ -568,7 +559,7 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 }
 
 // hasAllRequiredComponents checks that every required component has a nearby match.
-func (d *Scanner) hasAllRequiredComponents(componentFindings []*report.ComponentFinding, components []*config.Component) bool {
+func (d *Scanner) hasAllRequiredComponents(componentFindings []report.ComponentFinding, components []config.Component) bool {
 	foundRules := make(map[string]bool)
 	for _, finding := range componentFindings {
 		foundRules[finding.RuleID] = true
@@ -656,9 +647,9 @@ func (d *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bo
 	if d.globalFilterExpr == "" && r.rule.Filter == "" {
 		return false
 	}
-	attrs := finding.ExprAttributes()
+	attrs := exprAttributes(*finding)
 	values := make(map[string]any, 15)
-	for key, value := range finding.ToExprMap() {
+	for key, value := range exprFinding(*finding) {
 		values[key] = value
 	}
 	values["captures"] = map[string]string{}

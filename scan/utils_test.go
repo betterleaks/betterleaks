@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"github.com/betterleaks/betterleaks/v2/config"
 	"log/slog"
 	"path/filepath"
 	"testing"
@@ -11,7 +12,15 @@ import (
 )
 
 func filterForTest(findings []report.Finding) []report.Finding {
-	scanner := Scanner{logger: slog.New(slog.DiscardHandler)}
+	scanner := Scanner{logger: slog.New(slog.DiscardHandler), ruleIndexByID: make(map[string]int)}
+	for id, specificity := range map[string]int{
+		"generic-username": 100, "specific-rule": 100,
+		"generic-password": 20, "generic-rule": 20, "composite-rule": 50,
+		"outer-primary": 0, "nested-composite": 0, "leaf": 0,
+	} {
+		scanner.ruleIndexByID[id] = len(scanner.rulesBySpecificity)
+		scanner.rulesBySpecificity = append(scanner.rulesBySpecificity, compiledRule{rule: config.Rule{ID: id, Specificity: specificity}})
+	}
 	return scanner.filter(findings)
 }
 
@@ -25,12 +34,11 @@ func TestSamePath(t *testing.T) {
 }
 
 func TestFilterTracksComponentOwnership(t *testing.T) {
-	component := &report.ComponentFinding{
+	component := report.ComponentFinding{
 		RuleID: "generic-username",
 		Location: report.Location{
 			StartLine: 170},
-		Match:           report.Match{Value: "invalid"},
-		RuleSpecificity: 100,
+		Match: report.Match{Value: "invalid"},
 	}
 
 	t.Run("preserves a primary matching its own component", func(t *testing.T) {
@@ -39,10 +47,8 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			Location: report.Location{
 				StartLine: 170},
 			Match: report.Match{Full: "password: 'invalid'", Value: "invalid"},
-
-			RuleSpecificity: 20,
 			ComponentSets: []report.ComponentSet{
-				{Components: []*report.ComponentFinding{component}},
+				{Components: []report.ComponentFinding{component}},
 			},
 		}
 
@@ -55,10 +61,8 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			Location: report.Location{
 				StartLine: 170},
 			Match: report.Match{Full: "password: 'hunter2'", Value: "hunter2"},
-
-			RuleSpecificity: 20,
 			ComponentSets: []report.ComponentSet{
-				{Components: []*report.ComponentFinding{component}},
+				{Components: []report.ComponentFinding{component}},
 			},
 		}
 		standaloneComponent := report.Finding{
@@ -78,7 +82,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 				StartLine: 170},
 			Match: report.Match{Value: "hunter2"},
 			ComponentSets: []report.ComponentSet{
-				{Components: []*report.ComponentFinding{{
+				{Components: []report.ComponentFinding{{
 					RuleID: "generic-username",
 					Location: report.Location{
 						StartLine:   170,
@@ -118,23 +122,19 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 	})
 
 	t.Run("allows another owner's component to take precedence", func(t *testing.T) {
-		ownedComponent := &report.ComponentFinding{
+		ownedComponent := report.ComponentFinding{
 			RuleID: "specific-rule",
 			Location: report.Location{
 				StartLine: 170},
 			Match: report.Match{Full: "credential: 'prefix-invalid-suffix'", Value: "prefix-invalid-suffix"},
-
-			RuleSpecificity: 100,
 		}
 		primary := report.Finding{
 			RuleID: "composite-rule",
 			Location: report.Location{
 				StartLine: 169},
 			Match: report.Match{Full: "composite: 'hunter2'", Value: "hunter2"},
-
-			RuleSpecificity: 50,
 			ComponentSets: []report.ComponentSet{
-				{Components: []*report.ComponentFinding{ownedComponent}},
+				{Components: []report.ComponentFinding{ownedComponent}},
 			},
 		}
 		standalone := report.Finding{
@@ -142,15 +142,13 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 			Location: report.Location{
 				StartLine: 170},
 			Match: report.Match{Full: "credential: 'invalid'", Value: "invalid"},
-
-			RuleSpecificity: 20,
 		}
 
 		assert.Equal(t, []report.Finding{primary}, filterForTest([]report.Finding{primary, standalone}))
 	})
 
 	t.Run("suppresses a composite surfaced inside another primary", func(t *testing.T) {
-		nestedComponent := &report.ComponentFinding{
+		nestedComponent := report.ComponentFinding{
 			RuleID: "nested-composite",
 			Location: report.Location{
 				StartLine: 170},
@@ -162,7 +160,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 				StartLine: 169},
 			Match: report.Match{Value: "outer"},
 			ComponentSets: []report.ComponentSet{
-				{Components: []*report.ComponentFinding{nestedComponent}},
+				{Components: []report.ComponentFinding{nestedComponent}},
 			},
 		}
 		nestedPrimary := report.Finding{
@@ -171,7 +169,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 				StartLine: 170},
 			Match: report.Match{Value: "shared"},
 			ComponentSets: []report.ComponentSet{
-				{Components: []*report.ComponentFinding{{RuleID: "leaf",
+				{Components: []report.ComponentFinding{{RuleID: "leaf",
 					Location: report.Location{
 						StartLine: 171},
 					Match: report.Match{Value: "leaf"}}}},

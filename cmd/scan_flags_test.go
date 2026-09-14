@@ -24,7 +24,6 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"match-context",
 		"max-decode-depth",
 		"max-archive-depth",
-		"no-validation",
 		"offline",
 		"validation-status",
 		"provider-workers",
@@ -93,7 +92,6 @@ func TestScanProviderModes(t *testing.T) {
 	}{
 		{name: "default", validationEnabled: true, analysisEnabled: true},
 		{name: "analysis disabled", flags: []string{"--no-analysis"}, validationEnabled: true},
-		{name: "validation disabled", flags: []string{"--no-validation"}},
 		{name: "offline", flags: []string{"--offline"}},
 	}
 
@@ -109,7 +107,7 @@ func TestScanProviderModes(t *testing.T) {
 }
 
 func TestRemovedProviderFlagsAreRejected(t *testing.T) {
-	for _, flag := range []string{"--validation", "--analysis", "--validation-extract-empty"} {
+	for _, flag := range []string{"--validation", "--analysis", "--validation-extract-empty", "--no-validation"} {
 		_, err := parseCLIForTest(t, "dir", flag)
 		require.Error(t, err, flag)
 	}

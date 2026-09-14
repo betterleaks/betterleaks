@@ -40,7 +40,7 @@ func EBayClientSecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"ebay"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "ebay-client-id"},
 		},
 		ValidateExpr: `let clientID = (components["ebay-client-id"]?.secret ?? "");

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
-	"github.com/betterleaks/betterleaks/v2/internal/limits"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
@@ -43,8 +42,9 @@ type Finding struct {
 
 	Tags []string `json:"tags"`
 
-	Line            string `json:"-"`
-	RuleSpecificity int    `json:"-"`
+	// Line is source text retained for pretty-output snippets. It is not serialized
+	// or exposed to provider expressions.
+	Line string `json:"-"`
 }
 
 // MarshalJSON omits internal attributes and limits Git message metadata to its
@@ -107,95 +107,17 @@ type Location struct {
 // matched component rule) from the Cartesian product. Each set can be validated
 // independently and carries its own Analysis result.
 type ComponentSet struct {
-	Components []*ComponentFinding `json:"components"`
-	Analysis   Analysis            `json:"analysis,omitzero"`
+	Components []ComponentFinding `json:"components"`
+	Analysis   Analysis           `json:"analysis,omitzero"`
 }
 
 // ComponentFinding is the discovery information for one component match.
 type ComponentFinding struct {
-	RuleID          string   `json:"rule_id"`
-	Optional        bool     `json:"optional,omitempty"`
-	Match           Match    `json:"match"`
-	Location        Location `json:"location"`
-	Line            string   `json:"-"`
-	RuleSpecificity int      `json:"-"`
-}
-
-// BuildComponentSets generates the Cartesian product of the given component findings
-// grouped by RuleID and populates f.ComponentSets. maxComponentSets caps the total number of
-// combos to prevent excessive memory use.
-func (f *Finding) BuildComponentSets(componentFindings []*ComponentFinding, maxComponentSets int) {
-	maxComponentSets = min(maxComponentSets, limits.ComponentSets)
-	f.ComponentSetsTruncated = false
-	if len(componentFindings) == 0 {
-		f.ComponentSets = nil
-		return
-	}
-
-	// Group by RuleID, preserving first-occurrence order.
-	var ruleOrder []string
-	byRule := make(map[string][]*ComponentFinding)
-	for _, rf := range componentFindings {
-		if _, exists := byRule[rf.RuleID]; !exists {
-			ruleOrder = append(ruleOrder, rf.RuleID)
-		}
-		byRule[rf.RuleID] = append(byRule[rf.RuleID], rf)
-	}
-
-	// Count only up to the limit, without overflowing or enumerating extra sets.
-	total := 1
-	for _, id := range ruleOrder {
-		if maxComponentSets <= 0 || total > maxComponentSets/len(byRule[id]) {
-			f.ComponentSetsTruncated = true
-			break
-		}
-		total *= len(byRule[id])
-	}
-	if maxComponentSets <= 0 {
-		f.ComponentSets = nil
-		return
-	}
-	products := cartesianFindings(ruleOrder, byRule, maxComponentSets)
-	f.ComponentSets = make([]ComponentSet, len(products))
-	for i, components := range products {
-		f.ComponentSets[i] = ComponentSet{Components: components}
-	}
-}
-
-// cartesianFindings computes the Cartesian product over ComponentFinding slices
-// keyed by ruleOrder. It stops early once maxComponentSets is reached.
-func cartesianFindings(ruleOrder []string, byRule map[string][]*ComponentFinding, maxComponentSets int) [][]*ComponentFinding {
-	if maxComponentSets <= 0 {
-		return nil
-	}
-	for _, id := range ruleOrder {
-		if len(byRule[id]) == 0 {
-			return nil
-		}
-	}
-	// Mixed-radix enumeration retains only the bounded output and one index per
-	// component. Recursive intermediate products can otherwise dwarf the cap.
-	indexes := make([]int, len(ruleOrder))
-	var result [][]*ComponentFinding
-	for len(result) < maxComponentSets {
-		row := make([]*ComponentFinding, len(ruleOrder))
-		for i, id := range ruleOrder {
-			row[i] = byRule[id][indexes[i]]
-		}
-		result = append(result, row)
-		position := len(indexes) - 1
-		for ; position >= 0; position-- {
-			indexes[position]++
-			if indexes[position] < len(byRule[ruleOrder[position]]) {
-				break
-			}
-			indexes[position] = 0
-		}
-		if position < 0 {
-			break
-		}
-	}
-	return result
+	RuleID   string   `json:"rule_id"`
+	Optional bool     `json:"optional,omitempty"`
+	Match    Match    `json:"match"`
+	Location Location `json:"location"`
+	Line     string   `json:"-"`
 }
 
 // Redact removes sensitive information from a finding.
@@ -240,16 +162,9 @@ func (f *Finding) Redact(percent uint) {
 	redactMatch(&f.Match)
 	f.Line = replacer.Replace(f.Line)
 	f.MatchContext = replacer.Replace(f.MatchContext)
-	seen := make(map[*ComponentFinding]struct{})
 	for _, set := range f.ComponentSets {
-		for _, component := range set.Components {
-			if component == nil {
-				continue
-			}
-			if _, ok := seen[component]; ok {
-				continue
-			}
-			seen[component] = struct{}{}
+		for i := range set.Components {
+			component := &set.Components[i]
 			component.RuleID = replacer.Replace(component.RuleID)
 			component.Location.Path = replacer.Replace(component.Location.Path)
 			redactMatch(&component.Match)
@@ -278,28 +193,14 @@ func (f Finding) Clone() Finding {
 	f.Analysis = cloneAnalysis(f.Analysis)
 	f.Match.Captures = maps.Clone(f.Match.Captures)
 
-	if len(f.ComponentSets) > 0 {
-		componentCopies := make(map[*ComponentFinding]*ComponentFinding)
-		sets := make([]ComponentSet, len(f.ComponentSets))
-		for i, set := range f.ComponentSets {
-			sets[i] = set
-			sets[i].Analysis = cloneAnalysis(set.Analysis)
-			sets[i].Components = make([]*ComponentFinding, len(set.Components))
-			for j, component := range set.Components {
-				if component == nil {
-					continue
-				}
-				componentCopy, ok := componentCopies[component]
-				if !ok {
-					copyValue := *component
-					copyValue.Match.Captures = maps.Clone(component.Match.Captures)
-					componentCopy = &copyValue
-					componentCopies[component] = componentCopy
-				}
-				sets[i].Components[j] = componentCopy
-			}
+	f.ComponentSets = slices.Clone(f.ComponentSets)
+	for i := range f.ComponentSets {
+		set := &f.ComponentSets[i]
+		set.Analysis = cloneAnalysis(set.Analysis)
+		set.Components = slices.Clone(set.Components)
+		for j := range set.Components {
+			set.Components[j].Match.Captures = maps.Clone(set.Components[j].Match.Captures)
 		}
-		f.ComponentSets = sets
 	}
 	return f
 }
@@ -321,11 +222,6 @@ func MaskSecret(secret string, percent uint) string {
 	keep := int(math.RoundToEven(total * prc / float64(100)))
 
 	return string(runes[:keep]) + "..."
-}
-
-// Print writes a verbose finding using the pretty box format.
-func (f Finding) Print(noColor bool, redact uint) {
-	f.printPretty(noColor, redact)
 }
 
 // locateMatch returns the byte index of match within rawLine, using startCol
@@ -406,47 +302,12 @@ func (f *Finding) SetAttributes(attrs map[string]string) {
 	}
 }
 
-// ExprAttributes returns the source attributes used by rule expressions, including
-// the promoted path. The map is independent of the finding so local helpers may
-// write to it. Report consumers should use Location.Path.
-func (f Finding) ExprAttributes() map[string]string {
-	attrs := make(map[string]string, len(f.Attributes)+1)
-	maps.Copy(attrs, f.Attributes)
-	delete(attrs, sources.AttrPath)
-	if f.Location.Path != "" {
-		attrs[sources.AttrPath] = f.Location.Path
-	}
-	return attrs
-}
-
-// ToExprMap returns the fixed-shape map[string]string used as the `finding`
-// variable in filter, validation, and analysis expressions.
-func (f *Finding) ToExprMap() map[string]string {
-	return map[string]string{
-		"secret":      f.Match.Value,
-		"match":       f.Match.Full,
-		"line":        f.Line,
-		"rule_id":     f.RuleID,
-		"description": f.Description,
-		"confidence":  f.Confidence,
-		"context":     f.MatchContext,
-	}
-}
-
 // CredentialValues returns primary and component values and captures that must
 // be sanitized before exporting provider results. Empty values are harmless.
 func (f Finding) CredentialValues() []string {
 	values := matchValues(nil, f.Match)
-	seen := make(map[*ComponentFinding]struct{})
 	for _, set := range f.ComponentSets {
 		for _, c := range set.Components {
-			if c == nil {
-				continue
-			}
-			if _, ok := seen[c]; ok {
-				continue
-			}
-			seen[c] = struct{}{}
 			values = matchValues(values, c.Match)
 		}
 	}

@@ -136,9 +136,6 @@ func (p *Pool) worker() {
 				components := make(map[string]any, len(set.Components))
 				cacheComponents := make(map[string]cacheComponent, len(set.Components))
 				for _, comp := range set.Components {
-					if comp == nil {
-						continue
-					}
 					captures := comp.Match.Captures
 					if captures == nil {
 						captures = map[string]string{}

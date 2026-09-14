@@ -63,7 +63,7 @@ func TableauPersonalAccessToken() *config.Rule {
 		Description: "Tableau personal access token.",
 		Regex:       `\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`,
 		Keywords:    []string{"tableau"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "tableau-personal-access-token-name.1", Within: "20L"},
 			{RuleID: "tableau-server-host.1", Within: "20L"},
 		},

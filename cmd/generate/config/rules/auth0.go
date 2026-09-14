@@ -73,7 +73,7 @@ func Auth0ClientSecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"auth0"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "auth0-client-id.1", Within: "10L"},
 			{RuleID: "auth0-domain.1", Within: "10L"},
 		},

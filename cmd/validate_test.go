@@ -557,7 +557,7 @@ let r2 = http.get(%q, {});
 		"validate",
 		"--config", configPath,
 		"--rule-id", "limited-token",
-		"--validation-max-requests", "1",
+		"--provider-max-requests", "1",
 		"--jsonl",
 		"limited-secret",
 	})
@@ -713,7 +713,7 @@ validate = '''{"result": "valid"}'''
 		},
 		{
 			name: "validation debug",
-			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--validation-debug", "secret"},
+			args: []string{"validate", "--config", configPath, "--rule-id", "simple", "--provider-debug", "secret"},
 			want: "unknown flag --provider-debug",
 		},
 		{

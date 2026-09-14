@@ -45,7 +45,7 @@ func PlivoAuthToken() *config.Rule {
 			false,
 		),
 		Keywords: []string{"plivo"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "plivo-auth-id"},
 		},
 		ValidateExpr: `let authID = (components["plivo-auth-id"]?.secret ?? "");

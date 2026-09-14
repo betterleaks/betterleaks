@@ -29,7 +29,6 @@ type ScanFlags struct {
 	MaxDecodeDepth      int        `name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
 	MaxArchiveDepth     int        `name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
 
-	NoValidation         bool   `name:"no-validation" help:"Disable validation and analysis of findings."`
 	NoAnalysis           bool   `name:"no-analysis" help:"Disable credential analysis while retaining validation."`
 	Offline              bool   `help:"Disable validation and analysis provider requests; source fetching may still use the network."`
 	ValidationStatus     string `name:"validation-status" help:"Comma-separated validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none."`
@@ -52,7 +51,7 @@ func (f ScanFlags) Validate() error {
 }
 
 func (f ScanFlags) validationEnabled() bool {
-	return !f.NoValidation && !f.Offline
+	return !f.Offline
 }
 
 func (f ScanFlags) analysisEnabled() bool {

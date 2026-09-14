@@ -1,37 +1,19 @@
 package cmd
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-func TestNormalizeProviderFlagAliases(t *testing.T) {
-	args, err := normalizeProviderFlagAliases([]string{
-		"dir",
-		"--validation-workers", "4",
-		"--validation-timeout=2s",
-		"--validation-rps-rule", "github-pat=1",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, []string{
-		"dir",
-		"--provider-workers", "4",
-		"--provider-timeout=2s",
-		"--provider-rps-rule", "github-pat=1",
-	}, args)
-}
-
-func TestNormalizeProviderFlagAliasesRejectsMixedSpellings(t *testing.T) {
-	_, err := normalizeProviderFlagAliases([]string{
-		"dir", "--provider-timeout", "1s", "--validation-timeout", "2s",
-	})
-	require.ErrorContains(t, err, "cannot be combined")
-}
-
-func TestNormalizeProviderFlagAliasesLeavesArgumentsAfterTerminator(t *testing.T) {
-	args, err := normalizeProviderFlagAliases([]string{"validate", "--", "--validation-timeout"})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"validate", "--", "--validation-timeout"}, args)
+func TestLegacyProviderFlagsRejected(t *testing.T) {
+	for _, flag := range []string{
+		"--validation-workers=4", "--validation-debug", "--validation-timeout=2s",
+		"--validation-max-requests=5", "--validation-rps=1", "--validation-rps-rule=github-pat=1",
+		"--validation-env-vars=GITHUB_BASE_URL",
+	} {
+		t.Run(flag, func(t *testing.T) {
+			_, err := parseCLIForTest(t, "dir", flag)
+			require.ErrorContains(t, err, "unknown flag")
+		})
+	}
 }

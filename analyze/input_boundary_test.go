@@ -25,12 +25,12 @@ func TestMalformedFindingsNeverReachProvider(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
 		{ID: "key", Regex: `(?P<tenant>tenant):(?P<token>token)`, SecretGroup: 2,
 			ValidateExpr: fmt.Sprintf(`let r=http.get(%q, {}); {"result": finding.captures.tenant != "" && components.part.captures.region != "" ? "valid" : "invalid"}`, server.URL),
-			Components:   []*config.Component{{RuleID: "part"}}},
+			Components:   []config.Component{{RuleID: "part"}}},
 		{ID: "part", Regex: `part`},
 	}}
 	a, err := analyze.New(cfg)
 	require.NoError(t, err)
-	valid := report.Finding{RuleID: "key", Match: report.Match{Value: "primary-value", Captures: map[string]string{"tenant": "tenant-value"}}, ComponentSets: []report.ComponentSet{{Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "part-value", Captures: map[string]string{"region": "region-value"}}}}}}}
+	valid := report.Finding{RuleID: "key", Match: report.Match{Value: "primary-value", Captures: map[string]string{"tenant": "tenant-value"}}, ComponentSets: []report.ComponentSet{{Components: []report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "part-value", Captures: map[string]string{"region": "region-value"}}}}}}}
 	for _, tc := range []struct {
 		name   string
 		change func(*report.Finding)
@@ -42,7 +42,6 @@ func TestMalformedFindingsNeverReachProvider(t *testing.T) {
 		{"inconsistent primary capture", func(f *report.Finding) { f.Match.Captures["token"] = "another-value" }, "disagrees"},
 		{"no sets", func(f *report.Finding) { f.ComponentSets = nil }, "missing required component"},
 		{"empty set", func(f *report.Finding) { f.ComponentSets[0].Components = nil }, "missing required component"},
-		{"nil component", func(f *report.Finding) { f.ComponentSets[0].Components[0] = nil }, "nil component"},
 		{"extra component", func(f *report.Finding) { f.ComponentSets[0].Components[0].RuleID = "extra" }, "not declared"},
 		{"duplicate component", func(f *report.Finding) {
 			f.ComponentSets[0].Components = append(f.ComponentSets[0].Components, f.ComponentSets[0].Components[0])
@@ -83,7 +82,7 @@ func TestBoundedComponentSearchReportsIncomplete(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			cfg := &config.Config{Rules: []config.Rule{{ID: "key", Regex: `PRIMARY`, ValidateExpr: fmt.Sprintf(`let r=http.get(%q+"/"+components.part.secret, {}); {"result":r.status==200 ? "valid" : "invalid"}`, server.URL), Components: []*config.Component{{RuleID: "part"}}}, {ID: "part", Regex: `part_[0-9]{3}`, SkipReport: true}}}
+			cfg := &config.Config{Rules: []config.Rule{{ID: "key", Regex: `PRIMARY`, ValidateExpr: fmt.Sprintf(`let r=http.get(%q+"/"+components.part.secret, {}); {"result":r.status==200 ? "valid" : "invalid"}`, server.URL), Components: []config.Component{{RuleID: "part"}}}, {ID: "part", Regex: `part_[0-9]{3}`, SkipReport: true}}}
 			scanner, err := scan.New(cfg)
 			require.NoError(t, err)
 			var content strings.Builder
@@ -148,10 +147,10 @@ func TestProducerOwnsInputAfterYield(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { close(started); <-release; w.WriteHeader(200) }))
 	defer server.Close()
-	cfg := &config.Config{Rules: []config.Rule{{ID: "key", Regex: `TOKEN`, ValidateExpr: fmt.Sprintf(`let r=http.get(%q, {}); {"result": finding.captures.tenant=="before" && components.part.captures.region=="before" ? "valid" : "invalid"}`, server.URL), Components: []*config.Component{{RuleID: "part"}}}, {ID: "part", Regex: `PART`}}}
+	cfg := &config.Config{Rules: []config.Rule{{ID: "key", Regex: `TOKEN`, ValidateExpr: fmt.Sprintf(`let r=http.get(%q, {}); {"result": finding.captures.tenant=="before" && components.part.captures.region=="before" ? "valid" : "invalid"}`, server.URL), Components: []config.Component{{RuleID: "part"}}}, {ID: "part", Regex: `PART`}}}
 	a, err := analyze.New(cfg)
 	require.NoError(t, err)
-	f := report.Finding{RuleID: "key", Match: report.Match{Value: "TOKEN", Captures: map[string]string{"tenant": "before"}}, Attributes: map[string]string{"application": "before"}, Tags: []string{"before"}, ComponentSets: []report.ComponentSet{{Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "PART", Captures: map[string]string{"region": "before"}}}}}}}
+	f := report.Finding{RuleID: "key", Match: report.Match{Value: "TOKEN", Captures: map[string]string{"tenant": "before"}}, Attributes: map[string]string{"application": "before"}, Tags: []string{"before"}, ComponentSets: []report.ComponentSet{{Components: []report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "PART", Captures: map[string]string{"region": "before"}}}}}}}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	var got report.Finding

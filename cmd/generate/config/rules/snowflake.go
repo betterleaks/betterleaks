@@ -41,7 +41,7 @@ func SnowflakeProgrammaticAccessToken() *config.Rule {
 			false,
 		),
 		Keywords: []string{"snowflake", "sf_token"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "snowflake-account-host.1", Within: "30L"},
 		},
 		ValidateExpr: `let r = http.post("https://" + (components["snowflake-account-host.1"]?.secret ?? "") + "/api/v2/statements", {

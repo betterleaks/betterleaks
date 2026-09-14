@@ -6,26 +6,8 @@ import (
 	"io"
 )
 
-type JsonReporter struct {
-}
-
-var _ Reporter = (*JsonReporter)(nil)
-var _ StreamingReporter = (*JsonReporter)(nil)
-
-func (t *JsonReporter) Write(w io.WriteCloser, findings []Finding) error {
-	writer, err := t.NewWriter(w)
-	if err != nil {
-		return err
-	}
-	for _, finding := range findings {
-		if err := writer.WriteFinding(finding); err != nil {
-			return err
-		}
-	}
-	return writer.Close()
-}
-
-func (t *JsonReporter) NewWriter(w io.Writer) (FindingWriter, error) {
+// NewJSONWriter starts a JSON array. Close finishes the array without closing w.
+func NewJSONWriter(w io.Writer) (FindingWriter, error) {
 	if w == nil {
 		return nil, errors.New("report writer is nil")
 	}
@@ -33,6 +15,24 @@ func (t *JsonReporter) NewWriter(w io.Writer) (FindingWriter, error) {
 		return nil, err
 	}
 	return &jsonFindingWriter{w: w}, nil
+}
+
+// WriteJSON writes findings as a JSON array without closing w.
+func WriteJSON(w io.Writer, findings []Finding) error {
+	writer, err := NewJSONWriter(w)
+	if err != nil {
+		return err
+	}
+	return writeFindings(writer, findings)
+}
+
+func writeFindings(w FindingWriter, findings []Finding) error {
+	for _, finding := range findings {
+		if err := w.WriteFinding(finding); err != nil {
+			return err
+		}
+	}
+	return w.Close()
 }
 
 type jsonFindingWriter struct {
@@ -84,31 +84,19 @@ func (w *jsonFindingWriter) Close() error {
 	return err
 }
 
-// JsonlReporter writes one compact JSON finding per line.
-type JsonlReporter struct{}
-
-var _ Reporter = (*JsonlReporter)(nil)
-var _ StreamingReporter = (*JsonlReporter)(nil)
-
-func (r *JsonlReporter) Write(w io.WriteCloser, findings []Finding) error {
-	writer, err := r.NewWriter(w)
-	if err != nil {
-		return err
-	}
-	for _, finding := range findings {
-		if err := writer.WriteFinding(finding); err != nil {
-			return err
-		}
-	}
-	return writer.Close()
-}
-
-func (r *JsonlReporter) NewWriter(w io.Writer) (FindingWriter, error) {
+// NewJSONLWriter writes one compact JSON finding per line. Close leaves w open.
+func NewJSONLWriter(w io.Writer) (FindingWriter, error) {
 	if w == nil {
 		return nil, errors.New("report writer is nil")
 	}
-	return &jsonFindingWriter{
-		w:       w,
-		encoder: json.NewEncoder(w),
-	}, nil
+	return &jsonFindingWriter{w: w, encoder: json.NewEncoder(w)}, nil
+}
+
+// WriteJSONL writes findings as JSONL without closing w.
+func WriteJSONL(w io.Writer, findings []Finding) error {
+	writer, err := NewJSONLWriter(w)
+	if err != nil {
+		return err
+	}
+	return writeFindings(writer, findings)
 }

@@ -21,7 +21,7 @@ import (
 
 var allowSignatures = [...]string{"betterleaks:allow", "gitleaks:allow"}
 
-var errStopIteration = errors.New("pipeline: stop iteration")
+var errStopIteration = errors.New("scanner: stop iteration")
 
 var discardLogger = slog.New(slog.DiscardHandler)
 

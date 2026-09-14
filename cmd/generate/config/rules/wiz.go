@@ -36,7 +36,7 @@ func WizClientSecret() *config.Rule {
 		Description: "Wiz OAuth client secret, which may allow access to the Wiz API when paired with its client ID.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wiz"}, `[A-Za-z0-9]{64}`, false),
 		Keywords:    []string{"wiz"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "wiz-client-id.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.post("https://auth.app.wiz.io/oauth/token", {

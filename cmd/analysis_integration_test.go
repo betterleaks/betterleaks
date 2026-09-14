@@ -42,7 +42,6 @@ analyze = '''
 	}{
 		{name: "enabled by default", wantValidation: true, wantAnalysis: true},
 		{name: "no analysis", flags: []string{"--no-analysis"}, wantValidation: true},
-		{name: "no validation", flags: []string{"--no-validation"}},
 		{name: "offline", flags: []string{"--offline"}},
 	}
 

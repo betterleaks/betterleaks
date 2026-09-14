@@ -167,7 +167,7 @@ func TestPoolExposesCanonicalComponentBindings(t *testing.T) {
 		Match:  report.Match{Value: "secret", Captures: map[string]string{"primary_group": "named-value"}},
 
 		ComponentSets: []report.ComponentSet{
-			{Components: []*report.ComponentFinding{{
+			{Components: []report.ComponentFinding{{
 				RuleID: "required-component",
 				Match:  report.Match{Value: "account", Captures: map[string]string{"kind": "tenant"}},
 			}}},
@@ -231,8 +231,8 @@ func TestPoolDeduplicatesFailedCombinationsWithinFinding(t *testing.T) {
 	results := make(chan report.Finding, 2)
 	pool.Emit = func(f report.Finding) { results <- f }
 	finding := report.Finding{RuleID: "test", Match: report.Match{Value: "primary"}, ComponentSets: []report.ComponentSet{
-		{Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "companion"}, Location: report.Location{StartLine: 1}}}},
-		{Components: []*report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "companion"}, Location: report.Location{StartLine: 2}}}},
+		{Components: []report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "companion"}, Location: report.Location{StartLine: 1}}}},
+		{Components: []report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: "companion"}, Location: report.Location{StartLine: 2}}}},
 	}}
 	for range 2 {
 		if err := pool.SubmitContext(t.Context(), finding, program); err != nil {

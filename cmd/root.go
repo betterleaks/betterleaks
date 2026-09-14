@@ -331,11 +331,6 @@ func runCLIWithParser(args []string, runtime *commandRuntime, cli *CLI, parser *
 	if len(args) == 0 {
 		args = []string{"--help"}
 	}
-	var err error
-	args, err = normalizeProviderFlagAliases(args)
-	if err != nil {
-		return err
-	}
 	parsed, err := parser.Parse(args)
 	if err != nil {
 		return err

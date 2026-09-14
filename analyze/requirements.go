@@ -180,10 +180,8 @@ func (a *Analyzer) validateFindingInput(f *report.Finding, rule config.Rule, req
 	}
 	for index, set := range f.ComponentSets {
 		seen := make(map[string]bool, len(set.Components))
-		for _, c := range set.Components {
-			if c == nil {
-				return fmt.Errorf("component set %d contains a nil component", index)
-			}
+		for i := range set.Components {
+			c := &set.Components[i]
 			requirement, ok := declared[c.RuleID]
 			if !ok {
 				return fmt.Errorf("component %q not declared by rule %q", c.RuleID, rule.ID)

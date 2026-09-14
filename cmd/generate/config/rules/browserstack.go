@@ -45,7 +45,7 @@ func BrowserStackAccessKey() *config.Rule {
 			false,
 		),
 		Keywords: []string{"browserstack"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "browserstack-username.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.get("https://api.browserstack.com/automate/plan.json", {

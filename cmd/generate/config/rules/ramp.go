@@ -37,7 +37,7 @@ func RampClientSecret() *config.Rule {
 		Description: "Ramp OAuth client secret.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ramp_sec_[A-Za-z0-9]{48}`, false),
 		Keywords:    []string{"ramp_sec_"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "ramp-client-id"},
 		},
 		ValidateExpr: `let r = http.post("https://api.ramp.com/developer/v1/token", {

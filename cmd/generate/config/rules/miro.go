@@ -69,7 +69,7 @@ func MiroClientSecret() *config.Rule {
 		Description: "Detected a Miro OAuth client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"miro"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"miro"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "miro-client-id", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.post("https://api.miro.com/v1/oauth/token", {

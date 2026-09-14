@@ -43,7 +43,7 @@ func TestNewSnapshotsInputsAndIgnoresScanExpressions(t *testing.T) {
 	t.Setenv("BETTERLEAKS_SNAPSHOT_TEST", "allowed")
 	cfg := &config.Config{Prefilter: "invalid scan syntax ???", Filter: "also invalid ???", Rules: []config.Rule{
 		{ID: "key", Regex: "never-matches", Filter: "invalid ???", Tags: []string{"original"},
-			Components:   []*config.Component{{RuleID: "part"}},
+			Components:   []config.Component{{RuleID: "part"}},
 			ValidateExpr: `env.get("BETTERLEAKS_SNAPSHOT_TEST") == "allowed" && components.part.secret == "companion" ? {"result":"valid"} : {"result":"invalid"}`},
 		{ID: "part", Regex: "part"},
 	}}

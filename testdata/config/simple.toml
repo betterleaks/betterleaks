@@ -96,12 +96,6 @@ title = "gitleaks config"
 
 [[rules]]
     id = "google"
-    description = "Google API key"
-    regex = '''AIza[0-9A-Za-z\-_]{35}'''
-    tags = ["key", "Google"]
-
-[[rules]]
-    id = "google"
     description = "Google (GCP) Service Account"
     regex = '''"type": "service_account"'''
     tags = ["key", "Google"]

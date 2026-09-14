@@ -1,24 +1,43 @@
 package report
 
 import (
-	"io"
-	"os"
+	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+type failingPrettyWriter struct {
+	err   error
+	calls int
+}
+
+func (w *failingPrettyWriter) Write([]byte) (int, error) {
+	w.calls++
+	return 0, w.err
+}
+
+func TestWritePrettyReportsWriterError(t *testing.T) {
+	want := errors.New("output disconnected")
+	w := &failingPrettyWriter{err: want}
+	err := WritePretty(w, simpleFinding, PrettyOptions{})
+	require.ErrorIs(t, err, want)
+	require.Equal(t, 1, w.calls, "do not continue writing after failure")
+	require.Error(t, WritePretty(nil, simpleFinding, PrettyOptions{}))
+}
+
+func TestWritePrettyKeepsMetadataAligned(t *testing.T) {
+	var out bytes.Buffer
+	f := simpleFinding
+	f.Confidence = "high"
+	require.NoError(t, WritePretty(&out, f, PrettyOptions{NoColor: true}))
+	require.Contains(t, out.String(), "│   path ............ auth.py\n│   confidence ...... HIGH\n│ attributes:")
+}
+
 func TestPrintPrettyAnalysisMetadata(t *testing.T) {
-	original := os.Stdout
-	reader, writer, err := os.Pipe()
-	require.NoError(t, err)
-	os.Stdout = writer
-	t.Cleanup(func() {
-		os.Stdout = original
-		_ = reader.Close()
-		_ = writer.Close()
-	})
+	var output bytes.Buffer
 
 	finding := Finding{Analysis: Analysis{
 		Severity: SeverityHigh,
@@ -26,41 +45,25 @@ func TestPrintPrettyAnalysisMetadata(t *testing.T) {
 			"permissions": []any{"create_access_request", "read_personal_access_token"},
 		},
 	}}
-	finding.printPrettyAnalysis(true)
-	require.NoError(t, writer.Close())
-
-	output, err := io.ReadAll(reader)
-	require.NoError(t, err)
-	assert.Contains(t, string(output), "permissions")
-	assert.Contains(t, string(output), "[create_access_request, read_personal_access_token]")
-	assert.NotContains(t, string(output), "metadata.permissions")
+	require.NoError(t, WritePretty(&output, finding, PrettyOptions{NoColor: true}))
+	assert.Contains(t, output.String(), "permissions")
+	assert.Contains(t, output.String(), "[create_access_request, read_personal_access_token]")
+	assert.NotContains(t, output.String(), "metadata.permissions")
 }
 
 func TestPrintComponentFindingsOmitsAnalysis(t *testing.T) {
-	original := os.Stdout
-	reader, writer, err := os.Pipe()
-	require.NoError(t, err)
-	os.Stdout = writer
-	t.Cleanup(func() {
-		os.Stdout = original
-		_ = reader.Close()
-		_ = writer.Close()
-	})
+	var output bytes.Buffer
 
 	finding := Finding{ComponentSets: []ComponentSet{{
-		Components: []*ComponentFinding{{
+		Components: []ComponentFinding{{
 			RuleID:   "cloudflare-account-id.1",
 			Match:    Match{Value: "account-id"},
 			Location: Location{StartLine: 3},
 		}},
 		Analysis: Analysis{Severity: SeverityHigh, Capabilities: []Capability{CapabilityRead, CapabilityWrite}, Status: ValidationStatusValid},
 	}}}
-	finding.PrintComponentFindings(true, 0)
-	require.NoError(t, writer.Close())
-
-	output, err := io.ReadAll(reader)
-	require.NoError(t, err)
-	assert.Contains(t, string(output), "cloudflare-account-id.1:3")
-	assert.NotContains(t, string(output), "analysis")
-	assert.NotContains(t, string(output), "read, write")
+	require.NoError(t, WritePretty(&output, finding, PrettyOptions{NoColor: true}))
+	assert.Contains(t, output.String(), "cloudflare-account-id.1:3")
+	assert.NotContains(t, output.String(), "analysis")
+	assert.NotContains(t, output.String(), "read, write")
 }

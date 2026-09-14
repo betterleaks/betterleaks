@@ -32,7 +32,7 @@ func AikidoClientSecret() *config.Rule {
 		Description: "Detected an Aikido client secret, which may allow unauthorized access to Aikido APIs when paired with a client ID.",
 		Regex:       utils.GenerateUniqueTokenRegex(`AIK_SECRET_[A-Za-z0-9]{64}`, false),
 		Keywords:    []string{"AIK_SECRET_"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "aikido-client-id"},
 		},
 		Filter: `entropy(finding["secret"]) < 3.5`,

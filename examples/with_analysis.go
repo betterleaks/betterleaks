@@ -107,6 +107,8 @@ func run() error {
 	}
 
 	// Output policy belongs to the pipeline. Analyzer always returns its result.
+	// Both engines use the same resolved config so their rules and credential
+	// requirements agree. Pipeline also accepts compatible subsets of that config.
 	p, err := pipeline.New(scanner, analyzer,
 		pipeline.WithValidationStatuses(report.ValidationStatusValid),
 	)

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -167,7 +166,7 @@ func TestIgnoredFingerprintsPreserveComponents(t *testing.T) {
 	for _, optional := range []bool{false, true} {
 		for _, skipReport := range []bool{false, true} {
 			cfg := &config.Config{Rules: []config.Rule{
-				{ID: "primary", Regex: `primary-token`, Components: []*config.Component{{RuleID: "component", Within: "2L", Optional: optional}}},
+				{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "2L", Optional: optional}}},
 				{ID: "component", Regex: `companion-token`, SkipReport: skipReport},
 			}}
 			scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("companion-token"))))
@@ -189,7 +188,7 @@ func TestIgnoredFingerprintsPreserveComponents(t *testing.T) {
 	cfg := &config.Config{
 		Filter: `finding["secret"] == "companion-token"`,
 		Rules: []config.Rule{
-			{ID: "primary", Regex: `primary-token`, Components: []*config.Component{{RuleID: "component", Within: "2L"}}},
+			{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "2L"}}},
 			{ID: "component", Regex: `companion-token`, SkipReport: true},
 		},
 	}
@@ -573,8 +572,8 @@ func compare(t *testing.T, got, want []report.Finding) {
 			return strings.Join(a.Tags, "\x00") < strings.Join(b.Tags, "\x00")
 		}),
 		cmpopts.IgnoreFields(report.Finding{},
-			"Attributes", "ComponentSets", "RuleSpecificity"),
-		cmpopts.IgnoreFields(report.ComponentFinding{}, "RuleSpecificity"),
+			"Attributes", "ComponentSets"),
+		cmpopts.IgnoreFields(report.ComponentFinding{}),
 		cmpopts.EquateApprox(0.0001, 0), // For floating point Entropy comparison
 	); diff != "" {
 		t.Errorf("findings mismatch (-want +got):\n%s", diff)
@@ -587,10 +586,8 @@ func stripFindingAttributes(findings []report.Finding) []report.Finding {
 	for i := range findings {
 		findings[i].Attributes = nil
 		findings[i].Location.Path = ""
-		findings[i].RuleSpecificity = 0
 		for si := range findings[i].ComponentSets {
 			for ci := range findings[i].ComponentSets[si].Components {
-				findings[i].ComponentSets[si].Components[ci].RuleSpecificity = 0
 				findings[i].ComponentSets[si].Components[ci].Location.Path = ""
 			}
 		}
@@ -649,8 +646,8 @@ skipReport = true
 
 func TestNestedComponentsRejected(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
-		{ID: "primary", Regex: `primary=([a-z]+)`, Components: []*config.Component{{RuleID: "component"}}},
-		{ID: "component", Regex: `component=([a-z]+)`, Components: []*config.Component{{RuleID: "nested"}}},
+		{ID: "primary", Regex: `primary=([a-z]+)`, Components: []config.Component{{RuleID: "component"}}},
+		{ID: "component", Regex: `component=([a-z]+)`, Components: []config.Component{{RuleID: "nested"}}},
 		{ID: "nested", Regex: `nested=([a-z]+)`},
 	}}
 	_, err := New(cfg)
@@ -2140,21 +2137,18 @@ func TestDetect(t *testing.T) {
 
 			compare(t, findings, tt.expectedFindings)
 
-			// extremely goofy way to test auxiliary findings
-			// capture stdout and print that sonabitch
-			// TODO
 			if tt.expectedAuxOutput != "" {
-				capturedOutput := captureStdout(func() {
-					for _, finding := range findings {
-						finding.PrintComponentFindings(false, 0)
+				var output strings.Builder
+				for _, finding := range findings {
+					var pretty strings.Builder
+					require.NoError(t, report.WritePretty(&pretty, finding, report.PrettyOptions{NoColor: true}))
+					_, components, ok := strings.Cut(pretty.String(), "│ components:")
+					if ok {
+						components, _, _ = strings.Cut(components, "└○")
+						output.WriteString("│ components:" + components)
 					}
-				})
-
-				// Clean up the output for comparison (remove ANSI color codes)
-				cleanOutput := stripANSI(capturedOutput)
-				expectedClean := stripANSI(tt.expectedAuxOutput)
-
-				assert.Equal(t, expectedClean, cleanOutput, "Auxiliary output should match")
+				}
+				assert.Equal(t, stripANSI(tt.expectedAuxOutput), output.String())
 			}
 
 		})
@@ -2164,21 +2158,6 @@ func TestDetect(t *testing.T) {
 func stripANSI(s string) string {
 	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	return ansiRegex.ReplaceAllString(s, "")
-}
-
-func captureStdout(f func()) string {
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	f()
-
-	w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	return buf.String()
 }
 
 func expectedAWSFinding(line string, location report.Location) report.Finding {

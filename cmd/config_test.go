@@ -34,7 +34,7 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 			{
 				ID:    "primary",
 				Regex: "primary",
-				Components: []*configpkg.Component{
+				Components: []configpkg.Component{
 					{
 						RuleID:   "component",
 						Optional: true,
