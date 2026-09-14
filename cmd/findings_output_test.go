@@ -315,5 +315,5 @@ func TestCLIExplicitlyExcludesLoadedConfig(t *testing.T) {
 	require.Len(t, lines, 1)
 	var finding report.Finding
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &finding))
-	require.Equal(t, filepath.Join(dir, "app.env"), finding.Location.Path)
+	require.Equal(t, filepath.ToSlash(filepath.Join(dir, "app.env")), finding.Location.Path)
 }
