@@ -542,3 +542,5 @@ func TestS3_skipsBeforeFetch(t *testing.T) {
 		return nil
 	}))
 }
+
+var _ sources.Source = (*Source)(nil)

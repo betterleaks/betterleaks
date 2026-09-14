@@ -669,3 +669,5 @@ func TestGitLab_scanCIJobs_StopsAtSinceBoundary(t *testing.T) {
 		t.Fatalf("requested pages = %s, want [1]", got)
 	}
 }
+
+var _ sources.Source = (*Source)(nil)

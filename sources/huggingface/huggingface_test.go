@@ -441,3 +441,5 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 	}
 	return u
 }
+
+var _ sources.Source = (*Source)(nil)

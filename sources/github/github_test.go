@@ -1202,3 +1202,5 @@ func TestGitHub_ResolveResources_repoWithTokenAndAPIResourceOK(t *testing.T) {
 	require.True(t, src.Resources.Has(ResourceTypeIssues))
 	require.True(t, src.Resources.Has(ResourceTypeRepos), "repos included by default for repo URL")
 }
+
+var _ sources.Source = (*Source)(nil)

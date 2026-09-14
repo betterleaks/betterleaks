@@ -1,6 +1,11 @@
 package exprruntime
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
+	"github.com/stretchr/testify/require"
+)
 
 func TestContainsAnyCaseInsensitive(t *testing.T) {
 	tests := []struct {
@@ -129,6 +134,48 @@ func TestIntersectsStringOrList(t *testing.T) {
 			if got := intersects(tt.values, tt.candidates); got != tt.want {
 				t.Errorf("intersects(%v, %v) = %v, want %v", tt.values, tt.candidates, got, tt.want)
 			}
+		})
+	}
+}
+
+func TestTokenEfficiencyBindings(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	counter, err := tokenizer.Default()
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name   string
+		secret string
+		expr   string
+		want   bool
+	}{
+		{
+			name:   "wordlist-assisted check",
+			secret: "linkedinX9qB2mK7pR4zT8",
+			expr:   `failsTokenEfficiency(finding["secret"])`,
+			want:   true,
+		},
+		{
+			name:   "ratio-only check",
+			secret: "linkedinX9qB2mK7pR4zT8",
+			expr:   `tokenRatio(finding["secret"]) >= 2.5`,
+			want:   false,
+		},
+		{
+			name:   "readable placeholder ratio",
+			secret: "this-is-a-long-readable-placeholder-value",
+			expr:   `tokenRatio(finding["secret"]) >= 2.5`,
+			want:   true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prg, err := env.CompileFilter(tc.expr, counter)
+			require.NoError(t, err)
+
+			got, err := env.EvalFilter(prg, map[string]any{"secret": tc.secret}, nil)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
