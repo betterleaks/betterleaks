@@ -6,6 +6,21 @@ import (
 	"github.com/betterleaks/betterleaks/v2/config"
 )
 
+// STS GetCallerIdentity returns identity without establishing any permission
+// grants. Analysis reuses that response and performs no additional requests.
+// https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html
+const awsAnalyzeExpr = `let input = validation.analysis;
+let arn = input["arn"] ?? "";
+{
+  "reason": "AWS STS does not report credential permissions",
+  "identity": {
+    "id": input["userid"] ?? "",
+    "username": matchesAny(arn, ["^arn:[^:]+:iam::[0-9]{12}:user/"]) ? last(split(arn, "/")) : "",
+    "account": {"id": input["account"] ?? ""}
+  },
+  "metadata": arn != "" ? {"arn": arn} : {}
+}`
+
 func AWS() *config.Rule {
 	// define rule
 	r := config.Rule{
@@ -29,7 +44,7 @@ func AWS() *config.Rule {
 		},
 		ValidateExpr: `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
   "result": "valid",
-  "metadata": {"arn": r.arn, "account": r.account, "userid": r.userid}
+  "analysis": {"arn": r.arn ?? "", "account": r.account ?? "", "userid": r.userid ?? ""}
 } : r.status == 403 && r.error_code == "ExpiredToken" ? {
     "result": "revoked",
     "metadata": {"error_code": r.error_code, "error_message": r.error_message}
@@ -38,7 +53,8 @@ func AWS() *config.Rule {
     "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 `,
-		Filter: "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])",
+		AnalyzeExpr: awsAnalyzeExpr,
+		Filter:      "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])",
 	}
 
 	// validate

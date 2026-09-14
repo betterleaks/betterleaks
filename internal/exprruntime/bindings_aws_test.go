@@ -99,7 +99,7 @@ func TestAWSValidateExprBinding_Valid(t *testing.T) {
 
 	expr := `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
   "result": "valid",
-  "metadata": {"arn": r.arn, "account": r.account, "userid": r.userid}
+  "analysis": {"arn": r.arn, "account": r.account, "userid": r.userid}
 } : r.status == 403 ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -124,8 +124,8 @@ func TestAWSValidateExprBinding_Valid(t *testing.T) {
 	if result["result"] != "valid" {
 		t.Errorf("expected valid, got %v", result["result"])
 	}
-	if result["metadata"].(map[string]any)["account"] != "111111111111" {
-		t.Errorf("expected account 111111111111, got %v", result["metadata"].(map[string]any)["account"])
+	if result["analysis"].(map[string]any)["account"] != "111111111111" {
+		t.Errorf("expected account 111111111111, got %v", result["analysis"].(map[string]any)["account"])
 	}
 }
 

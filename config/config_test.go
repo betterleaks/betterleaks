@@ -157,6 +157,7 @@ func TestDefaultConfigIncludesCredentialAnalysisProviders(t *testing.T) {
 	cfg, err := Default()
 	require.NoError(t, err)
 	for _, ruleID := range []string{
+		"aws-access-token",
 		"airtable-personnal-access-token",
 		"gitlab-pat",
 		"huggingface-access-token",
