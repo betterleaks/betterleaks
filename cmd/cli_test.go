@@ -2,8 +2,9 @@ package cmd
 
 import (
 	"bytes"
-	"context"
+	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"testing"
 
@@ -16,14 +17,8 @@ import (
 func newCLIParserForTest(t *testing.T) (*CLI, *kong.Kong) {
 	t.Helper()
 	cli := &CLI{}
-	runtime := &commandRuntime{
-		Context: context.Background(),
-		stdin:   strings.NewReader(""),
-		stdout:  new(bytes.Buffer),
-		stderr:  new(bytes.Buffer),
-		exit:    func(int) {},
-	}
-	parser, err := newCLIParser(cli, runtime)
+	root, _ := newTestCLI(t)
+	parser, err := newCLIParser(cli, root.runtime)
 	require.NoError(t, err)
 	return cli, parser
 }
@@ -82,6 +77,7 @@ func TestFilesystemShorthandPreservesCommands(t *testing.T) {
 		{args: []string{"stdin"}, command: "stdin"},
 		{args: []string{"validate"}, command: "validate"},
 		{args: []string{"analyze"}, command: "analyze"},
+		{args: []string{"revoke"}, command: "revoke"},
 		{args: []string{"version"}, command: "version"},
 		{args: []string{"--config", "config.toml", "git", "."}, command: "git <repo>"},
 	} {
@@ -123,3 +119,45 @@ func TestInitLogConfiguresOnlyCommandRuntime(t *testing.T) {
 	assert.NotContains(t, globalOutput.String(), "command message")
 	assert.Same(t, globalLogger, slog.Default())
 }
+
+type testCLI struct {
+	args    []string
+	runtime *commandRuntime
+}
+
+func (c *testCLI) SetArgs(args []string) { c.args = args }
+func (c *testCLI) SetIn(stdin io.Reader) { c.runtime.stdin = stdin }
+func (c *testCLI) Execute() error        { return runCLI(c.args, c.runtime) }
+
+func newTestCLI(t *testing.T) (*testCLI, *bytes.Buffer) {
+	t.Helper()
+
+	// A character device represents absent piped input without using process stdin.
+	stdin, err := os.Open(os.DevNull)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stdin.Close() })
+	stdout := new(bytes.Buffer)
+	runtime := &commandRuntime{
+		Context: t.Context(),
+		stdin:   stdin,
+		stdout:  stdout,
+		stderr:  io.Discard,
+		exit:    func(int) {},
+	}
+	return &testCLI{runtime: runtime}, stdout
+}
+
+func TestDeprecatedScanCommandsRemoved(t *testing.T) {
+	for _, command := range []string{"detect", "protect"} {
+		// Removed command names are now ordinary paths for the filesystem shorthand.
+		cli, parser := newCLIParserForTest(t)
+		parsed, err := parser.Parse([]string{command})
+		require.NoError(t, err)
+		require.Equal(t, "filesystem <path>", parsed.Command())
+		require.Equal(t, []string{command}, cli.Directory.Paths)
+	}
+}
+
+type testErrorWriter struct{ err error }
+
+func (w testErrorWriter) Write([]byte) (int, error) { return 0, w.err }

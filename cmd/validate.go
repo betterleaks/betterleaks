@@ -9,5 +9,5 @@ func (*ValidateCmd) Help() string {
 }
 
 func (cmd *ValidateCmd) Run(cli *CLI, runtime *commandRuntime) error {
-	return runCredential(runtime, &cli.GlobalFlags, &cmd.CredentialFlags, false)
+	return runCredential(runtime, &cli.GlobalFlags, &cmd.CredentialFlags, credentialValidation)
 }

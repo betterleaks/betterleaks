@@ -15,6 +15,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/analyze"
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/credential"
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/scan"
@@ -168,6 +169,44 @@ func TestScanValidationAndEmptyAnalysisContracts(t *testing.T) {
 	}
 }
 
+func TestPipelineNeverCompilesOrExecutesRevocation(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	for _, expression := range []string{
+		fmt.Sprintf(`let response = http.delete(%q, {}); {"result": "revoked"}`, server.URL),
+		`invalid revocation syntax ???`,
+	} {
+		for _, withValidation := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%t", expression, withValidation), func(t *testing.T) {
+				cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: `(secret-token)`, RevokeExpr: expression}}}
+				if withValidation {
+					cfg.Rules[0].ValidateExpr = `{"result": "valid"}`
+					cfg.Rules[0].AnalyzeExpr = `{"capabilities": ["read"]}`
+				}
+				scanner, err := scan.New(cfg, scan.WithPrecompile())
+				require.NoError(t, err)
+				analyzer, err := analyze.New(cfg, analyze.WithPrecompile())
+				require.NoError(t, err)
+				runner, err := New(scanner, analyzer)
+				require.NoError(t, err)
+				var findings []report.Finding
+				_, err = runner.Scan(t.Context(), fragmentSource{fragments: []sources.Fragment{{Raw: "secret-token"}}}, func(f report.Finding) error {
+					findings = append(findings, f)
+					return nil
+				})
+				require.NoError(t, err)
+				require.Len(t, findings, 1)
+				require.NotEqual(t, report.ValidationStatusRevoked, findings[0].Analysis.Status)
+				require.Zero(t, requests.Load())
+			})
+		}
+	}
+}
+
 func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
 		{
@@ -209,9 +248,9 @@ func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 		component := set.Components[0]
 		validator, err := analyze.New(cfg)
 		require.NoError(t, err)
-		direct, err := validator.AnalyzeCredential(t.Context(), analyze.Credential{
+		direct, err := validator.AnalyzeCredential(t.Context(), credential.Input{
 			RuleID: "primary", Secret: "primary", Captures: map[string]string{"tenant": "acme"},
-			Components: map[string]analyze.CredentialComponent{
+			Components: map[string]credential.Component{
 				"part": {Secret: component.Match.Value, Captures: map[string]string{"tenant": "companion"}},
 			},
 		})

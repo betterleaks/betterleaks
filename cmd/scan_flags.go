@@ -33,7 +33,6 @@ type ScanFlags struct {
 	Offline              bool   `help:"Disable validation and analysis provider requests; source fetching may still use the network."`
 	ValidationStatus     string `name:"validation-status" help:"Comma-separated validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none."`
 	ProviderWorkers      int    `name:"provider-workers" default:"10" help:"Number of concurrent provider workers."`
-	ProviderDebug        bool   `name:"provider-debug" help:"Include provider HTTP debug metadata in output."`
 	ProviderRuntimeFlags `embed:""`
 
 	Diagnostics    string `help:"Enable diagnostics: http or a comma-separated list of cpu,mem,trace,rules."`
@@ -58,8 +57,9 @@ func (f ScanFlags) analysisEnabled() bool {
 	return f.validationEnabled() && !f.NoAnalysis
 }
 
-// ProviderRuntimeFlags bound active requests made by validation and analysis.
+// ProviderRuntimeFlags configure requests made by validation, analysis, and revocation.
 type ProviderRuntimeFlags struct {
+	ProviderDebug       bool          `name:"provider-debug" help:"Include provider HTTP debug metadata in output."`
 	ProviderTimeout     time.Duration `name:"provider-timeout" default:"10s" help:"Per-request timeout for provider checks."`
 	ProviderMaxRequests int           `name:"provider-max-requests" help:"Maximum requests sent to each provider target (0 = unlimited)."`
 	ProviderRPS         float64       `name:"provider-rps" help:"Global provider requests per second (0 = unlimited)."`

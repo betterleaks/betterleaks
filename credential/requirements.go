@@ -1,4 +1,4 @@
-package analyze
+package credential
 
 import (
 	"fmt"
@@ -7,16 +7,15 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/internal/limits"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/expr-lang/expr/ast"
 	exprparser "github.com/expr-lang/expr/parser"
 )
 
-// CredentialRequirements describes the statically named inputs consumed by a
-// rule's provider expressions. Optional accesses and null-coalescing fallbacks
-// do not require a capture. Dynamic capture names cannot be inferred.
-type CredentialRequirements struct {
+// Requirements describes the statically named inputs consumed by a rule's
+// provider expressions. Optional accesses and null-coalescing fallbacks do not
+// require a capture. Dynamic capture names cannot be inferred.
+type Requirements struct {
 	Captures   []string                `json:"captures,omitempty"`
 	Components []ComponentRequirements `json:"components,omitempty"`
 }
@@ -29,46 +28,23 @@ type ComponentRequirements struct {
 	Captures []string `json:"captures,omitempty"`
 }
 
-// Requirements returns the inputs needed for validation and analysis. The
-// returned slices are independent of the Analyzer's configuration.
-func (a *Analyzer) Requirements(ruleID string) (CredentialRequirements, error) {
-	return a.ruleRequirements(ruleID, true)
-}
-
-// ValidationRequirements returns only the inputs needed to check liveness.
-func (a *Analyzer) ValidationRequirements(ruleID string) (CredentialRequirements, error) {
-	return a.ruleRequirements(ruleID, false)
-}
-
-func (a *Analyzer) ruleRequirements(ruleID string, analysis bool) (CredentialRequirements, error) {
-	if a == nil || a.runtime == nil {
-		return CredentialRequirements{}, fmt.Errorf("analyzer must be constructed with New")
-	}
-	rule, ok := a.rules[ruleID]
-	if !ok {
-		return CredentialRequirements{}, fmt.Errorf("rule %q not found in config", ruleID)
-	}
-	return a.requirementsFor(rule, analysis), nil
-}
-
-func (a *Analyzer) requirementsFor(rule config.Rule, analysis bool) CredentialRequirements {
-	expressions := []string{rule.ValidateExpr}
-	if analysis {
-		expressions = append(expressions, rule.AnalyzeExpr)
-	}
+// RequirementsFor finds required captures for the expressions that will execute.
+func RequirementsFor(rule config.Rule, primaryCaptures map[string]string, expressions ...string) Requirements {
 	refs := captureReferences(expressions...)
-	result := CredentialRequirements{Captures: requiredNames(refs[""], a.primaryCaptures[rule.ID])}
+	result := Requirements{Captures: requiredNames(refs[""], primaryCaptures[rule.ID])}
 	for _, component := range rule.Components {
 		result.Components = append(result.Components, ComponentRequirements{
 			RuleID: component.RuleID, Optional: component.Optional,
-			Captures: requiredNames(refs[component.RuleID], a.primaryCaptures[component.RuleID]),
+			Captures: requiredNames(refs[component.RuleID], primaryCaptures[component.RuleID]),
 		})
 	}
 	slices.SortFunc(result.Components, func(a, b ComponentRequirements) int { return strings.Compare(a.RuleID, b.RuleID) })
 	return result
 }
 
-func primaryCapture(rule config.Rule) string {
+// PrimaryCapture returns the name of the capture selected as the rule's secret,
+// or an empty string when it is unnamed or cannot be inferred without matching.
+func PrimaryCapture(rule config.Rule) string {
 	re, err := syntax.Parse(rule.Regex, syntax.Perl)
 	if err != nil {
 		return ""
@@ -161,10 +137,11 @@ func capturePath(node ast.Node) ([]string, bool) {
 	return nil, false
 }
 
-// validateFindingInput runs only on the Analyzer's owned snapshot. It normalizes
-// selected secret captures and component optionality without touching the caller.
-func (a *Analyzer) validateFindingInput(f *report.Finding, rule config.Rule, requirements CredentialRequirements) error {
-	if err := validateMatchInput("secret", &f.Match, rule, requirements.Captures, a.primaryCaptures[rule.ID]); err != nil {
+// ValidateFinding checks credential values and required captures, normalizing
+// selected secret captures and component optionality in place. The caller must
+// own the finding and its maps and slices; use Finding.Clone when needed.
+func ValidateFinding(f *report.Finding, rule config.Rule, requirements Requirements, rules map[string]config.Rule, primaryCaptures map[string]string) error {
+	if err := validateMatch("secret", &f.Match, rule, requirements.Captures, primaryCaptures[rule.ID]); err != nil {
 		return err
 	}
 	declared := make(map[string]ComponentRequirements, len(requirements.Components))
@@ -191,7 +168,7 @@ func (a *Analyzer) validateFindingInput(f *report.Finding, rule config.Rule, req
 			}
 			seen[c.RuleID] = true
 			c.Optional = requirement.Optional
-			if err := validateMatchInput(fmt.Sprintf("component %q", c.RuleID), &c.Match, a.rules[c.RuleID], requirement.Captures, a.primaryCaptures[c.RuleID]); err != nil {
+			if err := validateMatch(fmt.Sprintf("component %q", c.RuleID), &c.Match, rules[c.RuleID], requirement.Captures, primaryCaptures[c.RuleID]); err != nil {
 				return err
 			}
 		}
@@ -204,11 +181,11 @@ func (a *Analyzer) validateFindingInput(f *report.Finding, rule config.Rule, req
 	return nil
 }
 
-func validateMatchInput(label string, match *report.Match, rule config.Rule, required []string, primaryName string) error {
-	if err := validateCredentialSecret(label, match.Value); err != nil {
+func validateMatch(label string, match *report.Match, rule config.Rule, required []string, primaryName string) error {
+	if err := validateSecret(label, match.Value); err != nil {
 		return err
 	}
-	if err := validateCredentialCaptures(match.Captures); err != nil {
+	if err := validateCaptures(match.Captures); err != nil {
 		return err
 	}
 	if name := primaryName; name != "" {
@@ -231,6 +208,3 @@ func validateMatchInput(label string, match *report.Match, rule config.Rule, req
 	}
 	return nil
 }
-
-// Keep the Analyzer's public handoff bounded as well as Scanner discovery.
-const maxComponentSets = limits.ComponentSets

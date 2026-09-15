@@ -81,6 +81,17 @@ let capabilities = analysis.capabilities({
   "capabilities": capabilities
 }`
 
+// The provider documents immediate, global invalidation of matching tokens on
+// 202, while deliberately not disclosing whether the submitted token existed.
+// https://huggingface.co/docs/hub/security-tokens#revoking-a-leaked-token
+const huggingFaceRevokeExpr = `let r = http.post("https://huggingface.co/api/credentials/revoke", {
+  "Content-Type": "application/json"
+}, toJSON({"credentials": [finding["secret"]]}));
+r.status == 202 ? {
+  "result": "revoked",
+  "reason": "Hugging Face invalidated any matching token; prior token validity is not disclosed"
+} : revoke.unknown(r)`
+
 // Reference: https://huggingface.co/docs/hub/security-tokens
 //
 // Old tokens have the prefix `api_`, however, I am not sure it's worth detecting them as that would be high noise.
@@ -97,6 +108,7 @@ func HuggingFaceAccessToken() *config.Rule {
 		},
 		ValidateExpr: huggingFaceValidateExpr,
 		AnalyzeExpr:  huggingFaceAnalyzeExpr,
+		RevokeExpr:   huggingFaceRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 2.0`,
 	}
 
@@ -155,6 +167,7 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 		},
 		ValidateExpr: huggingFaceValidateExpr,
 		AnalyzeExpr:  huggingFaceAnalyzeExpr,
+		RevokeExpr:   huggingFaceRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 2.0`,
 	}
 

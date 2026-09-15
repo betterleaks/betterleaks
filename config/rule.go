@@ -58,9 +58,14 @@ type Rule struct {
 	// identity and provider-neutral capabilities.
 	AnalyzeExpr string
 
+	// RevokeExpr is an optional credential revocation program. It executes only
+	// through the explicit revoke command, never during scanning or analysis.
+	RevokeExpr string
+
 	// Filter is an expression evaluated against attributes + finding per regex match.
 	// finding.captures holds this match's named groups. Components are assembled
-	// after filtering and are available only to validation and analysis.
+	// after filtering. Provider expressions, including explicit revocation, read
+	// supplied components independently of filtering.
 	// Returns true = skip (discard this finding); false = keep.
 	Filter string
 }
@@ -123,8 +128,8 @@ func (r *Rule) Validate() error {
 		return fmt.Errorf("%s: analyze expression requires a validate expression", r.ID)
 	}
 
-	if r.Regex == "" && (len(r.Components) > 0 || strings.TrimSpace(r.ValidateExpr) != "" || strings.TrimSpace(r.AnalyzeExpr) != "") {
-		return fmt.Errorf("%s: path-only rules cannot declare components, validation, or analysis", r.ID)
+	if r.Regex == "" && (len(r.Components) > 0 || strings.TrimSpace(r.ValidateExpr) != "" || strings.TrimSpace(r.AnalyzeExpr) != "" || strings.TrimSpace(r.RevokeExpr) != "") {
+		return fmt.Errorf("%s: path-only rules cannot declare components, validation, analysis, or revocation", r.ID)
 	}
 
 	seenComponents := make(map[string]struct{}, len(r.Components))

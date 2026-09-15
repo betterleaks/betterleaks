@@ -58,8 +58,9 @@ worker and rate-limit controls because it performs external network requests.
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
 | S3 (and S3-compatible: R2, MinIO, etc.) | `betterleaks s3 <url>` |
-| Liveness of a known credential | `betterleaks validate --rule-id <rule-id>` |
-| Identity and permissions of a known credential | `betterleaks analyze --rule-id <rule-id>` |
+| Liveness of a known credential | `betterleaks validate --rule <rule-id>` |
+| Identity and permissions of a known credential | `betterleaks analyze --rule <rule-id>` |
+| Revoke a known credential | `betterleaks revoke --rule <rule-id>` |
 | Piped content | `betterleaks stdin` |
 | An ignore-file entry | `betterleaks fingerprint` |
 
@@ -790,16 +791,16 @@ or exposed in the process argument list:
 
 ```sh
 printf '%s\n' "$GITHUB_TOKEN" |
-	betterleaks validate --rule-id github-pat
+	betterleaks validate --rule github-pat
 
 printf '%s\n' "$GITHUB_TOKEN" |
-	betterleaks analyze --rule-id github-pat
+	betterleaks analyze --rule github-pat
 ```
 
 A positional credential is also accepted for interactive use:
 
 ```sh
-betterleaks validate --rule-id github-pat 'ghp_...'
+betterleaks validate --rule github-pat 'ghp_...'
 ```
 
 When there is no positional credential, either command reads piped or redirected
@@ -814,7 +815,7 @@ Multipart credentials must supply each component explicitly with the repeatable
 ```sh
 printf '%s\n' "$AWS_ACCESS_KEY_ID" |
 	betterleaks validate \
-	--rule-id aws-access-token \
+	--rule aws-access-token \
 	--component "aws-secret-access-key=$AWS_SECRET_ACCESS_KEY"
 ```
 
@@ -837,7 +838,7 @@ status is needed:
 
 ```sh
 printf '%s\n' "$GITHUB_TOKEN" |
-	betterleaks validate --rule-id github-pat --simple
+	betterleaks validate --rule github-pat --simple
 # VALID
 ```
 
@@ -890,7 +891,7 @@ See the [credential report schema](schemas/credential.schema.json).
 # JSONL on stdout
 printf '%s\n' "$GITHUB_TOKEN" |
 	betterleaks analyze \
-	--rule-id github-pat \
+	--rule github-pat \
 	--jsonl
 ```
 
@@ -901,16 +902,83 @@ matching value is replaced with `[redacted]`. Attributes are sanitized the same
 way. Analysis metadata may still contain sensitive identity or account
 information.
 
-`--provider-debug` is not supported by these commands because raw debug request
-and response bodies can contain transformed credentials or newly issued
-tokens.
+Use `--provider-debug` with `validate`, `analyze`, or `revoke` to include provider
+HTTP diagnostics in the pretty or JSONL report: request method and URL, headers,
+request and response bodies, and response status. These appear under
+`analysis.debug.validation`, `analysis.debug.analysis`, or
+`analysis.debug.revocation`, depending on which stages ran. Debug output is
+disabled by default, and `--simple` continues to print only the status.
 
-Both commands honor the remaining outbound request controls from scan-time validation:
+Authorization, token, and cookie headers are masked. Supplied primary, component,
+and capture values are redacted, including their JSON, URL, and Base64 encodings.
+Debug bodies can still contain other sensitive provider data.
+
+```sh
+# Inspect the provider's explanation for an unsuccessful revocation
+printf '%s\n' "$GITLAB_TOKEN" |
+  betterleaks revoke --rule gitlab-pat-routable-versioned --provider-debug
+```
+
+These commands honor the remaining outbound request controls from scan-time validation:
 `--provider-timeout`, `--provider-max-requests`, `--provider-rps`,
 `--provider-rps-rule`, and `--provider-env-vars`. A completed validation—including `invalid`,
 `revoked`, `unknown`, or `error`—is a successful command result represented by
 the reported status; input, configuration, I/O, and cancellation failures
 return command errors.
+
+---
+
+## `revoke`
+
+`revoke` executes a rule's optional `revoke` Expr for one supplied credential.
+**Revocation only happens through this command. Scans never execute `revoke`
+expressions.** The command does not automatically run validation or analysis;
+the expression performs any prerequisite lookups itself.
+
+```sh
+# List rules with revocation support
+betterleaks config show ids --revocation
+
+# Revoke a known Buildkite user access token
+printf '%s\n' "$BUILDKITE_TOKEN" |
+  betterleaks revoke --rule buildkite-user-access-token --jsonl
+```
+
+The default config supports these providers:
+
+| Provider | Rule IDs | Workflow |
+| :--- | :--- | :--- |
+| Buildkite | `buildkite-user-access-token` | Delete the authenticating token. |
+| GitLab | `gitlab-pat`, `gitlab-pat-routable`, `gitlab-pat-routable-versioned` | Revoke the authenticating PAT through the `self` endpoint. |
+| GitHub | `github-pat`, `github-fine-grained-pat`, `github-oauth`, `github-refresh-token` | Submit the token to the public credential revocation endpoint. |
+| Hugging Face | `huggingface-access-token`, `huggingface-organization-api-token` | Submit the token for global invalidation. |
+| Slack | `slack-user-token`, `slack-bot-token` | Revoke the token and check both `ok` and `revoked` in the response. |
+| Twitch | `twitch-api-token` | Look up the token's client ID, then revoke it. A failed lookup stops the workflow. |
+
+GitHub's `202 Accepted` response produces `unknown`, with
+`analysis.status_metadata.submitted: true` and a reason explaining that completion
+is unconfirmed. Its [API documentation](https://docs.github.com/en/rest/credentials/revoke)
+only promises acceptance. Hugging Face also returns `202`, but
+[documents immediate invalidation of matching tokens](https://huggingface.co/docs/hub/security-tokens#revoking-a-leaked-token);
+its result is `revoked`, with a reason noting that prior token validity is not
+disclosed. Neither public submission endpoint receives an Authorization header.
+
+For a custom GitLab instance, set `GITLAB_BASE_URL` to the instance URL and allow
+it with `--provider-env-vars GITLAB_BASE_URL`. GitHub uses the existing
+`GITHUB_BASE_URL` override with the same allowlist mechanism; the configured
+server must support the credential revocation endpoint.
+
+It shares the credential input and report options documented for
+[`validate` and `analyze`](#validate-and-analyze): positional secret or stdin,
+`--component`, `--capture`, `--simple`, `--jsonl`, `--provider-debug`, and provider
+request controls.
+`--simple --no-color` prints `REVOKED`, `UNKNOWN`, or `ERROR`. JSONL uses the same
+credential schema and redaction. Completed outcomes are reported through the
+status; input, configuration, I/O, and cancellation failures return command errors.
+
+Rule authors can use multiple requests and response extraction in a single Expr.
+See [explicit credential revocation](config.md#explicit-credential-revocation)
+for a lookup-then-delete example and the result contract.
 
 ---
 

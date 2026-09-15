@@ -2,17 +2,16 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"io"
 	"math"
-	"os"
-	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,7 +38,6 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"no-analysis",
 		"validation-status",
 		"provider-workers",
-		"provider-debug",
 		"diagnostics",
 		"diagnostics-dir",
 	}
@@ -56,12 +54,14 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 	}
 	validateNode := commandNode(t, parser.Model.Node, "validate")
 	analyzeNode := commandNode(t, parser.Model.Node, "analyze")
+	revokeNode := commandNode(t, parser.Model.Node, "revoke")
 	configNode := commandNode(t, parser.Model.Node, "config")
 	for _, name := range scanOnly {
 		require.False(t, nodeHasFlag(parser.Model.Node, name), name)
 		require.False(t, nodeHasFlag(configNode, name), name)
 		require.False(t, nodeHasFlag(validateNode, name), name)
 		require.False(t, nodeHasFlag(analyzeNode, name), name)
+		require.False(t, nodeHasFlag(revokeNode, name), name)
 		for _, node := range scanNodes {
 			require.True(t, nodeHasFlag(node, name), "%s: %s", node.Name, name)
 		}
@@ -69,6 +69,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 
 	sharedWithCredentials := []string{
 		"jsonl",
+		"provider-debug",
 		"provider-timeout",
 		"provider-max-requests",
 		"provider-rps",
@@ -80,6 +81,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		require.False(t, nodeHasFlag(configNode, name), name)
 		require.True(t, nodeHasFlag(validateNode, name), name)
 		require.True(t, nodeHasFlag(analyzeNode, name), name)
+		require.True(t, nodeHasFlag(revokeNode, name), name)
 		for _, node := range scanNodes {
 			require.True(t, nodeHasFlag(node, name), "%s: %s", node.Name, name)
 		}
@@ -92,32 +94,10 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 	} {
 		require.False(t, nodeHasFlag(validateNode, deprecated), deprecated)
 		require.False(t, nodeHasFlag(analyzeNode, deprecated), deprecated)
+		require.False(t, nodeHasFlag(revokeNode, deprecated), deprecated)
 		for _, node := range scanNodes {
 			require.False(t, nodeHasFlag(node, deprecated), "%s: %s", node.Name, deprecated)
 		}
-	}
-}
-
-func TestScanProviderModes(t *testing.T) {
-	tests := []struct {
-		name              string
-		flags             []string
-		validationEnabled bool
-		analysisEnabled   bool
-	}{
-		{name: "default", validationEnabled: true, analysisEnabled: true},
-		{name: "analysis disabled", flags: []string{"--no-analysis"}, validationEnabled: true},
-		{name: "offline", flags: []string{"--offline"}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			args := append([]string{"dir"}, test.flags...)
-			cli, err := parseCLIForTest(t, args...)
-			require.NoError(t, err)
-			require.Equal(t, test.validationEnabled, cli.Directory.validationEnabled())
-			require.Equal(t, test.analysisEnabled, cli.Directory.analysisEnabled())
-		})
 	}
 }
 
@@ -165,9 +145,8 @@ func commandNode(t *testing.T, parent *kong.Node, name string) *kong.Node {
 	return nil
 }
 
-func TestScanProviderModesEndToEnd(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "betterleaks.toml")
-	configContents := `
+func TestScanProviderModes(t *testing.T) {
+	configPath := writeTestConfig(t, `
 [[rules]]
 id = "test-token"
 regex = '''(secret-[a-z]+)'''
@@ -180,8 +159,7 @@ analyze = '''
   "capabilities": ["write", "read"]
 }
 '''
-`
-	require.NoError(t, os.WriteFile(configPath, []byte(strings.TrimSpace(configContents)+"\n"), 0o600))
+`)
 
 	tests := []struct {
 		name           string
@@ -196,14 +174,8 @@ analyze = '''
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			stdout := new(bytes.Buffer)
-			runtime := &commandRuntime{
-				Context: context.Background(),
-				stdin:   strings.NewReader("token = secret-alpha\n"),
-				stdout:  stdout,
-				stderr:  io.Discard,
-				exit:    func(int) {},
-			}
+			root, stdout := newTestCLI(t)
+			root.SetIn(strings.NewReader("token = secret-alpha\n"))
 			args := []string{
 				"stdin",
 				"--config", configPath,
@@ -212,7 +184,8 @@ analyze = '''
 				"--exit-code", "0",
 			}
 			args = append(args, test.flags...)
-			require.NoError(t, runCLI(args, runtime))
+			root.SetArgs(args)
+			require.NoError(t, root.Execute())
 
 			var finding report.Finding
 			require.NoError(t, json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &finding))
@@ -299,9 +272,227 @@ func TestValidateProviderRPS(t *testing.T) {
 	}
 }
 
-func TestProviderRuntimeFlagsRejectNegativeMaxRequests(t *testing.T) {
-	flags := ProviderRuntimeFlags{ProviderMaxRequests: -1}
-	if err := flags.Validate(); err == nil {
-		t.Fatal("negative maximum returned no error")
+func TestProviderRuntimeFlagsRejectInvalidValues(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		flags ProviderRuntimeFlags
+		want  string
+	}{
+		{"negative timeout", ProviderRuntimeFlags{ProviderTimeout: -time.Second}, "--provider-timeout must be non-negative"},
+		{"negative request limit", ProviderRuntimeFlags{ProviderMaxRequests: -1}, "--provider-max-requests must be non-negative"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.EqualError(t, test.flags.Validate(), test.want)
+		})
 	}
+}
+
+func TestScanOutputFlags(t *testing.T) {
+	cli, err := parseCLIForTest(t, "dir", "-s", "--jsonl", "-o", "findings.json")
+	require.NoError(t, err)
+	require.True(t, cli.Directory.Silent)
+	require.True(t, cli.Directory.JSONL)
+	require.Equal(t, "findings.json", cli.Directory.Output)
+
+	for _, removed := range []string{"report", "report-path", "report-format", "verbose"} {
+		_, err := parseCLIForTest(t, "dir", "--"+removed)
+		require.ErrorContains(t, err, "unknown flag")
+	}
+	_, err = parseCLIForTest(t, "dir", "-r", "findings.json")
+	require.ErrorContains(t, err, "unknown flag")
+}
+
+func TestJobsFlag(t *testing.T) {
+	cli, err := parseCLIForTest(t, "dir", "-j", "3")
+	require.NoError(t, err)
+	require.Equal(t, 3, cli.Directory.Jobs)
+
+	cli, err = parseCLIForTest(t, "git", "--jobs=5")
+	require.NoError(t, err)
+	require.Equal(t, 5, cli.Git.Jobs)
+
+	cli, err = parseCLIForTest(t, "s3", "-j", "6", "s3://bucket")
+	require.NoError(t, err)
+	require.Equal(t, 6, cli.S3.Jobs)
+}
+
+func TestResolveJobPlan(t *testing.T) {
+	cpus := max(runtime.GOMAXPROCS(0), 1)
+
+	explicitJobs := cpus + 3
+	wantExplicit := jobPlan{Source: explicitJobs, Scanner: cpus}
+	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, directoryJobProfile))
+	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, objectJobProfile))
+	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, streamJobProfile))
+	require.Equal(t, jobPlan{Source: cpus, Scanner: cpus}, resolveJobPlan(explicitJobs, gitJobProfile))
+	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, providerJobProfile))
+
+	require.Equal(t,
+		jobPlan{Source: max(cpus, min(cpus*automaticFileJobsPerCPU, maxAutomaticFileJobs)), Scanner: cpus},
+		resolveJobPlan(0, directoryJobProfile),
+	)
+	require.Equal(t,
+		jobPlan{Source: cpus * automaticObjectJobsPerCPU, Scanner: cpus},
+		resolveJobPlan(0, objectJobProfile),
+	)
+	require.Equal(t, jobPlan{Source: cpus, Scanner: cpus}, resolveJobPlan(0, streamJobProfile))
+	require.Equal(t, jobPlan{Source: min(cpus, maxAutomaticGitJobs), Scanner: cpus}, resolveJobPlan(0, gitJobProfile))
+	providerJobs := min(cpus, maxAutomaticProviderJobs)
+	require.Equal(t, jobPlan{Source: providerJobs, Scanner: providerJobs}, resolveJobPlan(0, providerJobProfile))
+}
+
+func TestResolveJobPlanOneJobIsSerial(t *testing.T) {
+	want := jobPlan{Source: 1, Scanner: 1}
+	require.Equal(t, want, resolveJobPlan(1, directoryJobProfile))
+	require.Equal(t, want, resolveJobPlan(1, objectJobProfile))
+	require.Equal(t, want, resolveJobPlan(1, streamJobProfile))
+	require.Equal(t, want, resolveJobPlan(1, gitJobProfile))
+	require.Equal(t, want, resolveJobPlan(1, providerJobProfile))
+}
+
+func TestJobsRejectsNegativeValues(t *testing.T) {
+	_, err := parseCLIForTest(t, "git", "--jobs=-1")
+	require.ErrorContains(t, err, "--jobs must be non-negative")
+}
+
+func TestRemovedWorkerFlagsAreRejected(t *testing.T) {
+	tests := [][]string{
+		{"dir", "--source-workers=2"},
+		{"dir", "--detect-workers=2"},
+		{"git", "--git-workers=2"},
+		{"s3", "--workers=2", "s3://bucket"},
+	}
+	for _, args := range tests {
+		_, err := parseCLIForTest(t, args...)
+		require.Error(t, err, "parseCLIForTest(%q)", args)
+	}
+}
+
+func TestExpandRuleFlagShorthands(t *testing.T) {
+	t.Parallel()
+
+	args := []string{
+		"dir", "-dr", "generic-api-key", "-ir=github-pat",
+		"--disable-rule=aws-access-key", "-i", ".", "--", "-dr",
+	}
+
+	assert.Equal(t, []string{
+		"dir", "--disable-rule", "generic-api-key", "--isolate-rule=github-pat",
+		"--disable-rule=aws-access-key", "-i", ".", "--", "-dr",
+	}, expandRuleFlagShorthands(args))
+	assert.Equal(t, "-dr", args[1], "input must not be mutated")
+}
+
+func TestApplyRuleSelection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		args           []string
+		wantRules      []string
+		wantHiddenRule string
+		wantErr        string
+	}{
+		{
+			name:      "no selection leaves all rules enabled",
+			wantRules: []string{"aws", "github", "github-client-id", "slack"},
+		},
+		{
+			name:      "disable removes rules",
+			args:      []string{"--disable-rule", "aws,slack"},
+			wantRules: []string{"github", "github-client-id"},
+		},
+		{
+			name:      "isolate retains rules",
+			args:      []string{"--isolate-rule", "github,slack"},
+			wantRules: []string{"github", "github-client-id", "slack"},
+		},
+		{
+			name:      "disable applies after isolate",
+			args:      []string{"--isolate-rule", "aws,github", "--disable-rule", "aws"},
+			wantRules: []string{"github", "github-client-id"},
+		},
+		{
+			name:           "isolate retains component rules for matching",
+			args:           []string{"--isolate-rule", "github"},
+			wantRules:      []string{"github", "github-client-id"},
+			wantHiddenRule: "github-client-id",
+		},
+		{
+			name:      "disabled component is not restored by isolate",
+			args:      []string{"--isolate-rule", "github", "--disable-rule", "github-client-id"},
+			wantRules: []string{"github"},
+		},
+		{
+			name:    "unknown isolated rule fails",
+			args:    []string{"--isolate-rule", "missing"},
+			wantErr: `requested rule "missing" not found in rules`,
+		},
+		{
+			name:    "unknown disabled rule fails",
+			args:    []string{"--disable-rule", "missing"},
+			wantErr: `requested rule "missing" not found in rules`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			flags := newRuleSelectionTestFlags(t, tt.args)
+			originalRules := []config.Rule{
+				{ID: "aws", Keywords: []string{"aws"}},
+				{
+					ID:       "github",
+					Keywords: []string{"github"},
+					Components: []config.Component{
+						{RuleID: "github-client-id"},
+					},
+				},
+				{ID: "github-client-id", Keywords: []string{"client"}},
+				{ID: "slack"},
+			}
+			cfg := &config.Config{Rules: originalRules}
+
+			err := applyRuleSelection(nil, flags, cfg)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.wantRules, ruleIDs(cfg.Rules))
+			assert.Len(t, originalRules, 4, "selection must not mutate the loaded config rules")
+			if tt.wantHiddenRule != "" {
+				assert.True(t, findRule(t, cfg.Rules, tt.wantHiddenRule).SkipReport)
+				assert.False(t, findRule(t, originalRules, tt.wantHiddenRule).SkipReport, "selection must not mutate component rules")
+			}
+		})
+	}
+}
+
+func newRuleSelectionTestFlags(t *testing.T, args []string) *ScanFlags {
+	t.Helper()
+	cliArgs := append([]string{"dir"}, args...)
+	cli, err := parseCLIForTest(t, cliArgs...)
+	require.NoError(t, err)
+	return &cli.Directory.ScanFlags
+}
+
+func ruleIDs(rules []config.Rule) []string {
+	ids := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		ids = append(ids, rule.ID)
+	}
+	return ids
+}
+
+func findRule(t testing.TB, rules []config.Rule, id string) config.Rule {
+	t.Helper()
+	for _, rule := range rules {
+		if rule.ID == id {
+			return rule
+		}
+	}
+	t.Fatalf("rule %q not found", id)
+	return config.Rule{}
 }

@@ -150,6 +150,10 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 			_, err = filterRuntime.CompileAnalysis(rule.AnalyzeExpr)
 			require.NoErrorf(t, err, "rule %q analysis", rule.ID)
 		}
+		if rule.RevokeExpr != "" {
+			_, err = filterRuntime.CompileRevocation(rule.RevokeExpr)
+			require.NoErrorf(t, err, "rule %q revocation", rule.ID)
+		}
 	}
 }
 

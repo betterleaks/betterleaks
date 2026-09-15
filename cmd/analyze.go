@@ -9,5 +9,5 @@ func (*AnalyzeCmd) Help() string {
 }
 
 func (cmd *AnalyzeCmd) Run(cli *CLI, runtime *commandRuntime) error {
-	return runCredential(runtime, &cli.GlobalFlags, &cmd.CredentialFlags, true)
+	return runCredential(runtime, &cli.GlobalFlags, &cmd.CredentialFlags, credentialAnalysis)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/analyze"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -122,10 +123,19 @@ func createSingleRuleScanner(r *config.Rule) *scan.Scanner {
 	if err != nil {
 		logging.Fatal("Failed to create rule scanner.", "error", err, "rule", r.ID)
 	}
-	// Rule generation checks both expression scopes explicitly. Scanner's
+	// Rule generation checks provider expression scopes explicitly. Scanner's
 	// precompile option intentionally covers discovery alone.
 	if _, err := analyze.New(cfg, analyze.WithPrecompile()); err != nil {
 		logging.Fatal("Failed to compile provider programs.", "error", err, "rule", r.ID)
+	}
+	if r.RevokeExpr != "" {
+		runtime, err := exprruntime.New(nil)
+		if err != nil {
+			logging.Fatal("Failed to create revocation compiler.", "error", err, "rule", r.ID)
+		}
+		if _, err := runtime.CompileRevocation(r.RevokeExpr); err != nil {
+			logging.Fatal("Failed to compile revocation program.", "error", err, "rule", r.ID)
+		}
 	}
 	return scanner
 }

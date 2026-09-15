@@ -2,12 +2,51 @@ package report
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
+
+func TestCredentialReportRedactsEncodedDebugValues(t *testing.T) {
+	const secret = "fixture+\"secret/&<> with\nnewline"
+	encodedJSON, err := json.Marshal(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unescapedJSON bytes.Buffer
+	encoder := json.NewEncoder(&unescapedJSON)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(secret); err != nil {
+		t.Fatal(err)
+	}
+	jsonWithoutHTMLEscaping := strings.TrimSuffix(unescapedJSON.String(), "\n")
+	for name, value := range map[string]string{
+		"raw":   secret,
+		"query": url.QueryEscape(secret), "path": url.PathEscape(secret),
+		"json":                       string(encodedJSON[1 : len(encodedJSON)-1]),
+		"json without HTML escaping": jsonWithoutHTMLEscaping[1 : len(jsonWithoutHTMLEscaping)-1],
+		"base64":                     base64.StdEncoding.EncodeToString([]byte(secret)),
+		"raw base64":                 base64.RawStdEncoding.EncodeToString([]byte(secret)),
+		"url base64":                 base64.URLEncoding.EncodeToString([]byte(secret)),
+		"raw url base64":             base64.RawURLEncoding.EncodeToString([]byte(secret)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			finding := Finding{Analysis: Analysis{Debug: map[string]any{"revocation": map[string]any{"resp_body": "message: " + value}}}}
+			result := NewCredentialReport(finding, []string{secret})
+			got := result.Analysis.Debug["revocation"].(map[string]any)["resp_body"]
+			if got != "message: [redacted]" {
+				t.Fatalf("debug body = %q", got)
+			}
+			if finding.Analysis.Debug["revocation"].(map[string]any)["resp_body"] != "message: "+value {
+				t.Fatal("sanitizing debug mutated the input finding")
+			}
+		})
+	}
+}
 
 func TestCredentialReportRedactsOverlappingSecretsAndMetadataKeys(t *testing.T) {
 	got := NewCredentialReport(Finding{

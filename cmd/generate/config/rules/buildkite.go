@@ -61,6 +61,14 @@ let can_write = matchesAny(scopes, [
   })
 }`
 
+// https://buildkite.com/docs/apis/rest-api/access-token#revoke-the-current-token
+const buildkiteRevokeExpr = `let r = http.delete("https://api.buildkite.com/v2/access-token", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+}); r.status == 204 ? {
+  "result": "revoked"
+} : revoke.unknown(r)`
+
 func BuildkiteUserAccessToken() *config.Rule {
 	r := config.Rule{
 		ID:           "buildkite-user-access-token",
@@ -70,6 +78,7 @@ func BuildkiteUserAccessToken() *config.Rule {
 		Keywords:     []string{"bkua_"},
 		ValidateExpr: buildkiteValidateExpr,
 		AnalyzeExpr:  buildkiteAnalyzeExpr,
+		RevokeExpr:   buildkiteRevokeExpr,
 		Filter:       utils.MinEntropy(3.5),
 	}
 

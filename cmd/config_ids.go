@@ -9,6 +9,7 @@ import (
 type ConfigShowIDsCmd struct {
 	Validation bool   `help:"Show only rule IDs that support validation."`
 	Analysis   bool   `help:"Show only rule IDs that support analysis."`
+	Revocation bool   `help:"Show only rule IDs that support revocation."`
 	Path       string `arg:"" optional:"" name:"config-path" help:"Config file whose rule IDs should be listed."`
 }
 
@@ -23,6 +24,9 @@ func (cmd *ConfigShowIDsCmd) Run(cli *CLI, runtime *commandRuntime) error {
 			continue
 		}
 		if cmd.Analysis && strings.TrimSpace(rule.AnalyzeExpr) == "" {
+			continue
+		}
+		if cmd.Revocation && strings.TrimSpace(rule.RevokeExpr) == "" {
 			continue
 		}
 		ids = append(ids, rule.ID)

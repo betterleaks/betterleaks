@@ -61,6 +61,7 @@ type rawRule struct {
 
 	Validate   string `toml:"validate"`
 	Analyze    string `toml:"analyze"`
+	Revoke     string `toml:"revoke"`
 	SkipReport bool   `toml:"skipReport"`
 
 	// Filter is an Expr expression evaluated per match (attributes + finding).
@@ -222,6 +223,7 @@ func (rc *rawConfig) translate(depth int) (*Config, error) {
 
 		cr.ValidateExpr = vr.Validate
 		cr.AnalyzeExpr = vr.Analyze
+		cr.RevokeExpr = vr.Revoke
 		cr.Filter = vr.Filter
 
 		rules = append(rules, cr)
@@ -441,6 +443,9 @@ func (c *Config) extend(extensionConfig *Config, extend extendConfig, components
 			}
 			if currentRule.AnalyzeExpr != "" {
 				baseRule.AnalyzeExpr = currentRule.AnalyzeExpr
+			}
+			if currentRule.RevokeExpr != "" {
+				baseRule.RevokeExpr = currentRule.RevokeExpr
 			}
 			if currentRule.Confidence != "" {
 				baseRule.Confidence = currentRule.Confidence

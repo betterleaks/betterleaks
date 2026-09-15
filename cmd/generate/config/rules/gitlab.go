@@ -211,6 +211,14 @@ func GitlabOauthAppSecret() *config.Rule {
 	return utils.Validate(r, tps, nil)
 }
 
+// https://docs.gitlab.com/api/personal_access_tokens/#self-revoke
+const gitlabPatRevokeExpr = `let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+let r = http.delete(base_url + "/api/v4/personal_access_tokens/self", {
+  "PRIVATE-TOKEN": finding["secret"]
+}); r.status == 204 ? {
+  "result": "revoked"
+} : revoke.unknown(r)`
+
 func GitlabPat() *config.Rule {
 	r := config.Rule{
 		ID:           "gitlab-pat",
@@ -220,6 +228,7 @@ func GitlabPat() *config.Rule {
 		Keywords:     []string{"glpat-"},
 		ValidateExpr: gitlabPatExpr,
 		AnalyzeExpr:  gitlabPatAnalyzeExpr,
+		RevokeExpr:   gitlabPatRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
@@ -240,6 +249,7 @@ func GitlabPatRoutable() *config.Rule {
 		Keywords:     []string{"glpat-"},
 		ValidateExpr: gitlabPatExpr,
 		AnalyzeExpr:  gitlabPatAnalyzeExpr,
+		RevokeExpr:   gitlabPatRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 4.0`,
 	}
 
@@ -260,6 +270,7 @@ func GitlabPatRoutableVersioned() *config.Rule {
 		Keywords:     []string{"glpat-"},
 		ValidateExpr: gitlabPatExpr,
 		AnalyzeExpr:  gitlabPatAnalyzeExpr,
+		RevokeExpr:   gitlabPatRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 4.0`,
 	}
 

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,20 +9,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/stretchr/testify/require"
-
+	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-type failedFindingOutput struct{ err error }
-
-func (w failedFindingOutput) Write([]byte) (int, error) { return 0, w.err }
 
 func TestFindingCollectorPropagatesPrettyOutputError(t *testing.T) {
 	want := errors.New("output disconnected")
-	collector, err := newFindingCollector(&ScanFlags{}, true, failedFindingOutput{err: want})
+	collector, err := newFindingCollector(&ScanFlags{}, true, testErrorWriter{err: want})
 	require.NoError(t, err)
 	require.ErrorIs(t, collector.Add(testOutputFinding("test")), want)
 }
@@ -102,26 +99,6 @@ func TestFindingCollectorWritesReportByExtension(t *testing.T) {
 			require.Equal(t, "reported", finding.RuleID)
 		})
 	}
-}
-
-func TestFindingCollectorFinalizesPartialJSONReport(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "partial.json")
-	flags, output := newFindingOutputCommand(false, path, true, 0)
-	collector, err := newFindingCollector(flags, true, output)
-	require.NoError(t, err)
-	require.NoError(t, collector.Add(testOutputFinding("before-interrupt")))
-
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	require.ErrorIs(t, ctx.Err(), context.Canceled)
-	require.NoError(t, collector.Close())
-
-	contents, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var findings []report.Finding
-	require.NoError(t, json.Unmarshal(contents, &findings))
-	require.Len(t, findings, 1)
-	require.Equal(t, "before-interrupt", findings[0].RuleID)
 }
 
 func TestFindingCollectorReportToStdoutOwnsStream(t *testing.T) {
@@ -219,32 +196,6 @@ func TestFindingCollectorRejectsUnknownOutputExtension(t *testing.T) {
 	require.EqualError(t, err, fmt.Sprintf("output path %q must end in .json or .jsonl", path))
 }
 
-func TestScanOutputFlags(t *testing.T) {
-	cli, err := parseCLIForTest(t, "dir", "-s", "--jsonl", "-o", "findings.json")
-	require.NoError(t, err)
-	require.True(t, cli.Directory.Silent)
-	require.True(t, cli.Directory.JSONL)
-	require.Equal(t, "findings.json", cli.Directory.Output)
-
-	for _, removed := range []string{"report", "report-path", "report-format", "verbose"} {
-		_, err := parseCLIForTest(t, "dir", "--"+removed)
-		require.ErrorContains(t, err, "unknown flag")
-	}
-	_, err = parseCLIForTest(t, "dir", "-r", "findings.json")
-	require.ErrorContains(t, err, "unknown flag")
-}
-
-func TestDeprecatedScanCommandsRemoved(t *testing.T) {
-	for _, command := range []string{"detect", "protect"} {
-		// Removed command names are now ordinary paths for the filesystem shorthand.
-		cli, parser := newCLIParserForTest(t)
-		parsed, err := parser.Parse([]string{command})
-		require.NoError(t, err)
-		require.Equal(t, "filesystem <path>", parsed.Command())
-		require.Equal(t, []string{command}, cli.Directory.Paths)
-	}
-}
-
 func TestZeroValueFindingCollectorCountsWithoutOutput(t *testing.T) {
 	var collector findingCollector
 	require.NoError(t, collector.Add(report.Finding{}))
@@ -303,17 +254,19 @@ func TestFindingCollectorPrettyRedactsCompanionsAndAnalysis(t *testing.T) {
 	require.Equal(t, companion, finding.ComponentSets[0].Components[0].Match.Value)
 }
 
-func TestCLIExplicitlyExcludesLoadedConfig(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "rules.toml")
-	require.NoError(t, os.WriteFile(configPath, []byte("[[rules]]\nid = \"token\"\nregex = '''TOKEN'''\n"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.env"), []byte("TOKEN"), 0600))
-	root, stdout := newValidateTestRoot(t)
-	root.SetArgs([]string{"dir", dir, "--config", configPath, "--offline", "--jsonl", "--no-color", "--exit-code=0"})
-	require.NoError(t, root.Execute())
-	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	require.Len(t, lines, 1)
-	var finding report.Finding
-	require.NoError(t, json.Unmarshal([]byte(lines[0]), &finding))
-	require.Equal(t, filepath.ToSlash(filepath.Join(dir, "app.env")), finding.Location.Path)
+func TestRuleTimingDiagnostics(t *testing.T) {
+	outputDir := t.TempDir()
+	manager, err := NewDiagnosticsManager("rules", outputDir, nil)
+	require.NoError(t, err)
+
+	collector := ruletiming.FromContext(manager.withContext(t.Context()))
+	require.NotNil(t, collector)
+	collector.Record("test-rule", time.Millisecond)
+	require.NoError(t, manager.writeRuleTimings())
+
+	report, err := os.ReadFile(filepath.Join(outputDir, "rule-timings.txt"))
+	require.NoError(t, err)
+	assert.Contains(t, string(report), "Rule Timings")
+	assert.Contains(t, string(report), "test-rule")
+	assert.NoFileExists(t, filepath.Join(outputDir, "rule-timings.csv"))
 }

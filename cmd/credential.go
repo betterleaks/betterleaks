@@ -9,23 +9,46 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/analyze"
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/credential"
+	"github.com/betterleaks/betterleaks/v2/internal/provider"
+	"github.com/betterleaks/betterleaks/v2/internal/revoke"
 	"github.com/betterleaks/betterleaks/v2/report"
 )
 
 const maxCredentialInputBytes = 1 << 20
 
-// CredentialFlags is shared by the direct validate and analyze commands.
+type credentialOperation string
+
+const (
+	credentialValidation credentialOperation = "validation"
+	credentialAnalysis   credentialOperation = "analysis"
+	credentialRevocation credentialOperation = "revocation"
+)
+
+func (operation credentialOperation) supported(rule configpkg.Rule) bool {
+	switch operation {
+	case credentialValidation:
+		return strings.TrimSpace(rule.ValidateExpr) != ""
+	case credentialAnalysis:
+		return strings.TrimSpace(rule.ValidateExpr) != "" && strings.TrimSpace(rule.AnalyzeExpr) != ""
+	case credentialRevocation:
+		return strings.TrimSpace(rule.RevokeExpr) != ""
+	}
+	return false
+}
+
+// CredentialFlags is shared by the direct validate, analyze, and revoke commands.
 type CredentialFlags struct {
 	ProviderRuntimeFlags `embed:""`
-	RuleID               string   `name:"rule-id" help:"Rule to use for this credential."`
+	RuleID               string   `name:"rule" help:"Rule to use for this credential."`
 	Component            []string `sep:"none" help:"Credential component as rule-id=secret (repeatable)."`
 	Capture              []string `sep:"none" help:"Credential capture as name=value; use rule-id:name=value for a component (repeatable)."`
-	Simple               bool     `help:"Print only the validation status."`
+	Simple               bool     `help:"Print only the credential status."`
 	JSONL                bool     `name:"jsonl" help:"Print the credential result as JSONL."`
 	Secret               string   `arg:"" optional:"" help:"Credential value; read from stdin when omitted."`
 }
 
-func runCredential(runtime *commandRuntime, globals *GlobalFlags, options *CredentialFlags, withAnalysis bool) error {
+func runCredential(runtime *commandRuntime, globals *GlobalFlags, options *CredentialFlags, operation credentialOperation) error {
 	format := credentialReportFormat(options)
 	if options.Simple && format != report.CredentialReportFormatPretty {
 		return errors.New("--simple cannot be combined with --jsonl")
@@ -33,7 +56,7 @@ func runCredential(runtime *commandRuntime, globals *GlobalFlags, options *Crede
 
 	ruleID := strings.TrimSpace(options.RuleID)
 	if ruleID == "" {
-		return errors.New("--rule-id is required (use config show ids to see rule IDs)")
+		return errors.New("--rule is required (use config show ids to see rule IDs)")
 	}
 
 	input, err := readCredentialInput(runtime.stdin, options)
@@ -47,19 +70,35 @@ func runCredential(runtime *commandRuntime, globals *GlobalFlags, options *Crede
 	}
 	rule, ok := resolved.cfg.Rule(ruleID)
 	if !ok {
-		return unknownCredentialRuleError(resolved.cfg, ruleID, withAnalysis)
+		return unknownCredentialRuleError(resolved.cfg, ruleID, operation)
 	}
-	if strings.TrimSpace(rule.ValidateExpr) == "" {
-		return fmt.Errorf("rule %q does not define validation", ruleID)
-	}
-	if withAnalysis && strings.TrimSpace(rule.AnalyzeExpr) == "" {
-		return fmt.Errorf("rule %q does not define analysis (use validate to check liveness only)", ruleID)
+	if !operation.supported(rule) {
+		return fmt.Errorf("rule %q does not define %s", ruleID, operation)
 	}
 	rates, err := parseProviderRuleRPS(options.ProviderRPSRule)
 	if err != nil {
 		return err
 	}
+	value, err := input.credential(ruleID)
+	if err != nil {
+		return err
+	}
+	if operation == credentialRevocation {
+		result, err := revoke.Run(runtime.Context, resolved.cfg, value, provider.RuntimeOptions{
+			Debug:                   options.ProviderDebug,
+			Timeout:                 options.ProviderTimeout,
+			MaxRequestsPerTarget:    options.ProviderMaxRequests,
+			RequestsPerSecond:       options.ProviderRPS,
+			RequestsPerSecondByRule: rates,
+			EnvVars:                 options.ProviderEnvVars,
+		})
+		if err != nil {
+			return err
+		}
+		return writeCredentialReport(runtime, globals, options, result)
+	}
 	analyzer, err := analyze.New(resolved.cfg,
+		analyze.WithDebug(options.ProviderDebug),
 		analyze.WithTimeout(options.ProviderTimeout),
 		analyze.WithMaxRequestsPerTarget(options.ProviderMaxRequests),
 		analyze.WithRequestsPerSecond(options.ProviderRPS),
@@ -69,15 +108,11 @@ func runCredential(runtime *commandRuntime, globals *GlobalFlags, options *Crede
 	if err != nil {
 		return err
 	}
-	credential, err := input.credential(ruleID)
-	if err != nil {
-		return err
-	}
 	resolve := analyzer.ValidateCredential
-	if withAnalysis {
+	if operation == credentialAnalysis {
 		resolve = analyzer.AnalyzeCredential
 	}
-	result, err := resolve(runtime.Context, credential)
+	result, err := resolve(runtime.Context, value)
 	if err != nil {
 		return err
 	}
@@ -112,9 +147,9 @@ type credentialInput struct {
 
 // credential translates CLI component capture names (rule-id:name) into the
 // SDK's structured component inputs, keeping primary and companion captures separate.
-func (input credentialInput) credential(ruleID string) (analyze.Credential, error) {
+func (input credentialInput) credential(ruleID string) (credential.Input, error) {
 	supplied := make(map[string]struct{}, len(input.Components))
-	components := make(map[string]analyze.CredentialComponent, len(input.Components))
+	components := make(map[string]credential.Component, len(input.Components))
 	for id, secret := range input.Components {
 		supplied[id] = struct{}{}
 		captures := make(map[string]string)
@@ -123,10 +158,10 @@ func (input credentialInput) credential(ruleID string) (analyze.Credential, erro
 				captures[name] = value
 			}
 		}
-		components[id] = analyze.CredentialComponent{Secret: secret, Captures: captures}
+		components[id] = credential.Component{Secret: secret, Captures: captures}
 	}
 	if err := validateComponentCaptures(input.Captures, supplied); err != nil {
-		return analyze.Credential{}, err
+		return credential.Input{}, err
 	}
 	primaryCaptures := make(map[string]string)
 	for name, value := range input.Captures {
@@ -134,7 +169,7 @@ func (input credentialInput) credential(ruleID string) (analyze.Credential, erro
 			primaryCaptures[name] = value
 		}
 	}
-	return analyze.Credential{RuleID: ruleID, Secret: input.Secret, Captures: primaryCaptures, Components: components}, nil
+	return credential.Input{RuleID: ruleID, Secret: input.Secret, Captures: primaryCaptures, Components: components}, nil
 }
 
 func readCredentialInput(stdin io.Reader, cmd *CredentialFlags) (credentialInput, error) {
@@ -295,16 +330,12 @@ func validateComponentCaptures(captures map[string]string, supplied map[string]s
 	return nil
 }
 
-func unknownCredentialRuleError(cfg *configpkg.Config, ruleID string, withAnalysis bool) error {
-	operation := "validation"
-	if withAnalysis {
-		operation = "analysis"
-	}
+func unknownCredentialRuleError(cfg *configpkg.Config, ruleID string, operation credentialOperation) error {
 	query := strings.ToLower(ruleID)
 	var matches []string
 	for _, rule := range cfg.Rules {
 		id := rule.ID
-		if strings.TrimSpace(rule.ValidateExpr) != "" && (!withAnalysis || strings.TrimSpace(rule.AnalyzeExpr) != "") && strings.Contains(strings.ToLower(id), query) {
+		if operation.supported(rule) && strings.Contains(strings.ToLower(id), query) {
 			matches = append(matches, id)
 		}
 	}

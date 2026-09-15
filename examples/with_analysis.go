@@ -20,6 +20,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/analyze"
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/credential"
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/pipeline"
 	"github.com/betterleaks/betterleaks/v2/report"
@@ -165,7 +166,7 @@ func run() error {
 	// Already have a credential? No Reader, regex matching, or Scanner is needed.
 	// This deliberately checks the fixture ignored by scans above: explicit
 	// credential analysis bypasses scan filters, fingerprint ignores, and status filters.
-	result, err := analyzer.AnalyzeCredential(ctx, analyze.Credential{
+	result, err := analyzer.AnalyzeCredential(ctx, credential.Input{
 		RuleID:     "mock-api-key",
 		Secret:     fixtureToken,
 		Attributes: map[string]string{"application": "example-service"},
@@ -182,7 +183,7 @@ func run() error {
 
 	// Liveness alone never runs the analysis expression, even on an Analyzer
 	// already used for permission analysis.
-	validation, err := analyzer.ValidateCredential(ctx, analyze.Credential{
+	validation, err := analyzer.ValidateCredential(ctx, credential.Input{
 		RuleID: "mock-api-key", Secret: token,
 	})
 	if err != nil {

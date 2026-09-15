@@ -1,9 +1,11 @@
 package report
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -179,6 +181,27 @@ func credentialSecretsForRedaction(secrets []string) []string {
 		return len(ordered[i]) > len(ordered[j])
 	})
 	return ordered
+}
+
+// HTTP diagnostics may contain encoded credential values in URLs and bodies.
+// Expand only for debug output; normal report metadata retains its usual rules.
+func credentialDebugSecretsForRedaction(secrets []string) []string {
+	variants := make([]string, 0, len(secrets)*9)
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		encoded, _ := json.Marshal(secret)
+		jsonValue := string(encoded[1 : len(encoded)-1])
+		jsonUnescapedHTML := strings.NewReplacer(`\u003c`, "<", `\u003e`, ">", `\u0026`, "&").Replace(jsonValue)
+		variants = append(variants, secret, jsonValue, jsonUnescapedHTML,
+			url.QueryEscape(secret), url.PathEscape(secret),
+			base64.StdEncoding.EncodeToString([]byte(secret)),
+			base64.RawStdEncoding.EncodeToString([]byte(secret)),
+			base64.URLEncoding.EncodeToString([]byte(secret)),
+			base64.RawURLEncoding.EncodeToString([]byte(secret)))
+	}
+	return credentialSecretsForRedaction(variants)
 }
 
 // CredentialReportFormat identifies a supported direct credential report format.

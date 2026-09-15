@@ -58,6 +58,19 @@ let scopes = input["scopes"] ?? [];
   })
 }`
 
+// https://docs.slack.dev/reference/methods/auth.revoke/
+const slackRevokeExpr = `let r = http.post("https://slack.com/api/auth.revoke", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+r.status == 200 && r.json?.ok == true && r.json?.revoked == true ? {
+  "result": "revoked"
+} : r.status != 200 ? revoke.unknown(r) : {
+  "result": "unknown",
+  "reason": "Slack did not confirm revocation",
+  "metadata": {"provider_error": r.json?.error ?? ""}
+}`
+
 // https://api.slack.com/authentication/token-types#bot
 func SlackBotToken() *config.Rule {
 	// define rule
@@ -71,6 +84,7 @@ func SlackBotToken() *config.Rule {
 		},
 		ValidateExpr: slackValidateExpr,
 		AnalyzeExpr:  slackAnalyzeExpr,
+		RevokeExpr:   slackRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
@@ -105,6 +119,7 @@ func SlackUserToken() *config.Rule {
 		Keywords:     []string{"xoxp-", "xoxe-"},
 		ValidateExpr: slackValidateExpr,
 		AnalyzeExpr:  slackAnalyzeExpr,
+		RevokeExpr:   slackRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 2.0`,
 	}
 

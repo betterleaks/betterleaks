@@ -7,6 +7,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/analyze"
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/credential"
 )
 
 func ExampleAnalyzer_AnalyzeCredential() {
@@ -22,7 +23,7 @@ func ExampleAnalyzer_AnalyzeCredential() {
 	if err != nil {
 		panic(err)
 	}
-	result, err := validator.AnalyzeCredential(context.Background(), analyze.Credential{
+	result, err := validator.AnalyzeCredential(context.Background(), credential.Input{
 		RuleID: "demo-token",
 		Secret: "example",
 		// Supply the named inputs the detection regex would otherwise extract.

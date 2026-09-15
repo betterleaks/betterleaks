@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/credential"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -77,7 +78,7 @@ func TestAnalyzerCopiesConfig(t *testing.T) {
 			analyzer := mustNew(t, cfg)
 			// Mutate the caller's data before the first lazy compilation.
 			tc.mutate(cfg)
-			result, err := analyzer.ValidateCredential(t.Context(), Credential{RuleID: "key", Secret: "input", Components: map[string]CredentialComponent{"part": {Secret: "companion"}}})
+			result, err := analyzer.ValidateCredential(t.Context(), credential.Input{RuleID: "key", Secret: "input", Components: map[string]credential.Component{"part": {Secret: "companion"}}})
 			require.NoError(t, err)
 			require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
 		})
@@ -100,7 +101,7 @@ func TestProviderCompilationErrors(t *testing.T) {
 				analyzer, err := New(cfg, mode.options...)
 				if len(mode.options) == 0 {
 					require.NoError(t, err)
-					_, err = analyzer.AnalyzeCredential(t.Context(), Credential{RuleID: "key", Secret: "secret"})
+					_, err = analyzer.AnalyzeCredential(t.Context(), credential.Input{RuleID: "key", Secret: "secret"})
 				}
 				require.ErrorContains(t, err, tc.wantError)
 			})
@@ -121,10 +122,17 @@ func TestCredentialCallErrors(t *testing.T) {
 		{"nil context", analyzer, nil, "context must not be nil"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := tc.analyzer.ValidateCredential(tc.ctx, Credential{RuleID: "key", Secret: "secret"})
+			_, err := tc.analyzer.ValidateCredential(tc.ctx, credential.Input{RuleID: "key", Secret: "secret"})
 			require.ErrorContains(t, err, tc.wantError)
 		})
 	}
+}
+
+func TestValidateCredentialHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := (*Analyzer)(nil).ValidateCredential(ctx, credential.Input{})
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestValidateCredentialPipeline(t *testing.T) {
@@ -155,7 +163,7 @@ func TestValidateCredentialPipeline(t *testing.T) {
 			if tc.enabled {
 				resolve = d.AnalyzeCredential
 			}
-			result, err := resolve(t.Context(), Credential{RuleID: "credential", Secret: "raw-secret"})
+			result, err := resolve(t.Context(), credential.Input{RuleID: "credential", Secret: "raw-secret"})
 			require.NoError(t, err)
 			assert.Equal(t, tc.status, result.Analysis.Status)
 			assert.Equal(t, tc.severity, result.Analysis.Severity)
@@ -178,18 +186,18 @@ func TestValidateCredentialInputs(t *testing.T) {
 	d := mustNew(t, cfg)
 	for _, tc := range []struct {
 		name  string
-		input Credential
+		input credential.Input
 		want  string
 	}{
-		{"unknown rule", Credential{RuleID: "missing", Secret: "key"}, "not found"},
-		{"no validator", Credential{RuleID: "part", Secret: "key"}, "does not define validation"},
-		{"empty secret", Credential{RuleID: "primary"}, "must not be empty"},
-		{"large secret", Credential{RuleID: "primary", Secret: strings.Repeat("s", (1<<20)+1)}, "exceeds"},
-		{"analysis capture missing", Credential{RuleID: "primary", Secret: "key"}, "missing required capture(s)"},
-		{"component missing", Credential{RuleID: "primary", Secret: "key", Captures: map[string]string{"tenant": "demo"}}, "missing required component(s): part"},
-		{"extra component", Credential{RuleID: "primary", Secret: "key", Captures: map[string]string{"tenant": "demo"}, Components: map[string]CredentialComponent{"part": {Secret: "x"}, "extra": {Secret: "y"}}}, "not declared"},
-		{"empty component", Credential{RuleID: "primary", Secret: "key", Captures: map[string]string{"tenant": "demo"}, Components: map[string]CredentialComponent{"part": {}}}, "must not be empty"},
-		{"empty capture name", Credential{RuleID: "primary", Secret: "key", Captures: map[string]string{"": "value"}}, "capture name"},
+		{"unknown rule", credential.Input{RuleID: "missing", Secret: "key"}, "not found"},
+		{"no validator", credential.Input{RuleID: "part", Secret: "key"}, "does not define validation"},
+		{"empty secret", credential.Input{RuleID: "primary"}, "must not be empty"},
+		{"large secret", credential.Input{RuleID: "primary", Secret: strings.Repeat("s", (1<<20)+1)}, "exceeds"},
+		{"analysis capture missing", credential.Input{RuleID: "primary", Secret: "key"}, "missing required capture(s)"},
+		{"component missing", credential.Input{RuleID: "primary", Secret: "key", Captures: map[string]string{"tenant": "demo"}}, "missing required component(s): part"},
+		{"extra component", credential.Input{RuleID: "primary", Secret: "key", Captures: map[string]string{"tenant": "demo"}, Components: map[string]credential.Component{"part": {Secret: "x"}, "extra": {Secret: "y"}}}, "not declared"},
+		{"empty component", credential.Input{RuleID: "primary", Secret: "key", Captures: map[string]string{"tenant": "demo"}, Components: map[string]credential.Component{"part": {}}}, "must not be empty"},
+		{"empty capture name", credential.Input{RuleID: "primary", Secret: "key", Captures: map[string]string{"": "value"}}, "capture name"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := d.AnalyzeCredential(t.Context(), tc.input)
@@ -207,7 +215,7 @@ func TestValidateCredentialComponentsAndRedaction(t *testing.T) {
 		{ID: "part", Regex: `part`}, {ID: "optional", Regex: `optional`},
 	}}
 	d := mustNew(t, cfg)
-	input := Credential{RuleID: "key", Secret: " raw-secret\n", Captures: map[string]string{"tenant": "private-tenant"}, Components: map[string]CredentialComponent{"part": {Secret: "companion-secret", Captures: map[string]string{"region": "private-region"}}}, Attributes: map[string]string{sources.AttrPath: "direct.env", "application": "demo"}}
+	input := credential.Input{RuleID: "key", Secret: " raw-secret\n", Captures: map[string]string{"tenant": "private-tenant"}, Components: map[string]credential.Component{"part": {Secret: "companion-secret", Captures: map[string]string{"region": "private-region"}}}, Attributes: map[string]string{sources.AttrPath: "direct.env", "application": "demo"}}
 	result, err := d.AnalyzeCredential(t.Context(), input)
 	require.NoError(t, err)
 	require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
@@ -226,7 +234,7 @@ func TestValidateCredentialComponentsAndRedaction(t *testing.T) {
 	require.Equal(t, "direct.env", input.Attributes[sources.AttrPath])
 	require.Equal(t, "private-tenant", input.Captures["tenant"])
 	require.Equal(t, "private-region", input.Components["part"].Captures["region"])
-	input.Components["optional"] = CredentialComponent{Secret: "optional-secret"}
+	input.Components["optional"] = credential.Component{Secret: "optional-secret"}
 	result, err = d.AnalyzeCredential(t.Context(), input)
 	require.NoError(t, err)
 	require.Len(t, result.ComponentSets[0].Components, 2)
@@ -250,7 +258,7 @@ func TestCredentialRequestBudget(t *testing.T) {
 			expression := fmt.Sprintf(`let responseOne = http.get(%q, {}); let responseTwo = http.get(%q, {}); {"result":"valid"}`, server.URL+"/first", server.URL+"/second")
 			analyzer := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "key", Regex: "key", ValidateExpr: expression}}}, WithMaxRequestsPerTarget(tc.limit))
 			for run := 1; run <= 2; run++ {
-				result, err := analyzer.AnalyzeCredential(t.Context(), Credential{RuleID: "key", Secret: "raw"})
+				result, err := analyzer.AnalyzeCredential(t.Context(), credential.Input{RuleID: "key", Secret: "raw"})
 				require.NoError(t, err)
 				require.Equal(t, tc.status, result.Analysis.Status)
 				require.EqualValues(t, run*tc.requestsPerCall, requests.Load(), "each call gets a fresh request budget")
@@ -280,7 +288,7 @@ func TestCredentialCancellation(t *testing.T) {
 			}
 			done := make(chan error, 1)
 			go func() {
-				_, err := analyzer.AnalyzeCredential(ctx, Credential{RuleID: "key", Secret: "raw"})
+				_, err := analyzer.AnalyzeCredential(ctx, credential.Input{RuleID: "key", Secret: "raw"})
 				done <- err
 			}()
 			if !tc.beforeRequest {
@@ -307,7 +315,7 @@ func TestValidateCredentialMatchesScanAndSupportsConcurrentCalls(t *testing.T) {
 	d := mustNew(t, cfg)
 	scanner, err := scan.New(cfg)
 	require.NoError(t, err)
-	input := Credential{RuleID: "key", Secret: "example-key", Attributes: map[string]string{sources.AttrPath: "example.env"}}
+	input := credential.Input{RuleID: "key", Secret: "example-key", Attributes: map[string]string{sources.AttrPath: "example.env"}}
 	direct, err := d.AnalyzeCredential(t.Context(), input)
 	require.NoError(t, err)
 	var scanned report.CredentialReport
@@ -364,7 +372,7 @@ func TestCredentialProviderEnvironment(t *testing.T) {
 			if tc.mutateAllowlist {
 				names[0] = "NOT_ALLOWED"
 			}
-			input := Credential{RuleID: "key", Secret: "private-debug-secret"}
+			input := credential.Input{RuleID: "key", Secret: "private-debug-secret"}
 			result, err := analyzer.AnalyzeCredential(t.Context(), input)
 			require.NoError(t, err)
 			require.Equal(t, tc.status, result.Analysis.Status)
@@ -421,7 +429,7 @@ func TestValidateCredentialAfterAnalysis(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &config.Config{Rules: []config.Rule{{ID: "key", Regex: "key", ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{"capabilities":["read"]}`}}}
 			analyzer := mustNew(t, cfg, tc.options...)
-			input := Credential{RuleID: "key", Secret: "secret"}
+			input := credential.Input{RuleID: "key", Secret: "secret"}
 			result, err := analyzer.AnalyzeCredential(t.Context(), input)
 			require.NoError(t, err)
 			require.Equal(t, report.SeverityMedium, result.Analysis.Severity)
@@ -637,7 +645,7 @@ func TestOptionalCaptures(t *testing.T) {
 		{"supplied other region", map[string]string{"region": "other"}, report.ValidationStatusInvalid},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := analyzer.ValidateCredential(t.Context(), Credential{RuleID: "key", Secret: "TOKEN", Captures: tc.captures})
+			result, err := analyzer.ValidateCredential(t.Context(), credential.Input{RuleID: "key", Secret: "TOKEN", Captures: tc.captures})
 			require.NoError(t, err)
 			require.Equal(t, tc.status, result.Analysis.Status)
 		})

@@ -61,6 +61,7 @@ type CLI struct {
 	Fingerprint FingerprintCmd `cmd:"" help:"Generate a secret fingerprint from stdin."`
 	Validate    ValidateCmd    `cmd:"" help:"Validate a known secret without running detection."`
 	Analyze     AnalyzeCmd     `cmd:"" help:"Validate a known credential and resolve its identity and permissions."`
+	Revoke      RevokeCmd      `cmd:"" help:"Revoke a known credential using its rule's revoke expression."`
 	ConfigCmd   ConfigCmd      `cmd:"" name:"config" help:"Validate and inspect betterleaks configs."`
 	VersionCmd  VersionCmd     `cmd:"" name:"version" help:"Display betterleaks version."`
 }

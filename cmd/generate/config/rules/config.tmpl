@@ -57,6 +57,8 @@ skipReport = true{{ end }}
 validate = {{ tomlExpr . }}{{ end }}
 {{- with $rule.AnalyzeExpr }}
 analyze = {{ tomlExpr . }}{{ end }}
+{{- with $rule.RevokeExpr }}
+revoke = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Filter }}
 filter = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Components }}

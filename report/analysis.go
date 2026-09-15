@@ -115,7 +115,9 @@ func SanitizeAnalysis(analysis Analysis, secrets []string) Analysis {
 	analysis.StatusMetadata = sanitizeCredentialMetadata(analysis.StatusMetadata, secrets, false)
 	analysis.Reason = sanitizeCredentialString(analysis.Reason, secrets)
 	analysis.Metadata = sanitizeCredentialMetadata(analysis.Metadata, secrets, false)
-	analysis.Debug = sanitizeCredentialMetadata(analysis.Debug, secrets, true)
+	if len(analysis.Debug) > 0 {
+		analysis.Debug = sanitizeCredentialMetadata(analysis.Debug, credentialDebugSecretsForRedaction(secrets), true)
+	}
 	if analysis.Identity == nil {
 		return analysis
 	}

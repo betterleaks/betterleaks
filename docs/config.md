@@ -1,6 +1,7 @@
 # Betterleaks config
 
-The `betterleaks.toml` file controls detection, filtering, validation, and analysis.
+The `betterleaks.toml` file controls detection, filtering, validation, analysis,
+and optional explicit credential revocation.
 It is TOML because rules are mostly flat data plus Expr expressions.
 
 ## Inspect a config
@@ -14,14 +15,15 @@ betterleaks config show path/to/betterleaks.toml
 betterleaks config show ids
 betterleaks config show ids --validation
 betterleaks config show ids --analysis
+betterleaks config show ids --revocation
 betterleaks config show ids --analysis path/to/betterleaks.toml
 ```
 
 `config show ids` prints sorted IDs, one per line, without making provider
 requests. It uses the same config resolution as `config show`, including
 `--config` and the config environment variables. A positional config path takes
-precedence over `--config`. Use the listed IDs with `validate --rule-id` or
-`analyze --rule-id`.
+precedence over `--config`. Use the listed IDs with `validate --rule` or
+`analyze --rule`, or `revoke --rule`.
 
 ## Top-level shape
 
@@ -53,6 +55,7 @@ Each `[[rules]]` entry can use:
 - `confidence`: optional `low`, `medium`, or `high` likelihood classification.
 - `validate`: Expr expression to actively verify whether a secret is live.
 - `analyze`: Expr expression to enrich a valid credential with identity and capabilities.
+- `revoke`: optional Expr expression executed only by the `revoke` command to invalidate a credential. Scans never execute it.
 - `components`: required or optional component rules used to build multipart findings.
 
 `keywords` are strongly recommended. Betterleaks checks them with an
@@ -61,7 +64,7 @@ Aho-Corasick trie before running the heavier regex.
 ## Expr overview
 
 Betterleaks uses [Expr](https://expr-lang.org/) for `prefilter`, `filter`,
-`validate`, and `analyze` expressions.
+`validate`, `analyze`, and `revoke` expressions.
 
 - `prefilter` runs before regex matching and only has `attributes`.
 - `filter` runs after regex matching, before component assembly, and has
@@ -71,6 +74,9 @@ Betterleaks uses [Expr](https://expr-lang.org/) for `prefilter`, `filter`,
   enabled. It has credential-only `finding` fields and one combination of `components`.
 - `analyze` runs for each valid combination when analysis is enabled. It has
   the same inputs plus that combination's `validation` result.
+- `revoke` runs only for an explicitly supplied credential through the `revoke`
+  command. It performs its own prerequisite lookups and does not run validation
+  or analysis automatically.
 
 Use brackets to access map values. For nested data that may be absent, use `?.`
 and provide a fallback with `??`:
@@ -86,8 +92,8 @@ r.json?.login ?? ""
 | Name | Scope | Description |
 | :--- | :--- | :--- |
 | `attributes` | prefilter, filter | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, `fs.symlink`, and the read-only `fs.first_fragment` (`"true"` for a file's first chunk and `"false"` thereafter). |
-| `finding` | filter, validate, analyze | Primary match data. `finding.secret` is its selected value; `finding.captures` contains its named regex groups. Provider programs can read only `secret`, `captures`, and `rule_id`. Filters also receive `match`, `line`, `description`, `confidence`, context and fragment offsets. |
-| `components` | validate, analyze | One combination of component matches, keyed by referenced rule ID. Each has `secret` and `captures` fields. Absent optional components have no entry. |
+| `finding` | filter, validate, analyze, revoke | Primary match data. `finding.secret` is its selected value; `finding.captures` contains its named regex groups. Provider programs can read only `secret`, `captures`, and `rule_id`. Filters also receive `match`, `line`, `description`, `confidence`, context and fragment offsets. |
+| `components` | validate, analyze, revoke | One combination of component matches, keyed by referenced rule ID. Each has `secret` and `captures` fields. Absent optional components have no entry. |
 | `validation` | analyze | This combination's validation `status`, `reason`, public `metadata`, and private `analysis` handoff data. |
 
 Use these canonical paths in rule expressions:
@@ -339,7 +345,7 @@ use `POST` only when it cannot create or modify provider resources. See the
 [rule contribution safety requirements](../.github/CONTRIBUTING.md#provider-safety-for-validation-and-analysis).
 
 To revalidate one known credential without scanning or re-running a rule's
-detection regex, use `betterleaks validate --rule-id <rule-id>`. See the
+detection regex, use `betterleaks validate --rule <rule-id>`. See the
 [`validate` and `analyze` command guide](scanning.md#validate-and-analyze) for stdin, multipart
 credentials, captures, request controls, and reporting.
 
@@ -481,6 +487,75 @@ For more complex validation setups, such as Basic Auth, dynamic request bodies,
 HMAC signatures, or composite rules, check the built-in
 rules in `cmd/generate/config/rules`.
 
+## Explicit credential revocation
+
+A rule may define a `revoke` Expr independently of `validate` and `analyze`.
+Only `betterleaks revoke --rule <id>` executes this field. Scans, direct
+validation, and direct analysis never compile or execute it. `config check`,
+`config show`, and rule generation can compile it to catch authoring errors;
+they do not execute it.
+
+The expression receives the same `finding.secret`, `finding.captures`, and
+`components` inputs as validation. Required captures are inferred from the
+revocation expression alone. It has no `validation` result: put any lookup or
+authentication steps needed for revocation directly in the expression.
+
+Use `let` bindings and conditional expressions for lookup-then-delete workflows.
+HTTP responses expose parsed JSON as `response.json`, raw text as `response.body`,
+and lowercase header names as `response.headers`. JSON field access and indexing,
+`findMatch(response.body, pattern)`, and header access can extract values for a
+later request. Check the lookup response and extracted value before sending the
+revocation request.
+
+The revocation scope includes the existing provider helpers plus
+`http.delete(url, headers)` and `revoke.unknown(response)`. DELETE is available
+only in the revocation scope; use `revoke.unknown` in place of `validate.unknown`.
+`http.post` is also available for providers whose revocation API uses POST.
+
+This illustrative rule targets a placeholder API; adapt the endpoint and response
+checks to the provider's documented revocation contract:
+
+```toml
+[[rules]]
+id = "example-token"
+regex = '''example_[A-Za-z0-9]{32}'''
+revoke = '''
+let headers = {"Authorization": "Bearer " + finding.secret};
+let lookup = http.get("https://api.example.com/tokens/self", headers);
+lookup.status != 200 ? revoke.unknown(lookup) : (
+  let id = lookup.json.id ?? "";
+  !(id matches "^[A-Za-z0-9_-]+$") ? {
+    "result": "unknown", "reason": "No unambiguous token ID"
+  } : (
+    let deleted = http.delete("https://api.example.com/tokens/" + id, headers);
+    deleted.status == 204 ? {
+      "result": "revoked", "reason": "Provider confirmed token removal"
+    } : revoke.unknown(deleted)
+  )
+)
+'''
+```
+
+Return an object with `result` set to `revoked`, `unknown`, or `error`, and optional
+`reason` and `metadata` fields. The contract is closed: other fields or malformed
+results produce an `error` status. Report `revoked` only when provider evidence
+confirms invalidation. For asynchronous APIs, an accepted request alone should
+produce `unknown` until completion is confirmed.
+
+The command uses the existing credential report: `analysis.status` carries the
+outcome, with `analysis.status_reason` and `analysis.status_metadata` for public
+details. Supplied secrets, components, and captures are redacted. Intermediate
+response bodies and extracted values stay in the expression unless explicitly
+placed in its public metadata or included in opt-in `--provider-debug` HTTP
+diagnostics. Revocation diagnostics appear under `analysis.debug.revocation`
+and use the same credential redaction as validation and analysis diagnostics.
+
+All workflow steps share the invocation's provider request limits and environment
+allowlist. A request limit or transport timeout leaves revocation unconfirmed.
+Cancellation returns a command error and stops further requests; it cannot undo
+a request already accepted by the provider. Each explicit invocation runs fresh,
+without a revocation result cache or automatic follow-up validation.
+
 ## Components
 
 A rule can reference other rules as required or optional components. The
@@ -529,7 +604,7 @@ combination's validation result. Expressions do not iterate over all component
 sets. Filters run before assembly and cannot inspect `components` or provider
 results.
 
-Direct SDK validation supplies this same structure through `analyze.Credential`:
+Direct SDK validation supplies this same structure through `credential.Input`:
 `Secret` becomes `finding.secret`, `Captures` becomes `finding.captures`, and
 each `Components[id]` supplies `components[id].secret` and `.captures`.
 Direct validation skips filters and requires callers to supply capture values;
@@ -644,10 +719,10 @@ rule IDs are user-defined and are preserved exactly as map keys.
 
 For contributors adding a new Expr function:
 
-1. Choose the environment: validation, filter/prefilter, or both.
+1. Choose the expression scope: filter/prefilter, validation, analysis, or explicit revocation.
 2. Add the Go implementation in the namespace file, or create
    `internal/exprruntime/bindings_<namespace>.go` for a new namespace.
-3. Register the function in `baseEnv`.
+3. Register the function in that scope's compile and runtime bindings. Revocation-only functions must remain unavailable to scan-time expressions.
 4. Add focused tests for compile and evaluation behavior.
 5. Run `go test ./internal/exprruntime`.
 
@@ -660,7 +735,7 @@ occurrences therefore share provider work within one Analyzer operation.
 
 Components must be flat: a referenced component rule cannot have components of
 its own and must match content. Path-only rules may use local filters, but cannot
-declare components, validation or analysis. Their content text and offsets are
+declare components, validation, analysis, or revocation. Their content text and offsets are
 empty/zero in filter expressions.
 
 Discovery and Analyzer input are bounded to 100 component combinations per

@@ -85,19 +85,24 @@ betterleaks s3 'https://<account-id>.r2.cloudflarestorage.com/*'
 cat some_file.txt | betterleaks stdin -v
 
 # Revalidate a known credential without running detection
-printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat
 
 # Find rule IDs that support credential analysis
 betterleaks config show ids --analysis
 
 # Validate it and resolve identity and permissions
-printf '%s\n' "$GITHUB_TOKEN" | betterleaks analyze --rule-id github-pat
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks analyze --rule github-pat
 
 # Print only its status (for example, VALID)
-printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat --simple
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat --simple
 ```
 
 For more advanced scanning examples check out the [scanning doc](docs/scanning.md).
+
+Rules may also define an optional `revoke` Expr for explicit credential revocation.
+Use `betterleaks config show ids --revocation` to find configured support and
+`betterleaks revoke --rule <id>` to execute it. Scans never run revocation.
+See the [revocation guide](docs/config.md#explicit-credential-revocation).
 
 ### Go SDK
 
@@ -145,14 +150,15 @@ Use `config.LoadFile` for custom rules and `scan.WithLogger` for diagnostics.
 `Scanner.Scan` streams findings from a source; `Scanner.ScanString` handles small
 inputs. Neither executes provider programs.
 
-For an already-extracted secret:
+For an already-extracted secret, use `credential.Input` from
+`github.com/betterleaks/betterleaks/v2/credential`:
 
 ```go
 analyzer, err := analyze.New(cfg, analyze.WithTimeout(5*time.Second))
 if err != nil {
     return err
 }
-result, err := analyzer.AnalyzeCredential(ctx, analyze.Credential{
+result, err := analyzer.AnalyzeCredential(ctx, credential.Input{
     RuleID: "github-pat",
     Secret: token,
 })
@@ -164,7 +170,10 @@ if err != nil {
 ```
 
 Call `analyzer.ValidateCredential` for liveness alone. Supply named `Captures`
-and `Components` when required by the rule. Direct credential operations bypass
+and `Components` (`map[string]credential.Component`) when required by the rule.
+The `credential` package owns the shared inputs, capture requirements, and input preparation;
+`analyzer.Requirements` and `analyzer.ValidationRequirements` return
+`credential.Requirements`. Direct credential operations bypass
 scan filters and sanitize supplied secret material in their reports.
 `analyzer.Validate` and `analyzer.Analyze` accept existing `report.Finding` values
 and return enriched findings without modifying the input.

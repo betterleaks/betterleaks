@@ -1470,6 +1470,14 @@ let can_write = matchesAny(scopes, [
   })
 }
 '''
+revoke = '''
+let r = http.delete("https://api.buildkite.com/v2/access-token", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+}); r.status == 204 ? {
+  "result": "revoked"
+} : revoke.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) < 3.5
 '''
@@ -5749,6 +5757,19 @@ let scopes = input["scopes"] ?? [];
   })
 }
 '''
+revoke = '''
+let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com");
+let r = http.post(base_url + "/credentials/revoke", {
+  "Accept": "application/vnd.github+json",
+  "Content-Type": "application/json",
+  "X-GitHub-Api-Version": "2026-03-10"
+}, toJSON({"credentials": [finding["secret"]]}));
+r.status == 202 ? {
+  "result": "unknown",
+  "reason": "GitHub accepted the revocation request; completion is unconfirmed",
+  "metadata": {"submitted": true}
+} : revoke.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
@@ -5809,6 +5830,19 @@ let scopes = input["scopes"] ?? [];
     "create_credentials": matchesAny(scopes, ["^admin:(?:gpg_key|public_key|ssh_signing_key)$"])
   })
 }
+'''
+revoke = '''
+let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com");
+let r = http.post(base_url + "/credentials/revoke", {
+  "Accept": "application/vnd.github+json",
+  "Content-Type": "application/json",
+  "X-GitHub-Api-Version": "2026-03-10"
+}, toJSON({"credentials": [finding["secret"]]}));
+r.status == 202 ? {
+  "result": "unknown",
+  "reason": "GitHub accepted the revocation request; completion is unconfirmed",
+  "metadata": {"submitted": true}
+} : revoke.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -5871,6 +5905,19 @@ let scopes = input["scopes"] ?? [];
   })
 }
 '''
+revoke = '''
+let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com");
+let r = http.post(base_url + "/credentials/revoke", {
+  "Accept": "application/vnd.github+json",
+  "Content-Type": "application/json",
+  "X-GitHub-Api-Version": "2026-03-10"
+}, toJSON({"credentials": [finding["secret"]]}));
+r.status == 202 ? {
+  "result": "unknown",
+  "reason": "GitHub accepted the revocation request; completion is unconfirmed",
+  "metadata": {"submitted": true}
+} : revoke.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.0
 || matchesAny(attributes["path"], [`(?:^|/)@octokit/auth-token/README\.md$`])
@@ -5903,6 +5950,19 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))
+'''
+revoke = '''
+let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com");
+let r = http.post(base_url + "/credentials/revoke", {
+  "Accept": "application/vnd.github+json",
+  "Content-Type": "application/json",
+  "X-GitHub-Api-Version": "2026-03-10"
+}, toJSON({"credentials": [finding["secret"]]}));
+r.status == 202 ? {
+  "result": "unknown",
+  "reason": "GitHub accepted the revocation request; completion is unconfirmed",
+  "metadata": {"submitted": true}
+} : revoke.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -6100,6 +6160,14 @@ let can_admin = intersects(grants, ["sudo", "admin_mode"]);
   })
 }
 '''
+revoke = '''
+let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+let r = http.delete(base_url + "/api/v4/personal_access_tokens/self", {
+  "PRIVATE-TOKEN": finding["secret"]
+}); r.status == 204 ? {
+  "result": "revoked"
+} : revoke.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
@@ -6171,6 +6239,14 @@ let can_admin = intersects(grants, ["sudo", "admin_mode"]);
   })
 }
 '''
+revoke = '''
+let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+let r = http.delete(base_url + "/api/v4/personal_access_tokens/self", {
+  "PRIVATE-TOKEN": finding["secret"]
+}); r.status == 204 ? {
+  "result": "revoked"
+} : revoke.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) <= 4.0
 '''
@@ -6241,6 +6317,14 @@ let can_admin = intersects(grants, ["sudo", "admin_mode"]);
     "admin": can_admin
   })
 }
+'''
+revoke = '''
+let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+let r = http.delete(base_url + "/api/v4/personal_access_tokens/self", {
+  "PRIVATE-TOKEN": finding["secret"]
+}); r.status == 204 ? {
+  "result": "revoked"
+} : revoke.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -6766,6 +6850,15 @@ let capabilities = analysis.capabilities({
   "capabilities": capabilities
 }
 '''
+revoke = '''
+let r = http.post("https://huggingface.co/api/credentials/revoke", {
+  "Content-Type": "application/json"
+}, toJSON({"credentials": [finding["secret"]]}));
+r.status == 202 ? {
+  "result": "revoked",
+  "reason": "Hugging Face invalidated any matching token; prior token validity is not disclosed"
+} : revoke.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''
@@ -6845,6 +6938,15 @@ let capabilities = analysis.capabilities({
   },
   "capabilities": capabilities
 }
+'''
+revoke = '''
+let r = http.post("https://huggingface.co/api/credentials/revoke", {
+  "Content-Type": "application/json"
+}, toJSON({"credentials": [finding["secret"]]}));
+r.status == 202 ? {
+  "result": "revoked",
+  "reason": "Hugging Face invalidated any matching token; prior token validity is not disclosed"
+} : revoke.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) <= 2.0
@@ -10142,6 +10244,19 @@ let scopes = input["scopes"] ?? [];
   })
 }
 '''
+revoke = '''
+let r = http.post("https://slack.com/api/auth.revoke", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+r.status == 200 && r.json?.ok == true && r.json?.revoked == true ? {
+  "result": "revoked"
+} : r.status != 200 ? revoke.unknown(r) : {
+  "result": "unknown",
+  "reason": "Slack did not confirm revocation",
+  "metadata": {"provider_error": r.json?.error ?? ""}
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
@@ -10360,6 +10475,19 @@ let scopes = input["scopes"] ?? [];
     "write": matchesAny(scopes, [":write$", "^channels:manage$"]),
     "manage_users": matchesAny(scopes, ["^(?:admin[.](?:invites|roles|usergroups|users):write|usergroups:write)$"])
   })
+}
+'''
+revoke = '''
+let r = http.post("https://slack.com/api/auth.revoke", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+r.status == 200 && r.json?.ok == true && r.json?.revoked == true ? {
+  "result": "revoked"
+} : r.status != 200 ? revoke.unknown(r) : {
+  "result": "unknown",
+  "reason": "Slack did not confirm revocation",
+  "metadata": {"provider_error": r.json?.error ?? ""}
 }
 '''
 filter = '''
@@ -10875,6 +11003,22 @@ description = "Discovered a Twitch API token, which could compromise streaming s
 regex = '''(?i)(?:twitch)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "medium"
 keywords = ["twitch"]
+revoke = '''
+let lookup = http.get("https://id.twitch.tv/oauth2/validate", {
+  "Authorization": "OAuth " + finding["secret"]
+});
+lookup.status != 200 ? revoke.unknown(lookup) : (
+  let client_id = lookup.json?.client_id ?? "";
+  type(client_id) != "string" || client_id == "" ? {
+    "result": "unknown", "reason": "Twitch did not return a client ID"
+  } : (
+    let r = http.post("https://id.twitch.tv/oauth2/revoke", {
+      "Content-Type": "application/x-www-form-urlencoded"
+    }, "client_id=" + strings.urlQueryEscape(client_id) + "&token=" + strings.urlQueryEscape(finding["secret"]));
+    r.status == 200 ? {"result": "revoked"} : revoke.unknown(r)
+  )
+)
+'''
 filter = '''
 entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''

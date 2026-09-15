@@ -16,8 +16,8 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 )
 
-// Program is the compiled representation used by filter, validation, and
-// analysis expressions.
+// Program is the compiled representation used by filter, validation, analysis,
+// and explicit revocation expressions.
 type Program = *compiledProgram
 
 type compileMode string
@@ -27,6 +27,7 @@ const (
 	modePrefilter  compileMode = "prefilter"
 	modeValidation compileMode = "validation"
 	modeAnalysis   compileMode = "analysis"
+	modeRevocation compileMode = "revocation"
 )
 
 type compiledProgram struct {
@@ -110,7 +111,7 @@ func (s *evalState) validationLimitHit() *ValidationRequestLimitHit {
 const maxResponseBody = 1 << 20 // 1 MB
 
 // Runtime holds compiled Expr programs and the provider services used by
-// validation and analysis.
+// validation, analysis, and explicit revocation.
 type Runtime struct {
 	client *http.Client
 	// validationLimiter is applied to every request made through client,
@@ -185,6 +186,11 @@ func (e *Runtime) CompileAnalysis(expression string) (Program, error) {
 	return e.compile(modeAnalysis, expression, nil)
 }
 
+// CompileRevocation checks an explicit revocation expression without executing it.
+func (e *Runtime) CompileRevocation(expression string) (Program, error) {
+	return e.compile(modeRevocation, expression, nil)
+}
+
 func (e *Runtime) compile(mode compileMode, expression string, counter *tokenizer.Counter) (Program, error) {
 	// One Runtime compiles all expression types. The mode is part of the cache key
 	// because each expression kind exposes a different binding contract.
@@ -198,7 +204,7 @@ func (e *Runtime) compile(mode compileMode, expression string, counter *tokenize
 
 	b, options := e.compileBindings(mode, counter)
 	env := compileEnv(b)
-	if mode == modeValidation || mode == modeAnalysis {
+	if mode == modeValidation || mode == modeAnalysis || mode == modeRevocation {
 		env["finding"] = types.Map{
 			"secret": types.String, "rule_id": types.String,
 			"captures": types.Map{types.Extra: types.Any},
@@ -279,6 +285,10 @@ func (e *Runtime) compileBindings(mode compileMode, counter *tokenizer.Counter) 
 		setCompileMaps(b)
 		b["validation"] = emptyValidationMap()
 		b["analysis"] = analysisNamespace()
+		return b, []expr.Option{expr.WithContext("ctx")}
+	case modeRevocation:
+		b := e.revocationBindings(context.Background(), nil, nil, nil, nil)
+		setCompileMaps(b)
 		return b, []expr.Option{expr.WithContext("ctx")}
 	default:
 		panic(fmt.Sprintf("unsupported expression mode %q", mode))
@@ -374,16 +384,30 @@ func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, capt
 // EvalValidationWithComponents evaluates a validation program with structured
 // component findings isolated from the primary rule's named capture groups.
 func (e *Runtime) EvalValidationWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
+	if prg != nil && prg.mode == modeRevocation {
+		return EvalResult{}, fmt.Errorf("revocation programs require explicit revocation execution")
+	}
 	return e.evalProviderProgram(ctx, prg, finding, captures, components, attributes, nil, opts)
 }
 
 // EvalAnalysisWithComponents evaluates an analysis program with the successful
 // validation result that authorized the analysis stage.
 func (e *Runtime) EvalAnalysisWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation map[string]any, opts EvalOptions) (EvalResult, error) {
+	if prg != nil && prg.mode == modeRevocation {
+		return EvalResult{}, fmt.Errorf("revocation programs require explicit revocation execution")
+	}
 	if validation == nil {
 		validation = emptyValidationMap()
 	}
 	return e.evalProviderProgram(ctx, prg, finding, captures, components, attributes, validation, opts)
+}
+
+// EvalRevocationWithComponents is deliberately separate from scan-time evaluation.
+func (e *Runtime) EvalRevocationWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, opts EvalOptions) (EvalResult, error) {
+	if prg == nil || prg.mode != modeRevocation {
+		return EvalResult{}, fmt.Errorf("expected a revocation program")
+	}
+	return e.evalProviderProgram(ctx, prg, finding, captures, components, nil, nil, opts)
 }
 
 func (e *Runtime) evalProviderProgram(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation map[string]any, opts EvalOptions) (EvalResult, error) {
@@ -395,7 +419,12 @@ func (e *Runtime) evalProviderProgram(ctx context.Context, prg Program, finding,
 		ruleID: finding["rule_id"],
 		state:  state,
 	})
-	b := e.validationBindings(ctx, finding, captures, components, attributes, state)
+	var b bindings
+	if prg.mode == modeRevocation {
+		b = e.revocationBindings(ctx, finding, captures, components, state)
+	} else {
+		b = e.validationBindings(ctx, finding, captures, components, attributes, state)
+	}
 	if validation != nil {
 		b["validation"] = validation
 		b["analysis"] = analysisNamespace()

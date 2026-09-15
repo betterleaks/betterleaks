@@ -54,6 +54,21 @@ let scopes = input["scopes"] ?? [];
 
 var githubPathFilter = "matchesAny(attributes[\"path\"], [`(?:^|/)@octokit/auth-token/README\\.md$`])"
 
+// This endpoint rejects authenticated requests. A 202 acknowledges submission,
+// but does not confirm completed revocation for an individual token.
+// https://docs.github.com/en/rest/credentials/revoke
+const githubRevokeExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com");
+let r = http.post(base_url + "/credentials/revoke", {
+  "Accept": "application/vnd.github+json",
+  "Content-Type": "application/json",
+  "X-GitHub-Api-Version": "2026-03-10"
+}, toJSON({"credentials": [finding["secret"]]}));
+r.status == 202 ? {
+  "result": "unknown",
+  "reason": "GitHub accepted the revocation request; completion is unconfirmed",
+  "metadata": {"submitted": true}
+} : revoke.unknown(r)`
+
 func GitHubPat() *config.Rule {
 	// define rule
 	r := config.Rule{
@@ -64,6 +79,7 @@ func GitHubPat() *config.Rule {
 		Keywords:     []string{"ghp_"},
 		ValidateExpr: githubTokenExpr,
 		AnalyzeExpr:  githubTokenAnalyzeExpr,
+		RevokeExpr:   githubRevokeExpr,
 		Filter: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	}
@@ -86,6 +102,7 @@ func GitHubFineGrainedPat() *config.Rule {
 		Keywords:     []string{"github_pat_"},
 		ValidateExpr: githubTokenExpr,
 		AnalyzeExpr:  githubTokenAnalyzeExpr,
+		RevokeExpr:   githubRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
@@ -107,6 +124,7 @@ func GitHubOauth() *config.Rule {
 		Keywords:     []string{"gho_"},
 		ValidateExpr: githubTokenExpr,
 		AnalyzeExpr:  githubTokenAnalyzeExpr,
+		RevokeExpr:   githubRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 
@@ -162,6 +180,7 @@ func GitHubRefresh() *config.Rule {
 		Regex:        `ghr_[0-9a-zA-Z]{36}`,
 		Keywords:     []string{"ghr_"},
 		ValidateExpr: githubTokenExpr,
+		RevokeExpr:   githubRevokeExpr,
 		Filter:       `entropy(finding["secret"]) <= 3.0`,
 	}
 

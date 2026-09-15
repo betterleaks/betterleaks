@@ -172,45 +172,6 @@ func shannonEntropy(data string) (entropy float64) {
 	return entropy
 }
 
-// filter will dedupe and redact findings
-func (d *Scanner) filter(findings []report.Finding) []report.Finding {
-	return d.filterIndexed(findings, newFindingIndex(findings))
-}
-
-func (d *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) []report.Finding {
-	// Collect every component finding's (rule, line, secret) identity so the
-	// corresponding top-level finding can be suppressed.
-	componentSet := make(map[string]struct{})
-	for _, f := range findings {
-		for _, set := range f.ComponentSets {
-			for _, comp := range set.Components {
-				componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", comp.RuleID, comp.Location.StartLine, comp.Location.StartColumn, comp.Location.EndLine, comp.Location.EndColumn, comp.Match.Value)] = struct{}{}
-			}
-		}
-	}
-
-	var retFindings []report.Finding
-	for _, f := range findings {
-		include := true
-
-		// Skip findings already surfaced as the same rule's component of a
-		// composite finding in this batch.
-		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.Location.StartLine, f.Location.StartColumn, f.Location.EndLine, f.Location.EndColumn, f.Match.Value)]
-		if isComponent {
-			redactedMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-			logTrace(d.logger, "skipping finding already used as a component", "rule_id", f.RuleID, "finding", redactedMatch)
-			include = false
-		} else if d.isSuppressedByHigherSpecificityFinding(f, index) {
-			include = false
-		}
-
-		if include {
-			retFindings = append(retFindings, f)
-		}
-	}
-	return retFindings
-}
-
 // findingIndex limits specificity comparisons to owners with a primary or
 // component on the candidate's line. Component locations can differ from their
 // owner's location, so indexing only the primary would change suppression.
@@ -248,50 +209,6 @@ func (index *findingIndex) add(i int) {
 	}
 }
 
-func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index *findingIndex) bool {
-	if index == nil {
-		return false
-	}
-	for _, i := range index.byLine[f.Location.StartLine] {
-		fPrime := &index.findings[i]
-		if f.Location.StartLine == fPrime.Location.StartLine &&
-			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
-			f.RuleID != fPrime.RuleID &&
-			strings.Contains(fPrime.Match.Value, f.Match.Value) &&
-			d.ruleSpecificity(fPrime.RuleID) > d.ruleSpecificity(f.RuleID) {
-			genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-			betterMatch := strings.ReplaceAll(fPrime.Match.Full, fPrime.Match.Value, "REDACTED")
-			d.logger.Debug("skipping finding because a more specific rule takes precedence",
-				"rule_id", f.RuleID,
-				"finding", genericMatch,
-				"precedence_rule_id", fPrime.RuleID,
-				"precedence_finding", betterMatch,
-			)
-			return true
-		}
-		for _, set := range fPrime.ComponentSets {
-			for _, comp := range set.Components {
-				if f.RuleID != fPrime.RuleID &&
-					f.Location.StartLine == comp.Location.StartLine &&
-					f.RuleID != comp.RuleID &&
-					strings.Contains(comp.Match.Value, f.Match.Value) &&
-					d.ruleSpecificity(comp.RuleID) > d.ruleSpecificity(f.RuleID) {
-					genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-					betterMatch := strings.ReplaceAll(comp.Match.Full, comp.Match.Value, "REDACTED")
-					logTrace(d.logger, "skipping finding because a more specific component takes precedence",
-						"rule_id", f.RuleID,
-						"finding", genericMatch,
-						"precedence_rule_id", comp.RuleID,
-						"precedence_finding", betterMatch,
-					)
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
 // containsAllowSignature checks whether the line contains an allow comment.
 func containsAllowSignature(line string) bool {
 	for _, signature := range allowSignatures {
@@ -300,9 +217,4 @@ func containsAllowSignature(line string) bool {
 		}
 	}
 	return false
-}
-
-// Specificity is immutable rule configuration, not finding data.
-func (d *Scanner) ruleSpecificity(id string) int {
-	return d.rulesBySpecificity[d.ruleIndexByID[id]].rule.Specificity
 }
