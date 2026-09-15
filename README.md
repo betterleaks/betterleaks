@@ -200,7 +200,8 @@ Engines may be reused concurrently with independent sources. Each provider
 operation owns its result caches and request limits; compiled programs are
 reused. `scan.WithPrecompile` checks detection regexes and filters;
 `analyze.WithPrecompile` checks validation and analysis programs. See the
-[runnable analysis example](examples/with_analysis.go) and
+[scan-only example](examples/without_analysis.go),
+[analysis example](examples/with_analysis.go), and
 [SDK architecture guide](docs/architecture.md).
 
 Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
