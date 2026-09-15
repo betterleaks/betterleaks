@@ -15,7 +15,7 @@ type HuggingFaceCmd struct {
 	Exclude             []string `group:"source" help:"Resource types to skip."`
 	ExcludeRepo         []string `group:"source" name:"exclude-repo" help:"Glob patterns to exclude repositories by owner/name."`
 	LogOpts             string   `group:"source" name:"log-opts" help:"Git log options passed to each repository scan."`
-	MaxBucketObjectSize int64    `group:"source" name:"max-bucket-object-size" help:"Skip bucket objects larger than this many bytes (0 = 250 MiB)."`
+	MaxBucketObjectSize sizeFlag `group:"source" name:"max-bucket-object-size" placeholder:"SIZE" help:"Skip bucket objects larger than this size (e.g. 250MiB, 1GB; 0 = 250 MiB default)."`
 	TargetURL           string   `arg:"" name:"target-url" help:"Hugging Face repository, owner, or bucket URL."`
 }
 
@@ -53,7 +53,7 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 		MaxArchiveDepth:     options.MaxArchiveDepth,
 		Workers:             resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		LogOpts:             options.LogOpts,
-		MaxBucketObjectSize: options.MaxBucketObjectSize,
+		MaxBucketObjectSize: int64(options.MaxBucketObjectSize),
 	}
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
