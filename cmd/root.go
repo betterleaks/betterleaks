@@ -60,6 +60,7 @@ type CLI struct {
 	Stdin       StdinCmd       `cmd:"" help:"Detect secrets from stdin."`
 	Fingerprint FingerprintCmd `cmd:"" help:"Generate a secret fingerprint from stdin."`
 	Validate    ValidateCmd    `cmd:"" help:"Validate a known secret without running detection."`
+	Analyze     AnalyzeCmd     `cmd:"" help:"Validate a known credential and resolve its identity and permissions."`
 	ConfigCmd   ConfigCmd      `cmd:"" name:"config" help:"Validate and inspect betterleaks configs."`
 	VersionCmd  VersionCmd     `cmd:"" name:"version" help:"Display betterleaks version."`
 }

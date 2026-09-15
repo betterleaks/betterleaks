@@ -80,6 +80,8 @@ func TestFilesystemShorthandPreservesCommands(t *testing.T) {
 		{args: []string{"directory", "."}, command: "filesystem <path>"},
 		{args: []string{"git", "."}, command: "git <repo>"},
 		{args: []string{"stdin"}, command: "stdin"},
+		{args: []string{"validate"}, command: "validate"},
+		{args: []string{"analyze"}, command: "analyze"},
 		{args: []string{"version"}, command: "version"},
 		{args: []string{"--config", "config.toml", "git", "."}, command: "git <repo>"},
 	} {

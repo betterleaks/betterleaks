@@ -42,10 +42,15 @@ func (cmd *ConfigCheckCmd) Run(cli *CLI, runtime *commandRuntime) error {
 }
 
 type ConfigShowCmd struct {
+	TOML ConfigShowTOMLCmd `cmd:"" name:"toml" default:"withargs" help:"Print the resolved config as TOML (toml may be omitted before a path)."`
+	IDs  ConfigShowIDsCmd  `cmd:"" name:"ids" help:"List rule IDs from the resolved config."`
+}
+
+type ConfigShowTOMLCmd struct {
 	Path string `arg:"" optional:"" name:"config-path" help:"Config file to render."`
 }
 
-func (cmd *ConfigShowCmd) Run(cli *CLI, runtime *commandRuntime) error {
+func (cmd *ConfigShowTOMLCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	resolved, err := resolveConfig(runtime, cli.Config, cmd.Path)
 	if err != nil {
 		return err

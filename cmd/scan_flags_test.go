@@ -36,6 +36,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"max-decode-depth",
 		"max-archive-depth",
 		"offline",
+		"no-analysis",
 		"validation-status",
 		"provider-workers",
 		"provider-debug",
@@ -54,29 +55,31 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		commandNode(t, parser.Model.Node, "stdin"),
 	}
 	validateNode := commandNode(t, parser.Model.Node, "validate")
+	analyzeNode := commandNode(t, parser.Model.Node, "analyze")
 	configNode := commandNode(t, parser.Model.Node, "config")
 	for _, name := range scanOnly {
 		require.False(t, nodeHasFlag(parser.Model.Node, name), name)
 		require.False(t, nodeHasFlag(configNode, name), name)
 		require.False(t, nodeHasFlag(validateNode, name), name)
+		require.False(t, nodeHasFlag(analyzeNode, name), name)
 		for _, node := range scanNodes {
 			require.True(t, nodeHasFlag(node, name), "%s: %s", node.Name, name)
 		}
 	}
 
-	sharedWithValidate := []string{
+	sharedWithCredentials := []string{
 		"jsonl",
-		"no-analysis",
 		"provider-timeout",
 		"provider-max-requests",
 		"provider-rps",
 		"provider-rps-rule",
 		"provider-env-vars",
 	}
-	for _, name := range sharedWithValidate {
+	for _, name := range sharedWithCredentials {
 		require.False(t, nodeHasFlag(parser.Model.Node, name), name)
 		require.False(t, nodeHasFlag(configNode, name), name)
 		require.True(t, nodeHasFlag(validateNode, name), name)
+		require.True(t, nodeHasFlag(analyzeNode, name), name)
 		for _, node := range scanNodes {
 			require.True(t, nodeHasFlag(node, name), "%s: %s", node.Name, name)
 		}
@@ -88,6 +91,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"validation-env-vars",
 	} {
 		require.False(t, nodeHasFlag(validateNode, deprecated), deprecated)
+		require.False(t, nodeHasFlag(analyzeNode, deprecated), deprecated)
 		for _, node := range scanNodes {
 			require.False(t, nodeHasFlag(node, deprecated), "%s: %s", node.Name, deprecated)
 		}

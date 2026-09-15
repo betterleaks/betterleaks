@@ -100,17 +100,21 @@ finding.secret != "" ? {
 	}
 }
 
-func TestValidateCommandAnalysis(t *testing.T) {
+func TestCredentialCommandsAnalysis(t *testing.T) {
 	for _, test := range []struct {
 		name         string
+		command      string
 		flags        []string
 		status       string
 		wantAnalysis bool
 	}{
-		{name: "pretty", status: "valid", wantAnalysis: true},
-		{name: "jsonl", flags: []string{"--jsonl"}, status: "valid", wantAnalysis: true},
-		{name: "disabled", flags: []string{"--jsonl", "--no-analysis"}, status: "valid"},
-		{name: "invalid", flags: []string{"--jsonl"}, status: "invalid"},
+		{name: "analyze pretty", command: "analyze", status: "valid", wantAnalysis: true},
+		{name: "analyze jsonl", command: "analyze", flags: []string{"--jsonl"}, status: "valid", wantAnalysis: true},
+		{name: "validate pretty", command: "validate", status: "valid"},
+		{name: "validate jsonl", command: "validate", flags: []string{"--jsonl"}, status: "valid"},
+		{name: "invalid", command: "analyze", flags: []string{"--jsonl"}, status: "invalid"},
+		{name: "revoked", command: "analyze", flags: []string{"--jsonl"}, status: "revoked"},
+		{name: "unknown", command: "analyze", flags: []string{"--jsonl"}, status: "unknown"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var requests atomic.Int32
@@ -137,7 +141,7 @@ let response = http.get(%q, {});
 '''
 `, test.status, server.URL+"/analysis"))
 			root, stdout := newValidateTestRoot(t)
-			args := []string{"validate", "--config", configPath, "--rule-id", "analysis-token", "--no-color"}
+			args := []string{test.command, "--config", configPath, "--rule-id", "analysis-token", "--no-color"}
 			args = append(args, test.flags...)
 			root.SetArgs(append(args, "fixture-secret"))
 			if err := root.Execute(); err != nil {
@@ -609,76 +613,13 @@ validate = '''{"result": "invalid", "reason": "Unauthorized"}'''
 	}
 }
 
-func TestValidateCommandListsOnlyRulesWithValidation(t *testing.T) {
-	configPath := writeValidateTestConfig(t, `
-[[rules]]
-id = "component"
-regex = '''(component)'''
-skipReport = true
-
-[[rules]]
-id = "optional-component"
-regex = '''(optional-component)'''
-skipReport = true
-
-[[rules]]
-id = "validated"
-description = "Validated rule"
-regex = '''(?P<context>context)-(validated)'''
-secretGroup = 2
-validate = '''finding.captures.context != "" ? {"result": "valid"} : {"result": "invalid"}'''
-
-components = [
-  { id = "component" },
-  { id = "optional-component", optional = true },
-]
-
-[[rules]]
-id = "unvalidated"
-regex = '''(unvalidated)'''
-`)
-
-	root, stdout := newValidateTestRoot(t)
-	root.SetArgs([]string{
-		"validate",
-		"--config", configPath,
-		"--list",
-		"--jsonl",
-	})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("validate --list: %v", err)
-	}
-
-	var got report.CredentialRuleList
-	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatalf("decode list: %v", err)
-	}
-	if len(got.Rules) != 1 || got.Rules[0].RuleID != "validated" {
-		t.Fatalf("listed rules = %#v", got.Rules)
-	}
-	if strings.Count(stdout.String(), "\n") != 1 {
-		t.Fatalf("JSONL rule list must be exactly one line: %q", stdout.String())
-	}
-	if len(got.Rules[0].Components) != 2 {
-		t.Fatalf("components = %#v", got.Rules[0].Components)
-	}
-	if got.Rules[0].Components[0].RuleID != "component" || got.Rules[0].Components[0].Optional {
-		t.Fatalf("required component = %#v", got.Rules[0].Components[0])
-	}
-	if got.Rules[0].Components[1].RuleID != "optional-component" || !got.Rules[0].Components[1].Optional {
-		t.Fatalf("optional component = %#v", got.Rules[0].Components[1])
-	}
-	if len(got.Rules[0].Captures) != 1 || got.Rules[0].Captures[0] != "context" {
-		t.Fatalf("required captures = %#v", got.Rules[0].Captures)
-	}
-}
-
-func TestValidateCommandRejectsInvalidInputs(t *testing.T) {
+func TestCredentialCommandsRejectInvalidInputs(t *testing.T) {
 	configPath := writeValidateTestConfig(t, `
 [[rules]]
 id = "simple"
 regex = '''(simple)'''
 validate = '''{"result": "valid"}'''
+analyze = '''{"capabilities": ["read"]}'''
 `)
 
 	tests := []struct {
@@ -717,26 +658,33 @@ validate = '''{"result": "valid"}'''
 			want: "unknown flag --provider-debug",
 		},
 		{
-			name: "list with rule",
-			args: []string{"validate", "--config", configPath, "--list", "--rule-id", "simple"},
-			want: "cannot be combined",
+			name: "list flag",
+			args: []string{"validate", "--list"},
+			want: "unknown flag --list",
 		},
 		{
-			name: "list with simple",
-			args: []string{"validate", "--config", configPath, "--list", "--simple"},
-			want: "cannot be combined",
+			name: "analysis opt in flag",
+			args: []string{"validate", "--with-analysis"},
+			want: "unknown flag --with-analysis",
+		},
+		{
+			name: "analysis opt out flag",
+			args: []string{"validate", "--no-analysis"},
+			want: "unknown flag --no-analysis",
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			root, _ := newValidateTestRoot(t)
-			root.SetArgs(test.args)
-			err := root.Execute()
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error = %v, want substring %q", err, test.want)
-			}
-		})
+	for _, command := range []string{"validate", "analyze"} {
+		for _, test := range tests {
+			t.Run(command+"/"+test.name, func(t *testing.T) {
+				root, _ := newValidateTestRoot(t)
+				root.SetArgs(append([]string{command}, test.args[1:]...))
+				err := root.Execute()
+				if err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("error = %v, want substring %q", err, test.want)
+				}
+			})
+		}
 	}
 }
 
@@ -749,10 +697,10 @@ func TestValidateCredentialHonorsCanceledContext(t *testing.T) {
 	}
 }
 
-func TestReadValidateCredentialInputLimitsStdin(t *testing.T) {
-	_, err := readValidateCredentialInput(
-		strings.NewReader(strings.Repeat("x", maxValidateCredentialInputBytes+1)),
-		&ValidateCmd{},
+func TestReadCredentialInputLimitsStdin(t *testing.T) {
+	_, err := readCredentialInput(
+		strings.NewReader(strings.Repeat("x", maxCredentialInputBytes+1)),
+		&CredentialFlags{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("error = %v, want size error", err)
@@ -791,7 +739,7 @@ func writeValidateTestConfig(t *testing.T, contents string) string {
 	return path
 }
 
-func TestUnknownValidationRuleErrorSuggestsProviderRules(t *testing.T) {
+func TestUnknownCredentialRuleErrorSuggestsProviderRules(t *testing.T) {
 	cfg := &configpkg.Config{
 		Rules: []configpkg.Rule{
 			{
@@ -807,7 +755,7 @@ func TestUnknownValidationRuleErrorSuggestsProviderRules(t *testing.T) {
 			},
 		},
 	}
-	err := unknownValidationRuleError(cfg, "github")
+	err := unknownCredentialRuleError(cfg, "github", false)
 	if err == nil || !strings.Contains(err.Error(), "github-pat") || !strings.Contains(err.Error(), "github-oauth") {
 		t.Fatalf("error = %v", err)
 	}

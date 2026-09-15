@@ -58,7 +58,8 @@ worker and rate-limit controls because it performs external network requests.
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
 | S3 (and S3-compatible: R2, MinIO, etc.) | `betterleaks s3 <url>` |
-| A known credential and rule | `betterleaks validate --rule-id <rule-id>` |
+| Liveness of a known credential | `betterleaks validate --rule-id <rule-id>` |
+| Identity and permissions of a known credential | `betterleaks analyze --rule-id <rule-id>` |
 | Piped content | `betterleaks stdin` |
 | An ignore-file entry | `betterleaks fingerprint` |
 
@@ -80,7 +81,7 @@ and [a JSON report array](schemas/findings.schema.json), using
 [Draft 2020-12](https://json-schema.org/draft/2020-12). Validate each parsed JSONL
 line with the single-finding schema. Keep both schema files together when
 validating an array report so the relative reference resolves. These schemas
-describe scan output, not the separate `validate` command report. Fixed objects
+describe scan output; `validate` and `analyze` share a separate credential report. Fixed objects
 reject unknown fields; source attributes and provider metadata are extensible.
 Unclassified confidence is an empty string, and `tags` may be `null` when the
 underlying Go slice is nil.
@@ -753,27 +754,33 @@ Objects in `GLACIER`, `GLACIER_IR`, and `DEEP_ARCHIVE` storage classes are skipp
 
 ---
 
-## `validate`
+## `validate` and `analyze`
 
-Use `validate` when you already know the credential and the rule that owns it.
-The command evaluates that rule's `validate` expression directly; it does not
-run the rule's regex, filters, or source scanning. This is useful when the
+Use `validate` to check a known credential's liveness. Use `analyze` to validate
+it and then resolve identity and permissions. Both commands take an already
+extracted credential and its rule ID, without running regexes, filters, or
+source scanning. This is useful when the
 original source is unavailable or a standalone credential no longer has the
 provider context its detection regex expects.
 
-After successful validation, the command also runs the rule's analysis, when
-defined, and includes it in text and JSONL reports. Use `--no-analysis` for
-validation only. `--simple` still prints only the validation status.
+`validate` evaluates only the rule's `validate` expression. `analyze` requires a
+rule with an `analyze` expression and runs it after successful validation.
+Both commands share credential inputs, request controls, and text and JSONL
+report formats. `--simple` prints only the validation status.
 
-List the rules in the selected config that support direct validation:
+List the rules in the selected config that support each command:
 
 ```sh
-betterleaks validate --list
-betterleaks validate --list --jsonl
+betterleaks config show ids
+betterleaks config show ids --validation
+betterleaks config show ids --analysis
 ```
 
-The list includes required components and primary/component capture requirements. Supply every listed
-capture with `--capture name=value`; validation stops with an input error when
+IDs are sorted and printed one per line. Use `--config <path>` or
+`config show ids <path>` to select a config. `config show` prints the resolved
+rules, including their components and provider expressions.
+
+Supply required captures with `--capture name=value`; the command stops with an input error when
 one is missing rather than reporting the credential as invalid. Component captures
 use `--capture rule-id:name=value`. Optional captures with explicit fallbacks need
 not be supplied.
@@ -784,6 +791,9 @@ or exposed in the process argument list:
 ```sh
 printf '%s\n' "$GITHUB_TOKEN" |
 	betterleaks validate --rule-id github-pat
+
+printf '%s\n' "$GITHUB_TOKEN" |
+	betterleaks analyze --rule-id github-pat
 ```
 
 A positional credential is also accepted for interactive use:
@@ -792,7 +802,7 @@ A positional credential is also accepted for interactive use:
 betterleaks validate --rule-id github-pat 'ghp_...'
 ```
 
-When there is no positional credential, `validate` reads piped or redirected
+When there is no positional credential, either command reads piped or redirected
 stdin automatically. The input is always the primary secret and is never
 decoded as a command envelope. This means a JSON credential, such as a GCP
 service account or application-default credential, is passed to its validator
@@ -810,7 +820,7 @@ printf '%s\n' "$AWS_ACCESS_KEY_ID" |
 
 Every non-optional component declared by the rule is required; components
 declared with `optional = true` may be omitted. Repeat `--component` when a rule
-needs more than one component. Use `--capture name=value` when a validation
+needs more than one component. Use `--capture name=value` when a validation or analysis
 expression needs a named regex capture that cannot be reconstructed from the
 credential. A component capture uses `--capture rule-id:name=value`.
 
@@ -835,8 +845,10 @@ printf '%s\n' "$GITHUB_TOKEN" |
 cannot be combined with JSONL.
 
 JSONL output uses a versioned credential report. Each invocation emits one
-compact object followed by a newline. `analysis` describes liveness and any
-available identity and permission evidence. Direct reports omit matched values
+compact object followed by a newline. Both commands use the same `analysis`
+field: `validate` reports liveness; `analyze` adds available identity and permission
+evidence. For example, an `analyze` report can include the identity and capabilities
+shown below. Direct reports omit matched values
 and source locations; supplied source-independent attributes remain at the root.
 
 ```json
@@ -877,23 +889,23 @@ See the [credential report schema](schemas/credential.schema.json).
 ```sh
 # JSONL on stdout
 printf '%s\n' "$GITHUB_TOKEN" |
-	betterleaks validate \
+	betterleaks analyze \
 	--rule-id github-pat \
 	--jsonl
 ```
 
-`validate` always writes results to stdout and does not support `--output`.
+Both commands write results to stdout and do not support `--output`.
 Output never includes the supplied primary, component,
 or capture values. If a validator returns one in its reason or metadata, the
 matching value is replaced with `[redacted]`. Attributes are sanitized the same
 way. Analysis metadata may still contain sensitive identity or account
 information.
 
-`--provider-debug` is not supported by `validate` because raw debug request
+`--provider-debug` is not supported by these commands because raw debug request
 and response bodies can contain transformed credentials or newly issued
 tokens.
 
-`validate` honors the remaining outbound request controls from scan-time validation:
+Both commands honor the remaining outbound request controls from scan-time validation:
 `--provider-timeout`, `--provider-max-requests`, `--provider-rps`,
 `--provider-rps-rule`, and `--provider-env-vars`. A completed validation—including `invalid`,
 `revoked`, `unknown`, or `error`—is a successful command result represented by

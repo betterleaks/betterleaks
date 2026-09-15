@@ -40,13 +40,13 @@ type CredentialComponentReport struct {
 	Captures []string `json:"captures,omitempty"`
 }
 
-// CredentialRuleList is the versioned output produced by validate --list.
+// CredentialRuleList is a versioned list of credential rules and input requirements.
 type CredentialRuleList struct {
 	SchemaVersion int                     `json:"schema_version"`
 	Rules         []CredentialRuleSummary `json:"rules"`
 }
 
-// CredentialRuleSummary describes a rule that supports direct validation.
+// CredentialRuleSummary describes a rule that supports a direct credential command.
 type CredentialRuleSummary struct {
 	RuleID      string                      `json:"rule_id"`
 	Description string                      `json:"description,omitempty"`
@@ -54,7 +54,7 @@ type CredentialRuleSummary struct {
 	Captures    []string                    `json:"captures,omitempty"`
 }
 
-// NewCredentialReport builds a redacted report from a validated finding.
+// NewCredentialReport builds a redacted report from a validated or analyzed finding.
 func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 	secrets = credentialSecretsForRedaction(secrets)
 	result := CredentialReport{
@@ -181,7 +181,7 @@ func credentialSecretsForRedaction(secrets []string) []string {
 	return ordered
 }
 
-// CredentialReportFormat identifies a supported direct-validation report format.
+// CredentialReportFormat identifies a supported direct credential report format.
 type CredentialReportFormat string
 
 const (
@@ -197,19 +197,19 @@ func ResolveCredentialReportFormat(format string) (CredentialReportFormat, error
 		return CredentialReportFormatPretty, nil
 	}
 	if format != "pretty" && format != "jsonl" {
-		return "", fmt.Errorf("validate output format must be pretty or jsonl, got %q", format)
+		return "", fmt.Errorf("credential output format must be pretty or jsonl, got %q", format)
 	}
 	return CredentialReportFormat(format), nil
 }
 
-// CredentialReporter renders direct-validation results and rule lists.
+// CredentialReporter renders direct credential results and rule lists.
 type CredentialReporter struct {
 	Format  CredentialReportFormat
 	NoColor bool
 	Simple  bool
 }
 
-// Write renders a direct-validation result.
+// Write renders a direct credential result.
 func (r CredentialReporter) Write(w io.Writer, result CredentialReport) error {
 	switch r.Format {
 	case CredentialReportFormatPretty:
@@ -220,11 +220,11 @@ func (r CredentialReporter) Write(w io.Writer, result CredentialReport) error {
 	case CredentialReportFormatJSONL:
 		return writeCredentialJSONL(w, result)
 	default:
-		return fmt.Errorf("unsupported validate output format %q", r.Format)
+		return fmt.Errorf("unsupported credential output format %q", r.Format)
 	}
 }
 
-// WriteRuleList renders the rules that support direct validation.
+// WriteRuleList renders the rules that support a direct credential command.
 func (r CredentialReporter) WriteRuleList(w io.Writer, result CredentialRuleList) error {
 	switch r.Format {
 	case CredentialReportFormatPretty:
@@ -232,7 +232,7 @@ func (r CredentialReporter) WriteRuleList(w io.Writer, result CredentialRuleList
 	case CredentialReportFormatJSONL:
 		return writeCredentialJSONL(w, result)
 	default:
-		return fmt.Errorf("unsupported validate output format %q", r.Format)
+		return fmt.Errorf("unsupported credential output format %q", r.Format)
 	}
 }
 

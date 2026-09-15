@@ -3,6 +3,26 @@
 The `betterleaks.toml` file controls detection, filtering, validation, and analysis.
 It is TOML because rules are mostly flat data plus Expr expressions.
 
+## Inspect a config
+
+```sh
+# Print the resolved TOML config
+betterleaks config show
+betterleaks config show path/to/betterleaks.toml
+
+# List all rule IDs, or only those with a provider stage
+betterleaks config show ids
+betterleaks config show ids --validation
+betterleaks config show ids --analysis
+betterleaks config show ids --analysis path/to/betterleaks.toml
+```
+
+`config show ids` prints sorted IDs, one per line, without making provider
+requests. It uses the same config resolution as `config show`, including
+`--config` and the config environment variables. A positional config path takes
+precedence over `--config`. Use the listed IDs with `validate --rule-id` or
+`analyze --rule-id`.
+
 ## Top-level shape
 
 Every config can use these fields:
@@ -320,7 +340,7 @@ use `POST` only when it cannot create or modify provider resources. See the
 
 To revalidate one known credential without scanning or re-running a rule's
 detection regex, use `betterleaks validate --rule-id <rule-id>`. See the
-[`validate` command guide](scanning.md#validate) for stdin, multipart
+[`validate` and `analyze` command guide](scanning.md#validate-and-analyze) for stdin, multipart
 credentials, captures, request controls, and reporting.
 
 ### Request limits

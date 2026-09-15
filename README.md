@@ -87,6 +87,12 @@ cat some_file.txt | betterleaks stdin -v
 # Revalidate a known credential without running detection
 printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat
 
+# Find rule IDs that support credential analysis
+betterleaks config show ids --analysis
+
+# Validate it and resolve identity and permissions
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks analyze --rule-id github-pat
+
 # Print only its status (for example, VALID)
 printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat --simple
 ```
