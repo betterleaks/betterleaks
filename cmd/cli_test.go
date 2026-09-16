@@ -1,11 +1,19 @@
 package cmd
 
 import (
+	"archive/zip"
 	"bytes"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/cgi"
+	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/alecthomas/kong"
@@ -30,7 +38,7 @@ func parseCLIForTest(t *testing.T, args ...string) (*CLI, error) {
 	return cli, err
 }
 
-func TestFilesystemShorthand(t *testing.T) {
+func TestAutoShorthand(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
@@ -52,17 +60,19 @@ func TestFilesystemShorthand(t *testing.T) {
 			cli, parser := newCLIParserForTest(t)
 			parsed, err := parser.Parse(test.args)
 			require.NoError(t, err)
-			require.Equal(t, "filesystem <path>", parsed.Command())
+			require.Equal(t, "auto <target>", parsed.Command())
 
 			explicit, err := parseCLIForTest(t, append([]string{"filesystem"}, test.args...)...)
 			require.NoError(t, err)
-			require.Equal(t, explicit.Directory, cli.Directory)
+			require.Equal(t, explicit.Directory.ScanFlags, cli.Auto.ScanFlags)
+			require.Equal(t, explicit.Directory.Paths, cli.Auto.Targets)
+			require.Equal(t, explicit.Directory.FollowSymlinks, cli.Auto.FollowSymlinks)
 			require.Equal(t, explicit.GlobalFlags, cli.GlobalFlags)
 		})
 	}
 }
 
-func TestFilesystemShorthandPreservesCommands(t *testing.T) {
+func TestAutoShorthandPreservesCommands(t *testing.T) {
 	for _, test := range []struct {
 		args    []string
 		command string
@@ -86,6 +96,7 @@ func TestFilesystemShorthandPreservesCommands(t *testing.T) {
 			parsed, err := parser.Parse(test.args)
 			require.NoError(t, err)
 			require.Equal(t, test.command, parsed.Command())
+
 		})
 	}
 }
@@ -153,11 +164,238 @@ func TestDeprecatedScanCommandsRemoved(t *testing.T) {
 		cli, parser := newCLIParserForTest(t)
 		parsed, err := parser.Parse([]string{command})
 		require.NoError(t, err)
-		require.Equal(t, "filesystem <path>", parsed.Command())
-		require.Equal(t, []string{command}, cli.Directory.Paths)
+		require.Equal(t, "auto <target>", parsed.Command())
+		require.Equal(t, []string{command}, cli.Auto.Targets)
 	}
 }
 
 type testErrorWriter struct{ err error }
 
 func (w testErrorWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestImplicitURLScanAndExplicitOverrides(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "rules.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`[[rules]]
+id = "fixture-secret"
+regex = 'fixture-secret-[a-z]+'
+keywords = ["fixture-secret-"]
+`), 0o600))
+	var probes, downloads atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/info/refs") {
+			probes.Add(1)
+			http.NotFound(w, r)
+			return
+		}
+		downloads.Add(1)
+		_, _ = io.WriteString(w, "fixture-secret-value\n")
+	}))
+	defer srv.Close()
+	for _, command := range []string{"", "auto", "url", "filesystem"} {
+		t.Run(command, func(t *testing.T) {
+			probes.Store(0)
+			downloads.Store(0)
+			root, output := newTestCLI(t)
+			var logs bytes.Buffer
+			root.runtime.stderr = &logs
+			var code int
+			root.runtime.exit = func(n int) { code = n }
+			args := []string{"--config", configPath}
+			if command != "" {
+				args = append(args, command)
+			}
+			args = append(args, srv.URL+"/secret.txt", "--offline", "--jsonl", "--no-banner", "--exit-code", "0")
+			root.SetArgs(args)
+			require.NoError(t, root.Execute())
+			if command == "" || command == "auto" {
+				require.Contains(t, logs.String(), "auto: selected source")
+			} else {
+				require.NotContains(t, logs.String(), "auto:")
+			}
+			require.NotContains(t, output.String(), "auto:", "logs must not mix with JSONL output")
+			if command == "filesystem" {
+				require.NotZero(t, code)
+				require.Zero(t, probes.Load())
+				require.Zero(t, downloads.Load())
+				return
+			}
+			require.Zero(t, code)
+			require.Contains(t, output.String(), "fixture-secret-value")
+			require.Contains(t, output.String(), "url.content")
+			require.EqualValues(t, 1, downloads.Load())
+			if command == "url" {
+				require.Zero(t, probes.Load())
+			} else {
+				require.EqualValues(t, 1, probes.Load())
+			}
+		})
+	}
+}
+
+func TestAutoArchiveDownloadAndExclusion(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	entry, err := zw.Create("secret.txt")
+	require.NoError(t, err)
+	_, err = io.WriteString(entry, "fixture-secret-value\n")
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/info/refs") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", `attachment; filename="bundle.zip"`)
+		_, _ = w.Write(archive.Bytes())
+	}))
+	defer srv.Close()
+	for _, command := range []string{"", "auto", "url"} {
+		for _, exclude := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/exclude=%t", command, exclude), func(t *testing.T) {
+				config := `[[rules]]
+id = "fixture-secret"
+regex = 'fixture-secret-[a-z]+'
+keywords = ["fixture-secret-"]
+`
+				if exclude {
+					config = fmt.Sprintf(`prefilter = 'attributes["resource"] == "url.content" && attributes["url"] == "%s/download" && attributes["path"] == "download!secret.txt"'`, srv.URL) + "\n" + config
+				}
+				configPath := filepath.Join(t.TempDir(), "rules.toml")
+				require.NoError(t, os.WriteFile(configPath, []byte(config), 0o600))
+				root, output := newTestCLI(t)
+				var code int
+				root.runtime.exit = func(n int) { code = n }
+				args := []string{"--config", configPath}
+				if command != "" {
+					args = append(args, command)
+				}
+				root.SetArgs(append(args, srv.URL+"/download", "--offline", "--jsonl", "--no-banner"))
+				require.NoError(t, root.Execute())
+				if exclude {
+					require.Empty(t, output.String())
+					require.Zero(t, code)
+				} else {
+					require.Contains(t, output.String(), "fixture-secret-value")
+					require.Contains(t, output.String(), "download!secret.txt")
+					require.Equal(t, 1, code)
+				}
+			})
+		}
+	}
+}
+
+func TestImplicitTargetsRejectAmbiguityBeforeFetching(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(401)
+	}))
+	defer srv.Close()
+	for _, args := range [][]string{
+		{srv.URL, t.TempDir()},
+		{srv.URL, srv.URL + "/other"},
+		{srv.URL, "--include", "commit-messages"},
+		{srv.URL, "--token", "secret"},
+		{srv.URL, "--follow-symlinks"},
+		{"auto", srv.URL, "--follow-symlinks=false"},
+	} {
+		root, _ := newTestCLI(t)
+		root.SetArgs(args)
+		require.Error(t, root.Execute())
+	}
+	require.Zero(t, requests.Load())
+	root, _ := newTestCLI(t)
+	root.SetArgs([]string{srv.URL})
+	require.ErrorContains(t, root.Execute(), "select git or url explicitly")
+	require.EqualValues(t, 1, requests.Load(), "inconclusive discovery must not download the target")
+}
+
+func TestRemoteGitFlagsAndTokens(t *testing.T) {
+	for _, flag := range []string{"--staged", "--pre-commit"} {
+		_, err := parseCLIForTest(t, "git", "https://example.com/repo", flag)
+		require.ErrorContains(t, err, "local Git repository")
+	}
+	cli, err := parseCLIForTest(t, "git", "https://example.com/repo", "--token", "explicit", "--include", "commit-messages")
+	require.NoError(t, err)
+	require.Equal(t, "explicit", cli.Git.Token)
+	t.Setenv("GITHUB_TOKEN", "github")
+	t.Setenv("GITLAB_TOKEN", "gitlab")
+	t.Setenv("HUGGINGFACE_TOKEN", "huggingface")
+	for _, tc := range []struct{ target, token string }{
+		{"https://github.com/owner/repo", "github"},
+		{"https://gitlab.com/group/repo", "gitlab"},
+		{"https://huggingface.co/owner/model", "huggingface"},
+		{"https://example.com/repo", ""},
+		{"http://github.com/owner/repo", ""},
+		{"https://github.com:1234/owner/repo", ""},
+		{"https://user:password@github.com/owner/repo", ""},
+	} {
+		require.Equal(t, tc.token, remoteGitToken(tc.target))
+	}
+}
+
+func TestSourceHelpDoesNotFetch(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+	defer srv.Close()
+	for _, args := range [][]string{
+		nil, {"--help"}, {srv.URL, "--help"}, {srv.URL, "--version"}, {"auto", srv.URL, "--help"}, {"git", srv.URL, "--help"}, {"url", srv.URL, "--help"},
+	} {
+		root, _ := newTestCLI(t)
+		root.runtime.exit = func(code int) { require.Zero(t, code); panic("help exit") }
+		root.SetArgs(args)
+		require.PanicsWithValue(t, "help exit", func() { _ = root.Execute() })
+	}
+	require.Zero(t, requests.Load())
+}
+
+func TestImplicitRemoteGitScansHistoryWithLocalConfig(t *testing.T) {
+	local := t.TempDir()
+	t.Chdir(local)
+	require.NoError(t, os.WriteFile(".betterleaks.toml", []byte(`[[rules]]
+id = "fixture-secret"
+regex = 'fixture-secret-[a-z]+'
+keywords = ["fixture-secret-"]
+`), 0o600))
+	repo := t.TempDir()
+	gitCommand := func(args ...string) {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	gitCommand("init", "--quiet")
+	gitCommand("config", "user.name", "Fixture")
+	gitCommand("config", "user.email", "fixture@example.com")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "secret.txt"), []byte("fixture-secret-deleted\n"), 0o600))
+	gitCommand("add", ".")
+	gitCommand("commit", "--quiet", "-m", "add file")
+	gitCommand("rm", "secret.txt")
+	// This must be scanned as content, never loaded as configuration.
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".betterleaks.toml"), []byte("invalid TOML ["), 0o600))
+	gitCommand("add", ".")
+	gitCommand("commit", "--quiet", "-m", "remove secret")
+	root := t.TempDir()
+	gitCommand("clone", "--bare", repo, filepath.Join(root, "repo"))
+	git, err := exec.LookPath("git")
+	require.NoError(t, err)
+	backend := &cgi.Handler{
+		Path: git,
+		Args: []string{"http-backend"},
+		Env:  []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"},
+	}
+	srv := httptest.NewServer(backend)
+	defer srv.Close()
+	for _, explicit := range []bool{false, true} {
+		cli, output := newTestCLI(t)
+		cli.runtime.exit = func(code int) { require.Zero(t, code) }
+		args := []string{srv.URL + "/repo", "--offline", "--jsonl", "--no-banner", "--exit-code", "0", "-j", "1"}
+		if explicit {
+			args = append([]string{"git"}, args...)
+		}
+		cli.SetArgs(args)
+		require.NoError(t, cli.Execute())
+		require.Contains(t, output.String(), "fixture-secret-deleted")
+		require.Contains(t, output.String(), "git.patch_content")
+	}
+}

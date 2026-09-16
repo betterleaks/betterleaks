@@ -1,7 +1,9 @@
+// Package download owns HTTP fetching and temporary download files.
 package download
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,30 +11,37 @@ import (
 	"os"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
 	"github.com/betterleaks/betterleaks/v2/logging"
-	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-const downloadTimeout = 5 * time.Minute
-
 type Options struct {
-	URL             string
-	Reader          io.ReadCloser
-	HTTPClient      *http.Client
-	Path            string
-	Attrs           map[string]string
-	BearerToken     string
-	MaxArchiveDepth int
-	ShouldSkip      sources.SkipFunc
-	TempPattern     string
-	Logger          *slog.Logger
+	URL string
+	// Reader bypasses HTTP fetching. WithFile takes ownership and closes it.
+	Reader      io.ReadCloser
+	HTTPClient  *http.Client
+	BearerToken string
+	// MaxSize limits the response in bytes. Zero means unlimited.
+	MaxSize     int64
+	TempPattern string
+	Logger      *slog.Logger
 }
 
-// Scan downloads content from a URL or scans an existing reader via File.
-func Scan(ctx context.Context, opts Options, yield sources.FragmentsFunc) error {
-	start := time.Now()
+// WithFile downloads content, calls scan with a rewound file, and removes the
+// file on every return path. Oversized responses are skipped without calling scan.
+func WithFile(ctx context.Context, opts Options, scan func(*os.File) error) (err error) {
+	defer func() { err = urlutil.Error(err) }()
 	reader := opts.Reader
-
+	if reader != nil {
+		defer reader.Close()
+	}
+	if opts.MaxSize < 0 {
+		return errors.New("download MaxSize must not be negative")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	contentLength := int64(-1)
 	if reader == nil {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, opts.URL, nil)
 		if err != nil {
@@ -41,61 +50,58 @@ func Scan(ctx context.Context, opts Options, yield sources.FragmentsFunc) error 
 		if opts.BearerToken != "" {
 			req.Header.Set("Authorization", "Bearer "+opts.BearerToken)
 		}
-		httpClient := opts.HTTPClient
-		if httpClient == nil {
-			httpClient = &http.Client{
-				Timeout: downloadTimeout,
-			}
+		client := opts.HTTPClient
+		if client == nil {
+			client = &http.Client{Timeout: 5 * time.Minute}
 		}
-		resp, err := httpClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			return err
 		}
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			return fmt.Errorf("download returned %s", resp.Status)
+			return fmt.Errorf("download returned HTTP %d", resp.StatusCode)
 		}
-		reader = resp.Body
+		reader, contentLength = resp.Body, resp.ContentLength
 	}
-	defer reader.Close()
-
-	tempPattern := opts.TempPattern
-	if tempPattern == "" {
-		tempPattern = "betterleaks-download-*"
+	skipLarge := func() error {
+		logging.OrDiscard(opts.Logger).WarnContext(ctx, "skipping download: exceeds maximum size", "url", urlutil.PublicString(opts.URL), "max_size", opts.MaxSize)
+		return nil
 	}
-	tmp, err := os.CreateTemp("", tempPattern)
+	if opts.MaxSize > 0 && contentLength > opts.MaxSize {
+		return skipLarge()
+	}
+	pattern := opts.TempPattern
+	if pattern == "" {
+		pattern = "betterleaks-download-*"
+	}
+	tmp, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		tmp.Close()
-		os.Remove(tmp.Name())
-	}()
-
-	if _, err := io.Copy(tmp, reader); err != nil {
-		return fmt.Errorf("download %s: %w", opts.Path, err)
+	defer func() { _ = tmp.Close(); _ = os.Remove(tmp.Name()) }()
+	var body io.Reader = reader
+	if opts.MaxSize > 0 {
+		body = io.LimitReader(body, opts.MaxSize)
+	}
+	if _, err := io.Copy(tmp, body); err != nil {
+		return fmt.Errorf("download: %w", err)
+	}
+	if opts.MaxSize > 0 {
+		var extra [1]byte
+		n, err := io.ReadFull(reader, extra[:])
+		if n > 0 {
+			return skipLarge()
+		}
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("download: %w", err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-
-	file := &sources.File{
-		Content:         tmp,
-		Path:            opts.Path,
-		MaxArchiveDepth: max(1, opts.MaxArchiveDepth),
-		ShouldSkip:      opts.ShouldSkip,
-		Logger:          opts.Logger,
-	}
-	err = file.Fragments(ctx, func(fragment sources.Fragment, err error) error {
-		if err == nil {
-			for k, v := range opts.Attrs {
-				if k == sources.AttrResource || fragment.Attr(k) == "" {
-					fragment.SetAttr(k, v)
-				}
-			}
-		}
-		return yield(fragment, err)
-	})
-	logging.OrDiscard(opts.Logger).Debug("download scan complete", "path", opts.Path, "scan_duration", time.Since(start).Round(time.Millisecond))
-	return err
+	return scan(tmp)
 }

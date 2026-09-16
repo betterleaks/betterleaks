@@ -57,6 +57,13 @@ betterleaks filesystem /path/to/target
 # Short command alias
 betterleaks fs /path/to/target
 
+# Automatically detect a remote repository and scan its history
+betterleaks https://github.com/betterleaks/betterleaks
+# The default command can also be named explicitly
+betterleaks auto https://github.com/betterleaks/betterleaks
+# Explicitly download and scan a web response (without crawling)
+betterleaks url https://example.com/config.txt --offline
+
 # Scan GitHub org
 betterleaks github https://github.com/betterleaks
 # Scan GitHub user
@@ -207,7 +214,13 @@ reused. `scan.WithPrecompile` checks detection regexes and filters;
 [SDK architecture guide](docs/architecture.md).
 
 Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
-`sources.Git`. Provider integrations have their own packages:
+`sources.Git`. `sources.Git{URL: repoURL}` scans a temporary HTTP(S) clone;
+`sources.URL{URL: contentURL}` downloads one response, with optional archive
+handling. `sources.Auto(ctx, target)` returns a source kind without
+constructing a source. Ambiguous HTTP(S) targets may require a bounded Git
+probe; local Git checkouts remain filesystem targets. See
+[automatic source selection](docs/scanning.md#automatic-source-selection).
+Provider integrations have their own packages:
 
 ```go
 import "github.com/betterleaks/betterleaks/v2/sources/github"

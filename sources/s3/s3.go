@@ -396,6 +396,7 @@ func (s *Source) scanObject(ctx context.Context, client *http.Client, target s3T
 		Logger:          s.Logger,
 		Content:         body,
 		Path:            obj.Key,
+		Attributes:      attrs,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		ShouldSkip:      s.ShouldSkip,
 	}

@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/cgi"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -800,5 +803,93 @@ func TestGitSourcesShareInheritedJobBudget(t *testing.T) {
 				require.Equal(t, Git{RepoPath: repo, Workers: 4, Cmd: source.Cmd}, *source, "scan must not mutate source configuration")
 			}
 		})
+	}
+}
+
+func TestRemoteGitHistoryAndCleanup(t *testing.T) {
+	repo := newGitTestRepo(t, 2)
+	runGitTestCommand(t, repo, "rm", "file-0.txt")
+	runGitTestCommand(t, repo, "commit", "--quiet", "-m", "remove the file")
+	root := t.TempDir()
+	runGitTestCommand(t, repo, "clone", "--bare", repo, filepath.Join(root, "repo"))
+	git, err := exec.LookPath("git")
+	require.NoError(t, err)
+	backend := &cgi.Handler{
+		Path: git,
+		Args: []string{"http-backend"},
+		Env:  []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, token, ok := r.BasicAuth()
+		if !ok || token != "fixture-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		backend.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	src := &Git{
+		URL:     srv.URL + "/repo",
+		Token:   "fixture-token",
+		Workers: 1,
+		Include: []string{GitResourceTypeCommitMessages},
+	}
+	var text strings.Builder
+	require.NoError(t, src.Fragments(t.Context(), func(f Fragment, err error) error {
+		if err != nil {
+			return err
+		}
+		text.WriteString(f.Raw)
+		require.Equal(t, src.URL, f.Attr(AttrGitRemoteURL))
+		return nil
+	}))
+	require.Contains(t, text.String(), "value-0", "scan deleted content from history")
+	require.Contains(t, text.String(), "remove the file", "preserve additional resources")
+	src.LogOpts = "--all -1"
+	text.Reset()
+	require.NoError(t, src.Fragments(t.Context(), func(f Fragment, err error) error { text.WriteString(f.Raw); return err }))
+	require.NotContains(t, text.String(), "value-1", "preserve log options")
+	stop := errors.New("stop remote scan")
+	require.ErrorIs(t, src.Fragments(t.Context(), func(Fragment, error) error { return stop }), stop)
+	src.Token = "wrong-token"
+	err = src.Fragments(t.Context(), func(Fragment, error) error { return nil })
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "wrong-token")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, src.Fragments(ctx, func(Fragment, error) error { return nil }), context.Canceled)
+	files, err := os.ReadDir(tmp)
+	require.NoError(t, err)
+	require.Empty(t, files, "remove clone directories on success, failed clone, callback error, and cancellation")
+}
+
+func TestRemoteGitInputConflicts(t *testing.T) {
+	for _, src := range []*Git{
+		{URL: "https://example.com/repo", RepoPath: "."},
+		{URL: "https://example.com/repo", Cmd: &GitCmd{}},
+		{URL: "ssh://git@example.com/repo"},
+	} {
+		require.Error(t, src.Validate())
+	}
+	require.NoError(t, (&Git{RepoPath: ".", Cmd: &GitCmd{}}).Validate())
+}
+
+func TestRemoteGitErrorRedactsURLCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	for _, query := range []string{"access_token=fixture-query", "description=with spaces&access_token=fixture-query"} {
+		src := &Git{URL: strings.Replace(srv.URL, "://", "://user:fixture-password@", 1) + "/repo.git?" + query + "#fixture-fragment"}
+		err := src.Fragments(t.Context(), func(Fragment, error) error { return nil })
+		require.Error(t, err)
+		if !strings.Contains(query, " ") {
+			require.ErrorContains(t, err, "403")
+		}
+		for _, secret := range []string{"fixture-password", "fixture-query", "fixture-fragment"} {
+			require.NotContains(t, err.Error(), secret)
+		}
 	}
 }

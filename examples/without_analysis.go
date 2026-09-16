@@ -49,6 +49,10 @@ func run() error {
 		ShouldSkip: scanner.SkipFunc(),
 	}
 
+	// For caller-supplied paths or URLs, sources.Auto(ctx, target) returns
+	// an enum without constructing a source. Use sources.Files for local paths,
+	// sources.Git{URL: target} for remote history, or sources.URL{URL: target}
+	// for one HTTP response. Detection and remote sources may use the network.
 	encoder := json.NewEncoder(os.Stdout)
 	summary, err := scanner.Scan(context.Background(), source, func(finding report.Finding) error {
 		// Findings contain detection details without provider results.

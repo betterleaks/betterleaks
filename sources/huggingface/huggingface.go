@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,9 +20,11 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
 	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
@@ -141,7 +144,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if err := s.ensureClient(); err != nil {
 		return err
 	}
-	logging.OrDiscard(s.Logger).Info("starting Hugging Face scan", "target", s.URL, "resources", s.Resources)
+	logging.OrDiscard(s.Logger).Info("starting Hugging Face scan", "target", urlutil.PublicString(s.URL), "resources", s.Resources)
 
 	start := time.Now()
 	target, err := ParseURL(s.URL)
@@ -230,78 +233,19 @@ type ParsedURL struct {
 	Prefix string
 }
 
+// ParseURL parses a Hugging Face owner, repository, or bucket URL.
 func ParseURL(rawURL string) (*ParsedURL, error) {
-	u, err := url.Parse(rawURL)
+	parsed, err := targeturl.ParseHuggingFace(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
+		return nil, err
 	}
-	if u.Scheme == "hf" {
-		segments := cleanPathSegments(u.Host + "/" + u.Path)
-		if len(segments) < 3 || segments[0] != "buckets" {
-			return nil, fmt.Errorf("hf:// URL must use hf://buckets/<owner>/<bucket>[/prefix]")
-		}
-		return &ParsedURL{
-			Scheme: "hf",
-			Host:   "buckets",
-			Kind:   "bucket",
-			Owner:  segments[1],
-			Name:   segments[2],
-			Prefix: strings.Join(segments[3:], "/"),
-		}, nil
-	}
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return nil, fmt.Errorf("URL must use http or https scheme")
-	}
-	if u.Host == "" {
-		return nil, fmt.Errorf("URL must include a host")
-	}
-	segments := cleanPathSegments(u.Path)
-	out := &ParsedURL{Scheme: u.Scheme, Host: strings.ToLower(u.Host)}
-	switch {
-	case len(segments) >= 3 && segments[0] == "buckets":
-		out.Kind = "bucket"
-		out.Owner = segments[1]
-		out.Name = segments[2]
-		out.Prefix = strings.Join(segments[3:], "/")
-		return out, nil
-	case len(segments) == 1:
-		out.Kind = "owner"
-		out.Owner = segments[0]
-		return out, nil
-	case len(segments) >= 3 && segments[0] == "datasets":
-		out.Kind = "repo"
-		out.Type = RepoKindDataset
-		out.Owner = segments[1]
-		out.Name = strings.TrimSuffix(strings.Join(segments[2:], "/"), ".git")
-	case len(segments) >= 3 && segments[0] == "spaces":
-		out.Kind = "repo"
-		out.Type = RepoKindSpace
-		out.Owner = segments[1]
-		out.Name = strings.TrimSuffix(strings.Join(segments[2:], "/"), ".git")
-	case len(segments) >= 2:
-		out.Kind = "repo"
-		out.Type = RepoKindModel
-		out.Owner = segments[0]
-		out.Name = strings.TrimSuffix(strings.Join(segments[1:], "/"), ".git")
-	default:
-		return nil, fmt.Errorf("Hugging Face URL must identify an owner or repository")
-	}
-	if out.Owner == "" || out.Name == "" {
-		return nil, fmt.Errorf("Hugging Face repository URL must include owner and name")
-	}
-	return out, nil
+	return &ParsedURL{
+		Scheme: parsed.Scheme, Host: parsed.Host, Kind: parsed.Kind,
+		Owner: parsed.Owner, Name: parsed.Name, Type: RepoKind(parsed.Type), Prefix: parsed.Prefix,
+	}, nil
 }
 
-func cleanPathSegments(p string) []string {
-	parts := strings.Split(strings.Trim(p, "/"), "/")
-	out := parts[:0]
-	for _, part := range parts {
-		if part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
-}
+func cleanPathSegments(path string) []string { return targeturl.PathSegments(path) }
 
 type huggingFaceRepo struct {
 	Kind       RepoKind
@@ -799,17 +743,20 @@ func (s *Source) listBucketTree(ctx context.Context, bucket huggingFaceBucket) (
 func (s *Source) scanBucketObject(ctx context.Context, bucket huggingFaceBucket, entry huggingFaceBucketEntry, yield sources.FragmentsFunc) error {
 	attrs := s.bucketAttributes(bucket, &entry, ResourceBucket)
 	logging.OrDiscard(s.Logger).Log(ctx, logging.LevelTrace, "downloading Hugging Face bucket object", "bucket", bucket.ID(), "path", entry.Path, "size", entry.Size)
-	return download.Scan(ctx, download.Options{
-		URL:             s.bucketObjectURL(bucket, entry.Path),
-		Path:            entry.Path,
-		Attrs:           attrs,
-		BearerToken:     s.Token,
-		HTTPClient:      s.httpClient,
-		MaxArchiveDepth: s.MaxArchiveDepth,
-		ShouldSkip:      s.ShouldSkip,
-		TempPattern:     "betterleaks-huggingface-bucket-*",
-		Logger:          s.Logger,
-	}, yield)
+	return download.WithFile(ctx, download.Options{
+		URL:         s.bucketObjectURL(bucket, entry.Path),
+		BearerToken: s.Token,
+		HTTPClient:  s.httpClient,
+		TempPattern: "betterleaks-huggingface-bucket-*",
+		Logger:      s.Logger,
+	}, func(content *os.File) error {
+		file := &sources.File{
+			Content: content, Path: entry.Path, Attributes: attrs,
+			Logger: s.Logger, ShouldSkip: s.ShouldSkip,
+			MaxArchiveDepth: max(1, s.MaxArchiveDepth), DetectArchive: true,
+		}
+		return file.Fragments(ctx, yield)
+	})
 }
 
 func (s *Source) bucketObjectURL(bucket huggingFaceBucket, objectPath string) string {

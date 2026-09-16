@@ -2,6 +2,10 @@ package cmd
 
 import (
 	"errors"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/scan"
@@ -21,17 +25,21 @@ func (e *multipleErrors) Unwrap() []error { return e.errs }
 
 type GitCmd struct {
 	ScanFlags `embed:""`
+	Token     string   `help:"Token for an HTTP(S) clone (or the known host's GITHUB_TOKEN, GITLAB_TOKEN, HUGGINGFACE_TOKEN/HF_TOKEN)."`
 	Platform  string   `help:"Target platform used to generate links: github or gitlab."`
 	Staged    bool     `help:"Scan staged commits (for pre-commit)."`
 	PreCommit bool     `name:"pre-commit" help:"Scan using git diff."`
 	LogOpts   string   `name:"log-opts" help:"Git log options."`
 	Include   []string `help:"Additional Git resources to scan: commit-messages, tag-messages, reflogs."`
-	Repo      string   `arg:"" optional:"" help:"Repository to scan."`
+	Repo      string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
 }
 
 func (cmd GitCmd) Validate() error {
 	if err := cmd.ScanFlags.Validate(); err != nil {
 		return err
+	}
+	if remoteGitURL(cmd.Repo) && (cmd.Staged || cmd.PreCommit) {
+		return errors.New("--staged and --pre-commit require a local Git repository")
 	}
 	if len(cmd.Include) > 0 && (cmd.Staged || cmd.PreCommit) {
 		return errors.New("--include requires a Git history scan; it cannot be combined with --staged or --pre-commit")
@@ -58,14 +66,19 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	}
 
 	// setup config (aka, the thing that defines rules)
-	initConfig(runtime, globals, &options.ScanFlags, source)
+	configSource, ignoreSource := source, source
+	remote := remoteGitURL(source)
+	if remote {
+		configSource, ignoreSource = ".", ""
+	}
+	initConfig(runtime, globals, &options.ScanFlags, configSource)
 	initDiagnostics(runtime, &options.ScanFlags)
 
 	cfg := Config(runtime)
 
 	// create runner
 	workers := resolveWorkerPlan(options.Jobs, gitWorkerProfile)
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, source, scan.WithWorkers(workers.Scanner))
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, ignoreSource, scan.WithWorkers(workers.Scanner))
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
@@ -93,9 +106,12 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		if platformErr != nil {
 			runtime.fatal("invalid platform", "error", platformErr)
 		}
-		resolvedPlatform, remoteURL := sources.ResolveRemote(runtime.Context, scmPlatform, source)
+		resolvedPlatform, remoteURL := scmPlatform, ""
+		if !remote {
+			resolvedPlatform, remoteURL = sources.ResolveRemote(runtime.Context, scmPlatform, source)
+		}
 
-		src = &sources.Git{
+		gitSource := &sources.Git{
 			Logger:          runtime.Logger(),
 			RepoPath:        source,
 			ShouldSkip:      runner.SkipFunc(),
@@ -106,6 +122,15 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 			Include:         options.Include,
 			Workers:         workers.Source,
 		}
+		if remote {
+			gitSource.RepoPath = ""
+			gitSource.URL = source
+			gitSource.Token = options.Token
+			if gitSource.Token == "" {
+				gitSource.Token = remoteGitToken(source)
+			}
+		}
+		src = gitSource
 	}
 
 	summary, err := runner.Scan(runtime.Context, src, findings.Add)
@@ -114,4 +139,46 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	}
 
 	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, err)
+}
+
+// An existing path wins even when its spelling resembles a URL.
+func remoteGitURL(target string) bool {
+	if _, err := os.Stat(target); err == nil {
+		return false
+	}
+	u, err := url.Parse(target)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+func remoteGitToken(target string) string {
+	u, err := url.Parse(target)
+	if err != nil || u.Scheme != "https" || u.User != nil {
+		return ""
+	}
+	switch strings.ToLower(u.Host) {
+	case "github.com":
+		return os.Getenv("GITHUB_TOKEN")
+	case "gitlab.com":
+		return os.Getenv("GITLAB_TOKEN")
+	case "huggingface.co":
+		if token := os.Getenv("HUGGINGFACE_TOKEN"); token != "" {
+			return token
+		}
+		return os.Getenv("HF_TOKEN")
+	}
+	return ""
+}
+
+// Match clone authentication, without forwarding environment tokens on redirects.
+type gitAutoTransport struct {
+	host  string
+	token string
+}
+
+func (t gitAutoTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Scheme == "https" && req.URL.Host == t.host {
+		req = req.Clone(req.Context())
+		req.SetBasicAuth("x-access-token", t.token)
+	}
+	return http.DefaultTransport.RoundTrip(req)
 }

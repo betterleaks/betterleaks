@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,9 @@ type File struct {
 	Content io.Reader
 	// Path is the resolved real path of the file
 	Path string
+	// Attributes supply source metadata, including an optional resource override.
+	// Path and archive entry paths are always derived from Path.
+	Attributes map[string]string
 	// Symlink represents a symlink to the file if that's how it was discovered
 	Symlink string
 	// Buffer is used for reading the content in chunks
@@ -40,6 +44,9 @@ type File struct {
 	ShouldSkip SkipFunc
 	// MaxArchiveDepth limits how deep the sources will explore nested archives
 	MaxArchiveDepth int
+	// DetectArchive also identifies archives by content, for downloads whose
+	// paths do not have a filename extension. Inherited by nested archive entries.
+	DetectArchive bool
 	// outerPaths is the list of container paths (e.g. archives) that lead to
 	// this file
 	outerPaths []string
@@ -48,18 +55,45 @@ type File struct {
 }
 
 // Fragments yields fragments for the this source
-func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	var err error
+func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.ShouldSkip != nil && s.ShouldSkip(s.attributes(s.FullPath())) {
+		return nil
+	}
+	// Archive walkers may log errors. Preserve callback errors for every caller.
+	var yieldErr error
+	emit := yield
+	yield = func(fragment Fragment, err error) error {
+		if yieldErr != nil {
+			return yieldErr
+		}
+		if err == nil && s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+			return nil
+		}
+		yieldErr = emit(fragment, err)
+		return yieldErr
+	}
+	defer func() {
+		if yieldErr != nil {
+			err = yieldErr
+		}
+		if err == nil {
+			err = ctx.Err()
+		}
+	}()
 	var format archives.Format
 	stream := s.Content
 
-	// tar files can sometimes be compressed without having the compression
-	// in their file extension name. Even though it is common to have the
-	// compression in the name, the tar command can still determine if
-	// the file is compressed. So in cases where we're working with tar files
-	// that don't have a compression extension in the name, we should go
-	// ahead and check the content itself to see if it's compressed
-	if filepath.Ext(s.Path) == ".tar" {
+	// Downloads may have opaque names. Local .tar files also need content
+	// inspection because their compression is not always reflected in the name.
+	if s.DetectArchive {
+		format, stream, err = archives.Identify(ctx, "", stream)
+		if errors.Is(err, archives.NoMatch) {
+			format, _, err = archives.Identify(ctx, s.Path, nil)
+		}
+	} else if filepath.Ext(s.Path) == ".tar" {
 		format, stream, err = archives.Identify(ctx, s.Path, stream)
 	} else {
 		format, _, err = archives.Identify(ctx, s.Path, nil)
@@ -151,7 +185,9 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		}
 		defer innerReader.Close()
 
-		if s.ShouldSkip != nil && shouldSkipPath(s.ShouldSkip, path) {
+		if s.ShouldSkip != nil && shouldSkipPath(func(attrs map[string]string) bool {
+			return s.ShouldSkip(s.attributes(attrs[AttrPath]))
+		}, path) {
 			logging.OrDiscard(s.Logger).Debug("skipping file: global prefilter", "path", s.FullPath())
 			return nil
 		}
@@ -160,10 +196,12 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			Logger:          s.Logger,
 			Content:         innerReader,
 			Path:            path,
+			Attributes:      s.Attributes,
 			Symlink:         s.Symlink,
 			ShouldSkip:      s.ShouldSkip,
 			outerPaths:      append(s.outerPaths, filepath.ToSlash(s.Path)),
 			MaxArchiveDepth: s.MaxArchiveDepth,
+			DetectArchive:   s.DetectArchive,
 			archiveDepth:    s.archiveDepth + 1,
 		}
 
@@ -226,11 +264,8 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 		if firstFragment {
 			first = "true"
 		}
-		fragment.Attributes = map[string]string{
-			AttrPath:            fragmentPath,
-			AttrResource:        ResourceFileContent,
-			AttrFSFirstFragment: first,
-		}
+		fragment.Attributes = s.attributes(fragmentPath)
+		fragment.SetAttr(AttrFSFirstFragment, first)
 
 		if readErr != nil {
 			if isArchiveContent {
@@ -275,6 +310,14 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 		return nil
 	}
 	return err
+}
+
+func (s *File) attributes(path string) map[string]string {
+	attrs := make(map[string]string, len(s.Attributes)+2)
+	attrs[AttrResource] = ResourceFileContent
+	maps.Copy(attrs, s.Attributes)
+	attrs[AttrPath] = path
+	return attrs
 }
 
 // FullPath returns the File.Path with any preceding outer paths

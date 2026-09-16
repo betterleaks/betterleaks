@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -24,6 +23,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
+	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
@@ -37,10 +37,15 @@ type Git struct {
 	// starts a history scan for RepoPath.
 	Cmd      *GitCmd
 	RepoPath string
-	LogOpts  string
+	// URL clones an HTTP(S) repository to a temporary mirror before scanning.
+	// It is mutually exclusive with RepoPath and Cmd. Token authenticates the
+	// clone; the SDK does not read token environment variables.
+	URL     string
+	Token   string
+	LogOpts string
 	// Include adds resources to the default patch scan. Supported values:
 	// commit-messages, tag-messages, reflogs. Additional resources require
-	// RepoPath rather than Cmd.
+	// RepoPath or URL rather than Cmd.
 	Include []string
 
 	ShouldSkip      SkipFunc
@@ -58,8 +63,16 @@ const (
 	GitResourceTypeReflogs        = "reflogs"
 )
 
-// Validate checks additional Git resource selections before starting a scan.
+// Validate checks Git inputs and additional resource selections before scanning.
 func (s *Git) Validate() error {
+	if s.URL != "" {
+		if s.RepoPath != "" || s.Cmd != nil {
+			return errors.New("Git URL cannot be combined with RepoPath or Cmd")
+		}
+		if _, err := parseHTTPSource(s.URL); err != nil {
+			return err
+		}
+	}
 	for _, name := range s.Include {
 		if name != GitResourceTypeCommitMessages && name != GitResourceTypeTagMessages && name != GitResourceTypeReflogs {
 			return fmt.Errorf("unknown Git resource type %q (supported: commit-messages, tag-messages, reflogs)", name)
@@ -77,9 +90,25 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
+	if s.URL != "" {
+		err := scm.CloneToTempDir(ctx, s.URL, s.Token, "betterleaks-git-*", scm.CloneOptions{Mirror: true}, func(repo string) error {
+			local := *s
+			local.URL, local.Token, local.RepoPath = "", "", repo
+			u, _ := parseHTTPSource(s.URL)
+			if local.Platform == scm.UnknownPlatform {
+				local.Platform = platformFromHost(u)
+			}
+			local.RemoteURL = strings.TrimSuffix(urlutil.Public(u), ".git")
+			return local.Fragments(ctx, yield)
+		})
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
 	if s.Cmd == nil {
 		if s.RepoPath == "" {
-			return errors.New("git source requires Cmd or RepoPath")
+			return errors.New("git source requires URL, Cmd, or RepoPath")
 		}
 		if err := s.fragmentsFromRepo(ctx, yield, budget); err != nil {
 			return err
@@ -744,15 +773,11 @@ func (s *Git) fragmentsFromArchive(ctx context.Context, path string, commitAttrs
 		Logger:          s.Logger,
 		Content:         blob,
 		Path:            path,
+		Attributes:      commitAttrs,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		ShouldSkip:      s.ShouldSkip,
 	}
-	err = file.Fragments(ctx, func(fragment Fragment, err error) error {
-		attrs := maps.Clone(commitAttrs)
-		maps.Copy(attrs, fragment.Attributes)
-		fragment.Attributes = attrs
-		return yield(fragment, err)
-	})
+	err = file.Fragments(ctx, yield)
 	if closeErr := blob.Close(); closeErr != nil {
 		logging.OrDiscard(s.Logger).Debug("blobReader.Close() returned an error", "error", closeErr)
 	}

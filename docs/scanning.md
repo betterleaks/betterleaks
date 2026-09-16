@@ -57,7 +57,8 @@ with `analyze.WithWorkers(n)`, and source concurrency with fields such as
 | Want to scan | Use |
 | :--- | :--- |
 | Filesystem | `betterleaks <path>` or `betterleaks filesystem <path>` |
-| Git history | `betterleaks git` |
+| Git history | `betterleaks git [path-or-http-url]` |
+| One HTTP(S) response or archive | `betterleaks url <url>` |
 | Staged or pre-commit diffs | `betterleaks git --pre-commit [--staged]` |
 | GitHub repos, Issues, PRs, Actions, Releases, Discussions, Gists | `betterleaks github <url>` |
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
@@ -74,6 +75,71 @@ file or directory paths:
 `betterleaks . --offline` and `betterleaks filesystem . --offline` are equivalent.
 Command names take precedence, so use `./git` or `filesystem git` to scan a directory
 named `git`. Running `betterleaks` without arguments shows help.
+
+### Automatic source selection
+
+Omit the command (or use `auto`) to select a source from a single path or URL:
+
+```sh
+betterleaks ./my-project
+betterleaks auto ./my-project
+betterleaks https://github.com/betterleaks/betterleaks
+betterleaks https://gitlab.com/group/project.git
+betterleaks https://huggingface.co/datasets/owner/dataset
+betterleaks s3://bucket/prefix
+betterleaks hf://buckets/owner/bucket
+```
+
+An existing local path always selects filesystem scanning, even inside a Git
+checkout or when named `github.com/owner/repo`. Use `git` explicitly for local
+history. A nonexistent scheme-less path is an error; no `https://` is inferred.
+Multiple local paths are supported, but a remote scan accepts one target and
+cannot be mixed with local paths.
+
+GitHub and Hugging Face repository URLs and HTTP(S) paths ending in `.git`
+select a temporary Git mirror and a history scan. Recognized provider owners,
+organizations, buckets, and supported resource URLs select their existing
+provider sources. GitLab project/group ambiguity and other HTTP(S) URLs use
+Git smart HTTP discovery: a five-second request, at most three redirects, and
+at most 64 KiB of advertisement inspection. A valid v0/v1/v2 advertisement
+selects Git; an ordinary non-Git response or 404/410 selects URL content
+(GitLab namespaces select the GitLab source). Authentication failures,
+throttling, server errors, malformed Git responses, and timeouts stop with an
+error. They do not silently scan a different source.
+
+Explicit commands always override detection. Use `git <url>` when discovery
+cannot identify a repository, or `url <url>` to scan the HTTP response itself.
+Source-specific flags such as `--include`, `--token`, and `--region` require
+an explicit command. Shared scan flags work before or after an implicit target.
+SSH Git URLs and scheme-less remote addresses are not supported by this shorthand.
+Self-hosted provider resources and custom S3-compatible endpoints use explicit
+provider commands; arbitrary HTTP(S) Git servers can use discovery or `git`.
+
+The SDK exposes the same classification without constructing a source:
+
+```go
+kind, err := sources.Auto(ctx, target)
+if err != nil {
+    return err // kind == sources.UnknownKind
+}
+switch kind {
+case sources.FilesystemKind:
+    // Construct sources.Files with Path: target.
+case sources.GitKind:
+    // Construct sources.Git with URL: target.
+case sources.URLKind:
+    // Construct sources.URL with URL: target.
+    // Set MaxArchiveDepth if archives should be scanned.
+}
+```
+
+Other kinds are `GitHubKind`, `GitLabKind`, `HuggingFaceKind`, and `S3Kind`.
+`WithAutoHTTPClient(client)` supplies a discovery client, including custom
+authentication. Detection can make network requests and respects context
+cancellation. `WithAutoLogger(logger)` enables SDK diagnostics; the CLI logs the
+selected source at info level and Git discovery at debug level (`--log-level debug`).
+Logged URLs omit userinfo, query parameters, and fragments. The SDK does not read
+credential environment variables.
 
 ---
 
@@ -218,9 +284,53 @@ betterleaks filesystem . --output findings.jsonl
 
 ---
 
+## `url`
+
+Download and scan one HTTP(S) response, without following links in its content:
+
+```sh
+betterleaks url https://example.com/config.txt --offline
+betterleaks url https://example.com/bundle.zip --max-archive-depth 2
+betterleaks url https://example.com/export.txt --max-target-megabytes 20
+```
+
+The response is downloaded to a temporary file and scanned through the shared
+file and archive handling. Archives are identified by content, including downloads
+with no filename extension and redirects to download endpoints. The default
+request timeout is five minutes.
+`--max-target-megabytes` limits the downloaded response (zero is unlimited);
+oversized responses are skipped before scanning, including chunked responses.
+Archive recursion follows `--max-archive-depth`. Temporary downloads are removed
+on completion or failure. Findings use `resource=url.content`, the URL path as
+`path`, and a `url` attribute with userinfo, query parameters, and fragments
+removed. URL userinfo can supply HTTP Basic authentication; SDK callers can
+supply `sources.URL.HTTPClient` for other authentication or timeout policies.
+Archive entries retain the URL attributes, so prefilters can combine `url`,
+`resource`, and the full archive entry `path` (for example, `download!secret.txt`).
+
+Like other remote sources, this command loads local configuration and still
+fetches its source with `--offline`; that flag disables credential validation
+and analysis requests.
+
+---
+
 ## `git`
 
-Use `git` for history and diffs.
+Use `git` for history and diffs. HTTP(S) targets are cloned to a temporary
+mirror, scanned with the same history implementation, and removed afterward:
+
+```sh
+betterleaks git https://github.com/owner/repo --include=commit-messages
+betterleaks git https://git.example.com/group/repo.git --token "$TOKEN"
+```
+
+`--token` overrides the known host's `GITHUB_TOKEN`, `GITLAB_TOKEN`, or
+`HUGGINGFACE_TOKEN`/`HF_TOKEN`. Environment tokens are used only for HTTPS on
+those public hosts, never arbitrary servers. The SDK uses an explicit
+`sources.Git{URL: target, Token: token}`. `URL` cannot be combined with `RepoPath`
+or `Cmd`. Remote scans load configuration from the local working directory,
+not from the downloaded repository. `--staged` and `--pre-commit` require a
+local repository. A clone does not contain another machine's local reflogs.
 
 ```sh
 # full repo history

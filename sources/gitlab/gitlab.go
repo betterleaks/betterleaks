@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -22,9 +23,11 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
 	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
@@ -219,7 +222,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if err := s.resolveResources(); err != nil {
 		return err
 	}
-	logging.OrDiscard(s.Logger).Info("starting GitLab scan", "target", s.URL, "base", s.BaseURL, "resources", s.Resources)
+	logging.OrDiscard(s.Logger).Info("starting GitLab scan", "target", urlutil.PublicString(s.URL), "base", urlutil.PublicString(s.BaseURL), "resources", s.Resources)
 
 	start := time.Now()
 	workers, budget := sourceworkers.EnsureBudget(s.Workers, sourceworkers.AutomaticProvider(), s.budget)
@@ -339,81 +342,11 @@ func (s *Source) acquireAPISlot(ctx context.Context) (func(), error) {
 	}
 }
 
-// ParsedURL is the result of splitting a GitLab URL into its components.
-type ParsedURL struct {
-	Scheme string // http or https
-	Host   string // hostname[:port]
-	Path   string // project/group/user path (everything before "/-/")
-	Kind   string // "namespace", "project", "group", "user", "issue", "mr", "snippet", "release", "pipeline", "job"
-	ID     string // resource ID (number, tag, snippet id)
-}
+// ParsedURL holds the components extracted from a GitLab target URL.
+type ParsedURL = targeturl.GitLab
 
-// ParseURL parses a GitLab URL into namespace + optional resource segment.
-// At this stage we cannot tell apart project / group / user — `dispatchURL`
-// resolves that by querying the API.
-func ParseURL(rawURL string) (*ParsedURL, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
-	}
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return nil, fmt.Errorf("URL must use http or https scheme")
-	}
-	if u.Host == "" {
-		return nil, fmt.Errorf("URL must include a host")
-	}
-
-	out := &ParsedURL{Scheme: u.Scheme, Host: strings.ToLower(u.Host)}
-
-	trimmed := strings.Trim(u.Path, "/")
-	if trimmed == "" {
-		// Bare host: only valid with explicit AllGroups; caller handles that
-		// via the GitLab.AllGroups field. Kind = "namespace" with empty Path
-		// signals "instance root".
-		out.Kind = "namespace"
-		return out, nil
-	}
-
-	left, right, hasResource := splitOnce(trimmed, "/-/")
-	out.Path = strings.Trim(left, "/")
-	if !hasResource {
-		out.Kind = "namespace"
-		return out, nil
-	}
-
-	parts := strings.Split(strings.Trim(right, "/"), "/")
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		return nil, fmt.Errorf("GitLab resource URL must be .../-/{kind}/{id}")
-	}
-	kind, id := parts[0], parts[1]
-	switch kind {
-	case "issues":
-		out.Kind = "issue"
-		out.ID = id
-	case "merge_requests":
-		out.Kind = "mr"
-		out.ID = id
-	case "snippets":
-		out.Kind = "snippet"
-		out.ID = id
-	case "releases":
-		out.Kind = "release"
-		out.ID = id
-	case "pipelines":
-		out.Kind = "pipeline"
-		out.ID = id
-	case "jobs":
-		out.Kind = "job"
-		out.ID = id
-	default:
-		return nil, fmt.Errorf("unsupported GitLab URL type %q; supported: issues, merge_requests, snippets, releases, pipelines, jobs", kind)
-	}
-	return out, nil
-}
-
-func splitOnce(s, sep string) (left, right string, ok bool) {
-	return strings.Cut(s, sep)
-}
+// ParseURL parses a GitLab target URL.
+func ParseURL(rawURL string) (*ParsedURL, error) { return targeturl.ParseGitLab(rawURL) }
 
 // gitlabTarget describes what the URL resolved to: either a single project,
 // or a namespace (group/user) to enumerate.
@@ -1501,16 +1434,19 @@ func (s *Source) downloadAndScan(ctx context.Context, rawURL, path string, attrs
 		return err
 	}
 	defer release()
-	return download.Scan(ctx, download.Options{
-		URL:             rawURL,
-		HTTPClient:      s.httpClient,
-		Path:            path,
-		Attrs:           attrs,
-		MaxArchiveDepth: s.MaxArchiveDepth,
-		ShouldSkip:      s.ShouldSkip,
-		TempPattern:     "betterleaks-gitlab-dl-*",
-		Logger:          s.Logger,
-	}, yield)
+	return download.WithFile(ctx, download.Options{
+		URL:         rawURL,
+		HTTPClient:  s.httpClient,
+		TempPattern: "betterleaks-gitlab-dl-*",
+		Logger:      s.Logger,
+	}, func(content *os.File) error {
+		file := &sources.File{
+			Content: content, Path: path, Attributes: attrs,
+			Logger: s.Logger, ShouldSkip: s.ShouldSkip,
+			MaxArchiveDepth: max(1, s.MaxArchiveDepth), DetectArchive: true,
+		}
+		return file.Fragments(ctx, yield)
+	})
 }
 
 // applyDateRange appends GitLab's standard date-range query parameters when
