@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -72,11 +73,16 @@ func TestAuto(t *testing.T) {
 			}
 		})
 	}
-	// Even a URL-shaped name is local if it exists.
-	require.NoError(t, os.MkdirAll(filepath.FromSlash("https:/example.com/repo.git"), 0o700))
-	kind, err := Auto(t.Context(), "https://example.com/repo.git")
-	require.NoError(t, err)
-	require.Equal(t, FilesystemKind, kind)
+	t.Run("existing URL-shaped local path", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows does not allow colons in directory names")
+		}
+		// Even a URL-shaped name is local if it exists.
+		require.NoError(t, os.MkdirAll(filepath.FromSlash("https:/example.com/repo.git"), 0o700))
+		kind, err := Auto(t.Context(), "https://example.com/repo.git")
+		require.NoError(t, err)
+		require.Equal(t, FilesystemKind, kind)
+	})
 }
 
 func TestAutoProviderContentURLs(t *testing.T) {
