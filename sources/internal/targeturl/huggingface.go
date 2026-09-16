@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 )
 
 type HuggingFace struct {
@@ -21,7 +21,7 @@ type HuggingFace struct {
 func ParseHuggingFace(rawURL string) (*HuggingFace, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", urlutil.Error(err))
+		return nil, fmt.Errorf("invalid URL: %w", urlredact.Error(err))
 	}
 	if u.Scheme == "hf" {
 		segments := PathSegments(u.Host + "/" + u.Path)

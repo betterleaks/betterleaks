@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
 )
@@ -82,7 +82,7 @@ func Auto(ctx context.Context, target string, opts ...AutoOption) (kind Kind, er
 		if err == nil {
 			loggedTarget := target
 			if u, parseErr := url.Parse(target); parseErr == nil && u.Scheme != "" && u.Host != "" {
-				loggedTarget = urlutil.Public(u)
+				loggedTarget = urlredact.Public(u)
 			}
 			logger.InfoContext(ctx, "auto: selected source", "source", kind.String(), "target", loggedTarget)
 		}
@@ -149,7 +149,7 @@ func Auto(ctx context.Context, target string, opts ...AutoOption) (kind Kind, er
 	if strings.HasSuffix(path, ".git") {
 		return GitKind, nil
 	}
-	logger.DebugContext(ctx, "auto: checking URL for a Git repository", "target", urlutil.Public(u))
+	logger.DebugContext(ctx, "auto: checking URL for a Git repository", "target", urlredact.Public(u))
 	git, err := probeGit(ctx, u, &options.client)
 	if err != nil {
 		return UnknownKind, fmt.Errorf("could not determine source type: %w; select git or url explicitly", err)
@@ -175,7 +175,7 @@ func probeGit(ctx context.Context, target *url.URL, client *http.Client) (bool, 
 	u.RawQuery = query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return false, urlutil.Error(err)
+		return false, urlredact.Error(err)
 	}
 	req.Header.Set("Git-Protocol", "version=2")
 	checkRedirect := client.CheckRedirect
@@ -196,7 +196,7 @@ func probeGit(ctx context.Context, target *url.URL, client *http.Client) (bool, 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, urlutil.Error(err)
+		return false, urlredact.Error(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {

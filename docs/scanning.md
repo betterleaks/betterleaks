@@ -174,7 +174,7 @@ still written. Use `--no-banner` when only the banner should be hidden.
 ## Allow comments
 
 Add `betterleaks:allow` or `gitleaks:allow` to a finding's line to suppress it.
-Use `--ignore-allow-comments` to report these findings anyway.
+Use `--no-allow-comments` to report these findings anyway.
 
 ---
 
@@ -1130,10 +1130,10 @@ betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-key
 betterleaks git . --disable-rule generic-api-key
 
 # retain only selected validation results
-betterleaks filesystem . --validation-status valid,unknown
+betterleaks filesystem . --status valid,unknown
 
 # validate without credential analysis
-betterleaks filesystem . --no-analysis --validation-status valid
+betterleaks filesystem . --no-analysis --status valid
 
 # disable all validation and analysis provider requests
 betterleaks filesystem . --offline

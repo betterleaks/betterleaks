@@ -43,8 +43,8 @@ type CredentialFlags struct {
 	RuleID               string   `name:"rule" help:"Rule to use for this credential."`
 	Component            []string `sep:"none" help:"Credential component as rule-id=secret (repeatable)."`
 	Capture              []string `sep:"none" help:"Credential capture as name=value; use rule-id:name=value for a component (repeatable)."`
-	Simple               bool     `help:"Print only the credential status."`
-	JSONL                bool     `name:"jsonl" help:"Print the credential result as JSONL."`
+	Simple               bool     `group:"output" help:"Print only the credential status."`
+	JSONL                bool     `group:"output" name:"jsonl" help:"Print the credential result as JSONL."`
 	Secret               string   `arg:"" optional:"" help:"Credential value; read from stdin when omitted."`
 }
 

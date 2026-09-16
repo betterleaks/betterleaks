@@ -26,7 +26,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"max-target-megabytes",
 		"jobs",
 		"ignore-file",
-		"ignore-allow-comments",
+		"no-allow-comments",
 		"redact",
 		"no-banner",
 		"disable-rule",
@@ -36,7 +36,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"max-archive-depth",
 		"offline",
 		"no-analysis",
-		"validation-status",
+		"status",
 		"provider-workers",
 		"diagnostics",
 		"diagnostics-dir",
@@ -111,18 +111,40 @@ func TestRemovedProviderFlagsAreRejected(t *testing.T) {
 		"--validation-env-vars=GITHUB_BASE_URL",
 	} {
 		t.Run(flag, func(t *testing.T) {
-			_, err := parseCLIForTest(t, "dir", flag)
+			_, err := parseCLIForTest(t, "fs", flag)
 			require.ErrorContains(t, err, "unknown flag")
 		})
 	}
 }
 
+func TestRootHelpKeepsScanFlagsCommandLocal(t *testing.T) {
+	root, output := newTestCLI(t)
+	root.runtime.exit = func(code int) {
+		require.Zero(t, code)
+		panic("help exit")
+	}
+	parser, err := newCLIParser(&CLI{}, root.runtime)
+	require.NoError(t, err)
+	require.PanicsWithValue(t, "help exit", func() {
+		_, _ = parser.Parse([]string{"--help"})
+	})
+
+	require.Contains(t, output.String(), "Scanning Options:")
+	require.Contains(t, output.String(), "--offline")
+	require.False(t, nodeHasFlag(parser.Model.Node, "offline"))
+
+	_, err = parser.Parse([]string{"validate", "--offline"})
+	require.ErrorContains(t, err, "unknown flag --offline")
+	_, err = parser.Parse([]string{"auto", "--offline", "."})
+	require.NoError(t, err)
+}
+
 func TestRedactFlagSupportsImplicitAndExplicitPercentages(t *testing.T) {
-	cli, err := parseCLIForTest(t, "dir", "--redact")
+	cli, err := parseCLIForTest(t, "fs", "--redact")
 	require.NoError(t, err)
 	require.Equal(t, redactFlag(100), cli.Directory.Redact)
 
-	cli, err = parseCLIForTest(t, "dir", "--redact=20")
+	cli, err = parseCLIForTest(t, "fs", "--redact=20")
 	require.NoError(t, err)
 	require.Equal(t, redactFlag(20), cli.Directory.Redact)
 }
@@ -290,22 +312,22 @@ func TestProviderRuntimeFlagsRejectInvalidValues(t *testing.T) {
 }
 
 func TestScanOutputFlags(t *testing.T) {
-	cli, err := parseCLIForTest(t, "dir", "-s", "--jsonl", "-o", "findings.json")
+	cli, err := parseCLIForTest(t, "fs", "-s", "--jsonl", "-o", "findings.json")
 	require.NoError(t, err)
 	require.True(t, cli.Directory.Silent)
 	require.True(t, cli.Directory.JSONL)
 	require.Equal(t, "findings.json", cli.Directory.Output)
 
 	for _, removed := range []string{"report", "report-path", "report-format", "verbose"} {
-		_, err := parseCLIForTest(t, "dir", "--"+removed)
+		_, err := parseCLIForTest(t, "fs", "--"+removed)
 		require.ErrorContains(t, err, "unknown flag")
 	}
-	_, err = parseCLIForTest(t, "dir", "-r", "findings.json")
+	_, err = parseCLIForTest(t, "fs", "-r", "findings.json")
 	require.ErrorContains(t, err, "unknown flag")
 }
 
 func TestJobsFlag(t *testing.T) {
-	cli, err := parseCLIForTest(t, "dir", "-j", "3")
+	cli, err := parseCLIForTest(t, "fs", "-j", "3")
 	require.NoError(t, err)
 	require.Equal(t, 3, cli.Directory.Jobs)
 
@@ -359,8 +381,8 @@ func TestJobsRejectsNegativeValues(t *testing.T) {
 
 func TestRemovedWorkerFlagsAreRejected(t *testing.T) {
 	tests := [][]string{
-		{"dir", "--source-workers=2"},
-		{"dir", "--detect-workers=2"},
+		{"fs", "--source-workers=2"},
+		{"fs", "--detect-workers=2"},
 		{"git", "--git-workers=2"},
 		{"s3", "--workers=2", "s3://bucket"},
 	}
@@ -374,12 +396,12 @@ func TestExpandRuleFlagShorthands(t *testing.T) {
 	t.Parallel()
 
 	args := []string{
-		"dir", "-dr", "generic-api-key", "-ir=github-pat",
+		"fs", "-dr", "generic-api-key", "-ir=github-pat",
 		"--disable-rule=aws-access-key", "-i", ".", "--", "-dr",
 	}
 
 	assert.Equal(t, []string{
-		"dir", "--disable-rule", "generic-api-key", "--isolate-rule=github-pat",
+		"fs", "--disable-rule", "generic-api-key", "--isolate-rule=github-pat",
 		"--disable-rule=aws-access-key", "-i", ".", "--", "-dr",
 	}, expandRuleFlagShorthands(args))
 	assert.Equal(t, "-dr", args[1], "input must not be mutated")
@@ -474,7 +496,7 @@ func TestApplyRuleSelection(t *testing.T) {
 
 func newRuleSelectionTestFlags(t *testing.T, args []string) *ScanFlags {
 	t.Helper()
-	cliArgs := append([]string{"dir"}, args...)
+	cliArgs := append([]string{"fs"}, args...)
 	cli, err := parseCLIForTest(t, cliArgs...)
 	require.NoError(t, err)
 	return &cli.Directory.ScanFlags

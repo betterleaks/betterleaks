@@ -12,31 +12,32 @@ import (
 
 // ScanFlags are shared by commands that detect findings from a source.
 type ScanFlags struct {
-	ExitCode            int        `name:"exit-code" default:"1" help:"Exit code when leaks have been encountered."`
-	Silent              bool       `short:"s" help:"Suppress findings and banner."`
-	JSONL               bool       `name:"jsonl" help:"Print findings as JSONL."`
-	Output              string     `name:"output" short:"o" placeholder:"PATH" help:"Write findings to PATH (.json or .jsonl; use '-' for stdout)."`
-	Confidence          string     `help:"Minimum confidence to include (low, medium, high)."`
-	MaxTargetMegabytes  int        `name:"max-target-megabytes" help:"Files larger than this will be skipped."`
-	Jobs                int        `name:"jobs" short:"j" help:"Parallel scan jobs; CPU-bound stages cap at available processors (0 = automatic)."`
-	IgnoreFile          string     `name:"ignore-file" placeholder:"PATH" help:"Read secret fingerprints from PATH."`
-	IgnoreAllowComments bool       `name:"ignore-allow-comments" help:"Ignore allow comments."`
-	Redact              redactFlag `placeholder:"PERCENT" help:"Redact secrets from logs and stdout. With no value, redact 100%; otherwise specify 0..100."`
-	NoBanner            bool       `name:"no-banner" help:"Suppress banner."`
-	DisableRule         []string   `name:"disable-rule" help:"Disable specific rules by id (repeatable; shorthand: -dr)."`
-	IsolateRule         []string   `name:"isolate-rule" help:"Only enable specific rules by id (repeatable; shorthand: -ir)."`
-	MatchContext        string     `name:"match-context" help:"Context around match: L (lines), C (columns/characters), e.g. 10L, 100C, -2C,+4C."`
-	MaxDecodeDepth      int        `name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
-	MaxArchiveDepth     int        `name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
+	Jobs                int      `group:"scanning" name:"jobs" short:"j" help:"Parallel scan jobs; CPU-bound stages cap at available processors (0 = automatic)."`
+	MaxTargetMegabytes  int      `group:"scanning" name:"max-target-megabytes" help:"Files larger than this will be skipped."`
+	MaxDecodeDepth      int      `group:"scanning" name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
+	MaxArchiveDepth     int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
+	DisableRule         []string `group:"scanning" name:"disable-rule" help:"Disable specific rules by id (repeatable; shorthand: -dr)."`
+	IsolateRule         []string `group:"scanning" name:"isolate-rule" help:"Only enable specific rules by id (repeatable; shorthand: -ir)."`
+	IgnoreFile          string   `group:"scanning" name:"ignore-file" placeholder:"PATH" help:"Read secret fingerprints from PATH."`
+	IgnoreAllowComments bool     `group:"scanning" name:"no-allow-comments" help:"Ignore allow comments."`
 
-	NoAnalysis           bool   `name:"no-analysis" help:"Disable credential analysis while retaining validation."`
-	Offline              bool   `help:"Disable validation and analysis provider requests; source fetching may still use the network."`
-	ValidationStatus     string `name:"validation-status" help:"Comma-separated validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none."`
-	ProviderWorkers      int    `name:"provider-workers" default:"10" help:"Number of concurrent provider workers."`
+	Output       string     `group:"output" name:"output" short:"o" placeholder:"PATH" help:"Write findings to PATH (.json or .jsonl; use '-' for stdout)."`
+	JSONL        bool       `group:"output" name:"jsonl" help:"Print findings as JSONL."`
+	Silent       bool       `group:"output" short:"s" help:"Suppress findings and banner."`
+	NoBanner     bool       `group:"output" name:"no-banner" help:"Suppress banner."`
+	Confidence   string     `group:"output" help:"Minimum confidence to include (low, medium, high)."`
+	Redact       redactFlag `group:"output" placeholder:"PERCENT" help:"Redact secrets from logs and stdout. With no value, redact 100%; otherwise specify 0..100."`
+	MatchContext string     `group:"output" name:"match-context" help:"Context around match: L (lines), C (columns/characters), e.g. 10L, 100C, -2C,+4C."`
+	ExitCode     int        `group:"output" name:"exit-code" default:"1" help:"Exit code when leaks have been encountered."`
+
+	NoAnalysis           bool   `group:"validation" name:"no-analysis" help:"Disable credential analysis while retaining validation."`
+	Offline              bool   `group:"validation" help:"Disable validation and analysis provider requests; source fetching may still use the network."`
+	ValidationStatus     string `group:"validation" name:"status" help:"Comma-separated validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none."`
+	ProviderWorkers      int    `group:"validation" name:"provider-workers" default:"10" help:"Number of concurrent provider workers."`
 	ProviderRuntimeFlags `embed:""`
 
-	Diagnostics    string `help:"Enable diagnostics: http or a comma-separated list of cpu,mem,trace,rules."`
-	DiagnosticsDir string `name:"diagnostics-dir" help:"Directory for diagnostics output (default: ./diagnostics)."`
+	Diagnostics    string `group:"diagnostics" help:"Enable diagnostics: http or a comma-separated list of cpu,mem,trace,rules."`
+	DiagnosticsDir string `group:"diagnostics" name:"diagnostics-dir" help:"Directory for diagnostics output (default: ./diagnostics)."`
 }
 
 func (f ScanFlags) Validate() error {
@@ -59,12 +60,12 @@ func (f ScanFlags) analysisEnabled() bool {
 
 // ProviderRuntimeFlags configure requests made by validation, analysis, and revocation.
 type ProviderRuntimeFlags struct {
-	ProviderDebug       bool          `name:"provider-debug" help:"Include provider HTTP debug metadata in output."`
-	ProviderTimeout     time.Duration `name:"provider-timeout" default:"10s" help:"Per-request timeout for provider checks."`
-	ProviderMaxRequests int           `name:"provider-max-requests" help:"Maximum requests sent to each provider target (0 = unlimited)."`
-	ProviderRPS         float64       `name:"provider-rps" help:"Global provider requests per second (0 = unlimited)."`
-	ProviderRPSRule     []string      `name:"provider-rps-rule" help:"Rule-specific provider request rate as RULE=RPS (repeatable)."`
-	ProviderEnvVars     []string      `name:"provider-env-vars" help:"Environment variable names provider Expr programs may read (repeatable)."`
+	ProviderDebug       bool          `group:"validation" name:"provider-debug" help:"Include provider HTTP debug metadata in output."`
+	ProviderTimeout     time.Duration `group:"validation" name:"provider-timeout" default:"10s" help:"Per-request timeout for provider checks."`
+	ProviderMaxRequests int           `group:"validation" name:"provider-max-requests" help:"Maximum requests sent to each provider target (0 = unlimited)."`
+	ProviderRPS         float64       `group:"validation" name:"provider-rps" help:"Global provider requests per second (0 = unlimited)."`
+	ProviderRPSRule     []string      `group:"validation" name:"provider-rps-rule" help:"Rule-specific provider request rate as RULE=RPS (repeatable)."`
+	ProviderEnvVars     []string      `group:"validation" name:"provider-env-vars" help:"Environment variable names provider Expr programs may read (repeatable)."`
 }
 
 func (f ProviderRuntimeFlags) Validate() error {

@@ -9,12 +9,12 @@ import (
 
 type S3Cmd struct {
 	ScanFlags     `embed:""`
-	Region        string `help:"AWS region (required for some non-AWS endpoints; auto-probed for AWS)."`
-	Anonymous     bool   `help:"Do not sign requests; ignore AWS credential environment variables and flags."`
-	AccessKey     string `name:"access-key" help:"AWS access key (overrides AWS_ACCESS_KEY_ID)."`
-	SecretKey     string `name:"secret-key" help:"AWS secret key (overrides AWS_SECRET_ACCESS_KEY)."`
-	SessionToken  string `name:"session-token" help:"AWS session token (overrides AWS_SESSION_TOKEN)."`
-	MaxObjectSize int64  `name:"max-object-size" help:"Skip objects larger than this many bytes (0 = 250 MiB)."`
+	Region        string `group:"source" help:"AWS region (required for some non-AWS endpoints; auto-probed for AWS)."`
+	Anonymous     bool   `group:"source" help:"Do not sign requests; ignore AWS credential environment variables and flags."`
+	AccessKey     string `group:"source" name:"access-key" help:"AWS access key (overrides AWS_ACCESS_KEY_ID)."`
+	SecretKey     string `group:"source" name:"secret-key" help:"AWS secret key (overrides AWS_SECRET_ACCESS_KEY)."`
+	SessionToken  string `group:"source" name:"session-token" help:"AWS session token (overrides AWS_SESSION_TOKEN)."`
+	MaxObjectSize int64  `group:"source" name:"max-object-size" help:"Skip objects larger than this many bytes (0 = 250 MiB)."`
 	URL           string `arg:"" help:"S3 or S3-compatible bucket URL."`
 }
 

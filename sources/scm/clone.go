@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 )
 
 // CloneOptions configures a CloneAuthed call. Zero value is valid: full
@@ -58,7 +58,7 @@ func CloneAuthed(ctx context.Context, remote, token, dest string, opts CloneOpti
 
 	authConfigs, err := authCloneConfigs(remote, token)
 	if err != nil {
-		return fmt.Errorf("clone auth config: %w", urlutil.Error(err))
+		return fmt.Errorf("clone auth config: %w", urlredact.Error(err))
 	}
 
 	args := []string{"clone", "--quiet"}
@@ -82,7 +82,7 @@ func CloneAuthed(ctx context.Context, remote, token, dest string, opts CloneOpti
 		publicRemote := SanitizeOutput(remote, token)
 		output := string(out)
 		if u, parseErr := url.Parse(remote); parseErr == nil && u.Host != "" {
-			publicRemote = SanitizeOutput(urlutil.Public(u), token)
+			publicRemote = SanitizeOutput(urlredact.Public(u), token)
 			// Git may remove userinfo or normalize the URL before echoing it.
 			// Remove the known private components before sanitizing free text.
 			for _, private := range []string{u.RawQuery, u.Fragment, u.RawFragment} {
@@ -210,5 +210,5 @@ func SanitizeOutput(text, token string) string {
 			text = strings.ReplaceAll(text, encoded, "***")
 		}
 	}
-	return urlutil.Redact(text)
+	return urlredact.Redact(text)
 }

@@ -23,7 +23,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
@@ -98,7 +98,7 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			if local.Platform == scm.UnknownPlatform {
 				local.Platform = platformFromHost(u)
 			}
-			local.RemoteURL = strings.TrimSuffix(urlutil.Public(u), ".git")
+			local.RemoteURL = strings.TrimSuffix(urlredact.Public(u), ".git")
 			return local.Fragments(ctx, yield)
 		})
 		if ctx.Err() != nil {

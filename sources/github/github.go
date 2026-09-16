@@ -21,7 +21,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
@@ -169,7 +169,7 @@ var defaultScanResources = map[string][]ResourceType{
 }
 
 func (s *Source) logScanStart() {
-	logging.OrDiscard(s.Logger).Info("starting GitHub scan", "target", urlutil.PublicString(s.URL), "resources", s.Resources)
+	logging.OrDiscard(s.Logger).Info("starting GitHub scan", "target", urlredact.PublicString(s.URL), "resources", s.Resources)
 }
 
 // resolveResources checks the GitHub source configuration and populates Resources if needed.
@@ -617,7 +617,7 @@ func (s *Source) newClient(ctx context.Context) *github.Client {
 	if s.BaseURL != "" {
 		c, err := client.WithEnterpriseURLs(s.BaseURL, s.BaseURL)
 		if err != nil {
-			logging.OrDiscard(s.Logger).Warn("could not configure GHE URL, using github.com", "error", urlutil.Error(err), "url", urlutil.PublicString(s.BaseURL))
+			logging.OrDiscard(s.Logger).Warn("could not configure GHE URL, using github.com", "error", urlredact.Error(err), "url", urlredact.PublicString(s.BaseURL))
 		} else {
 			client = c
 		}
@@ -953,7 +953,7 @@ func (s *Source) newGraphQLClient(ctx context.Context) *githubv4.Client {
 	// GHE: REST is at <host>/api/v3, GraphQL is at <host>/api/graphql.
 	u, err := url.Parse(s.BaseURL)
 	if err != nil {
-		logging.OrDiscard(s.Logger).Warn("could not parse GHE URL for GraphQL, falling back to github.com", "error", urlutil.Error(err), "url", urlutil.PublicString(s.BaseURL))
+		logging.OrDiscard(s.Logger).Warn("could not parse GHE URL for GraphQL, falling back to github.com", "error", urlredact.Error(err), "url", urlredact.PublicString(s.BaseURL))
 		return githubv4.NewClient(httpClient)
 	}
 	before, _ := strings.CutSuffix(u.Path, "/api/v3")

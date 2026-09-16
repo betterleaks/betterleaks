@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 )
 
 // GitLab is the result of splitting a GitLab URL into its components.
@@ -23,7 +23,7 @@ type GitLab struct {
 func ParseGitLab(rawURL string) (*GitLab, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", urlutil.Error(err))
+		return nil, fmt.Errorf("invalid URL: %w", urlredact.Error(err))
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
 		return nil, fmt.Errorf("URL must use http or https scheme")

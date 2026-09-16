@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/logging"
 )
 
@@ -30,7 +30,7 @@ type Options struct {
 // WithFile downloads content, calls scan with a rewound file, and removes the
 // file on every return path. Oversized responses are skipped without calling scan.
 func WithFile(ctx context.Context, opts Options, scan func(*os.File) error) (err error) {
-	defer func() { err = urlutil.Error(err) }()
+	defer func() { err = urlredact.Error(err) }()
 	reader := opts.Reader
 	if reader != nil {
 		defer reader.Close()
@@ -65,7 +65,7 @@ func WithFile(ctx context.Context, opts Options, scan func(*os.File) error) (err
 		reader, contentLength = resp.Body, resp.ContentLength
 	}
 	skipLarge := func() error {
-		logging.OrDiscard(opts.Logger).WarnContext(ctx, "skipping download: exceeds maximum size", "url", urlutil.PublicString(opts.URL), "max_size", opts.MaxSize)
+		logging.OrDiscard(opts.Logger).WarnContext(ctx, "skipping download: exceeds maximum size", "url", urlredact.PublicString(opts.URL), "max_size", opts.MaxSize)
 		return nil
 	}
 	if opts.MaxSize > 0 && contentLength > opts.MaxSize {

@@ -101,7 +101,7 @@ func TestCLIExplicitlyExcludesLoadedConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte("[[rules]]\nid = \"token\"\nregex = '''TOKEN'''\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.env"), []byte("TOKEN"), 0600))
 	root, stdout := newTestCLI(t)
-	root.SetArgs([]string{"dir", dir, "--config", configPath, "--offline", "--jsonl", "--no-color", "--exit-code=0"})
+	root.SetArgs([]string{"fs", dir, "--config", configPath, "--offline", "--jsonl", "--no-color", "--exit-code=0"})
 	require.NoError(t, root.Execute())
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
 	require.Len(t, lines, 1)

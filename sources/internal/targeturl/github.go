@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 )
 
 // GitHub holds the components extracted from a GitHub target URL.
@@ -22,7 +22,7 @@ type GitHub struct {
 func ParseGitHub(rawURL string) (*GitHub, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", urlutil.Error(err))
+		return nil, fmt.Errorf("invalid URL: %w", urlredact.Error(err))
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
 		return nil, fmt.Errorf("URL must use http or https scheme")

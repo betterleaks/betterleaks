@@ -13,7 +13,7 @@ import (
 
 type DirectoryCmd struct {
 	ScanFlags      `embed:""`
-	FollowSymlinks bool     `name:"follow-symlinks" help:"Follow symlinks to files and directories."`
+	FollowSymlinks bool     `group:"scanning" name:"follow-symlinks" help:"Follow symlinks to files and directories."`
 	Paths          []string `arg:"" optional:"" name:"path" help:"Directories or files to scan."`
 }
 

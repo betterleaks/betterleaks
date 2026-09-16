@@ -10,12 +10,12 @@ import (
 
 type HuggingFaceCmd struct {
 	ScanFlags           `embed:""`
-	Token               string   `help:"Hugging Face access token (or set HUGGINGFACE_TOKEN/HF_TOKEN)."`
-	Include             []string `help:"Resource types to scan: repos, discussions, prs, buckets."`
-	Exclude             []string `help:"Resource types to skip."`
-	ExcludeRepo         []string `name:"exclude-repo" help:"Glob patterns to exclude repositories by owner/name."`
-	LogOpts             string   `name:"log-opts" help:"Git log options passed to each repository scan."`
-	MaxBucketObjectSize int64    `name:"max-bucket-object-size" help:"Skip bucket objects larger than this many bytes (0 = 250 MiB)."`
+	Token               string   `group:"source" help:"Hugging Face access token (or set HUGGINGFACE_TOKEN/HF_TOKEN)."`
+	Include             []string `group:"source" help:"Resource types to scan: repos, discussions, prs, buckets."`
+	Exclude             []string `group:"source" help:"Resource types to skip."`
+	ExcludeRepo         []string `group:"source" name:"exclude-repo" help:"Glob patterns to exclude repositories by owner/name."`
+	LogOpts             string   `group:"source" name:"log-opts" help:"Git log options passed to each repository scan."`
+	MaxBucketObjectSize int64    `group:"source" name:"max-bucket-object-size" help:"Skip bucket objects larger than this many bytes (0 = 250 MiB)."`
 	TargetURL           string   `arg:"" name:"target-url" help:"Hugging Face repository, owner, or bucket URL."`
 }
 

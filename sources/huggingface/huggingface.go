@@ -20,7 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
@@ -144,7 +144,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if err := s.ensureClient(); err != nil {
 		return err
 	}
-	logging.OrDiscard(s.Logger).Info("starting Hugging Face scan", "target", urlutil.PublicString(s.URL), "resources", s.Resources)
+	logging.OrDiscard(s.Logger).Info("starting Hugging Face scan", "target", urlredact.PublicString(s.URL), "resources", s.Resources)
 
 	start := time.Now()
 	target, err := ParseURL(s.URL)

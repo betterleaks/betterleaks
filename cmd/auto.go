@@ -12,7 +12,7 @@ import (
 
 type AutoCmd struct {
 	ScanFlags      `embed:""`
-	FollowSymlinks bool     `name:"follow-symlinks" help:"Follow symlinks when scanning local paths."`
+	FollowSymlinks bool     `group:"scanning" name:"follow-symlinks" help:"Follow symlinks when scanning local paths."`
 	Targets        []string `arg:"" optional:"" name:"target" help:"Local paths or a single remote URL to scan."`
 }
 

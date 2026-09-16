@@ -79,10 +79,6 @@ func TestAutoShorthandPreservesCommands(t *testing.T) {
 	}{
 		{args: []string{"filesystem", "."}, command: "filesystem <path>"},
 		{args: []string{"fs", "."}, command: "filesystem <path>"},
-		{args: []string{"dir", "."}, command: "filesystem <path>"},
-		{args: []string{"file", "config.toml"}, command: "filesystem <path>"},
-		{args: []string{"files", "config.toml"}, command: "filesystem <path>"},
-		{args: []string{"directory", "."}, command: "filesystem <path>"},
 		{args: []string{"git", "."}, command: "git <repo>"},
 		{args: []string{"stdin"}, command: "stdin"},
 		{args: []string{"validate"}, command: "validate"},
@@ -159,8 +155,8 @@ func newTestCLI(t *testing.T) (*testCLI, *bytes.Buffer) {
 }
 
 func TestDeprecatedScanCommandsRemoved(t *testing.T) {
-	for _, command := range []string{"detect", "protect"} {
-		// Removed command names are now ordinary paths for the filesystem shorthand.
+	for _, command := range []string{"detect", "protect", "dir", "directory", "file", "files"} {
+		// Removed command names and aliases are ordinary paths for the auto shorthand.
 		cli, parser := newCLIParserForTest(t)
 		parsed, err := parser.Parse([]string{command})
 		require.NoError(t, err)

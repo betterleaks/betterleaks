@@ -10,16 +10,16 @@ import (
 
 type GitLabCmd struct {
 	ScanFlags        `embed:""`
-	Token            string   `help:"GitLab personal access token (or set GITLAB_TOKEN)."`
-	BaseURL          string   `name:"base-url" help:"Site base URL for self-hosted instances."`
-	Include          []string `help:"Resource types to scan: repos, forks, mrs, mr-comments, issues, issue-comments, snippets, releases, release-assets, ci-jobs, ci-artifacts."`
-	Exclude          []string `help:"Resource types to skip."`
-	ExcludeRepo      []string `name:"exclude-repo" help:"Glob patterns to exclude projects by full path."`
-	IncludeSubgroups bool     `name:"include-subgroups" default:"true" help:"When scanning a group, recurse into subgroups."`
-	AllGroups        bool     `name:"all-groups" help:"Enumerate every group visible to the token."`
-	LogOpts          string   `name:"log-opts" help:"Git log options passed to each project scan."`
-	Since            string   `help:"Only scan API items created after this date (YYYY-MM-DD or RFC3339)."`
-	Until            string   `help:"Only scan API items created before this date (YYYY-MM-DD or RFC3339)."`
+	Token            string   `group:"source" help:"GitLab personal access token (or set GITLAB_TOKEN)."`
+	BaseURL          string   `group:"source" name:"base-url" help:"Site base URL for self-hosted instances."`
+	Include          []string `group:"source" help:"Resource types to scan: repos, forks, mrs, mr-comments, issues, issue-comments, snippets, releases, release-assets, ci-jobs, ci-artifacts."`
+	Exclude          []string `group:"source" help:"Resource types to skip."`
+	ExcludeRepo      []string `group:"source" name:"exclude-repo" help:"Glob patterns to exclude projects by full path."`
+	IncludeSubgroups bool     `group:"source" name:"include-subgroups" default:"true" help:"When scanning a group, recurse into subgroups."`
+	AllGroups        bool     `group:"source" name:"all-groups" help:"Enumerate every group visible to the token."`
+	LogOpts          string   `group:"source" name:"log-opts" help:"Git log options passed to each project scan."`
+	Since            string   `group:"source" help:"Only scan API items created after this date (YYYY-MM-DD or RFC3339)."`
+	Until            string   `group:"source" help:"Only scan API items created before this date (YYYY-MM-DD or RFC3339)."`
 	TargetURL        string   `arg:"" name:"target-url" help:"GitLab project, group, or resource URL."`
 }
 

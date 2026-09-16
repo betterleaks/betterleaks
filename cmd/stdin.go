@@ -12,7 +12,7 @@ import (
 
 type StdinCmd struct {
 	ScanFlags `embed:""`
-	SetAttr   []string `name:"set-attr" sep:"none" help:"Set a source attribute as key=value (repeatable)."`
+	SetAttr   []string `group:"source" name:"set-attr" sep:"none" help:"Set a source attribute as key=value (repeatable)."`
 }
 
 func (cmd *StdinCmd) Run(cli *CLI, runtime *commandRuntime) error {

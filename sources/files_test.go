@@ -28,7 +28,7 @@ func TestFilesScanTargetsPathsMatchFilepathWalkDir(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "nested", "two.txt"), []byte("two"), 0o600))
 
-	// A "." root is the default for `betterleaks dir`. Use the equivalent
+	// A "." root is the default for `betterleaks fs`. Use the equivalent
 	// absolute spelling so this test does not need to change the process-wide
 	// working directory.
 	scanRoot := root + string(filepath.Separator) + "."

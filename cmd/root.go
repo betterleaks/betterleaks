@@ -52,7 +52,7 @@ type CLI struct {
 	GlobalFlags `embed:""`
 
 	Auto        AutoCmd        `cmd:"" default:"withargs" help:"Detect and scan a local path or remote URL (auto may be omitted)."`
-	Directory   DirectoryCmd   `cmd:"" name:"filesystem" aliases:"fs,dir,directory,file,files" help:"Scan files and directories."`
+	Directory   DirectoryCmd   `cmd:"" name:"filesystem" aliases:"fs" help:"Scan files and directories."`
 	URL         URLCmd         `cmd:"" name:"url" help:"Download and scan one HTTP(S) URL for secrets."`
 	Git         GitCmd         `cmd:"" help:"Scan Git repositories for secrets."`
 	GitHub      GitHubCmd      `cmd:"" name:"github" help:"Scan GitHub repositories and resources for secrets."`
@@ -354,6 +354,17 @@ func newCLIParser(cli *CLI, runtime *commandRuntime) (*kong.Kong, error) {
 		kong.Writers(runtime.stdout, runtime.stderr),
 		kong.Exit(runtime.exit),
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
+		kong.Help(printCLIHelp),
+		kong.Groups{
+			"scanning":    "Scanning Options:",
+			"output":      "Output Options:",
+			"validation":  "Validation & Analysis Options:",
+			"source":      "Source Options:",
+			"diagnostics": "Diagnostics Options:",
+		},
+		kong.AutoGroup(func(kong.Visitable, *kong.Flag) *kong.Group {
+			return &kong.Group{Key: "options", Title: "Options:"}
+		}),
 		kong.UsageOnError(),
 	)
 }
@@ -425,7 +436,7 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 	if flags.validationEnabled() {
 		statuses, statusErr := parseValidationStatuses(flags.ValidationStatus)
 		if statusErr != nil {
-			runtime.fatal("validation-status", "error", statusErr)
+			runtime.fatal("status", "error", statusErr)
 		}
 		pipelineOptions = append(pipelineOptions, pipeline.WithValidationStatuses(statuses...))
 		analyzer, err = analyze.New(cfg,

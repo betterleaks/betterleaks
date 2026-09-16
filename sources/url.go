@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/v2/internal/urlutil"
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 )
 
@@ -41,7 +41,7 @@ func (s *URL) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	}
 	attrs := map[string]string{
 		AttrPath:     path,
-		AttrURL:      urlutil.Public(u),
+		AttrURL:      urlredact.Public(u),
 		AttrResource: ResourceURLContent,
 	}
 	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {

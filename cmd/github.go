@@ -10,14 +10,14 @@ import (
 
 type GitHubCmd struct {
 	ScanFlags       `embed:""`
-	Token           string   `help:"GitHub personal access token (or set GITHUB_TOKEN)."`
-	Include         []string `help:"Resource types to scan: repos, forks, prs, pr-comments, issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists."`
-	Exclude         []string `help:"Resource types to skip."`
-	ExcludeRepo     []string `name:"exclude-repo" help:"Glob patterns to exclude repositories."`
-	LogOpts         string   `name:"log-opts" help:"Git log options passed to each repository scan."`
-	ActionsWorkflow []string `name:"actions-workflow" help:"Only scan runs from these workflow files."`
-	Since           string   `help:"Only scan API items created after this date (YYYY-MM-DD or RFC3339)."`
-	Until           string   `help:"Only scan API items created before this date (YYYY-MM-DD or RFC3339)."`
+	Token           string   `group:"source" help:"GitHub personal access token (or set GITHUB_TOKEN)."`
+	Include         []string `group:"source" help:"Resource types to scan: repos, forks, prs, pr-comments, issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists."`
+	Exclude         []string `group:"source" help:"Resource types to skip."`
+	ExcludeRepo     []string `group:"source" name:"exclude-repo" help:"Glob patterns to exclude repositories."`
+	LogOpts         string   `group:"source" name:"log-opts" help:"Git log options passed to each repository scan."`
+	ActionsWorkflow []string `group:"source" name:"actions-workflow" help:"Only scan runs from these workflow files."`
+	Since           string   `group:"source" help:"Only scan API items created after this date (YYYY-MM-DD or RFC3339)."`
+	Until           string   `group:"source" help:"Only scan API items created before this date (YYYY-MM-DD or RFC3339)."`
 	TargetURL       string   `arg:"" name:"target-url" help:"GitHub repository, organization, or resource URL."`
 }
 
