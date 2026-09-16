@@ -404,7 +404,7 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 		scannerOptions = append(scannerOptions, scan.WithExcludedPaths(cfg.Path))
 	}
 	scannerOptions = append(scannerOptions,
-		scan.WithJobs(flags.Jobs),
+		scan.WithWorkers(flags.Jobs),
 		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
 		scan.WithMinimumConfidence(scan.Confidence(flags.Confidence)),
 		scan.WithIgnoreAllowComments(flags.IgnoreAllowComments),

@@ -20,7 +20,8 @@ type options struct {
 // Option configures provider execution. Output filtering belongs to the caller.
 type Option struct{ apply func(*options) error }
 
-// WithWorkers bounds concurrent provider evaluations. Zero uses ten workers.
+// WithWorkers bounds concurrent provider evaluations per streaming operation.
+// Zero uses ten workers.
 func WithWorkers(workers int) Option {
 	return Option{apply: func(o *options) error {
 		if workers < 0 {

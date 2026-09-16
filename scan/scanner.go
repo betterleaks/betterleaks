@@ -70,7 +70,7 @@ type Scanner struct {
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
 	ignoreAllowComments bool
-	jobs                int
+	workers             int
 	logger              *slog.Logger
 
 	// prefilter is a ahocorasick struct used for doing efficient string
@@ -163,7 +163,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		minimumConfidence:   settings.minimumConfidence,
 		ignoreAllowComments: settings.ignoreAllowComments,
 		excludedPaths:       slices.Clone(settings.excludedPaths),
-		jobs:                settings.jobs,
+		workers:             settings.workers,
 		logger:              settings.logger,
 		globalFilterExpr:    cfg.Filter,
 		prefilter:           ahocorasick.Compile(keywords, true),
@@ -376,7 +376,7 @@ func (d *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 	state.ruleTimings = ruletiming.FromContext(ctx)
 
 	runCtx, cancel := context.WithCancel(ctx)
-	workerCount := d.jobCount()
+	workerCount := d.workerCount()
 	resultsCh := make(chan Result, workerCount)
 	defer func() {
 		cancel()
@@ -458,9 +458,9 @@ func isPipelineStop(err error) bool {
 	return errors.Is(err, errStopIteration) || errors.Is(err, context.Canceled)
 }
 
-func (d *Scanner) jobCount() int {
-	if d.jobs > 0 {
-		return d.jobs
+func (d *Scanner) workerCount() int {
+	if d.workers > 0 {
+		return d.workers
 	}
 	return max(runtime.GOMAXPROCS(0), 1)
 }

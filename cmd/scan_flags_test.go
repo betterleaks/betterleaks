@@ -316,38 +316,38 @@ func TestJobsFlag(t *testing.T) {
 	require.Equal(t, 6, cli.S3.Jobs)
 }
 
-func TestResolveJobPlan(t *testing.T) {
+func TestResolveWorkerPlan(t *testing.T) {
 	cpus := max(runtime.GOMAXPROCS(0), 1)
 
 	explicitJobs := cpus + 3
-	wantExplicit := jobPlan{Source: explicitJobs, Scanner: cpus}
-	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, directoryJobProfile))
-	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, objectJobProfile))
-	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, streamJobProfile))
-	require.Equal(t, jobPlan{Source: cpus, Scanner: cpus}, resolveJobPlan(explicitJobs, gitJobProfile))
-	require.Equal(t, wantExplicit, resolveJobPlan(explicitJobs, providerJobProfile))
+	wantExplicit := workerPlan{Source: explicitJobs, Scanner: cpus}
+	require.Equal(t, wantExplicit, resolveWorkerPlan(explicitJobs, directoryWorkerProfile))
+	require.Equal(t, wantExplicit, resolveWorkerPlan(explicitJobs, objectWorkerProfile))
+	require.Equal(t, wantExplicit, resolveWorkerPlan(explicitJobs, streamWorkerProfile))
+	require.Equal(t, workerPlan{Source: cpus, Scanner: cpus}, resolveWorkerPlan(explicitJobs, gitWorkerProfile))
+	require.Equal(t, wantExplicit, resolveWorkerPlan(explicitJobs, providerWorkerProfile))
 
 	require.Equal(t,
-		jobPlan{Source: max(cpus, min(cpus*automaticFileJobsPerCPU, maxAutomaticFileJobs)), Scanner: cpus},
-		resolveJobPlan(0, directoryJobProfile),
+		workerPlan{Source: max(cpus, min(cpus*automaticFileWorkersPerCPU, maxAutomaticFileWorkers)), Scanner: cpus},
+		resolveWorkerPlan(0, directoryWorkerProfile),
 	)
 	require.Equal(t,
-		jobPlan{Source: cpus * automaticObjectJobsPerCPU, Scanner: cpus},
-		resolveJobPlan(0, objectJobProfile),
+		workerPlan{Source: cpus * automaticObjectWorkersPerCPU, Scanner: cpus},
+		resolveWorkerPlan(0, objectWorkerProfile),
 	)
-	require.Equal(t, jobPlan{Source: cpus, Scanner: cpus}, resolveJobPlan(0, streamJobProfile))
-	require.Equal(t, jobPlan{Source: min(cpus, maxAutomaticGitJobs), Scanner: cpus}, resolveJobPlan(0, gitJobProfile))
-	providerJobs := min(cpus, maxAutomaticProviderJobs)
-	require.Equal(t, jobPlan{Source: providerJobs, Scanner: providerJobs}, resolveJobPlan(0, providerJobProfile))
+	require.Equal(t, workerPlan{Source: cpus, Scanner: cpus}, resolveWorkerPlan(0, streamWorkerProfile))
+	require.Equal(t, workerPlan{Source: min(cpus, maxAutomaticGitWorkers), Scanner: cpus}, resolveWorkerPlan(0, gitWorkerProfile))
+	providerWorkers := min(cpus, maxAutomaticProviderWorkers)
+	require.Equal(t, workerPlan{Source: providerWorkers, Scanner: providerWorkers}, resolveWorkerPlan(0, providerWorkerProfile))
 }
 
-func TestResolveJobPlanOneJobIsSerial(t *testing.T) {
-	want := jobPlan{Source: 1, Scanner: 1}
-	require.Equal(t, want, resolveJobPlan(1, directoryJobProfile))
-	require.Equal(t, want, resolveJobPlan(1, objectJobProfile))
-	require.Equal(t, want, resolveJobPlan(1, streamJobProfile))
-	require.Equal(t, want, resolveJobPlan(1, gitJobProfile))
-	require.Equal(t, want, resolveJobPlan(1, providerJobProfile))
+func TestResolveWorkerPlanOneWorkerIsSerial(t *testing.T) {
+	want := workerPlan{Source: 1, Scanner: 1}
+	require.Equal(t, want, resolveWorkerPlan(1, directoryWorkerProfile))
+	require.Equal(t, want, resolveWorkerPlan(1, objectWorkerProfile))
+	require.Equal(t, want, resolveWorkerPlan(1, streamWorkerProfile))
+	require.Equal(t, want, resolveWorkerPlan(1, gitWorkerProfile))
+	require.Equal(t, want, resolveWorkerPlan(1, providerWorkerProfile))
 }
 
 func TestJobsRejectsNegativeValues(t *testing.T) {

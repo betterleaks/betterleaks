@@ -300,8 +300,8 @@ func TestNewValidatesOptions(t *testing.T) {
 	_, err := New(nil)
 	assert.Error(t, err)
 
-	_, err = New(testConfig(), WithJobs(-1))
-	assert.ErrorContains(t, err, "jobs")
+	_, err = New(testConfig(), WithWorkers(-1))
+	assert.ErrorContains(t, err, "workers")
 
 	_, err = New(testConfig(), WithMatchContext("bad"))
 	assert.ErrorContains(t, err, "match context")
@@ -350,10 +350,10 @@ func TestRunStreamsFindings(t *testing.T) {
 	}, findings[0].Location)
 }
 
-func TestRunWithMultipleJobs(t *testing.T) {
+func TestRunWithMultipleWorkers(t *testing.T) {
 	const fragmentCount = 100
 
-	scanner := mustNew(t, loadTestConfig(t, "simple"), WithJobs(4))
+	scanner := mustNew(t, loadTestConfig(t, "simple"), WithWorkers(4))
 
 	findings, err := collectSourceFindings(t.Context(), scanner, repeatedFragmentSource{count: fragmentCount})
 	require.NoError(t, err)
@@ -361,7 +361,7 @@ func TestRunWithMultipleJobs(t *testing.T) {
 }
 
 func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
-	scanner := mustNew(t, loadTestConfig(t, "simple"), WithJobs(2))
+	scanner := mustNew(t, loadTestConfig(t, "simple"), WithWorkers(2))
 	source := cancelAwareSource{stopped: make(chan struct{})}
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
@@ -380,7 +380,7 @@ func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
 }
 
 func TestRunCancellationDoesNotEmitErrors(t *testing.T) {
-	scanner := mustNew(t, loadTestConfig(t, "simple"), WithJobs(4))
+	scanner := mustNew(t, loadTestConfig(t, "simple"), WithWorkers(4))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -3399,7 +3399,7 @@ func TestScannerNeverExecutesProviderPrograms(t *testing.T) {
 func TestScannerConcurrentReuse(t *testing.T) {
 	cfg := testConfig()
 	cfg.Filter = `finding.secret == "secret-ignored"`
-	scanner := mustNew(t, cfg, WithJobs(2))
+	scanner := mustNew(t, cfg, WithWorkers(2))
 	var wg sync.WaitGroup
 	for range 16 {
 		wg.Go(func() {

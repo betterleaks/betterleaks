@@ -297,7 +297,7 @@ func TestProviderWorkersAreIndependentAndBounded(t *testing.T) {
 			unblock := func() { once.Do(func() { close(release) }) }
 			defer unblock()
 			cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: `secret-[0-9]+`, ValidateExpr: fmt.Sprintf(`let r = http.get(%q, {}); {"result":"valid"}`, server.URL)}}}
-			scanner, err := scan.New(cfg, scan.WithJobs(1))
+			scanner, err := scan.New(cfg, scan.WithWorkers(1))
 			require.NoError(t, err)
 			analyzer, err := analyze.New(cfg, analyze.WithWorkers(workers))
 			require.NoError(t, err)
@@ -352,7 +352,7 @@ func (s *producingSource) Fragments(ctx context.Context, yield sources.Fragments
 
 func TestHandlerFailureCancelsAndJoinsWorkers(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: `secret-[0-9]+`, ValidateExpr: `{"result":"valid"}`}}}
-	p := mustPipeline(t, cfg, scan.WithJobs(1))
+	p := mustPipeline(t, cfg, scan.WithWorkers(1))
 	source := &producingSource{stopped: make(chan struct{})}
 	want := errors.New("storage failed")
 	var calls int

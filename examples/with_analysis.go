@@ -76,7 +76,7 @@ func run() error {
 
 	scanner, err := scan.New(cfg,
 		scan.WithLogger(logger),
-		scan.WithJobs(1), // Detection workers; 0 uses GOMAXPROCS.
+		scan.WithWorkers(1), // Detection workers; 0 uses GOMAXPROCS.
 		scan.WithMatchContext("10L"),
 		scan.WithMaxDecodeDepth(3), // Also find credentials inside encoded text.
 		scan.WithMinimumConfidence(scan.ConfidenceHigh),

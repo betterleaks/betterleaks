@@ -12,7 +12,7 @@ import (
 	"github.com/charlievieth/fastwalk"
 	"golang.org/x/sync/errgroup"
 
-	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
+	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 
 	"github.com/betterleaks/betterleaks/v2/logging"
 )
@@ -39,8 +39,8 @@ type Files struct {
 	MaxFileSize     int
 	Path            string
 	MaxArchiveDepth int
-	Jobs            int // 0 is automatic
-	budget          *sourcejobs.Budget
+	Workers         int // 0 is automatic
+	budget          *sourceworkers.Budget
 }
 
 // scanTargets yields scan targets to a callback func
@@ -205,8 +205,8 @@ func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) e
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	g, groupCtx := errgroup.WithContext(ctx)
-	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.AutomaticFiles(), s.budget)
-	g.SetLimit(jobs)
+	workers := sourceworkers.WithinBudget(s.Workers, sourceworkers.AutomaticFiles(), s.budget)
+	g.SetLimit(workers)
 
 	producerErr := s.scanTargets(groupCtx, func(scanTarget ScanTarget, scanErr error) error {
 		if scanErr != nil {

@@ -23,19 +23,19 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
-	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
+	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 )
 
 func TestGitRepoJobsHaveSameCoverage(t *testing.T) {
 	repo := newGitTestRepo(t, 4)
 
-	scan := func(jobs int) []string {
+	scan := func(workers int) []string {
 		t.Helper()
 		var (
 			mu        sync.Mutex
 			fragments []string
 		)
-		source := &Git{RepoPath: repo, Jobs: jobs}
+		source := &Git{RepoPath: repo, Workers: workers}
 		require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
 			if err != nil {
 				return err
@@ -54,7 +54,7 @@ func TestGitRepoJobsHaveSameCoverage(t *testing.T) {
 }
 
 func TestGitRepoDefaultProcessesFragmentsConcurrently(t *testing.T) {
-	if sourcejobs.Automatic() < 2 {
+	if sourceworkers.Automatic() < 2 {
 		t.Skip("automatic Git concurrency is serial when GOMAXPROCS is one")
 	}
 	repo := newGitTestRepo(t, 4)
@@ -106,7 +106,7 @@ func TestGitRepoOneJobConsumesFragmentsSerially(t *testing.T) {
 
 	var active atomic.Int64
 	go func() {
-		done <- (&Git{RepoPath: repo, Jobs: 1}).Fragments(t.Context(), func(_ Fragment, err error) error {
+		done <- (&Git{RepoPath: repo, Workers: 1}).Fragments(t.Context(), func(_ Fragment, err error) error {
 			if err != nil {
 				return err
 			}
@@ -251,11 +251,11 @@ func TestGitStreamMatchesLegacy(t *testing.T) {
 				}))
 				return fragments
 			}
-			want := collect(&Git{Cmd: legacy, Jobs: 1})
-			got := collect(&Git{RepoPath: repo, LogOpts: opts, Jobs: 1})
+			want := collect(&Git{Cmd: legacy, Workers: 1})
+			got := collect(&Git{RepoPath: repo, LogOpts: opts, Workers: 1})
 			require.Equal(t, want, got)
 			if opts == "" {
-				require.ElementsMatch(t, want, collect(&Git{RepoPath: repo, Jobs: 2}))
+				require.ElementsMatch(t, want, collect(&Git{RepoPath: repo, Workers: 2}))
 			}
 		})
 	}
@@ -264,15 +264,15 @@ func TestGitStreamMatchesLegacy(t *testing.T) {
 func TestGitStreamCallbackFailureStopsCommand(t *testing.T) {
 	repo := newGitTestRepo(t, 4)
 	want := errors.New("stop scan")
-	for _, jobs := range []int{1, 2} {
-		err := (&Git{RepoPath: repo, Jobs: jobs}).Fragments(t.Context(), func(Fragment, error) error { return want })
+	for _, workers := range []int{1, 2} {
+		err := (&Git{RepoPath: repo, Workers: workers}).Fragments(t.Context(), func(Fragment, error) error { return want })
 		require.ErrorIs(t, err, want)
 	}
 }
 
 func TestGitStreamReportsCommandFailure(t *testing.T) {
 	repo := newGitTestRepo(t, 1)
-	err := (&Git{RepoPath: repo, LogOpts: "invalid-revision", Jobs: 1}).Fragments(t.Context(), func(Fragment, error) error { return nil })
+	err := (&Git{RepoPath: repo, LogOpts: "invalid-revision", Workers: 1}).Fragments(t.Context(), func(Fragment, error) error { return nil })
 	var exitErr *exec.ExitError
 	require.ErrorAs(t, err, &exitErr)
 }
@@ -328,7 +328,7 @@ func TestGitStreamArchives(t *testing.T) {
 	runGitTestCommand(t, repo, "commit", "-qm", "archive")
 	for _, depth := range []int{0, 1} {
 		var fragments []Fragment
-		err := (&Git{RepoPath: repo, Jobs: 1, MaxArchiveDepth: depth}).Fragments(t.Context(), func(fragment Fragment, err error) error {
+		err := (&Git{RepoPath: repo, Workers: 1, MaxArchiveDepth: depth}).Fragments(t.Context(), func(fragment Fragment, err error) error {
 			fragments = append(fragments, fragment)
 			return err
 		})
@@ -359,7 +359,7 @@ func TestGitCommitMessagesCoverage(t *testing.T) {
 	runGitTestCommand(t, repo, "commit", "-q", "--allow-empty", "-m", "empty message")
 	runGitTestCommand(t, repo, "merge", "--quiet", "--no-ff", "message-side", "-m", "merge message")
 
-	for _, jobs := range []int{1, 2, 0} {
+	for _, workers := range []int{1, 2, 0} {
 		for _, test := range []struct {
 			name, logOpts             string
 			include                   []string
@@ -371,10 +371,10 @@ func TestGitCommitMessagesCoverage(t *testing.T) {
 			{name: "latest merge", logOpts: "--max-count=1 HEAD", include: []string{GitResourceTypeCommitMessages}, wantMessages: 1},
 			{name: "no merges", logOpts: "--all --no-merges", include: []string{GitResourceTypeCommitMessages}, wantMessages: 3, wantPatches: 2},
 		} {
-			t.Run(fmt.Sprintf("jobs=%d/%s", jobs, test.name), func(t *testing.T) {
+			t.Run(fmt.Sprintf("workers=%d/%s", workers, test.name), func(t *testing.T) {
 				var mu sync.Mutex
 				var fragments []Fragment
-				source := &Git{RepoPath: repo, Jobs: jobs, Include: test.include, LogOpts: test.logOpts}
+				source := &Git{RepoPath: repo, Workers: workers, Include: test.include, LogOpts: test.logOpts}
 				require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 					if err != nil {
 						return err
@@ -414,7 +414,7 @@ func TestGitCommitMessagesCoverage(t *testing.T) {
 
 func TestGitCommitMessagesFilteringAndStop(t *testing.T) {
 	repo := newGitTestRepo(t, 3)
-	source := &Git{RepoPath: repo, Jobs: 1, Include: []string{GitResourceTypeCommitMessages}}
+	source := &Git{RepoPath: repo, Workers: 1, Include: []string{GitResourceTypeCommitMessages}}
 	source.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitCommitMessage }
 	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 		require.NotEqual(t, ResourceGitCommitMessage, f.Attr(AttrResource))
@@ -465,7 +465,7 @@ func TestGitTagMessagesCoverage(t *testing.T) {
 	runGitTestCommand(t, repo, "tag", "-a", "blob", "-m", "blob annotation", "HEAD:file-0.txt")
 	runGitTestCommand(t, repo, "tag", "-a", "tree", "-m", "tree annotation", "HEAD^{tree}")
 
-	for _, jobs := range []int{1, 2, 0} {
+	for _, workers := range []int{1, 2, 0} {
 		for _, test := range []struct {
 			name, logOpts                      string
 			include                            []string
@@ -477,10 +477,10 @@ func TestGitTagMessagesCoverage(t *testing.T) {
 			{name: "duplicate include", include: []string{GitResourceTypeTagMessages, GitResourceTypeTagMessages}, wantTags: 5, wantPatches: 2},
 			{name: "empty commit selection", logOpts: "HEAD..HEAD", include: []string{GitResourceTypeTagMessages, GitResourceTypeCommitMessages}, wantTags: 5},
 		} {
-			t.Run(fmt.Sprintf("jobs=%d/%s", jobs, test.name), func(t *testing.T) {
+			t.Run(fmt.Sprintf("workers=%d/%s", workers, test.name), func(t *testing.T) {
 				var mu sync.Mutex
 				var fragments []Fragment
-				source := &Git{RepoPath: repo, Jobs: jobs, Include: test.include, LogOpts: test.logOpts}
+				source := &Git{RepoPath: repo, Workers: workers, Include: test.include, LogOpts: test.logOpts}
 				require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 					mu.Lock()
 					defer mu.Unlock()
@@ -529,7 +529,7 @@ func TestGitTagMessagesFilteringAndStop(t *testing.T) {
 	repo := newGitTestRepo(t, 1)
 	runGitTestCommand(t, repo, "tag", "-a", "first", "-m", "first message")
 	runGitTestCommand(t, repo, "tag", "-a", "second", "-m", "second message")
-	source := &Git{RepoPath: repo, Jobs: 1, Include: []string{GitResourceTypeTagMessages}}
+	source := &Git{RepoPath: repo, Workers: 1, Include: []string{GitResourceTypeTagMessages}}
 	source.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitTagMessage }
 	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 		require.NotEqual(t, ResourceGitTagMessage, f.Attr(AttrResource))
@@ -579,8 +579,8 @@ func TestGitTagMessagesWithoutAnnotations(t *testing.T) {
 		if commits > 0 {
 			runGitTestCommand(t, repo, "tag", "lightweight")
 		}
-		for _, jobs := range []int{1, 2} {
-			source := &Git{RepoPath: repo, Jobs: jobs, Include: []string{GitResourceTypeTagMessages}}
+		for _, workers := range []int{1, 2} {
+			source := &Git{RepoPath: repo, Workers: workers, Include: []string{GitResourceTypeTagMessages}}
 			require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 				require.NotEqual(t, ResourceGitTagMessage, f.Attr(AttrResource))
 				return err
@@ -603,7 +603,7 @@ func TestGitReflogsCoverage(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", out)
 
-	for _, jobs := range []int{1, 2, 0} {
+	for _, workers := range []int{1, 2, 0} {
 		for _, test := range []struct {
 			name, logOpts                         string
 			include                               []string
@@ -618,10 +618,10 @@ func TestGitReflogsCoverage(t *testing.T) {
 			{name: "empty history", logOpts: "--all --max-count=0", include: []string{GitResourceTypeReflogs, GitResourceTypeCommitMessages}, wantReflogs: 8},
 			{name: "excluded history", logOpts: "--all ^" + original + " ^" + amended, include: []string{GitResourceTypeReflogs}, wantReflogs: 8},
 		} {
-			t.Run(fmt.Sprintf("jobs=%d/%s", jobs, test.name), func(t *testing.T) {
+			t.Run(fmt.Sprintf("workers=%d/%s", workers, test.name), func(t *testing.T) {
 				var mu sync.Mutex
 				var fragments []Fragment
-				source := &Git{RepoPath: repo, Jobs: jobs, Include: test.include, LogOpts: test.logOpts}
+				source := &Git{RepoPath: repo, Workers: workers, Include: test.include, LogOpts: test.logOpts}
 				require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 					mu.Lock()
 					defer mu.Unlock()
@@ -678,7 +678,7 @@ func TestGitReflogsCoverage(t *testing.T) {
 
 func TestGitReflogsFilteringAndStop(t *testing.T) {
 	repo := newGitTestRepo(t, 2)
-	source := &Git{RepoPath: repo, Jobs: 1, Include: []string{GitResourceTypeReflogs}}
+	source := &Git{RepoPath: repo, Workers: 1, Include: []string{GitResourceTypeReflogs}}
 	source.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitReflogMessage }
 	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 		require.NotEqual(t, ResourceGitReflogMessage, f.Attr(AttrResource))
@@ -730,9 +730,9 @@ func TestGitWithoutReflogs(t *testing.T) {
 	for _, commits := range []int{0, 1} {
 		repo := newGitTestRepo(t, commits)
 		runGitTestCommand(t, repo, "reflog", "expire", "--expire=all", "--all")
-		for _, jobs := range []int{1, 2} {
+		for _, workers := range []int{1, 2} {
 			patches := 0
-			source := &Git{RepoPath: repo, Jobs: jobs, Include: []string{GitResourceTypeReflogs}}
+			source := &Git{RepoPath: repo, Workers: workers, Include: []string{GitResourceTypeReflogs}}
 			require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 				require.Equal(t, ResourceGitPatchContent, f.Attr(AttrResource))
 				patches++
@@ -747,14 +747,14 @@ func TestGitSourcesShareInheritedJobBudget(t *testing.T) {
 	for _, command := range []bool{false, true} {
 		t.Run(fmt.Sprintf("command=%t", command), func(t *testing.T) {
 			repo := newGitTestRepo(t, 4)
-			ctx := sourcejobs.WithBudget(t.Context(), sourcejobs.NewBudget(1))
+			ctx := sourceworkers.WithBudget(t.Context(), sourceworkers.NewBudget(1))
 			started := make(chan struct{}, 32)
 			release := make(chan struct{})
 			var releaseOnce sync.Once
 			releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
 			defer releaseAll()
 			done := make(chan error, 2)
-			gitSources := []*Git{{RepoPath: repo, Jobs: 4}, {RepoPath: repo, Jobs: 4}}
+			gitSources := []*Git{{RepoPath: repo, Workers: 4}, {RepoPath: repo, Workers: 4}}
 			for _, source := range gitSources {
 				if command {
 					cmd, err := NewGitLogCmdContext(ctx, repo, "")
@@ -784,7 +784,7 @@ func TestGitSourcesShareInheritedJobBudget(t *testing.T) {
 			}
 			select {
 			case <-started:
-				t.Fatal("nested Git scans exceeded their shared job budget")
+				t.Fatal("nested Git scans exceeded their shared worker budget")
 			case <-time.After(100 * time.Millisecond):
 			}
 			releaseAll()
@@ -797,7 +797,7 @@ func TestGitSourcesShareInheritedJobBudget(t *testing.T) {
 				}
 			}
 			for _, source := range gitSources {
-				require.Equal(t, Git{RepoPath: repo, Jobs: 4, Cmd: source.Cmd}, *source, "scan must not mutate source configuration")
+				require.Equal(t, Git{RepoPath: repo, Workers: 4, Cmd: source.Cmd}, *source, "scan must not mutate source configuration")
 			}
 		})
 	}

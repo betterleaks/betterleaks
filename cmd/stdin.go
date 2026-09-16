@@ -31,7 +31,7 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 	cfg := Config(runtime)
 
 	// create runner
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, "", scan.WithJobs(resolveJobPlan(options.Jobs, streamJobProfile).Scanner))
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, "", scan.WithWorkers(resolveWorkerPlan(options.Jobs, streamWorkerProfile).Scanner))
 
 	// parse flag(s)
 	attrs, err := parseSetAttrValues(options.SetAttr)

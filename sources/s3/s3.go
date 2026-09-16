@@ -21,7 +21,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/sigv4"
 	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
+	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 )
 
 const (
@@ -66,10 +66,10 @@ type Source struct {
 
 	// Scan config
 	MaxObjectSize   int64
-	Jobs            int // concurrent object scans; 0 is automatic
+	Workers         int // concurrent object scans; 0 is automatic
 	ShouldSkip      sources.SkipFunc
 	MaxArchiveDepth int
-	budget          *sourcejobs.Budget
+	budget          *sourceworkers.Budget
 
 	parsed s3Target
 	creds  s3Creds
@@ -260,7 +260,7 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 	if maxSize <= 0 {
 		maxSize = s3DefaultMaxObjectSize
 	}
-	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.AutomaticObjects(), s.budget)
+	workers := sourceworkers.WithinBudget(s.Workers, sourceworkers.AutomaticObjects(), s.budget)
 
 	bucketAttrs := map[string]string{
 		AttrBucket:           target.Bucket,
@@ -298,7 +298,7 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 		listedCount += len(page.Contents)
 
 		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(jobs)
+		g.SetLimit(workers)
 		for _, obj := range page.Contents {
 			if skipReason := s.skipReason(obj, maxSize); skipReason != "" {
 				logging.OrDiscard(s.Logger).Log(gctx, logging.LevelTrace, "skipping object", "key", obj.Key, "reason", skipReason)

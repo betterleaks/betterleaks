@@ -167,7 +167,7 @@ func TestFindingCollectorSkipsReportBeforeFilesOpenIt(t *testing.T) {
 	}
 	files := &sources.Files{
 		Path:       directory,
-		Jobs:       1,
+		Workers:    1,
 		ShouldSkip: collector.FileSkipFunc(configuredSkip),
 	}
 	var visited []string

@@ -23,22 +23,22 @@ import (
 	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
-	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
+	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
 const (
 	// Retry/concurrency limits.
-	defaultActionsJobs   = 4
-	itemsPerPage         = 100
-	gqlIssuesFirst       = 50
-	gqlPRsFirst          = 25
-	gqlCommentsFirst     = 25
-	gqlThreadsFirst      = 20
-	gqlRepliesFirst      = 25
-	gqlCommentsTailFirst = 50
-	gqlRepliesTailFirst  = 50
-	gqlThreadsTailFirst  = 50
+	defaultActionsWorkers = 4
+	itemsPerPage          = 100
+	gqlIssuesFirst        = 50
+	gqlPRsFirst           = 25
+	gqlCommentsFirst      = 25
+	gqlThreadsFirst       = 20
+	gqlRepliesFirst       = 25
+	gqlCommentsTailFirst  = 50
+	gqlRepliesTailFirst   = 50
+	gqlThreadsTailFirst   = 50
 )
 
 // Source enumerates repositories via the GitHub API and delegates scanning
@@ -65,9 +65,9 @@ type Source struct {
 	// Scan config (passed through to sources.Git per repo)
 	ShouldSkip      sources.SkipFunc
 	MaxArchiveDepth int
-	Jobs            int // 0 is automatic
+	Workers         int // 0 is automatic
 	LogOpts         string
-	budget          *sourcejobs.Budget
+	budget          *sourceworkers.Budget
 
 	// GitHub API
 	BaseURL       string // GitHub Enterprise base URL; empty = github.com
@@ -247,14 +247,14 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if err != nil {
 		return err
 	}
-	jobs, budget := sourcejobs.EnsureBudget(s.Jobs, sourcejobs.AutomaticProvider(), s.budget)
-	s.Jobs = jobs
+	workers, budget := sourceworkers.EnsureBudget(s.Workers, sourceworkers.AutomaticProvider(), s.budget)
+	s.Workers = workers
 	s.budget = budget
-	targetJobs := sourcejobs.ProviderTargets(jobs, direct || target.Resource == "repo")
+	targetWorkers := sourceworkers.ProviderTargets(workers, direct || target.Resource == "repo")
 
 	client := s.newClient(ctx)
 	s.gqlClient = s.newGraphQLClient(ctx)
-	s.gqlSem = make(chan struct{}, min(jobs, 10))
+	s.gqlSem = make(chan struct{}, min(workers, 10))
 
 	if direct {
 		return s.scanURL(ctx, client, s.URL, yield)
@@ -264,7 +264,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	defer cancelScans()
 
 	var scanGroup errgroup.Group
-	scanGroup.SetLimit(targetJobs)
+	scanGroup.SetLimit(targetWorkers)
 
 	if target.Resource == "user" && s.Resources.Has(ResourceTypeGists) {
 		scanGroup.Go(func() error {
@@ -281,7 +281,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	for repo := range repoCh {
 		repoCount.Add(1)
 		scanGroup.Go(func() error {
-			return s.scanRepoWithJobs(scanCtx, client, repo, jobs, yield)
+			return s.scanRepoWithWorkers(scanCtx, client, repo, workers, yield)
 		})
 	}
 	enumErr := <-enumErrCh
@@ -406,13 +406,13 @@ func (s *Source) enumerateRepos(ctx context.Context, client *github.Client, targ
 	return ch, errCh
 }
 
-// scanRepo runs all scans for a single repo under the shared top-level job pool.
+// scanRepo runs all scans for a single repo under the shared worker budget.
 // Git history remains non-fatal; API-backed scans still return errors.
 func (s *Source) scanRepo(ctx context.Context, client *github.Client, repo *github.Repository, yield sources.FragmentsFunc) error {
-	return s.scanRepoWithJobs(ctx, client, repo, 0, yield)
+	return s.scanRepoWithWorkers(ctx, client, repo, 0, yield)
 }
 
-func (s *Source) scanRepoWithJobs(ctx context.Context, client *github.Client, repo *github.Repository, jobs int, yield sources.FragmentsFunc) error {
+func (s *Source) scanRepoWithWorkers(ctx context.Context, client *github.Client, repo *github.Repository, workers int, yield sources.FragmentsFunc) error {
 	name := repo.GetFullName()
 	logger := logging.OrDiscard(s.Logger).With("repo", name)
 	repoAttrs := s.repoAttributes(repo, "")
@@ -450,10 +450,10 @@ func (s *Source) scanRepoWithJobs(ctx context.Context, client *github.Client, re
 	}
 
 	if s.Resources.Has(ResourceTypeRepos) {
-		_ = run(string(ResourceTypeRepos), func() error { return s.scanRepoGit(ctx, repo, jobs, ghYield) })
+		_ = run(string(ResourceTypeRepos), func() error { return s.scanRepoGit(ctx, repo, workers, ghYield) })
 	}
 	if s.Resources.Has(ResourceTypeActions) {
-		if err := run("actions", func() error { return s.scanActionsWithJobs(ctx, client, repo, jobs, ghYield) }); err != nil {
+		if err := run("actions", func() error { return s.scanActionsWithWorkers(ctx, client, repo, workers, ghYield) }); err != nil {
 			return err
 		}
 	}
@@ -620,30 +620,30 @@ func (s *Source) newClient(ctx context.Context) *github.Client {
 }
 
 // scanRepoGit clones and scans a repo's git history.
-func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, jobs int, yield sources.FragmentsFunc) error {
+func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, workers int, yield sources.FragmentsFunc) error {
 	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		src := &sources.Git{
 			Logger:   s.Logger,
 			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 			Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
 			MaxArchiveDepth: s.MaxArchiveDepth,
-			LogOpts:         s.LogOpts, Jobs: jobs,
+			LogOpts:         s.LogOpts, Workers: workers,
 		}
-		return src.Fragments(sourcejobs.WithBudget(ctx, s.budget), yield)
+		return src.Fragments(sourceworkers.WithBudget(ctx, s.budget), yield)
 	})
 }
 
 // scanActions scans workflow run logs (and optionally artifacts) for a repo.
 func (s *Source) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield sources.FragmentsFunc) error {
-	return s.scanActionsWithJobs(ctx, client, repo, s.Jobs, yield)
+	return s.scanActionsWithWorkers(ctx, client, repo, s.Workers, yield)
 }
 
-func (s *Source) scanActionsWithJobs(ctx context.Context, client *github.Client, repo *github.Repository, configuredJobs int, yield sources.FragmentsFunc) error {
+func (s *Source) scanActionsWithWorkers(ctx context.Context, client *github.Client, repo *github.Repository, configuredWorkers int, yield sources.FragmentsFunc) error {
 	owner := repo.GetOwner().GetLogin()
 	repoName := repo.GetName()
-	jobs := sourcejobs.WithinBudget(configuredJobs, defaultActionsJobs, s.budget)
+	workers := sourceworkers.WithinBudget(configuredWorkers, defaultActionsWorkers, s.budget)
 
-	runs := make(chan *github.WorkflowRun, jobs)
+	runs := make(chan *github.WorkflowRun, workers)
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
@@ -658,7 +658,7 @@ func (s *Source) scanActionsWithJobs(ctx context.Context, client *github.Client,
 		})
 	})
 
-	for range jobs {
+	for range workers {
 		g.Go(func() error {
 			for {
 				select {

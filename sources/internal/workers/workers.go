@@ -1,11 +1,11 @@
-package jobs
+package workers
 
 import (
 	"context"
 	"runtime"
 )
 
-func WorkerCount(configured, fallback int) int {
+func Count(configured, fallback int) int {
 	if configured > 0 {
 		return configured
 	}
@@ -23,25 +23,25 @@ func AutomaticGit() int {
 }
 
 func AutomaticFiles() int {
-	processorJobs := Automatic()
-	return max(processorJobs, min(processorJobs*4, 40))
+	processorCount := Automatic()
+	return max(processorCount, min(processorCount*4, 40))
 }
 
 func AutomaticObjects() int {
 	return Automatic() * 2
 }
 
-const maxProviderTargetJobs = 4
+const maxProviderTargetWorkers = 4
 
 func AutomaticProvider() int {
-	return min(Automatic(), maxProviderTargetJobs)
+	return min(Automatic(), maxProviderTargetWorkers)
 }
 
-func ProviderTargets(jobs int, singleTarget bool) int {
+func ProviderTargets(workers int, singleTarget bool) int {
 	if singleTarget {
 		return 1
 	}
-	return min(jobs, maxProviderTargetJobs)
+	return min(workers, maxProviderTargetWorkers)
 }
 
 // Budget bounds leaf source work across nested sources. Provider target
@@ -52,28 +52,28 @@ type Budget struct {
 	slots chan struct{}
 }
 
-func NewBudget(jobs int) *Budget {
-	jobs = max(jobs, 1)
+func NewBudget(workers int) *Budget {
+	workers = max(workers, 1)
 	return &Budget{
-		limit: jobs,
-		slots: make(chan struct{}, jobs),
+		limit: workers,
+		slots: make(chan struct{}, workers),
 	}
 }
 
 func WithinBudget(configured, fallback int, existing *Budget) int {
-	jobs := WorkerCount(configured, fallback)
+	workers := Count(configured, fallback)
 	if existing != nil {
-		jobs = min(jobs, existing.limit)
+		workers = min(workers, existing.limit)
 	}
-	return jobs
+	return workers
 }
 
 func EnsureBudget(configured, fallback int, existing *Budget) (int, *Budget) {
-	jobs := WithinBudget(configured, fallback, existing)
+	workers := WithinBudget(configured, fallback, existing)
 	if existing != nil {
-		return jobs, existing
+		return workers, existing
 	}
-	return jobs, NewBudget(jobs)
+	return workers, NewBudget(workers)
 }
 
 func (b *Budget) Run(ctx context.Context, fn func() error) error {

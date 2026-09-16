@@ -31,8 +31,8 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 	initDiagnostics(runtime, &options.ScanFlags)
 
 	cfg := Config(runtime)
-	jobs := resolveJobPlan(options.Jobs, providerJobProfile)
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, "", scan.WithJobs(jobs.Scanner))
+	workers := resolveWorkerPlan(options.Jobs, providerWorkerProfile)
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, "", scan.WithWorkers(workers.Scanner))
 
 	token := options.Token
 	if token == "" {
@@ -51,7 +51,7 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 		ExcludeRepos:        options.ExcludeRepo,
 		ShouldSkip:          runner.SkipFunc(),
 		MaxArchiveDepth:     options.MaxArchiveDepth,
-		Jobs:                jobs.Source,
+		Workers:             workers.Source,
 		LogOpts:             options.LogOpts,
 		MaxBucketObjectSize: options.MaxBucketObjectSize,
 	}

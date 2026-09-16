@@ -91,7 +91,7 @@ func TestFilesJobsLimitConcurrency(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("content"), 0o600))
 	}
 
-	source := &Files{Path: root, Jobs: 2}
+	source := &Files{Path: root, Workers: 2}
 	started := make(chan struct{}, fileCount)
 	release := make(chan struct{})
 	done := make(chan error, 1)
@@ -122,7 +122,7 @@ func TestFilesJobsLimitConcurrency(t *testing.T) {
 		})
 	}()
 
-	for range source.Jobs {
+	for range source.Workers {
 		select {
 		case <-started:
 		case err := <-done:
@@ -147,7 +147,7 @@ func TestFilesJobsLimitConcurrency(t *testing.T) {
 		t.Fatal("timed out waiting for scan completion")
 	}
 
-	require.Equal(t, int64(source.Jobs), peak.Load())
+	require.Equal(t, int64(source.Workers), peak.Load())
 	require.Equal(t, int64(fileCount), yielded.Load())
 }
 
@@ -164,7 +164,7 @@ func TestFilesFollowDirectorySymlinks(t *testing.T) {
 	require.NoError(t, os.Symlink("..", filepath.Join(disk, "nested", "back")))
 	for _, root := range []string{volumes, link} {
 		for _, follow := range []bool{false, true} {
-			source := &Files{Path: root, FollowSymlinks: follow, Jobs: 1}
+			source := &Files{Path: root, FollowSymlinks: follow, Workers: 1}
 			for range 2 { // Directory deduplication must be scoped to each scan.
 				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				var contents []string
@@ -247,7 +247,7 @@ func TestFilesUnreadableDirectoriesDoNotAbortScan(t *testing.T) {
 	}
 	for _, follow := range []bool{false, true} {
 		for _, path := range []string{root, denied, link} {
-			source := &Files{Path: path, FollowSymlinks: follow, Jobs: 1}
+			source := &Files{Path: path, FollowSymlinks: follow, Workers: 1}
 			var contents []string
 			err := source.Fragments(t.Context(), func(f Fragment, err error) error {
 				if err != nil {

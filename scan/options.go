@@ -22,7 +22,7 @@ const (
 )
 
 type scannerOptions struct {
-	jobs                int
+	workers             int
 	maxDecodeDepth      int
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
@@ -61,14 +61,14 @@ func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {
 	}}
 }
 
-// WithJobs sets the maximum number of concurrent scanner workers. Zero uses
-// GOMAXPROCS.
-func WithJobs(jobs int) Option {
+// WithWorkers sets the maximum number of concurrent detection workers per Run
+// or Scan call. Zero uses GOMAXPROCS.
+func WithWorkers(workers int) Option {
 	return Option{apply: func(options *scannerOptions) error {
-		if jobs < 0 {
-			return errors.New("jobs must be non-negative")
+		if workers < 0 {
+			return errors.New("workers must be non-negative")
 		}
-		options.jobs = jobs
+		options.workers = workers
 		return nil
 	}}
 }

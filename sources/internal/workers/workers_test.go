@@ -1,4 +1,4 @@
-package jobs
+package workers
 
 import (
 	"sync"
@@ -7,41 +7,41 @@ import (
 	"time"
 )
 
-func TestProviderTargetJobs(t *testing.T) {
+func TestProviderTargetWorkers(t *testing.T) {
 	tests := []struct {
 		name         string
-		jobs         int
+		workers      int
 		singleTarget bool
 		want         int
 	}{
-		{name: "one job", jobs: 1, want: 1},
-		{name: "four jobs", jobs: 4, want: 4},
-		{name: "target jobs cap at four", jobs: 16, want: 4},
-		{name: "single target", jobs: 16, singleTarget: true, want: 1},
+		{name: "one worker", workers: 1, want: 1},
+		{name: "four workers", workers: 4, want: 4},
+		{name: "target workers cap at four", workers: 16, want: 4},
+		{name: "single target", workers: 16, singleTarget: true, want: 1},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := ProviderTargets(test.jobs, test.singleTarget)
+			got := ProviderTargets(test.workers, test.singleTarget)
 			if got != test.want {
-				t.Fatalf("providerTargetJobs(%d, %t) = %d, want %d",
-					test.jobs, test.singleTarget, got, test.want)
+				t.Fatalf("ProviderTargets(%d, %t) = %d, want %d",
+					test.workers, test.singleTarget, got, test.want)
 			}
 		})
 	}
 }
 
-func TestAutomaticSourceJobsUseAdditionalIOFanout(t *testing.T) {
-	processorJobs := Automatic()
-	if got, want := AutomaticFiles(), max(processorJobs, min(processorJobs*4, 40)); got != want {
-		t.Fatalf("automaticFileJobs() = %d, want %d", got, want)
+func TestAutomaticSourceWorkersUseAdditionalIOFanout(t *testing.T) {
+	processorCount := Automatic()
+	if got, want := AutomaticFiles(), max(processorCount, min(processorCount*4, 40)); got != want {
+		t.Fatalf("AutomaticFiles() = %d, want %d", got, want)
 	}
-	if got, want := AutomaticObjects(), processorJobs*2; got != want {
-		t.Fatalf("automaticObjectJobs() = %d, want %d", got, want)
+	if got, want := AutomaticObjects(), processorCount*2; got != want {
+		t.Fatalf("AutomaticObjects() = %d, want %d", got, want)
 	}
 }
 
-func TestJobsWithinBudget(t *testing.T) {
+func TestWorkersWithinBudget(t *testing.T) {
 	budget := NewBudget(4)
 	tests := []struct {
 		name       string
@@ -58,13 +58,13 @@ func TestJobsWithinBudget(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if got := WithinBudget(test.configured, test.fallback, test.budget); got != test.want {
-				t.Fatalf("jobsWithinBudget(%d, %d) = %d, want %d", test.configured, test.fallback, got, test.want)
+				t.Fatalf("WithinBudget(%d, %d) = %d, want %d", test.configured, test.fallback, got, test.want)
 			}
 		})
 	}
 }
 
-func TestNilJobBudgetRunsDirectly(t *testing.T) {
+func TestNilWorkerBudgetRunsDirectly(t *testing.T) {
 	var budget *Budget
 	called := false
 	if err := budget.Run(t.Context(), func() error {
@@ -74,11 +74,11 @@ func TestNilJobBudgetRunsDirectly(t *testing.T) {
 		t.Fatalf("budget.run: %v", err)
 	}
 	if !called {
-		t.Fatal("nil job budget did not run work")
+		t.Fatal("nil worker budget did not run work")
 	}
 }
 
-func TestJobBudgetBoundsNestedWork(t *testing.T) {
+func TestWorkerBudgetBoundsNestedWork(t *testing.T) {
 	budget := NewBudget(2)
 	started := make(chan struct{}, 4)
 	release := make(chan struct{})
@@ -117,12 +117,12 @@ func TestJobBudgetBoundsNestedWork(t *testing.T) {
 	}
 	select {
 	case <-started:
-		t.Fatal("job budget admitted more than two tasks")
+		t.Fatal("worker budget admitted more than two tasks")
 	case <-time.After(100 * time.Millisecond):
 	}
 	close(release)
 	wg.Wait()
 	if got := peak.Load(); got != 2 {
-		t.Fatalf("peak jobs = %d, want 2", got)
+		t.Fatalf("peak workers = %d, want 2", got)
 	}
 }

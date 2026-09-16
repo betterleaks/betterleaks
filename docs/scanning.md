@@ -37,7 +37,7 @@ betterleaks filesystem . -j 8
 betterleaks github https://github.com/my-company -j 8
 ```
 
-For filesystem scans, automatic mode uses four I/O jobs per `GOMAXPROCS`, capped at
+For filesystem scans, automatic mode uses four I/O workers per `GOMAXPROCS`, capped at
 40 unless `GOMAXPROCS` itself is higher. Object sources use twice `GOMAXPROCS`.
 Both use `GOMAXPROCS` for detection. For Git history, automatic mode uses up to
 four parallel Git processes (or `GOMAXPROCS` if lower), while detection still uses
@@ -46,6 +46,11 @@ Explicit values remain upper bounds: detection and Git process concurrency are
 capped at `GOMAXPROCS`, while provider target concurrency is capped at four.
 `-j 1` provides a serial baseline for benchmarking. Validation retains its own
 worker and rate-limit controls because it performs external network requests.
+
+The Go API configures detection with `scan.WithWorkers(n)`, provider execution
+with `analyze.WithWorkers(n)`, and source concurrency with fields such as
+`sources.Files{Workers: n}`. Worker limits apply per operation. The CLI translates
+`-j` / `--jobs` into the source and detection worker counts described above.
 
 ## Pick a target
 

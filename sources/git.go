@@ -25,7 +25,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
 	"github.com/betterleaks/betterleaks/v2/logging"
-	sourcejobs "github.com/betterleaks/betterleaks/v2/sources/internal/jobs"
+	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
@@ -47,9 +47,9 @@ type Git struct {
 	Platform        scm.Platform
 	RemoteURL       string
 	MaxArchiveDepth int
-	// Jobs bounds concurrent Git history processes for RepoPath scans and
+	// Workers bounds concurrent Git history processes for RepoPath scans and
 	// fragment processing for an explicitly supplied Cmd. Zero is automatic.
-	Jobs int
+	Workers int
 }
 
 const (
@@ -73,7 +73,7 @@ func (s *Git) Validate() error {
 
 // Fragments yields fragments from a git repo
 func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	budget := sourcejobs.FromContext(ctx)
+	budget := sourceworkers.FromContext(ctx)
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -103,14 +103,14 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 // fragmentsFromRepo partitions Git history across at most GOMAXPROCS processes.
 // Each process consumes fragments serially; the detector provides the other
-// half of the bounded jobs pipeline.
-func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc, budget *sourcejobs.Budget) error {
-	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.AutomaticGit(), budget)
-	historyJobs := min(jobs, sourcejobs.Automatic())
+// half of the bounded worker pipeline.
+func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc, budget *sourceworkers.Budget) error {
+	workerLimit := sourceworkers.WithinBudget(s.Workers, sourceworkers.AutomaticGit(), budget)
+	historyWorkers := min(workerLimit, sourceworkers.Automatic())
 
 	includeMessages := slices.Contains(s.Include, GitResourceTypeCommitMessages)
 	includeReflogs := slices.Contains(s.Include, GitResourceTypeReflogs)
-	if historyJobs <= 1 && !includeMessages && !includeReflogs {
+	if historyWorkers <= 1 && !includeMessages && !includeReflogs {
 		return budget.Run(ctx, func() error {
 			return s.runFullHistory(ctx, yield)
 		})
@@ -129,7 +129,7 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc, budget
 		return nil
 	}
 
-	workers := min(historyJobs, len(commits))
+	workers := min(historyWorkers, len(commits))
 	if workers == 1 && !includeMessages && !includeReflogs {
 		return budget.Run(ctx, func() error {
 			return s.runFullHistory(ctx, yield)
@@ -180,7 +180,7 @@ func (s *Git) runHistoryChunk(ctx context.Context, yield FragmentsFunc, commits 
 
 // fragmentsFromCommitMessages reads one commit object per selected revision.
 // Batch framing preserves message bytes, including blank lines and text that
-// resembles a patch header. The caller already owns a source job, so this does
+// resembles a patch header. The caller already holds a budget slot, so this does
 // not multiply the Git process budget.
 func (s *Git) fragmentsFromCommitMessages(ctx context.Context, commits []string, yield FragmentsFunc) (scanErr error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -315,7 +315,7 @@ type gitTagRef struct {
 
 // fragmentsFromTagMessages scans each distinct annotation reachable from local
 // tag refs. Tags select their own objects independently of commit LogOpts. The
-// caller holds a source job; one cat-file process handles all tag objects,
+// caller holds a budget slot; one cat-file process handles all tag objects,
 // including annotations reached through other annotated tags.
 func (s *Git) fragmentsFromTagMessages(ctx context.Context, yield FragmentsFunc) (scanErr error) {
 	list := exec.CommandContext(ctx, "git", "-C", s.RepoPath, "for-each-ref",
@@ -549,11 +549,11 @@ func readGitReflogMessage(reader *bufio.Reader) (Fragment, error) {
 func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *GitCmd) error {
 	commandSource := *s
 	commandSource.Cmd = cmd
-	// History commands use the streaming reader; the caller owns the job slot.
+	// History commands use the streaming reader; the caller holds a budget slot.
 	return commandSource.fragmentsFromStream(ctx, yield)
 }
 
-func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc, budget *sourcejobs.Budget) error {
+func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc, budget *sourceworkers.Budget) error {
 	if s.Cmd.stdout != nil {
 		return s.fragmentsFromStream(ctx, yield)
 	}
@@ -603,7 +603,7 @@ func (s *Git) fragmentsFromStream(ctx context.Context, yield FragmentsFunc) erro
 }
 
 // fragmentsFromDiffFiles supports callers using the complete DiffFilesCh API.
-func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc, budget *sourcejobs.Budget) error {
+func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc, budget *sourceworkers.Budget) error {
 	defer func() {
 		if err := s.Cmd.Wait(); err != nil {
 			logging.OrDiscard(s.Logger).Debug("command aborted", "error", err, "command", s.Cmd.String())
@@ -611,8 +611,8 @@ func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc, b
 	}()
 
 	g, groupCtx := errgroup.WithContext(ctx)
-	jobs := sourcejobs.WithinBudget(s.Jobs, sourcejobs.Automatic(), budget)
-	g.SetLimit(jobs)
+	workerLimit := sourceworkers.WithinBudget(s.Workers, sourceworkers.Automatic(), budget)
+	g.SetLimit(workerLimit)
 
 	var (
 		diffFilesCh = s.Cmd.DiffFilesCh()
