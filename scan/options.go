@@ -61,8 +61,9 @@ func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {
 	}}
 }
 
-// WithWorkers sets the maximum number of concurrent detection workers per Run
-// or Scan call. Zero uses GOMAXPROCS.
+// WithWorkers limits concurrent detection across all Run, Scan, and ScanString
+// calls on the same Scanner. Workers start as needed; source I/O and result
+// handlers do not occupy worker slots. Zero uses GOMAXPROCS at construction.
 func WithWorkers(workers int) Option {
 	return Option{apply: func(options *scannerOptions) error {
 		if workers < 0 {

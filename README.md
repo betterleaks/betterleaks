@@ -204,12 +204,18 @@ summary, err := p.Scan(ctx, source, handler)
 ```
 
 Detection and provider workers have independent concurrency limits and bounded
-queues. Configure them with `scan.WithWorkers(n)` and `analyze.WithWorkers(n)`;
-sources expose a `Workers` field for input concurrency. These limits apply per
-operation. Handlers run serially; returning an error cancels the operation and waits
-for its workers. Status filters affect output, while the summary counts all
-validation outcomes. A nil analyzer selects local discovery only. Remote sources
-can still make requests to acquire their content.
+queues. `scan.WithWorkers(n)` limits active detection across all concurrent
+`Scan`, `Run`, and `ScanString` calls on the same scanner: `WithWorkers(5)` allows
+five detection workers total, even with 100 concurrent scans. Separate scanners
+have independent limits. `analyze.WithWorkers(n)` and source `Workers` fields
+limit provider and input concurrency per operation.
+
+Handlers run serially within each operation and do not occupy detection worker
+slots, so a handler may start another scan on the same scanner. Returning an
+error cancels that operation and waits for its workers. Status filters affect
+output, while the summary counts all validation outcomes. A nil analyzer selects
+local discovery only. Remote sources can still make requests to acquire their
+content.
 
 Engines may be reused concurrently with independent sources. Each provider
 operation owns its result caches and request limits; compiled programs are

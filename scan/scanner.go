@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/ahocorasick"
@@ -63,7 +65,7 @@ type ruleCandidates struct {
 
 // Scanner is an immutable rule engine with thread-safe lazy compilation. A
 // Scanner may be reused concurrently with independent sources. Each scan
-// owns its execution state.
+// owns its execution state and shares the Scanner's detection worker limit.
 type Scanner struct {
 	ignoredFingerprints map[fingerprint.Hash]struct{}
 	maxDecodeDepth      int
@@ -71,6 +73,7 @@ type Scanner struct {
 	minimumConfidence   string
 	ignoreAllowComments bool
 	workers             int
+	workerSlots         *semaphore.Weighted
 	logger              *slog.Logger
 
 	// prefilter is a ahocorasick struct used for doing efficient string
@@ -125,6 +128,9 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 			return nil, err
 		}
 	}
+	if settings.workers == 0 {
+		settings.workers = max(runtime.GOMAXPROCS(0), 1)
+	}
 	rulesBySpecificity, ruleIndexByID, snapshotErr := snapshotRules(cfg)
 	if snapshotErr != nil {
 		return nil, fmt.Errorf("invalid config: %w", snapshotErr)
@@ -164,6 +170,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		ignoreAllowComments: settings.ignoreAllowComments,
 		excludedPaths:       slices.Clone(settings.excludedPaths),
 		workers:             settings.workers,
+		workerSlots:         semaphore.NewWeighted(int64(settings.workers)),
 		logger:              settings.logger,
 		globalFilterExpr:    cfg.Filter,
 		prefilter:           ahocorasick.Compile(keywords, true),
@@ -364,6 +371,11 @@ type scanState struct {
 	ruleTimings *ruletiming.Collector
 }
 
+type fragmentResult struct {
+	findings []report.Finding
+	err      error
+}
+
 func (d *Scanner) run(ctx context.Context, source sources.Source, yield func(Result) bool) (summary ScanSummary) {
 	state := scanState{}
 	if source == nil {
@@ -376,79 +388,92 @@ func (d *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 	state.ruleTimings = ruletiming.FromContext(ctx)
 
 	runCtx, cancel := context.WithCancel(ctx)
-	workerCount := d.workerCount()
-	resultsCh := make(chan Result, workerCount)
+	resultsCh := make(chan fragmentResult, d.workers)
+	// Reserve output capacity before acquiring a worker slot. Every worker can
+	// then publish its entire fragment without blocking on a handler, including
+	// handlers that start another scan on this Scanner. The reservations also
+	// bound queued and in-flight fragments when a consumer is slow.
+	resultSlots := make(chan struct{}, d.workers)
 	defer func() {
 		cancel()
 		for range resultsCh {
+			<-resultSlots
 		}
 		state.summary.BytesInspected = state.bytes.Load()
 		summary = state.summary
 	}()
 
-	emit := func(result Result) error {
+	reserveResult := func() error {
 		select {
 		case <-runCtx.Done():
 			return errStopIteration
-		case resultsCh <- result:
+		case resultSlots <- struct{}{}:
 			return nil
 		}
+	}
+	emitError := func(err error) error {
+		if reserveErr := reserveResult(); reserveErr != nil {
+			return reserveErr
+		}
+		resultsCh <- fragmentResult{err: err}
+		return nil
 	}
 	go func() {
 		defer close(resultsCh)
 
-		fragmentsCh := make(chan sources.Fragment, workerCount)
 		var workers sync.WaitGroup
-		workers.Add(workerCount)
-		for range workerCount {
-			go func() {
-				defer workers.Done()
-				for fragment := range fragmentsCh {
-					if err := d.scanFragment(runCtx, fragment, emit, &state); err != nil {
-						if !isPipelineStop(err) {
-							_ = emit(Result{Err: err})
-						}
-						cancel()
-						return
-					}
-				}
-			}()
-		}
-
 		sourceErr := source.Fragments(runCtx, func(fragment sources.Fragment, fragmentErr error) error {
 			if fragmentErr != nil {
 				if isPipelineStop(fragmentErr) {
 					return errStopIteration
 				}
-				return emit(Result{Err: fragmentErr})
+				return emitError(fragmentErr)
 			}
 			if len(fragment.Raw) == 0 && fragment.Attr(sources.AttrPath) == "" {
 				return nil
 			}
-			select {
-			case <-runCtx.Done():
-				return errStopIteration
-			case fragmentsCh <- fragment:
-				return nil
+			if err := reserveResult(); err != nil {
+				return err
 			}
+			// Acquire before starting a goroutine so concurrent scans do not
+			// create their own pools of idle detection workers.
+			if err := d.workerSlots.Acquire(runCtx, 1); err != nil {
+				<-resultSlots
+				return err
+			}
+			workers.Go(func() {
+				findings := d.detectFragmentWithState(runCtx, fragment, &state)
+				d.workerSlots.Release(1)
+				resultsCh <- fragmentResult{findings: findings}
+			})
+			return nil
 		})
-		close(fragmentsCh)
 		workers.Wait()
 
 		if sourceErr != nil && !isPipelineStop(sourceErr) {
-			_ = emit(Result{Err: sourceErr})
+			_ = emitError(sourceErr)
 		}
 	}()
 
 	for result := range resultsCh {
-		if isPipelineStop(result.Err) {
+		<-resultSlots
+		if isPipelineStop(result.err) {
 			continue
 		}
-		if result.Err == nil {
-			state.summary.Findings++
+		if result.err != nil {
+			if !yield(Result{Err: result.err}) {
+				return state.summary
+			}
+			continue
 		}
-		if !yield(result) {
-			return state.summary
+		for _, finding := range result.findings {
+			if runCtx.Err() != nil {
+				return state.summary
+			}
+			state.summary.Findings++
+			if !yield(Result{Finding: finding}) {
+				return state.summary
+			}
 		}
 	}
 	return state.summary
@@ -456,27 +481,6 @@ func (d *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 
 func isPipelineStop(err error) bool {
 	return errors.Is(err, errStopIteration) || errors.Is(err, context.Canceled)
-}
-
-func (d *Scanner) workerCount() int {
-	if d.workers > 0 {
-		return d.workers
-	}
-	return max(runtime.GOMAXPROCS(0), 1)
-}
-
-func (d *Scanner) scanFragment(
-	ctx context.Context,
-	fragment sources.Fragment,
-	emit func(Result) error,
-	state *scanState,
-) error {
-	for _, finding := range d.detectFragmentWithState(ctx, fragment, state) {
-		if err := emit(Result{Finding: finding}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragment) bool {
@@ -523,6 +527,10 @@ func (d *Scanner) ScanString(content string) []report.Finding {
 }
 
 func (d *Scanner) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	if err := d.workerSlots.Acquire(ctx, 1); err != nil {
+		return nil
+	}
+	defer d.workerSlots.Release(1)
 	return d.detectFragmentWithState(ctx, fragment, nil)
 }
 

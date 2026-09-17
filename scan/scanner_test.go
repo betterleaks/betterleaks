@@ -438,7 +438,7 @@ func TestCandidateBitmap(t *testing.T) {
 	require.Empty(t, d.ScanString("stale HIGHSECRET"))
 
 	// Cancellation after candidates are marked must not leak them into the next scan.
-	require.Empty(t, d.detectFragment(newCancelOnSecondCheck(), sources.Fragment{Raw: "cancel ALWAYSSECRET"}))
+	require.Empty(t, d.detectFragmentWithState(newCancelOnSecondCheck(), sources.Fragment{Raw: "cancel ALWAYSSECRET"}, nil))
 	require.Equal(t, []string{"always"}, findingRuleIDs(d.ScanString("ALWAYSSECRET")))
 
 	// One keyword selects multiple rules, multiple keywords select one rule,
@@ -3334,14 +3334,16 @@ func TestScannerConcurrentReuse(t *testing.T) {
 }
 
 func TestScannerHandlerMayStartIndependentScan(t *testing.T) {
-	scanner := mustNew(t, testConfig())
-	ctx, cancel := context.WithCancel(t.Context())
+	scanner := mustNew(t, testConfig(), WithWorkers(1))
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	_, err := scanner.Scan(ctx, &sources.Reader{Content: strings.NewReader("secret-alpha")}, func(report.Finding) error {
+	source := &countedFragmentSource{count: 100}
+	summary, err := scanner.Scan(ctx, source, func(report.Finding) error {
 		_, err := scanner.Scan(ctx, &sources.Reader{Content: strings.NewReader("secret-beta")}, nil)
 		return err
 	})
 	require.NoError(t, err)
+	require.Equal(t, source.count*3, summary.Findings)
 }
 
 func TestFindingMatchAndLocationHandoff(t *testing.T) {

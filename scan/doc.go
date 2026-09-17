@@ -8,7 +8,9 @@
 //
 // Use Scanner.Scan for callbacks and per-call statistics, Scanner.Run for an
 // iterator of findings and recoverable source errors, or Scanner.ScanString for
-// small inputs. Calls may run concurrently with independent sources.
+// small inputs. Calls may run concurrently with independent sources and share
+// the detection worker limit set by WithWorkers. Source and provider concurrency
+// are configured independently.
 //
 // Findings carry detection confidence, captures, complete component combinations,
 // and optional Match.Context requested with WithMatchContext. Analysis remains

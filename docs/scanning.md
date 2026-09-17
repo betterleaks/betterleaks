@@ -49,8 +49,10 @@ worker and rate-limit controls because it performs external network requests.
 
 The Go API configures detection with `scan.WithWorkers(n)`, provider execution
 with `analyze.WithWorkers(n)`, and source concurrency with fields such as
-`sources.Files{Workers: n}`. Worker limits apply per operation. The CLI translates
-`-j` / `--jobs` into the source and detection worker counts described above.
+`sources.Files{Workers: n}`. The detection limit is shared across all concurrent
+`Scan`, `Run`, and `ScanString` calls on the same scanner. Provider and source
+limits apply per operation. The CLI translates `-j` / `--jobs` into the source
+and detection worker counts described above.
 
 ## Pick a target
 
