@@ -249,6 +249,7 @@ func (s *Files) scanFile(ctx context.Context, target ScanTarget, yield Fragments
 		Symlink:         target.Symlink,
 		ShouldSkip:      s.ShouldSkip,
 		MaxArchiveDepth: s.MaxArchiveDepth,
+		prefiltered:     true,
 	}
 
 	err = file.Fragments(ctx, yield)

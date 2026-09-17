@@ -52,6 +52,9 @@ type File struct {
 	outerPaths []string
 	// archiveDepth is the current archive nesting depth
 	archiveDepth int
+	// prefiltered marks a filesystem file accepted by Files.scanTargets. The
+	// walker owns its filtering; archive entries are checked independently.
+	prefiltered bool
 }
 
 // Fragments yields fragments for the this source
@@ -59,7 +62,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(s.attributes(s.FullPath())) {
+	if !s.prefiltered && s.ShouldSkip != nil && s.ShouldSkip(s.attributes(s.FullPath())) {
 		return nil
 	}
 	// Archive walkers may log errors. Preserve callback errors for every caller.
@@ -69,7 +72,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 		if yieldErr != nil {
 			return yieldErr
 		}
-		if err == nil && s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+		if err == nil && !s.prefiltered && s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
 			return nil
 		}
 		yieldErr = emit(fragment, err)

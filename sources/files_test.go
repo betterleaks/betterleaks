@@ -1,11 +1,13 @@
 package sources
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -21,6 +23,49 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFilesDoesNotRepeatPrefilterForAcceptedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file.txt")
+	require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("content\n\n", 100_000)), 0o600))
+	var checks, fragments atomic.Int32
+	source := &Files{Path: path, ShouldSkip: func(map[string]string) bool {
+		checks.Add(1)
+		return false
+	}}
+	require.NoError(t, source.Fragments(t.Context(), func(_ Fragment, err error) error {
+		fragments.Add(1)
+		return err
+	}))
+	require.Greater(t, fragments.Load(), int32(1))
+	wantChecks := int32(1)
+	if isWindows {
+		wantChecks = 2 // Native and forward-slash paths are both checked.
+	}
+	require.Equal(t, wantChecks, checks.Load())
+}
+
+func TestFilesPrefilterStillAppliesToArchiveEntries(t *testing.T) {
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	for _, name := range []string{"keep.txt", "skip.txt"} {
+		entry, err := writer.Create(name)
+		require.NoError(t, err)
+		_, err = io.WriteString(entry, "content\n")
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+	path := filepath.Join(t.TempDir(), "bundle.zip")
+	require.NoError(t, os.WriteFile(path, archive.Bytes(), 0o600))
+	source := &Files{Path: path, MaxArchiveDepth: 1, ShouldSkip: func(attrs map[string]string) bool {
+		return strings.HasSuffix(attrs[AttrPath], "!skip.txt")
+	}}
+	var paths []string
+	require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
+		paths = append(paths, fragment.Attr(AttrPath))
+		return err
+	}))
+	require.Equal(t, []string{filepath.ToSlash(path) + "!keep.txt"}, paths)
+}
 
 func TestFilesScanTargetsPathsMatchFilepathWalkDir(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "root")
