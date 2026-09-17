@@ -27,6 +27,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/limits"
 	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
+	"github.com/betterleaks/betterleaks/v2/logging"
 	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -35,8 +36,6 @@ import (
 var allowSignatures = [...]string{"betterleaks:allow", "gitleaks:allow"}
 
 var errStopIteration = errors.New("scanner: stop iteration")
-
-var discardLogger = slog.New(slog.DiscardHandler)
 
 const (
 	levelTrace = slog.LevelDebug - 4
@@ -48,13 +47,6 @@ const (
 
 func logTrace(logger *slog.Logger, msg string, args ...any) {
 	logger.Log(context.Background(), levelTrace, msg, args...)
-}
-
-func loggerOrDiscard(logger *slog.Logger) *slog.Logger {
-	if logger == nil {
-		return discardLogger
-	}
-	return logger
 }
 
 type ruleCandidates struct {
@@ -119,7 +111,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required to create scanner")
 	}
-	settings := scannerOptions{logger: discardLogger}
+	var settings scannerOptions
 	for _, option := range options {
 		if option.apply == nil {
 			return nil, errors.New("scanner option is invalid")
@@ -171,7 +163,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		excludedPaths:       slices.Clone(settings.excludedPaths),
 		workers:             settings.workers,
 		workerSlots:         semaphore.NewWeighted(int64(settings.workers)),
-		logger:              settings.logger,
+		logger:              logging.OrDiscard(settings.logger),
 		globalFilterExpr:    cfg.Filter,
 		prefilter:           ahocorasick.Compile(keywords, true),
 		exprRuntime:         exprRuntime,

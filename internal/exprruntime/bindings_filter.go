@@ -233,13 +233,13 @@ func failsTokenEfficiency(counter *tokenizer.Counter, secret string) bool {
 	if !ok {
 		return false
 	}
-	if len(words.HasMatchInList(analyzed, 5)) > 0 {
+	if words.ContainsWord(analyzed, 5) {
 		return true
 	}
 	threshold := 2.5
 	if len(analyzed) < 12 {
 		threshold = 2.1
-		if len(words.HasMatchInList(analyzed, 4)) == 0 {
+		if !words.ContainsWord(analyzed, 4) {
 			threshold = 2.5
 		}
 	}

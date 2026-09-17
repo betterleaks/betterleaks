@@ -125,7 +125,7 @@ func WithIgnoreAllowComments(ignore bool) Option {
 // unless a logger is supplied.
 func WithLogger(logger *slog.Logger) Option {
 	return Option{apply: func(options *scannerOptions) error {
-		options.logger = loggerOrDiscard(logger)
+		options.logger = logger
 		return nil
 	}}
 }

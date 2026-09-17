@@ -10,7 +10,6 @@ import (
 )
 
 const expectPath = "../testdata/expected/"
-const templatePath = "../testdata/report/"
 
 func TestWriteStdout(t *testing.T) {
 	// Arrange

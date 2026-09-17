@@ -235,7 +235,7 @@ func TestScannerLoggerIsOptIn(t *testing.T) {
 }
 
 func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
-	scanner := &Scanner{logger: discardLogger}
+	scanner := mustNew(t, testConfig())
 	fragment := sources.Fragment{Raw: "ordinary input"}
 	rule := &compiledRule{rule: config.Rule{ID: "test-secret", SkipReport: true}}
 
