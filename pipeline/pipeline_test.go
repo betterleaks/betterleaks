@@ -428,7 +428,7 @@ func TestExplicitContextSurvivesHandoff(t *testing.T) {
 	require.NotContains(t, finding.Attributes, sources.AttrPath)
 	require.Equal(t, "acme", finding.Analysis.Identity.ID)
 	require.Empty(t, finding.Analysis.Metadata, "private validation evidence must not enter reports")
-	require.Equal(t, "tenant=acme\nsecret-alpha", finding.MatchContext)
+	require.Equal(t, "tenant=acme\nsecret-alpha", finding.Match.Context)
 	// Explicit context survives serialization without hidden finding state.
 	encoded, err := json.Marshal(finding)
 	require.NoError(t, err)

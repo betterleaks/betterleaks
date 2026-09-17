@@ -164,23 +164,23 @@ func lineNumWidth(startLine, lineCount int) int {
 // secretByteBounds will relocate the secret by searching.
 func normalizeSnippet(f Finding) Finding {
 	out := f
-	out.Line = strings.TrimRight(f.Line, "\r\n")
+	out.Match.Line = strings.TrimRight(f.Match.Line, "\r\n")
 	out.Match.Full = strings.TrimRight(f.Match.Full, "\r\n")
 	out.Match.Value = strings.TrimRight(f.Match.Value, "\r\n")
 	n := 0
-	for n < len(out.Line) && (out.Line[n] == '\n' || out.Line[n] == '\r') {
+	for n < len(out.Match.Line) && (out.Match.Line[n] == '\n' || out.Match.Line[n] == '\r') {
 		n++
 	}
 	if n > 0 {
-		out.Line = out.Line[n:]
+		out.Match.Line = out.Match.Line[n:]
 		if out.Location.StartColumn > n {
 			out.Location.StartColumn -= n
 		} else {
 			out.Location.StartColumn = 0
 		}
 	}
-	if terminalControlRe.MatchString(out.Line) {
-		out.Line = terminalControlRe.ReplaceAllString(out.Line, "")
+	if terminalControlRe.MatchString(out.Match.Line) {
+		out.Match.Line = terminalControlRe.ReplaceAllString(out.Match.Line, "")
 		out.Match.Full = terminalControlRe.ReplaceAllString(out.Match.Full, "")
 		out.Match.Value = terminalControlRe.ReplaceAllString(out.Match.Value, "")
 		out.Location.StartColumn = 0
@@ -500,7 +500,7 @@ func (p *prettyRenderer) finding(f Finding, noColor bool, redact uint) {
 	work := normalizeSnippet(f)
 	p.writeHeader(work)
 
-	rawLines := splitLines(work.Line)
+	rawLines := splitLines(work.Match.Line)
 	if len(rawLines) == 0 {
 		rawLines = []string{""}
 	}
@@ -519,7 +519,7 @@ func (p *prettyRenderer) finding(f Finding, noColor bool, redact uint) {
 		lines[i], mappings[i] = expandTabsForBody(l, gutterCols)
 	}
 
-	startByte, lenByte, ok := secretByteBounds(work.Line, work.Match.Full, work.Match.Value, work.Location.StartColumn)
+	startByte, lenByte, ok := secretByteBounds(work.Match.Line, work.Match.Full, work.Match.Value, work.Location.StartColumn)
 	if !ok {
 		p.renderLinesOnly(lines, work.Location.StartLine, pad, budget)
 		p.meta(work, noColor, redact)
@@ -527,7 +527,7 @@ func (p *prettyRenderer) finding(f Finding, noColor bool, redact uint) {
 		return
 	}
 
-	segIdx, secretByteInSegRaw := segmentForSecret(work.Line, startByte)
+	segIdx, secretByteInSegRaw := segmentForSecret(work.Match.Line, startByte)
 	segIdx = min(segIdx, len(lines)-1)
 	mapping := mappings[segIdx]
 	secretByteInSeg := mapping[min(secretByteInSegRaw, len(mapping)-1)]

@@ -133,11 +133,17 @@ equivalent: `finding.secret` and `finding["secret"]` are both supported.
 The full attributes source is maintained in
 [`sources/attribute.go`](https://github.com/betterleaks/betterleaks/blob/main/sources/attribute.go).
 
-`finding.context` is the explicitly captured `Finding.MatchContext`, or an empty
+`finding.context` is the explicitly captured `Finding.Match.Context`, or an empty
 string when none was requested. Use `--match-context 5L` or
 `scan.WithMatchContext("5L")` to retain context for local filters and reporting.
 Analyzer preserves this field but provider expressions cannot read it.
-This text is included in JSON reports; there is no separate hidden context copy.
+This text is included in JSON reports as `match.context`; there is no separate
+hidden context copy and no automatic fallback to the matching line.
+
+`Finding.Match.Line` retains the original source line(s) covering the match for
+pretty output and is omitted from JSON. Local filters still use `finding.line`
+and `finding.context`; these expression names are unchanged. For decoded matches,
+`finding.line` uses the decoded text while `Match.Line` retains the original source.
 
 Filter expressions also receive `finding["fragment_raw"]` and the byte offsets
 `match_start_idx`, `match_end_idx`, `match_line_start_idx`, and

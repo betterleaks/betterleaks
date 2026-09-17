@@ -35,10 +35,6 @@
     "match": {
       "$ref": "#/$defs/match"
     },
-    "match_context": {
-      "type": "string",
-      "description": "Requested surrounding context, omitted when empty."
-    },
     "attributes": {
       "$ref": "#/$defs/stringMap",
       "description": "Extensible source metadata such as resource, git.sha, or git.author_name. Path is promoted into location.path. fs.first_fragment is omitted; git.message is abbreviated to its first line with ... for further nonblank text."
@@ -289,6 +285,10 @@
         "captures": {
           "$ref": "#/$defs/stringMap",
           "description": "Named regex captures from this match."
+        },
+        "context": {
+          "type": "string",
+          "description": "Explicitly requested source window around the match, omitted when empty. It does not default to the source line."
         }
       }
     }

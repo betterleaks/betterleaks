@@ -20,10 +20,6 @@ type Finding struct {
 
 	Match Match `json:"match"`
 
-	// MatchContext is optional source context, also exposed as finding.context
-	// to local filters. It is populated only when explicitly requested or supplied.
-	MatchContext string `json:"match_context,omitempty"`
-
 	// Attributes holds extensible source metadata. Well-known keys are defined
 	// by the sources package. Path is stored in Location; SetAttributes promotes
 	// it when importing source metadata.
@@ -41,10 +37,6 @@ type Finding struct {
 	ComponentSetsTruncated bool `json:"component_sets_truncated,omitempty"`
 
 	Tags []string `json:"tags"`
-
-	// Line is source text retained for pretty-output snippets. It is not serialized
-	// or exposed to provider expressions.
-	Line string `json:"-"`
 }
 
 // MarshalJSON omits internal attributes and limits Git message metadata to its
@@ -85,12 +77,23 @@ func reportAttributes(attributes map[string]string) map[string]string {
 	return visible
 }
 
-// Match groups matched text and the extracted value independently of its source.
+// Match groups matched text, the extracted value, and retained source text.
 // A component or path rule need not identify a secret.
 type Match struct {
 	Full     string            `json:"full"`
 	Value    string            `json:"value"`
 	Captures map[string]string `json:"captures,omitempty"`
+
+	// Line contains the original source line(s) covering the match, retained for
+	// pretty-output snippets and local filtering. It is not serialized or exposed
+	// to provider expressions.
+	Line string `json:"-"`
+
+	// Context is the explicitly requested source window around the match, also
+	// exposed as finding.context to local filters. It stays empty when no context
+	// was requested; Line is never used as a default. Provider expressions cannot
+	// read it.
+	Context string `json:"context,omitempty"`
 }
 
 // Location identifies a finding's position in its source. Path has source-defined
@@ -117,7 +120,6 @@ type ComponentFinding struct {
 	Optional bool     `json:"optional,omitempty"`
 	Match    Match    `json:"match"`
 	Location Location `json:"location"`
-	Line     string   `json:"-"`
 }
 
 // Redact removes sensitive information from a finding.
@@ -150,6 +152,8 @@ func (f *Finding) Redact(percent uint) {
 		match.Full = replacer.Replace(match.Full)
 		match.Value = replacer.Replace(match.Value)
 		match.Captures = redactStrings(match.Captures, replacer.Replace)
+		match.Line = replacer.Replace(match.Line)
+		match.Context = replacer.Replace(match.Context)
 	}
 	f.RuleID = replacer.Replace(f.RuleID)
 	f.Description = replacer.Replace(f.Description)
@@ -160,15 +164,12 @@ func (f *Finding) Redact(percent uint) {
 		f.Tags[i] = replacer.Replace(f.Tags[i])
 	}
 	redactMatch(&f.Match)
-	f.Line = replacer.Replace(f.Line)
-	f.MatchContext = replacer.Replace(f.MatchContext)
 	for _, set := range f.ComponentSets {
 		for i := range set.Components {
 			component := &set.Components[i]
 			component.RuleID = replacer.Replace(component.RuleID)
 			component.Location.Path = replacer.Replace(component.Location.Path)
 			redactMatch(&component.Match)
-			component.Line = replacer.Replace(component.Line)
 		}
 	}
 

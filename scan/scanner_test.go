@@ -98,7 +98,7 @@ func normalizeFindings(fs []report.Finding) {
 	// https://github.com/gitleaks/gitleaks/issues/1641
 	for i := 0; i < len(fs); i++ {
 		f := &fs[i]
-		f.Line = strings.ReplaceAll(f.Line, "\r", "")
+		f.Match.Line = strings.ReplaceAll(f.Match.Line, "\r", "")
 		before := len(f.Match.Full)
 		f.Match.Full = strings.ReplaceAll(f.Match.Full, "\r", "")
 		after := len(f.Match.Full)
@@ -564,8 +564,8 @@ func compare(t *testing.T, got, want []report.Finding) {
 			if a.RuleID != b.RuleID {
 				return a.RuleID < b.RuleID
 			}
-			if a.Line != b.Line {
-				return a.Line < b.Line
+			if a.Match.Line != b.Match.Line {
+				return a.Match.Line < b.Match.Line
 			}
 			if a.Match.Value != b.Match.Value {
 				return a.Match.Value < b.Match.Value
@@ -1615,8 +1615,7 @@ func TestDetect(t *testing.T) {
 			expectedFindings: []report.Finding{
 				{
 					Description: "AWS Access Key",
-					Match:       report.Match{Value: "AKIALALEMEL33243OKIA", Full: "AKIALALEMEL33243OKIA"},
-					Line:        "awsToken := \\\"AKIALALEMEL33243OKIA\\\"\n",
+					Match:       report.Match{Value: "AKIALALEMEL33243OKIA", Full: "AKIALALEMEL33243OKIA", Line: "awsToken := \\\"AKIALALEMEL33243OKIA\\\"\n"},
 					RuleID:      "aws-access-key",
 					Tags:        []string{"key", "AWS"},
 					Location: report.Location{
@@ -1640,8 +1639,7 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "aws-access-key",
 					Description: "AWS Access Key",
-					Line:        `awsToken := \"AKIALALEMEL33843OLIA\"`,
-					Match:       report.Match{Full: "AKIALALEMEL33843OLIA", Value: "AKIALALEMEL33843OLIA"},
+					Match:       report.Match{Full: "AKIALALEMEL33843OLIA", Value: "AKIALALEMEL33843OLIA", Line: `awsToken := \"AKIALALEMEL33843OLIA\"`},
 					Location: report.Location{
 						StartLine:   1,
 						EndLine:     1,
@@ -1666,8 +1664,7 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "github-pat",
 					Description: "Github Personal Access Token",
-					Line:        `#ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij...ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij`,
-					Match:       report.Match{Full: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij", Value: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"},
+					Match:       report.Match{Full: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij", Value: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij", Line: `#ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij...ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij`},
 					Location: report.Location{
 						StartLine:   1,
 						EndLine:     1,
@@ -1679,8 +1676,7 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "github-pat",
 					Description: "Github Personal Access Token",
-					Line:        `#ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij...ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij`,
-					Match:       report.Match{Full: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij", Value: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"},
+					Match:       report.Match{Full: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij", Value: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij", Line: `#ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij...ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij`},
 					Location: report.Location{
 						StartLine:   1,
 						EndLine:     1,
@@ -1704,8 +1700,7 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "sidekiq-secret",
 					Description: "Sidekiq Secret",
-					Line:        `export BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;`,
-					Match:       report.Match{Full: "BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;", Value: "cafebabe:deadbeef"},
+					Match:       report.Match{Full: "BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;", Value: "cafebabe:deadbeef", Line: `export BUNDLE_ENTERPRISE__CONTRIBSYS__COM=cafebabe:deadbeef;`},
 					Location: report.Location{
 						StartLine:   1,
 						EndLine:     1,
@@ -1728,8 +1723,7 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "sidekiq-secret",
 					Description: "Sidekiq Secret",
-					Line:        `echo hello1; export BUNDLE_ENTERPRISE__CONTRIBSYS__COM="cafebabe:deadbeef" && echo hello2`,
-					Match:       report.Match{Full: "BUNDLE_ENTERPRISE__CONTRIBSYS__COM=\"cafebabe:deadbeef\"", Value: "cafebabe:deadbeef"},
+					Match:       report.Match{Full: "BUNDLE_ENTERPRISE__CONTRIBSYS__COM=\"cafebabe:deadbeef\"", Value: "cafebabe:deadbeef", Line: `echo hello1; export BUNDLE_ENTERPRISE__CONTRIBSYS__COM="cafebabe:deadbeef" && echo hello2`},
 					Location: report.Location{
 						StartLine:   1,
 						EndLine:     1,
@@ -1752,8 +1746,7 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "sidekiq-sensitive-url",
 					Description: "Sidekiq Sensitive URL",
-					Line:        `url = "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:80/path?param1=true&param2=false#heading1"`,
-					Match:       report.Match{Full: "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:", Value: "cafeb4b3:d3adb33f"},
+					Match:       report.Match{Full: "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:", Value: "cafeb4b3:d3adb33f", Line: `url = "http://cafeb4b3:d3adb33f@enterprise.contribsys.com:80/path?param1=true&param2=false#heading1"`},
 					Location: report.Location{
 						StartLine:   1,
 						EndLine:     1,
@@ -1786,8 +1779,7 @@ func TestDetect(t *testing.T) {
 				{
 					RuleID:      "generic-api-key",
 					Description: "Generic API Key",
-					Line:        `const Discord_Public_Key = "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`,
-					Match:       report.Match{Full: "Key = \"e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"", Value: "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"},
+					Match:       report.Match{Full: "Key = \"e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5\"", Value: "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5", Line: `const Discord_Public_Key = "e8322523fb86ed64c836a979cf8465fbd436378c653c1db38f9ae87bc62a6fd5"`},
 					Location: report.Location{
 						StartLine:   1,
 						EndLine:     1,
@@ -1850,8 +1842,7 @@ func TestDetect(t *testing.T) {
 						StartColumn: 4,
 						EndColumn:   25,
 					},
-					Line:  "\t\t\tpassword = \"secret123\"\n",
-					Match: report.Match{Full: `password = "secret123"`, Value: "secret123"},
+					Match: report.Match{Full: `password = "secret123"`, Value: "secret123", Line: "\t\t\tpassword = \"secret123\"\n"},
 					Tags:  []string{},
 				},
 			},
@@ -1869,8 +1860,7 @@ func TestDetect(t *testing.T) {
 			expectedFindings: []report.Finding{
 				{ // Plain text key captured by normal rule
 					Description: "Private Key",
-					Match:       report.Match{Value: "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Full: "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----"},
-					Line:        "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----\n",
+					Match:       report.Match{Value: "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Full: "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Line: "-----BEGIN PRIVATE KEY-----\n135f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----\n"},
 					RuleID:      "private-key",
 					Tags:        []string{"key", "private"},
 					Location: report.Location{
@@ -1882,8 +1872,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // Encoded key captured by custom b64 regex rule
 					Description: "Private Key",
-					Match:       report.Match{Value: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K", Full: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K"},
-					Line:        "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n",
+					Match:       report.Match{Value: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K", Full: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K", Line: "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n"},
 					RuleID:      "b64-encoded-private-key",
 					Tags:        []string{"key", "private"},
 					Location: report.Location{
@@ -1895,8 +1884,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // Encoded key captured by plain text rule using the decoder
 					Description: "Private Key",
-					Match:       report.Match{Value: "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Full: "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----"},
-					Line:        "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n",
+					Match:       report.Match{Value: "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Full: "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Line: "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n"},
 					RuleID:      "private-key",
 					Tags:        []string{"key", "private", "decoded:base64", "decode-depth:1"},
 					Location: report.Location{
@@ -1908,8 +1896,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // Encoded Small secret at the end to make sure it's picked up by the decoding
 					Description: "Small Secret",
-					Match:       report.Match{Value: "small-secret", Full: "small-secret"},
-					Line:        "c21hbGwtc2VjcmV0\n",
+					Match:       report.Match{Value: "small-secret", Full: "small-secret", Line: "c21hbGwtc2VjcmV0\n"},
 					RuleID:      "small-secret",
 					Tags:        []string{"small", "secret", "decoded:base64", "decode-depth:1"},
 					Location: report.Location{
@@ -1921,8 +1908,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // Secret where the decoded match goes outside the encoded value
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-value00", Full: "secret=decoded-secret-value00"},
-					Line:        "secret=ZGVjb2RlZC1zZWNyZXQtdmFsdWUwMA==\n",
+					Match:       report.Match{Value: "decoded-secret-value00", Full: "secret=decoded-secret-value00", Line: "secret=ZGVjb2RlZC1zZWNyZXQtdmFsdWUwMA==\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:1"},
 					Location: report.Location{
@@ -1934,8 +1920,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // This confirms the rule is detected without a filter.
 					Description: "Make sure this would be detected without a filter",
-					Match:       report.Match{Value: "lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw", Full: "password=\"lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw\""},
-					Line:        "password=\"bFJxQkstejVrZjQtcGxlYXNlLWlnbm9yZS1tZS1YLVhJSk0yUGRkdw==\"\n",
+					Match:       report.Match{Value: "lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw", Full: "password=\"lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw\"", Line: "password=\"bFJxQkstejVrZjQtcGxlYXNlLWlnbm9yZS1tZS1YLVhJSk0yUGRkdw==\"\n"},
 					RuleID:      "decoded-password-dont-ignore",
 					Tags:        []string{"decode-ignore", "decoded:base64", "decode-depth:1"},
 					Location: report.Location{
@@ -1947,8 +1932,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // Hex encoded data check
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-valuevHEX", Full: "secret=decoded-secret-valuevHEX"},
-					Line:        "secret=6465636F6465642D7365637265742D76616C756576484558\n",
+					Match:       report.Match{Value: "decoded-secret-valuevHEX", Full: "secret=decoded-secret-valuevHEX", Line: "secret=6465636F6465642D7365637265742D76616C756576484558\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:hex", "decode-depth:1"},
 					Location: report.Location{
@@ -1960,8 +1944,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // handle partial encoded percent data
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-valuev2", Full: "secret=decoded-secret-valuev2"},
-					Line:        "secret=decoded-%73%65%63%72%65%74-valuev2\n",
+					Match:       report.Match{Value: "decoded-secret-valuev2", Full: "secret=decoded-secret-valuev2", Line: "secret=decoded-%73%65%63%72%65%74-valuev2\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
 					Location: report.Location{
@@ -1973,8 +1956,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // handle partial encoded percent data
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-valuev3", Full: "secret=decoded-secret-valuev3"},
-					Line:        "secret=%64%65coded-%73%65%63%72%65%74-valuev3\n",
+					Match:       report.Match{Value: "decoded-secret-valuev3", Full: "secret=decoded-secret-valuev3", Line: "secret=%64%65coded-%73%65%63%72%65%74-valuev3\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
 					Location: report.Location{
@@ -1986,8 +1968,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // Encoded AWS config with a access key id inside a JWT
 					Description: "AWS IAM Unique Identifier",
-					Match:       report.Match{Value: "ASIAIOSFODNN7LXM10JI", Full: " ASIAIOSFODNN7LXM10JI"},
-					Line:        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n",
+					Match:       report.Match{Value: "ASIAIOSFODNN7LXM10JI", Full: " ASIAIOSFODNN7LXM10JI", Line: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n"},
 					RuleID:      "aws-iam-unique-identifier",
 					Tags:        []string{"aws", "identifier", "decoded:base64", "decode-depth:2"},
 					Location: report.Location{
@@ -1999,8 +1980,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // Encoded AWS config with a secret access key inside a JWT
 					Description: "AWS Secret Access Key",
-					Match:       report.Match{Value: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A", Full: "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A"},
-					Line:        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n",
+					Match:       report.Match{Value: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A", Full: "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A", Line: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n"},
 					RuleID:      "aws-secret-access-key",
 					Tags:        []string{"aws", "secret", "decoded:base64", "decode-depth:2"},
 					Location: report.Location{
@@ -2012,8 +1992,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // Secret where the decoded match goes outside the encoded value and then encoded again
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value"},
-					Line:        "c2VjcmV0PVpHVmpiMlJsWkMxelpXTnlaWFF0ZG1Gc2RXVT0=\n",
+					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "c2VjcmV0PVpHVmpiMlJsWkMxelpXTnlaWFF0ZG1Gc2RXVT0=\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:2"},
 					Location: report.Location{
@@ -2025,8 +2004,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // handle encodings that touch eachother
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-valuev5", Full: "secret=decoded-secret-valuev5"},
-					Line:        "secret%3d6465636F6465642D7365637265742D76616C75657635\n",
+					Match:       report.Match{Value: "decoded-secret-valuev5", Full: "secret=decoded-secret-valuev5", Line: "secret%3d6465636F6465642D7365637265742D76616C75657635\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decode-depth:2"},
 					Location: report.Location{
@@ -2038,8 +2016,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // handle partial encoded percent data465642D7365637265742D76616C75657635
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-valuev4", Full: "secret=decoded-secret-valuev4"},
-					Line:        "c2VjcmV0PVpHVmpiMl%4AsWkMxelpXTnlaWFF0ZG1Gc2RXVjJOQT09\n",
+					Match:       report.Match{Value: "decoded-secret-valuev4", Full: "secret=decoded-secret-valuev4", Line: "c2VjcmV0PVpHVmpiMl%4AsWkMxelpXTnlaWFF0ZG1Gc2RXVjJOQT09\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:3"},
 					Location: report.Location{
@@ -2051,8 +2028,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // multiple percent encodings in a single layer base64
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-valuex86", Full: "secret=decoded-secret-valuex86"},
-					Line:        "secret=ZGVjb2%52lZC1zZWNyZXQtdm%46sdWV4ODY=  # ends in x86\n",
+					Match:       report.Match{Value: "decoded-secret-valuex86", Full: "secret=decoded-secret-valuex86", Line: "secret=ZGVjb2%52lZC1zZWNyZXQtdm%46sdWV4ODY=  # ends in x86\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
 					Location: report.Location{
@@ -2064,8 +2040,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // base64 encoded partially percent encoded value
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value"},
-					Line:        "secret=ZGVjb2RlZC0lNzMlNjUlNjMlNzIlNjUlNzQtdmFsdWU=\n",
+					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret=ZGVjb2RlZC0lNzMlNjUlNjMlNzIlNjUlNzQtdmFsdWU=\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
 					Location: report.Location{
@@ -2077,8 +2052,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // one of the lines above that went through... a lot
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value"},
-					Line:        "Look at this value: %4EjMzMjU2NkE2MzZENTYzMDUwNTY3MDQ4%4eTY2RDcwNjk0RDY5NTUzMTRENkQ3ODYx%25%34%65TE3QTQ2MzY1NzZDNjQ0RjY1NTY3MDU5NTU1ODUyNkI2MjUzNTUzMDRFNkU0RTZCNTYzMTU1MzkwQQ== # isn't it crazy?\n",
+					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "Look at this value: %4EjMzMjU2NkE2MzZENTYzMDUwNTY3MDQ4%4eTY2RDcwNjk0RDY5NTUzMTRENkQ3ODYx%25%34%65TE3QTQ2MzY1NzZDNjQ0RjY1NTY3MDU5NTU1ODUyNkI2MjUzNTUzMDRFNkU0RTZCNTYzMTU1MzkwQQ== # isn't it crazy?\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decoded:base64", "decode-depth:7"},
 					Location: report.Location{
@@ -2090,8 +2064,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // Multi percent encode two random characters close to the bounds of the base64
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value"},
-					Line:        "secret=ZG%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%36%25%33%31%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%33%25%33%322RlZC1zZWNyZXQtd%25%36%64%25%34%36%25%37%33dWU=\n",
+					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret=ZG%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%36%25%33%31%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%33%25%33%322RlZC1zZWNyZXQtd%25%36%64%25%34%36%25%37%33dWU=\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:5"},
 					Location: report.Location{
@@ -2103,8 +2076,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // The similar to the above but also touching the edge of the base64
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value"},
-					Line:        "secret=%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n",
+					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret=%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
 					Location: report.Location{
@@ -2116,8 +2088,7 @@ func TestDetect(t *testing.T) {
 				},
 				{ // The similar to the above but also touching and overlapping the base64
 					Description: "Overlapping",
-					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value"},
-					Line:        "secret%3D%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n",
+					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret%3D%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n"},
 					RuleID:      "overlapping",
 					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
 					Location: report.Location{
@@ -2169,8 +2140,7 @@ func expectedAWSFinding(line string, location report.Location) report.Finding {
 		RuleID:      "aws-access-key",
 		Description: "AWS Access Key",
 		Location:    location,
-		Line:        line,
-		Match:       report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+		Match:       report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: line},
 		Tags:        []string{"key", "AWS"},
 	}
 }
@@ -2201,8 +2171,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 18,
 						EndColumn:   37,
 					},
-					Line:  "    awsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Value: "AKIALALEMEL33243OLIA", Full: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Value: "AKIALALEMEL33243OLIA", Full: "AKIALALEMEL33243OLIA", Line: "    awsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2214,8 +2183,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 16,
 						EndColumn:   35,
 					},
-					Match: report.Match{Value: "AKIALALEMEL33243OLIA", Full: "AKIALALEMEL33243OLIA"},
-					Line:  "\taws_token := \"AKIALALEMEL33243OLIA\"\n",
+					Match: report.Match{Value: "AKIALALEMEL33243OLIA", Full: "AKIALALEMEL33243OLIA", Line: "\taws_token := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				expectedAWSFinding("\tawsToken := \"AKIALALEMEL33243OLIA\"\n", report.Location{
@@ -2240,8 +2208,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 16,
 						EndColumn:   35,
 					},
-					Match: report.Match{Value: "AKIALALEMEL33243OLIA", Full: "AKIALALEMEL33243OLIA"},
-					Line:  "\taws_token := \"AKIALALEMEL33243OLIA\"\n",
+					Match: report.Match{Value: "AKIALALEMEL33243OLIA", Full: "AKIALALEMEL33243OLIA", Line: "\taws_token := \"AKIALALEMEL33243OLIA\"\n"},
 
 					Tags: []string{"key", "AWS"},
 				},
@@ -2266,8 +2233,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2279,8 +2245,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2292,8 +2257,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2305,8 +2269,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2318,8 +2281,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2331,8 +2293,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2344,8 +2305,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2357,8 +2317,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2370,8 +2329,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2383,8 +2341,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2396,8 +2353,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2409,8 +2365,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2422,8 +2377,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2435,8 +2389,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2448,8 +2401,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2461,8 +2413,7 @@ func TestFromGit(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 			},
@@ -2521,8 +2472,7 @@ func TestFromGitStaged(t *testing.T) {
 						StartColumn: 17,
 						EndColumn:   36,
 					},
-					Line:  "\taws_token2 := \"AKIALALEMEL33243OLIA\" // this one is not\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\taws_token2 := \"AKIALALEMEL33243OLIA\" // this one is not\n"},
 					Tags: []string{
 						"key",
 						"AWS",
@@ -2583,8 +2533,7 @@ func TestFromFiles(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				expectedAWSFinding("\tawsToken := \"AKIALALEMEL33243OLIA\"\n", report.Location{
@@ -2605,8 +2554,7 @@ func TestFromFiles(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 			},
@@ -2633,8 +2581,7 @@ func TestFromFiles(t *testing.T) {
 						StartColumn: 4,
 						EndColumn:   34,
 					},
-					Line:  "DB_PASSWORD=8ae31cacf141669ddfb5da\n",
-					Match: report.Match{Full: "PASSWORD=8ae31cacf141669ddfb5da", Value: "8ae31cacf141669ddfb5da"},
+					Match: report.Match{Full: "PASSWORD=8ae31cacf141669ddfb5da", Value: "8ae31cacf141669ddfb5da", Line: "DB_PASSWORD=8ae31cacf141669ddfb5da\n"},
 					Tags:  []string{},
 				},
 			},
@@ -2688,8 +2635,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2701,8 +2647,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2714,8 +2659,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2727,8 +2671,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2740,8 +2683,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 			},
@@ -2759,8 +2701,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2772,8 +2713,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 			},
@@ -2791,8 +2731,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2804,8 +2743,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 			},
@@ -2823,8 +2761,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2836,8 +2773,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 			},
@@ -2855,8 +2791,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2868,8 +2803,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 			},
@@ -2887,8 +2821,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2900,8 +2833,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 			},
@@ -2919,8 +2851,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2932,8 +2863,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2945,8 +2875,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2958,8 +2887,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2971,8 +2899,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2984,8 +2911,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -2997,8 +2923,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -3010,8 +2935,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -3023,8 +2947,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -3036,8 +2959,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -3049,8 +2971,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -3062,8 +2983,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -3075,8 +2995,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -3088,8 +3007,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 				{
@@ -3101,8 +3019,7 @@ func TestDetectWithArchives(t *testing.T) {
 						StartColumn: 15,
 						EndColumn:   34,
 					},
-					Line:  "\tawsToken := \"AKIALALEMEL33243OLIA\"\n",
-					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA"},
+					Match: report.Match{Full: "AKIALALEMEL33243OLIA", Value: "AKIALALEMEL33243OLIA", Line: "\tawsToken := \"AKIALALEMEL33243OLIA\"\n"},
 					Tags:  []string{"key", "AWS"},
 				},
 			},
@@ -3172,8 +3089,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 						StartColumn: 1,
 						EndColumn:   35,
 					},
-					Match: report.Match{Full: "-----BEGIN OPENSSH PRIVATE KEY-----", Value: "-----BEGIN OPENSSH PRIVATE KEY-----"},
-					Line:  "-----BEGIN OPENSSH PRIVATE KEY-----\n",
+					Match: report.Match{Full: "-----BEGIN OPENSSH PRIVATE KEY-----", Value: "-----BEGIN OPENSSH PRIVATE KEY-----", Line: "-----BEGIN OPENSSH PRIVATE KEY-----\n"},
 					Tags:  []string{"key", "AsymmetricPrivateKey"},
 				},
 			},
@@ -3286,8 +3202,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 						StartColumn: 1,
 						EndColumn:   27,
 					},
-					Line:  "<password>s3cr3t</password>",
-					Match: report.Match{Full: "<password>s3cr3t</password>", Value: "s3cr3t"},
+					Match: report.Match{Full: "<password>s3cr3t</password>", Value: "s3cr3t", Line: "<password>s3cr3t</password>"},
 					Tags:  []string{},
 				},
 			},
@@ -3440,7 +3355,7 @@ func TestFindingMatchAndLocationHandoff(t *testing.T) {
 	summary, err := scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("token=alpha"), Attributes: attrs}, func(f report.Finding) error { finding = f; return nil })
 	require.NoError(t, err)
 	require.Equal(t, 1, summary.Findings)
-	require.Equal(t, report.Match{Full: "token=alpha", Value: "alpha", Captures: map[string]string{"token": "alpha"}}, finding.Match)
+	require.Equal(t, report.Match{Full: "token=alpha", Value: "alpha", Captures: map[string]string{"token": "alpha"}, Line: "token=alpha"}, finding.Match)
 	require.Equal(t, "archive.zip!service.env", finding.Location.Path)
 	require.Equal(t, 1, finding.Location.StartLine)
 	require.Equal(t, "high", finding.Confidence)
@@ -3462,7 +3377,7 @@ func TestContextRetentionIsExplicit(t *testing.T) {
 			cfg.Rules[0].AnalyzeExpr = `{"reason":finding.context}`
 			// Local context extraction needs no retained copy. The optional context
 			// binding must reflect exactly the window the caller requested.
-			cfg.Rules[0].Filter = fmt.Sprintf(`finding.context != %q || !(finding.fragment_raw[max(finding.match_start_idx - 20, 0):finding.match_start_idx] contains "tenant=acme")`, tc.want)
+			cfg.Rules[0].Filter = fmt.Sprintf(`finding.line != "secret-alpha\n" || finding.context != %q || !(finding.fragment_raw[max(finding.match_start_idx - 20, 0):finding.match_start_idx] contains "tenant=acme")`, tc.want)
 			options := []Option{WithPrecompile()}
 			if tc.window != "" {
 				options = append(options, WithMatchContext(tc.window))
@@ -3470,10 +3385,30 @@ func TestContextRetentionIsExplicit(t *testing.T) {
 			scanner := mustNew(t, cfg, options...)
 			findings := scanner.ScanString(content)
 			require.Len(t, findings, 1)
-			require.Equal(t, tc.want, findings[0].MatchContext)
+			require.Equal(t, "secret-alpha\n", findings[0].Match.Line)
+			require.Equal(t, tc.want, findings[0].Match.Context)
 			require.Equal(t, tc.want, exprFinding(findings[0])["context"])
 			require.True(t, findings[0].Analysis.IsZero())
 		})
+	}
+}
+
+func TestComponentMatchesRetainSourceText(t *testing.T) {
+	cfg := &config.Config{Rules: []config.Rule{
+		{ID: "token", Regex: `token-[a-z]+`, Components: []config.Component{{RuleID: "tenant", Within: "1L"}}},
+		{ID: "tenant", Regex: `tenant-[a-z]+`, SkipReport: true},
+	}}
+	scanner := mustNew(t, cfg, WithMatchContext("1L"))
+	findings := scanner.ScanString("before\ntenant-acme token-alpha\nafter")
+	require.Len(t, findings, 1)
+	finding := findings[0]
+	require.Len(t, finding.ComponentSets, 1)
+	require.Len(t, finding.ComponentSets[0].Components, 1)
+	component := finding.ComponentSets[0].Components[0]
+	require.Equal(t, "tenant-acme", component.Match.Value)
+	for _, match := range []report.Match{finding.Match, component.Match} {
+		require.Equal(t, "tenant-acme token-alpha\n", match.Line)
+		require.Equal(t, "tenant-acme token-alpha", match.Context)
 	}
 }
 

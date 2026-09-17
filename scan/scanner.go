@@ -790,9 +790,12 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		finding := report.Finding{
 			RuleID:      r.rule.ID,
 			Description: r.rule.Description,
-			Line:        strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
-			Match:       report.Match{Full: secret, Value: secret},
-			Tags:        tags,
+			Match: report.Match{
+				Full:  secret,
+				Value: secret,
+				Line:  strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
+			},
+			Tags: tags,
 			Location: report.Location{
 				StartLine:   prevFragmentEndLine + loc.startLine,
 				EndLine:     prevFragmentEndLine + loc.endLine,
@@ -815,12 +818,12 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 
 		// move to filter?
-		if !d.ignoreAllowComments && containsAllowSignature(finding.Line) {
+		if !d.ignoreAllowComments && containsAllowSignature(finding.Match.Line) {
 			logTrace(logger, "skipping finding: allow signature found", "finding", finding.Match.Value)
 			continue
 		}
 		if currentLine == "" {
-			currentLine = finding.Line
+			currentLine = finding.Match.Line
 		}
 
 		// Set the value of |secret|, if the pattern contains at least one capture group.
@@ -867,7 +870,7 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		// Context is opt-in. Filters can slice fragment_raw using match offsets
 		// without retaining an additional context window on every finding.
 		if !d.matchContext.IsZero() {
-			finding.MatchContext = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, d.matchContext))
+			finding.Match.Context = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, d.matchContext))
 		}
 
 		// Build finding map once, only when at least one filter program is compiled.
@@ -991,7 +994,6 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 					componentFindings = append(componentFindings, report.ComponentFinding{
 						RuleID:   found.RuleID,
 						Optional: component.Optional,
-						Line:     found.Line,
 						Match:    found.Match,
 						Location: found.Location,
 					})

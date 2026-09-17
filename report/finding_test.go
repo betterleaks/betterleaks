@@ -2,6 +2,7 @@ package report
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"unicode/utf8"
 
@@ -48,7 +49,7 @@ func TestRedact_ComponentSets(t *testing.T) {
 				},
 				Components: []ComponentFinding{
 					{
-						RuleID: "rule-a", Match: Match{Value: "comp-secret-1", Full: "match comp-secret-1 here", Captures: map[string]string{"token": "comp-secret-1", "label": "safe"}}, Line: "line comp-secret-1 here",
+						RuleID: "rule-a", Match: Match{Value: "comp-secret-1", Full: "match comp-secret-1 here", Captures: map[string]string{"token": "comp-secret-1", "label": "safe"}, Line: "line comp-secret-1 here"},
 					},
 					{RuleID: "rule-b", Match: Match{Value: "comp-secret-2", Full: "match comp-secret-2 here"}},
 				},
@@ -58,7 +59,7 @@ func TestRedact_ComponentSets(t *testing.T) {
 	f.Redact(100)
 	assert.Equal(t, "REDACTED", f.Match.Value)
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[0].Match.Value)
-	assert.Equal(t, "line REDACTED here", f.ComponentSets[0].Components[0].Line)
+	assert.Equal(t, "line REDACTED here", f.ComponentSets[0].Components[0].Match.Line)
 	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[0].Match.Full)
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[0].Match.Captures["token"])
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[0].Match.Captures["label"])
@@ -75,7 +76,7 @@ func TestRedact_RepeatedComponentValues(t *testing.T) {
 	// When the same ComponentFinding pointer appears in multiple sets (Cartesian product),
 	// partial redaction (percent < 100) must only mask the secret once.
 	shared := ComponentFinding{
-		RuleID: "rule-a", Match: Match{Value: "abcdefghij", Full: "found abcdefghij here", Captures: map[string]string{"token": "abcdefghij"}}, Line: "line abcdefghij here",
+		RuleID: "rule-a", Match: Match{Value: "abcdefghij", Full: "found abcdefghij here", Captures: map[string]string{"token": "abcdefghij"}, Line: "line abcdefghij here"},
 	}
 	f := Finding{
 		Match: Match{Full: "primary", Value: "primary"},
@@ -89,7 +90,7 @@ func TestRedact_RepeatedComponentValues(t *testing.T) {
 	for _, set := range f.ComponentSets {
 		component := set.Components[0]
 		assert.Equal(t, "ab...", component.Match.Value)
-		assert.Equal(t, "line ab... here", component.Line)
+		assert.Equal(t, "line ab... here", component.Match.Line)
 		assert.Equal(t, "found ab... here", component.Match.Full)
 		assert.Equal(t, "ab...", component.Match.Captures["token"])
 	}
@@ -245,6 +246,42 @@ func TestFindingJSONOmitsInternalAttributes(t *testing.T) {
 	assert.Equal(t, "true", f.Attributes[sources.AttrFSFirstFragment], "marshaling must not mutate the finding")
 }
 
+func TestFindingJSONMatchContext(t *testing.T) {
+	for _, context := range []string{"", "before\nsource line\nafter"} {
+		t.Run(fmt.Sprintf("context=%q", context), func(t *testing.T) {
+			match := Match{Full: "match", Value: "value", Line: "source line", Context: context}
+			finding := Finding{
+				Match:         match,
+				ComponentSets: []ComponentSet{{Components: []ComponentFinding{{RuleID: "part", Match: match}}}},
+			}
+			data, err := json.Marshal(finding)
+			require.NoError(t, err)
+			var wire map[string]any
+			require.NoError(t, json.Unmarshal(data, &wire))
+			require.NotContains(t, wire, "match_context")
+			require.NotContains(t, wire, "line")
+			component := wire["component_sets"].([]any)[0].(map[string]any)["components"].([]any)[0].(map[string]any)
+			require.NotContains(t, component, "line")
+			for _, value := range []any{wire["match"], component["match"]} {
+				matchWire := value.(map[string]any)
+				require.NotContains(t, matchWire, "line")
+				if context == "" {
+					require.NotContains(t, matchWire, "context", "Line must not become default context")
+				} else {
+					require.Equal(t, context, matchWire["context"])
+				}
+			}
+			var restored Finding
+			require.NoError(t, json.Unmarshal(data, &restored))
+			for _, restoredMatch := range []Match{restored.Match, restored.ComponentSets[0].Components[0].Match} {
+				require.Equal(t, context, restoredMatch.Context)
+				require.Empty(t, restoredMatch.Line)
+			}
+			require.Equal(t, "source line", finding.Match.Line, "serialization must not mutate the original")
+		})
+	}
+}
+
 func TestSetAttributesPromotesConfidence(t *testing.T) {
 	attrs := map[string]string{
 		sources.AttrPath: "secrets.txt",
@@ -265,8 +302,7 @@ func TestRedactMasksCaptureGroups(t *testing.T) {
 		Match: Match{Value: "supersecret", Full: "key=supersecret", Captures: map[string]string{
 			"token": "supersecret",
 			"user":  "alice",
-		}},
-		Line: "api key=supersecret here",
+		}, Line: "api key=supersecret here"},
 	}
 	f.Redact(100)
 
@@ -375,10 +411,9 @@ func TestMaskSecretMultibyteUTF8(t *testing.T) {
 
 func TestRedactedCopyMasksCompanionValuesAcrossMatches(t *testing.T) {
 	const primary, companion = "test-token", "test-token-companion"
-	shared := ComponentFinding{Match: Match{Full: primary + " " + companion, Value: companion, Captures: map[string]string{"both": primary + " " + companion}}}
+	shared := ComponentFinding{Match: Match{Full: primary + " " + companion, Value: companion, Captures: map[string]string{"both": primary + " " + companion}, Line: primary + " " + companion, Context: primary + " " + companion}}
 	finding := Finding{
-		Match:         Match{Full: primary + " " + companion, Value: primary, Captures: map[string]string{"companion": companion}},
-		MatchContext:  primary + " " + companion,
+		Match:         Match{Full: primary + " " + companion, Value: primary, Captures: map[string]string{"companion": companion}, Line: primary + " " + companion, Context: primary + " " + companion},
 		ComponentSets: []ComponentSet{{Components: []ComponentFinding{shared}}, {Components: []ComponentFinding{shared}}},
 	}
 	for _, percent := range []uint{50, 100} {
@@ -388,13 +423,21 @@ func TestRedactedCopyMasksCompanionValuesAcrossMatches(t *testing.T) {
 			want = "test-..."
 		}
 		require.Equal(t, want, redacted.Match.Full)
-		require.Equal(t, want, redacted.MatchContext)
+		require.Equal(t, want, redacted.Match.Line)
+		require.Equal(t, want, redacted.Match.Context)
 		require.Equal(t, want, redacted.Match.Captures["companion"])
 		require.Equal(t, want, redacted.ComponentSets[0].Components[0].Match.Value)
 		require.Equal(t, want, redacted.ComponentSets[0].Components[0].Match.Captures["both"])
+		for _, set := range redacted.ComponentSets {
+			require.Equal(t, want, set.Components[0].Match.Line)
+			require.Equal(t, want, set.Components[0].Match.Context)
+		}
 
 	}
 	require.Equal(t, companion, shared.Match.Value)
+	require.Equal(t, primary+" "+companion, shared.Match.Line)
+	require.Equal(t, primary+" "+companion, shared.Match.Context)
+	require.Equal(t, primary+" "+companion, finding.Match.Context)
 	require.Equal(t, companion, finding.Match.Captures["companion"])
 }
 
@@ -413,9 +456,9 @@ func TestRedactedCopySanitizesSourceAndCaptureMaterial(t *testing.T) {
 	primary, secondary, companion := "private-primary-value", "private-secondary-value", "private-component-value"
 	original := Finding{
 		RuleID: "rule-" + primary, Description: secondary, Confidence: "high",
-		Match:      Match{Full: primary, Value: primary, Captures: map[string]string{"secondary": secondary}},
+		Match:      Match{Full: primary, Value: primary, Captures: map[string]string{"secondary": secondary}, Context: companion},
 		Attributes: map[string]string{"git.message": "fix " + primary + "\n" + secondary, companion: secondary},
-		Location:   Location{Path: primary + ".env"}, Tags: []string{secondary}, MatchContext: companion,
+		Location:   Location{Path: primary + ".env"}, Tags: []string{secondary},
 		ComponentSets: []ComponentSet{{Components: []ComponentFinding{{RuleID: "component", Match: Match{Value: companion, Captures: map[string]string{"secondary": secondary}}, Location: Location{Path: secondary}}}}},
 		Analysis:      Analysis{Status: ValidationStatusValid, StatusReason: secondary, StatusMetadata: map[string]any{"echo": primary}, Metadata: map[string]any{secondary: []any{companion}}},
 	}

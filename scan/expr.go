@@ -25,10 +25,10 @@ func exprFinding(f report.Finding) map[string]string {
 	return map[string]string{
 		"secret":      f.Match.Value,
 		"match":       f.Match.Full,
-		"line":        f.Line,
+		"line":        f.Match.Line,
 		"rule_id":     f.RuleID,
 		"description": f.Description,
 		"confidence":  f.Confidence,
-		"context":     f.MatchContext,
+		"context":     f.Match.Context,
 	}
 }

@@ -149,10 +149,10 @@ func run() error {
 			// Location contains the source path and coordinates. Redact a
 			// copy before exporting. Returning an error stops the scan.
 			redacted := finding.RedactedCopy(100)
-			// finding.MatchContext is available for local inspection. Redaction
+			// finding.Match.Context is available for local inspection. Redaction
 			// is per credential; context can contain other or encoded secrets,
 			// so omit the raw context from this example's exported JSONL.
-			redacted.MatchContext = ""
+			redacted.Match.Context = ""
 			return encoder.Encode(redacted)
 		})
 		logger.Info("scan complete", "path", path,

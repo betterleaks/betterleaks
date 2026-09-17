@@ -86,7 +86,7 @@ func WithMaxDecodeDepth(depth int) Option {
 
 // WithMatchContext configures the context captured around each finding using
 // the same grammar as the CLI --match-context flag. The captured text is stored
-// in Finding.MatchContext and available to local filter expressions as finding.context.
+// in Finding.Match.Context and available to local filter expressions as finding.context.
 // By default, no surrounding context is retained.
 func WithMatchContext(spec string) Option {
 	return Option{apply: func(options *scannerOptions) error {

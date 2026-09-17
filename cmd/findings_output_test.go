@@ -217,8 +217,7 @@ func newFindingOutputCommand(jsonl bool, outputPath string, silent bool, redact 
 func testOutputFinding(ruleID string) report.Finding {
 	return report.Finding{
 		RuleID: ruleID,
-		Line:   "token=supersecret\n",
-		Match:  report.Match{Full: "supersecret", Value: "supersecret"},
+		Match:  report.Match{Full: "supersecret", Value: "supersecret", Line: "token=supersecret\n"},
 		Location: report.Location{
 			StartLine:   1,
 			EndLine:     1,
@@ -236,8 +235,7 @@ func TestFindingCollectorPrettyRedactsCompanionsAndAnalysis(t *testing.T) {
 	const primary, companion = "test-primary", "test-companion"
 	finding := report.Finding{
 		RuleID:        "multipart",
-		Match:         report.Match{Full: primary + " " + companion, Value: primary},
-		Line:          primary + " " + companion,
+		Match:         report.Match{Full: primary + " " + companion, Value: primary, Line: primary + " " + companion},
 		Location:      report.Location{Path: "service.env", StartLine: 1, StartColumn: 1},
 		Analysis:      report.Analysis{Status: report.ValidationStatusValid, Reason: primary + " " + companion},
 		ComponentSets: []report.ComponentSet{{Components: []report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: companion}}}}},

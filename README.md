@@ -153,6 +153,12 @@ they work, who owns them, and what permissions they have. Detection confidence,
 concepts. A finding groups matched text in `Match` and its optional path and
 coordinates in `Location`.
 
+`Match.Line` retains the original source line(s) for pretty output and is omitted
+from JSON. `Match.Context` contains the context explicitly requested with
+`scan.WithMatchContext` and is serialized as `match.context`. It stays empty
+when no context was requested. Local Expr filters still use `finding.line` and
+`finding.context`.
+
 Use `config.LoadFile` for custom rules and `scan.WithLogger` for diagnostics.
 `Scanner.Scan` streams findings from a source; `Scanner.ScanString` handles small
 inputs. Neither executes provider programs.
