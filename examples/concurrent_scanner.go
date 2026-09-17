@@ -37,9 +37,8 @@ func run() error {
 		Regex:       `example_[0-9a-f]{32}`,
 		Keywords:    []string{"example_"},
 	}}}
-	// Construct once and share. WithWorkers limits detection workers per scan,
-	// so 100 concurrent scans use at most 100 detection workers in total.
-	// One single scanner struct
+	// Construct once and share. Each Scan call creates five detection workers,
+	// so 100 concurrent scans can have up to 500 detection workers in total.
 	scanner, err := scan.New(cfg, scan.WithWorkers(5))
 	if err != nil {
 		return err
