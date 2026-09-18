@@ -8,9 +8,7 @@ type Fragment struct {
 	// StartLine is the line number this fragment starts on (SetDefaults sets it to 1 if unset)
 	StartLine int
 
-	Path string
-
-	// Attributes holds all source-specific metadata
+	// Attributes holds source metadata, including the optional path at AttrPath.
 	Attributes map[string]string
 }
 

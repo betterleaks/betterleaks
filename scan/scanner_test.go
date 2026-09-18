@@ -422,6 +422,7 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	timings := timingCollector.Snapshot()
 	require.Len(t, timings, 1)
 	require.Equal(t, uint64(1), timings[0].Hits)
+	require.Equal(t, "bundle.p12", findings[0].Location.Path)
 }
 
 func TestCandidateBitmap(t *testing.T) {
@@ -3525,13 +3526,26 @@ func TestPathOnlyFindingsHonorFilters(t *testing.T) {
 		scanner, err := New(cfg, WithPrecompile())
 		require.NoError(t, err)
 		for _, path := range []string{"skip.env", "keep.env"} {
-			count := 0
-			_, err = scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("content"), Attributes: map[string]string{sources.AttrPath: path}}, func(f report.Finding) error { count++; return nil })
-			require.NoError(t, err)
-			if path == "skip.env" {
-				require.Zero(t, count)
-			} else {
-				require.Equal(t, 1, count)
+			attrs := map[string]string{sources.AttrPath: path}
+			for _, source := range []sources.Source{
+				&sources.Reader{Content: strings.NewReader("content"), Attributes: attrs, ShouldSkip: nil},
+				fragmentSource{fragments: []sources.Fragment{{Raw: "", StartLine: 0, Attributes: attrs}}, err: nil},
+			} {
+				count := 0
+				_, err = scanner.Scan(t.Context(), source, func(f report.Finding) error {
+					count++
+					require.Equal(t, path, f.Location.Path)
+					require.Equal(t, path, f.Attr(sources.AttrPath))
+					require.NotContains(t, f.Attributes, sources.AttrPath)
+					return nil
+				})
+				require.NoError(t, err)
+				if path == "skip.env" {
+					require.Zero(t, count)
+				} else {
+					require.Equal(t, 1, count)
+				}
+				require.Equal(t, path, attrs[sources.AttrPath])
 			}
 		}
 	}
@@ -3557,6 +3571,7 @@ func TestScannerOwnsRegexesFromPatternStrings(t *testing.T) {
 		require.Len(t, findings, 1)
 		require.Equal(t, "secret", findings[0].Match.Value)
 		require.Equal(t, "secret", findings[0].Match.Captures["secret"])
+		require.Equal(t, "app.env", findings[0].Location.Path)
 		fragment.Attributes[sources.AttrPath] = "app.txt"
 		require.Empty(t, scanner.detectFragment(t.Context(), fragment))
 	}

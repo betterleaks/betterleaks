@@ -315,6 +315,8 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 	return err
 }
 
+// Copy source metadata so fragment-specific changes don't affect other fragments.
+// Callers may override the resource type; the supplied path always takes precedence.
 func (s *File) attributes(path string) map[string]string {
 	attrs := make(map[string]string, len(s.Attributes)+2)
 	attrs[AttrResource] = ResourceFileContent
