@@ -68,9 +68,7 @@ type Scanner struct {
 	workerSlots         *semaphore.Weighted
 	logger              *slog.Logger
 
-	// prefilter is a ahocorasick struct used for doing efficient string
-	// matching given a set of words (keywords from the rules in the config)
-	prefilter        *ahocorasick.Matcher
+	keywordMatcher   *ahocorasick.Matcher
 	prefilterProgram exprruntime.Program
 	globalFilterExpr string
 	excludedPaths    []string
@@ -93,8 +91,8 @@ type Scanner struct {
 	// keyword strings and map lookups while scanning each fragment.
 	keywordRuleIndexes [][]int
 
-	// noKeywordIndexes contains positions in rulesBySpecificity for rules with no
-	// keyword prefilter. These rules are candidates on every scan and decode pass.
+	// noKeywordIndexes contains positions in rulesBySpecificity for rules without
+	// keywords. These rules are candidates on every scan and decode pass.
 	noKeywordIndexes []int
 
 	// candidatePool reuses bitmaps across scanner workers and repeated scans. A
@@ -155,7 +153,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	for patternID, keyword := range keywords {
 		keywordRuleIndexes[patternID] = keywordToRuleIndexes[keyword]
 	}
-	d := &Scanner{
+	s := &Scanner{
 		maxDecodeDepth:      settings.maxDecodeDepth,
 		matchContext:        settings.matchContext,
 		minimumConfidence:   settings.minimumConfidence,
@@ -165,7 +163,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		workerSlots:         semaphore.NewWeighted(int64(settings.workers)),
 		logger:              logging.OrDiscard(settings.logger),
 		globalFilterExpr:    cfg.Filter,
-		prefilter:           ahocorasick.Compile(keywords, true),
+		keywordMatcher:      ahocorasick.Compile(keywords, true),
 		exprRuntime:         exprRuntime,
 		rulesBySpecificity:  rulesBySpecificity,
 		ruleIndexByID:       ruleIndexByID,
@@ -173,15 +171,15 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		noKeywordIndexes:    noKeywordIndexes,
 	}
 	if len(settings.ignoredFingerprints) > 0 {
-		d.ignoredFingerprints = make(map[fingerprint.Hash]struct{}, len(settings.ignoredFingerprints))
+		s.ignoredFingerprints = make(map[fingerprint.Hash]struct{}, len(settings.ignoredFingerprints))
 		for _, hash := range settings.ignoredFingerprints {
-			d.ignoredFingerprints[hash] = struct{}{}
+			s.ignoredFingerprints[hash] = struct{}{}
 		}
 	}
-	d.candidatePool.New = func() any {
-		return &ruleCandidates{marked: make([]bool, len(d.rulesBySpecificity))}
+	s.candidatePool.New = func() any {
+		return &ruleCandidates{marked: make([]bool, len(s.rulesBySpecificity))}
 	}
-	exprRuntime.SetTokenCounterProvider(d.tokenCounterInstance)
+	exprRuntime.SetTokenCounterProvider(s.tokenCounterInstance)
 
 	// Compile only the global prefilter so sources can use it before scanning.
 	// Finding filters and per-rule expressions compile lazily on first candidate.
@@ -190,24 +188,24 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		if compileErr != nil {
 			return nil, fmt.Errorf("compile global prefilter: %w", compileErr)
 		}
-		d.prefilterProgram = program
+		s.prefilterProgram = program
 	}
 
 	if settings.precompile {
-		if err := d.compileAll(); err != nil {
+		if err := s.compileAll(); err != nil {
 			return nil, err
 		}
 	}
 
-	return d, nil
+	return s, nil
 }
 
-func (d *Scanner) compileAll() error {
-	if _, _, err := d.globalFilterProgram(); err != nil {
+func (s *Scanner) compileAll() error {
+	if _, _, err := s.globalFilterProgram(); err != nil {
 		return err
 	}
-	for i := range d.rulesBySpecificity {
-		rule := &d.rulesBySpecificity[i]
+	for i := range s.rulesBySpecificity {
+		rule := &s.rulesBySpecificity[i]
 		if rule.regex != nil {
 			if err := rule.regex.Compile(); err != nil {
 				return fmt.Errorf("compile rule %q regex: %w", rule.rule.ID, err)
@@ -218,41 +216,41 @@ func (d *Scanner) compileAll() error {
 				return fmt.Errorf("compile rule %q path regex: %w", rule.rule.ID, err)
 			}
 		}
-		if _, _, err := d.ruleFilterProgram(rule); err != nil {
+		if _, _, err := s.ruleFilterProgram(rule); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (d *Scanner) tokenCounterInstance() *tokenizer.Counter {
-	d.tokenCounterOnce.Do(func() {
+func (s *Scanner) tokenCounterInstance() *tokenizer.Counter {
+	s.tokenCounterOnce.Do(func() {
 		counter, err := tokenizer.Default()
 		if err != nil {
-			d.logger.Warn("could not initialize cl100k_base tokenizer", "error", err)
+			s.logger.Warn("could not initialize cl100k_base tokenizer", "error", err)
 			return
 		}
-		d.tokenCounter = counter
+		s.tokenCounter = counter
 	})
-	return d.tokenCounter
+	return s.tokenCounter
 }
 
-func (d *Scanner) globalFilterProgram() (exprruntime.Program, bool, error) {
-	if d.globalFilterExpr == "" {
+func (s *Scanner) globalFilterProgram() (exprruntime.Program, bool, error) {
+	if s.globalFilterExpr == "" {
 		return nil, false, nil
 	}
-	program, err := d.globalFilter.compile(d.exprRuntime, d.globalFilterExpr)
+	program, err := s.globalFilter.compile(s.exprRuntime, s.globalFilterExpr)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling global filter: %w", err)
 	}
 	return program, true, nil
 }
 
-func (d *Scanner) ruleFilterProgram(r *compiledRule) (exprruntime.Program, bool, error) {
+func (s *Scanner) ruleFilterProgram(r *compiledRule) (exprruntime.Program, bool, error) {
 	if r.rule.Filter == "" {
 		return nil, false, nil
 	}
-	program, err := r.filter.compile(d.exprRuntime, r.rule.Filter)
+	program, err := r.filter.compile(s.exprRuntime, r.rule.Filter)
 	if err != nil {
 		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.rule.ID, err)
 	}
@@ -263,19 +261,19 @@ func (d *Scanner) ruleFilterProgram(r *compiledRule) (exprruntime.Program, bool,
 // prefilter program against fragment attributes. Pass it to a source's
 // ShouldSkip field to filter fragments before their contents are loaded. It
 // returns nil when no prefilter or excluded paths are configured.
-func (d *Scanner) SkipFunc() sources.SkipFunc {
-	prg := d.prefilterProgram
-	if prg == nil && len(d.excludedPaths) == 0 {
+func (s *Scanner) SkipFunc() sources.SkipFunc {
+	prg := s.prefilterProgram
+	if prg == nil && len(s.excludedPaths) == 0 {
 		return nil
 	}
 	return func(attrs map[string]string) bool {
-		if d.pathExcluded(attrs[sources.AttrPath]) {
+		if s.pathExcluded(attrs[sources.AttrPath]) {
 			return true
 		}
 		if prg != nil {
-			skip, err := d.exprRuntime.EvalPrefilter(prg, attrs)
+			skip, err := s.exprRuntime.EvalPrefilter(prg, attrs)
 			if err != nil {
-				d.logger.Warn("prefilter eval error; not skipping", "error", err)
+				s.logger.Warn("prefilter eval error; not skipping", "error", err)
 				return false
 			}
 			return skip
@@ -284,8 +282,8 @@ func (d *Scanner) SkipFunc() sources.SkipFunc {
 	}
 }
 
-func (d *Scanner) pathExcluded(path string) bool {
-	for _, excluded := range d.excludedPaths {
+func (s *Scanner) pathExcluded(path string) bool {
+	for _, excluded := range s.excludedPaths {
 		if path != "" && samePath(path, excluded) {
 			return true
 		}
@@ -303,7 +301,7 @@ type Result struct {
 
 // ScanSummary describes the work completed by one scan.
 type ScanSummary struct {
-	// BytesInspected excludes fragments rejected by the scanner prefilter.
+	// BytesInspected counts fragment bytes after source and path exclusions.
 	BytesInspected uint64
 	// Findings is the number of findings that passed local detection filters.
 	Findings int
@@ -317,28 +315,28 @@ type Handler func(report.Finding) error
 // Run scans the source and yields findings and recoverable source errors.
 // Findings are not retained. Result order is not guaranteed. Concurrent calls
 // on the same Scanner are safe with independent sources.
-func (d *Scanner) Run(ctx context.Context, source sources.Source) iter.Seq[Result] {
+func (s *Scanner) Run(ctx context.Context, source sources.Source) iter.Seq[Result] {
 	return func(yield func(Result) bool) {
-		if d == nil {
+		if s == nil {
 			_ = yield(Result{Err: errors.New("scanner is nil")})
 			return
 		}
-		_ = d.run(ctx, source, yield)
+		_ = s.run(ctx, source, yield)
 	}
 }
 
 // Scan scans the source, passes each finding to handler, and returns a
 // per-call summary. Recoverable source errors are joined. Returning an error
 // from handler stops the scan. A nil handler discards findings.
-func (d *Scanner) Scan(ctx context.Context, source sources.Source, handler Handler) (ScanSummary, error) {
-	if d == nil {
+func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handler) (ScanSummary, error) {
+	if s == nil {
 		return ScanSummary{}, errors.New("scanner is nil")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	var scanErr error
-	summary := d.run(ctx, source, func(result Result) bool {
+	summary := s.run(ctx, source, func(result Result) bool {
 		if result.Err != nil {
 			scanErr = errors.Join(scanErr, result.Err)
 			return true
@@ -368,7 +366,7 @@ type fragmentResult struct {
 	err      error
 }
 
-func (d *Scanner) run(ctx context.Context, source sources.Source, yield func(Result) bool) (summary ScanSummary) {
+func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Result) bool) (summary ScanSummary) {
 	state := scanState{}
 	if source == nil {
 		_ = yield(Result{Err: errors.New("scanner: nil source")})
@@ -380,12 +378,12 @@ func (d *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 	state.ruleTimings = ruletiming.FromContext(ctx)
 
 	runCtx, cancel := context.WithCancel(ctx)
-	resultsCh := make(chan fragmentResult, d.workers)
+	resultsCh := make(chan fragmentResult, s.workers)
 	// Reserve output capacity before acquiring a worker slot. Every worker can
 	// then publish its entire fragment without blocking on a handler, including
 	// handlers that start another scan on this Scanner. The reservations also
 	// bound queued and in-flight fragments when a consumer is slow.
-	resultSlots := make(chan struct{}, d.workers)
+	resultSlots := make(chan struct{}, s.workers)
 	defer func() {
 		cancel()
 		for range resultsCh {
@@ -429,13 +427,13 @@ func (d *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 			}
 			// Acquire before starting a goroutine so concurrent scans do not
 			// create their own pools of idle detection workers.
-			if err := d.workerSlots.Acquire(runCtx, 1); err != nil {
+			if err := s.workerSlots.Acquire(runCtx, 1); err != nil {
 				<-resultSlots
 				return err
 			}
 			workers.Go(func() {
-				findings := d.detectFragmentWithState(runCtx, fragment, &state)
-				d.workerSlots.Release(1)
+				findings := s.detectFragmentWithState(runCtx, fragment, &state)
+				s.workerSlots.Release(1)
 				resultsCh <- fragmentResult{findings: findings}
 			})
 			return nil
@@ -509,30 +507,30 @@ func promoteConfidence(finding *report.Finding, findingMap map[string]any, attri
 
 // ScanString scans content and returns its findings. It is a convenience for
 // callers that do not need source errors or a scan summary.
-func (d *Scanner) ScanString(content string) []report.Finding {
-	if d == nil {
+func (s *Scanner) ScanString(content string) []report.Finding {
+	if s == nil {
 		return nil
 	}
-	return d.detectFragment(context.Background(), sources.Fragment{
+	return s.detectFragment(context.Background(), sources.Fragment{
 		Raw: content,
 	})
 }
 
-func (d *Scanner) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
-	if err := d.workerSlots.Acquire(ctx, 1); err != nil {
+func (s *Scanner) detectFragment(ctx context.Context, fragment sources.Fragment) []report.Finding {
+	if err := s.workerSlots.Acquire(ctx, 1); err != nil {
 		return nil
 	}
-	defer d.workerSlots.Release(1)
-	return d.detectFragmentWithState(ctx, fragment, nil)
+	defer s.workerSlots.Release(1)
+	return s.detectFragmentWithState(ctx, fragment, nil)
 }
 
-func (d *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.Fragment, state *scanState) []report.Finding {
+func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.Fragment, state *scanState) []report.Finding {
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
 	// Apply explicit source policy. Config.Path is provenance only.
 	if path := fragment.Attr(sources.AttrPath); path != "" {
-		if d.pathExcluded(path) {
+		if s.pathExcluded(path) {
 			return nil
 		}
 	}
@@ -559,29 +557,29 @@ ScanLoop:
 		case <-ctx.Done():
 			break ScanLoop
 		default:
-			candidates := d.candidatePool.Get().(*ruleCandidates)
+			candidates := s.candidatePool.Get().(*ruleCandidates)
 			// A rule is a candidate when any of its keywords matched. The bitmap
 			// deduplicates rules referenced by multiple matching keywords.
-			d.prefilter.Visit(currentRaw, func(patternID, _, _ int) bool {
-				for _, ruleIndex := range d.keywordRuleIndexes[patternID] {
+			s.keywordMatcher.Visit(currentRaw, func(patternID, _, _ int) bool {
+				for _, ruleIndex := range s.keywordRuleIndexes[patternID] {
 					candidates.marked[ruleIndex] = true
 				}
 				return true
 			})
 			// Always include rules that have no keywords.
-			for _, ruleIndex := range d.noKeywordIndexes {
+			for _, ruleIndex := range s.noKeywordIndexes {
 				candidates.marked[ruleIndex] = true
 			}
 
-			for ruleIndex := range d.rulesBySpecificity {
+			for ruleIndex := range s.rulesBySpecificity {
 				if !candidates.marked[ruleIndex] {
 					continue
 				}
-				rule := &d.rulesBySpecificity[ruleIndex]
+				rule := &s.rulesBySpecificity[ruleIndex]
 				select {
 				case <-ctx.Done():
 					clear(candidates.marked)
-					d.candidatePool.Put(candidates)
+					s.candidatePool.Put(candidates)
 					break ScanLoop
 				default:
 					// A path-only rule cannot produce a new result after decoding content
@@ -590,15 +588,15 @@ ScanLoop:
 					if rule.regex == nil && (currentDecodeDepth > 0 || fragment.Attr(sources.AttrFSFirstFragment) == "false") {
 						continue
 					}
-					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, &detection) {
+					for _, finding := range s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, &detection) {
 						// These findings have their components assembled. Recursive
 						// component matching never applies fingerprint suppression.
-						if len(d.ignoredFingerprints) > 0 {
-							if _, ignored := d.ignoredFingerprints[fingerprint.Sum([]byte(finding.Match.Value))]; ignored {
+						if len(s.ignoredFingerprints) > 0 {
+							if _, ignored := s.ignoredFingerprints[fingerprint.Sum([]byte(finding.Match.Value))]; ignored {
 								continue
 							}
 						}
-						if confidence.Meets(finding.Confidence, d.minimumConfidence) {
+						if confidence.Meets(finding.Confidence, s.minimumConfidence) {
 							findings = append(findings, finding)
 							priorFindings.findings = findings
 							priorFindings.add(len(findings) - 1)
@@ -608,13 +606,13 @@ ScanLoop:
 			}
 			// Pool entries must be blank because later scans may run on any goroutine.
 			clear(candidates.marked)
-			d.candidatePool.Put(candidates)
+			s.candidatePool.Put(candidates)
 
 			// increment the depth by 1 as we start our decoding pass
 			currentDecodeDepth++
 
 			// stop the loop if we've hit our max decoding depth
-			if currentDecodeDepth > d.maxDecodeDepth {
+			if currentDecodeDepth > s.maxDecodeDepth {
 				break ScanLoop
 			}
 
@@ -627,7 +625,7 @@ ScanLoop:
 			}
 		}
 	}
-	findings = d.filterIndexed(findings, priorFindings)
+	findings = s.filterIndexed(findings, priorFindings)
 	return findings
 }
 
@@ -641,7 +639,7 @@ type detectionState struct {
 	lineOffsets []int
 }
 
-func (d *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
+func (s *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
 	fragment sources.Fragment,
 	currentRaw string,
 	r *compiledRule,
@@ -649,11 +647,11 @@ func (d *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
 	priorFindings *findingIndex,
 	state *detectionState) []report.Finding {
 	if ruleTimings == nil {
-		return d.detectFragmentWithRule(nil, fragment, currentRaw, r, encodedSegments, priorFindings, state)
+		return s.detectFragmentWithRule(nil, fragment, currentRaw, r, encodedSegments, priorFindings, state)
 	}
 
 	start := time.Now()
-	findings := d.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings, state)
+	findings := s.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings, state)
 	ruleTimings.Record(r.rule.ID, time.Since(start))
 	return findings
 }
@@ -707,7 +705,7 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 }
 
 // detectFragmentWithRule scans the given fragment for the given rule and returns a list of findings
-func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
+func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	fragment sources.Fragment,
 	currentRaw string,
 	r *compiledRule,
@@ -716,7 +714,7 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	state *detectionState) []report.Finding {
 	var (
 		findings []report.Finding
-		logger   = d.logger
+		logger   = s.logger
 	)
 
 	if r.rule.SkipReport && !state.component {
@@ -733,7 +731,7 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 		if rulePathMatchesFragment(r.path, fragment) {
 			finding := newPathOnlyFinding(r, fragment)
-			if !d.filterPathFinding(r, &finding) {
+			if !s.filterPathFinding(r, &finding) {
 				return append(findings, finding)
 			}
 		}
@@ -836,7 +834,7 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 
 		// move to filter?
-		if !d.ignoreAllowComments && containsAllowSignature(finding.Match.Line) {
+		if !s.ignoreAllowComments && containsAllowSignature(finding.Match.Line) {
 			logTrace(logger, "skipping finding: allow signature found", "finding", finding.Match.Value)
 			continue
 		}
@@ -881,18 +879,18 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 		}
 
-		if d.isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
+		if s.isSuppressedByHigherSpecificityFinding(finding, priorFindings) {
 			continue
 		}
 
 		entropy := shannonEntropy(finding.Match.Value)
 
-		hasGlobalFilter := d.globalFilterExpr != ""
+		hasGlobalFilter := s.globalFilterExpr != ""
 		hasRuleFilter := r.rule.Filter != ""
 		// Context is opt-in. Filters can slice fragment_raw using match offsets
 		// without retaining an additional context window on every finding.
-		if !d.matchContext.IsZero() {
-			finding.Match.Context = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, d.matchContext))
+		if !s.matchContext.IsZero() {
+			finding.Match.Context = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, s.matchContext))
 		}
 
 		// Build finding map once, only when at least one filter program is compiled.
@@ -925,10 +923,10 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 		}
 		// Global filter: Expr path (attributes + finding).
-		if prg, ok, err := d.globalFilterProgram(); err != nil {
+		if prg, ok, err := s.globalFilterProgram(); err != nil {
 			logger.Warn("global filter compile error", "error", err)
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
+			skip, err := s.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
 			promoteConfidence(&finding, findingMap, filterAttributes)
 			if err != nil {
 				logger.Warn("global filter eval error", "error", err)
@@ -939,10 +937,10 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 
 		// Rule filter: Expr path (includes entropy and token-efficiency checks).
-		if prg, ok, err := d.ruleFilterProgram(r); err != nil {
+		if prg, ok, err := s.ruleFilterProgram(r); err != nil {
 			logger.Warn("rule filter compile error", "error", err)
 		} else if ok {
-			skip, err := d.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
+			skip, err := s.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
 			promoteConfidence(&finding, findingMap, filterAttributes)
 			if err != nil {
 				logger.Warn("rule filter eval error", "error", err)
@@ -960,11 +958,11 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		return findings
 	}
 
-	return d.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state)
+	return s.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state)
 }
 
 // processComponents attaches nearby component matches and enforces required components.
-func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState) []report.Finding {
+func (s *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState) []report.Finding {
 	if len(primaryFindings) == 0 {
 		return primaryFindings
 	}
@@ -972,8 +970,8 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 	allComponentFindings := make([][]report.Finding, len(r.components))
 	componentState := detectionState{component: true, lineOffsets: state.lineOffsets}
 	for i, component := range r.components {
-		rule := &d.rulesBySpecificity[component.ruleIndex]
-		allComponentFindings[i] = d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, &componentState)
+		rule := &s.rulesBySpecificity[component.ruleIndex]
+		allComponentFindings[i] = s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, &componentState)
 	}
 
 	var finalFindings []report.Finding
@@ -1061,8 +1059,8 @@ func findingEndOffset(lineOffsets []int, fragmentStartLine int, finding report.F
 
 // Path findings have metadata but no content match. They still obey local
 // filters; content offsets and fragment text are explicitly empty.
-func (d *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bool {
-	if d.globalFilterExpr == "" && r.rule.Filter == "" {
+func (s *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bool {
+	if s.globalFilterExpr == "" && r.rule.Filter == "" {
 		return false
 	}
 	attrs := exprAttributes(*finding)
@@ -1076,19 +1074,19 @@ func (d *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bo
 	for _, key := range []string{"match_start_idx", "match_end_idx", "match_line_start_idx", "match_line_end_idx"} {
 		values[key] = 0
 	}
-	for _, compile := range []func() (exprruntime.Program, bool, error){d.globalFilterProgram, func() (exprruntime.Program, bool, error) { return d.ruleFilterProgram(r) }} {
+	for _, compile := range []func() (exprruntime.Program, bool, error){s.globalFilterProgram, func() (exprruntime.Program, bool, error) { return s.ruleFilterProgram(r) }} {
 		prg, ok, err := compile()
 		if err != nil {
-			d.logger.Warn("path filter compile error", "error", err)
+			s.logger.Warn("path filter compile error", "error", err)
 			continue
 		}
 		if !ok {
 			continue
 		}
-		skip, err := d.exprRuntime.EvalFilter(prg, values, attrs)
+		skip, err := s.exprRuntime.EvalFilter(prg, values, attrs)
 		promoteConfidence(finding, values, attrs)
 		if err != nil {
-			d.logger.Warn("path filter eval error", "error", err)
+			s.logger.Warn("path filter eval error", "error", err)
 		} else if skip {
 			return true
 		}
@@ -1097,11 +1095,11 @@ func (d *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bo
 }
 
 // filter will dedupe and redact findings
-func (d *Scanner) filter(findings []report.Finding) []report.Finding {
-	return d.filterIndexed(findings, newFindingIndex(findings))
+func (s *Scanner) filter(findings []report.Finding) []report.Finding {
+	return s.filterIndexed(findings, newFindingIndex(findings))
 }
 
-func (d *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) []report.Finding {
+func (s *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) []report.Finding {
 	// Collect every component finding's (rule, line, secret) identity so the
 	// corresponding top-level finding can be suppressed.
 	componentSet := make(map[string]struct{})
@@ -1122,9 +1120,9 @@ func (d *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) 
 		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.Location.StartLine, f.Location.StartColumn, f.Location.EndLine, f.Location.EndColumn, f.Match.Value)]
 		if isComponent {
 			redactedMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-			logTrace(d.logger, "skipping finding already used as a component", "rule_id", f.RuleID, "finding", redactedMatch)
+			logTrace(s.logger, "skipping finding already used as a component", "rule_id", f.RuleID, "finding", redactedMatch)
 			include = false
-		} else if d.isSuppressedByHigherSpecificityFinding(f, index) {
+		} else if s.isSuppressedByHigherSpecificityFinding(f, index) {
 			include = false
 		}
 
@@ -1135,7 +1133,7 @@ func (d *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) 
 	return retFindings
 }
 
-func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index *findingIndex) bool {
+func (s *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index *findingIndex) bool {
 	if index == nil {
 		return false
 	}
@@ -1145,10 +1143,10 @@ func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
 			f.RuleID != fPrime.RuleID &&
 			strings.Contains(fPrime.Match.Value, f.Match.Value) &&
-			d.ruleSpecificity(fPrime.RuleID) > d.ruleSpecificity(f.RuleID) {
+			s.ruleSpecificity(fPrime.RuleID) > s.ruleSpecificity(f.RuleID) {
 			genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
 			betterMatch := strings.ReplaceAll(fPrime.Match.Full, fPrime.Match.Value, "REDACTED")
-			d.logger.Debug("skipping finding because a more specific rule takes precedence",
+			s.logger.Debug("skipping finding because a more specific rule takes precedence",
 				"rule_id", f.RuleID,
 				"finding", genericMatch,
 				"precedence_rule_id", fPrime.RuleID,
@@ -1162,10 +1160,10 @@ func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 					f.Location.StartLine == comp.Location.StartLine &&
 					f.RuleID != comp.RuleID &&
 					strings.Contains(comp.Match.Value, f.Match.Value) &&
-					d.ruleSpecificity(comp.RuleID) > d.ruleSpecificity(f.RuleID) {
+					s.ruleSpecificity(comp.RuleID) > s.ruleSpecificity(f.RuleID) {
 					genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
 					betterMatch := strings.ReplaceAll(comp.Match.Full, comp.Match.Value, "REDACTED")
-					logTrace(d.logger, "skipping finding because a more specific component takes precedence",
+					logTrace(s.logger, "skipping finding because a more specific component takes precedence",
 						"rule_id", f.RuleID,
 						"finding", genericMatch,
 						"precedence_rule_id", comp.RuleID,
@@ -1180,6 +1178,6 @@ func (d *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 }
 
 // Specificity is immutable rule configuration, not finding data.
-func (d *Scanner) ruleSpecificity(id string) int {
-	return d.rulesBySpecificity[d.ruleIndexByID[id]].rule.Specificity
+func (s *Scanner) ruleSpecificity(id string) int {
+	return s.rulesBySpecificity[s.ruleIndexByID[id]].rule.Specificity
 }
