@@ -4,22 +4,10 @@ import (
 	"strings"
 )
 
-// Decoder decodes various types of data in place
-type Decoder struct {
-	decodedMap map[string]string
-}
-
-// NewDecoder creates a default decoder struct
-func NewDecoder() *Decoder {
-	return &Decoder{
-		decodedMap: make(map[string]string),
-	}
-}
-
-// Decode returns the data with the values decoded in place along with the
-// encoded segment meta data for the next pass of decoding
-func (d *Decoder) Decode(data string, predecessors []*EncodedSegment) (string, []*EncodedSegment) {
-	segments := d.findEncodedSegments(data, predecessors)
+// Decode replaces encoded text and returns segment mappings. Pass the previous
+// call's segments as predecessors to preserve original offsets across passes.
+func Decode(data string, predecessors []*EncodedSegment) (string, []*EncodedSegment) {
+	segments := findEncodedSegments(data, predecessors)
 
 	if len(segments) > 0 {
 		var result strings.Builder
@@ -39,7 +27,7 @@ func (d *Decoder) Decode(data string, predecessors []*EncodedSegment) (string, [
 }
 
 // findEncodedSegments finds the encoded segments in the data
-func (d *Decoder) findEncodedSegments(data string, predecessors []*EncodedSegment) []*EncodedSegment {
+func findEncodedSegments(data string, predecessors []*EncodedSegment) []*EncodedSegment {
 	if len(data) == 0 {
 		return []*EncodedSegment{}
 	}
@@ -49,12 +37,7 @@ func (d *Decoder) findEncodedSegments(data string, predecessors []*EncodedSegmen
 	segments := make([]*EncodedSegment, 0, len(encodingMatches))
 	for _, m := range encodingMatches {
 		encodedValue := data[m.start:m.end]
-		decodedValue, alreadyDecoded := d.decodedMap[encodedValue]
-
-		if !alreadyDecoded {
-			decodedValue = m.encoding.decode(encodedValue)
-			d.decodedMap[encodedValue] = decodedValue
-		}
+		decodedValue := m.encoding.decode(encodedValue)
 
 		if len(decodedValue) == 0 {
 			continue

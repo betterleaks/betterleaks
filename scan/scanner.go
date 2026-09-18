@@ -493,7 +493,6 @@ func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.
 	currentRaw := fragment.Raw
 	encodedSegments := []*codec.EncodedSegment{}
 	currentDecodeDepth := 0
-	decoder := codec.NewDecoder()
 	detection := detectionState{}
 
 ScanLoop:
@@ -562,7 +561,7 @@ ScanLoop:
 			}
 
 			// decode the currentRaw for the next pass
-			currentRaw, encodedSegments = decoder.Decode(currentRaw, encodedSegments)
+			currentRaw, encodedSegments = codec.Decode(currentRaw, encodedSegments)
 
 			// stop the loop when there's nothing else to decode
 			if len(encodedSegments) == 0 {
