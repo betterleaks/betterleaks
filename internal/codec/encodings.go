@@ -346,8 +346,8 @@ func findEncodingMatches(data string) []encodingMatch {
 		return all
 	}
 
-	// filter out lower precedence ones that overlap their neighbors
-	filtered := make([]encodingMatch, 0, len(all))
+	// Compact after checking neighbors; writes cannot reach an unread match.
+	filtered := all[:0]
 	for i, m := range all {
 		if i > 0 {
 			prev := all[i-1]

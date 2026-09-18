@@ -142,3 +142,54 @@ func TestDecode(t *testing.T) {
 		})
 	}
 }
+
+func TestEncodingMatchBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name, input string
+		want        []encodingMatch
+	}{
+		{name: "empty", input: "", want: nil},
+		{name: "no candidates", input: "plain text", want: nil},
+		{
+			name: "adjacent percent suppresses base64", input: "abcdefghijklmnop%41",
+			want: []encodingMatch{{encoding: encodings[0], startEnd: startEnd{16, 19}}},
+		},
+		{
+			name: "preceding percent suppresses base64", input: "%41abcdefghijklmnop",
+			want: []encodingMatch{{encoding: encodings[0], startEnd: startEnd{0, 3}}},
+		},
+		{
+			name: "separated encodings survive", input: "%41!abcdefghijklmnop",
+			want: []encodingMatch{
+				{encoding: encodings[0], startEnd: startEnd{0, 3}},
+				{encoding: encodings[3], startEnd: startEnd{4, 20}},
+			},
+		},
+		{
+			name: "adjacent equal kinds survive", input: "abcdefghijklmnop=qrstuvwxyzABCDEF=",
+			want: []encodingMatch{
+				{encoding: encodings[3], startEnd: startEnd{0, 17}},
+				{encoding: encodings[3], startEnd: startEnd{17, 34}},
+			},
+		},
+		{
+			name: "later matches survive compaction", input: "%41abcdefghijklmnop=qrstuvwxyzABCDEF=!U+0041",
+			want: []encodingMatch{
+				{encoding: encodings[0], startEnd: startEnd{0, 3}},
+				{encoding: encodings[3], startEnd: startEnd{20, 37}},
+				{encoding: encodings[1], startEnd: startEnd{38, 44}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := findEncodingMatches(tc.input)
+			if !assert.Len(t, got, len(tc.want)) {
+				return
+			}
+			for i, want := range tc.want {
+				assert.Equal(t, want.startEnd, got[i].startEnd)
+				assert.Equal(t, want.encoding.kind, got[i].encoding.kind)
+			}
+		})
+	}
+}
