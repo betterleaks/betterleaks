@@ -667,7 +667,6 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 		rule := source
 		rule.Keywords = slices.Clone(source.Keywords)
 		rule.Tags = slices.Clone(source.Tags)
-		rule.Components = slices.Clone(source.Components)
 		compiled := compiledRule{rule: rule, filter: &lazyFilter{}}
 		if rule.Regex != "" {
 			var err error
@@ -691,6 +690,18 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 	indexes := make(map[string]int, len(rules))
 	for i, rule := range rules {
 		indexes[rule.rule.ID] = i
+	}
+	// Resolve against the final specificity order. Validate has checked every
+	// reference and window; retain only their compiled representation.
+	for i := range rules {
+		r := &rules[i]
+		for _, component := range r.rule.Components {
+			window, _ := contextwindow.Parse(component.Within)
+			r.components = append(r.components, compiledComponent{
+				ruleIndex: indexes[component.RuleID], window: window, optional: component.Optional,
+			})
+		}
+		r.rule.Components = nil
 	}
 	return rules, indexes, nil
 }
@@ -945,104 +956,51 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	}
 
 	// Handle component rules (multi-part rules).
-	if state.component || len(r.rule.Components) == 0 {
+	if state.component || len(r.components) == 0 {
 		return findings
 	}
 
-	return d.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state, logger)
+	return d.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state)
 }
 
 // processComponents attaches nearby component matches and enforces required components.
-func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState, logger *slog.Logger) []report.Finding {
+func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState) []report.Finding {
 	if len(primaryFindings) == 0 {
-		logger.Debug("no primary findings to process for components")
 		return primaryFindings
 	}
 
-	// Pre-collect each component rule's findings once per fragment.
-	allComponentFindings := make(map[string][]report.Finding)
-	componentWindows := make(map[string]contextwindow.Spec, len(r.rule.Components))
+	allComponentFindings := make([][]report.Finding, len(r.components))
 	componentState := detectionState{component: true, lineOffsets: state.lineOffsets}
-
-	for _, component := range r.rule.Components {
-		window, err := contextwindow.Parse(component.Within)
-		if err != nil {
-			logger.Error("invalid component within value", "error", err, "rule_id", component.RuleID, "within", component.Within)
-			continue
-		}
-		componentWindows[component.RuleID] = window
-
-		ruleIndex, ok := d.ruleIndexByID[component.RuleID]
-		if !ok {
-			logger.Error("component rule not found in config", "rule_id", component.RuleID)
-			continue
-		}
-		rule := &d.rulesBySpecificity[ruleIndex]
-
-		componentFindings := d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, &componentState)
-		allComponentFindings[component.RuleID] = componentFindings
-
-		logger.Debug("collected component rule findings",
-			"rule_id", component.RuleID,
-			"findings", len(componentFindings),
-		)
+	for i, component := range r.components {
+		rule := &d.rulesBySpecificity[component.ruleIndex]
+		allComponentFindings[i] = d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, &componentState)
 	}
 
 	var finalFindings []report.Finding
-
-	// Process each primary finding against the pre-collected component findings.
+nextPrimary:
 	for _, primaryFinding := range primaryFindings {
 		var componentFindings []report.ComponentFinding
-
-		for _, component := range r.rule.Components {
-			foundComponentFindings, exists := allComponentFindings[component.RuleID]
-			if !exists {
-				continue
-			}
-			window := componentWindows[component.RuleID]
-
-			for _, found := range foundComponentFindings {
-				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, window) {
+		for i, component := range r.components {
+			before := len(componentFindings)
+			for _, found := range allComponentFindings[i] {
+				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, component.window) {
 					componentFindings = append(componentFindings, report.ComponentFinding{
 						RuleID:   found.RuleID,
-						Optional: component.Optional,
+						Optional: component.optional,
 						Match:    found.Match,
 						Location: found.Location,
 					})
 				}
 			}
+			if !component.optional && len(componentFindings) == before {
+				continue nextPrimary
+			}
 		}
 
-		if d.hasAllRequiredComponents(componentFindings, r.rule.Components) {
-			newFinding := primaryFinding
-			newFinding.ComponentSets, newFinding.ComponentSetsTruncated = buildComponentSets(componentFindings, maxComponentSets)
-			finalFindings = append(finalFindings, newFinding)
-
-			logger.Debug("multi-part rule satisfied",
-				"primary_rule", r.rule.ID,
-				"primary_line", primaryFinding.Location.StartLine,
-				"component_count", len(componentFindings),
-			)
-		}
+		primaryFinding.ComponentSets, primaryFinding.ComponentSetsTruncated = buildComponentSets(componentFindings, maxComponentSets)
+		finalFindings = append(finalFindings, primaryFinding)
 	}
-
 	return finalFindings
-}
-
-// hasAllRequiredComponents checks that every required component has a nearby match.
-func (d *Scanner) hasAllRequiredComponents(componentFindings []report.ComponentFinding, components []config.Component) bool {
-	foundRules := make(map[string]bool)
-	for _, finding := range componentFindings {
-		foundRules[finding.RuleID] = true
-	}
-
-	for _, component := range components {
-		if !component.Optional && !foundRules[component.RuleID] {
-			return false
-		}
-	}
-
-	return true
 }
 
 func withinProximity(raw string, lineOffsets []int, fragmentStartLine int, primary, component report.Finding, window contextwindow.Spec) bool {

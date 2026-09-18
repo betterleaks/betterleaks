@@ -649,6 +649,36 @@ skipReport = true
 	})
 }
 
+func TestComponentPlanPreservesOrderAndOwnsConfig(t *testing.T) {
+	cfg := &config.Config{Rules: []config.Rule{
+		{ID: "primary", Regex: `PRIMARY`, Specificity: 20, Components: []config.Component{
+			{RuleID: "required", Within: "2L"},
+			{RuleID: "optional", Within: "4L", Optional: true},
+		}},
+		{ID: "required", Regex: `REQUIRED`, Specificity: 10, SkipReport: true},
+		{ID: "optional", Regex: `OPTIONAL`, Specificity: 30, SkipReport: true},
+	}}
+	scanner := mustNew(t, cfg)
+	require.Equal(t, "2L", cfg.Rules[0].Components[0].Within)
+	require.Equal(t, "optional", cfg.Rules[0].Components[1].RuleID)
+	cfg.Rules[0].Components[0] = config.Component{RuleID: "missing", Within: "invalid"}
+	cfg.Rules[0].Components[1].Optional = false
+	cfg.Rules[1].Regex = `CHANGED`
+
+	// The first primary has no nearby required match; the second must survive.
+	findings := scanner.ScanString("PRIMARY\n.\n.\nPRIMARY\nREQUIRED\n.\nOPTIONAL")
+	require.Len(t, findings, 1)
+	require.Equal(t, 4, findings[0].Location.StartLine)
+	require.Len(t, findings[0].ComponentSets, 1)
+	components := findings[0].ComponentSets[0].Components
+	require.Len(t, components, 2)
+	assert.Equal(t, "required", components[0].RuleID)
+	assert.False(t, components[0].Optional)
+	assert.Equal(t, "optional", components[1].RuleID)
+	assert.True(t, components[1].Optional)
+	require.Len(t, scanner.ScanString("PRIMARY\nREQUIRED"), 1)
+}
+
 func TestNestedComponentsRejected(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
 		{ID: "primary", Regex: `primary=([a-z]+)`, Components: []config.Component{{RuleID: "component"}}},
