@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/expr-lang/expr/ast"
+
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 	"github.com/betterleaks/betterleaks/v2/internal/words"
@@ -44,6 +46,18 @@ func getOrCompileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
 	if v, ok := regexCache.Load(key); ok {
 		return v.(*blregexp.Regexp), nil
 	}
+	re, err := compileJoinedRegex(patterns)
+	if err != nil {
+		return nil, err
+	}
+	regexCache.Store(key, re)
+	return re, nil
+}
+
+func compileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
 	parts := make([]string, len(patterns))
 	for i, p := range patterns {
 		parts[i] = "(?:" + p + ")"
@@ -57,8 +71,50 @@ func getOrCompileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
 		}
 		return nil, fmt.Errorf("compile regex patterns: %w", err)
 	}
-	regexCache.Store(key, re)
 	return re, nil
+}
+
+// The common source prefilter is one matchesAny(attributes[key], literalList).
+// Compile that operation once, without per-path VM bindings or cache keys.
+// All other expressions, including invalid regexes, retain normal evaluation.
+func compileAttributeMatch(node ast.Node) func(map[string]string) bool {
+	call, ok := node.(*ast.CallNode)
+	if !ok || len(call.Arguments) != 2 {
+		return nil
+	}
+	callee, ok := call.Callee.(*ast.IdentifierNode)
+	if !ok || callee.Value != "matchesAny" {
+		return nil
+	}
+	member, ok := call.Arguments[0].(*ast.MemberNode)
+	if !ok || member.Optional || member.Method {
+		return nil
+	}
+	object, ok := member.Node.(*ast.IdentifierNode)
+	if !ok || object.Value != "attributes" {
+		return nil
+	}
+	key, ok := member.Property.(*ast.StringNode)
+	if !ok {
+		return nil
+	}
+	list, ok := call.Arguments[1].(*ast.ConstantNode)
+	if !ok {
+		return nil
+	}
+	switch list.Value.(type) {
+	case []any, []string:
+	default:
+		return nil
+	}
+	re, err := compileJoinedRegex(toStringSlice(list.Value))
+	if err != nil {
+		return nil
+	}
+	attribute := key.Value
+	return func(attributes map[string]string) bool {
+		return re != nil && re.MatchString(attributes[attribute])
+	}
 }
 
 func getOrBuildTrie(terms []string) *ahocorasick.Matcher {

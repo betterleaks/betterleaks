@@ -1,11 +1,111 @@
 package exprruntime
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
+	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
+	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCompiledAttributeMatchPreservesPrefilterSemantics(t *testing.T) {
+	for _, test := range []struct {
+		expression string
+		compiled   bool
+	}{
+		{`matchesAny(attributes["path"], ["(?i)\\.png$", "(?:^|/)vendor/"])`, true},
+		{`matchesAny(attributes.path, ["^$", "secret"])`, true},
+		{`matchesAny(attributes.commit, ["abc"])`, true},
+		{`matchesAny(attributes.path, [])`, false},
+		{`matchesAny(attributes.path, ["secret", 42])`, true},
+		{`matchesAny(attributes.path, ["["])`, false},
+		{`matchesAny(attributes.path, [attributes.pattern])`, false},
+		{`matchesAny([attributes.path], ["secret"])`, false},
+		{`matchesAny(attributes.path, ["secret"]) || attributes.keep == "no"`, false},
+		{`let path = attributes.path; matchesAny(path, ["secret"])`, false},
+	} {
+		t.Run(test.expression, func(t *testing.T) {
+			runtime := NewLocal()
+			program, err := runtime.CompilePrefilter(test.expression)
+			require.NoError(t, err)
+			require.Equal(t, test.compiled, program.attributeMatch != nil)
+			interpreted := *program
+			interpreted.attributeMatch = nil
+			for _, attrs := range []map[string]string{
+				nil, {}, {"path": ""}, {"path": "photo.PNG"}, {"path": "vendor/code.go"},
+				{"path": "secret", "pattern": "secret"}, {"commit": "abc", "keep": "no"},
+				{"path": "public", "pattern": "["}, {"path": "秘密/é.txt"},
+			} {
+				want, wantErr := runtime.EvalPrefilter(&interpreted, attrs)
+				got, gotErr := runtime.EvalPrefilter(program, attrs)
+				require.Equal(t, want, got, "attributes: %v", attrs)
+				if wantErr != nil {
+					require.EqualError(t, gotErr, wantErr.Error())
+				} else {
+					require.NoError(t, gotErr)
+				}
+			}
+		})
+	}
+}
+
+func TestCompiledAttributeMatchIsConcurrent(t *testing.T) {
+	runtime := NewLocal()
+	program, err := runtime.CompilePrefilter(`matchesAny(attributes.path, ["^skip$"])`)
+	require.NoError(t, err)
+	var workers sync.WaitGroup
+	for range 8 {
+		workers.Go(func() {
+			for range 100 {
+				for _, path := range []string{"skip", "keep"} {
+					got, err := runtime.EvalPrefilter(program, map[string]string{"path": path})
+					if err != nil || got != (path == "skip") {
+						t.Errorf("path=%s: result=%t error=%v", path, got, err)
+					}
+				}
+			}
+		})
+	}
+	workers.Wait()
+}
+
+func BenchmarkPrefilterAttributeMatch(b *testing.B) {
+	b.Cleanup(func() {
+		blregexp.SetEngine(blregexp.Stdlib{})
+		regexCache.Clear()
+	})
+	for _, engine := range []blregexp.Engine{blregexp.Stdlib{}, re2.RE2{}} {
+		b.Run(engine.Version(), func(b *testing.B) {
+			blregexp.SetEngine(engine)
+			regexCache.Clear()
+			runtime := NewLocal()
+			program, err := runtime.CompilePrefilter(`matchesAny(attributes.path, ["(?i)\\.png$", "(?:^|/)vendor/", "(?:^|/)node_modules/"])`)
+			require.NoError(b, err)
+			attrs := map[string]string{"path": "project/src/main.go"}
+			for _, compiled := range []bool{false, true} {
+				name := "vm"
+				if compiled {
+					name = "compiled"
+				}
+				b.Run(name, func(b *testing.B) {
+					prg := *program
+					if !compiled {
+						prg.attributeMatch = nil
+					}
+					_, err := runtime.EvalPrefilter(&prg, attrs)
+					require.NoError(b, err)
+					b.ReportAllocs()
+					b.ResetTimer()
+					for b.Loop() {
+						_, _ = runtime.EvalPrefilter(&prg, attrs)
+					}
+				})
+			}
+		})
+	}
+}
 
 func TestContainsAnyCaseInsensitive(t *testing.T) {
 	tests := []struct {

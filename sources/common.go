@@ -3,7 +3,6 @@ package sources
 import (
 	"bufio"
 	"context"
-	"io"
 	"path/filepath"
 	"runtime"
 
@@ -55,6 +54,7 @@ func shouldSkipPath(skip SkipFunc, path string) bool {
 // characters, up to maxPeekSize bytes beyond initialSize. data must contain the
 // initial read. Spare capacity is used for lookahead when available; otherwise
 // the chunk grows once before any bytes are appended.
+// EOF is returned with the final bytes so the caller need not read again.
 // This hopefully avoids splitting. (https://github.com/gitleaks/gitleaks/issues/1651)
 func readUntilSafeBoundary(r *bufio.Reader, data []byte, initialSize int, maxPeekSize int) ([]byte, error) {
 	if len(data) == 0 {
@@ -118,9 +118,6 @@ func readUntilSafeBoundary(r *bufio.Reader, data []byte, initialSize int, maxPee
 		// Read additional data into a temporary buffer
 		b, err := r.ReadByte()
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
 			return data, err
 		}
 		data = append(data, b)

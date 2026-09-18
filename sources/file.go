@@ -52,7 +52,7 @@ type File struct {
 	outerPaths []string
 	// archiveDepth is the current archive nesting depth
 	archiveDepth int
-	// prefiltered marks a filesystem file accepted by Files.scanTargets. The
+	// prefiltered marks a filesystem file accepted by its walker. The
 	// walker owns its filtering; archive entries are checked independently.
 	prefiltered bool
 }

@@ -2616,11 +2616,13 @@ func TestDetectWithArchives(t *testing.T) {
 		cfgName          string
 		source           string
 		expireContext    bool
+		expectedError    error
 		expectedFindings []report.Finding
 	}{
 		{
 			source:           filepath.Join(archivesBasePath, "this-path-does-not-exist"),
 			cfgName:          "archives",
+			expectedError:    os.ErrNotExist,
 			expectedFindings: []report.Finding{},
 		},
 		{
@@ -3051,10 +3053,9 @@ func TestDetectWithArchives(t *testing.T) {
 					MaxArchiveDepth: 8,
 				})
 
-			if tt.expireContext {
-				require.NoError(t, err)
+			if tt.expectedError != nil {
+				require.ErrorIs(t, err, tt.expectedError)
 			} else {
-				cancel()
 				require.NoError(t, err)
 			}
 

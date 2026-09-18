@@ -17,18 +17,17 @@ import (
 	"github.com/betterleaks/betterleaks/v2/logging"
 )
 
-// TODO: remove this in v9 and have scanTargets yield file sources
-type ScanTarget struct {
-	Path    string
-	Symlink string
+type filePath struct {
+	path    string
+	symlink string
 }
 
-// scanTargetError distinguishes callback failures from directory read failures
+// walkCallbackError distinguishes callback failures from directory read failures
 // when fastwalk reports either through a second walk callback.
-type scanTargetError struct{ err error }
+type walkCallbackError struct{ err error }
 
-func (e *scanTargetError) Error() string { return e.err.Error() }
-func (e *scanTargetError) Unwrap() error { return e.err }
+func (e *walkCallbackError) Error() string { return e.err.Error() }
+func (e *walkCallbackError) Unwrap() error { return e.err }
 
 // Files is a source for yielding fragments from a collection of files
 type Files struct {
@@ -43,217 +42,173 @@ type Files struct {
 	budget          *sourceworkers.Budget
 }
 
-// scanTargets yields scan targets to a callback func
-func (s *Files) scanTargets(ctx context.Context, yield func(ScanTarget, error) error) error {
-	// fastwalk only accepts directory roots. Lstat also preserves the existing
-	// symlink handling when the requested root is a single file or symlink.
-	rootInfo, err := os.Lstat(s.Path)
-	if err != nil {
-		logger := logging.OrDiscard(s.Logger).With("path", s.Path)
-		if os.IsPermission(err) {
-			logger.Warn("skipping directory", "error", errors.New("permission denied"))
-		} else {
-			logger.Warn("skipping", "error", err)
-		}
-		return nil
+// walkFiles serializes callbacks while fastwalk inspects paths concurrently.
+func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-
-	// fastwalk visits paths concurrently, but scanTargets has always exposed a
-	// serial callback. Keep that contract without serializing file inspection.
+	root, err := os.Lstat(s.Path)
+	if err != nil {
+		return err
+	}
+	logger := logging.OrDiscard(s.Logger)
 	var yieldMu sync.Mutex
-	walkFn := func(path string, d fs.DirEntry, err error) error {
+	visit := func(path string, entry fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		scanTarget := ScanTarget{Path: path}
-		logger := logging.OrDiscard(s.Logger).With("path", path)
-
-		if err != nil {
-			var callbackErr *scanTargetError
-			if errors.As(err, &callbackErr) {
-				return err
+		if walkErr != nil {
+			var callbackErr *walkCallbackError
+			if errors.As(walkErr, &callbackErr) {
+				return walkErr
 			}
-			if os.IsPermission(err) {
-				logger.Warn("skipping directory", "error", errors.New("permission denied"))
-			} else {
-				logger.Warn("skipping", "error", err)
-			}
-			// fastwalk has already stopped reading this directory. SkipDir
-			// here would escape as a walk error instead of pruning traversal.
+			logger.Warn("skipping directory", "path", path, "error", walkErr)
 			return nil
 		}
-
-		info, err := d.Info()
-		if err != nil {
-			if d.IsDir() {
-				logger.Error("skipping directory: could not get info", "error", err)
-				return filepath.SkipDir
-			}
-			logger.Error("skipping file: could not get info", "error", err)
-			return nil
+		if fastwalk.DirEntryDepth(entry) == 0 {
+			path = s.Path
+			// fastwalk stats its root; retain the caller's symlink identity.
+			entry = fs.FileInfoToDirEntry(root)
 		}
-
-		// set the initial scan target values
-		if d.Type() == fs.ModeSymlink {
+		name := filePath{path: path}
+		mode := entry.Type()
+		var info fs.FileInfo
+		if mode&fs.ModeSymlink != 0 {
 			if !s.FollowSymlinks {
-				logger.Debug("skipping symlink: follow symlinks disabled")
 				return nil
 			}
 			realPath, err := filepath.EvalSymlinks(path)
 			if err != nil {
-				logger.Error("skipping symlink: could not evaluate", "error", err)
+				logger.Warn("skipping symlink", "path", path, "error", err)
 				return nil
 			}
-			targetInfo, err := os.Stat(realPath)
+			info, err = os.Stat(realPath)
 			if err != nil {
-				logger.Error("skipping symlink: could not stat target", "error", err)
+				logger.Warn("skipping symlink", "path", path, "error", err)
 				return nil
 			}
-			info = targetInfo
-			scanTarget = ScanTarget{
-				Path:    realPath,
-				Symlink: path,
-			}
+			mode = info.Mode()
+			name = filePath{path: realPath, symlink: path}
 		}
 
-		// Directory links are traversed by the fastwalk adapter below.
-		if info.IsDir() {
-			if shouldSkipPath(s.ShouldSkip, path) || (scanTarget.Symlink != "" && shouldSkipPath(s.ShouldSkip, scanTarget.Path)) {
-				logger.Debug("skipping directory: global prefilter")
+		if shouldSkipPath(s.ShouldSkip, path) || (name.symlink != "" && shouldSkipPath(s.ShouldSkip, name.path)) {
+			if mode.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-
-		if !info.Mode().IsRegular() {
-			logger.Debug("skipping non-regular file")
+		if !mode.IsRegular() {
 			return nil
 		}
 
-		// Empty; nothing to do here.
-		if info.Size() == 0 {
-			logger.Debug("skipping empty file")
-			return nil
-		}
-
-		// Too large; nothing to do here.
-		if s.MaxFileSize > 0 && info.Size() > int64(s.MaxFileSize) {
-			logger.Warn("skipping file: too large",
-				"max_size_mb", s.MaxFileSize/1_000_000,
-				"size_mb", info.Size()/1_000_000,
-			)
-			return nil
-		}
-
-		if shouldSkipPath(s.ShouldSkip, path) || (scanTarget.Symlink != "" && shouldSkipPath(s.ShouldSkip, scanTarget.Path)) {
-			logger.Debug("skipping file: global prefilter")
-			return nil
+		// Directory entries supply the type. Only a size limit needs metadata;
+		// otherwise even empty files go through the reader.
+		if s.MaxFileSize > 0 {
+			if info == nil {
+				var err error
+				info, err = entry.Info()
+				if err != nil {
+					logger.Warn("skipping file", "path", path, "error", err)
+					return nil
+				}
+			}
+			if !info.Mode().IsRegular() || info.Size() == 0 {
+				return nil
+			}
+			if info.Size() > int64(s.MaxFileSize) {
+				logger.Warn("skipping file: too large", "path", path,
+					"max_size_mb", s.MaxFileSize/1_000_000, "size_mb", info.Size()/1_000_000)
+				return nil
+			}
 		}
 
 		yieldMu.Lock()
 		defer yieldMu.Unlock()
-		if err := yield(scanTarget, nil); err != nil {
-			return &scanTargetError{err: err}
+		if err := yield(name); err != nil {
+			return &walkCallbackError{err: err}
 		}
 		return nil
 	}
 
-	rootIsDir := rootInfo.IsDir()
-	if !rootIsDir && s.FollowSymlinks && rootInfo.Mode()&fs.ModeSymlink != 0 {
-		if targetInfo, err := os.Stat(s.Path); err == nil {
-			rootIsDir = targetInfo.IsDir()
+	rootIsDir := root.IsDir()
+	if !rootIsDir && s.FollowSymlinks && root.Mode()&fs.ModeSymlink != 0 {
+		if info, err := os.Stat(s.Path); err == nil {
+			rootIsDir = info.IsDir()
 		}
 	}
 	if !rootIsDir {
-		return walkFn(s.Path, fs.FileInfoToDirEntry(rootInfo), nil)
+		return visit(s.Path, fs.FileInfoToDirEntry(root), nil)
 	}
-
-	// filepath.WalkDir preserves the root path exactly as supplied, then uses
-	// filepath.Join for descendants. fastwalk joins paths by concatenating the
-	// directory, separator, and entry name, which leaves lexical elements such
-	// as "./" in descendant paths. Preserve the filepath.WalkDir behavior that
-	// callers and report output relied on before switching walkers.
-	compatibleWalkFn := func(path string, d fs.DirEntry, err error) error {
-		if fastwalk.DirEntryDepth(d) == 0 {
-			path = s.Path
-			// fastwalk stats its root. Preserve link resolution and filtering
-			// when the caller supplied a directory symlink directly.
-			if rootInfo.Mode()&fs.ModeSymlink != 0 {
-				d = fs.FileInfoToDirEntry(rootInfo)
-			}
-		} else {
-			path = filepath.Clean(path)
-		}
-		return walkFn(path, d, err)
-	}
+	// Clean once so descendant paths match filepath.Join. Preserve the root's
+	// original spelling in visit. Native separators also preserve Windows paths.
+	walkRoot := filepath.Clean(s.Path)
+	walkConfig := fastwalk.Config{}
 	if s.FollowSymlinks {
-		// Track directory identity per scan to avoid cycles and repeated walks
-		// through aliases. Skipped directories remain eligible via other paths.
-		deduplicatedWalkFn := fastwalk.IgnoreDuplicateDirs(compatibleWalkFn)
-		return fastwalk.Walk(nil, s.Path, func(path string, d fs.DirEntry, err error) error {
+		deduplicated := fastwalk.IgnoreDuplicateDirs(visit)
+		return fastwalk.Walk(&walkConfig, walkRoot, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
-				// A read-error callback revisits an already recorded directory.
-				// The adapter would turn that revisit into a fatal SkipDir.
-				return compatibleWalkFn(path, d, err)
+				// A read-error callback revisits a directory. Deduplicating it
+				// would turn a recoverable read failure into an escaping SkipDir.
+				return visit(path, entry, err)
 			}
-			return deduplicatedWalkFn(path, d, nil)
+			return deduplicated(path, entry, nil)
 		})
 	}
-	return fastwalk.Walk(nil, s.Path, compatibleWalkFn)
+	return fastwalk.Walk(&walkConfig, walkRoot, visit)
 }
 
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	g, groupCtx := errgroup.WithContext(ctx)
 	workers := sourceworkers.WithinBudget(s.Workers, sourceworkers.AutomaticFiles(), s.budget)
-	g.SetLimit(workers)
-
-	producerErr := s.scanTargets(groupCtx, func(scanTarget ScanTarget, scanErr error) error {
-		if scanErr != nil {
-			return scanErr
-		}
-		if err := groupCtx.Err(); err != nil {
-			return err
-		}
-
+	paths := make(chan filePath, workers)
+	for range workers {
 		g.Go(func() error {
-			if s.budget == nil {
-				return s.scanFile(groupCtx, scanTarget, yield)
+			for name := range paths {
+				if err := groupCtx.Err(); err != nil {
+					return err
+				}
+				if err := s.budget.Run(groupCtx, func() error {
+					return s.readFile(groupCtx, name, yield)
+				}); err != nil {
+					return err
+				}
 			}
-			return s.budget.Run(groupCtx, func() error {
-				return s.scanFile(groupCtx, scanTarget, yield)
-			})
+			return nil
 		})
-		return nil
+	}
+	producerErr := s.walkFiles(groupCtx, func(name filePath) error {
+		select {
+		case paths <- name:
+			return nil
+		case <-groupCtx.Done():
+			return groupCtx.Err()
+		}
 	})
-
+	close(paths)
 	return errors.Join(producerErr, g.Wait())
 }
 
-func (s *Files) scanFile(ctx context.Context, target ScanTarget, yield FragmentsFunc) error {
-	logger := logging.OrDiscard(s.Logger).With("path", target.Path)
-	logging.OrDiscard(logger).Log(ctx, logging.LevelTrace, "scanning path")
-
-	f, err := os.Open(target.Path)
+func (s *Files) readFile(ctx context.Context, name filePath, yield FragmentsFunc) error {
+	f, err := os.Open(name.path)
 	if err != nil {
 		if os.IsPermission(err) {
-			logger.Warn("skipping file: permission denied")
+			logging.OrDiscard(s.Logger).Warn("skipping file: permission denied", "path", name.path)
 		}
 		return nil
 	}
 
+	defer f.Close()
+
 	file := File{
 		Logger:          s.Logger,
 		Content:         f,
-		Path:            target.Path,
-		Symlink:         target.Symlink,
+		Path:            name.path,
+		Symlink:         name.symlink,
 		ShouldSkip:      s.ShouldSkip,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		prefiltered:     true,
 	}
 
-	err = file.Fragments(ctx, yield)
-	// Avoid a defer in this hot path.
-	_ = f.Close()
-	return err
+	return file.Fragments(ctx, yield)
 }

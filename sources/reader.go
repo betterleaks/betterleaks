@@ -107,25 +107,22 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 		var boundaryErr error
 		if readErr == nil {
 			chunk, boundaryErr = readUntilSafeBoundary(reader, chunk, n, maxPeekSize)
-			if boundaryErr != nil {
-				boundaryErr = fmt.Errorf("could not read until safe boundary: %w", boundaryErr)
-			}
 		}
 
 		fragment := Fragment{
 			Raw:       string(chunk),
 			StartLine: nextLine,
 		}
-		nextLine += strings.Count(fragment.Raw, "\n")
 		if err := yield(readerChunk{fragment: fragment, initial: initial}, nil); err != nil {
 			return err
 		}
 
-		if boundaryErr != nil {
-			return yield(readerChunk{fragment: Fragment{StartLine: nextLine}}, boundaryErr)
+		if errors.Is(boundaryErr, io.EOF) || errors.Is(readErr, io.EOF) {
+			return ctx.Err()
 		}
-		if errors.Is(readErr, io.EOF) {
-			return nil
+		nextLine += strings.Count(fragment.Raw, "\n")
+		if boundaryErr != nil {
+			return yield(readerChunk{fragment: Fragment{StartLine: nextLine}}, fmt.Errorf("could not read until safe boundary: %w", boundaryErr))
 		}
 		if readErr != nil {
 			return yield(readerChunk{fragment: Fragment{StartLine: nextLine}}, readErr)

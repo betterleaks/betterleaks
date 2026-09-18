@@ -36,6 +36,7 @@ type compiledProgram struct {
 	tokenCounter         *tokenizer.Counter
 	tokenCounterProvider func() *tokenizer.Counter
 	bindings             bindings
+	attributeMatch       func(map[string]string) bool
 }
 
 var emptyStringMap = map[string]string{}
@@ -221,6 +222,9 @@ func (e *Runtime) compile(mode compileMode, expression string, counter *tokenize
 		tokenCounterProvider: e.tokenCounterProvider,
 		bindings:             programBindings(mode, b),
 	}
+	if mode == modePrefilter {
+		prg.attributeMatch = compileAttributeMatch(vmPrg.Node())
+	}
 
 	e.mu.Lock()
 	e.cache[cacheKey] = prg
@@ -315,6 +319,9 @@ func (e *Runtime) EvalFilter(prg Program, finding map[string]any, attributes map
 }
 
 func (e *Runtime) EvalPrefilter(prg Program, attributes map[string]string) (bool, error) {
+	if prg.attributeMatch != nil {
+		return prg.attributeMatch(attributes), nil
+	}
 	b := prg.evalBindings()
 	b["attributes"] = nonNilStringMap(attributes)
 	return runBool(prg, b, "prefilter")

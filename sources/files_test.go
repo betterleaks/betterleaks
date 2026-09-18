@@ -44,6 +44,145 @@ func TestFilesDoesNotRepeatPrefilterForAcceptedFile(t *testing.T) {
 	require.Equal(t, wantChecks, checks.Load())
 }
 
+func TestFilesFragmentsOwnContents(t *testing.T) {
+	root := t.TempDir()
+	contents := make(map[string]string)
+	for i := range 6 {
+		path := filepath.Join(root, fmt.Sprintf("%d.txt", i))
+		contents[path] = strings.Repeat(fmt.Sprintf("file %d\n", i), 1000)
+		require.NoError(t, os.WriteFile(path, []byte(contents[path]), 0o600))
+	}
+	// One reader forces buffer reuse before retained fragments are inspected.
+	source := &Files{Path: root, Workers: 1}
+	var fragments []Fragment
+	require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
+		fragments = append(fragments, fragment)
+		return err
+	}))
+	require.Len(t, fragments, len(contents))
+	for _, fragment := range fragments {
+		require.Equal(t, contents[filepath.FromSlash(fragment.Attr(AttrPath))], fragment.Raw)
+		require.Equal(t, 1, fragment.StartLine)
+	}
+}
+
+func TestFilesCancellationJoinsReaders(t *testing.T) {
+	root := t.TempDir()
+	for i := range 32 {
+		require.NoError(t, os.WriteFile(filepath.Join(root, fmt.Sprintf("%d.txt", i)), []byte("content"), 0o600))
+	}
+	for _, cancelScan := range []bool{false, true} {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		source := &Files{Path: root, Workers: 2}
+		started := make(chan struct{}, 32)
+		release := make(chan struct{})
+		done := make(chan error, 1)
+		callbackErr := errors.New("stop callback")
+		go func() {
+			done <- source.Fragments(ctx, func(_ Fragment, err error) error {
+				if err != nil {
+					return err
+				}
+				started <- struct{}{}
+				select {
+				case <-release:
+					return callbackErr
+				case <-ctx.Done():
+					return nil
+				}
+			})
+		}()
+		for range source.Workers {
+			select {
+			case <-started:
+			case <-ctx.Done():
+				t.Fatal("workers failed to start")
+			}
+		}
+		select {
+		case <-started:
+			t.Fatal("exceeded the file worker limit")
+		case <-time.After(20 * time.Millisecond):
+		}
+		want := callbackErr
+		if cancelScan {
+			want = context.Canceled
+			cancel()
+		} else {
+			close(release)
+		}
+		select {
+		case err := <-done:
+			require.ErrorIs(t, err, want)
+		case <-time.After(5 * time.Second):
+			t.Fatal("source did not join its workers")
+		}
+		cancel()
+	}
+}
+
+func TestFilesMissingRootReturnsError(t *testing.T) {
+	source := &Files{Path: filepath.Join(t.TempDir(), "missing"), Workers: 1}
+	yield := func(Fragment, error) error {
+		t.Error("missing root should fail before yielding")
+		return nil
+	}
+	require.ErrorIs(t, source.Fragments(t.Context(), yield), fs.ErrNotExist)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, source.Fragments(ctx, yield), context.Canceled)
+}
+
+func TestFilesPrefilterPrecedesSizeChecks(t *testing.T) {
+	for _, size := range []int{0, 100} {
+		path := filepath.Join(t.TempDir(), "skip.txt")
+		require.NoError(t, os.WriteFile(path, bytes.Repeat([]byte("x"), size), 0o600))
+		var output bytes.Buffer
+		checks := 0
+		source := &Files{
+			Path:        path,
+			MaxFileSize: 10,
+			Logger:      slog.New(slog.NewJSONHandler(&output, nil)),
+			ShouldSkip: func(attrs map[string]string) bool {
+				require.Equal(t, path, attrs[AttrPath])
+				checks++
+				return true
+			},
+		}
+		require.NoError(t, source.walkFiles(t.Context(), func(filePath) error {
+			t.Error("prefiltered file must not be scanned")
+			return nil
+		}))
+		require.Equal(t, 1, checks)
+		require.Empty(t, output.String(), "rejected paths should not produce size warnings")
+	}
+}
+
+func TestFilesDirectoryPrefilterPrunesTraversal(t *testing.T) {
+	root := t.TempDir()
+	skipped := filepath.Join(root, "skip")
+	require.NoError(t, os.Mkdir(skipped, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(skipped, "ignored.txt"), []byte("ignored"), 0o600))
+	accepted := filepath.Join(root, "keep.txt")
+	require.NoError(t, os.WriteFile(accepted, []byte("keep"), 0o600))
+	for _, follow := range []bool{false, true} {
+		source := &Files{Path: root, FollowSymlinks: follow, ShouldSkip: func(attrs map[string]string) bool {
+			path := filepath.FromSlash(attrs[AttrPath])
+			if strings.HasPrefix(path, skipped+string(filepath.Separator)) {
+				t.Errorf("visited child of skipped directory: %s", path)
+			}
+			return path == skipped
+		}}
+		var targets []string
+		require.NoError(t, source.walkFiles(t.Context(), func(name filePath) error {
+			targets = append(targets, name.path)
+			return nil
+		}))
+		require.Equal(t, []string{accepted}, targets)
+	}
+}
+
 func TestFilesPrefilterStillAppliesToArchiveEntries(t *testing.T) {
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
@@ -67,7 +206,7 @@ func TestFilesPrefilterStillAppliesToArchiveEntries(t *testing.T) {
 	require.Equal(t, []string{filepath.ToSlash(path) + "!keep.txt"}, paths)
 }
 
-func TestFilesScanTargetsPathsMatchFilepathWalkDir(t *testing.T) {
+func TestFilesWalkFilesPathsMatchFilepathWalkDir(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "root")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o600))
@@ -111,11 +250,8 @@ func TestFilesScanTargetsPathsMatchFilepathWalkDir(t *testing.T) {
 			return false
 		},
 	}
-	require.NoError(t, source.scanTargets(t.Context(), func(target ScanTarget, err error) error {
-		if err != nil {
-			return err
-		}
-		targets = append(targets, target.Path)
+	require.NoError(t, source.walkFiles(t.Context(), func(name filePath) error {
+		targets = append(targets, name.path)
 		return nil
 	}))
 
@@ -245,7 +381,7 @@ func TestFilesDirectorySymlinkPrefilter(t *testing.T) {
 			source := &Files{Path: scanRoot, FollowSymlinks: true, ShouldSkip: func(attrs map[string]string) bool {
 				return attrs[AttrPath] == skipped
 			}}
-			require.NoError(t, source.scanTargets(t.Context(), func(ScanTarget, error) error {
+			require.NoError(t, source.walkFiles(t.Context(), func(filePath) error {
 				t.Error("prefiltered directory must not be scanned")
 				return nil
 			}))
@@ -266,12 +402,12 @@ func TestFilesSymlinksUseTargetSizeAndHandleBrokenLinks(t *testing.T) {
 	require.NoError(t, os.Symlink("missing", filepath.Join(root, "broken")))
 	require.NoError(t, os.Symlink("loop", filepath.Join(root, "loop")))
 	source := &Files{Path: root, FollowSymlinks: true, MaxFileSize: 10}
-	var targets []ScanTarget
-	require.NoError(t, source.scanTargets(t.Context(), func(target ScanTarget, err error) error {
-		targets = append(targets, target)
-		return err
+	var paths []filePath
+	require.NoError(t, source.walkFiles(t.Context(), func(name filePath) error {
+		paths = append(paths, name)
+		return nil
 	}))
-	require.Equal(t, []ScanTarget{{Path: filepath.Join(target, "small"), Symlink: filepath.Join(root, "small")}}, targets)
+	require.Equal(t, []filePath{{path: filepath.Join(target, "small"), symlink: filepath.Join(root, "small")}}, paths)
 }
 
 func TestFilesUnreadableDirectoriesDoNotAbortScan(t *testing.T) {
@@ -328,24 +464,24 @@ func TestFilesDisappearingDirectoryDoesNotAbortScan(t *testing.T) {
 			return false
 		}}
 		var paths []string
-		require.NoError(t, source.scanTargets(t.Context(), func(target ScanTarget, err error) error {
-			paths = append(paths, target.Path)
-			return err
+		require.NoError(t, source.walkFiles(t.Context(), func(name filePath) error {
+			paths = append(paths, name.path)
+			return nil
 		}))
 		require.Equal(t, []string{readable}, paths)
 	}
 }
 
-func TestFilesScanTargetsPreservesCancellationAndCallbackErrors(t *testing.T) {
+func TestFilesWalkFilesPreservesCancellationAndCallbackErrors(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "readable.txt"), []byte("readable"), 0o600))
 	for _, follow := range []bool{false, true} {
 		source := &Files{Path: root, FollowSymlinks: follow}
 		callbackErr := errors.New("callback failed")
-		err := source.scanTargets(t.Context(), func(ScanTarget, error) error { return callbackErr })
+		err := source.walkFiles(t.Context(), func(filePath) error { return callbackErr })
 		require.ErrorIs(t, err, callbackErr)
 		ctx, cancel := context.WithCancel(t.Context())
-		err = source.scanTargets(ctx, func(ScanTarget, error) error {
+		err = source.walkFiles(ctx, func(filePath) error {
 			cancel()
 			return ctx.Err()
 		})
@@ -364,28 +500,34 @@ func TestSourceLoggingIsOptIn(t *testing.T) {
 
 	var output bytes.Buffer
 	source := &Files{
-		Logger: slog.New(slog.NewJSONHandler(&output, nil)),
-		Path:   filepath.Join(t.TempDir(), "missing"),
+		Logger:      slog.New(slog.NewJSONHandler(&output, nil)),
+		Path:        filepath.Join(t.TempDir(), "large.txt"),
+		MaxFileSize: 1,
 	}
 
+	require.NoError(t, os.WriteFile(source.Path, []byte("large"), 0o600))
 	err := source.Fragments(t.Context(), func(Fragment, error) error { return nil })
 	require.NoError(t, err)
 	record := decodeLogRecord(t, output.Bytes())
-	assert.Equal(t, "skipping", record.Message)
+	assert.Equal(t, "skipping file: too large", record.Message)
 	assert.Equal(t, source.Path, record.Path)
 }
 
 func TestSourceLoggersAreIndependent(t *testing.T) {
 	var firstOutput, secondOutput bytes.Buffer
 	first := &Files{
-		Logger: slog.New(slog.NewJSONHandler(&firstOutput, nil)),
-		Path:   filepath.Join(t.TempDir(), "first-missing"),
+		Logger:      slog.New(slog.NewJSONHandler(&firstOutput, nil)),
+		Path:        filepath.Join(t.TempDir(), "first.txt"),
+		MaxFileSize: 1,
 	}
 	second := &Files{
-		Logger: slog.New(slog.NewJSONHandler(&secondOutput, nil)),
-		Path:   filepath.Join(t.TempDir(), "second-missing"),
+		Logger:      slog.New(slog.NewJSONHandler(&secondOutput, nil)),
+		Path:        filepath.Join(t.TempDir(), "second.txt"),
+		MaxFileSize: 1,
 	}
 
+	require.NoError(t, os.WriteFile(first.Path, []byte("large"), 0o600))
+	require.NoError(t, os.WriteFile(second.Path, []byte("large"), 0o600))
 	yield := func(Fragment, error) error { return nil }
 	require.NoError(t, first.Fragments(t.Context(), yield))
 	require.NoError(t, second.Fragments(t.Context(), yield))
