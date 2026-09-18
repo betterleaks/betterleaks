@@ -3773,6 +3773,10 @@ keywords = [
     "token",
 ]
 filter = '''
+// Reject implausible values before preparing context and confidence.
+entropy(finding["secret"]) <= 3.5
+|| failsTokenEfficiency(finding["secret"])
+|| (
 // Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
   max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
@@ -3800,9 +3804,7 @@ let level = matchesAny(genericMatchContext, [
 let _ = setConfidence(level);
 
 // big ol expression to filter out FPs
-entropy(finding["secret"]) <= 3.5
-|| failsTokenEfficiency(finding["secret"])
-|| matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
+matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
 || (containsAny(finding["secret"], [
   "000000",
   "aaaaaa",
@@ -5331,6 +5333,7 @@ entropy(finding["secret"]) <= 3.5
 || (matchesAny(finding["secret"], [`^test_[a-zA-Z0-9]{27}$`]) && containsAny(providerMatchContext, ["paddle"]))
 || (matchesAny(finding["secret"], [`^live_[a-zA-Z0-9]{27}$`]) && containsAny(providerMatchContext, ["paddle"]))
 || (matchesAny(finding["secret"], [`^pk_live_[0-9A-F]{16}$`]) && containsAny(providerMatchContext, ["magic"]))
+)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -36,7 +36,11 @@ func GenericCredential() *config.Rule {
 			"token",
 		},
 		Specificity: 0,
-		Filter: `// Provider checks use a fixed window around the match, clamped to its line.
+		Filter: `// Reject implausible values before preparing context and confidence.
+entropy(finding["secret"]) <= 3.5
+|| failsTokenEfficiency(finding["secret"])
+|| (
+// Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
   max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
   min(finding["match_end_idx"] + 50, finding["match_line_end_idx"])
@@ -63,9 +67,8 @@ let level = matchesAny(genericMatchContext, [
 let _ = setConfidence(level);
 
 // big ol expression to filter out FPs
-entropy(finding["secret"]) <= 3.5
-|| failsTokenEfficiency(finding["secret"])
-|| ` + genericAPIKeyFilter,
+` + genericAPIKeyFilter + `
+)`,
 	}
 
 	// validate
