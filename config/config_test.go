@@ -287,129 +287,6 @@ func TestTranslateExtend(t *testing.T) {
 				},
 			},
 		},
-		{
-			cfgName: "valid/extend_rule_no_regexpath",
-			cfg: &Config{
-				Rules: []Rule{
-					{
-						ID:          "aws-secret-key-again-again",
-						Description: "AWS Secret Key",
-						Regex:       `(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}`,
-						Keywords:    []string{},
-						Tags:        []string{"key", "AWS"},
-						Filter:      "matchesAny(attributes[\"path\"], [`something.py`])",
-					},
-				},
-			},
-		},
-		{
-			cfgName: "valid/extend_rule_override_description",
-			rules:   []string{"aws-access-key"},
-			cfg: &Config{
-				Title: "override a built-in rule's description",
-				Rules: []Rule{{
-					ID:          "aws-access-key",
-					Description: "Puppy Doggy",
-					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
-					Keywords:    []string{},
-					Tags:        []string{"key", "AWS"},
-				},
-				},
-			},
-		},
-		{
-			cfgName: "valid/extend_rule_override_path",
-			rules:   []string{"aws-access-key"},
-			cfg: &Config{
-				Title: "override a built-in rule's path",
-				Rules: []Rule{{
-					ID:          "aws-access-key",
-					Description: "AWS Access Key",
-					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
-					Path:        "(?:puppy)",
-					Keywords:    []string{},
-					Tags:        []string{"key", "AWS"},
-				},
-				},
-			},
-		},
-		{
-			cfgName: "valid/extend_rule_override_regex",
-			rules:   []string{"aws-access-key"},
-			cfg: &Config{
-				Title: "override a built-in rule's regex",
-				Rules: []Rule{{
-					ID:          "aws-access-key",
-					Description: "AWS Access Key",
-					Regex:       "(?:a)",
-					Keywords:    []string{},
-					Tags:        []string{"key", "AWS"},
-				},
-				},
-			},
-		},
-		{
-			cfgName: "valid/extend_rule_override_secret_group",
-			rules:   []string{"aws-access-key"},
-			cfg: &Config{
-				Title: "override a built-in rule's secretGroup",
-				Rules: []Rule{{
-					ID:          "aws-access-key",
-					Description: "AWS Access Key",
-					Regex:       "(a)(a)",
-					SecretGroup: 2,
-					Keywords:    []string{},
-					Tags:        []string{"key", "AWS"},
-				},
-				},
-			},
-		},
-		{
-			cfgName: "valid/extend_rule_override_filter",
-			rules:   []string{"aws-access-key"},
-			cfg: &Config{
-				Title: "override a built-in rule's filter",
-				Rules: []Rule{{
-					ID:          "aws-access-key",
-					Description: "AWS Access Key",
-					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
-					Keywords:    []string{},
-					Tags:        []string{"key", "AWS"},
-					Filter:      `entropy(finding["secret"]) <= 999.0`,
-				},
-				},
-			},
-		},
-		{
-			cfgName: "valid/extend_rule_override_keywords",
-			rules:   []string{"aws-access-key"},
-			cfg: &Config{
-				Title: "override a built-in rule's keywords",
-				Rules: []Rule{{
-					ID:          "aws-access-key",
-					Description: "AWS Access Key",
-					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
-					Keywords:    []string{"puppy"},
-					Tags:        []string{"key", "AWS"},
-				},
-				},
-			},
-		},
-		{
-			cfgName: "valid/extend_rule_override_tags",
-			rules:   []string{"aws-access-key"},
-			cfg: &Config{
-				Title: "override a built-in rule's tags",
-				Rules: []Rule{{
-					ID:          "aws-access-key",
-					Description: "AWS Access Key",
-					Regex:       "(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
-					Keywords:    []string{},
-					Tags:        []string{"key", "AWS", "puppy"},
-				},
-				},
-			},
-		},
 		// Invalid
 		{
 			cfgName:   "invalid/extend_invalid_ruleid",
@@ -431,16 +308,10 @@ func TestExtendGlobalExpressions(t *testing.T) {
 		baseFilter       = `let base = finding["secret"] == "base"; base`
 		currentFilter    = `let current = finding["secret"] == "current"; current`
 	)
-	base := &Config{
-		Prefilter: basePrefilter,
-		Filter:    baseFilter,
-	}
-	current := &Config{
-		Prefilter: currentPrefilter,
-		Filter:    currentFilter,
-	}
-
-	current.extend(base, extendConfig{}, nil)
+	basePath := filepath.Join(t.TempDir(), "base.toml")
+	require.NoError(t, os.WriteFile(basePath, []byte(fmt.Sprintf("prefilter = %q\nfilter = %q\n", basePrefilter, baseFilter)), 0o600))
+	current, err := ParseTOMLString(fmt.Sprintf("prefilter = %q\nfilter = %q\n[extend]\npath = %q\n", currentPrefilter, currentFilter, basePath), "")
+	require.NoError(t, err)
 
 	require.Equal(t, "(\n"+basePrefilter+"\n) || (\n"+currentPrefilter+"\n)", current.Prefilter)
 	require.Equal(t, "(\n"+baseFilter+"\n) || (\n"+currentFilter+"\n)", current.Filter)
@@ -564,6 +435,144 @@ specificity = 0
 	assert.Equal(t, 0, requireRule(t, cfg, "fallback").Specificity)
 }
 
+func TestExtendedRuleReplacesBase(t *testing.T) {
+	basePath := filepath.Join(t.TempDir(), "base.toml")
+	require.NoError(t, os.WriteFile(basePath, []byte(`
+[[rules]]
+id = "token"
+description = "base description"
+regex = '(TOKEN)'
+path = 'base.env'
+secretGroup = 1
+specificity = 17
+skipReport = true
+confidence = "high"
+keywords = ["BASE"]
+tags = ["base"]
+filter = "true"
+validate = 'base validation'
+analyze = 'base analysis'
+revoke = 'base revocation'
+components = [{ id = "part", within = "2L" }]
+[[rules]]
+id = "part"
+regex = 'PART'
+`), 0o600))
+	for _, fields := range []string{
+		"regex = 'CHILD'",
+		"path = 'child.env'",
+		"regex = '(CHILD)'\nsecretGroup = 1\nspecificity = 0\nskipReport = true\nkeywords = ['CHILD']\ntags = ['child']",
+	} {
+		t.Run(fields, func(t *testing.T) {
+			child := "[[rules]]\nid = 'token'\n" + fields
+			standalone, err := ParseTOMLString(child, "")
+			require.NoError(t, err)
+			extended, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q\n%s", basePath, child), "")
+			require.NoError(t, err)
+			require.Len(t, extended.Rules, 2)
+			assert.Equal(t, requireRule(t, standalone, "token"), requireRule(t, extended, "token"))
+			assert.Equal(t, "PART", requireRule(t, extended, "part").Regex)
+		})
+	}
+}
+
+func TestNestedRuleReplacement(t *testing.T) {
+	dir := t.TempDir()
+	basePath, middlePath := filepath.Join(dir, "base.toml"), filepath.Join(dir, "middle.toml")
+	require.NoError(t, os.WriteFile(basePath, []byte(`
+[[rules]]
+id = "token"
+regex = '(TOKEN)'
+secretGroup = 1
+specificity = 17
+skipReport = true
+keywords = ["BASE"]
+tags = ["base"]
+components = [{ id = "part", within = "2L" }]
+
+[[rules]]
+id = "disabled"
+regex = 'DISABLED'
+`), 0o600))
+	require.NoError(t, os.WriteFile(middlePath, []byte(fmt.Sprintf(`[extend]
+path = %q
+[[rules]]
+id = "token"
+regex = 'MIDDLE'
+secretGroup = 0
+specificity = 0
+skipReport = false
+keywords = ["MIDDLE"]
+tags = ["middle"]
+`, basePath)), 0o600))
+	cfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+disabledRules = ["disabled"]
+[[rules]]
+id = "token"
+regex = 'CHILD'
+keywords = ["CHILD"]
+tags = ["child"]
+[[rules]]
+id = "part"
+regex = 'PART'
+`, middlePath), filepath.Join(dir, "child.toml"))
+	require.NoError(t, err)
+	require.Len(t, cfg.Rules, 2)
+	require.Equal(t, "part", cfg.Rules[0].ID)
+	require.Equal(t, DefaultRuleSpecificity, cfg.Rules[0].Specificity)
+	rule := requireRule(t, cfg, "token")
+	assert.Zero(t, rule.SecretGroup)
+	assert.Equal(t, DefaultRuleSpecificity, rule.Specificity)
+	assert.Equal(t, "CHILD", rule.Regex)
+	assert.False(t, rule.SkipReport)
+	assert.Equal(t, []string{"child"}, rule.Keywords)
+	assert.Equal(t, []string{"child"}, rule.Tags)
+	assert.Empty(t, rule.Components)
+}
+
+func TestExtendDefaultReplacesRule(t *testing.T) {
+	cfg, err := ParseTOMLString(`[extend]
+useDefault = true
+[[rules]]
+id = "github-pat"
+regex = 'CUSTOM'
+specificity = 0
+skipReport = true
+`, "")
+	require.NoError(t, err)
+	rule := requireRule(t, cfg, "github-pat")
+	assert.Zero(t, rule.Specificity)
+	assert.True(t, rule.SkipReport)
+	assert.Equal(t, "CUSTOM", rule.Regex)
+	assert.Empty(t, rule.Keywords)
+	assert.Greater(t, len(cfg.Rules), 1)
+}
+
+func TestInheritanceValidatesResolvedRules(t *testing.T) {
+	for _, test := range []struct {
+		name, baseRegex, override, wantError string
+	}{
+		{name: "replace regex and reset group", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nsecretGroup = 0"},
+		{name: "omitted group defaults to zero", baseRegex: "(TOKEN)", override: "regex = 'VALUE'"},
+		{name: "replace invalid inherited regex", baseRegex: "(", override: "regex = '(VALUE)'"},
+		{name: "partial override is invalid", baseRegex: "(TOKEN)", override: "description = 'partial'", wantError: "both |regex| and |path| are empty"},
+		{name: "own group must fit", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nsecretGroup = 1", wantError: "max regex secret group 0"},
+		{name: "cannot clear both patterns", baseRegex: "(TOKEN)", override: "regex = ''\nsecretGroup = 0", wantError: "both |regex| and |path| are empty"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			basePath := filepath.Join(t.TempDir(), "base.toml")
+			require.NoError(t, os.WriteFile(basePath, []byte(fmt.Sprintf("[[rules]]\nid = 'token'\nregex = %q\nsecretGroup = 1\n", test.baseRegex)), 0o600))
+			_, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q\n[[rules]]\nid = 'token'\n%s\n", basePath, test.override), "")
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestComponents(t *testing.T) {
 	t.Run("new syntax", func(t *testing.T) {
 		cfg, err := ParseTOMLString(`
@@ -662,6 +671,7 @@ path = %q
 
 [[rules]]
 id = "base-primary"
+regex = "replacement"
 components = []
 
 [[rules]]
@@ -672,6 +682,16 @@ components = [{ id = "component" }]
 	require.NoError(t, err)
 	assert.Empty(t, requireRule(t, cfg, "base-primary").Components, "an explicit empty list should clear inherited components")
 	require.Len(t, requireRule(t, cfg, "child-primary").Components, 1, "references should resolve after extension")
+
+	cfg, err = ParseTOMLString(fmt.Sprintf(`[extend]
+path = %q
+[[rules]]
+id = "base-primary"
+regex = "replacement"
+components = [{ id = "component", optional = true, within = "7L" }]
+`, basePath), "")
+	require.NoError(t, err)
+	assert.Equal(t, []Component{{RuleID: "component", Optional: true, Within: "7L"}}, requireRule(t, cfg, "base-primary").Components)
 }
 
 func loadTestConfig(cfgName string) (*Config, error) {
@@ -704,11 +724,6 @@ func TestExtendedRuleKeywordsAreDowncase(t *testing.T) {
 		expectedKeywords string
 	}{
 		{
-			name:             "Extend base rule that includes AWS keyword with new attribute",
-			cfgName:          "valid/extend_base_rule_including_keywords_with_attribute",
-			expectedKeywords: "aws",
-		},
-		{
 			name:             "Extend base with a new rule with CMS keyword",
 			cfgName:          "valid/extend_rule_new",
 			expectedKeywords: "cms",
@@ -739,4 +754,20 @@ func requireRule(t testing.TB, cfg *Config, id string) Rule {
 	rule, ok := cfg.Rule(id)
 	require.Truef(t, ok, "rule %q not found", id)
 	return rule
+}
+
+func BenchmarkParseConfig(b *testing.B) {
+	for _, test := range []struct{ name, content string }{
+		{"default", defaultConfig},
+		{"extend-default", "[extend]\nuseDefault = true\n[[rules]]\nid = 'github-pat'\nregex = 'CUSTOM'\ndescription = 'custom'\n"},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := ParseTOMLString(test.content, ""); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }

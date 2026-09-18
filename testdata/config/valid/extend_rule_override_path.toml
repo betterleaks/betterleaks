@@ -1,8 +1,0 @@
-title = "override a built-in rule's path"
-
-[extend]
-path = "../testdata/config/simple.toml"
-
-[[rules]]
-id = "aws-access-key"
-path = '''(?:puppy)'''

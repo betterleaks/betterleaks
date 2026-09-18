@@ -45,6 +45,18 @@ the same rule.
 Rule IDs must be unique within each TOML configuration. Duplicate IDs are errors.
 A child configuration can still override an inherited rule by ID using `[extend]`.
 
+A child rule replaces the entire base rule with the same ID. There is no
+intra-rule merging: omitted fields use their normal defaults, and lists such as
+`keywords`, `tags`, and `components` are not combined. The child must supply its
+own `regex` or `path`; an ID and a changed description alone are not a valid rule.
+Base rules with other IDs are inherited unchanged unless disabled.
+
+Defaults and validation apply after rule replacement. An overridden or disabled
+base regex is not validated separately. Global `prefilter` and `filter`
+expressions retain the additive behavior described above. Duplicate rule IDs
+and the removed `[[rules.required]]` syntax are rejected in every loaded file,
+including declarations subsequently overridden or disabled.
+
 Each `[[rules]]` entry can use:
 
 - `id`: unique rule identifier.

@@ -127,10 +127,10 @@ func TestRuleValidatePatternStrings(t *testing.T) {
 func TestParseRejectsInvalidPattern(t *testing.T) {
 	_, err := ParseTOMLString(`
 [[rules]]
-id = "duplicate"
+id = "invalid"
 regex = "("
 [[rules]]
-id = "duplicate"
+id = "valid"
 regex = "valid"
 `, "")
 	require.ErrorContains(t, err, "invalid regex")

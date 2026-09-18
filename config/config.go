@@ -51,22 +51,16 @@ type rawRule struct {
 	Specificity *int     `toml:"specificity"`
 	Confidence  string   `toml:"confidence"`
 
-	// Components is a pointer so config extension can distinguish omission
-	// from an explicit empty list.
-	Components *[]*rawComponent `toml:"components"`
+	Components []rawComponent `toml:"components"`
 
-	// Required exists only to reject the removed [[rules.required]] syntax
-	// explicitly instead of silently weakening a rule.
+	// Required exists only to reject the removed [[rules.required]] syntax.
 	Required []struct{} `toml:"required"`
 
 	Validate   string `toml:"validate"`
 	Analyze    string `toml:"analyze"`
 	Revoke     string `toml:"revoke"`
 	SkipReport bool   `toml:"skipReport"`
-
-	// Filter is an Expr expression evaluated per match (attributes + finding).
-	// Returns true = skip (discard this finding); false = keep.
-	Filter string `toml:"filter"`
+	Filter     string `toml:"filter"`
 }
 
 type rawComponent struct {
@@ -92,8 +86,6 @@ type Config struct {
 	// Filter is a global expression (attributes + finding) evaluated per match.
 	// Returns true = skip (discard) this finding; false = keep.
 	Filter string
-
-	logger *slog.Logger
 }
 
 // LoadOption configures a config loading operation.
@@ -140,7 +132,14 @@ func ParseTOML(data []byte, path string, options ...LoadOption) (*Config, error)
 	}
 	rc.path = path
 	rc.logger = loadOptions.logger
-	return rc.translate(0)
+	if err := rc.resolve(0); err != nil {
+		return nil, err
+	}
+	cfg := rc.translate()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 func ParseTOMLString(content, path string, options ...LoadOption) (*Config, error) {
@@ -159,117 +158,55 @@ func Default(options ...LoadOption) (*Config, error) {
 	return ParseTOMLString(defaultConfig, "", options...)
 }
 
-func (rc *rawConfig) translate(depth int) (*Config, error) {
-	var (
-		rules         = make([]Rule, 0, len(rc.Rules))
-		ruleIDs       = make(map[string]struct{}, len(rc.Rules))
-		componentsSet = make(map[string]struct{})
-	)
-
-	// Validate individual rules.
-	for _, vr := range rc.Rules {
-		if _, exists := ruleIDs[vr.ID]; exists {
-			return nil, fmt.Errorf("duplicate rule ID %q", vr.ID)
-		}
-		ruleIDs[vr.ID] = struct{}{}
-		patterns := Rule{ID: vr.ID, Regex: vr.Regex, Path: vr.Path}
-		if _, err := patterns.validatePatterns(); err != nil {
-			return nil, err
-		}
-		if vr.Keywords == nil {
-			vr.Keywords = []string{}
-		} else {
-			for i, k := range vr.Keywords {
-				keyword := strings.ToLower(k)
-				vr.Keywords[i] = keyword
-			}
-		}
-		if vr.Tags == nil {
-			vr.Tags = []string{}
-		}
-		specificity := DefaultRuleSpecificity
-		if vr.Specificity != nil {
-			specificity = *vr.Specificity
-		}
-		cr := Rule{
-			ID:          vr.ID,
-			Description: vr.Description,
-			Regex:       vr.Regex,
-			SecretGroup: vr.SecretGroup,
-			Path:        vr.Path,
-			Keywords:    vr.Keywords,
-			Tags:        vr.Tags,
-			Specificity: specificity,
-			Confidence:  vr.Confidence,
-			SkipReport:  vr.SkipReport,
-		}
-		if vr.Required != nil {
-			return nil, fmt.Errorf("%s: [[rules.required]] is not supported; use rules.components", cr.ID)
-		}
-
-		if vr.Components != nil {
-			componentsSet[cr.ID] = struct{}{}
-			for _, component := range *vr.Components {
-				if component == nil {
-					return nil, fmt.Errorf("%s: component is missing", cr.ID)
-				}
-				cr.Components = append(cr.Components, Component{
-					RuleID:   component.ID,
-					Optional: component.Optional,
-					Within:   component.Within,
-				})
-			}
-		}
-
-		cr.ValidateExpr = vr.Validate
-		cr.AnalyzeExpr = vr.Analyze
-		cr.RevokeExpr = vr.Revoke
-		cr.Filter = vr.Filter
-
-		rules = append(rules, cr)
-	}
-
-	// Assemble the config.
+func (rc *rawConfig) translate() *Config {
 	c := &Config{
 		Title:       rc.Title,
+		Path:        rc.path,
 		Description: rc.Description,
-		Rules:       rules,
+		Rules:       make([]Rule, 0, len(rc.Rules)),
 		MinVersion:  rc.MinVersion,
 		Prefilter:   rc.Prefilter,
 		Filter:      rc.Filter,
-		logger:      rc.logger,
 	}
-
-	c.Path = rc.path
-
-	if err := validateMinVersion(c.logger, c.MinVersion, c.Path); err != nil {
-		return nil, err
-	}
-
-	if maxExtendDepth != depth {
-		// disallow both usedefault and path from being set
-		if rc.Extend.Path != "" && rc.Extend.UseDefault {
-			return nil, errors.New("unable to load config due to extend.path and extend.useDefault being set")
+	for _, raw := range rc.Rules {
+		rule := Rule{
+			ID:           raw.ID,
+			Description:  raw.Description,
+			Regex:        raw.Regex,
+			Path:         raw.Path,
+			SecretGroup:  raw.SecretGroup,
+			Specificity:  DefaultRuleSpecificity,
+			Confidence:   raw.Confidence,
+			SkipReport:   raw.SkipReport,
+			ValidateExpr: raw.Validate,
+			AnalyzeExpr:  raw.Analyze,
+			RevokeExpr:   raw.Revoke,
+			Filter:       raw.Filter,
+			Keywords:     raw.Keywords,
+			Tags:         raw.Tags,
 		}
-		if rc.Extend.UseDefault {
-			if err := c.extendDefault(depth, rc.Extend, componentsSet); err != nil {
-				return nil, err
-			}
-		} else if rc.Extend.Path != "" {
-			if err := c.extendPath(depth, rc.Extend, componentsSet); err != nil {
-				return nil, err
-			}
+		if raw.Specificity != nil {
+			rule.Specificity = *raw.Specificity
 		}
-	}
-
-	// Validate the rules after everything has been assembled (including extended configs).
-	if depth == 0 {
-		if err := c.Validate(); err != nil {
-			return nil, err
+		if rule.Keywords == nil {
+			rule.Keywords = []string{}
 		}
+		for i, keyword := range rule.Keywords {
+			rule.Keywords[i] = strings.ToLower(keyword)
+		}
+		if rule.Tags == nil {
+			rule.Tags = []string{}
+		}
+		for _, component := range raw.Components {
+			rule.Components = append(rule.Components, Component{
+				RuleID:   component.ID,
+				Optional: component.Optional,
+				Within:   component.Within,
+			})
+		}
+		c.Rules = append(c.Rules, rule)
 	}
-
-	return c, nil
+	return c
 }
 
 func validateMinVersion(logger *slog.Logger, minVersion, configPath string) error {
@@ -349,130 +286,100 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func (c *Config) extendDefault(depth int, extend extendConfig, componentsSet map[string]struct{}) error {
-	var defaultRawConfig rawConfig
-	if err := toml.Unmarshal([]byte(defaultConfig), &defaultRawConfig); err != nil {
-		return fmt.Errorf("failed to load extended default config, err: %w", err)
+func (rc *rawConfig) resolve(depth int) error {
+	if err := validateMinVersion(rc.logger, rc.MinVersion, rc.path); err != nil {
+		return err
 	}
-	defaultRawConfig.logger = c.logger
-	cfg, err := defaultRawConfig.translate(depth + 1)
-	if err != nil {
-		return fmt.Errorf("failed to load extended default config, err: %w", err)
+	// Duplicate IDs and removed syntax are errors even in overridden rules.
+	ids := make(map[string]struct{}, len(rc.Rules))
+	for _, rule := range rc.Rules {
+		if _, exists := ids[rule.ID]; exists {
+			return fmt.Errorf("duplicate rule ID %q", rule.ID)
+		}
+		ids[rule.ID] = struct{}{}
+		if rule.Required != nil {
+			return fmt.Errorf("%s: [[rules.required]] is not supported; use rules.components", rule.ID)
+		}
+	}
+	if depth == maxExtendDepth {
+		return nil
+	}
+	if rc.Extend.Path != "" && rc.Extend.UseDefault {
+		return errors.New("unable to load config due to extend.path and extend.useDefault being set")
+	}
 
+	var data []byte
+	name := rc.Extend.Path
+	switch {
+	case rc.Extend.UseDefault:
+		name = "default"
+		data = []byte(defaultConfig)
+	case rc.Extend.Path != "":
+		var err error
+		data, err = os.ReadFile(rc.Extend.Path)
+		if err != nil {
+			return fmt.Errorf("load extended config %q: %w", name, err)
+		}
+	default:
+		return nil
 	}
-	c.logger.Debug("extending config with default config")
-	c.extend(cfg, extend, componentsSet)
+	base := rawConfig{path: rc.Extend.Path, logger: rc.logger}
+	if err := toml.Unmarshal(data, &base); err != nil {
+		return fmt.Errorf("load extended config %q: %w", name, err)
+	}
+	rc.logger.Debug("extending config", "path", name)
+	if err := base.resolve(depth + 1); err != nil {
+		return fmt.Errorf("load extended config %q: %w", name, err)
+	}
+	rc.merge(&base)
 	return nil
 }
 
-func (c *Config) extendPath(depth int, extend extendConfig, componentsSet map[string]struct{}) error {
-	data, err := os.ReadFile(extend.Path)
-	if err != nil {
-		return fmt.Errorf("failed to load extended config, err: %w", err)
-	}
-	var extensionRawConfig rawConfig
-	if err := toml.Unmarshal(data, &extensionRawConfig); err != nil {
-		return fmt.Errorf("failed to load extended config, err: %w", err)
-	}
-	extensionRawConfig.path = extend.Path
-	extensionRawConfig.logger = c.logger
-	c.logger.Debug("extending config", "path", extend.Path)
-	cfg, err := extensionRawConfig.translate(depth + 1)
-	if err != nil {
-		return fmt.Errorf("failed to load extended config, err: %w", err)
-	}
-	c.extend(cfg, extend, componentsSet)
-	return nil
-}
-
-func (c *Config) extend(extensionConfig *Config, extend extendConfig, componentsSet map[string]struct{}) {
-	// Get config name for helpful log messages.
+func (rc *rawConfig) merge(base *rawConfig) {
+	extend := rc.Extend
 	var configName string
 	if extend.Path != "" {
 		configName = extend.Path
 	} else {
 		configName = "default"
 	}
-	// Convert |Config.DisabledRules| into a map for ease of access.
 	disabledRuleIDs := map[string]struct{}{}
-	baseRules := make(map[string]Rule, len(extensionConfig.Rules))
-	for _, rule := range extensionConfig.Rules {
-		baseRules[rule.ID] = rule
+	baseRules := make(map[string]struct{}, len(base.Rules))
+	for _, rule := range base.Rules {
+		baseRules[rule.ID] = struct{}{}
 	}
 	for _, id := range extend.DisabledRules {
 		if _, ok := baseRules[id]; !ok {
-			c.logger.Warn("Disabled rule doesn't exist in extended config.", "rule_id", id, "config", configName)
+			rc.logger.Warn("Disabled rule doesn't exist in extended config.", "rule_id", id, "config", configName)
 		}
 		disabledRuleIDs[id] = struct{}{}
 	}
 
-	currentRuleIndexes := make(map[string]int, len(c.Rules))
-	for i, rule := range c.Rules {
-		currentRuleIndexes[rule.ID] = i
+	currentRuleIDs := make(map[string]struct{}, len(rc.Rules))
+	for _, rule := range rc.Rules {
+		currentRuleIDs[rule.ID] = struct{}{}
 	}
-	for _, baseRule := range extensionConfig.Rules {
+	for _, baseRule := range base.Rules {
 		ruleID := baseRule.ID
-		// Skip the rule.
 		if _, ok := disabledRuleIDs[ruleID]; ok {
-			c.logger.Debug("Ignoring rule from extended config.", "rule_id", ruleID, "config", configName)
+			rc.logger.Debug("Ignoring rule from extended config.", "rule_id", ruleID, "config", configName)
 			continue
 		}
 
-		currentIndex, ok := currentRuleIndexes[ruleID]
-		if !ok {
-			// Rule doesn't exist, add it to the config.
-			c.Rules = append(c.Rules, baseRule)
-			currentRuleIndexes[ruleID] = len(c.Rules) - 1
-		} else {
-			currentRule := c.Rules[currentIndex]
-			// Rule exists, merge our changes into the base.
-			if currentRule.Description != "" {
-				baseRule.Description = currentRule.Description
-			}
-			if currentRule.SecretGroup != 0 {
-				baseRule.SecretGroup = currentRule.SecretGroup
-			}
-			if currentRule.Regex != "" {
-				baseRule.Regex = currentRule.Regex
-			}
-			if currentRule.Path != "" {
-				baseRule.Path = currentRule.Path
-			}
-			if currentRule.ValidateExpr != "" {
-				baseRule.ValidateExpr = currentRule.ValidateExpr
-			}
-			if currentRule.AnalyzeExpr != "" {
-				baseRule.AnalyzeExpr = currentRule.AnalyzeExpr
-			}
-			if currentRule.RevokeExpr != "" {
-				baseRule.RevokeExpr = currentRule.RevokeExpr
-			}
-			if currentRule.Confidence != "" {
-				baseRule.Confidence = currentRule.Confidence
-			}
-			// Current rule's Filter replaces the extending one if set.
-			if currentRule.Filter != "" {
-				baseRule.Filter = currentRule.Filter
-			}
-			baseRule.Tags = append(baseRule.Tags, currentRule.Tags...)
-			baseRule.Keywords = append(baseRule.Keywords, currentRule.Keywords...)
-			if _, set := componentsSet[ruleID]; set {
-				baseRule.Components = currentRule.Components
-			}
-			c.Rules[currentIndex] = baseRule
+		if _, replaced := currentRuleIDs[ruleID]; !replaced {
+			rc.Rules = append(rc.Rules, baseRule)
 		}
 	}
 
 	// Global filters are skip predicates, so extension is additive: either
 	// config may suppress the input. Keep each Expr program intact and compose
 	// them only at their boolean boundary.
-	c.Prefilter = extendGlobalExpr(extensionConfig.Prefilter, c.Prefilter)
-	c.Filter = extendGlobalExpr(extensionConfig.Filter, c.Filter)
+	rc.Prefilter = extendGlobalExpr(base.Prefilter, rc.Prefilter)
+	rc.Filter = extendGlobalExpr(base.Filter, rc.Filter)
 
-	// Preserve the existing deterministic extended-config ordering without a
-	// second order index on Config.
-	sort.Slice(c.Rules, func(i, j int) bool {
-		return c.Rules[i].ID < c.Rules[j].ID
+	// Extended configs retain their existing ID order.
+	sort.Slice(rc.Rules, func(i, j int) bool {
+		return rc.Rules[i].ID < rc.Rules[j].ID
 	})
 }
 
