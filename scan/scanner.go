@@ -551,6 +551,7 @@ func (d *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.
 	encodedSegments := []*codec.EncodedSegment{}
 	currentDecodeDepth := 0
 	decoder := codec.NewDecoder()
+	detection := detectionState{}
 
 ScanLoop:
 	for {
@@ -589,7 +590,7 @@ ScanLoop:
 					if rule.regex == nil && (currentDecodeDepth > 0 || fragment.Attr(sources.AttrFSFirstFragment) == "false") {
 						continue
 					}
-					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, detectionState{}) {
+					for _, finding := range d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, &detection) {
 						// These findings have their components assembled. Recursive
 						// component matching never applies fingerprint suppression.
 						if len(d.ignoredFingerprints) > 0 {
@@ -630,11 +631,14 @@ ScanLoop:
 	return findings
 }
 
-// detectionState is local to a rule evaluation, never part of source metadata.
+// detectionState belongs to one fragment, never to source metadata or a Scanner.
+// Line offsets refer to the original bytes and are shared across rules and
+// decoding passes, whose match locations are remapped to those bytes.
 // Component matches may use skipReport rules, but do not expand components again.
 // The zero value describes a normal top-level match.
 type detectionState struct {
-	component bool
+	component   bool
+	lineOffsets []int
 }
 
 func (d *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
@@ -643,7 +647,7 @@ func (d *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
 	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings *findingIndex,
-	state detectionState) []report.Finding {
+	state *detectionState) []report.Finding {
 	if ruleTimings == nil {
 		return d.detectFragmentWithRule(nil, fragment, currentRaw, r, encodedSegments, priorFindings, state)
 	}
@@ -698,7 +702,7 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings *findingIndex,
-	state detectionState) []report.Finding {
+	state *detectionState) []report.Finding {
 	var (
 		findings []report.Finding
 		logger   = d.logger
@@ -731,18 +735,22 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		return findings
 	}
 
-	matches := r.regex.FindAllStringIndex(currentRaw, -1)
+	var matches [][]int
+	if r.regex.NumSubexp() > 0 {
+		matches = r.regex.FindAllStringSubmatchIndex(currentRaw, -1)
+	} else {
+		matches = r.regex.FindAllStringIndex(currentRaw, -1)
+	}
 	if len(matches) == 0 {
 		return findings
 	}
+	var names []string
+	if r.regex.NumSubexp() > 0 {
+		names = r.regex.SubexpNames()
+	}
 
-	// Lazily compute line offsets — only when we actually need location info.
-	var lineOffsets []int
-	lineOffsetsComputed := false
-
-	// Reuse the matches slice from above instead of calling FindAllStringIndex again.
-	for _, matchIndex := range matches {
-		// Extract secret from match
+	for _, indexes := range matches {
+		matchIndex := indexes[:2]
 		// Clone to release the fragment.Raw string; substring would keep the
 		// whole fragment alive, which uses much more memory.
 		secret := strings.Clone(strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n"))
@@ -774,12 +782,11 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		// in the finding will be the line/column numbers of the _match_
 		// not the _secret_, which will be different if the secretGroup
 		// value is set for this rule
-		if !lineOffsetsComputed {
-			lineOffsets = computeLineOffsets(fragment.Raw)
-			lineOffsetsComputed = true
+		if state.lineOffsets == nil {
+			state.lineOffsets = computeLineOffsets(fragment.Raw)
 		}
 
-		loc := location(lineOffsets, fragment.Raw, matchIndex)
+		loc := location(state.lineOffsets, fragment.Raw, matchIndex)
 
 		tags := append([]string{}, r.rule.Tags...)
 		if len(metaTags) > 0 {
@@ -826,36 +833,40 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			currentLine = finding.Match.Line
 		}
 
-		// Set the value of |secret|, if the pattern contains at least one capture group.
-		// (The first element is the full match, hence we check >= 2.)
-		groups := r.regex.FindStringSubmatch(finding.Match.Value)
-		if len(groups) >= 2 {
+		// Subgroup offsets stay in currentRaw even when the whole-match location
+		// is trimmed or mapped back to encoded source bytes. Rematching the
+		// extracted text would change anchor and boundary semantics.
+		if len(indexes) > 2 {
 			if r.rule.SecretGroup > 0 {
-				if len(groups) <= r.rule.SecretGroup {
+				group := 2 * r.rule.SecretGroup
+				if group+1 >= len(indexes) {
 					// Config validation should prevent this
 					continue
 				}
-				finding.Match.Value = groups[r.rule.SecretGroup]
+				finding.Match.Value = ""
+				if start, end := indexes[group], indexes[group+1]; start >= 0 {
+					finding.Match.Value = strings.Clone(currentRaw[start:end])
+				}
 			} else {
-				// If |secretGroup| is not set, we will use the first suitable capture group.
-				for _, s := range groups[1:] {
-					if len(s) > 0 {
-						finding.Match.Value = s
+				for group := 2; group < len(indexes); group += 2 {
+					if start, end := indexes[group], indexes[group+1]; start >= 0 && end > start {
+						finding.Match.Value = strings.Clone(currentRaw[start:end])
 						break
 					}
 				}
 			}
 
-			// Extract named capture groups for use as template variables.
-			names := r.regex.SubexpNames()
-			captures := make(map[string]string)
 			for i, name := range names {
-				if i > 0 && name != "" && i < len(groups) && groups[i] != "" {
-					captures[name] = strings.Clone(groups[i])
+				if i == 0 || name == "" {
+					continue
 				}
-			}
-			if len(captures) > 0 {
-				finding.Match.Captures = captures
+				start, end := indexes[2*i], indexes[2*i+1]
+				if start >= 0 && end > start {
+					if finding.Match.Captures == nil {
+						finding.Match.Captures = make(map[string]string)
+					}
+					finding.Match.Captures[name] = strings.Clone(currentRaw[start:end])
+				}
 			}
 		}
 
@@ -938,11 +949,11 @@ func (d *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		return findings
 	}
 
-	return d.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, logger)
+	return d.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state, logger)
 }
 
 // processComponents attaches nearby component matches and enforces required components.
-func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, logger *slog.Logger) []report.Finding {
+func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState, logger *slog.Logger) []report.Finding {
 	if len(primaryFindings) == 0 {
 		logger.Debug("no primary findings to process for components")
 		return primaryFindings
@@ -951,6 +962,7 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 	// Pre-collect each component rule's findings once per fragment.
 	allComponentFindings := make(map[string][]report.Finding)
 	componentWindows := make(map[string]contextwindow.Spec, len(r.rule.Components))
+	componentState := detectionState{component: true, lineOffsets: state.lineOffsets}
 
 	for _, component := range r.rule.Components {
 		window, err := contextwindow.Parse(component.Within)
@@ -967,7 +979,7 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 		}
 		rule := &d.rulesBySpecificity[ruleIndex]
 
-		componentFindings := d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, detectionState{component: true})
+		componentFindings := d.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, &componentState)
 		allComponentFindings[component.RuleID] = componentFindings
 
 		logger.Debug("collected component rule findings",
@@ -990,7 +1002,7 @@ func (d *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 			window := componentWindows[component.RuleID]
 
 			for _, found := range foundComponentFindings {
-				if withinProximity(fragment.Raw, fragment.StartLine, primaryFinding, found, window) {
+				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, window) {
 					componentFindings = append(componentFindings, report.ComponentFinding{
 						RuleID:   found.RuleID,
 						Optional: component.Optional,
@@ -1033,23 +1045,22 @@ func (d *Scanner) hasAllRequiredComponents(componentFindings []report.ComponentF
 	return true
 }
 
-func withinProximity(raw string, fragmentStartLine int, primary, component report.Finding, window contextwindow.Spec) bool {
+func withinProximity(raw string, lineOffsets []int, fragmentStartLine int, primary, component report.Finding, window contextwindow.Spec) bool {
 	if window.IsZero() {
 		return true
 	}
 
 	switch window.Mode {
 	case contextwindow.ModeCols:
-		lineStarts := rawLineStarts(raw)
-		primaryStart, ok := findingStartOffset(lineStarts, fragmentStartLine, primary)
+		primaryStart, ok := findingStartOffset(lineOffsets, fragmentStartLine, primary)
 		if !ok {
 			return false
 		}
-		primaryEnd, ok := findingEndOffset(lineStarts, fragmentStartLine, primary)
+		primaryEnd, ok := findingEndOffset(lineOffsets, fragmentStartLine, primary)
 		if !ok {
 			return false
 		}
-		componentStart, ok := findingStartOffset(lineStarts, fragmentStartLine, component)
+		componentStart, ok := findingStartOffset(lineOffsets, fragmentStartLine, component)
 		if !ok {
 			return false
 		}
@@ -1074,30 +1085,20 @@ func withinProximity(raw string, fragmentStartLine int, primary, component repor
 	}
 }
 
-func rawLineStarts(raw string) []int {
-	starts := []int{0}
-	for i := 0; i < len(raw); i++ {
-		if raw[i] == '\n' {
-			starts = append(starts, i+1)
-		}
-	}
-	return starts
-}
-
-func findingStartOffset(lineStarts []int, fragmentStartLine int, finding report.Finding) (int, bool) {
+func findingStartOffset(lineOffsets []int, fragmentStartLine int, finding report.Finding) (int, bool) {
 	line := finding.Location.StartLine - fragmentStartLine
-	if line < 0 || line >= len(lineStarts) || finding.Location.StartColumn < 1 {
+	if line < 0 || line >= len(lineOffsets) || finding.Location.StartColumn < 1 {
 		return 0, false
 	}
-	return lineStarts[line] + finding.Location.StartColumn - 1, true
+	return lineOffsets[line] + finding.Location.StartColumn - 1, true
 }
 
-func findingEndOffset(lineStarts []int, fragmentStartLine int, finding report.Finding) (int, bool) {
+func findingEndOffset(lineOffsets []int, fragmentStartLine int, finding report.Finding) (int, bool) {
 	line := finding.Location.EndLine - fragmentStartLine
-	if line < 0 || line >= len(lineStarts) || finding.Location.EndColumn < 0 {
+	if line < 0 || line >= len(lineOffsets) || finding.Location.EndColumn < 0 {
 		return 0, false
 	}
-	return lineStarts[line] + finding.Location.EndColumn, true
+	return lineOffsets[line] + finding.Location.EndColumn, true
 }
 
 // Path findings have metadata but no content match. They still obey local

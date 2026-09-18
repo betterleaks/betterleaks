@@ -84,6 +84,9 @@ func TestLazyCompileFailureDoesNotPanic(t *testing.T) {
 	if got := re.FindAllStringIndex("foo", -1); got != nil {
 		t.Fatalf("FindAllStringIndex = %#v, want nil", got)
 	}
+	if got := re.FindAllStringSubmatchIndex("foo", -1); got != nil {
+		t.Fatalf("FindAllStringSubmatchIndex = %#v, want nil", got)
+	}
 	if got := re.ReplaceAllString("foo", "bar"); got != "foo" {
 		t.Fatalf("ReplaceAllString = %q, want original", got)
 	}

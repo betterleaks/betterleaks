@@ -6,6 +6,7 @@ type CompiledRegexp interface {
 	FindString(s string) string
 	FindStringSubmatch(s string) []string
 	FindAllStringIndex(s string, n int) [][]int
+	FindAllStringSubmatchIndex(s string, n int) [][]int
 	ReplaceAllString(src, repl string) string
 	NumSubexp() int
 	SubexpNames() []string

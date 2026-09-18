@@ -5,11 +5,10 @@ This package is maintained as part of Betterleaks. It was copied from the
 previously required by Betterleaks. The upstream code is licensed under the
 [MIT license](LICENSE), copyright Billy Keyes.
 
-The import includes the parser, patch application support, tests, fixtures, and
-benchmarks. Local changes include a synchronous `ParseFileHeader` entry point
+This package contains the parser, its tests, fixtures, and benchmarks.
+Local changes include a synchronous `ParseFileHeader` entry point
 that reads metadata directly from an existing string, without a goroutine,
-channel, or buffered reader per file. The binary fixture helper uses the internal
-import and the existing channel API. Parser fixes and optimizations belong here.
+channel, or buffered reader per file. Parser fixes and optimizations belong here.
 Scan orchestration and the streaming hunk reader remain in `sources/git.go` and
 `sources/git_patch.go`.
 

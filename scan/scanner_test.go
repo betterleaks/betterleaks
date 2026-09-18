@@ -24,6 +24,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/v2/regexp"
+	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
@@ -241,7 +242,7 @@ func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
 
 	var findings []report.Finding
 	allocations := testing.AllocsPerRun(1_000, func() {
-		findings = scanner.detectFragmentWithRule(nil, fragment, fragment.Raw, rule, nil, nil, detectionState{})
+		findings = scanner.detectFragmentWithRule(nil, fragment, fragment.Raw, rule, nil, nil, &detectionState{})
 	})
 	runtime.KeepAlive(findings)
 	assert.Zero(t, allocations)
@@ -1450,7 +1451,7 @@ func TestComponentProximity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			window, err := contextwindow.Parse(tt.within)
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, withinProximity(tt.raw, tt.fragmentStartLine, tt.primary, tt.component, window))
+			assert.Equal(t, tt.want, withinProximity(tt.raw, computeLineOffsets(tt.raw), tt.fragmentStartLine, tt.primary, tt.component, window))
 		})
 	}
 }
@@ -3252,8 +3253,54 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rules, _, err := snapshotRules(&config.Config{Rules: []config.Rule{test.rule}})
 			require.NoError(t, err)
-			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, &rules[0], []*codec.EncodedSegment{}, nil, detectionState{})
+			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, &rules[0], []*codec.EncodedSegment{}, nil, &detectionState{})
 			compare(t, actual, test.expected)
+		})
+	}
+}
+
+func TestCapturesUseOriginalMatch(t *testing.T) {
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		t.Run(engine.Version(), func(t *testing.T) {
+			regexp.SetEngine(engine)
+			t.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
+			for _, tc := range []struct {
+				name, pattern, input, full, value string
+				secretGroup                       int
+				captures                          map[string]string
+			}{
+				{name: "start anchor", pattern: `^(?P<start>secret)|(?P<later>secret)`, input: "xsecret", full: "secret", value: "secret", captures: map[string]string{"later": "secret"}},
+				{name: "end anchor", pattern: `(?P<end>secret)$|(?P<before>secret)`, input: "secretx", full: "secret", value: "secret", captures: map[string]string{"before": "secret"}},
+				{name: "word boundary", pattern: `\b(?P<word>secret)|(?P<inside>secret)`, input: "xsecret", full: "secret", value: "secret", captures: map[string]string{"inside": "secret"}},
+				{name: "explicit group", pattern: `^(?P<start>a)b|a(?P<later>b)`, input: "xab", secretGroup: 2, full: "ab", value: "b", captures: map[string]string{"later": "b"}},
+				{name: "unmatched group", pattern: `(?P<optional>missing)?(?P<token>secret)`, input: "secret", secretGroup: 1, full: "secret", value: "", captures: map[string]string{"token": "secret"}},
+				{name: "first participating group", pattern: `(missing)?(?P<token>secret)`, input: "secret", full: "secret", value: "secret", captures: map[string]string{"token": "secret"}},
+				{name: "empty group", pattern: `(?P<empty>)(?P<token>secret)`, input: "secret", full: "secret", value: "secret", captures: map[string]string{"token": "secret"}},
+				{name: "trimmed newline", pattern: `(?P<token>secret)\n`, input: "secret\n", full: "secret", value: "secret", captures: map[string]string{"token": "secret"}},
+				{name: "newline in capture", pattern: `(?P<token>secret\n)`, input: "secret\n", full: "secret", value: "secret\n", captures: map[string]string{"token": "secret\n"}},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern, SecretGroup: tc.secretGroup}}})
+					findings := scanner.ScanString(tc.input)
+					require.Len(t, findings, 1)
+					assert.Equal(t, tc.full, findings[0].Match.Full)
+					assert.Equal(t, tc.value, findings[0].Match.Value)
+					assert.Equal(t, tc.captures, findings[0].Match.Captures)
+				})
+			}
+
+			t.Run("decoded offsets and filter bindings", func(t *testing.T) {
+				scanner := mustNew(t, &config.Config{Rules: []config.Rule{{
+					ID: "token", Regex: `^(?P<start>secret)|(?P<later>secret)`,
+					Filter: `finding.captures.later != "secret" || finding.match_start_idx != 1 || finding.match_end_idx != 7`,
+				}}}, WithMaxDecodeDepth(2))
+				encoded := base64.StdEncoding.EncodeToString([]byte("xsecret padding-1234567890"))
+				encoded = base64.StdEncoding.EncodeToString([]byte(encoded))
+				findings := scanner.detectFragment(t.Context(), sources.Fragment{Raw: encoded, StartLine: 9})
+				require.Len(t, findings, 1)
+				assert.Equal(t, map[string]string{"later": "secret"}, findings[0].Match.Captures)
+				assert.Equal(t, report.Location{StartLine: 9, EndLine: 9, StartColumn: 1, EndColumn: len(encoded)}, findings[0].Location)
+			})
 		})
 	}
 }
@@ -3480,5 +3527,71 @@ func TestScannerOwnsRegexesFromPatternStrings(t *testing.T) {
 		require.Equal(t, "secret", findings[0].Match.Captures["secret"])
 		fragment.Attributes[sources.AttrPath] = "app.txt"
 		require.Empty(t, scanner.detectFragment(t.Context(), fragment))
+	}
+}
+
+func BenchmarkScanCaptureExtraction(b *testing.B) {
+	var input strings.Builder
+	for i := range 100 {
+		fmt.Fprintf(&input, "token=secret-%06d account=user-%06d\n", i, i)
+	}
+	raw := input.String()
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		b.Run(engine.Version(), func(b *testing.B) {
+			regexp.SetEngine(engine)
+			b.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
+			for _, tc := range []struct{ name, pattern string }{
+				{"no_captures", `secret-[0-9]{6}`},
+				{"numbered", `token=(secret-[0-9]{6})`},
+				{"named", `token=(?P<token>secret-[0-9]{6}) (?P<account>account=user-[0-9]{6})`},
+				{"many_captures", `(?P<kind>token)=(?P<secret>secret)-(?P<id>[0-9]{6}) (?P<field>account)=(?P<user>user)-(?P<user_id>[0-9]{6})`},
+			} {
+				b.Run(tc.name, func(b *testing.B) {
+					scanner, err := New(&config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern}}}, WithPrecompile(), WithWorkers(1))
+					if err != nil {
+						b.Fatal(err)
+					}
+					b.ReportAllocs()
+					b.SetBytes(int64(len(raw)))
+					for b.Loop() {
+						if findings := scanner.ScanString(raw); len(findings) != 100 {
+							b.Fatalf("got %d findings, want 100", len(findings))
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func BenchmarkComponentProximity(b *testing.B) {
+	for _, count := range []int{1, 10, 40} {
+		var input strings.Builder
+		for i := range count {
+			fmt.Fprintf(&input, "PRIMARY%04d\nCOMPONENT%04d\n", i, i)
+		}
+		for input.Len() < 100_000 {
+			input.WriteString(strings.Repeat(".", 999) + "\n")
+		}
+		raw := input.String()
+		for _, window := range []string{"100000L", "100000C"} {
+			b.Run(fmt.Sprintf("matches=%d/%s", count, window), func(b *testing.B) {
+				scanner, err := New(&config.Config{Rules: []config.Rule{
+					{ID: "primary", Regex: `PRIMARY[0-9]{4}`, Components: []config.Component{{RuleID: "component", Within: window}}},
+					{ID: "component", Regex: `COMPONENT[0-9]{4}`, SkipReport: true},
+				}}, WithPrecompile(), WithWorkers(1))
+				if err != nil {
+					b.Fatal(err)
+				}
+				b.ReportAllocs()
+				b.SetBytes(int64(len(raw)))
+				for b.Loop() {
+					findings := scanner.ScanString(raw)
+					if len(findings) != count || len(findings[0].ComponentSets) != count {
+						b.Fatal("unexpected findings or component combinations")
+					}
+				}
+			})
+		}
 	}
 }

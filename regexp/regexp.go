@@ -45,6 +45,12 @@ func (r *Regexp) FindAllStringIndex(s string, n int) [][]int {
 	}
 	return nil
 }
+func (r *Regexp) FindAllStringSubmatchIndex(s string, n int) [][]int {
+	if e, ok := r.compiled(); ok {
+		return e.FindAllStringSubmatchIndex(s, n)
+	}
+	return nil
+}
 func (r *Regexp) ReplaceAllString(src, repl string) string {
 	if e, ok := r.compiled(); ok {
 		return e.ReplaceAllString(src, repl)
