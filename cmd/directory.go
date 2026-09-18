@@ -45,12 +45,13 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 	for _, source := range sourcesList {
 		initConfig(runtime, globals, &options.ScanFlags, source)
 		cfg := Config(runtime)
-		runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, source, scan.WithWorkers(workers.Scanner))
+		filters := loadScanFilters(runtime, cfg, options.IgnoreFile, source)
+		runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(workers.Scanner))
 		validationEnabled = validationEnabled || runner.ValidationEnabled()
 
 		s := &sources.Files{
 			Logger:          runtime.Logger(),
-			ShouldSkip:      findings.FileSkipFunc(runner.SkipFunc()),
+			ShouldSkip:      findings.FileSkipFunc(filters.shouldSkip),
 			FollowSymlinks:  options.FollowSymlinks,
 			MaxFileSize:     options.MaxTargetMegabytes * 1_000_000,
 			Path:            source,

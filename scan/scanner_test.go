@@ -27,6 +27,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -253,13 +254,10 @@ func TestGitleaksAllowCommentSuppressesFinding(t *testing.T) {
 	require.Empty(t, scanner.ScanString("secret-alpha // gitleaks:allow"))
 }
 
-func TestScannerSkipFunc(t *testing.T) {
+func TestSourcePrefilter(t *testing.T) {
 	cfg := testConfig()
 	cfg.Prefilter = `attributes["path"] == "ignored.txt"`
-	scanner, err := New(cfg)
-	require.NoError(t, err)
-
-	skip := scanner.SkipFunc()
+	skip := mustPrefilter(t, cfg.Prefilter)
 	require.NotNil(t, skip)
 	assert.True(t, skip(map[string]string{sources.AttrPath: "ignored.txt"}))
 	assert.False(t, skip(map[string]string{sources.AttrPath: "kept.txt"}))
@@ -2467,7 +2465,7 @@ func TestFromGit(t *testing.T) {
 
 				&sources.Git{
 					Cmd:             gitCmd,
-					ShouldSkip:      scanner.SkipFunc(),
+					ShouldSkip:      mustPrefilter(t, cfg.Prefilter),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
 					MaxArchiveDepth: 8,
@@ -2530,7 +2528,7 @@ func TestFromGitStaged(t *testing.T) {
 
 			&sources.Git{
 				Cmd:        gitCmd,
-				ShouldSkip: scanner.SkipFunc(),
+				ShouldSkip: mustPrefilter(t, cfg.Prefilter),
 				Platform:   platform,
 				RemoteURL:  remoteURL,
 			})
@@ -2628,7 +2626,7 @@ func TestFromFiles(t *testing.T) {
 				t.Context(), scanner,
 
 				&sources.Files{
-					ShouldSkip:     scanner.SkipFunc(),
+					ShouldSkip:     mustPrefilter(t, cfg.Prefilter),
 					FollowSymlinks: true,
 					Path:           tt.source,
 				})
@@ -3079,7 +3077,7 @@ func TestDetectWithArchives(t *testing.T) {
 				ctx, scanner,
 				&sources.Files{
 					Path:            tt.source,
-					ShouldSkip:      scanner.SkipFunc(),
+					ShouldSkip:      mustPrefilter(t, cfg.Prefilter),
 					MaxArchiveDepth: 8,
 				})
 
@@ -3135,7 +3133,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 			t.Context(), scanner,
 
 			&sources.Files{
-				ShouldSkip:     scanner.SkipFunc(),
+				ShouldSkip:     mustPrefilter(t, cfg.Prefilter),
 				FollowSymlinks: true,
 				Path:           tt.source,
 			})
@@ -3495,14 +3493,16 @@ func TestComponentMatchesRetainSourceText(t *testing.T) {
 func TestConfigPathDoesNotControlSDKScanning(t *testing.T) {
 	cfg := &config.Config{Path: "rules.toml", Rules: []config.Rule{{ID: "token", Regex: `TOKEN`}}}
 	for _, exclude := range []bool{false, true} {
-		var options []Option
+		var skip sources.SkipFunc
 		if exclude {
-			options = append(options, WithExcludedPaths("rules.toml"))
+			var err error
+			skip, err = prefilter.Compile("", prefilter.Options{ExcludedPaths: []string{"rules.toml"}})
+			require.NoError(t, err)
 		}
-		scanner, err := New(cfg, options...)
+		scanner, err := New(cfg)
 		require.NoError(t, err)
 		count := 0
-		_, err = scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("TOKEN"), Attributes: map[string]string{sources.AttrPath: "rules.toml"}}, func(f report.Finding) error { count++; return nil })
+		_, err = scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("TOKEN"), Attributes: map[string]string{sources.AttrPath: "rules.toml"}, ShouldSkip: skip}, func(f report.Finding) error { count++; return nil })
 		require.NoError(t, err)
 		if exclude {
 			require.Zero(t, count)
@@ -3625,4 +3625,88 @@ func BenchmarkComponentProximity(b *testing.B) {
 			})
 		}
 	}
+}
+
+func mustPrefilter(t *testing.T, expression string) sources.SkipFunc {
+	t.Helper()
+	skip, err := prefilter.Compile(expression, prefilter.Options{})
+	require.NoError(t, err)
+	return skip
+}
+
+func TestPrefilterConstructionAndOwnership(t *testing.T) {
+	skip, err := prefilter.Compile("", prefilter.Options{})
+	require.NoError(t, err)
+	require.Nil(t, skip)
+
+	paths := []string{filepath.Join("fixtures", "ignored.env")}
+	skip, err = prefilter.Compile("", prefilter.Options{ExcludedPaths: paths})
+	require.NoError(t, err)
+	paths[0] = "kept.env"
+	assert.True(t, skip(map[string]string{sources.AttrPath: "fixtures/./ignored.env"}))
+	assert.False(t, skip(map[string]string{sources.AttrPath: "kept.env"}))
+	assert.False(t, skip(nil))
+
+	for _, expression := range []string{
+		`attributes[`, `finding.secret == "x"`,
+		`tokenRatio(attributes.path) > 0`, `failsTokenEfficiency(attributes.path)`,
+		`entropy(attributes.path) > 0`, `findMatch(attributes.path, "x") == "x"`,
+		`intersects(["x"], ["x"])`, `http.get("https://example.com") != nil`,
+	} {
+		_, err := prefilter.Compile(expression, prefilter.Options{})
+		require.Error(t, err, expression)
+	}
+
+	var output bytes.Buffer
+	skip, err = prefilter.Compile(`int(attributes.path) > 0`, prefilter.Options{
+		Logger: slog.New(slog.NewTextHandler(&output, nil)),
+	})
+	require.NoError(t, err)
+	assert.False(t, skip(map[string]string{sources.AttrPath: "not-a-number"}))
+	assert.Contains(t, output.String(), "prefilter eval error; not skipping")
+}
+
+func TestPrefilterConcurrentReuse(t *testing.T) {
+	for _, expression := range []string{
+		`matchesAny(attributes.path, ["^ignored\\.env$"])`,
+		`startsWithAny(attributes.path, ["ignored"]) && containsAny(attributes.path, ["ENV"])`,
+	} {
+		skip := mustPrefilter(t, expression)
+		var group sync.WaitGroup
+		for i := range 20 {
+			group.Go(func() {
+				attrs := map[string]string{sources.AttrPath: "kept.env"}
+				if i%2 == 0 {
+					attrs[sources.AttrPath] = "ignored.env"
+				}
+				assert.Equal(t, i%2 == 0, skip(attrs))
+				attrs[sources.AttrPath] = "kept.env"
+				assert.False(t, skip(attrs))
+			})
+		}
+		group.Wait()
+	}
+}
+
+func TestScannerDoesNotOwnSourcePrefilter(t *testing.T) {
+	cfg := testConfig()
+	cfg.Prefilter = `invalid expression [`
+	scanner := mustNew(t, cfg, WithPrecompile())
+	require.Len(t, scanner.ScanString("secret-alpha"), 1)
+
+	cfg.Prefilter = `attributes.path == "ignored.env"`
+	skip := mustPrefilter(t, cfg.Prefilter)
+	cfg.Prefilter = "true"
+	checks := 0
+	findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{
+		Content:    strings.NewReader("secret-alpha"),
+		Attributes: map[string]string{sources.AttrPath: "kept.env"},
+		ShouldSkip: func(attrs map[string]string) bool {
+			checks++
+			return skip(attrs)
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Equal(t, 1, checks)
 }

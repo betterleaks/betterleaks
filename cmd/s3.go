@@ -31,7 +31,8 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 
 	cfg := Config(runtime)
 	workers := resolveWorkerPlan(options.Jobs, objectWorkerProfile)
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, "", scan.WithWorkers(workers.Scanner))
+	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(workers.Scanner))
 
 	src := &s3.Source{
 		Logger:          runtime.Logger(),
@@ -43,7 +44,7 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 		SessionToken:    options.SessionToken,
 		MaxObjectSize:   options.MaxObjectSize,
 		Workers:         workers.Source,
-		ShouldSkip:      runner.SkipFunc(),
+		ShouldSkip:      filters.shouldSkip,
 		MaxArchiveDepth: options.MaxArchiveDepth,
 	}
 

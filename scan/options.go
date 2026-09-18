@@ -27,7 +27,6 @@ type scannerOptions struct {
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
 	ignoreAllowComments bool
-	excludedPaths       []string
 	ignoredFingerprints []fingerprint.Hash
 	precompile          bool
 	logger              *slog.Logger
@@ -37,15 +36,6 @@ type scannerOptions struct {
 // With... functions in this package.
 type Option struct {
 	apply func(*scannerOptions) error
-}
-
-// WithExcludedPaths suppresses fragments whose path equals one of paths.
-func WithExcludedPaths(paths ...string) Option {
-	paths = slices.Clone(paths)
-	return Option{apply: func(options *scannerOptions) error {
-		options.excludedPaths = append(options.excludedPaths, paths...)
-		return nil
-	}}
 }
 
 // WithIgnoredFingerprints suppresses completed findings whose primary secret

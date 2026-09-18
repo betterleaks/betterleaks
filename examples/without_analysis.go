@@ -18,6 +18,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
 )
 
 func main() {
@@ -39,6 +40,11 @@ func run() error {
 		return err
 	}
 
+	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{})
+	if err != nil {
+		return err
+	}
+
 	const token = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5" // betterleaks:allow
 	source := &sources.Reader{
 		Content: strings.NewReader("GITHUB_TOKEN=" + token + "\n"),
@@ -46,7 +52,7 @@ func run() error {
 			sources.AttrPath:     "application.env",
 			sources.AttrResource: sources.ResourceFileContent,
 		},
-		ShouldSkip: scanner.SkipFunc(),
+		ShouldSkip: skip,
 	}
 
 	// For caller-supplied paths or URLs, sources.Auto(ctx, target) returns

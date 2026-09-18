@@ -560,7 +560,12 @@ func filterBindings(counter *tokenizer.Counter, finding map[string]any, attribut
 }
 
 func prefilterBindings(attributes map[string]string) bindings {
-	return baseBindings(&runtimeBindings{attrs: attributes})
+	return bindings{
+		"attributes":    attributes,
+		"matchesAny":    matchesAny,
+		"containsAny":   containsAny,
+		"startsWithAny": startsWithAny,
+	}
 }
 
 func (rt *runtimeBindings) envGet(name string) (string, error) {

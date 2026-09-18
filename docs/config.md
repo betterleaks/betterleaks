@@ -194,8 +194,11 @@ filter expression evaluates to `true`, the item is skipped.
 | `failsTokenEfficiency(string)` | Returns `true` when the generic-secret heuristic identifies readable text using token ratio, wordlist matches, and a length-sensitive threshold. |
 | `setConfidence(level)` | Sets the current finding's `confidence` attribute. Use as `let _ = setConfidence(level);`. |
 
-The general helpers use top-level names across Expr stages. `setConfidence` is
-available only in finding filters. There is no `filter` namespace: native Expr
+Prefilters expose only `attributes`, `matchesAny`, `containsAny`, and
+`startsWithAny`, plus native Expr operators and built-ins. Other helpers in this
+table belong to finding filters or provider expressions; using them in a
+prefilter fails compilation. Move content/tokenizer checks to finding filters.
+`setConfidence` is available only in finding filters. There is no `filter` namespace: native Expr
 collection filtering works directly, for example `filter([1, 2, 3], { # > 1 })`.
 The former `filter.*` helper names fail compilation.
 

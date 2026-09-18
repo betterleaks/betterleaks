@@ -21,6 +21,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
 )
 
 func main() {
@@ -30,13 +31,15 @@ func main() {
 }
 
 func run() error {
-	// ex config
-	cfg := &config.Config{Rules: []config.Rule{{
-		ID:          "example-api-key",
-		Description: "Example API key",
-		Regex:       `example_[0-9a-f]{32}`,
-		Keywords:    []string{"example_"},
-	}}}
+	cfg := &config.Config{
+		Prefilter: `startsWithAny(attributes["path"], ["archived/"])`,
+		Rules: []config.Rule{{
+			ID:          "example-api-key",
+			Description: "Example API key",
+			Regex:       `example_[0-9a-f]{32}`,
+			Keywords:    []string{"example_"},
+		}},
+	}
 	// Construct once and share. WithWorkers(5) limits detection to five workers
 	// total across all 100 concurrent scans. Source I/O is limited separately.
 	scanner, err := scan.New(cfg, scan.WithWorkers(5))
@@ -48,6 +51,9 @@ func run() error {
 	inputs := make([]struct{ path, content string }, concurrentScans)
 	for i := range inputs {
 		inputs[i].path = fmt.Sprintf("input-%03d.env", i+1)
+		if i%2 == 0 {
+			inputs[i].path = "archived/" + inputs[i].path
+		}
 		inputs[i].content = fmt.Sprintf("API_KEY=example_%032x\n", i+1)
 	}
 	group, ctx := errgroup.WithContext(context.Background())
@@ -55,6 +61,10 @@ func run() error {
 	encoder := json.NewEncoder(os.Stdout)
 	var outputMu sync.Mutex
 	summaries := make([]scan.ScanSummary, len(inputs))
+	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{})
+	if err != nil {
+		return err
+	}
 	for i, input := range inputs {
 		group.Go(func() error {
 
@@ -66,7 +76,7 @@ func run() error {
 					sources.AttrPath:     input.path,
 					sources.AttrResource: sources.ResourceFileContent,
 				},
-				ShouldSkip: scanner.SkipFunc(),
+				ShouldSkip: skip,
 			}
 			summary, err := scanner.Scan(ctx, source, func(finding report.Finding) error {
 				redacted := finding.RedactedCopy(100)

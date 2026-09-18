@@ -26,10 +26,12 @@ import (
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
 )
 
 const mockAnalysisConfig = `
 title = "Mock analysis rules"
+prefilter = 'attributes["path"] == "archived.env"'
 
 [[rules]]
 id = "mock-api-key"
@@ -82,7 +84,6 @@ func run() error {
 		scan.WithMinimumConfidence(scan.ConfidenceHigh),
 		scan.WithPrecompile(),               // Report regex/expression compilation errors now.
 		scan.WithIgnoreAllowComments(false), // Honor betterleaks:allow comments.
-		scan.WithExcludedPaths("archived.env"),
 		// Ignore this exact primary secret across all rules and locations,
 		// before spending any work on validation or analysis.
 		scan.WithIgnoredFingerprints(fingerprint.Sum([]byte(fixtureToken))),
@@ -117,6 +118,11 @@ func run() error {
 		return err
 	}
 
+	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{})
+	if err != nil {
+		return err
+	}
+
 	// The scan deadline covers the entire pipeline, in addition to the
 	// per-request provider timeout above. Cancellation stops the scan.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -133,7 +139,7 @@ func run() error {
 
 	encoder := json.NewEncoder(os.Stdout)
 	// Reuse the scanner and analyzer for sequential scans. Each Reader is fresh
-	// because scanning consumes its input. The second path is excluded above.
+	// because scanning consumes its input. The prefilter skips the archived path.
 	for _, path := range []string{"application.env", "archived.env"} {
 		source := &sources.Reader{
 			Content: strings.NewReader(content),
@@ -141,7 +147,7 @@ func run() error {
 				sources.AttrPath:     path,
 				sources.AttrResource: sources.ResourceFileContent,
 			},
-			ShouldSkip: scanner.SkipFunc(), // Apply the scanner's source prefilter.
+			ShouldSkip: skip,
 		}
 		summary, err := p.Scan(ctx, source, func(finding report.Finding) error {
 			// Finding.Analysis contains status, identity, account, capabilities,

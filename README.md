@@ -235,15 +235,30 @@ probe; local Git checkouts remain filesystem targets. See
 Provider integrations have their own packages:
 
 ```go
-import "github.com/betterleaks/betterleaks/v2/sources/github"
+import (
+    "github.com/betterleaks/betterleaks/v2/sources/github"
+    "github.com/betterleaks/betterleaks/v2/sources/prefilter"
+)
+
+skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{})
+if err != nil {
+    return err
+}
 
 src := &github.Source{
     URL: "https://github.com/example/project",
     Token: token,
-    ShouldSkip: scanner.SkipFunc(),
+    ShouldSkip: skip,
 }
 summary, err := scanner.Scan(ctx, src, handler)
 ```
+
+Compile source prefilters once and pass the callback to each source's
+`ShouldSkip` field. The callback can be shared across concurrent sources and
+retains no scanner or pipeline. `prefilter.Options.ExcludedPaths` adds exact
+path exclusions; `Logger` receives evaluation errors, which keep the input.
+An empty expression with no exclusions returns nil. Direct `ScanString` calls
+apply finding filters only.
 
 GitLab, Hugging Face, and S3 use `sources/gitlab`, `sources/huggingface`, and
 `sources/s3`, each with a `Source` type. Provider-specific constants live there

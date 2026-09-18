@@ -31,7 +31,8 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 	cfg := Config(runtime)
 
 	// create runner
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, "", scan.WithWorkers(resolveWorkerPlan(options.Jobs, streamWorkerProfile).Scanner))
+	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(resolveWorkerPlan(options.Jobs, streamWorkerProfile).Scanner))
 
 	// parse flag(s)
 	attrs, err := parseSetAttrValues(options.SetAttr)
@@ -40,7 +41,7 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 	}
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
-	source := newStdinSource(runtime.stdin, attrs, runner.SkipFunc())
+	source := newStdinSource(runtime.stdin, attrs, filters.shouldSkip)
 	summary, scanErr := runner.Scan(runtime.Context, source, findings.Add)
 	if scanErr != nil {
 		runtime.fatal("failed scan input from stdin", "error", scanErr)

@@ -78,7 +78,8 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 
 	// create runner
 	workers := resolveWorkerPlan(options.Jobs, gitWorkerProfile)
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, ignoreSource, scan.WithWorkers(workers.Scanner))
+	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, ignoreSource)
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(workers.Scanner))
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
 
@@ -96,7 +97,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		src = &sources.Git{
 			Logger:          runtime.Logger(),
 			Cmd:             gitCmd,
-			ShouldSkip:      runner.SkipFunc(),
+			ShouldSkip:      filters.shouldSkip,
 			Platform:        scm.NoPlatform,
 			MaxArchiveDepth: options.MaxArchiveDepth,
 			Workers:         workers.Source,
@@ -114,7 +115,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		gitSource := &sources.Git{
 			Logger:          runtime.Logger(),
 			RepoPath:        source,
-			ShouldSkip:      runner.SkipFunc(),
+			ShouldSkip:      filters.shouldSkip,
 			Platform:        resolvedPlatform,
 			RemoteURL:       remoteURL,
 			MaxArchiveDepth: options.MaxArchiveDepth,

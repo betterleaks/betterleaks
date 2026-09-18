@@ -50,16 +50,21 @@ func TestGeneralHelpersAcrossStages(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
 	for _, mode := range []compileMode{modePrefilter, modeFilter, modeValidation, modeAnalysis} {
-		for _, expression := range []string{
+		expressions := []string{
 			`matchesAny("example", ["exam"])`,
 			`containsAny("example", ["EXAM"])`,
 			`startsWithAny("example", ["exam"])`,
-			`entropy("aaaa") == 0`,
-			`findMatch("example", "exam") == "exam"`,
-			`intersects(["read", "write"], ["write"])`,
 			`filter([1, 2, 3], { # > 1 }) == [2, 3]`,
 			`filter(["read_api", "write_api"], { startsWithAny(#, ["read"]) }) == ["read_api"]`,
-		} {
+		}
+		if mode != modePrefilter {
+			expressions = append(expressions,
+				`entropy("aaaa") == 0`,
+				`findMatch("example", "exam") == "exam"`,
+				`intersects(["read", "write"], ["write"])`,
+			)
+		}
+		for _, expression := range expressions {
 			t.Run(string(mode)+"/"+expression, func(t *testing.T) {
 				program, err := env.compile(mode, expression, nil)
 				require.NoError(t, err)

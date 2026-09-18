@@ -12,6 +12,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
 )
 
 func Example() {
@@ -64,9 +65,14 @@ func Example_customConfig() {
 		panic(err)
 	}
 
+	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{Logger: logger})
+	if err != nil {
+		panic(err)
+	}
+
 	source := &sources.Reader{
 		Content:    os.Stdin,
-		ShouldSkip: scanner.SkipFunc(),
+		ShouldSkip: skip,
 	}
 	_, err = scanner.Scan(context.Background(), source, func(finding report.Finding) error {
 		fmt.Println(finding.RuleID, finding.Confidence)

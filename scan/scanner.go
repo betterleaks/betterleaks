@@ -69,9 +69,7 @@ type Scanner struct {
 	logger              *slog.Logger
 
 	keywordMatcher   *ahocorasick.Matcher
-	prefilterProgram exprruntime.Program
 	globalFilterExpr string
-	excludedPaths    []string
 
 	tokenCounter     *tokenizer.Counter
 	tokenCounterOnce sync.Once
@@ -101,10 +99,9 @@ type Scanner struct {
 	candidatePool sync.Pool
 }
 
-// New creates a Scanner from cfg. The source prefilter compiles during
-// construction; rule regexes and finding filters stay
-// lazy unless [WithPrecompile] is supplied. Construction never starts scan or
-// provider workers.
+// New creates a Scanner from cfg. Rule regexes and finding filters compile
+// lazily unless [WithPrecompile] is supplied. Sources own prefilter evaluation;
+// cfg.Prefilter is not used by the Scanner.
 func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required to create scanner")
@@ -158,7 +155,6 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		matchContext:        settings.matchContext,
 		minimumConfidence:   settings.minimumConfidence,
 		ignoreAllowComments: settings.ignoreAllowComments,
-		excludedPaths:       slices.Clone(settings.excludedPaths),
 		workers:             settings.workers,
 		workerSlots:         semaphore.NewWeighted(int64(settings.workers)),
 		logger:              logging.OrDiscard(settings.logger),
@@ -180,16 +176,6 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		return &ruleCandidates{marked: make([]bool, len(s.rulesBySpecificity))}
 	}
 	exprRuntime.SetTokenCounterProvider(s.tokenCounterInstance)
-
-	// Compile only the global prefilter so sources can use it before scanning.
-	// Finding filters and per-rule expressions compile lazily on first candidate.
-	if cfg.Prefilter != "" {
-		program, compileErr := exprRuntime.CompilePrefilter(cfg.Prefilter)
-		if compileErr != nil {
-			return nil, fmt.Errorf("compile global prefilter: %w", compileErr)
-		}
-		s.prefilterProgram = program
-	}
 
 	if settings.precompile {
 		if err := s.compileAll(); err != nil {
@@ -255,40 +241,6 @@ func (s *Scanner) ruleFilterProgram(r *compiledRule) (exprruntime.Program, bool,
 		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.rule.ID, err)
 	}
 	return program, true, nil
-}
-
-// SkipFunc returns a sources.SkipFunc callback that evaluates the config's
-// prefilter program against fragment attributes. Pass it to a source's
-// ShouldSkip field to filter fragments before their contents are loaded. It
-// returns nil when no prefilter or excluded paths are configured.
-func (s *Scanner) SkipFunc() sources.SkipFunc {
-	prg := s.prefilterProgram
-	if prg == nil && len(s.excludedPaths) == 0 {
-		return nil
-	}
-	return func(attrs map[string]string) bool {
-		if s.pathExcluded(attrs[sources.AttrPath]) {
-			return true
-		}
-		if prg != nil {
-			skip, err := s.exprRuntime.EvalPrefilter(prg, attrs)
-			if err != nil {
-				s.logger.Warn("prefilter eval error; not skipping", "error", err)
-				return false
-			}
-			return skip
-		}
-		return false
-	}
-}
-
-func (s *Scanner) pathExcluded(path string) bool {
-	for _, excluded := range s.excludedPaths {
-		if path != "" && samePath(path, excluded) {
-			return true
-		}
-	}
-	return false
 }
 
 // Result is one finding or recoverable error emitted by [Scanner.Run].
@@ -527,13 +479,6 @@ func (s *Scanner) detectFragment(ctx context.Context, fragment sources.Fragment)
 func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.Fragment, state *scanState) []report.Finding {
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
-
-	// Apply explicit source policy. Config.Path is provenance only.
-	if path := fragment.Attr(sources.AttrPath); path != "" {
-		if s.pathExcluded(path) {
-			return nil
-		}
-	}
 
 	var ruleTimings *ruletiming.Collector
 	if state != nil {

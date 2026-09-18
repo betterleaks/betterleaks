@@ -3,7 +3,6 @@ package scan
 import (
 	"github.com/betterleaks/betterleaks/v2/config"
 	"log/slog"
-	"path/filepath"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/report"
@@ -22,15 +21,6 @@ func filterForTest(findings []report.Finding) []report.Finding {
 		scanner.rulesBySpecificity = append(scanner.rulesBySpecificity, compiledRule{rule: config.Rule{ID: id, Specificity: specificity}})
 	}
 	return scanner.filter(findings)
-}
-
-func TestSamePath(t *testing.T) {
-	// A native-separator config path and the forward-slash fragment path the
-	// file source produces must compare equal. The bug only bit on Windows,
-	// where filepath.FromSlash yields backslashes.
-	cfg := filepath.FromSlash("proj/sub/.betterleaks.toml")
-	assert.True(t, samePath("proj/sub/.betterleaks.toml", cfg))
-	assert.False(t, samePath("proj/sub/other.toml", cfg))
 }
 
 func TestFilterTracksComponentOwnership(t *testing.T) {

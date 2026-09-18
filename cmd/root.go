@@ -21,6 +21,8 @@ import (
 	regexpre2 "github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
 	"github.com/betterleaks/betterleaks/v2/version"
 )
 
@@ -394,7 +396,7 @@ func Config(runtime *commandRuntime) *config.Config {
 	return &cfg
 }
 
-func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, cfg *config.Config, source string, extraOptions ...scan.Option) *pipeline.Pipeline {
+func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, cfg *config.Config, extraOptions ...scan.Option) *pipeline.Pipeline {
 	var err error
 
 	// Apply rule overrides before either engine snapshots the configuration.
@@ -409,19 +411,12 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 	if err != nil {
 		runtime.fatal("provider-rps-rule", "error", err)
 	}
-	scannerOptions, err := applyIgnorePolicy(runtime, flags.IgnoreFile, source)
-	if err != nil {
-		runtime.fatal("unable to load ignore file", "error", err)
-	}
-	if cfg.Path != "" {
-		scannerOptions = append(scannerOptions, scan.WithExcludedPaths(cfg.Path))
-	}
-	scannerOptions = append(scannerOptions,
+	scannerOptions := []scan.Option{
 		scan.WithWorkers(flags.Jobs),
 		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
 		scan.WithMinimumConfidence(scan.Confidence(flags.Confidence)),
 		scan.WithIgnoreAllowComments(flags.IgnoreAllowComments),
-	)
+	}
 	if flags.MatchContext != "" {
 		scannerOptions = append(scannerOptions, scan.WithMatchContext(flags.MatchContext))
 	}
@@ -496,7 +491,30 @@ func parseValidationStatuses(value string) ([]report.ValidationStatus, error) {
 	return statuses, nil
 }
 
-func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string) ([]scan.Option, error) {
+type scanFilters struct {
+	shouldSkip   sources.SkipFunc
+	fingerprints []fingerprint.Hash
+}
+
+func loadScanFilters(runtime *commandRuntime, cfg *config.Config, ignorePath, source string) scanFilters {
+	hashes, excluded, err := readIgnoreFile(runtime, ignorePath, source)
+	if err != nil {
+		runtime.fatal("unable to load ignore file", "error", err)
+	}
+	if cfg.Path != "" {
+		excluded = append(excluded, cfg.Path)
+	}
+	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{
+		ExcludedPaths: excluded,
+		Logger:        runtime.Logger(),
+	})
+	if err != nil {
+		runtime.fatal("unable to compile source prefilter", "error", err)
+	}
+	return scanFilters{shouldSkip: skip, fingerprints: hashes}
+}
+
+func readIgnoreFile(runtime *commandRuntime, explicitPath, source string) ([]fingerprint.Hash, []string, error) {
 	path := explicitPath
 	explicit := path != ""
 	if !explicit {
@@ -504,7 +522,7 @@ func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string) ([]
 		if source != "" {
 			info, err := os.Stat(source)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if info.IsDir() {
 				path = filepath.Join(source, ".betterleaksignore")
@@ -517,13 +535,13 @@ func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string) ([]
 	file, err := os.Open(path)
 	if err != nil {
 		if !explicit && os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
 		if explicit {
-			return nil, fmt.Errorf("open %q: %w", path, err)
+			return nil, nil, fmt.Errorf("open %q: %w", path, err)
 		}
 		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s: %v\n", path, err)
-		return nil, nil
+		return nil, nil, nil
 	}
 	defer file.Close()
 
@@ -533,7 +551,7 @@ func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string) ([]
 	}
 	if readErr != nil {
 		if explicit {
-			return nil, fmt.Errorf("read %q: %w", path, readErr)
+			return nil, nil, fmt.Errorf("read %q: %w", path, readErr)
 		}
 		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s: %v\n", path, readErr)
 	}
@@ -554,14 +572,7 @@ func applyIgnorePolicy(runtime *commandRuntime, explicitPath, source string) ([]
 			}
 		}
 	}
-	var options []scan.Option
-	if len(excluded) > 0 {
-		options = append(options, scan.WithExcludedPaths(excluded...))
-	}
-	if len(hashes) > 0 {
-		options = append(options, scan.WithIgnoredFingerprints(hashes...))
-	}
-	return options, nil
+	return hashes, excluded, nil
 }
 
 func bytesConvert(bytes uint64) string {

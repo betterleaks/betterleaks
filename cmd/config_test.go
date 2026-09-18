@@ -110,6 +110,26 @@ func TestCLIExplicitlyExcludesLoadedConfig(t *testing.T) {
 	require.Equal(t, filepath.ToSlash(filepath.Join(dir, "app.env")), finding.Location.Path)
 }
 
+func TestInvalidPrefilterStopsBeforeSourceIO(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		fmt.Fprint(w, "TOKEN")
+	}))
+	defer server.Close()
+	path := writeTestConfig(t, `
+prefilter = 'tokenRatio(attributes.path) > 0'
+[[rules]]
+id = "token"
+regex = 'TOKEN'
+`)
+	root, _ := newTestCLI(t)
+	root.runtime.exit = func(code int) { panic(code) }
+	root.SetArgs([]string{"url", server.URL, "--config", path, "--offline", "--no-color"})
+	require.PanicsWithValue(t, 1, func() { _ = root.Execute() })
+	require.Zero(t, requests.Load())
+}
+
 func TestConfigShowIDs(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -52,8 +52,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 			name: "prefilter",
 			fns:  functionNames(prefilterBindings(emptyStringMap)),
 			current: []string{
-				"matchesAny", "findMatch", "containsAny", "startsWithAny", "entropy",
-				"intersects", "failsTokenEfficiency", "tokenRatio",
+				"matchesAny", "containsAny", "startsWithAny",
 			},
 		},
 	} {

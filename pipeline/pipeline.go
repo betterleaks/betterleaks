@@ -83,9 +83,6 @@ type ScanSummary struct {
 	ValidationCounts map[report.ValidationStatus]int
 }
 
-// SkipFunc exposes the scanner's source prefilter for filtering before I/O.
-func (p *Pipeline) SkipFunc() sources.SkipFunc { return p.scanner.SkipFunc() }
-
 // ValidationEnabled reports whether this pipeline can validate credentials.
 func (p *Pipeline) ValidationEnabled() bool { return p != nil && p.analyzer.HasValidation() }
 

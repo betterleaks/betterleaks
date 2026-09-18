@@ -18,13 +18,15 @@ func (cmd *URLCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	initDiagnostics(runtime, &cmd.ScanFlags)
 
 	workers := resolveWorkerPlan(cmd.Jobs, objectWorkerProfile)
-	runner := newScanPipeline(runtime, &cli.GlobalFlags, &cmd.ScanFlags, Config(runtime), "", scan.WithWorkers(workers.Scanner))
+	cfg := Config(runtime)
+	filters := loadScanFilters(runtime, cfg, cmd.IgnoreFile, "")
+	runner := newScanPipeline(runtime, &cli.GlobalFlags, &cmd.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(workers.Scanner))
 	findings := mustNewFindingCollector(runtime, &cmd.ScanFlags, cli.NoColor)
 
 	src := &sources.URL{
 		URL:             cmd.URL,
 		Logger:          runtime.Logger(),
-		ShouldSkip:      runner.SkipFunc(),
+		ShouldSkip:      filters.shouldSkip,
 		MaxArchiveDepth: cmd.MaxArchiveDepth,
 		MaxSize:         int64(cmd.MaxTargetMegabytes) * 1_000_000,
 	}
