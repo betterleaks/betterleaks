@@ -571,7 +571,47 @@ ScanLoop:
 		}
 	}
 	findings = s.filterIndexed(findings, priorFindings)
+	detachFindingText(findings)
 	return findings
+}
+
+// Copy text after filtering so returned findings don't keep entire source or
+// decoded buffers alive. Findings and components covering the same source lines
+// share one copy of those lines.
+func detachFindingText(findings []report.Finding) {
+	lines := make(map[[2]int]string)
+	ownMatch := func(match *report.Match, location report.Location) {
+		if match.Value == match.Full {
+			match.Full = strings.Clone(match.Full)
+			match.Value = match.Full
+		} else {
+			match.Full = strings.Clone(match.Full)
+			match.Value = strings.Clone(match.Value)
+		}
+		for name, value := range match.Captures {
+			match.Captures[name] = strings.Clone(value)
+		}
+		if match.Line != "" {
+			key := [2]int{location.StartLine, location.EndLine}
+			line, ok := lines[key]
+			if !ok {
+				line = strings.Clone(match.Line)
+				lines[key] = line
+			}
+			match.Line = line
+		}
+		match.Context = strings.Clone(match.Context)
+	}
+	for i := range findings {
+		finding := &findings[i]
+		ownMatch(&finding.Match, finding.Location)
+		for _, set := range finding.ComponentSets {
+			for j := range set.Components {
+				component := &set.Components[j]
+				ownMatch(&component.Match, component.Location)
+			}
+		}
+	}
 }
 
 // detectionState belongs to one fragment, never to source metadata or a Scanner.
@@ -649,7 +689,8 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 	return rules, indexes, nil
 }
 
-// detectFragmentWithRule scans the given fragment for the given rule and returns a list of findings
+// Detection borrows match text until detachFindingText detaches accepted results.
+// Filters and component selection must finish before that ownership boundary.
 func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	fragment sources.Fragment,
 	currentRaw string,
@@ -705,9 +746,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 	for _, indexes := range matches {
 		matchIndex := indexes[:2]
-		// Clone to release the fragment.Raw string; substring would keep the
-		// whole fragment alive, which uses much more memory.
-		secret := strings.Clone(strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n"))
+		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
 		filterMatchStartIdx, filterMatchEndIdx := matchIndex[0], matchIndex[1]
 
 		// For any meta data from decoding
@@ -754,7 +793,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			Match: report.Match{
 				Full:  secret,
 				Value: secret,
-				Line:  strings.Clone(fragment.Raw[loc.startLineIndex:loc.endLineIndex]),
+				Line:  fragment.Raw[loc.startLineIndex:loc.endLineIndex],
 			},
 			Tags: tags,
 			Location: report.Location{
@@ -799,12 +838,12 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 				}
 				finding.Match.Value = ""
 				if start, end := indexes[group], indexes[group+1]; start >= 0 {
-					finding.Match.Value = strings.Clone(currentRaw[start:end])
+					finding.Match.Value = currentRaw[start:end]
 				}
 			} else {
 				for group := 2; group < len(indexes); group += 2 {
 					if start, end := indexes[group], indexes[group+1]; start >= 0 && end > start {
-						finding.Match.Value = strings.Clone(currentRaw[start:end])
+						finding.Match.Value = currentRaw[start:end]
 						break
 					}
 				}
@@ -819,7 +858,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 					if finding.Match.Captures == nil {
 						finding.Match.Captures = make(map[string]string)
 					}
-					finding.Match.Captures[name] = strings.Clone(currentRaw[start:end])
+					finding.Match.Captures[name] = currentRaw[start:end]
 				}
 			}
 		}
@@ -835,7 +874,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		// Context is opt-in. Filters can slice fragment_raw using match offsets
 		// without retaining an additional context window on every finding.
 		if !s.matchContext.IsZero() {
-			finding.Match.Context = strings.Clone(contextwindow.Extract(fragment.Raw, matchIndex, s.matchContext))
+			finding.Match.Context = contextwindow.Extract(fragment.Raw, matchIndex, s.matchContext)
 		}
 
 		// Build finding map once, only when at least one filter program is compiled.

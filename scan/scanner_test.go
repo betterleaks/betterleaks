@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
@@ -3709,4 +3710,83 @@ func TestScannerDoesNotOwnSourcePrefilter(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	require.Equal(t, 1, checks)
+}
+
+func TestFindingTextDoesNotRetainFragment(t *testing.T) {
+	cfg := &config.Config{Rules: []config.Rule{
+		{ID: "token", Regex: `token=(?P<value>[a-z]+)`, Components: []config.Component{{RuleID: "tenant", Within: "1L"}}},
+		{ID: "tenant", Regex: `tenant=(?P<name>[a-z]+)`, SkipReport: true},
+	}}
+	scanner := mustNew(t, cfg, WithMatchContext("1L"))
+	raw := strings.Repeat(".\n", 100_000) + "tenant=acme token=alpha token=beta\n" + strings.Repeat(".\n", 100_000)
+	findings := scanner.ScanString(raw)
+	require.Len(t, findings, 2)
+	start := uintptr(unsafe.Pointer(unsafe.StringData(raw)))
+	for _, finding := range findings {
+		matches := []report.Match{finding.Match}
+		require.Len(t, finding.ComponentSets, 1)
+		matches = append(matches, finding.ComponentSets[0].Components[0].Match)
+		for _, match := range matches {
+			require.Equal(t, "tenant=acme token=alpha token=beta\n", match.Line)
+			require.Equal(t, "tenant=acme token=alpha token=beta", match.Context)
+			texts := []string{match.Full, match.Value, match.Line, match.Context}
+			for _, capture := range match.Captures {
+				texts = append(texts, capture)
+			}
+			for _, text := range texts {
+				address := uintptr(unsafe.Pointer(unsafe.StringData(text)))
+				require.False(t, address >= start && address < start+uintptr(len(raw)), "returned text retains the source fragment")
+			}
+		}
+	}
+	runtime.KeepAlive(raw)
+	findings[0].Match.Captures["value"] = "changed"
+	findings[0].ComponentSets[0].Components[0].Match.Captures["name"] = "changed"
+	require.Equal(t, "beta", findings[1].Match.Captures["value"])
+	require.Equal(t, "acme", findings[1].ComponentSets[0].Components[0].Match.Captures["name"])
+}
+
+func BenchmarkFindingText(b *testing.B) {
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		b.Run(engine.Version(), func(b *testing.B) {
+			regexp.SetEngine(engine)
+			b.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
+			for _, multiline := range []bool{false, true} {
+				var input strings.Builder
+				for i := range 1_000 {
+					fmt.Fprintf(&input, "token=%06d%s", i, strings.Repeat(".", 88))
+					if multiline {
+						input.WriteByte('\n')
+					}
+				}
+				raw := input.String()
+				for _, mode := range []string{"accepted", "filtered", "missing_component"} {
+					b.Run(fmt.Sprintf("multiline=%t/%s", multiline, mode), func(b *testing.B) {
+						cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: `token=(?P<value>[0-9]{6})`}}}
+						want := 1_000
+						switch mode {
+						case "filtered":
+							cfg.Rules[0].Filter = "true"
+							want = 0
+						case "missing_component":
+							cfg.Rules[0].Components = []config.Component{{RuleID: "missing"}}
+							cfg.Rules = append(cfg.Rules, config.Rule{ID: "missing", Regex: "MISSING", SkipReport: true})
+							want = 0
+						}
+						scanner, err := New(cfg, WithPrecompile(), WithWorkers(1))
+						if err != nil {
+							b.Fatal(err)
+						}
+						b.ReportAllocs()
+						b.SetBytes(int64(len(raw)))
+						for b.Loop() {
+							if findings := scanner.ScanString(raw); len(findings) != want {
+								b.Fatalf("got %d findings, want %d", len(findings), want)
+							}
+						}
+					})
+				}
+			}
+		})
+	}
 }
