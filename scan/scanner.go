@@ -25,6 +25,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/v2/internal/limits"
+	"github.com/betterleaks/betterleaks/v2/internal/regexspan"
 	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 	"github.com/betterleaks/betterleaks/v2/logging"
@@ -52,7 +53,8 @@ func logTrace(logger *slog.Logger, msg string, args ...any) {
 type ruleCandidates struct {
 	// Indexes match rulesBySpecificity, preserving rule order without building
 	// a map and sorted slice for every fragment and decode pass.
-	marked []bool
+	marked  []bool
+	windows []regexspan.Windows
 }
 
 // Scanner is an immutable rule engine with thread-safe lazy compilation. A
@@ -88,6 +90,8 @@ type Scanner struct {
 	// rulesBySpecificity of rules that use that keyword. Precomputing this avoids
 	// keyword strings and map lookups while scanning each fragment.
 	keywordRuleIndexes [][]int
+	// anchorRuleIndexes locates windows without making a rule eligible.
+	anchorRuleIndexes [][]int
 
 	// noKeywordIndexes contains positions in rulesBySpecificity for rules without
 	// keywords. These rules are candidates on every scan and decode pass.
@@ -126,11 +130,22 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	exprRuntime := exprruntime.NewLocal()
 
 	keywordToRuleIndexes := make(map[string][]int)
+	anchorToRuleIndexes := make(map[string][]int)
 	noKeywordIndexes := make([]int, 0)
 	for ruleIndex, rule := range rulesBySpecificity {
 		if len(rule.rule.Keywords) == 0 {
 			noKeywordIndexes = append(noKeywordIndexes, ruleIndex)
 			continue
+		}
+		for _, anchor := range rule.searchAnchors {
+			anchor = strings.ToLower(anchor)
+			indexes := anchorToRuleIndexes[anchor]
+			if len(indexes) == 0 || indexes[len(indexes)-1] != ruleIndex {
+				anchorToRuleIndexes[anchor] = append(indexes, ruleIndex)
+			}
+			if _, ok := keywordToRuleIndexes[anchor]; !ok {
+				keywordToRuleIndexes[anchor] = nil
+			}
 		}
 		for _, keyword := range rule.rule.Keywords {
 			keyword = strings.ToLower(keyword)
@@ -147,8 +162,10 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	}
 	sort.Strings(keywords)
 	keywordRuleIndexes := make([][]int, len(keywords))
+	anchorRuleIndexes := make([][]int, len(keywords))
 	for patternID, keyword := range keywords {
 		keywordRuleIndexes[patternID] = keywordToRuleIndexes[keyword]
+		anchorRuleIndexes[patternID] = anchorToRuleIndexes[keyword]
 	}
 	s := &Scanner{
 		maxDecodeDepth:      settings.maxDecodeDepth,
@@ -164,6 +181,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		rulesBySpecificity:  rulesBySpecificity,
 		ruleIndexByID:       ruleIndexByID,
 		keywordRuleIndexes:  keywordRuleIndexes,
+		anchorRuleIndexes:   anchorRuleIndexes,
 		noKeywordIndexes:    noKeywordIndexes,
 	}
 	if len(settings.ignoredFingerprints) > 0 {
@@ -173,7 +191,10 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		}
 	}
 	s.candidatePool.New = func() any {
-		return &ruleCandidates{marked: make([]bool, len(s.rulesBySpecificity))}
+		return &ruleCandidates{
+			marked:  make([]bool, len(s.rulesBySpecificity)),
+			windows: make([]regexspan.Windows, len(s.rulesBySpecificity)),
+		}
 	}
 	exprRuntime.SetTokenCounterProvider(s.tokenCounterInstance)
 
@@ -425,9 +446,9 @@ func isPipelineStop(err error) bool {
 	return errors.Is(err, errStopIteration) || errors.Is(err, context.Canceled)
 }
 
-func rulePathMatchesFragment(pathRule *blregexp.Regexp, fragment sources.Fragment) bool {
+func rulePathMatchesFragment(rule *compiledRule, fragment sources.Fragment) bool {
 	path := fragment.Attr(sources.AttrPath)
-	return path != "" && pathRule != nil && pathRule.MatchString(path)
+	return path != "" && rule.path != nil && pathSuffixPossible(path, rule.pathSuffixes) && rule.path.MatchString(path)
 }
 
 func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Finding {
@@ -502,11 +523,22 @@ ScanLoop:
 			break ScanLoop
 		default:
 			candidates := s.candidatePool.Get().(*ruleCandidates)
-			// A rule is a candidate when any of its keywords matched. The bitmap
-			// deduplicates rules referenced by multiple matching keywords.
-			s.keywordMatcher.Visit(currentRaw, func(patternID, _, _ int) bool {
+			// Keywords select rules; proven assignment shapes can reject a hit.
+			// Keep every eligible location for merging conservative search windows.
+			s.keywordMatcher.Visit(currentRaw, func(patternID, start, end int) bool {
 				for _, ruleIndex := range s.keywordRuleIndexes[patternID] {
+					rule := &s.rulesBySpecificity[ruleIndex]
+					if rule.guard != nil && !rule.guard.possible(currentRaw, end) {
+						continue
+					}
 					candidates.marked[ruleIndex] = true
+					if rule.span != nil && rule.searchAnchors == nil {
+						candidates.windows[ruleIndex].Add(currentRaw, start, end, rule.span)
+					}
+				}
+				// Additional anchors locate matches but never admit a rule.
+				for _, ruleIndex := range s.anchorRuleIndexes[patternID] {
+					candidates.windows[ruleIndex].Add(currentRaw, start, end, s.rulesBySpecificity[ruleIndex].span)
 				}
 				return true
 			})
@@ -523,6 +555,9 @@ ScanLoop:
 				select {
 				case <-ctx.Done():
 					clear(candidates.marked)
+					for i := range candidates.windows {
+						candidates.windows[i].Reset()
+					}
 					s.candidatePool.Put(candidates)
 					break ScanLoop
 				default:
@@ -532,6 +567,10 @@ ScanLoop:
 					if rule.regex == nil && (currentDecodeDepth > 0 || fragment.Attr(sources.AttrFSFirstFragment) == "false") {
 						continue
 					}
+					if len(rule.searchAnchors) > 0 && len(candidates.windows[ruleIndex].Spans) == 0 {
+						continue
+					}
+					detection.spans = candidates.windows[ruleIndex].Spans
 					for _, finding := range s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, &detection) {
 						// These findings have their components assembled. Recursive
 						// component matching never applies fingerprint suppression.
@@ -550,6 +589,9 @@ ScanLoop:
 			}
 			// Pool entries must be blank because later scans may run on any goroutine.
 			clear(candidates.marked)
+			for i := range candidates.windows {
+				candidates.windows[i].Reset()
+			}
 			s.candidatePool.Put(candidates)
 
 			// increment the depth by 1 as we start our decoding pass
@@ -619,6 +661,7 @@ func detachFindingText(findings []report.Finding) {
 // Component matches may use skipReport rules, but do not expand components again.
 // The zero value describes a normal top-level match.
 type detectionState struct {
+	spans       []regexspan.Span
 	component   bool
 	lineOffsets []int
 }
@@ -652,6 +695,11 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 		compiled := compiledRule{rule: rule, filter: &lazyFilter{}}
 		if rule.Regex != "" {
 			var err error
+			compiled.guard = compileAssignmentGuard(rule.Regex, rule.Keywords)
+			compiled.span = regexspan.Compile(rule.Regex, rule.Keywords)
+			if compiled.span == nil {
+				compiled.span, compiled.searchAnchors = compilePrefixWindows(rule.Regex, rule.Keywords)
+			}
 			compiled.regex, err = blregexp.Compile(rule.Regex)
 			if err != nil {
 				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.ID, err)
@@ -659,6 +707,7 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 		}
 		if rule.Path != "" {
 			var err error
+			compiled.pathSuffixes = compilePathSuffixes(rule.Path)
 			compiled.path, err = blregexp.Compile(rule.Path)
 			if err != nil {
 				return nil, nil, fmt.Errorf("compile rule %q path regex: %w", rule.ID, err)
@@ -714,7 +763,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		if len(encodedSegments) > 0 {
 			return findings
 		}
-		if rulePathMatchesFragment(r.path, fragment) {
+		if rulePathMatchesFragment(r, fragment) {
 			finding := newPathOnlyFinding(r, fragment)
 			if !s.filterPathFinding(r, &finding) {
 				return append(findings, finding)
@@ -723,17 +772,38 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		return findings
 	}
 
-	if r.path != nil && !rulePathMatchesFragment(r.path, fragment) {
+	if r.path != nil && !rulePathMatchesFragment(r, fragment) {
 		// If a rule defines both `path` and `regex`, the normalized fragment path
 		// must match before we spend time checking the content regex.
 		return findings
 	}
 
 	var matches [][]int
-	if r.regex.NumSubexp() > 0 {
-		matches = r.regex.FindAllStringSubmatchIndex(currentRaw, -1)
+	find := func(raw string) [][]int {
+		if r.span != nil && r.span.RequiredByte != 0 && strings.IndexByte(raw, r.span.RequiredByte) < 0 {
+			return nil
+		}
+		if r.regex.NumSubexp() > 0 {
+			return r.regex.FindAllStringSubmatchIndex(raw, -1)
+		}
+		return r.regex.FindAllStringIndex(raw, -1)
+	}
+	if len(state.spans) == 0 {
+		matches = find(currentRaw)
 	} else {
-		matches = r.regex.FindAllStringIndex(currentRaw, -1)
+		for _, span := range state.spans {
+			part := find(currentRaw[span.Start:span.End])
+			// Translate every participating capture, keeping currentRaw intact
+			// for decoded mappings, filter context, and finding construction.
+			for _, indexes := range part {
+				for i, index := range indexes {
+					if index >= 0 {
+						indexes[i] += span.Start
+					}
+				}
+			}
+			matches = append(matches, part...)
+		}
 	}
 	if len(matches) == 0 {
 		return findings

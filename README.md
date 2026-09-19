@@ -232,6 +232,12 @@ handling. `sources.Auto(ctx, target)` returns a source kind without
 constructing a source. Ambiguous HTTP(S) targets may require a bounded Git
 probe; local Git checkouts remain filesystem targets. See
 [automatic source selection](docs/scanning.md#automatic-source-selection).
+
+Custom sources supply a fragment's optional path through
+`Fragment.Attributes[sources.AttrPath]` (or `fragment.SetAttr(sources.AttrPath, path)`).
+Detection uses that attribute for path rules and exposes it as `Finding.Location.Path`.
+The unused `Fragment.Path` field has been removed; migrate callers to the attribute.
+
 Provider integrations have their own packages:
 
 ```go

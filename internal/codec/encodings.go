@@ -328,8 +328,10 @@ func findEncodingMatches(data string) []encodingMatch {
 					encoding: encodings[2], // hex
 					startEnd: startEnd{start, start + runLen},
 				})
-			} else if runLen >= 16 {
-				// Emit as base64 match (include trailing =)
+			} else if runLen >= 16 && possibleBase64Prefix(data[start:end]) {
+				// Reject impossible Base64 before allocating candidate storage.
+				// Higher-precedence failures must still suppress adjacent encodings.
+				// Include trailing = in candidates that remain.
 				all = append(all, encodingMatch{
 					encoding: encodings[3], // base64
 					startEnd: startEnd{start, end},

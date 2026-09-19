@@ -24,7 +24,7 @@ func AutomaticGit() int {
 
 func AutomaticFiles() int {
 	processorCount := Automatic()
-	return max(processorCount, min(processorCount*4, 40))
+	return max(processorCount, min(processorCount*12, 120))
 }
 
 func AutomaticObjects() int {

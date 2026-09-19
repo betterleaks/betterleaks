@@ -150,29 +150,29 @@ func TestEncodingMatchBoundaries(t *testing.T) {
 		{name: "empty", input: "", want: nil},
 		{name: "no candidates", input: "plain text", want: nil},
 		{
-			name: "adjacent percent suppresses base64", input: "abcdefghijklmnop%41",
+			name: "adjacent percent suppresses base64", input: "YWJjZGVmZ2hpamts%41",
 			want: []encodingMatch{{encoding: encodings[0], startEnd: startEnd{16, 19}}},
 		},
 		{
-			name: "preceding percent suppresses base64", input: "%41abcdefghijklmnop",
+			name: "preceding percent suppresses base64", input: "%41YWJjZGVmZ2hpamts",
 			want: []encodingMatch{{encoding: encodings[0], startEnd: startEnd{0, 3}}},
 		},
 		{
-			name: "separated encodings survive", input: "%41!abcdefghijklmnop",
+			name: "separated encodings survive", input: "%41!YWJjZGVmZ2hpamts",
 			want: []encodingMatch{
 				{encoding: encodings[0], startEnd: startEnd{0, 3}},
 				{encoding: encodings[3], startEnd: startEnd{4, 20}},
 			},
 		},
 		{
-			name: "adjacent equal kinds survive", input: "abcdefghijklmnop=qrstuvwxyzABCDEF=",
+			name: "adjacent equal kinds survive", input: "YWJjZGVmZ2hpamts=cXJzdHV2d3h5ekFC=",
 			want: []encodingMatch{
 				{encoding: encodings[3], startEnd: startEnd{0, 17}},
 				{encoding: encodings[3], startEnd: startEnd{17, 34}},
 			},
 		},
 		{
-			name: "later matches survive compaction", input: "%41abcdefghijklmnop=qrstuvwxyzABCDEF=!U+0041",
+			name: "later matches survive compaction", input: "%41YWJjZGVmZ2hpamts=cXJzdHV2d3h5ekFC=!U+0041",
 			want: []encodingMatch{
 				{encoding: encodings[0], startEnd: startEnd{0, 3}},
 				{encoding: encodings[3], startEnd: startEnd{20, 37}},

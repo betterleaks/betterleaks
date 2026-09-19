@@ -15,8 +15,8 @@ const (
 const (
 	maxAutomaticProviderWorkers  = 4
 	maxAutomaticGitWorkers       = 4
-	automaticFileWorkersPerCPU   = 4
-	maxAutomaticFileWorkers      = 40
+	automaticFileWorkersPerCPU   = 12
+	maxAutomaticFileWorkers      = 120
 	automaticObjectWorkersPerCPU = 2
 )
 

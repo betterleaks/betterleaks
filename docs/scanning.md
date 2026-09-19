@@ -37,8 +37,8 @@ betterleaks filesystem . -j 8
 betterleaks github https://github.com/my-company -j 8
 ```
 
-For filesystem scans, automatic mode uses four I/O workers per `GOMAXPROCS`, capped at
-40 unless `GOMAXPROCS` itself is higher. Object sources use twice `GOMAXPROCS`.
+For filesystem scans, automatic mode uses twelve I/O workers per `GOMAXPROCS`, capped at
+120 unless `GOMAXPROCS` itself is higher. Object sources use twice `GOMAXPROCS`.
 Both use `GOMAXPROCS` for detection. For Git history, automatic mode uses up to
 four parallel Git processes (or `GOMAXPROCS` if lower), while detection still uses
 `GOMAXPROCS`. This limits concurrent patch buffers and Git process memory.
