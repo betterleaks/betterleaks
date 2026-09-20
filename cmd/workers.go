@@ -2,61 +2,56 @@ package cmd
 
 import "runtime"
 
-type workerProfile uint8
-
+// Independent limits for the three pipeline stages; slots are not shared.
+//
+// --jobs / -j controls source and detection concurrency:
+//   - Omitted or 0: source uses 4 workers (filesystem: 40); detection uses GOMAXPROCS.
+//   - N > 0: source gets N slots; detection gets min(N, GOMAXPROCS) separate slots.
+//     Sources may impose tighter limits, such as the Git history CPU cap.
+//   - Analyze is unaffected: --provider-workers controls its separate pool.
+//
+// Example: -j 8 with GOMAXPROCS=10 allows up to 8 source operations AND 8
+// detections, plus the default 10 credential evaluations when online.
 const (
-	directoryWorkerProfile workerProfile = iota
-	objectWorkerProfile
-	streamWorkerProfile
-	gitWorkerProfile
-	providerWorkerProfile
+	// Git, S3, GitHub, GitLab, and Hugging Face get 4 source slots by default.
+	// Git history also caps processes at GOMAXPROCS. --jobs overrides this default.
+	defaultSourceWorkers = 4
+
+	// Zero means GOMAXPROCS detection slots, regardless of source type.
+	// A positive default or --jobs value is also capped at GOMAXPROCS.
+	defaultScanWorkers = 0
+
+	// Up to 10 credential evaluations per scan. Each slot runs validation then
+	// optional analysis; those stages share this pool. --provider-workers
+	// overrides it independently of --jobs; --offline disables this stage.
+	defaultAnalyzeWorkers = 10
 )
 
-const (
-	maxAutomaticProviderWorkers  = 4
-	maxAutomaticGitWorkers       = 4
-	automaticFileWorkersPerCPU   = 12
-	maxAutomaticFileWorkers      = 120
-	automaticObjectWorkersPerCPU = 2
-)
+// Filesystem exception: 40 readers overlap file I/O while detection keeps its
+// own CPU-sized pool. --jobs overrides this just like the general source default.
+const defaultFilesystemWorkers = 40
 
-type workerPlan struct {
-	Source  int
-	Scanner int
+func resolveSourceWorkers(configured, fallback int) int {
+	if configured == 0 {
+		return fallback
+	}
+	return configured
 }
 
-func resolveWorkerPlan(configured int, profile workerProfile) workerPlan {
+func resolveScanWorkers(configured int) int {
 	processorCount := max(runtime.GOMAXPROCS(0), 1)
-	if configured > 0 {
-		sourceWorkers := configured
-		if profile == gitWorkerProfile {
-			sourceWorkers = min(sourceWorkers, processorCount)
-		}
-		return workerPlan{
-			Source:  sourceWorkers,
-			Scanner: min(configured, processorCount),
-		}
+	if configured == 0 {
+		configured = defaultScanWorkers
 	}
+	if configured == 0 {
+		return processorCount
+	}
+	return min(configured, processorCount)
+}
 
-	switch profile {
-	case directoryWorkerProfile:
-		return workerPlan{
-			Source:  max(processorCount, min(processorCount*automaticFileWorkersPerCPU, maxAutomaticFileWorkers)),
-			Scanner: processorCount,
-		}
-	case objectWorkerProfile:
-		return workerPlan{
-			Source:  processorCount * automaticObjectWorkersPerCPU,
-			Scanner: processorCount,
-		}
-	case streamWorkerProfile:
-		return workerPlan{Source: processorCount, Scanner: processorCount}
-	case gitWorkerProfile:
-		return workerPlan{Source: min(processorCount, maxAutomaticGitWorkers), Scanner: processorCount}
-	case providerWorkerProfile:
-		workers := min(processorCount, maxAutomaticProviderWorkers)
-		return workerPlan{Source: workers, Scanner: workers}
-	default:
-		panic("unknown worker profile")
+func resolveAnalyzeWorkers(configured int) int {
+	if configured == 0 {
+		return defaultAnalyzeWorkers
 	}
+	return configured
 }

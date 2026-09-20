@@ -30,7 +30,6 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 	sourcesList = removeNestedPaths(sourcesList)
 
 	initDiagnostics(runtime, &options.ScanFlags)
-	workers := resolveWorkerPlan(options.Jobs, directoryWorkerProfile)
 
 	// start timer
 	start := time.Now()
@@ -46,7 +45,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 		initConfig(runtime, globals, &options.ScanFlags, source)
 		cfg := Config(runtime)
 		filters := loadScanFilters(runtime, cfg, options.IgnoreFile, source)
-		runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(workers.Scanner))
+		runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
 		validationEnabled = validationEnabled || runner.ValidationEnabled()
 
 		s := &sources.Files{
@@ -56,7 +55,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 			MaxFileSize:     options.MaxTargetMegabytes * 1_000_000,
 			Path:            source,
 			MaxArchiveDepth: options.MaxArchiveDepth,
-			Workers:         workers.Source,
+			Workers:         resolveSourceWorkers(options.Jobs, defaultFilesystemWorkers),
 		}
 
 		nextSummary, scanErr := runner.Scan(runtime.Context, s, findings.Add)

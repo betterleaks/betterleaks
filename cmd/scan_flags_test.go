@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"reflect"
 	"runtime"
@@ -340,38 +341,29 @@ func TestJobsFlag(t *testing.T) {
 	require.Equal(t, 6, cli.S3.Jobs)
 }
 
-func TestResolveWorkerPlan(t *testing.T) {
-	cpus := max(runtime.GOMAXPROCS(0), 1)
+func TestWorkerLimits(t *testing.T) {
+	for _, cpus := range []int{1, 2, 10, 64} {
+		t.Run(fmt.Sprintf("GOMAXPROCS=%d", cpus), func(t *testing.T) {
+			previous := runtime.GOMAXPROCS(cpus)
+			t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 
-	explicitJobs := cpus + 3
-	wantExplicit := workerPlan{Source: explicitJobs, Scanner: cpus}
-	require.Equal(t, wantExplicit, resolveWorkerPlan(explicitJobs, directoryWorkerProfile))
-	require.Equal(t, wantExplicit, resolveWorkerPlan(explicitJobs, objectWorkerProfile))
-	require.Equal(t, wantExplicit, resolveWorkerPlan(explicitJobs, streamWorkerProfile))
-	require.Equal(t, workerPlan{Source: cpus, Scanner: cpus}, resolveWorkerPlan(explicitJobs, gitWorkerProfile))
-	require.Equal(t, wantExplicit, resolveWorkerPlan(explicitJobs, providerWorkerProfile))
+			// Source and analyze defaults are independent of available CPUs.
+			require.Equal(t, 4, resolveSourceWorkers(0, defaultSourceWorkers))
+			require.Equal(t, 40, resolveSourceWorkers(0, defaultFilesystemWorkers))
+			require.Equal(t, cpus, resolveScanWorkers(0))
+			require.Equal(t, 10, resolveAnalyzeWorkers(0))
 
-	require.Equal(t,
-		workerPlan{Source: max(cpus, min(cpus*automaticFileWorkersPerCPU, maxAutomaticFileWorkers)), Scanner: cpus},
-		resolveWorkerPlan(0, directoryWorkerProfile),
-	)
-	require.Equal(t,
-		workerPlan{Source: cpus * automaticObjectWorkersPerCPU, Scanner: cpus},
-		resolveWorkerPlan(0, objectWorkerProfile),
-	)
-	require.Equal(t, workerPlan{Source: cpus, Scanner: cpus}, resolveWorkerPlan(0, streamWorkerProfile))
-	require.Equal(t, workerPlan{Source: min(cpus, maxAutomaticGitWorkers), Scanner: cpus}, resolveWorkerPlan(0, gitWorkerProfile))
-	providerWorkers := min(cpus, maxAutomaticProviderWorkers)
-	require.Equal(t, workerPlan{Source: providerWorkers, Scanner: providerWorkers}, resolveWorkerPlan(0, providerWorkerProfile))
-}
-
-func TestResolveWorkerPlanOneWorkerIsSerial(t *testing.T) {
-	want := workerPlan{Source: 1, Scanner: 1}
-	require.Equal(t, want, resolveWorkerPlan(1, directoryWorkerProfile))
-	require.Equal(t, want, resolveWorkerPlan(1, objectWorkerProfile))
-	require.Equal(t, want, resolveWorkerPlan(1, streamWorkerProfile))
-	require.Equal(t, want, resolveWorkerPlan(1, gitWorkerProfile))
-	require.Equal(t, want, resolveWorkerPlan(1, providerWorkerProfile))
+			// Explicit jobs can raise I/O concurrency without oversubscribing detection.
+			require.Equal(t, cpus+3, resolveSourceWorkers(cpus+3, defaultSourceWorkers))
+			require.Equal(t, cpus, resolveScanWorkers(cpus+3))
+			require.Equal(t, 1, resolveSourceWorkers(1, defaultSourceWorkers))
+			require.Equal(t, 1, resolveSourceWorkers(1, defaultFilesystemWorkers))
+			require.Equal(t, 8, resolveSourceWorkers(8, defaultSourceWorkers))
+			require.Equal(t, 8, resolveSourceWorkers(8, defaultFilesystemWorkers))
+			require.Equal(t, 1, resolveScanWorkers(1))
+			require.Equal(t, 25, resolveAnalyzeWorkers(25))
+		})
+	}
 }
 
 func TestJobsRejectsNegativeValues(t *testing.T) {

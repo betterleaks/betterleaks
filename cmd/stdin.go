@@ -32,7 +32,7 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 
 	// create runner
 	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(resolveWorkerPlan(options.Jobs, streamWorkerProfile).Scanner))
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
 
 	// parse flag(s)
 	attrs, err := parseSetAttrValues(options.SetAttr)

@@ -35,9 +35,8 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 	initDiagnostics(runtime, &options.ScanFlags)
 
 	cfg := Config(runtime)
-	workers := resolveWorkerPlan(options.Jobs, providerWorkerProfile)
 	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(workers.Scanner))
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
 
 	targetURL := options.TargetURL
 
@@ -73,7 +72,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 		IncludeSubgroups: options.IncludeSubgroups,
 		ShouldSkip:       filters.shouldSkip,
 		MaxArchiveDepth:  options.MaxArchiveDepth,
-		Workers:          workers.Source,
+		Workers:          resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		LogOpts:          options.LogOpts,
 		DateRangeOpts: gitlab.DateRangeOptions{
 			Since: since,

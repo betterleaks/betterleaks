@@ -31,9 +31,8 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 	initDiagnostics(runtime, &options.ScanFlags)
 
 	cfg := Config(runtime)
-	workers := resolveWorkerPlan(options.Jobs, providerWorkerProfile)
 	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(workers.Scanner))
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
 
 	token := options.Token
 	if token == "" {
@@ -52,7 +51,7 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 		ExcludeRepos:        options.ExcludeRepo,
 		ShouldSkip:          filters.shouldSkip,
 		MaxArchiveDepth:     options.MaxArchiveDepth,
-		Workers:             workers.Source,
+		Workers:             resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		LogOpts:             options.LogOpts,
 		MaxBucketObjectSize: options.MaxBucketObjectSize,
 	}

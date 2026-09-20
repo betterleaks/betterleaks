@@ -33,9 +33,8 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 	initDiagnostics(runtime, &options.ScanFlags)
 
 	cfg := Config(runtime)
-	workers := resolveWorkerPlan(options.Jobs, providerWorkerProfile)
 	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(workers.Scanner))
+	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
 
 	targetURL := options.TargetURL
 
@@ -70,7 +69,7 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		ExcludeRepos:    options.ExcludeRepo,
 		ShouldSkip:      filters.shouldSkip,
 		MaxArchiveDepth: options.MaxArchiveDepth,
-		Workers:         workers.Source,
+		Workers:         resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		LogOpts:         options.LogOpts,
 		Actions: github.ActionsOptions{
 			Workflows: options.ActionsWorkflow,

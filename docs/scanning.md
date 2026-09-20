@@ -27,7 +27,7 @@ Use `-j` or `--jobs` to control pipeline width. A positive value bounds source
 work. CPU-bound detection uses the smaller of that value and `GOMAXPROCS`, so
 large I/O budgets do not oversubscribe the processor. Nested provider scans
 share the source-side budget rather than multiplying it per repository. Zero
-selects source-aware automatic widths.
+selects the default limits below.
 
 ```sh
 # use up to eight scan jobs
@@ -37,15 +37,31 @@ betterleaks filesystem . -j 8
 betterleaks github https://github.com/my-company -j 8
 ```
 
-For filesystem scans, automatic mode uses twelve I/O workers per `GOMAXPROCS`, capped at
-120 unless `GOMAXPROCS` itself is higher. Object sources use twice `GOMAXPROCS`.
-Both use `GOMAXPROCS` for detection. For Git history, automatic mode uses up to
-four parallel Git processes (or `GOMAXPROCS` if lower), while detection still uses
-`GOMAXPROCS`. This limits concurrent patch buffers and Git process memory.
-Explicit values remain upper bounds: detection and Git process concurrency are
-capped at `GOMAXPROCS`, while provider target concurrency is capped at four.
-`-j 1` provides a serial baseline for benchmarking. Validation retains its own
-worker and rate-limit controls because it performs external network requests.
+The CLI has three independent worker limits:
+
+| Stage | Default | Override |
+| :--- | :--- | :--- |
+| Source: read files or download content | 4; filesystem uses 40 | `--jobs` |
+| Detection: scan source text for secrets | `GOMAXPROCS` | `--jobs`, capped at `GOMAXPROCS` |
+| Analyze: validate credentials, then optionally analyze them | 10 | `--provider-workers` |
+
+These limits add capacity to separate stages; they are not a shared pool.
+For example, with `GOMAXPROCS=10`, an online filesystem scan can have up to
+40 source operations, 10 detections, and 10 credential evaluations in progress.
+Git, S3, GitHub, GitLab, and Hugging Face instead default to 4 source slots,
+with the same 10 detection and 10 credential-evaluation slots on that machine.
+`--offline` disables credential evaluations. `--no-analysis` retains validation
+using the same analyze worker pool. `--provider-workers=0` selects its default.
+
+Sources enforce their own tighter limits. Git history processes are capped at
+`GOMAXPROCS`. GitHub, GitLab, and Hugging Face schedule at most four repositories
+at once (one for a single-repository target), sharing the source budget across
+nested Git/download work. This repository cap does not reduce detection slots.
+URL and stdin have no source worker pool. These CLI defaults do not change the
+Go source API's own automatic behavior for `Workers: 0`.
+
+`-j 1` serializes source work and detection; use `--provider-workers=1` as well
+to serialize credential evaluations. Provider request rate limits are separate.
 
 The Go API configures detection with `scan.WithWorkers(n)`, provider execution
 with `analyze.WithWorkers(n)`, and source concurrency with fields such as

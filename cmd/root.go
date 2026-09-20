@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -352,7 +353,10 @@ func newCLIParser(cli *CLI, runtime *commandRuntime) (*kong.Kong, error) {
 		cli,
 		kong.Name("betterleaks"),
 		kong.Description("Betterleaks scans code, past or present, for secrets"),
-		kong.Vars{"config_help": configDescription},
+		kong.Vars{
+			"config_help":     configDescription,
+			"analyze_workers": strconv.Itoa(defaultAnalyzeWorkers),
+		},
 		kong.Writers(runtime.stdout, runtime.stderr),
 		kong.Exit(runtime.exit),
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
@@ -412,7 +416,7 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 		runtime.fatal("provider-rps-rule", "error", err)
 	}
 	scannerOptions := []scan.Option{
-		scan.WithWorkers(flags.Jobs),
+		scan.WithWorkers(resolveScanWorkers(flags.Jobs)),
 		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
 		scan.WithMinimumConfidence(scan.Confidence(flags.Confidence)),
 		scan.WithIgnoreAllowComments(flags.IgnoreAllowComments),
@@ -436,7 +440,7 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 		pipelineOptions = append(pipelineOptions, pipeline.WithValidationStatuses(statuses...))
 		analyzer, err = analyze.New(cfg,
 			analyze.WithLogger(runtime.Logger()),
-			analyze.WithWorkers(flags.ProviderWorkers),
+			analyze.WithWorkers(resolveAnalyzeWorkers(flags.ProviderWorkers)),
 			analyze.WithDebug(flags.ProviderDebug),
 			analyze.WithTimeout(flags.ProviderTimeout),
 			analyze.WithMaxRequestsPerTarget(flags.ProviderMaxRequests),

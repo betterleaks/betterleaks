@@ -17,10 +17,9 @@ func (cmd *URLCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	initConfig(runtime, &cli.GlobalFlags, &cmd.ScanFlags, ".")
 	initDiagnostics(runtime, &cmd.ScanFlags)
 
-	workers := resolveWorkerPlan(cmd.Jobs, objectWorkerProfile)
 	cfg := Config(runtime)
 	filters := loadScanFilters(runtime, cfg, cmd.IgnoreFile, "")
-	runner := newScanPipeline(runtime, &cli.GlobalFlags, &cmd.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...), scan.WithWorkers(workers.Scanner))
+	runner := newScanPipeline(runtime, &cli.GlobalFlags, &cmd.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
 	findings := mustNewFindingCollector(runtime, &cmd.ScanFlags, cli.NoColor)
 
 	src := &sources.URL{

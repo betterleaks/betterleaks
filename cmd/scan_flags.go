@@ -12,7 +12,7 @@ import (
 
 // ScanFlags are shared by commands that detect findings from a source.
 type ScanFlags struct {
-	Jobs                int      `group:"scanning" name:"jobs" short:"j" help:"Parallel scan jobs; CPU-bound stages cap at available processors (0 = automatic)."`
+	Jobs                int      `group:"scanning" name:"jobs" short:"j" help:"Source and detection concurrency; detection caps at GOMAXPROCS, sources may apply tighter limits (0 = defaults)."`
 	MaxTargetMegabytes  int      `group:"scanning" name:"max-target-megabytes" help:"Files larger than this will be skipped."`
 	MaxDecodeDepth      int      `group:"scanning" name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
 	MaxArchiveDepth     int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
@@ -33,7 +33,7 @@ type ScanFlags struct {
 	NoAnalysis           bool   `group:"validation" name:"no-analysis" help:"Disable credential analysis while retaining validation."`
 	Offline              bool   `group:"validation" help:"Disable validation and analysis provider requests; source fetching may still use the network."`
 	ValidationStatus     string `group:"validation" name:"status" help:"Comma-separated validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none."`
-	ProviderWorkers      int    `group:"validation" name:"provider-workers" default:"10" help:"Number of concurrent provider workers."`
+	ProviderWorkers      int    `group:"validation" name:"provider-workers" default:"${analyze_workers}" help:"Concurrent credential validation/analysis workers, independent of --jobs (0 = default)."`
 	ProviderRuntimeFlags `embed:""`
 
 	Diagnostics    string `group:"diagnostics" help:"Enable diagnostics: http or a comma-separated list of cpu,mem,trace,rules."`
