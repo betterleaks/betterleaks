@@ -29,7 +29,7 @@ const (
 
 // Filesystem exception: 40 readers overlap file I/O while detection keeps its
 // own CPU-sized pool. --jobs overrides this just like the general source default.
-const defaultFilesystemWorkers = 40
+const defaultFilesystemWorkers = 120
 
 func resolveSourceWorkers(configured, fallback int) int {
 	if configured == 0 {
