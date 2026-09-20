@@ -5,7 +5,7 @@ import "runtime"
 // Independent limits for the three pipeline stages; slots are not shared.
 //
 // --jobs / -j controls source and detection concurrency:
-//   - Omitted or 0: source uses 4 workers (filesystem: 40); detection uses GOMAXPROCS.
+//   - Omitted or 0: source uses 4 workers (filesystem: 120); detection uses GOMAXPROCS.
 //   - N > 0: source gets N slots; detection gets min(N, GOMAXPROCS) separate slots.
 //     Sources may impose tighter limits, such as the Git history CPU cap.
 //   - Analyze is unaffected: --provider-workers controls its separate pool.
@@ -27,7 +27,7 @@ const (
 	defaultAnalyzeWorkers = 10
 )
 
-// Filesystem exception: 40 readers overlap file I/O while detection keeps its
+// Filesystem exception: 120 readers overlap file I/O while detection keeps its
 // own CPU-sized pool. --jobs overrides this just like the general source default.
 const defaultFilesystemWorkers = 120
 

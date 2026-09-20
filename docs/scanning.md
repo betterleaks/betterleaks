@@ -41,13 +41,13 @@ The CLI has three independent worker limits:
 
 | Stage | Default | Override |
 | :--- | :--- | :--- |
-| Source: read files or download content | 4; filesystem uses 40 | `--jobs` |
+| Source: read files or download content | 4; filesystem uses 120 | `--jobs` |
 | Detection: scan source text for secrets | `GOMAXPROCS` | `--jobs`, capped at `GOMAXPROCS` |
 | Analyze: validate credentials, then optionally analyze them | 10 | `--provider-workers` |
 
 These limits add capacity to separate stages; they are not a shared pool.
 For example, with `GOMAXPROCS=10`, an online filesystem scan can have up to
-40 source operations, 10 detections, and 10 credential evaluations in progress.
+120 source operations, 10 detections, and 10 credential evaluations in progress.
 Git, S3, GitHub, GitLab, and Hugging Face instead default to 4 source slots,
 with the same 10 detection and 10 credential-evaluation slots on that machine.
 `--offline` disables credential evaluations. `--no-analysis` retains validation

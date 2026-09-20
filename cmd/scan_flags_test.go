@@ -349,7 +349,7 @@ func TestWorkerLimits(t *testing.T) {
 
 			// Source and analyze defaults are independent of available CPUs.
 			require.Equal(t, 4, resolveSourceWorkers(0, defaultSourceWorkers))
-			require.Equal(t, 40, resolveSourceWorkers(0, defaultFilesystemWorkers))
+			require.Equal(t, 120, resolveSourceWorkers(0, defaultFilesystemWorkers))
 			require.Equal(t, cpus, resolveScanWorkers(0))
 			require.Equal(t, 10, resolveAnalyzeWorkers(0))
 
