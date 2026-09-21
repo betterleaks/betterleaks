@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -309,7 +310,7 @@ func TestExtendGlobalExpressions(t *testing.T) {
 		currentFilter    = `let current = finding["secret"] == "current"; current`
 	)
 	basePath := filepath.Join(t.TempDir(), "base.toml")
-	require.NoError(t, os.WriteFile(basePath, []byte(fmt.Sprintf("prefilter = %q\nfilter = %q\n", basePrefilter, baseFilter)), 0o600))
+	require.NoError(t, os.WriteFile(basePath, fmt.Appendf(nil, "prefilter = %q\nfilter = %q\n", basePrefilter, baseFilter), 0o600))
 	current, err := ParseTOMLString(fmt.Sprintf("prefilter = %q\nfilter = %q\n[extend]\npath = %q\n", currentPrefilter, currentFilter, basePath), "")
 	require.NoError(t, err)
 
@@ -494,7 +495,7 @@ components = [{ id = "part", within = "2L" }]
 id = "disabled"
 regex = 'DISABLED'
 `), 0o600))
-	require.NoError(t, os.WriteFile(middlePath, []byte(fmt.Sprintf(`[extend]
+	require.NoError(t, os.WriteFile(middlePath, fmt.Appendf(nil, `[extend]
 path = %q
 [[rules]]
 id = "token"
@@ -504,7 +505,7 @@ specificity = 0
 skipReport = false
 keywords = ["MIDDLE"]
 tags = ["middle"]
-`, basePath)), 0o600))
+`, basePath), 0o600))
 	cfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
 path = %q
 disabledRules = ["disabled"]
@@ -562,7 +563,7 @@ func TestInheritanceValidatesResolvedRules(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			basePath := filepath.Join(t.TempDir(), "base.toml")
-			require.NoError(t, os.WriteFile(basePath, []byte(fmt.Sprintf("[[rules]]\nid = 'token'\nregex = %q\nsecretGroup = 1\n", test.baseRegex)), 0o600))
+			require.NoError(t, os.WriteFile(basePath, fmt.Appendf(nil, "[[rules]]\nid = 'token'\nregex = %q\nsecretGroup = 1\n", test.baseRegex), 0o600))
 			_, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q\n[[rules]]\nid = 'token'\n%s\n", basePath, test.override), "")
 			if test.wantError != "" {
 				require.ErrorContains(t, err, test.wantError)
@@ -737,11 +738,8 @@ func TestExtendedRuleKeywordsAreDowncase(t *testing.T) {
 
 			found := false
 			for _, rule := range cfg.Rules {
-				for _, keyword := range rule.Keywords {
-					if keyword == tt.expectedKeywords {
-						found = true
-						break
-					}
+				if slices.Contains(rule.Keywords, tt.expectedKeywords) {
+					found = true
 				}
 			}
 			require.Truef(t, found, "The expected keyword %s did not exist in any rule", tt.expectedKeywords)

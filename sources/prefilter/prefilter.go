@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"slices"
 
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/v2/logging"
@@ -42,10 +43,8 @@ func Compile(expression string, options Options) (sources.SkipFunc, error) {
 	return func(attributes map[string]string) bool {
 		if path := attributes[sources.AttrPath]; path != "" && len(excluded) > 0 {
 			path = filepath.ToSlash(filepath.Clean(path))
-			for _, excludedPath := range excluded {
-				if path == excludedPath {
-					return true
-				}
+			if slices.Contains(excluded, path) {
+				return true
 			}
 		}
 		if program == nil {

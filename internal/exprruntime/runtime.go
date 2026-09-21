@@ -3,6 +3,7 @@ package exprruntime
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"reflect"
@@ -346,9 +347,7 @@ func (prg Program) evalBindings() bindings {
 
 func cloneBindings(src bindings) bindings {
 	dst := make(bindings, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
+	maps.Copy(dst, src)
 	return dst
 }
 

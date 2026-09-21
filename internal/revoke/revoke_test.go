@@ -37,7 +37,7 @@ let deleted = http.delete(%q, {});
 		t.Run(fmt.Sprint(limit), func(t *testing.T) {
 			requests.Store(0)
 			deletes.Store(0)
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				result, err := Run(t.Context(), cfg, input, provider.RuntimeOptions{MaxRequestsPerTarget: limit})
 				require.NoError(t, err)
 				if limit == 1 {

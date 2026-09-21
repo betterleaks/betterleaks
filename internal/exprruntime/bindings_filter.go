@@ -3,6 +3,7 @@ package exprruntime
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -172,12 +173,7 @@ func startsWithAny(values, prefixes any) bool {
 func intersects(values, candidates any) bool {
 	candidateList := toStringSlice(candidates)
 	return len(candidateList) > 0 && anyString(values, func(value string) bool {
-		for _, candidate := range candidateList {
-			if value == candidate {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(candidateList, value)
 	})
 }
 
@@ -188,10 +184,8 @@ func anyString(value any, match func(string) bool) bool {
 	case string:
 		return match(value)
 	case []string:
-		for _, item := range value {
-			if match(item) {
-				return true
-			}
+		if slices.ContainsFunc(value, match) {
+			return true
 		}
 	case []any:
 		for _, item := range value {

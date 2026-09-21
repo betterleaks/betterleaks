@@ -87,9 +87,7 @@ func TestWorkerBudgetBoundsNestedWork(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := budget.Run(t.Context(), func() error {
 				current := active.Add(1)
 				for {
@@ -105,7 +103,7 @@ func TestWorkerBudgetBoundsNestedWork(t *testing.T) {
 			}); err != nil {
 				t.Errorf("budget.run: %v", err)
 			}
-		}()
+		})
 	}
 
 	for range 2 {

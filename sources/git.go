@@ -276,7 +276,7 @@ func readGitCommitMessage(reader *bufio.Reader) (Fragment, error) {
 		AttrGitSHA:     oid,
 		AttrGitMessage: message,
 	}
-	for _, line := range strings.Split(headers, "\n") {
+	for line := range strings.SplitSeq(headers, "\n") {
 		author, ok := strings.CutPrefix(line, "author ")
 		if !ok {
 			continue

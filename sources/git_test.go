@@ -149,7 +149,7 @@ func newGitTestRepo(t *testing.T, commits int) string {
 	runGitTestCommand(t, repo, "config", "user.name", "Test User")
 	for i := range commits {
 		path := filepath.Join(repo, fmt.Sprintf("file-%d.txt", i))
-		require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf("value-%d\n", i)), 0o600))
+		require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, "value-%d\n", i), 0o600))
 		runGitTestCommand(t, repo, "add", ".")
 		runGitTestCommand(t, repo, "commit", "--quiet", "-m", fmt.Sprintf("commit %d", i))
 	}

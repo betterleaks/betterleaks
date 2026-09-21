@@ -577,7 +577,7 @@ func TestCredentialDedupIgnoresOccurrence(t *testing.T) {
 	require.NoError(t, err)
 	count := 0
 	err = a.AnalyzeStream(t.Context(), func(ctx context.Context, yield func(report.Finding) error) error {
-		for i := 0; i < 30; i++ {
+		for i := range 30 {
 			f := report.Finding{RuleID: "key", Match: report.Match{Full: fmt.Sprintf("match%d TOKEN", i), Value: "TOKEN", Line: fmt.Sprint(i), Context: fmt.Sprint(i)}, Location: report.Location{Path: fmt.Sprintf("file%d.env", i)}, Attributes: map[string]string{"git.message": fmt.Sprint(i)}}
 			if err := yield(f); err != nil {
 				return err

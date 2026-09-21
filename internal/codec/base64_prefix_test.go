@@ -6,7 +6,7 @@ import (
 )
 
 func TestBase64PrefixAcceptsPrintableInput(t *testing.T) {
-	for b := byte(0); b < 127; b++ {
+	for b := range byte(127) {
 		if !printableASCII[b] {
 			continue
 		}

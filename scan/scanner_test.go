@@ -99,7 +99,7 @@ func newCancelOnSecondCheck() *cancelOnSecondCheck {
 func normalizeFindings(fs []report.Finding) {
 	// TODO: Temporary mitigation.
 	// https://github.com/gitleaks/gitleaks/issues/1641
-	for i := 0; i < len(fs); i++ {
+	for i := range fs {
 		f := &fs[i]
 		f.Match.Line = strings.ReplaceAll(f.Match.Line, "\r", "")
 		before := len(f.Match.Full)

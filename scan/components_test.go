@@ -113,7 +113,7 @@ func TestBuildComponentSets_JSONSerialization(t *testing.T) {
 
 func TestComponentSetCapAndTruncation(t *testing.T) {
 	var components []report.ComponentFinding
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		components = append(components, report.ComponentFinding{RuleID: "part", Match: report.Match{Value: fmt.Sprint(i)}})
 	}
 	var finding report.Finding

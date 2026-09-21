@@ -772,9 +772,7 @@ func runConcurrentValidations(t *testing.T, rt *Runtime, prg Program, ruleID str
 	var wg sync.WaitGroup
 	errs := make(chan error, count)
 	for range count {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := rt.EvalValidation(
 				context.Background(),
 				prg,
@@ -784,7 +782,7 @@ func runConcurrentValidations(t *testing.T, rt *Runtime, prg Program, ruleID str
 				EvalOptions{},
 			)
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
