@@ -6,8 +6,12 @@ import (
 	"github.com/betterleaks/betterleaks/regexp"
 )
 
-const dockerHubTokenValidationExpr = `let user = lower(captures["dockerhub-username"]);
-  let r = http.post("https://hub.docker.com/v2/auth/token", {
+// Tokens are always reported, but the low-confidence username is required for validation.
+const dockerHubTokenValidationExpr = `let user = lower(components["dockerhub-username"]?.secret ?? "");
+  user == "" ? {
+    "result": "unknown",
+    "reason": "no Docker Hub username or email found near the token"
+  } : (let r = http.post("https://hub.docker.com/v2/auth/token", {
     "Accept": "application/json",
     "Content-Type": "application/json"
   }, "{\"identifier\":" + json.string(user) + ",\"secret\":" + json.string(finding["secret"]) + "}");
@@ -17,7 +21,7 @@ const dockerHubTokenValidationExpr = `let user = lower(captures["dockerhub-usern
   } : r.status == 401 ? {
     "result": "invalid",
     "reason": (r.json?.message ?? "Unauthorized")
-  } : validate.unknown(r)`
+  } : validate.unknown(r))`
 
 func DockerHubPersonalAccessToken() *config.Rule {
 	r := config.Rule{
@@ -26,8 +30,8 @@ func DockerHubPersonalAccessToken() *config.Rule {
 		Description: "Detected a Docker Hub personal access token, which may expose Docker Hub account access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dckr_pat_[A-Za-z0-9_-]{27}`, false),
 		Keywords:    []string{"dckr_pat_"},
-		RequiredRules: []*config.Required{
-			{RuleID: "dockerhub-username", WithinLines: utils.Ptr(5)},
+		Components: []*config.Component{
+			{RuleID: "dockerhub-username", Optional: true, Within: "5L"},
 		},
 		ValidateExpr: dockerHubTokenValidationExpr,
 		Filter:       utils.MinEntropy(3.5),
@@ -36,6 +40,7 @@ func DockerHubPersonalAccessToken() *config.Rule {
 	tps := []string{
 		`docker login -u gemesa -p dckr_pat_hc8VxYclixyTr2rDFsa2rqzkP3Y`,
 		`docker login -u gemesa -p dckr_pat_tkzBYxjNNC3R_Yg6jd_O-G8FbrJ`,
+		`DOCKERHUB_TOKEN=dckr_pat_hc8VxYclixyTr2rDFsa2rqzkP3Y`,
 	}
 	return utils.Validate(r, tps, nil)
 }
@@ -47,8 +52,8 @@ func DockerHubOrganizationAccessToken() *config.Rule {
 		Description: "Detected a Docker Hub organization access token, which may expose organization repositories.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dckr_oat_[A-Za-z0-9_-]{32}`, false),
 		Keywords:    []string{"dckr_oat_"},
-		RequiredRules: []*config.Required{
-			{RuleID: "dockerhub-username", WithinLines: utils.Ptr(5)},
+		Components: []*config.Component{
+			{RuleID: "dockerhub-username", Optional: true, Within: "5L"},
 		},
 		ValidateExpr: dockerHubTokenValidationExpr,
 		Filter:       utils.MinEntropy(3.5),
@@ -56,6 +61,7 @@ func DockerHubOrganizationAccessToken() *config.Rule {
 
 	tps := []string{
 		`docker login -u docker-test -p dckr_oat_7bA9zRt5-JqX3vP0l_MnY8sK2wE-dF6h`,
+		`DOCKER_ORG_TOKEN=dckr_oat_7bA9zRt5-JqX3vP0l_MnY8sK2wE-dF6h`,
 	}
 	return utils.Validate(r, tps, nil)
 }
@@ -67,6 +73,7 @@ const dockerHubIdentifier = `[\w+-](?:[\w.+-]{0,62}[\w+-])?@[\w.-]+\.[a-z]{2,20}
 func DockerHubUsername() *config.Rule {
 	r := config.Rule{
 		RuleID:      "dockerhub-username",
+		Confidence:  "low",
 		Description: "Detected a Docker Hub account identifier, used as a component of the Docker Hub access-token composite rules.",
 		Regex: regexp.MustCompile(
 			`(?i)(?:(?:[^a-z]|\A)(?:user(?:name)?|usr|-u|id|e-?mail)\S{0,40}?[:=\s]{1,3}[ '"=]?(` +
