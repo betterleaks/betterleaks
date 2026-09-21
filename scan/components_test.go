@@ -82,8 +82,9 @@ func TestBuildComponentSets_JSONSerialization(t *testing.T) {
 	}
 	f.ComponentSets, f.ComponentSetsTruncated = buildComponentSets(reqs, 100)
 	f.ComponentSets[0].Analysis = report.Analysis{
-		Status: report.ValidationStatusValid,
-		Reason: "The component set was accepted.",
+		Status:   report.ValidationStatusValid,
+		Severity: report.SeverityHigh,
+		Reason:   "The component set was accepted.",
 	}
 
 	data, err := json.Marshal(f)
@@ -100,8 +101,8 @@ func TestBuildComponentSets_JSONSerialization(t *testing.T) {
 
 	set := setSlice[0].(map[string]any)
 	assert.Equal(t, map[string]any{
-		"status": "valid",
-		"reason": "The component set was accepted.",
+		"status":   "valid",
+		"severity": "high",
 	}, set["analysis"])
 	components := set["components"].([]any)
 	require.Len(t, components, 2)
