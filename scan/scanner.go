@@ -888,7 +888,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		// move to filter?
 		if !s.ignoreAllowComments && containsAllowSignature(finding.Match.Line) {
-			logTrace(logger, "skipping finding: allow signature found", "finding", finding.Match.Value)
+			logTrace(logger, "skipping finding: allow signature found", "rule_id", finding.RuleID)
 			continue
 		}
 		if currentLine == "" {
@@ -984,7 +984,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			if err != nil {
 				logger.Warn("global filter eval error", "error", err)
 			} else if skip {
-				logTrace(logger, "skipping finding: global filter", "finding", finding.Match.Value)
+				logTrace(logger, "skipping finding: global filter", "rule_id", finding.RuleID)
 				continue
 			}
 		}
@@ -998,7 +998,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			if err != nil {
 				logger.Warn("rule filter eval error", "error", err)
 			} else if skip {
-				logTrace(logger, "skipping finding: rule filter", "finding", finding.Match.Value)
+				logTrace(logger, "skipping finding: rule filter", "rule_id", finding.RuleID)
 				continue
 			}
 		}
@@ -1172,8 +1172,7 @@ func (s *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) 
 		// composite finding in this batch.
 		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.Location.StartLine, f.Location.StartColumn, f.Location.EndLine, f.Location.EndColumn, f.Match.Value)]
 		if isComponent {
-			redactedMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-			logTrace(s.logger, "skipping finding already used as a component", "rule_id", f.RuleID, "finding", redactedMatch)
+			logTrace(s.logger, "skipping finding already used as a component", "rule_id", f.RuleID)
 			include = false
 		} else if s.isSuppressedByHigherSpecificityFinding(f, index) {
 			include = false
@@ -1197,13 +1196,9 @@ func (s *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 			f.RuleID != fPrime.RuleID &&
 			strings.Contains(fPrime.Match.Value, f.Match.Value) &&
 			s.ruleSpecificity(fPrime.RuleID) > s.ruleSpecificity(f.RuleID) {
-			genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-			betterMatch := strings.ReplaceAll(fPrime.Match.Full, fPrime.Match.Value, "REDACTED")
 			s.logger.Debug("skipping finding because a more specific rule takes precedence",
 				"rule_id", f.RuleID,
-				"finding", genericMatch,
 				"precedence_rule_id", fPrime.RuleID,
-				"precedence_finding", betterMatch,
 			)
 			return true
 		}
@@ -1214,13 +1209,9 @@ func (s *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 					f.RuleID != comp.RuleID &&
 					strings.Contains(comp.Match.Value, f.Match.Value) &&
 					s.ruleSpecificity(comp.RuleID) > s.ruleSpecificity(f.RuleID) {
-					genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-					betterMatch := strings.ReplaceAll(comp.Match.Full, comp.Match.Value, "REDACTED")
 					logTrace(s.logger, "skipping finding because a more specific component takes precedence",
 						"rule_id", f.RuleID,
-						"finding", genericMatch,
 						"precedence_rule_id", comp.RuleID,
-						"precedence_finding", betterMatch,
 					)
 					return true
 				}

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Helper script to be used as a pre-commit hook."""
-import os
 import sys
 import subprocess
 
@@ -14,14 +13,12 @@ def betterleaksEnabled():
 
 
 if betterleaksEnabled():
-    exitCode = os.WEXITSTATUS(os.system('betterleaks git --pre-commit --staged -v'))
-    if exitCode == 1:
-        print('''Warning: betterleaks has detected sensitive information in your changes.
-To disable the betterleaks precommit hook run the following command:
-
-    git config hooks.betterleaks false
-''')
+    try:
+        result = subprocess.run(["betterleaks", "git", "--pre-commit", "--redact", "--staged", "--offline"])
+    except OSError as err:
+        print(f"Could not run betterleaks: {err}", file=sys.stderr)
         sys.exit(1)
+    sys.exit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
 else:
     print('betterleaks precommit disabled\
      (enable with `git config hooks.betterleaks true`)')

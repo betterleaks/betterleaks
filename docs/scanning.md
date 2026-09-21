@@ -350,6 +350,9 @@ or `Cmd`. Remote scans load configuration from the local working directory,
 not from the downloaded repository. `--staged` and `--pre-commit` require a
 local repository. A clone does not contain another machine's local reflogs.
 
+The shipped pre-commit hooks scan staged changes with `--offline --redact`,
+so commits do not depend on network validation and findings are redacted.
+
 ```sh
 # full repo history
 betterleaks git .

@@ -57,7 +57,7 @@ betterleaks fs /path/to/target
 betterleaks --offline --no-banner fs /path/to/target
 
 # Scan Git
-betterleaks git /path/to/repo -v -j 4
+betterleaks git /path/to/repo -j 4
 
 # Automatically detect a remote repository and scan its history
 betterleaks https://github.com/betterleaks/betterleaks
@@ -91,7 +91,7 @@ betterleaks s3 https://commoncrawl.s3.us-east-1.amazonaws.com/crawl-data/CC-MAIN
 betterleaks s3 'https://<account-id>.r2.cloudflarestorage.com/*'
 
 # Scan stdin
-cat some_file.txt | betterleaks stdin -v
+cat some_file.txt | betterleaks stdin
 
 # Revalidate a known credential without running detection
 printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat

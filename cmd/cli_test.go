@@ -154,6 +154,98 @@ func newTestCLI(t *testing.T) (*testCLI, *bytes.Buffer) {
 	return &testCLI{runtime: runtime}, stdout
 }
 
+func TestPreCommitHookCommands(t *testing.T) {
+	manifest, err := os.ReadFile("../.pre-commit-hooks.yaml")
+	require.NoError(t, err)
+	var entries []string
+	for _, line := range strings.Split(string(manifest), "\n") {
+		if entry, ok := strings.CutPrefix(line, "  entry: "); ok {
+			entries = append(entries, entry)
+		}
+	}
+	require.Len(t, entries, 3)
+
+	repo := t.TempDir()
+	t.Chdir(repo)
+	git := func(args ...string) {
+		t.Helper()
+		out, err := exec.Command("git", args...).CombinedOutput()
+		require.NoError(t, err, "%s", out)
+	}
+	git("init", "--quiet")
+	configPath := filepath.Join(t.TempDir(), "rules.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("[[rules]]\nid='hook-secret'\nregex='SECRET_PRIVATE'\n"), 0o600))
+
+	for _, entry := range entries {
+		t.Run(entry, func(t *testing.T) {
+			// Exercise the CLI arguments shipped by every hook, including the
+			// Docker entry. Image execution belongs to the release smoke check.
+			args := strings.Fields(entry)[1:]
+			require.Contains(t, args, "--offline")
+			for _, secret := range []bool{false, true} {
+				t.Run(fmt.Sprintf("secret=%t", secret), func(t *testing.T) {
+					content := "ordinary content\n"
+					if secret {
+						content = "SECRET_PRIVATE\n"
+					}
+					require.NoError(t, os.WriteFile("input.txt", []byte(content), 0o600))
+					git("add", "input.txt")
+					root, output := newTestCLI(t)
+					code := 0
+					root.runtime.exit = func(n int) { code = n; panic(n) }
+					root.SetArgs(append(append([]string{}, args...), "--no-banner", "--config", configPath))
+					func() {
+						defer func() {
+							if p := recover(); p != nil {
+								if _, ok := p.(int); !ok {
+									panic(p)
+								}
+							}
+						}()
+						require.NoError(t, root.Execute())
+					}()
+					if secret {
+						require.Equal(t, 1, code)
+						require.Contains(t, output.String(), "REDACTED")
+					} else {
+						require.Zero(t, code)
+						require.Empty(t, output.String())
+					}
+					require.NotContains(t, output.String(), "SECRET_PRIVATE")
+				})
+			}
+		})
+	}
+}
+
+func TestRedactedTraceOutput(t *testing.T) {
+	for _, test := range []struct {
+		name, globalFilter, ruleFilter, suffix, extraRules, message string
+	}{
+		{name: "allow comment", suffix: " # betterleaks:allow", message: "allow signature found"},
+		{name: "global filter", globalFilter: "filter='true'\n", message: "skipping finding: global filter"},
+		{name: "rule filter", ruleFilter: "filter='true'\n", message: "skipping finding: rule filter"},
+		{name: "specificity", extraRules: "\n[[rules]]\nid='specific'\nregex='(?P<other>OTHER_PRIVATE):(?P<secret>SECRET_PRIVATE)'\nsecretGroup=2\nspecificity=200\n", message: "more specific rule takes precedence"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "rules.toml")
+			config := test.globalFilter + "[[rules]]\nid='fixture'\nregex='(?P<other>OTHER_PRIVATE):(?P<secret>SECRET_PRIVATE)'\nsecretGroup=2\n" + test.ruleFilter + test.extraRules
+			require.NoError(t, os.WriteFile(path, []byte(config), 0o600))
+			root, output := newTestCLI(t)
+			var logs bytes.Buffer
+			root.runtime.stderr = &logs
+			root.SetIn(strings.NewReader("OTHER_PRIVATE:SECRET_PRIVATE" + test.suffix))
+			root.SetArgs([]string{"stdin", "--config", path, "--offline", "--redact", "--log-level=trace", "--no-banner"})
+			require.NoError(t, root.Execute())
+			require.Contains(t, logs.String(), test.message)
+			for _, secret := range []string{"SECRET_PRIVATE", "OTHER_PRIVATE"} {
+				require.NotContains(t, logs.String(), secret)
+				require.NotContains(t, output.String(), secret)
+			}
+		})
+	}
+}
+
 func TestDeprecatedScanCommandsRemoved(t *testing.T) {
 	for _, command := range []string{"detect", "protect", "dir", "directory", "file", "files"} {
 		// Removed command names and aliases are ordinary paths for the auto shorthand.
