@@ -677,7 +677,6 @@ func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
 		"status":        formatCredentialStatus(analysis.Status, noColor),
 		"severity":      formatAnalysisSeverity(analysis.Severity, noColor),
 		"status_reason": analysis.StatusReason,
-		"reason":        analysis.Reason,
 		"capabilities":  capabilitiesText(analysis.Capabilities),
 	}
 	if identity := analysis.Identity; identity != nil {

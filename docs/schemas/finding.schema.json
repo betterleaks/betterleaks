@@ -48,7 +48,7 @@
     },
     "component_sets": {
       "type": "array",
-      "description": "Multipart credential combinations, each with its own analysis result. Omitted when empty.",
+      "description": "Multipart credential combinations, each with its own status and severity. Full analysis is reported on the parent finding. Omitted when empty.",
       "items": {
         "$ref": "#/$defs/componentSet"
       },
@@ -213,6 +213,19 @@
         }
       }
     },
+    "componentAnalysis": {
+      "type": "object",
+      "description": "Compact outcome for one credential combination. Omitted when status and severity are both empty.",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/analysis/properties/status"
+        },
+        "severity": {
+          "$ref": "#/$defs/analysis/properties/severity"
+        }
+      }
+    },
     "componentSet": {
       "type": "object",
       "additionalProperties": false,
@@ -238,7 +251,7 @@
           }
         },
         "analysis": {
-          "$ref": "#/$defs/analysis"
+          "$ref": "#/$defs/componentAnalysis"
         }
       }
     },

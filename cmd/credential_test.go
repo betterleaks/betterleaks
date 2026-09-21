@@ -1180,7 +1180,7 @@ revoke = '''%s revoke.unknown(r)'''
 						require.Equal(t, "[redacted]", diagnostics["resp_header_set-cookie"])
 						require.Equal(t, server.URL+"?token=[redacted]", diagnostics["req_url"])
 						require.JSONEq(t, `{"token":"[redacted]","component":"[redacted]","capture":"[redacted]"}`, diagnostics["req_body"].(string))
-						require.Equal(t, result.Analysis.Debug, result.ComponentSets[0].Analysis.Debug)
+						require.Equal(t, report.Analysis{Status: result.Analysis.Status, Severity: result.Analysis.Severity}, result.ComponentSets[0].Analysis)
 					}
 				})
 			}

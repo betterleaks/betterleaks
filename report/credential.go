@@ -34,6 +34,14 @@ type CredentialComponentSetReport struct {
 	Analysis   Analysis                    `json:"analysis,omitzero"`
 }
 
+// MarshalJSON keeps component outcomes compact, as in scan reports.
+func (s CredentialComponentSetReport) MarshalJSON() ([]byte, error) {
+	type wireComponentSet CredentialComponentSetReport
+	wire := wireComponentSet(s)
+	wire.Analysis = Analysis{Status: s.Analysis.Status, Severity: s.Analysis.Severity}
+	return json.Marshal(wire)
+}
+
 // CredentialComponentReport identifies one component and whether the rule
 // declares it optional.
 type CredentialComponentReport struct {

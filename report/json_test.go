@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,6 +42,70 @@ func TestJSONWritersPropagateOutputErrors(t *testing.T) {
 	want := errors.New("output disconnected")
 	for _, write := range []func(io.Writer, []Finding) error{WriteJSON, WriteJSONL} {
 		require.ErrorIs(t, write(&failingPrettyWriter{err: want}, []Finding{simpleFinding}), want)
+	}
+}
+
+func TestReportsSummarizeComponentAnalysis(t *testing.T) {
+	analysis := Analysis{
+		Status: ValidationStatusValid, Severity: SeverityHigh,
+		StatusReason: "Authenticated", Reason: "Permissions resolved",
+		Identity:       &AnalysisIdentity{Username: "owner"},
+		Capabilities:   []Capability{CapabilityWrite},
+		Metadata:       map[string]any{"acl": []string{"search", "addObject"}},
+		StatusMetadata: map[string]any{"username": "owner"},
+		Debug:          map[string]any{"validation": "diagnostics"},
+	}
+	finding := Finding{
+		RuleID: "composite", Match: Match{Value: "primary-secret"}, Analysis: analysis,
+		ComponentSets: []ComponentSet{
+			{Components: []ComponentFinding{{RuleID: "part", Match: Match{Value: "component-secret"}}}, Analysis: analysis},
+			{Analysis: Analysis{Status: ValidationStatusInvalid, StatusReason: "Unauthorized"}},
+			{Analysis: Analysis{Reason: "No provider result"}},
+		},
+	}
+	original := finding.Clone()
+	for _, redact := range []bool{false, true} {
+		for _, format := range []string{"json", "jsonl", "credential"} {
+			t.Run(fmt.Sprintf("%s/redact=%t", format, redact), func(t *testing.T) {
+				input := finding
+				if redact {
+					input = input.RedactedCopy(100)
+				}
+				var output bytes.Buffer
+				switch format {
+				case "json":
+					require.NoError(t, WriteJSON(&output, []Finding{input}))
+				case "jsonl":
+					require.NoError(t, WriteJSONL(&output, []Finding{input}))
+				case "credential":
+					require.NoError(t, (CredentialReporter{Format: CredentialReportFormatJSONL}).Write(&output, NewCredentialReport(input, nil)))
+				}
+				var record map[string]any
+				if format == "json" {
+					var records []map[string]any
+					require.NoError(t, json.Unmarshal(output.Bytes(), &records))
+					require.Len(t, records, 1)
+					record = records[0]
+				} else {
+					require.NoError(t, json.Unmarshal(output.Bytes(), &record))
+				}
+				expected, err := json.Marshal(analysis)
+				require.NoError(t, err)
+				actual, err := json.Marshal(record["analysis"])
+				require.NoError(t, err)
+				assert.JSONEq(t, string(expected), string(actual), "parent retains full analysis")
+				sets := record["component_sets"].([]any)
+				require.Len(t, sets, 3)
+				assert.Equal(t, map[string]any{"status": "valid", "severity": "high"}, sets[0].(map[string]any)["analysis"])
+				assert.Equal(t, map[string]any{"status": "invalid"}, sets[1].(map[string]any)["analysis"])
+				assert.NotContains(t, sets[2].(map[string]any), "analysis")
+				if redact {
+					assert.NotContains(t, output.String(), "primary-secret")
+					assert.NotContains(t, output.String(), "component-secret")
+				}
+				assert.Equal(t, original, finding, "reporting must not mutate the analyzer's results")
+			})
+		}
 	}
 }
 

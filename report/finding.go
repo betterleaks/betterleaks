@@ -114,6 +114,15 @@ type ComponentSet struct {
 	Analysis   Analysis           `json:"analysis,omitzero"`
 }
 
+// MarshalJSON reports only the outcome of each combination. Full analysis stays
+// available in memory and is reported on the parent finding.
+func (s ComponentSet) MarshalJSON() ([]byte, error) {
+	type wireComponentSet ComponentSet
+	wire := wireComponentSet(s)
+	wire.Analysis = Analysis{Status: s.Analysis.Status, Severity: s.Analysis.Severity}
+	return json.Marshal(wire)
+}
+
 // ComponentFinding is the discovery information for one component match.
 type ComponentFinding struct {
 	RuleID   string   `json:"rule_id"`
