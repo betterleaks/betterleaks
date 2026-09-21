@@ -334,7 +334,7 @@ type cliExitError struct {
 func (e cliExitError) ExitCode() int { return e.code }
 func (e cliExitError) Unwrap() error { return e.error }
 
-func runCLIWithParser(args []string, runtime *commandRuntime, cli *CLI, parser *kong.Kong) error {
+func runCLIWithParser(args []string, runtime *commandRuntime, cli *CLI, parser *cliParser) error {
 	if len(args) == 0 {
 		args = []string{"--help"}
 	}
@@ -348,8 +348,8 @@ func runCLIWithParser(args []string, runtime *commandRuntime, cli *CLI, parser *
 	return parsed.Run(runtime)
 }
 
-func newCLIParser(cli *CLI, runtime *commandRuntime) (*kong.Kong, error) {
-	return kong.New(
+func newCLIParser(cli *CLI, runtime *commandRuntime) (*cliParser, error) {
+	parser, err := kong.New(
 		cli,
 		kong.Name("betterleaks"),
 		kong.Description("Betterleaks scans code, past or present, for secrets"),
@@ -373,6 +373,10 @@ func newCLIParser(cli *CLI, runtime *commandRuntime) (*kong.Kong, error) {
 		}),
 		kong.UsageOnError(),
 	)
+	if err != nil {
+		return nil, err
+	}
+	return &cliParser{Kong: parser}, nil
 }
 
 type versionFlag bool

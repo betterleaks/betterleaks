@@ -47,15 +47,17 @@ make build
 
 ### Usage
 ```
-# Scan Git
-betterleaks git /path/to/repo -v -j 4
-
 # Scan the filesystem
 betterleaks /path/to/target
 # Equivalent explicit command
 betterleaks filesystem /path/to/target
 # Short command alias
 betterleaks fs /path/to/target
+# Flags may also precede the command
+betterleaks --offline --no-banner fs /path/to/target
+
+# Scan Git
+betterleaks git /path/to/repo -v -j 4
 
 # Automatically detect a remote repository and scan its history
 betterleaks https://github.com/betterleaks/betterleaks
@@ -223,7 +225,7 @@ reused. `scan.WithPrecompile` checks detection regexes and filters;
 `analyze.WithPrecompile` checks validation and analysis programs. See the
 [scan-only example](examples/without_analysis.go),
 [concurrent scanner example](examples/concurrent_scanner.go),
-and [analysis example](examples/with_analysis.go) 
+and [analysis example](examples/with_analysis.go)
 
 Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
 `sources.Git`. `sources.Git{URL: repoURL}` scans a temporary HTTP(S) clone;

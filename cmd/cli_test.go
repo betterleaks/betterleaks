@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newCLIParserForTest(t *testing.T) (*CLI, *kong.Kong) {
+func newCLIParserForTest(t *testing.T) (*CLI, *cliParser) {
 	t.Helper()
 	cli := &CLI{}
 	root, _ := newTestCLI(t)
