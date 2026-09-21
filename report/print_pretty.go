@@ -697,14 +697,7 @@ func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
 		values["status_metadata."+key] = formatMetadataValue(value)
 	}
 	for key, value := range analysis.Metadata {
-		displayKey := key
-		for {
-			if _, exists := values[displayKey]; !exists {
-				break
-			}
-			displayKey = "metadata." + displayKey
-		}
-		values[displayKey] = formatMetadataValue(value)
+		values["metadata."+key] = formatMetadataValue(value)
 	}
 
 	return values

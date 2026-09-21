@@ -46,9 +46,8 @@ func TestPrintPrettyAnalysisMetadata(t *testing.T) {
 		},
 	}}
 	require.NoError(t, WritePretty(&output, finding, PrettyOptions{NoColor: true}))
-	assert.Contains(t, output.String(), "permissions")
+	assert.Contains(t, output.String(), "metadata.permissions")
 	assert.Contains(t, output.String(), "[create_access_request, read_personal_access_token]")
-	assert.NotContains(t, output.String(), "metadata.permissions")
 }
 
 func TestPrintComponentFindingsOmitsAnalysis(t *testing.T) {

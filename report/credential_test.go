@@ -184,9 +184,9 @@ func TestCredentialReporterWritesText(t *testing.T) {
 │
 │
 │ analysis:
-│   alpha ....... "owner"
-│   status ...... VALID
-│   zeta ........ 2
+│   metadata.alpha ...... "owner"
+│   metadata.zeta ....... 2
+│   status .............. VALID
 │
 │ components:
 │   ✓  component, context (optional)
