@@ -226,11 +226,11 @@ func TestConfigShowIDsBuiltinRevocation(t *testing.T) {
 		"slack-bot-token", "slack-user-token", "twitch-api-token",
 	}
 	require.Equal(t, strings.Join(want, "\n")+"\n", stdout.String())
-	// Twitch currently supports revocation without standalone validation.
+	// All built-in revocable credentials now also support validation.
 	root, stdout = newTestCLI(t)
 	root.SetArgs([]string{"config", "show", "ids", "--config", configPath, "--revocation", "--validation"})
 	require.NoError(t, root.Execute())
-	require.Equal(t, strings.Join(want[:len(want)-1], "\n")+"\n", stdout.String())
+	require.Equal(t, strings.Join(want, "\n")+"\n", stdout.String())
 }
 
 func TestConfigShowIDsPropagatesWriteError(t *testing.T) {

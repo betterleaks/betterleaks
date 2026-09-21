@@ -6,25 +6,34 @@ import (
 	"github.com/betterleaks/betterleaks/v2/config"
 )
 
+// https://linear.app/developers/graphql
+const linearValidateExpr = `let r = http.post("https://api.linear.app/graphql", {"Authorization": finding["secret"], "Content-Type": "application/json"}, "{\"query\":\"query { viewer { id name email } }\"}");
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && type(r.json?.data?.viewer) == "map" && (r.json?.data?.viewer?.id ?? "") != "" && len(r.json?.errors ?? []) == 0 ? {
+  "result": "valid",
+  "analysis": {
+    "identity": {
+      "id": string(r.json?.data?.viewer?.id ?? ""),
+      "name": string(r.json?.data?.viewer?.name ?? ""),
+      "email": string(r.json?.data?.viewer?.email ?? "")
+    }
+  }
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`
+
+const linearAnalyzeExpr = identityOnlyAnalyzeExpr
+
 func LinearAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		ID:          "linear-api-key",
-		Confidence:  "high",
-		Description: "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
-		Regex:       `lin_api_(?i)[a-z0-9]{40}`,
-		Keywords:    []string{"lin_api_"},
-		ValidateExpr: `let r = http.post("https://api.linear.app/graphql", {
-    "Authorization": finding["secret"],
-    "Content-Type": "application/json"
-  }, "{\"query\": \"query { viewer { id name email } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") ? {
-    "result": "valid",
-    "metadata": {"email": (r.json?.data?.viewer?.email ?? ""), "name": (r.json?.data?.viewer?.name ?? "")}
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		ID:           "linear-api-key",
+		Confidence:   "high",
+		Description:  "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
+		Regex:        `lin_api_(?i)[a-z0-9]{40}`,
+		Keywords:     []string{"lin_api_"},
+		ValidateExpr: linearValidateExpr,
+		AnalyzeExpr:  linearAnalyzeExpr,
+		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

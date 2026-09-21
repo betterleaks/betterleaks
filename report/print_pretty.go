@@ -686,9 +686,9 @@ func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
 		values["identity.name"] = identity.Name
 		values["identity.email"] = identity.Email
 		if account := identity.Account; account != nil {
-			values["account.id"] = account.ID
-			values["account.name"] = account.Name
-			values["account.domains"] = strings.Join(account.Domains, ", ")
+			values["identity.account.id"] = account.ID
+			values["identity.account.name"] = account.Name
+			values["identity.account.domains"] = strings.Join(account.Domains, ", ")
 		}
 	}
 	for key, value := range analysis.Debug {

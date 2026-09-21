@@ -5,24 +5,38 @@ import (
 	"github.com/betterleaks/betterleaks/v2/config"
 )
 
+// https://circleci.com/docs/api/v2/index.html#operation/getCurrentUser
+const circleciValidateExpr = `let r = http.get("https://circleci.com/api/v2/me", {
+  "Circle-Token": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.id ?? "") != "" ? {
+  "result": "valid",
+  "analysis": {
+    "identity": {
+      "id": string(r.json?.id ?? ""),
+      "username": string(r.json?.login ?? ""),
+      "name": string(r.json?.name ?? "")
+    },
+    "metadata": {}
+  }
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`
+
+const circleciAnalyzeExpr = identityOnlyAnalyzeExpr
+
 func CircleCIPersonalToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		ID:          "circleci-personal-token",
-		Confidence:  "high",
-		Description: "CircleCI personal access token.",
-		Regex:       `\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})`,
-		Keywords:    []string{"CCIPAT_"},
-		Filter:      `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
-		ValidateExpr: `let r = http.get("https://circleci.com/api/v2/me", {
-    "Accept": "application/json",
-    "Circle-Token": finding["secret"]
-  }); r.status == 200 && (r.json?.id ?? "") != "" ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+		ID:           "circleci-personal-token",
+		Confidence:   "high",
+		Description:  "CircleCI personal access token.",
+		Regex:        `\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})`,
+		Keywords:     []string{"CCIPAT_"},
+		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		ValidateExpr: circleciValidateExpr,
+		AnalyzeExpr:  circleciAnalyzeExpr,
 	}
 
 	// validate
