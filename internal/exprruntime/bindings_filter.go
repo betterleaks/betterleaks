@@ -44,14 +44,17 @@ func (e *Runtime) getOrCompileJoinedRegex(patterns []string) (*blregexp.Regexp, 
 	}
 	key := orderedKey(patterns)
 	if v, ok := e.regexCache.Load(key); ok {
-		return v.(*blregexp.Regexp), nil
+		re := v.(*blregexp.Regexp)
+		return re, re.Compile()
 	}
 	re, err := e.compileJoinedRegex(patterns)
 	if err != nil {
 		return nil, err
 	}
-	e.regexCache.Store(key, re)
-	return re, nil
+	// Share lazy compilation, including failures, across concurrent evaluations.
+	cached, _ := e.regexCache.LoadOrStore(key, re)
+	re = cached.(*blregexp.Regexp)
+	return re, re.Compile()
 }
 
 func (e *Runtime) compileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
@@ -77,7 +80,7 @@ func (e *Runtime) compileJoinedRegex(patterns []string) (*blregexp.Regexp, error
 // The common source prefilter is one matchesAny(attributes[key], literalList).
 // Compile that operation once, without per-path VM bindings or cache keys.
 // All other expressions, including invalid regexes, retain normal evaluation.
-func (e *Runtime) compileAttributeMatch(node ast.Node) func(map[string]string) bool {
+func (e *Runtime) compileAttributeMatch(node ast.Node) func(map[string]string) (bool, error) {
 	call, ok := node.(*ast.CallNode)
 	if !ok || len(call.Arguments) != 2 {
 		return nil
@@ -112,8 +115,14 @@ func (e *Runtime) compileAttributeMatch(node ast.Node) func(map[string]string) b
 		return nil
 	}
 	attribute := key.Value
-	return func(attributes map[string]string) bool {
-		return re != nil && re.MatchString(attributes[attribute])
+	return func(attributes map[string]string) (bool, error) {
+		if re == nil {
+			return false, nil
+		}
+		if err := re.Compile(); err != nil {
+			return false, err
+		}
+		return re.MatchString(attributes[attribute]), nil
 	}
 }
 

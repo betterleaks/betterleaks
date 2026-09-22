@@ -116,6 +116,70 @@ func TestNilEngineOptionIsRejected(t *testing.T) {
 	require.ErrorContains(t, err, "regex engine")
 }
 
+func TestExpressionRegexFailuresFollowRuntimeErrorPolicy(t *testing.T) {
+	engine := failingEngine{pattern: "(?:TOKEN)", err: errors.New("backend compilation failed")}
+	t.Run("prefilters keep input and warn", func(t *testing.T) {
+		for _, expression := range []string{
+			`matchesAny(attributes.path, ["TOKEN"])`,
+			`!matchesAny(attributes.path, ["TOKEN"])`,
+			`matchesAny(attributes.path, [attributes.pattern])`,
+		} {
+			var logs bytes.Buffer
+			skip, err := prefilter.Compile(expression, prefilter.Options{
+				RegexEngine: engine, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+			})
+			require.NoError(t, err)
+			for range 2 {
+				logs.Reset()
+				require.False(t, skip(map[string]string{"path": "TOKEN", "pattern": "TOKEN"}))
+				require.Contains(t, logs.String(), "backend compilation failed")
+			}
+		}
+	})
+	t.Run("finding filters keep findings and warn", func(t *testing.T) {
+		for _, expression := range []string{
+			`!matchesAny(finding.secret, ["TOKEN"])`,
+			`findMatch(finding.secret, "TOKEN") == ""`,
+		} {
+			var logs bytes.Buffer
+			scanner, err := scan.New(&config.Config{Rules: []config.Rule{{ID: "test", Regex: "TOKEN", Filter: expression}}},
+				scan.WithRegexEngine(engine), scan.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
+			require.NoError(t, err)
+			for range 2 {
+				logs.Reset()
+				summary, err := scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("TOKEN")}, nil)
+				require.NoError(t, err)
+				require.Equal(t, 1, summary.Findings)
+				require.Contains(t, logs.String(), "backend compilation failed")
+			}
+		}
+	})
+	t.Run("validation reports error instead of invalid", func(t *testing.T) {
+		a, err := analyze.New(&config.Config{Rules: []config.Rule{{
+			ID: "test", Regex: "TOKEN",
+			ValidateExpr: `{"result": matchesAny(finding.secret, ["TOKEN"]) ? "valid" : "invalid"}`,
+		}}}, analyze.WithRegexEngine(engine))
+		require.NoError(t, err)
+		result, err := a.ValidateCredential(t.Context(), credential.Input{RuleID: "test", Secret: "TOKEN"})
+		require.NoError(t, err)
+		require.Equal(t, report.ValidationStatusError, result.Analysis.Status)
+		require.Contains(t, result.Analysis.StatusReason, "backend compilation failed")
+	})
+	t.Run("analysis preserves liveness and reports enrichment failure", func(t *testing.T) {
+		a, err := analyze.New(&config.Config{Rules: []config.Rule{{
+			ID: "test", Regex: "TOKEN", ValidateExpr: `{"result": "valid"}`,
+			AnalyzeExpr: `{"capabilities": analysis.capabilities({"read": matchesAny(finding.secret, ["TOKEN"])})}`,
+		}}}, analyze.WithRegexEngine(engine))
+		require.NoError(t, err)
+		result, err := a.AnalyzeCredential(t.Context(), credential.Input{RuleID: "test", Secret: "TOKEN"})
+		require.NoError(t, err)
+		require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
+		require.Equal(t, report.SeverityUnknown, result.Analysis.Severity)
+		require.Empty(t, result.Analysis.Capabilities)
+		require.Contains(t, result.Analysis.Reason, "backend compilation failed")
+	})
+}
+
 type failingEngine struct {
 	pattern string
 	err     error

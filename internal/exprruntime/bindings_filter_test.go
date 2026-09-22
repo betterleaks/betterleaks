@@ -1,7 +1,9 @@
 package exprruntime
 
 import (
+	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
@@ -9,6 +11,47 @@ import (
 	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/stretchr/testify/require"
 )
+
+type failingRegexEngine struct {
+	err      error
+	compiles atomic.Int32
+}
+
+func (e *failingRegexEngine) Version() string { return "failing" }
+
+func (e *failingRegexEngine) Compile(string) (blregexp.CompiledRegexp, error) {
+	e.compiles.Add(1)
+	return nil, e.err
+}
+
+func TestPrefilterBackendErrorsAreLazyAndCached(t *testing.T) {
+	for _, expression := range []string{
+		`matchesAny(attributes.path, ["TOKEN"])`,
+		`matchesAny(attributes.path, [attributes.pattern])`,
+	} {
+		t.Run(expression, func(t *testing.T) {
+			backendErr := errors.New("backend compilation failed")
+			engine := &failingRegexEngine{err: backendErr}
+			runtime := NewLocal(engine)
+			program, err := runtime.CompilePrefilter(expression)
+			require.NoError(t, err)
+			require.Zero(t, engine.compiles.Load())
+			var workers sync.WaitGroup
+			for range 8 {
+				workers.Go(func() {
+					for range 2 {
+						got, err := runtime.EvalPrefilter(program, map[string]string{"path": "TOKEN", "pattern": "TOKEN"})
+						if got || !errors.Is(err, backendErr) {
+							t.Errorf("result=%t error=%v; want false and backend error", got, err)
+						}
+					}
+				})
+			}
+			workers.Wait()
+			require.EqualValues(t, 1, engine.compiles.Load())
+		})
+	}
+}
 
 func TestCompiledAttributeMatchPreservesPrefilterSemantics(t *testing.T) {
 	for _, test := range []struct {
