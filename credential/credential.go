@@ -1,16 +1,6 @@
-// Package credential owns inputs, capture requirements, and input preparation
-// shared by validation, analysis, and explicit revocation.
+// Package credential defines inputs and capture requirements shared by
+// validation, analysis, and explicit revocation.
 package credential
-
-import (
-	"errors"
-	"fmt"
-	"maps"
-	"slices"
-
-	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/report"
-)
 
 // Input is an already-extracted secret and the inputs needed by its rule's
 // provider programs. Secret is passed verbatim: it is not matched against the
@@ -35,53 +25,18 @@ type Component struct {
 	Captures map[string]string
 }
 
-// Finding returns an independent snapshot for provider execution using the
-// selected rule. It copies all mutable data and does not invent scan locations
-// or matched source text. The caller must resolve rule from Input.RuleID.
-func (input Input) Finding(rule config.Rule) report.Finding {
-	optional := make(map[string]bool, len(rule.Components))
-	for _, c := range rule.Components {
-		optional[c.RuleID] = c.Optional
-	}
-
-	finding := report.Finding{
-		RuleID:      rule.ID,
-		Description: rule.Description,
-		Match:       report.Match{Value: input.Secret, Captures: maps.Clone(input.Captures)},
-		Tags:        slices.Clone(rule.Tags),
-	}
-	finding.SetAttributes(input.Attributes)
-	components := make([]report.ComponentFinding, 0, len(input.Components))
-	for _, id := range slices.Sorted(maps.Keys(input.Components)) {
-		component := input.Components[id]
-		components = append(components, report.ComponentFinding{
-			RuleID:   id,
-			Optional: optional[id],
-			Match:    report.Match{Value: component.Secret, Captures: maps.Clone(component.Captures)},
-		})
-	}
-	if len(components) > 0 {
-		finding.ComponentSets = []report.ComponentSet{{Components: components}}
-	}
-	return finding
+// Requirements describes the statically named inputs consumed by a rule's
+// provider expressions. Optional accesses and null-coalescing fallbacks do not
+// require a capture. Dynamic capture names cannot be inferred.
+type Requirements struct {
+	Captures   []string                `json:"captures,omitempty"`
+	Components []ComponentRequirements `json:"components,omitempty"`
 }
 
-func validateSecret(label, secret string) error {
-	if secret == "" {
-		return fmt.Errorf("%s must not be empty", label)
-	}
-	const maxSecretBytes = 1 << 20
-	if len(secret) > maxSecretBytes {
-		return fmt.Errorf("%s exceeds %d bytes", label, maxSecretBytes)
-	}
-	return nil
-}
-
-func validateCaptures(captures map[string]string) error {
-	for name := range captures {
-		if name == "" {
-			return errors.New("capture name must not be empty")
-		}
-	}
-	return nil
+// ComponentRequirements describes one declared credential component. Captures
+// are required only when that component is supplied.
+type ComponentRequirements struct {
+	RuleID   string   `json:"rule_id"`
+	Optional bool     `json:"optional,omitempty"`
+	Captures []string `json:"captures,omitempty"`
 }

@@ -47,11 +47,11 @@ func Run(ctx context.Context, cfg *config.Config, input credential.Input, option
 	primaryCaptures := make(map[string]string, len(cfg.Rules))
 	for _, rule := range cfg.Rules {
 		rules[rule.ID] = rule
-		primaryCaptures[rule.ID] = credential.PrimaryCapture(rule)
+		primaryCaptures[rule.ID] = provider.PrimaryCapture(rule)
 	}
-	finding := input.Finding(rule)
-	requirements := credential.RequirementsFor(rule, primaryCaptures, rule.RevokeExpr)
-	if err := credential.ValidateFinding(&finding, rule, requirements, rules, primaryCaptures); err != nil {
+	finding := provider.FindingFromCredential(input, rule)
+	requirements := provider.RequirementsFor(rule, primaryCaptures, rule.RevokeExpr)
+	if err := provider.ValidateFinding(&finding, rule, requirements, rules, primaryCaptures); err != nil {
 		return report.CredentialReport{}, err
 	}
 	components := make(map[string]any, len(input.Components))

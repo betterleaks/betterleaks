@@ -66,7 +66,7 @@ to serialize credential evaluations. Provider request rate limits are separate.
 The Go API configures detection with `scan.WithWorkers(n)`, provider execution
 with `analyze.WithWorkers(n)`, and source concurrency with fields such as
 `sources.Files{Workers: n}`. The detection limit is shared across all concurrent
-`Scan`, `Run`, and `ScanString` calls on the same scanner. Provider and source
+`Scan` and `ScanString` calls on the same scanner. Provider and source
 limits apply per operation. The CLI translates `-j` / `--jobs` into the source
 and detection worker counts described above.
 

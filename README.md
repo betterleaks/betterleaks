@@ -188,7 +188,7 @@ if err != nil {
 
 Call `analyzer.ValidateCredential` for liveness alone. Supply named `Captures`
 and `Components` (`map[string]credential.Component`) when required by the rule.
-The `credential` package owns the shared inputs, capture requirements, and input preparation;
+The `credential` package contains the shared input and requirement data types;
 `analyzer.Requirements` and `analyzer.ValidationRequirements` return
 `credential.Requirements`. Direct credential operations bypass
 scan filters and sanitize supplied secret material in their reports.
@@ -209,7 +209,7 @@ summary, err := p.Scan(ctx, source, handler)
 
 Detection and provider workers have independent concurrency limits and bounded
 queues. `scan.WithWorkers(n)` limits active detection across all concurrent
-`Scan`, `Run`, and `ScanString` calls on the same scanner: `WithWorkers(5)` allows
+`Scan` and `ScanString` calls on the same scanner: `WithWorkers(5)` allows
 five detection workers total, even with 100 concurrent scans. Separate scanners
 have independent limits. `analyze.WithWorkers(n)` and source `Workers` fields
 limit provider and input concurrency per operation.
