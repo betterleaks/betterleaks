@@ -238,6 +238,10 @@ and `prefilter.Options.RegexEngine`. The CLI defaults to RE2 and passes its
 `--regex-engine` selection to all three. See the
 [RE2 example](examples/with_re2_regexp.go).
 
+Custom engines implement `regexp.Engine`, whose `Compile` method returns the
+public `regexp.CompiledRegexp` interface. Both the engine and its compiled
+expressions must support concurrent use.
+
 Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
 `sources.Git`. `sources.Git{URL: repoURL}` scans a temporary HTTP(S) clone;
 `sources.URL{URL: contentURL}` downloads one response, with optional archive

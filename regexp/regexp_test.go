@@ -3,15 +3,13 @@ package regexp
 import (
 	"errors"
 	"testing"
-
-	"github.com/betterleaks/betterleaks/v2/regexp/internal"
 )
 
 type countingEngine struct {
 	compiles int
 }
 
-func (e *countingEngine) Compile(str string) (internal.CompiledRegexp, error) {
+func (e *countingEngine) Compile(str string) (CompiledRegexp, error) {
 	e.compiles++
 	return Stdlib{}.Compile(str)
 }
@@ -20,7 +18,7 @@ func (e *countingEngine) Version() string { return "counting" }
 
 type failingEngine struct{}
 
-func (e failingEngine) Compile(string) (internal.CompiledRegexp, error) {
+func (e failingEngine) Compile(string) (CompiledRegexp, error) {
 	return nil, errors.New("compile failed")
 }
 

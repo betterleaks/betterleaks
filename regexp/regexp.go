@@ -3,14 +3,12 @@ package regexp
 import (
 	"regexp/syntax"
 	"sync"
-
-	"github.com/betterleaks/betterleaks/v2/regexp/internal"
 )
 
 // Engine compiles regular expressions. Implementations must support concurrent
 // calls and must not change behavior while a scanner or runtime uses them.
 type Engine interface {
-	Compile(str string) (internal.CompiledRegexp, error)
+	Compile(str string) (CompiledRegexp, error)
 	Version() string
 }
 
@@ -21,7 +19,7 @@ type Regexp struct {
 	numSubexp int
 
 	once sync.Once
-	e    internal.CompiledRegexp
+	e    CompiledRegexp
 	err  error
 }
 
@@ -76,7 +74,7 @@ func (r *Regexp) Compile() error {
 	return r.err
 }
 
-func (r *Regexp) compiled() (internal.CompiledRegexp, bool) {
+func (r *Regexp) compiled() (CompiledRegexp, bool) {
 	r.once.Do(func() {
 		r.e, r.err = r.engine.Compile(r.pattern)
 	})
