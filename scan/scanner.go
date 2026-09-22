@@ -57,7 +57,7 @@ type ruleCandidates struct {
 	windows []regexspan.Windows
 }
 
-// Scanner is an immutable rule engine with thread-safe lazy compilation. A
+// Scanner is an immutable rule engine with thread-safe lazy regex compilation. A
 // Scanner may be reused concurrently with independent sources. Each scan
 // owns its execution state and shares the Scanner's detection worker limit.
 type Scanner struct {
@@ -70,15 +70,14 @@ type Scanner struct {
 	workerSlots         *semaphore.Weighted
 	logger              *slog.Logger
 
-	keywordMatcher   *ahocorasick.Matcher
-	globalFilterExpr string
+	keywordMatcher *ahocorasick.Matcher
 
 	tokenCounter     *tokenizer.Counter
 	tokenCounterOnce sync.Once
 
 	exprRuntime *exprruntime.LocalRuntime
 
-	globalFilter lazyFilter
+	globalFilter exprruntime.Program
 
 	// rulesBySpecificity contains an immutable snapshot of every configured rule in descending
 	// specificity order. Its positions are the shared index space used by the
@@ -103,9 +102,10 @@ type Scanner struct {
 	candidatePool sync.Pool
 }
 
-// New creates a Scanner from cfg. Rule regexes and finding filters compile
-// lazily unless [WithPrecompile] is supplied. Sources own prefilter evaluation;
-// cfg.Prefilter is not used by the Scanner.
+// New creates a Scanner from cfg and compiles all finding filters, returning an
+// error for invalid expressions. Rule regexes compile lazily unless
+// [WithPrecompile] is supplied. Sources own prefilter evaluation; cfg.Prefilter
+// is not used by the Scanner.
 func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required to create scanner")
@@ -175,7 +175,6 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		workers:             settings.workers,
 		workerSlots:         semaphore.NewWeighted(int64(settings.workers)),
 		logger:              logging.OrDiscard(settings.logger),
-		globalFilterExpr:    cfg.Filter,
 		keywordMatcher:      ahocorasick.Compile(keywords, true),
 		exprRuntime:         exprRuntime,
 		rulesBySpecificity:  rulesBySpecificity,
@@ -197,9 +196,12 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		}
 	}
 	exprRuntime.SetTokenCounterProvider(s.tokenCounterInstance)
+	if err := s.compileFilters(cfg.Filter); err != nil {
+		return nil, err
+	}
 
 	if settings.precompile {
-		if err := s.compileAll(); err != nil {
+		if err := s.compileRegexes(); err != nil {
 			return nil, err
 		}
 	}
@@ -207,10 +209,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	return s, nil
 }
 
-func (s *Scanner) compileAll() error {
-	if _, _, err := s.globalFilterProgram(); err != nil {
-		return err
-	}
+func (s *Scanner) compileRegexes() error {
 	for i := range s.rulesBySpecificity {
 		rule := &s.rulesBySpecificity[i]
 		if rule.regex != nil {
@@ -222,9 +221,6 @@ func (s *Scanner) compileAll() error {
 			if err := rule.path.Compile(); err != nil {
 				return fmt.Errorf("compile rule %q path regex: %w", rule.rule.ID, err)
 			}
-		}
-		if _, _, err := s.ruleFilterProgram(rule); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -240,28 +236,6 @@ func (s *Scanner) tokenCounterInstance() *tokenizer.Counter {
 		s.tokenCounter = counter
 	})
 	return s.tokenCounter
-}
-
-func (s *Scanner) globalFilterProgram() (exprruntime.Program, bool, error) {
-	if s.globalFilterExpr == "" {
-		return nil, false, nil
-	}
-	program, err := s.globalFilter.compile(s.exprRuntime, s.globalFilterExpr)
-	if err != nil {
-		return nil, false, fmt.Errorf("compiling global filter: %w", err)
-	}
-	return program, true, nil
-}
-
-func (s *Scanner) ruleFilterProgram(r *compiledRule) (exprruntime.Program, bool, error) {
-	if r.rule.Filter == "" {
-		return nil, false, nil
-	}
-	program, err := r.filter.compile(s.exprRuntime, r.rule.Filter)
-	if err != nil {
-		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.rule.ID, err)
-	}
-	return program, true, nil
 }
 
 // Result is one finding or recoverable error emitted by [Scanner.Run].
@@ -692,7 +666,7 @@ func snapshotRules(cfg *config.Config, engine blregexp.Engine) ([]compiledRule, 
 		rule := source
 		rule.Keywords = slices.Clone(source.Keywords)
 		rule.Tags = slices.Clone(source.Tags)
-		compiled := compiledRule{rule: rule, filter: &lazyFilter{}}
+		compiled := compiledRule{rule: rule}
 		if rule.Regex != "" {
 			var err error
 			compiled.guard = compileAssignmentGuard(rule.Regex, rule.Keywords)
@@ -938,8 +912,8 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		entropy := shannonEntropy(finding.Match.Value)
 
-		hasGlobalFilter := s.globalFilterExpr != ""
-		hasRuleFilter := r.rule.Filter != ""
+		hasGlobalFilter := s.globalFilter != nil
+		hasRuleFilter := r.filter != nil
 		// Context is opt-in. Filters can slice fragment_raw using match offsets
 		// without retaining an additional context window on every finding.
 		if !s.matchContext.IsZero() {
@@ -976,9 +950,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 		}
 		// Global filter: Expr path (attributes + finding).
-		if prg, ok, err := s.globalFilterProgram(); err != nil {
-			logger.Warn("global filter compile error", "error", err)
-		} else if ok {
+		if prg := s.globalFilter; prg != nil {
 			skip, err := s.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
 			promoteConfidence(&finding, findingMap, filterAttributes)
 			if err != nil {
@@ -990,9 +962,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 
 		// Rule filter: Expr path (includes entropy and token-efficiency checks).
-		if prg, ok, err := s.ruleFilterProgram(r); err != nil {
-			logger.Warn("rule filter compile error", "error", err)
-		} else if ok {
+		if prg := r.filter; prg != nil {
 			skip, err := s.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
 			promoteConfidence(&finding, findingMap, filterAttributes)
 			if err != nil {
@@ -1113,7 +1083,7 @@ func findingEndOffset(lineOffsets []int, fragmentStartLine int, finding report.F
 // Path findings have metadata but no content match. They still obey local
 // filters; content offsets and fragment text are explicitly empty.
 func (s *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bool {
-	if s.globalFilterExpr == "" && r.rule.Filter == "" {
+	if s.globalFilter == nil && r.filter == nil {
 		return false
 	}
 	attrs := exprAttributes(*finding)
@@ -1127,13 +1097,8 @@ func (s *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bo
 	for _, key := range []string{"match_start_idx", "match_end_idx", "match_line_start_idx", "match_line_end_idx"} {
 		values[key] = 0
 	}
-	for _, compile := range []func() (exprruntime.Program, bool, error){s.globalFilterProgram, func() (exprruntime.Program, bool, error) { return s.ruleFilterProgram(r) }} {
-		prg, ok, err := compile()
-		if err != nil {
-			s.logger.Warn("path filter compile error", "error", err)
-			continue
-		}
-		if !ok {
+	for _, prg := range []exprruntime.Program{s.globalFilter, r.filter} {
+		if prg == nil {
 			continue
 		}
 		skip, err := s.exprRuntime.EvalFilter(prg, values, attrs)

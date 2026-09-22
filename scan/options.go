@@ -135,8 +135,9 @@ func WithLogger(logger *slog.Logger) Option {
 	}}
 }
 
-// WithPrecompile compiles detection regexes and local filter expressions during
-// construction. Provider expressions are never compiled. Lazy compilation remains the default.
+// WithPrecompile compiles detection and path regexes during construction instead
+// of on first use. Finding filters always compile during construction. Provider
+// expressions are never compiled by the scanner.
 func WithPrecompile() Option {
 	return Option{apply: func(options *scannerOptions) error {
 		options.precompile = true

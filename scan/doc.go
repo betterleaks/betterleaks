@@ -3,8 +3,9 @@
 // independently use the network, for example when scanning a remote repository.
 //
 // Load rules with config.Default or config.LoadFile, then call New. Rules and
-// options are snapshotted; regexes and filters compile lazily unless
-// WithPrecompile is supplied. Scanners are silent unless WithLogger is supplied.
+// options are snapshotted and finding filters compile during construction.
+// Regexes compile lazily unless WithPrecompile is supplied. Scanners are silent
+// unless WithLogger is supplied.
 // WithRegexEngine selects an engine for this scanner; the default is Go's
 // standard library. The optional regexp/re2 package is imported only by callers
 // that select it. An engine is retained rather than copied and must be safe for

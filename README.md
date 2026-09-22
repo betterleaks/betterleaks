@@ -221,7 +221,8 @@ content.
 
 Engines may be reused concurrently with independent sources. Each provider
 operation owns its result caches and request limits; compiled programs are
-reused. `scan.WithPrecompile` checks detection regexes and filters;
+reused. `scan.New` always compiles finding filters and rejects invalid expressions;
+`scan.WithPrecompile` also compiles detection and path regexes up front.
 `analyze.WithPrecompile` checks validation and analysis programs. See the
 [scan-only example](examples/without_analysis.go),
 [concurrent scanner example](examples/concurrent_scanner.go),

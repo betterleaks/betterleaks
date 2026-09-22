@@ -220,7 +220,7 @@ func TestIgnoredFingerprintsSnapshotAndReuse(t *testing.T) {
 
 func TestScannerLoggerIsOptIn(t *testing.T) {
 	cfg := &config.Config{
-		Filter: `missingFunction()`,
+		Filter: `int(finding.secret) > 0`,
 		Rules: []config.Rule{{
 			ID:    "test-secret",
 			Regex: `secret-[a-z]+`,
@@ -234,7 +234,7 @@ func TestScannerLoggerIsOptIn(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	scanner := mustNew(t, cfg, WithLogger(logger))
 	require.Len(t, scanner.ScanString("secret-alpha"), 1)
-	assert.Contains(t, output.String(), "global filter compile error")
+	assert.Contains(t, output.String(), "global filter eval error")
 }
 
 func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
@@ -280,20 +280,51 @@ func TestScannerScanReturnsHandlerAndSourceErrors(t *testing.T) {
 	assert.ErrorIs(t, scanErr, sourceErr)
 }
 
-func TestWithPrecompileIsTheEagerCompilationPath(t *testing.T) {
+func TestNewRejectsInvalidFindingFilters(t *testing.T) {
+	for _, expression := range []string{`missingFunction()`, `finding.secret ==`, `42`} {
+		for _, scope := range []string{"global", "rule", "path", "component"} {
+			t.Run(scope+"/"+expression, func(t *testing.T) {
+				cfg := testConfig()
+				want := "compiling global filter"
+				switch scope {
+				case "global":
+					cfg.Filter = expression
+				case "rule":
+					cfg.Rules[0].Filter = expression
+					want = "compiling rule " + cfg.Rules[0].ID + " filter"
+				case "path":
+					cfg.Rules = append(cfg.Rules, config.Rule{ID: "path-only", Path: `\.env$`, Filter: expression})
+					want = "compiling rule path-only filter"
+				case "component":
+					cfg.Rules[0].Components = []config.Component{{RuleID: "part"}}
+					cfg.Rules = append(cfg.Rules, config.Rule{ID: "part", Regex: "COMPONENT", SkipReport: true, Filter: expression})
+					want = "compiling rule part filter"
+				}
+				for _, options := range [][]Option{nil, {WithPrecompile()}} {
+					scanner, err := New(cfg, options...)
+					require.ErrorContains(t, err, want)
+					require.Nil(t, scanner)
+				}
+			})
+		}
+	}
+}
+
+func TestFilterCompilationDoesNotInitializeTokenizer(t *testing.T) {
 	cfg := testConfig()
-	cfg.Filter = `missingFunction()`
+	cfg.Filter = `tokenRatio(finding.secret) > 0`
+	scanner, err := New(cfg)
+	require.NoError(t, err)
+	require.Nil(t, scanner.tokenCounter, "construction must compile filters without evaluating them")
+}
 
-	_, err := New(cfg)
-	require.NoError(t, err, "expressions remain lazy by default")
-
-	_, err = New(cfg, WithPrecompile())
-	require.ErrorContains(t, err, "compiling global filter")
-
-	cfg = testConfig()
+func TestScannerDoesNotCompileProviderExpressions(t *testing.T) {
+	cfg := testConfig()
 	cfg.Rules[0].ValidateExpr = `missingFunction()`
-	_, err = New(cfg, WithPrecompile())
-	require.NoError(t, err, "scanner never compiles provider expressions")
+	for _, options := range [][]Option{nil, {WithPrecompile()}} {
+		_, err := New(cfg, options...)
+		require.NoError(t, err, "scanner never compiles provider expressions")
+	}
 }
 
 func TestNewValidatesOptions(t *testing.T) {

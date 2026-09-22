@@ -5,6 +5,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/v2/internal/regexspan"
 	"github.com/betterleaks/betterleaks/v2/regexp"
 )
@@ -19,7 +20,7 @@ type compiledRule struct {
 	regex         *regexp.Regexp
 	path          *regexp.Regexp
 	pathSuffixes  []string
-	filter        *lazyFilter
+	filter        exprruntime.Program
 	components    []compiledComponent
 }
 
