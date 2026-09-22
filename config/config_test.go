@@ -10,8 +10,10 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/betterleaks/betterleaks/v2/version"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -610,7 +612,7 @@ regex = "primary"
 [[rules.required]]
 id = "component"
 `, "")
-		require.ErrorContains(t, err, "[[rules.required]] is not supported; use rules.components")
+		require.ErrorContains(t, err, "rules.required")
 	})
 }
 
@@ -699,16 +701,14 @@ func loadTestConfig(cfgName string) (*Config, error) {
 	return LoadFile(filepath.Join(configPath, cfgName+".toml"))
 }
 
-func TestParseTOMLPermissiveUnknownKeysAndPath(t *testing.T) {
+func TestParseTOMLPreservesPath(t *testing.T) {
 	cfg, err := ParseTOMLString(`
 title = "custom"
-unknownTopLevel = "ignored"
 
 [[rules]]
 id = "test-rule"
 description = "test rule"
 regex = '''test-(secret)'''
-unknownRuleKey = "ignored"
 `, "/tmp/custom.toml")
 	require.NoError(t, err)
 
@@ -768,4 +768,100 @@ func BenchmarkParseConfig(b *testing.B) {
 			}
 		})
 	}
+}
+
+func TestParseTOMLRejectsUnknownFields(t *testing.T) {
+	for _, test := range []struct{ name, content, field string }{
+		{"top level", "minVerison = 'v2.0.0'", "minVerison"},
+		{"rule", "[[rules]]\nid = 'token'\nregex = 'TOKEN'\nvalidte = 'true'", "rules.validte"},
+		{"component", "[[rules]]\nid = 'token'\nregex = 'TOKEN'\ncomponents = [{id = 'part', optonal = true}]", "rules.components.optonal"},
+		{"extension", "[extend]\nuseDefaut = true", "extend.useDefaut"},
+		{"unsupported URL", "[extend]\nurl = 'https://example.invalid/rules.toml'", "extend.url"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := ParseTOMLString(test.content, "custom.toml")
+			require.Nil(t, cfg)
+			require.ErrorContains(t, err, test.field)
+			require.ErrorContains(t, err, "custom.toml")
+			require.ErrorContains(t, err, "line ")
+			var strict *toml.StrictMissingError
+			require.ErrorAs(t, err, &strict)
+
+			basePath := filepath.Join(t.TempDir(), "base.toml")
+			require.NoError(t, os.WriteFile(basePath, []byte(test.content), 0o600))
+			_, err = ParseTOMLString(fmt.Sprintf("[extend]\npath = %q\n[[rules]]\nid = 'token'\nregex = 'REPLACEMENT'", basePath), "child.toml")
+			require.ErrorContains(t, err, test.field)
+			require.ErrorContains(t, err, basePath)
+		})
+	}
+}
+
+func TestExtensionDepth(t *testing.T) {
+	for _, extensions := range []int{2, 3} {
+		dir := t.TempDir()
+		base := filepath.Join(dir, "base.toml")
+		require.NoError(t, os.WriteFile(base, []byte("[[rules]]\nid = 'base'\nregex = 'TOKEN'"), 0o600))
+		for i := range extensions {
+			path := filepath.Join(dir, fmt.Sprintf("level%d.toml", i))
+			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, "[extend]\npath = %q", base), 0o600))
+			base = path
+		}
+		cfg, err := LoadFile(base)
+		if extensions == 2 {
+			require.NoError(t, err)
+			require.Len(t, cfg.Rules, 1)
+			require.Equal(t, "base", cfg.Rules[0].ID)
+		} else {
+			require.Nil(t, cfg)
+			require.ErrorContains(t, err, "maximum depth of 2")
+		}
+	}
+	t.Run("cycle", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "cycle.toml")
+		require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, "[extend]\npath = %q", path), 0o600))
+		_, err := LoadFile(path)
+		require.ErrorContains(t, err, "maximum depth of 2")
+	})
+	t.Run("default extension counts toward limit", func(t *testing.T) {
+		dir := t.TempDir()
+		base, middle := filepath.Join(dir, "base.toml"), filepath.Join(dir, "middle.toml")
+		require.NoError(t, os.WriteFile(base, []byte("[extend]\nuseDefault = true"), 0o600))
+		require.NoError(t, os.WriteFile(middle, fmt.Appendf(nil, "[extend]\npath = %q", base), 0o600))
+		_, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q", middle), "")
+		require.ErrorContains(t, err, "maximum depth of 2")
+	})
+}
+
+func TestMinVersionEnforcement(t *testing.T) {
+	original := version.Version
+	t.Cleanup(func() { version.Version = original })
+	for _, test := range []struct{ name, current, minimum, wantError string }{
+		{"older stable", "v1.9.0", "v2.0.0-rc.1", "requires Betterleaks"},
+		{"older prerelease", "v2.0.0-beta.1", "v2.0.0-rc.1", "requires Betterleaks"},
+		{"first RC", "v2.0.0-rc.1", "v2.0.0-rc.1", ""},
+		{"later RC", "v2.0.0-rc.2", "v2.0.0-rc.1", ""},
+		{"stable", "v2.0.0", "v2.0.0-rc.1", ""},
+		{"RC below stable", "v2.0.0-rc.1", "v2.0.0", "requires Betterleaks"},
+		{"development build", "dev", "v9.0.0", ""},
+		{"invalid minimum on dev", "dev", "invalid", "invalid minVersion"},
+		{"invalid current", "invalid", "v2.0.0", "unable to parse current"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			version.Version = test.current
+			_, err := ParseTOMLString(fmt.Sprintf("minVersion = %q", test.minimum), "versioned.toml")
+			if test.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, test.wantError)
+			}
+		})
+	}
+	t.Run("extended minimum is enforced", func(t *testing.T) {
+		version.Version = "v2.0.0-rc.1"
+		path := filepath.Join(t.TempDir(), "base.toml")
+		require.NoError(t, os.WriteFile(path, []byte("minVersion = 'v9.0.0'"), 0o600))
+		_, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q", path), "")
+		require.ErrorContains(t, err, "requires Betterleaks v9.0.0")
+		require.ErrorContains(t, err, path)
+	})
 }

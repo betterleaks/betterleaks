@@ -2,7 +2,6 @@ package rules
 
 import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
 )
 
@@ -61,7 +60,7 @@ func TableauPersonalAccessToken() *config.Rule {
 		ID:          "tableau-personal-access-token.1",
 		Confidence:  "high",
 		Description: "Tableau personal access token.",
-		Regex:       `\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`,
+		Regex:       `(?:^|[^A-Za-z0-9+/])([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`,
 		Keywords:    []string{"tableau"},
 		Components: []config.Component{
 			{RuleID: "tableau-personal-access-token-name.1", Within: "20L"},
@@ -83,10 +82,14 @@ func TableauPersonalAccessToken() *config.Rule {
 
 	// validate
 	tps := []string{
-		"TABLEAU_PAT_SECRET=" + secrets.NewSecret(`[A-Za-z0-9+/]{22}`) + "==:" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5),
+		`TABLEAU_PAT_SECRET=YMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv`,
+		`TABLEAU_PAT_SECRET=/MqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv`,
+		`TABLEAU_PAT_SECRET=+MqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv`,
 	}
 	fps := []string{
 		`TABLEAU_PAT_SECRET=invalid-secret-format`,
+		`TABLEAU_PAT_SECRET=AYMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv`,
+		`TABLEAU_PAT_SECRET=YMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuvw`,
 		`TOKEN=YMqNfVWiTSa0QgpoJ9GpCw==:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`,
 	}
 	return utils.Validate(r, tps, fps)

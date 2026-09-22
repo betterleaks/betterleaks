@@ -3,6 +3,9 @@
 The `betterleaks.toml` file controls detection, filtering, validation, analysis,
 and optional explicit credential revocation.
 It is TOML because rules are mostly flat data plus Expr expressions.
+Unknown keys are errors at every level, including inherited configurations.
+Errors identify the field and its line and column; a misspelled key is never
+silently ignored.
 
 ## Inspect a config
 
@@ -29,11 +32,28 @@ precedence over `--config`. Use the listed IDs with `validate --rule` or
 
 Every config can use these fields:
 
+- `title`, `description`: optional descriptive text.
+
 - `prefilter`: global Expr expression that skips entire files, commits, or other source fragments before regex matching.
 - `filter`: global Expr expression that discards specific findings after regex matching.
-- `minVersion`: minimum Betterleaks binary version required.
+- `minVersion`: minimum Betterleaks binary version required. Loading fails when
+  a versioned build is older, using semantic version ordering (including
+  prereleases). Builds reporting `dev` skip the comparison; malformed minimum
+  versions are still rejected. Each inherited configuration is checked too.
 - `[extend]`: inherit rules/settings from another config or from built-in defaults.
 - `[[rules]]`: secret detection rules.
+
+The `[extend]` table accepts:
+
+- `path`: a local TOML file, resolved relative to the working directory.
+- `useDefault`: inherit the built-in configuration (`false` by default).
+- `disabledRules`: IDs to remove from the inherited rule set (empty by default).
+
+`path` and `useDefault = true` are mutually exclusive. Remote `extend.url`
+loading is unsupported and rejected. Extension chains may contain at most two
+inheritance steps, including `useDefault`: a child can extend a base which
+extends another base. A deeper chain or cycle returns an error instead of
+silently omitting rules.
 
 When a config extends another config, their global `prefilter` and `filter`
 expressions are additive. Betterleaks evaluates the extended expression first
@@ -63,6 +83,14 @@ Each `[[rules]]` entry can use:
 - `description`: human-readable description.
 - `keywords`: strings used for fast pre-regex filtering.
 - `regex`: regular expression used to detect the secret.
+- `path`: regular expression restricting matching to paths; can be used without
+  `regex` for a path-only rule.
+- `secretGroup`: capture group used as the secret; zero selects automatically.
+- `specificity`: precedence among overlapping findings; higher values win
+  (default `100`).
+- `tags`: optional metadata labels.
+- `skipReport`: suppress standalone reporting of this rule, commonly used for
+  credential components (`false` by default).
 - `filter`: rule-specific Expr expression to discard false positives.
 - `confidence`: optional `low`, `medium`, or `high` likelihood classification.
 - `validate`: Expr expression to actively verify whether a secret is live.

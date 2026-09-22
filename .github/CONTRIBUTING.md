@@ -122,6 +122,10 @@ If you want to add a new rule to the [default configuration](config/betterleaks.
    Last thing you'll want to hit before we move on from this file is the
    validation part. You can use `generateSampleSecret` to create a secret for the
    true positives (`tps` in the example above) used in `validate`.
+   `secrets.NewSecret` and `secrets.NewSecretWithEntropy` use a fixed local seed,
+   so their examples are repeatable and independent of rule generation order.
+   Add literal fixtures for boundary characters and other important edge cases;
+   regeneration does not provide randomized coverage.
 
 2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, set the rule's `Filter` field. For more information, check out the [config doc](/docs/config.md)
 Example simple `filter`:

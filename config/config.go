@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -52,9 +53,6 @@ type rawRule struct {
 	Confidence  string   `toml:"confidence"`
 
 	Components []rawComponent `toml:"components"`
-
-	// Required exists only to reject the removed [[rules.required]] syntax.
-	Required []struct{} `toml:"required"`
 
 	Validate   string `toml:"validate"`
 	Analyze    string `toml:"analyze"`
@@ -119,19 +117,16 @@ func resolveLoadOptions(options []LoadOption) loadOptions {
 // extendConfig describes the unresolved config extension requested by TOML.
 type extendConfig struct {
 	Path          string   `toml:"path"`
-	URL           string   `toml:"url"`
 	UseDefault    bool     `toml:"useDefault"`
 	DisabledRules []string `toml:"disabledRules"`
 }
 
 func ParseTOML(data []byte, path string, options ...LoadOption) (*Config, error) {
 	loadOptions := resolveLoadOptions(options)
-	var rc rawConfig
-	if err := toml.Unmarshal(data, &rc); err != nil {
+	rc := rawConfig{path: path, logger: loadOptions.logger}
+	if err := rc.decode(data); err != nil {
 		return nil, err
 	}
-	rc.path = path
-	rc.logger = loadOptions.logger
 	if err := rc.resolve(0); err != nil {
 		return nil, err
 	}
@@ -140,6 +135,23 @@ func ParseTOML(data []byte, path string, options ...LoadOption) (*Config, error)
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func (rc *rawConfig) decode(data []byte) error {
+	err := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(rc)
+	var unknown *toml.StrictMissingError
+	if errors.As(err, &unknown) {
+		fields := make([]string, 0, len(unknown.Errors))
+		for _, field := range unknown.Errors {
+			line, column := field.Position()
+			fields = append(fields, fmt.Sprintf("%s (line %d, column %d)", strings.Join(field.Key(), "."), line, column))
+		}
+		err = fmt.Errorf("unknown configuration fields: %s: %w", strings.Join(fields, ", "), err)
+	}
+	if err != nil && rc.path != "" {
+		return fmt.Errorf("config %q: %w", rc.path, err)
+	}
+	return err
 }
 
 func ParseTOMLString(content, path string, options ...LoadOption) (*Config, error) {
@@ -231,11 +243,7 @@ func validateMinVersion(logger *slog.Logger, minVersion, configPath string) erro
 		return fmt.Errorf("unable to parse current betterleaks version: %w", err)
 	}
 	if current.LessThan(minimum) {
-		logger.Warn("config requires a newer betterleaks version",
-			"required", minVersion,
-			"current", version.Version,
-			"config_path", configPath,
-		)
+		return fmt.Errorf("config %q requires Betterleaks %s or newer; running %s", configPath, minVersion, version.Version)
 	}
 	return nil
 }
@@ -290,41 +298,39 @@ func (rc *rawConfig) resolve(depth int) error {
 	if err := validateMinVersion(rc.logger, rc.MinVersion, rc.path); err != nil {
 		return err
 	}
-	// Duplicate IDs and removed syntax are errors even in overridden rules.
+	// Duplicate IDs are errors even in overridden rules.
 	ids := make(map[string]struct{}, len(rc.Rules))
 	for _, rule := range rc.Rules {
 		if _, exists := ids[rule.ID]; exists {
 			return fmt.Errorf("duplicate rule ID %q", rule.ID)
 		}
 		ids[rule.ID] = struct{}{}
-		if rule.Required != nil {
-			return fmt.Errorf("%s: [[rules.required]] is not supported; use rules.components", rule.ID)
-		}
-	}
-	if depth == maxExtendDepth {
-		return nil
 	}
 	if rc.Extend.Path != "" && rc.Extend.UseDefault {
 		return errors.New("unable to load config due to extend.path and extend.useDefault being set")
 	}
 
+	if rc.Extend.Path == "" && !rc.Extend.UseDefault {
+		return nil
+	}
+	if depth >= maxExtendDepth {
+		return fmt.Errorf("config extension exceeds maximum depth of %d", maxExtendDepth)
+	}
+
 	var data []byte
 	name := rc.Extend.Path
-	switch {
-	case rc.Extend.UseDefault:
+	if rc.Extend.UseDefault {
 		name = "default"
 		data = []byte(defaultConfig)
-	case rc.Extend.Path != "":
+	} else {
 		var err error
 		data, err = os.ReadFile(rc.Extend.Path)
 		if err != nil {
 			return fmt.Errorf("load extended config %q: %w", name, err)
 		}
-	default:
-		return nil
 	}
 	base := rawConfig{path: rc.Extend.Path, logger: rc.logger}
-	if err := toml.Unmarshal(data, &base); err != nil {
+	if err := base.decode(data); err != nil {
 		return fmt.Errorf("load extended config %q: %w", name, err)
 	}
 	rc.logger.Debug("extending config", "path", name)
@@ -377,7 +383,7 @@ func (rc *rawConfig) merge(base *rawConfig) {
 	rc.Prefilter = extendGlobalExpr(base.Prefilter, rc.Prefilter)
 	rc.Filter = extendGlobalExpr(base.Filter, rc.Filter)
 
-	// Extended configs retain their existing ID order.
+	// Sort after merging so the resolved order does not depend on extension order.
 	sort.Slice(rc.Rules, func(i, j int) bool {
 		return rc.Rules[i].ID < rc.Rules[j].ID
 	})

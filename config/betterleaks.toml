@@ -14,8 +14,8 @@
 title = "betterleaks config"
 
 # minVersion indicates the minimum betterleaks version required.
-# If the running version is older, a warning will be logged.
-minVersion = "v1.8.0"
+# Older versioned builds reject this configuration.
+minVersion = "v2.0.0-rc.1"
 
 
 prefilter = '''
@@ -11102,7 +11102,7 @@ skipReport = true
 [[rules]]
 id = "tableau-personal-access-token.1"
 description = "Tableau personal access token."
-regex = '''\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b'''
+regex = '''(?:^|[^A-Za-z0-9+/])([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b'''
 confidence = "high"
 keywords = ["tableau"]
 validate = '''
