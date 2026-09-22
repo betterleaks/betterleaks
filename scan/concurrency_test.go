@@ -44,7 +44,7 @@ func (g *detectionGate) Handle(_ context.Context, record slog.Record) error {
 	return nil
 }
 
-func TestWorkersSharedAcrossScanRunAndScanString(t *testing.T) {
+func TestWorkersSharedAcrossScanAndScanString(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		resume := make(chan struct{})
 		unblock := sync.OnceFunc(func() { close(resume) })
@@ -60,15 +60,10 @@ func TestWorkersSharedAcrossScanRunAndScanString(t *testing.T) {
 			go func() {
 				source := fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}
 				var err error
-				switch i % 3 {
-				case 0:
+				if i%2 == 0 {
 					scanner.ScanString("secret-alpha")
-				case 1:
+				} else {
 					_, err = scanner.Scan(t.Context(), source, nil)
-				case 2:
-					for result := range scanner.Run(t.Context(), source) {
-						err = errors.Join(err, result.Err)
-					}
 				}
 				done <- err
 			}()
@@ -160,31 +155,20 @@ func TestSlowHandlerDoesNotOccupyWorker(t *testing.T) {
 }
 
 func TestStoppedScanReleasesWorkerAndOutputSlots(t *testing.T) {
-	for _, method := range []string{"Scan", "Run"} {
-		t.Run(method, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				scanner := mustNew(t, testConfig(), WithWorkers(1))
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-				defer cancel()
-				source := &countedFragmentSource{count: 100}
-				if method == "Scan" {
-					stop := errors.New("handler stopped")
-					summary, err := scanner.Scan(ctx, source, func(report.Finding) error { return stop })
-					require.ErrorIs(t, err, stop)
-					require.Equal(t, 1, summary.Findings)
-				} else {
-					for result := range scanner.Run(ctx, source) {
-						require.NoError(t, result.Err)
-						break
-					}
-				}
-				require.NoError(t, ctx.Err())
-				require.Less(t, source.accepted.Load(), int32(source.count))
-				_, err := scanner.Scan(ctx, fragmentSource{fragments: []sources.Fragment{{Raw: "secret-next"}}}, nil)
-				require.NoError(t, err)
-			})
-		})
-	}
+	synctest.Test(t, func(t *testing.T) {
+		scanner := mustNew(t, testConfig(), WithWorkers(1))
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		source := &countedFragmentSource{count: 100}
+		stop := errors.New("handler stopped")
+		summary, err := scanner.Scan(ctx, source, func(report.Finding) error { return stop })
+		require.ErrorIs(t, err, stop)
+		require.Equal(t, 1, summary.Findings)
+		require.NoError(t, ctx.Err())
+		require.Less(t, source.accepted.Load(), int32(source.count))
+		_, err = scanner.Scan(ctx, fragmentSource{fragments: []sources.Fragment{{Raw: "secret-next"}}}, nil)
+		require.NoError(t, err)
+	})
 }
 
 type countedFragmentSource struct {

@@ -47,22 +47,9 @@ type cancelOnSecondCheck struct {
 	closed chan struct{}
 }
 
-type repeatedFragmentSource struct {
-	count int
-}
-
 type fragmentSource struct {
 	fragments []sources.Fragment
 	err       error
-}
-
-func (s repeatedFragmentSource) Fragments(_ context.Context, yield sources.FragmentsFunc) error {
-	for range s.count {
-		if err := yield(sources.Fragment{Raw: "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"}, nil); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (s fragmentSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
@@ -75,19 +62,6 @@ func (s fragmentSource) Fragments(ctx context.Context, yield sources.FragmentsFu
 		}
 	}
 	return s.err
-}
-
-type cancelAwareSource struct {
-	stopped chan struct{}
-}
-
-func (s cancelAwareSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
-	defer close(s.stopped)
-	if err := yield(sources.Fragment{Raw: "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"}, nil); err != nil {
-		return err
-	}
-	<-ctx.Done()
-	return ctx.Err()
 }
 
 func newCancelOnSecondCheck() *cancelOnSecondCheck {
@@ -343,88 +317,12 @@ func TestNewValidatesOptions(t *testing.T) {
 }
 
 func collectSourceFindings(ctx context.Context, scanner *Scanner, source sources.Source) ([]report.Finding, error) {
-	var (
-		findings []report.Finding
-		scanErr  error
-	)
-	for result := range scanner.Run(ctx, source) {
-		if result.Err != nil {
-			scanErr = errors.Join(scanErr, result.Err)
-			continue
-		}
-		findings = append(findings, result.Finding)
-	}
-	return findings, scanErr
-}
-
-func TestRunStreamsFindings(t *testing.T) {
-	scanner := mustNew(t, loadTestConfig(t, "simple"))
-	const content = "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	source := &sources.Reader{
-		Content: strings.NewReader(content),
-	}
-
 	var findings []report.Finding
-	for result := range scanner.Run(t.Context(), source) {
-		require.NoError(t, result.Err)
-		findings = append(findings, result.Finding)
-	}
-
-	require.Len(t, findings, 1)
-	assert.Empty(t, findings[0].Attr(sources.AttrResource))
-	assert.Empty(t, findings[0].Attr(sources.AttrPath))
-	assert.Equal(t, report.Location{
-		StartLine:   1,
-		EndLine:     1,
-		StartColumn: 1,
-		EndColumn:   len(content),
-	}, findings[0].Location)
-}
-
-func TestRunWithMultipleWorkers(t *testing.T) {
-	const fragmentCount = 100
-
-	scanner := mustNew(t, loadTestConfig(t, "simple"), WithWorkers(4))
-
-	findings, err := collectSourceFindings(t.Context(), scanner, repeatedFragmentSource{count: fragmentCount})
-	require.NoError(t, err)
-	require.Len(t, findings, fragmentCount)
-}
-
-func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
-	scanner := mustNew(t, loadTestConfig(t, "simple"), WithWorkers(2))
-	source := cancelAwareSource{stopped: make(chan struct{})}
-
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-
-	for result := range scanner.Run(ctx, source) {
-		require.NoError(t, result.Err)
-		break
-	}
-
-	select {
-	case <-source.stopped:
-	default:
-		t.Fatal("source was still running after scanner iteration stopped")
-	}
-}
-
-func TestRunCancellationDoesNotEmitErrors(t *testing.T) {
-	scanner := mustNew(t, loadTestConfig(t, "simple"), WithWorkers(4))
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	found := false
-	for result := range scanner.Run(ctx, repeatedFragmentSource{count: 1000}) {
-		require.NoError(t, result.Err)
-		if !found {
-			found = true
-			cancel()
-		}
-	}
-	require.True(t, found)
+	_, err := scanner.Scan(ctx, source, func(finding report.Finding) error {
+		findings = append(findings, finding)
+		return nil
+	})
+	return findings, err
 }
 
 func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
@@ -443,11 +341,8 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 		Buffer:  make([]byte, 4),
 	}
 
-	var findings []report.Finding
-	for result := range scanner.Run(ruletiming.WithCollector(t.Context(), timingCollector), source) {
-		require.NoError(t, result.Err)
-		findings = append(findings, result.Finding)
-	}
+	findings, err := collectSourceFindings(ruletiming.WithCollector(t.Context(), timingCollector), scanner, source)
+	require.NoError(t, err)
 
 	require.Len(t, findings, 1)
 	timings := timingCollector.Snapshot()
@@ -3091,6 +2986,7 @@ func TestDetectWithArchives(t *testing.T) {
 			source:           filepath.Join(archivesBasePath, "nested.tar.gz"),
 			cfgName:          "archives",
 			expireContext:    true,
+			expectedError:    context.Canceled,
 			expectedFindings: []report.Finding{},
 		},
 	}

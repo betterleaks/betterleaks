@@ -136,7 +136,7 @@ func TestScannerFindingsOwnComponentCaptures(t *testing.T) {
 		{ID: "region", Regex: `region-[a-z]+`, SkipReport: true},
 	}}
 	const raw = "primary-first\nprimary-second\naccount=acme\nregion-east\nregion-west"
-	for _, method := range []string{"ScanString", "Scan", "Run"} {
+	for _, method := range []string{"ScanString", "Scan"} {
 		t.Run(method, func(t *testing.T) {
 			scanner := mustNew(t, cfg)
 			var findings []report.Finding
@@ -156,11 +156,6 @@ func TestScannerFindingsOwnComponentCaptures(t *testing.T) {
 			case "Scan":
 				_, err := scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader(raw)}, accept)
 				require.NoError(t, err)
-			case "Run":
-				for result := range scanner.Run(t.Context(), &sources.Reader{Content: strings.NewReader(raw)}) {
-					require.NoError(t, result.Err)
-					require.NoError(t, accept(result.Finding))
-				}
 			}
 			require.Len(t, findings, 2)
 			for i, finding := range findings {

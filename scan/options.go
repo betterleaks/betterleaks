@@ -56,7 +56,7 @@ func WithRegexEngine(engine regexp.Engine) Option {
 // WithIgnoredFingerprints suppresses completed findings whose primary secret
 // matches a hash, independent of rule, source, or location. Component matches
 // remain available to assemble other findings. Suppression precedes validation
-// and analysis and applies to Run, Scan, and ScanString.
+// and analysis and applies to Scan and ScanString.
 // The hashes are copied; repeated options add to the ignored set.
 func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {
 	hashes = slices.Clone(hashes)
@@ -66,7 +66,7 @@ func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {
 	}}
 }
 
-// WithWorkers limits concurrent detection across all Run, Scan, and ScanString
+// WithWorkers limits concurrent detection across all Scan and ScanString
 // calls on the same Scanner. Workers start as needed; source I/O and result
 // handlers do not occupy worker slots. Zero uses GOMAXPROCS at construction.
 func WithWorkers(workers int) Option {

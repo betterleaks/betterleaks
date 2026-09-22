@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"iter"
 	"log/slog"
 	"runtime"
 	"slices"
@@ -36,7 +35,7 @@ import (
 
 var allowSignatures = [...]string{"betterleaks:allow", "gitleaks:allow"}
 
-var errStopIteration = errors.New("scanner: stop iteration")
+var errStopScan = errors.New("scanner: stop scan")
 
 const (
 	levelTrace = slog.LevelDebug - 4
@@ -238,14 +237,6 @@ func (s *Scanner) tokenCounterInstance() *tokenizer.Counter {
 	return s.tokenCounter
 }
 
-// Result is one finding or recoverable error emitted by [Scanner.Run].
-type Result struct {
-	// Finding is populated when Err is nil.
-	Finding report.Finding
-	// Err is a recoverable source or scan error.
-	Err error
-}
-
 // ScanSummary describes the work completed by one scan.
 type ScanSummary struct {
 	// BytesInspected counts fragment bytes after source and path exclusions.
@@ -259,22 +250,10 @@ type ScanSummary struct {
 // scan with an independent source.
 type Handler func(report.Finding) error
 
-// Run scans the source and yields findings and recoverable source errors.
-// Findings are not retained. Result order is not guaranteed. Concurrent calls
-// on the same Scanner are safe with independent sources.
-func (s *Scanner) Run(ctx context.Context, source sources.Source) iter.Seq[Result] {
-	return func(yield func(Result) bool) {
-		if s == nil {
-			_ = yield(Result{Err: errors.New("scanner is nil")})
-			return
-		}
-		_ = s.run(ctx, source, yield)
-	}
-}
-
 // Scan scans the source, passes each finding to handler, and returns a
 // per-call summary. Recoverable source errors are joined. Returning an error
-// from handler stops the scan. A nil handler discards findings.
+// from handler stops the scan. A nil handler discards findings. Finding order
+// is not guaranteed. Concurrent calls are safe with independent sources.
 func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handler) (ScanSummary, error) {
 	if s == nil {
 		return ScanSummary{}, errors.New("scanner is nil")
@@ -283,13 +262,13 @@ func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handl
 		ctx = context.Background()
 	}
 	var scanErr error
-	summary := s.run(ctx, source, func(result Result) bool {
-		if result.Err != nil {
-			scanErr = errors.Join(scanErr, result.Err)
+	summary := s.run(ctx, source, func(result scanResult) bool {
+		if result.err != nil {
+			scanErr = errors.Join(scanErr, result.err)
 			return true
 		}
 		if handler != nil {
-			if err := handler(result.Finding); err != nil {
+			if err := handler(result.finding); err != nil {
 				scanErr = errors.Join(scanErr, fmt.Errorf("handle finding: %w", err))
 				return false
 			}
@@ -300,6 +279,11 @@ func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handl
 		scanErr = errors.Join(scanErr, err)
 	}
 	return summary, scanErr
+}
+
+type scanResult struct {
+	finding report.Finding
+	err     error
 }
 
 type scanState struct {
@@ -313,10 +297,11 @@ type fragmentResult struct {
 	err      error
 }
 
-func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Result) bool) (summary ScanSummary) {
+//nolint:nonamedreturns // Deferred cleanup joins workers before collecting the final byte count.
+func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(scanResult) bool) (summary ScanSummary) {
 	state := scanState{}
 	if source == nil {
-		_ = yield(Result{Err: errors.New("scanner: nil source")})
+		_ = yield(scanResult{err: errors.New("scanner: nil source")})
 		return state.summary
 	}
 	if ctx == nil {
@@ -343,7 +328,7 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 	reserveResult := func() error {
 		select {
 		case <-runCtx.Done():
-			return errStopIteration
+			return errStopScan
 		case resultSlots <- struct{}{}:
 			return nil
 		}
@@ -362,7 +347,7 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 		sourceErr := source.Fragments(runCtx, func(fragment sources.Fragment, fragmentErr error) error {
 			if fragmentErr != nil {
 				if isPipelineStop(fragmentErr) {
-					return errStopIteration
+					return errStopScan
 				}
 				return emitError(fragmentErr)
 			}
@@ -398,7 +383,7 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 			continue
 		}
 		if result.err != nil {
-			if !yield(Result{Err: result.err}) {
+			if !yield(scanResult{err: result.err}) {
 				return state.summary
 			}
 			continue
@@ -408,7 +393,7 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 				return state.summary
 			}
 			state.summary.Findings++
-			if !yield(Result{Finding: finding}) {
+			if !yield(scanResult{finding: finding}) {
 				return state.summary
 			}
 		}
@@ -417,7 +402,7 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 }
 
 func isPipelineStop(err error) bool {
-	return errors.Is(err, errStopIteration) || errors.Is(err, context.Canceled)
+	return errors.Is(err, errStopScan) || errors.Is(err, context.Canceled)
 }
 
 func rulePathMatchesFragment(rule *compiledRule, fragment sources.Fragment) bool {

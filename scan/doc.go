@@ -11,9 +11,8 @@
 // that select it. An engine is retained rather than copied and must be safe for
 // concurrent use.
 //
-// Use Scanner.Scan for callbacks and per-call statistics, Scanner.Run for an
-// iterator of findings and recoverable source errors, or Scanner.ScanString for
-// small inputs. Calls may run concurrently with independent sources and share
+// Use Scanner.Scan for callbacks and per-call statistics, or Scanner.ScanString
+// for small inputs. Calls may run concurrently with independent sources and share
 // the detection worker limit set by WithWorkers. Source and provider concurrency
 // are configured independently.
 //
