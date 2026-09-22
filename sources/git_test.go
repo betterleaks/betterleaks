@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
 	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
@@ -54,6 +53,106 @@ func TestGitRepoJobsHaveSameCoverage(t *testing.T) {
 	}
 
 	require.Equal(t, scan(1), scan(2))
+}
+
+func TestGitModesAndReuse(t *testing.T) {
+	repo := newGitTestRepo(t, 1)
+	path := filepath.Join(repo, "file-0.txt")
+	require.NoError(t, os.WriteFile(path, []byte("staged value\n"), 0o600))
+	runGitTestCommand(t, repo, "add", ".")
+	require.NoError(t, os.WriteFile(path, []byte("working value\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("untracked value\n"), 0o600))
+
+	for _, tc := range []struct {
+		mode GitMode
+		want string
+	}{
+		{GitHistory, "value-0\n"},
+		{GitStaged, "staged value\n"},
+		{GitWorkingTree, "working value\n"},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			source := &Git{RepoPath: repo, Mode: tc.mode, Workers: 1}
+			original := *source
+			// Cancellation and callback errors must not leave a consumed command
+			// attached to the source or poison the next scan.
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			require.ErrorIs(t, source.Fragments(ctx, func(Fragment, error) error {
+				t.Error("canceled scan yielded content")
+				return nil
+			}), context.Canceled)
+			stop := errors.New("stop scan")
+			require.ErrorIs(t, source.Fragments(t.Context(), func(Fragment, error) error { return stop }), stop)
+			ctx, cancel = context.WithCancel(t.Context())
+			require.ErrorIs(t, source.Fragments(ctx, func(Fragment, error) error {
+				cancel()
+				return nil
+			}), context.Canceled)
+			cancel()
+
+			for range 2 {
+				var fragments []Fragment
+				require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+					fragments = append(fragments, f)
+					return err
+				}))
+				require.Len(t, fragments, 1)
+				require.Equal(t, tc.want, fragments[0].Raw)
+				require.Equal(t, "file-0.txt", fragments[0].Attr(AttrPath))
+				require.Equal(t, 1, fragments[0].StartLine)
+				if tc.mode == GitHistory {
+					require.NotEmpty(t, fragments[0].Attr(AttrGitSHA))
+				} else {
+					require.Empty(t, fragments[0].Attr(AttrGitSHA))
+				}
+			}
+			require.Equal(t, original, *source)
+		})
+	}
+}
+
+func TestGitRejectsInvalidModesBeforeScanning(t *testing.T) {
+	for _, source := range []*Git{
+		{RepoPath: ".", Mode: "unknown"},
+		{RepoPath: ".", Mode: GitStaged, LogOpts: "--all"},
+		{RepoPath: ".", Mode: GitWorkingTree, LogOpts: "--all"},
+		{RepoPath: ".", Mode: GitStaged, Include: []string{GitResourceTypeCommitMessages}},
+		{RepoPath: ".", Mode: GitWorkingTree, Include: []string{GitResourceTypeReflogs}},
+		{URL: "https://example.invalid/repo", Mode: GitStaged},
+		{URL: "https://example.invalid/repo", Mode: GitWorkingTree},
+	} {
+		want := source.Validate()
+		require.Error(t, want)
+		err := source.Fragments(t.Context(), func(Fragment, error) error {
+			t.Error("invalid source yielded content")
+			return nil
+		})
+		require.EqualError(t, err, want.Error())
+	}
+}
+
+func TestGitCancellationJoinsProcess(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	process := exec.CommandContext(ctx, "git", "hash-object", "--stdin")
+	stdin, err := process.StdinPipe()
+	require.NoError(t, err)
+	defer stdin.Close()
+	command, err := startGitCmd(process, nil)
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() {
+		done <- (&Git{}).runGitCmd(ctx, func(Fragment, error) error { return nil }, command)
+	}()
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotNil(t, process.ProcessState, "Git must be reaped before the scan returns")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Git scan did not stop on cancellation")
+	}
 }
 
 func TestGitRepoDefaultProcessesFragmentsConcurrently(t *testing.T) {
@@ -164,51 +263,7 @@ func runGitTestCommand(t *testing.T, repo string, args ...string) string {
 	return strings.TrimSpace(string(output))
 }
 
-func TestGitCancellationPreservesPendingStderr(t *testing.T) {
-	producerErr := errors.New("git stderr")
-	workerErr := errors.New("fragment worker")
-	g, groupCtx := errgroup.WithContext(t.Context())
-	g.Go(func() error { return workerErr })
-	<-groupCtx.Done()
-
-	diffFilesCh := make(chan *gitdiff.File)
-	errCh := make(chan error)
-	producerDone := make(chan struct{})
-	go func() {
-		defer close(producerDone)
-		diffFilesCh <- &gitdiff.File{}
-		close(diffFilesCh)
-		errCh <- producerErr
-		close(errCh)
-	}()
-
-	err := waitForGitWorkers(g, groupCtx, drainGitOutput(diffFilesCh, errCh))
-	require.ErrorIs(t, err, producerErr)
-	require.ErrorIs(t, err, workerErr)
-	<-producerDone
-}
-
-func TestWaitForGitWorkersOmitsGroupCancellation(t *testing.T) {
-	workerErr := errors.New("fragment worker")
-	g, groupCtx := errgroup.WithContext(t.Context())
-	g.Go(func() error { return workerErr })
-	<-groupCtx.Done()
-
-	err := waitForGitWorkers(g, groupCtx, nil)
-	require.ErrorIs(t, err, workerErr)
-	require.False(t, errors.Is(err, context.Canceled))
-}
-
-func TestWaitForGitWorkersReturnsGroupCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	g, groupCtx := errgroup.WithContext(ctx)
-	cancel()
-	<-groupCtx.Done()
-
-	require.ErrorIs(t, waitForGitWorkers(g, groupCtx, nil), context.Canceled)
-}
-
-func TestGitStreamMatchesLegacy(t *testing.T) {
+func TestGitStreamMatchesPatchParser(t *testing.T) {
 	repo := newGitTestRepo(t, 1)
 	quotedName := "quoted\"\t日本語.txt"
 	if runtime.GOOS == "windows" {
@@ -238,7 +293,7 @@ func TestGitStreamMatchesLegacy(t *testing.T) {
 
 	for _, opts := range []string{"", "--all -U3", "--all --format=fuller", "--all --format=email", "--all --oneline", "--all --binary"} {
 		t.Run(opts, func(t *testing.T) {
-			legacy, err := NewGitLogCmdContext(t.Context(), repo, opts)
+			command, err := newGitLogCmd(t.Context(), repo, opts, nil)
 			require.NoError(t, err)
 			collect := func(source *Git) []Fragment {
 				var mu sync.Mutex
@@ -254,7 +309,28 @@ func TestGitStreamMatchesLegacy(t *testing.T) {
 				}))
 				return fragments
 			}
-			want := collect(&Git{Cmd: legacy, Workers: 1})
+			files, err := gitdiff.Parse(command.stdout)
+			require.NoError(t, err)
+			var want []Fragment
+			for file := range files {
+				if file.IsDelete || file.IsBinary {
+					continue
+				}
+				attrs := (&Git{}).gitAttributes(file)
+				for _, hunk := range file.TextFragments {
+					var raw strings.Builder
+					for _, line := range hunk.Lines {
+						if line.Op == gitdiff.OpAdd {
+							raw.WriteString(line.Line)
+						}
+					}
+					want = append(want, Fragment{Raw: raw.String(), StartLine: int(hunk.NewPosition), Attributes: attrs})
+				}
+			}
+			for err := range command.errCh {
+				require.NoError(t, err)
+			}
+			require.NoError(t, command.cmd.Wait())
 			got := collect(&Git{RepoPath: repo, LogOpts: opts, Workers: 1})
 			require.Equal(t, want, got)
 			if opts == "" {
@@ -278,6 +354,11 @@ func TestGitStreamReportsCommandFailure(t *testing.T) {
 	err := (&Git{RepoPath: repo, LogOpts: "invalid-revision", Workers: 1}).Fragments(t.Context(), func(Fragment, error) error { return nil })
 	var exitErr *exec.ExitError
 	require.ErrorAs(t, err, &exitErr)
+	for _, mode := range []GitMode{GitHistory, GitStaged, GitWorkingTree} {
+		source := &Git{RepoPath: t.TempDir(), Mode: mode, Workers: 1}
+		err := source.Fragments(t.Context(), func(Fragment, error) error { return nil })
+		require.ErrorAs(t, err, &exitErr, "Git's nonzero exit must be returned even when the callback ignores errors")
+	}
 }
 
 func TestGitStreamOmitsCleanupSignal(t *testing.T) {
@@ -299,10 +380,11 @@ func TestGitStreamOmitsCleanupSignal(t *testing.T) {
 				errCh <- stderrErr
 			}
 			close(errCh)
-			source := &Git{Cmd: &GitCmd{
+			command := &gitCmd{
 				cmd: cmd, stdout: strings.NewReader("diff --git malformed\n"), errCh: errCh,
-			}}
-			err = source.Fragments(t.Context(), func(Fragment, error) error { return nil })
+			}
+			err = (&Git{}).runGitCmd(t.Context(), func(Fragment, error) error { return nil }, command)
+			require.NotNil(t, cmd.ProcessState, "the source must reap Git before returning")
 			require.ErrorContains(t, err, "invalid Git file header")
 			require.ErrorContains(t, err, "missing filename information")
 			require.NotContains(t, err.Error(), "signal:")
@@ -747,8 +829,8 @@ func TestGitWithoutReflogs(t *testing.T) {
 }
 
 func TestGitSourcesShareInheritedJobBudget(t *testing.T) {
-	for _, command := range []bool{false, true} {
-		t.Run(fmt.Sprintf("command=%t", command), func(t *testing.T) {
+	for _, mode := range []GitMode{GitHistory, GitStaged, GitWorkingTree} {
+		t.Run(string(mode), func(t *testing.T) {
 			repo := newGitTestRepo(t, 4)
 			ctx := sourceworkers.WithBudget(t.Context(), sourceworkers.NewBudget(1))
 			started := make(chan struct{}, 32)
@@ -757,14 +839,11 @@ func TestGitSourcesShareInheritedJobBudget(t *testing.T) {
 			releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
 			defer releaseAll()
 			done := make(chan error, 2)
-			gitSources := []*Git{{RepoPath: repo, Workers: 4}, {RepoPath: repo, Workers: 4}}
-			for _, source := range gitSources {
-				if command {
-					cmd, err := NewGitLogCmdContext(ctx, repo, "")
-					require.NoError(t, err)
-					source.Cmd = cmd
-				}
-			}
+			path := filepath.Join(repo, "file-0.txt")
+			require.NoError(t, os.WriteFile(path, []byte("staged change\n"), 0o600))
+			runGitTestCommand(t, repo, "add", ".")
+			require.NoError(t, os.WriteFile(path, []byte("working change\n"), 0o600))
+			gitSources := []*Git{{RepoPath: repo, Mode: mode, Workers: 4}, {RepoPath: repo, Mode: mode, Workers: 4}}
 			for _, source := range gitSources {
 				go func() {
 					done <- source.Fragments(ctx, func(_ Fragment, err error) error {
@@ -800,7 +879,7 @@ func TestGitSourcesShareInheritedJobBudget(t *testing.T) {
 				}
 			}
 			for _, source := range gitSources {
-				require.Equal(t, Git{RepoPath: repo, Workers: 4, Cmd: source.Cmd}, *source, "scan must not mutate source configuration")
+				require.Equal(t, Git{RepoPath: repo, Mode: mode, Workers: 4}, *source, "scan must not mutate source configuration")
 			}
 		})
 	}
@@ -868,12 +947,13 @@ func TestRemoteGitHistoryAndCleanup(t *testing.T) {
 func TestRemoteGitInputConflicts(t *testing.T) {
 	for _, src := range []*Git{
 		{URL: "https://example.com/repo", RepoPath: "."},
-		{URL: "https://example.com/repo", Cmd: &GitCmd{}},
+		{URL: "https://example.com/repo", Mode: GitStaged},
+		{URL: "https://example.com/repo", Mode: GitWorkingTree},
 		{URL: "ssh://git@example.com/repo"},
 	} {
 		require.Error(t, src.Validate())
 	}
-	require.NoError(t, (&Git{RepoPath: ".", Cmd: &GitCmd{}}).Validate())
+	require.NoError(t, (&Git{RepoPath: ".", Mode: GitStaged}).Validate())
 }
 
 func TestRemoteGitErrorRedactsURLCredentials(t *testing.T) {

@@ -29,31 +29,43 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
-// Git is a source for yielding fragments from a git repo
+// GitMode selects which repository content to scan.
+type GitMode string
+
+const (
+	// GitHistory scans committed history and is the default mode.
+	GitHistory GitMode = ""
+	// GitStaged scans additions in the index relative to HEAD.
+	GitStaged GitMode = "staged"
+	// GitWorkingTree scans tracked working-tree additions relative to the index.
+	GitWorkingTree GitMode = "working-tree"
+)
+
+// Git yields fragments from a repository. Each Fragments call owns its Git
+// processes and waits for them before returning, including on cancellation.
 type Git struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
-	Logger *slog.Logger
-	// Cmd scans an already-started Git command. When Cmd is nil, Fragments
-	// starts a history scan for RepoPath.
-	Cmd      *GitCmd
+	Logger   *slog.Logger
 	RepoPath string
+	Mode     GitMode
 	// URL clones an HTTP(S) repository to a temporary mirror before scanning.
-	// It is mutually exclusive with RepoPath and Cmd. Token authenticates the
-	// clone; the SDK does not read token environment variables.
-	URL     string
-	Token   string
+	// It requires GitHistory and is mutually exclusive with RepoPath. Token
+	// authenticates the clone; the SDK does not read token environment variables.
+	URL   string
+	Token string
+	// LogOpts selects history with Git log arguments. It requires GitHistory.
 	LogOpts string
 	// Include adds resources to the default patch scan. Supported values:
 	// commit-messages, tag-messages, reflogs. Additional resources require
-	// RepoPath or URL rather than Cmd.
+	// GitHistory mode.
 	Include []string
 
 	ShouldSkip      SkipFunc
 	Platform        scm.Platform
 	RemoteURL       string
 	MaxArchiveDepth int
-	// Workers bounds concurrent Git history processes for RepoPath scans and
-	// fragment processing for an explicitly supplied Cmd. Zero is automatic.
+	// Workers bounds concurrent Git history processes. Zero is automatic.
+	// Diff modes use one process; scanner detection workers remain independent.
 	Workers int
 }
 
@@ -65,9 +77,17 @@ const (
 
 // Validate checks Git inputs and additional resource selections before scanning.
 func (s *Git) Validate() error {
+	switch s.Mode {
+	case GitHistory, GitStaged, GitWorkingTree:
+	default:
+		return fmt.Errorf("unknown Git mode %q", s.Mode)
+	}
+	if s.Mode != GitHistory && (s.URL != "" || s.LogOpts != "" || len(s.Include) > 0) {
+		return errors.New("Git diff modes require a local repository and cannot use LogOpts or Include")
+	}
 	if s.URL != "" {
-		if s.RepoPath != "" || s.Cmd != nil {
-			return errors.New("Git URL cannot be combined with RepoPath or Cmd")
+		if s.RepoPath != "" {
+			return errors.New("Git URL cannot be combined with RepoPath")
 		}
 		if _, err := parseHTTPSource(s.URL); err != nil {
 			return err
@@ -77,9 +97,6 @@ func (s *Git) Validate() error {
 		if name != GitResourceTypeCommitMessages && name != GitResourceTypeTagMessages && name != GitResourceTypeReflogs {
 			return fmt.Errorf("unknown Git resource type %q (supported: commit-messages, tag-messages, reflogs)", name)
 		}
-	}
-	if len(s.Include) > 0 && s.Cmd != nil {
-		return errors.New("additional Git resources require RepoPath rather than Cmd")
 	}
 	return nil
 }
@@ -106,28 +123,34 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 		return err
 	}
-	if s.Cmd == nil {
-		if s.RepoPath == "" {
-			return errors.New("git source requires URL, Cmd, or RepoPath")
-		}
-		if err := s.fragmentsFromRepo(ctx, yield, budget); err != nil {
-			return err
-		}
-		if slices.Contains(s.Include, GitResourceTypeReflogs) {
-			if err := budget.Run(ctx, func() error {
-				return s.fragmentsFromReflogs(ctx, yield)
-			}); err != nil {
+	if s.RepoPath == "" {
+		return errors.New("git source requires URL or RepoPath")
+	}
+	if s.Mode != GitHistory {
+		return budget.Run(ctx, func() error {
+			cmd, err := newGitDiffCmd(ctx, s.RepoPath, s.Mode == GitStaged, s.Logger)
+			if err != nil {
 				return err
 			}
-		}
-		if slices.Contains(s.Include, GitResourceTypeTagMessages) {
-			return budget.Run(ctx, func() error {
-				return s.fragmentsFromTagMessages(ctx, yield)
-			})
-		}
-		return nil
+			return s.runGitCmd(ctx, yield, cmd)
+		})
 	}
-	return s.fragmentsFromCmd(ctx, yield, budget)
+	if err := s.fragmentsFromRepo(ctx, yield, budget); err != nil {
+		return err
+	}
+	if slices.Contains(s.Include, GitResourceTypeReflogs) {
+		if err := budget.Run(ctx, func() error {
+			return s.fragmentsFromReflogs(ctx, yield)
+		}); err != nil {
+			return err
+		}
+	}
+	if slices.Contains(s.Include, GitResourceTypeTagMessages) {
+		return budget.Run(ctx, func() error {
+			return s.fragmentsFromTagMessages(ctx, yield)
+		})
+	}
+	return nil
 }
 
 // fragmentsFromRepo partitions Git history across at most GOMAXPROCS processes.
@@ -186,7 +209,7 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc, budget
 }
 
 func (s *Git) runFullHistory(ctx context.Context, yield FragmentsFunc) error {
-	cmd, err := NewGitLogCmdContext(ctx, s.RepoPath, s.LogOpts, WithGitCmdLogger(s.Logger), withGitStreaming())
+	cmd, err := newGitLogCmd(ctx, s.RepoPath, s.LogOpts, s.Logger)
 	if err != nil {
 		return err
 	}
@@ -575,22 +598,8 @@ func readGitReflogMessage(reader *bufio.Reader) (Fragment, error) {
 	return Fragment{Raw: fields[4], StartLine: 1, Attributes: attrs}, nil
 }
 
-func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *GitCmd) error {
-	commandSource := *s
-	commandSource.Cmd = cmd
-	// History commands use the streaming reader; the caller holds a budget slot.
-	return commandSource.fragmentsFromStream(ctx, yield)
-}
-
-func (s *Git) fragmentsFromCmd(ctx context.Context, yield FragmentsFunc, budget *sourceworkers.Budget) error {
-	if s.Cmd.stdout != nil {
-		return s.fragmentsFromStream(ctx, yield)
-	}
-	return s.fragmentsFromDiffFiles(ctx, yield, budget)
-}
-
-func (s *Git) fragmentsFromStream(ctx context.Context, yield FragmentsFunc) error {
-	readErr := readGitPatch(ctx, s.Cmd.stdout, func(file *gitdiff.File) (gitHunkFunc, error) {
+func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *gitCmd) error {
+	readErr := readGitPatch(ctx, cmd.stdout, func(file *gitdiff.File) (gitHunkFunc, error) {
 		if file.IsDelete {
 			return nil, nil
 		}
@@ -614,14 +623,17 @@ func (s *Git) fragmentsFromStream(ctx context.Context, yield FragmentsFunc) erro
 	}
 	stopped := false
 	if readErr != nil {
-		cancelErr := s.Cmd.cancel()
+		cancelErr := cmd.cmd.Process.Kill()
+		if errors.Is(cancelErr, os.ErrProcessDone) {
+			cancelErr = nil
+		}
 		stopped = cancelErr == nil
 		readErr = errors.Join(readErr, cancelErr)
 	}
-	for err := range s.Cmd.ErrCh() {
+	for err := range cmd.errCh {
 		readErr = errors.Join(readErr, err)
 	}
-	waitErr := s.Cmd.Wait()
+	waitErr := cmd.cmd.Wait()
 	var exitErr *exec.ExitError
 	if stopped && errors.As(waitErr, &exitErr) && exitErr.ExitCode() == -1 {
 		// Killing Git is cleanup after the original failure. Its signal exit
@@ -631,140 +643,8 @@ func (s *Git) fragmentsFromStream(ctx context.Context, yield FragmentsFunc) erro
 	return errors.Join(readErr, waitErr)
 }
 
-// fragmentsFromDiffFiles supports callers using the complete DiffFilesCh API.
-func (s *Git) fragmentsFromDiffFiles(ctx context.Context, yield FragmentsFunc, budget *sourceworkers.Budget) error {
-	defer func() {
-		if err := s.Cmd.Wait(); err != nil {
-			logging.OrDiscard(s.Logger).Debug("command aborted", "error", err, "command", s.Cmd.String())
-		}
-	}()
-
-	g, groupCtx := errgroup.WithContext(ctx)
-	workerLimit := sourceworkers.WithinBudget(s.Workers, sourceworkers.Automatic(), budget)
-	g.SetLimit(workerLimit)
-
-	var (
-		diffFilesCh = s.Cmd.DiffFilesCh()
-		errCh       = s.Cmd.ErrCh()
-	)
-	finish := func(producerErr error) error {
-		if groupCtx.Err() != nil {
-			producerErr = errors.Join(producerErr, s.Cmd.cancel())
-		}
-		producerErr = errors.Join(producerErr, drainGitOutput(diffFilesCh, errCh))
-		return waitForGitWorkers(g, groupCtx, producerErr)
-	}
-
-	// loop to range over both DiffFiles (stdout) and ErrCh (stderr)
-	for diffFilesCh != nil || errCh != nil {
-		select {
-		case <-groupCtx.Done():
-			return finish(nil)
-		case gitdiffFile, open := <-diffFilesCh:
-			if !open {
-				diffFilesCh = nil
-				break
-			}
-			if groupCtx.Err() != nil {
-				return finish(nil)
-			}
-
-			if gitdiffFile.IsDelete {
-				continue
-			}
-
-			// skip non-archive binary files
-			yieldAsArchive := false
-			if gitdiffFile.IsBinary {
-				if s.MaxArchiveDepth <= 0 || !isArchive(ctx, gitdiffFile.NewName) {
-					continue
-				}
-				yieldAsArchive = true
-			}
-
-			// Build commit attributes and check the prefilter before
-			// allocating goroutines or fragment memory.
-			commitAttrs := s.gitAttributes(gitdiffFile)
-			commitSHA := commitAttrs[AttrGitSHA]
-			if s.ShouldSkip != nil && s.ShouldSkip(commitAttrs) {
-				logging.OrDiscard(s.Logger).Log(groupCtx, logging.LevelTrace, "skipping diff entry: global prefilter", "commit", commitSHA, "path", gitdiffFile.NewName)
-				continue
-			}
-
-			g.Go(func() error {
-				run := func() error {
-					if groupCtx.Err() != nil {
-						return nil
-					}
-					if yieldAsArchive {
-						return s.fragmentsFromArchive(groupCtx, gitdiffFile.NewName, commitAttrs, yield)
-					}
-
-					for _, textFragment := range gitdiffFile.TextFragments {
-						if textFragment == nil {
-							return nil
-						}
-						fragment := Fragment{
-							Raw:        addedGitLines(textFragment),
-							StartLine:  int(textFragment.NewPosition),
-							Attributes: commitAttrs,
-						}
-
-						if err := yield(fragment, nil); err != nil {
-							return err
-						}
-					}
-
-					return nil
-				}
-				return budget.Run(groupCtx, run)
-			})
-		case err, open := <-errCh:
-			if !open {
-				errCh = nil
-				break
-			}
-			if groupCtx.Err() != nil {
-				return finish(err)
-			}
-
-			return finish(yield(Fragment{}, err))
-		}
-	}
-
-	return waitForGitWorkers(g, groupCtx, nil)
-}
-
-func waitForGitWorkers(g *errgroup.Group, groupCtx context.Context, producerErr error) error {
-	groupErr := groupCtx.Err()
-	workerErr := g.Wait()
-	if workerErr != nil {
-		return errors.Join(producerErr, workerErr)
-	}
-	return errors.Join(producerErr, groupErr)
-}
-
-func drainGitOutput(diffFilesCh <-chan *gitdiff.File, errCh <-chan error) error {
-	var producerErr error
-	for diffFilesCh != nil || errCh != nil {
-		select {
-		case _, open := <-diffFilesCh:
-			if !open {
-				diffFilesCh = nil
-			}
-		case err, open := <-errCh:
-			if !open {
-				errCh = nil
-				continue
-			}
-			producerErr = errors.Join(producerErr, err)
-		}
-	}
-	return producerErr
-}
-
 func (s *Git) fragmentsFromArchive(ctx context.Context, path string, commitAttrs map[string]string, yield FragmentsFunc) error {
-	blob, err := s.Cmd.NewBlobReaderContext(ctx, commitAttrs[AttrGitSHA], path)
+	blob, err := newGitBlobReader(ctx, s.RepoPath, commitAttrs[AttrGitSHA], path)
 	if err != nil {
 		logging.OrDiscard(s.Logger).Error("could not read archive blob", "error", err)
 		return nil
@@ -805,48 +685,10 @@ func (s *Git) gitAttributes(file *gitdiff.File) map[string]string {
 	return attrs
 }
 
-// GitCmd helps to work with Git's output.
-type GitCmd struct {
-	cmd         *exec.Cmd
-	diffFilesCh <-chan *gitdiff.File
-	errCh       <-chan error
-	repoPath    string
-	stdout      io.Reader // internal history scans consume patches without line objects
-}
-
-type gitCmdOptions struct {
-	logger *slog.Logger
-	stream bool
-}
-
-// Internal scans use the streaming reader; the public DiffFilesCh API retains
-// the complete gitdiff.File representation for callers that need it.
-func withGitStreaming() GitCmdOption {
-	return GitCmdOption{apply: func(options *gitCmdOptions) { options.stream = true }}
-}
-
-// GitCmdOption configures a Git command before it starts. Options are created
-// by the WithGitCmd... functions in this package.
-type GitCmdOption struct {
-	apply func(*gitCmdOptions)
-}
-
-// WithGitCmdLogger directs Git command diagnostics to logger. A nil logger
-// disables logging.
-func WithGitCmdLogger(logger *slog.Logger) GitCmdOption {
-	return GitCmdOption{apply: func(options *gitCmdOptions) {
-		options.logger = logging.OrDiscard(logger)
-	}}
-}
-
-func resolveGitCmdOptions(options []GitCmdOption) gitCmdOptions {
-	resolved := gitCmdOptions{logger: logging.OrDiscard(nil)}
-	for _, option := range options {
-		if option.apply != nil {
-			option.apply(&resolved)
-		}
-	}
-	return resolved
+type gitCmd struct {
+	cmd    *exec.Cmd
+	stdout io.Reader
+	errCh  <-chan error
 }
 
 // gitConfigIsolationEnv contains the standard Git configuration isolation environment variables.
@@ -908,18 +750,7 @@ func (br *blobReader) Close() error {
 	return waitErr
 }
 
-// NewGitLogCmd starts a Git history command. Callers must drain DiffFilesCh
-// and ErrCh before calling Wait to release resources.
-//
-// Deprecated: use NewGitLogCmdContext instead.
-func NewGitLogCmd(source string, logOpts string) (*GitCmd, error) {
-	return NewGitLogCmdContext(context.Background(), source, logOpts)
-}
-
-// NewGitLogCmdContext is the same as NewGitLogCmd but supports passing in a
-// context to use for timeouts
-func NewGitLogCmdContext(ctx context.Context, source string, logOpts string, options ...GitCmdOption) (*GitCmd, error) {
-	settings := resolveGitCmdOptions(options)
+func newGitLogCmd(ctx context.Context, source, logOpts string, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
 	var cmd *exec.Cmd
 	if logOpts != "" {
@@ -936,7 +767,7 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string, opt
 		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
 			"--full-history", "--all", "--diff-filter=tuxdb")
 	}
-	return startGitCmd(cmd, sourceClean, settings)
+	return startGitCmd(cmd, logger)
 }
 
 // splitGitLogOpts parses user-provided --log-opts with a small shell-inspired
@@ -997,33 +828,22 @@ func splitGitLogOpts(input string) ([]string, error) {
 	return args, nil
 }
 
-// NewGitDiffCmd starts a Git diff command. Callers must drain DiffFilesCh
-// and ErrCh before calling Wait to release resources.
-//
-// Deprecated: use NewGitDiffCmdContext instead.
-func NewGitDiffCmd(source string, staged bool) (*GitCmd, error) {
-	return NewGitDiffCmdContext(context.Background(), source, staged)
-}
-
-// NewGitDiffCmdContext is the same as NewGitDiffCmd but supports passing in a
-// context to use for timeouts
-func NewGitDiffCmdContext(ctx context.Context, source string, staged bool, options ...GitCmdOption) (*GitCmd, error) {
-	settings := resolveGitCmdOptions(options)
+func newGitDiffCmd(ctx context.Context, source string, staged bool, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	var cmd *exec.Cmd
-	cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff", ".")
+	args := []string{"-C", sourceClean, "diff", "-U0", "--no-ext-diff"}
 	if staged {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff",
-			"--staged", ".")
+		args = append(args, "--staged")
 	}
-	return startGitCmd(cmd, sourceClean, settings)
+	args = append(args, ".")
+	return startGitCmd(exec.CommandContext(ctx, "git", args...), logger)
 }
 
-// startGitCmd starts a patch-producing command and selects its output reader.
-func startGitCmd(cmd *exec.Cmd, repoPath string, settings gitCmdOptions) (*GitCmd, error) {
+// startGitCmd starts a patch-producing command. The caller must consume stdout,
+// drain errCh, and wait for the process, including after a parse or callback error.
+func startGitCmd(cmd *exec.Cmd, logger *slog.Logger) (*gitCmd, error) {
 	cmd.Env = gitConfigIsolationEnv()
 
-	settings.logger.Debug("executing git command", "command", cmd.String())
+	logging.OrDiscard(logger).Debug("executing git command", "command", cmd.String())
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1038,83 +858,15 @@ func startGitCmd(cmd *exec.Cmd, repoPath string, settings gitCmdOptions) (*GitCm
 	}
 
 	errCh := make(chan error)
-	go listenForStdErr(stderr, errCh, settings.logger)
+	go listenForStdErr(stderr, errCh, logger)
 
-	if settings.stream {
-		return &GitCmd{cmd: cmd, stdout: stdout, errCh: errCh, repoPath: repoPath}, nil
-	}
-
-	gitdiffFiles, err := gitdiff.Parse(stdout)
-	if err != nil {
-		return nil, err
-	}
-
-	return &GitCmd{
-		cmd:         cmd,
-		diffFilesCh: gitdiffFiles,
-		errCh:       errCh,
-		repoPath:    repoPath,
-	}, nil
+	return &gitCmd{cmd: cmd, stdout: stdout, errCh: errCh}, nil
 }
 
-// DiffFilesCh returns a channel with *gitdiff.File.
-func (c *GitCmd) DiffFilesCh() <-chan *gitdiff.File {
-	return c.diffFilesCh
-}
-
-// ErrCh returns a channel that could produce an error if there is something in stderr.
-func (c *GitCmd) ErrCh() <-chan error {
-	return c.errCh
-}
-
-// Wait waits for the command to exit and waits for any copying to
-// stdin or copying from stdout or stderr to complete.
-//
-// Wait also closes underlying stdout and stderr.
-func (c *GitCmd) Wait() error {
-	return c.cmd.Wait()
-}
-
-// cancel stops the Git process so its output channels can be drained without
-// waiting for the rest of the command after a fragment worker fails.
-func (c *GitCmd) cancel() error {
-	if c == nil || c.cmd == nil {
-		return nil
-	}
-	if c.cmd.Cancel != nil {
-		if err := c.cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-			return err
-		}
-		return nil
-	}
-	if c.cmd.Process == nil {
-		return nil
-	}
-	if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	return nil
-}
-
-// String displays the command used for GitCmd
-func (c *GitCmd) String() string {
-	return c.cmd.String()
-}
-
-// NewBlobReader returns an io.ReadCloser that can be used to read a blob
-// within the git repo used to create the GitCmd.
-//
-// The caller is responsible for closing the reader.
-//
-// Deprecated: use NewBlobReaderContext instead.
-func (c *GitCmd) NewBlobReader(commit, path string) (io.ReadCloser, error) {
-	return c.NewBlobReaderContext(context.Background(), commit, path)
-}
-
-// NewBlobReaderContext is the same as NewBlobReader but supports passing in a
-// context to use for timeouts
-func (c *GitCmd) NewBlobReaderContext(ctx context.Context, commit, path string) (io.ReadCloser, error) {
-	gitArgs := []string{"-C", c.repoPath, "cat-file", "blob", commit + ":" + path}
+// newGitBlobReader reads a committed blob, or an index blob when commit is empty.
+// The caller must close the reader to release the Git process.
+func newGitBlobReader(ctx context.Context, repoPath, commit, path string) (io.ReadCloser, error) {
+	gitArgs := []string{"-C", repoPath, "cat-file", "blob", commit + ":" + path}
 	cmd := exec.CommandContext(ctx, "git", gitArgs...)
 	cmd.Env = gitConfigIsolationEnv()
 	cmd.Stderr = io.Discard
@@ -1182,32 +934,14 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error, logger *slog.Logg
 
 // newGitLogCommitsCmd constructs a git log command for an exact set of
 // commits. --no-walk keeps worker partitions deterministic and non-overlapping.
-func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, logger *slog.Logger) (*GitCmd, error) {
+func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
 	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-	gitCmd, err := startGitCmd(cmd, sourceClean, gitCmdOptions{logger: logging.OrDiscard(logger), stream: true})
-	if err != nil {
-		return nil, err
-	}
-
-	go func() {
-		defer stdin.Close()
-		writer := bufio.NewWriter(stdin)
-		for _, sha := range commits {
-			if _, err := fmt.Fprintln(writer, sha); err != nil {
-				return
-			}
-		}
-		_ = writer.Flush()
-	}()
-
-	return gitCmd, nil
+	// Let os/exec own the input-copy goroutine so Wait joins it on every exit.
+	cmd.Stdin = strings.NewReader(strings.Join(commits, "\n") + "\n")
+	return startGitCmd(cmd, logger)
 }
 
 // listCommits returns the commits selected by logOpts in deterministic order.

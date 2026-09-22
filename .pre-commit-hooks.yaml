@@ -1,20 +1,20 @@
 - id: betterleaks
   name: Detect hardcoded secrets
   description: Detect hardcoded secrets using Betterleaks
-  entry: betterleaks git --pre-commit --redact --staged --offline
+  entry: betterleaks git --staged --offline --redact
   language: golang
   pass_filenames: false
 
 - id: betterleaks-docker
   name: Detect hardcoded secrets
   description: Detect hardcoded secrets using Betterleaks
-  entry: ghcr.io/betterleaks/betterleaks:v2.0.0-rc.1 git --pre-commit --redact --staged --offline
+  entry: ghcr.io/betterleaks/betterleaks:v2.0.0-rc.1 git --staged --offline --redact
   language: docker_image
   pass_filenames: false
 
 - id: betterleaks-system
   name: Detect hardcoded secrets
   description: Detect hardcoded secrets using Betterleaks
-  entry: betterleaks git --pre-commit --redact --staged --offline
+  entry: betterleaks git --staged --offline --redact
   language: system
   pass_filenames: false

@@ -59,6 +59,7 @@ func run() error {
 	// an enum without constructing a source. Use sources.Files for local paths,
 	// sources.Git{URL: target} for remote history, or sources.URL{URL: target}
 	// for one HTTP response. Detection and remote sources may use the network.
+	// For local staged changes, use sources.Git{RepoPath: ".", Mode: sources.GitStaged}.
 	encoder := json.NewEncoder(os.Stdout)
 	summary, err := scanner.Scan(context.Background(), source, func(finding report.Finding) error {
 		// Findings contain detection details without provider results.

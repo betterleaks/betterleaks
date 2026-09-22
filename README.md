@@ -14,9 +14,11 @@ Development is supported by
 
 | Feature | Description |
 | :--- | :--- |
-| **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. |
+| **Simple Prioritization** | Rank by confidence, validation status, and analyzed severity scores to make triage as simple as 123. |
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using Expr. |
 | **Secrets Analysis** | Enrich valid credentials with provider-neutral identity, account, capability, and severity information. |
+| **Secrets Revocation** | Optionally revoke secrets. |
+| **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. |
 | **BPE filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
@@ -243,7 +245,9 @@ public `regexp.CompiledRegexp` interface. Both the engine and its compiled
 expressions must support concurrent use.
 
 Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
-`sources.Git`. `sources.Git{URL: repoURL}` scans a temporary HTTP(S) clone;
+`sources.Git`. Git scans history by default; set `Mode: sources.GitStaged` or
+`Mode: sources.GitWorkingTree` for local diffs. Each scan owns its Git processes.
+`sources.Git{URL: repoURL}` scans a temporary HTTP(S) clone;
 `sources.URL{URL: contentURL}` downloads one response, with optional archive
 handling. `sources.Auto(ctx, target)` returns a source kind without
 constructing a source. Ambiguous HTTP(S) targets may require a bounded Git

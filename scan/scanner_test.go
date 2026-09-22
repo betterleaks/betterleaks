@@ -2490,14 +2490,14 @@ func TestFromGit(t *testing.T) {
 			cfg := loadTestConfig(t, "simple")
 			scanner := mustNew(t, cfg)
 
-			gitCmd, err := sources.NewGitLogCmd(tt.source, tt.logOpts)
-			require.NoError(t, err)
 			platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
 			findings, err := collectSourceFindings(
 				t.Context(), scanner,
 
 				&sources.Git{
-					Cmd:             gitCmd,
+					RepoPath:        tt.source,
+					LogOpts:         tt.logOpts,
+					Workers:         1,
 					ShouldSkip:      mustPrefilter(t, cfg.Prefilter),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
@@ -2553,14 +2553,13 @@ func TestFromGitStaged(t *testing.T) {
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
 		scanner := mustNew(t, cfg)
-		gitCmd, err := sources.NewGitDiffCmd(tt.source, true)
-		require.NoError(t, err)
 		platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
 		findings, err := collectSourceFindings(
 			t.Context(), scanner,
 
 			&sources.Git{
-				Cmd:        gitCmd,
+				RepoPath:   tt.source,
+				Mode:       sources.GitStaged,
 				ShouldSkip: mustPrefilter(t, cfg.Prefilter),
 				Platform:   platform,
 				RemoteURL:  remoteURL,

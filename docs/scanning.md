@@ -77,7 +77,8 @@ and detection worker counts described above.
 | Filesystem | `betterleaks <path>` or `betterleaks filesystem <path>` |
 | Git history | `betterleaks git [path-or-http-url]` |
 | One HTTP(S) response or archive | `betterleaks url <url>` |
-| Staged or pre-commit diffs | `betterleaks git --pre-commit [--staged]` |
+| Staged changes | `betterleaks git --staged` |
+| Unstaged changes to tracked files | `betterleaks git --unstaged` |
 | GitHub repos, Issues, PRs, Actions, Releases, Discussions, Gists | `betterleaks github <url>` |
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
@@ -346,9 +347,29 @@ betterleaks git https://git.example.com/group/repo.git --token "$TOKEN"
 `HUGGINGFACE_TOKEN`/`HF_TOKEN`. Environment tokens are used only for HTTPS on
 those public hosts, never arbitrary servers. The SDK uses an explicit
 `sources.Git{URL: target, Token: token}`. `URL` cannot be combined with `RepoPath`
-or `Cmd`. Remote scans load configuration from the local working directory,
-not from the downloaded repository. `--staged` and `--pre-commit` require a
+or a diff mode. Remote scans load configuration from the local working directory,
+not from the downloaded repository. `--staged` and `--unstaged` require a
 local repository. A clone does not contain another machine's local reflogs.
+
+`--staged` and `--unstaged` are mutually exclusive. Without either flag, `git`
+scans history. Both diff modes scan added lines; `--unstaged` excludes untracked
+files. Use `betterleaks fs .` to scan complete files, including untracked files.
+The former `--pre-commit` flag has been replaced by `--unstaged`; pre-commit
+hooks should use `--staged` alone.
+
+SDK callers select content with `Git.Mode`:
+
+```go
+history := &sources.Git{RepoPath: "."} // GitHistory is the zero-value mode.
+staged := &sources.Git{RepoPath: ".", Mode: sources.GitStaged}
+workingTree := &sources.Git{RepoPath: ".", Mode: sources.GitWorkingTree}
+```
+
+Staged scans read additions in the index relative to HEAD; working-tree scans
+read tracked additions relative to the index and exclude untracked files.
+`LogOpts` and `Include` apply only to history. Each `Fragments` call starts and
+cleans up its own Git processes, so a source can be reused without recreating
+commands or draining channels. Configuration must remain unchanged during a scan.
 
 The shipped pre-commit hooks scan staged changes with `--offline --redact`,
 so commits do not depend on network validation and findings are redacted.
@@ -363,11 +384,11 @@ betterleaks git . -j 4
 # custom git log scope
 betterleaks git . --log-opts="--all --since='90 days ago'"
 
-# current working tree diff
-betterleaks git . --pre-commit
+# unstaged changes to tracked files
+betterleaks git . --unstaged
 
 # staged diff only
-betterleaks git . --pre-commit --staged
+betterleaks git . --staged
 
 # generate platform links in findings
 betterleaks git . --platform github
@@ -437,7 +458,7 @@ Reports show only the first line of `git.message` for these resources, appending
 for scanning and filtering.
 
 These additional resources apply to repository history scans; they cannot be
-combined with `--pre-commit` or `--staged`.
+combined with `--unstaged` or `--staged`.
 
 ---
 
