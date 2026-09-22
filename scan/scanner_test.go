@@ -3282,7 +3282,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	d := newDefaultTestScanner(t)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			rules, _, err := snapshotRules(&config.Config{Rules: []config.Rule{test.rule}})
+			rules, _, err := snapshotRules(&config.Config{Rules: []config.Rule{test.rule}}, nil)
 			require.NoError(t, err)
 			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, &rules[0], []*codec.EncodedSegment{}, nil, &detectionState{})
 			compare(t, actual, test.expected)
@@ -3293,8 +3293,7 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 func TestCapturesUseOriginalMatch(t *testing.T) {
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		t.Run(engine.Version(), func(t *testing.T) {
-			regexp.SetEngine(engine)
-			t.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
+			t.Parallel()
 			for _, tc := range []struct {
 				name, pattern, input, full, value string
 				secretGroup                       int
@@ -3311,7 +3310,7 @@ func TestCapturesUseOriginalMatch(t *testing.T) {
 				{name: "newline in capture", pattern: `(?P<token>secret\n)`, input: "secret\n", full: "secret", value: "secret\n", captures: map[string]string{"token": "secret\n"}},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern, SecretGroup: tc.secretGroup}}})
+					scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern, SecretGroup: tc.secretGroup}}}, WithRegexEngine(engine))
 					findings := scanner.ScanString(tc.input)
 					require.Len(t, findings, 1)
 					assert.Equal(t, tc.full, findings[0].Match.Full)
@@ -3585,8 +3584,6 @@ func BenchmarkScanCaptureExtraction(b *testing.B) {
 	raw := input.String()
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		b.Run(engine.Version(), func(b *testing.B) {
-			regexp.SetEngine(engine)
-			b.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
 			for _, tc := range []struct{ name, pattern string }{
 				{"no_captures", `secret-[0-9]{6}`},
 				{"numbered", `token=(secret-[0-9]{6})`},
@@ -3594,7 +3591,7 @@ func BenchmarkScanCaptureExtraction(b *testing.B) {
 				{"many_captures", `(?P<kind>token)=(?P<secret>secret)-(?P<id>[0-9]{6}) (?P<field>account)=(?P<user>user)-(?P<user_id>[0-9]{6})`},
 			} {
 				b.Run(tc.name, func(b *testing.B) {
-					scanner, err := New(&config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern}}}, WithPrecompile(), WithWorkers(1))
+					scanner, err := New(&config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern}}}, WithRegexEngine(engine), WithPrecompile(), WithWorkers(1))
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -3764,8 +3761,6 @@ func TestFindingTextDoesNotRetainFragment(t *testing.T) {
 func BenchmarkFindingText(b *testing.B) {
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		b.Run(engine.Version(), func(b *testing.B) {
-			regexp.SetEngine(engine)
-			b.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
 			for _, multiline := range []bool{false, true} {
 				var input strings.Builder
 				for i := range 1_000 {
@@ -3788,7 +3783,7 @@ func BenchmarkFindingText(b *testing.B) {
 							cfg.Rules = append(cfg.Rules, config.Rule{ID: "missing", Regex: "MISSING", SkipReport: true})
 							want = 0
 						}
-						scanner, err := New(cfg, WithPrecompile(), WithWorkers(1))
+						scanner, err := New(cfg, WithRegexEngine(engine), WithPrecompile(), WithWorkers(1))
 						if err != nil {
 							b.Fatal(err)
 						}

@@ -41,7 +41,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 		},
 		{
 			name: "filter",
-			fns:  functionNames(filterBindings(nil, emptyFilterFinding, emptyStringMap)),
+			fns:  functionNames(runtime.filterBindings(nil, emptyFilterFinding, emptyStringMap)),
 			current: []string{
 				"crypto.sha256",
 				"matchesAny", "findMatch", "containsAny", "startsWithAny", "entropy",
@@ -50,7 +50,7 @@ func TestProjectFunctionNamesFollowConvention(t *testing.T) {
 		},
 		{
 			name: "prefilter",
-			fns:  functionNames(prefilterBindings(emptyStringMap)),
+			fns:  functionNames(runtime.prefilterBindings(emptyStringMap)),
 			current: []string{
 				"matchesAny", "containsAny", "startsWithAny",
 			},

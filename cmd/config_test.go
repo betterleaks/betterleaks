@@ -81,9 +81,9 @@ func TestConfigRevokeRoundTripAndCompile(t *testing.T) {
 	parsed, err := configpkg.ParseTOMLString(rendered, "")
 	require.NoError(t, err)
 	require.Equal(t, expression, parsed.Rules[0].RevokeExpr)
-	require.NoError(t, validateConfig(parsed))
+	require.NoError(t, validateConfig(parsed, nil))
 	parsed.Rules[0].RevokeExpr = `invalid revocation syntax ???`
-	require.ErrorContains(t, validateConfig(parsed), "compiling rule token revocation")
+	require.ErrorContains(t, validateConfig(parsed, nil), "compiling rule token revocation")
 }
 
 func writeTestConfig(t *testing.T, contents string) string {

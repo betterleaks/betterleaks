@@ -5,6 +5,10 @@
 // Load rules with config.Default or config.LoadFile, then call New. Rules and
 // options are snapshotted; regexes and filters compile lazily unless
 // WithPrecompile is supplied. Scanners are silent unless WithLogger is supplied.
+// WithRegexEngine selects an engine for this scanner; the default is Go's
+// standard library. The optional regexp/re2 package is imported only by callers
+// that select it. An engine is retained rather than copied and must be safe for
+// concurrent use.
 //
 // Use Scanner.Scan for callbacks and per-call statistics, Scanner.Run for an
 // iterator of findings and recoverable source errors, or Scanner.ScanString for

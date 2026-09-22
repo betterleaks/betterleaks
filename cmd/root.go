@@ -77,7 +77,15 @@ type commandRuntime struct {
 	stdout io.Writer
 	stderr io.Writer
 	logger *slog.Logger
+	engine regexp.Engine
 	exit   func(int)
+}
+
+func (r *commandRuntime) regexEngine() regexp.Engine {
+	if r == nil || r.engine == nil {
+		return regexp.Stdlib{}
+	}
+	return r.engine
 }
 
 var discardLogger = slog.New(slog.DiscardHandler)
@@ -149,9 +157,9 @@ func initLog(globals *GlobalFlags, ctx *kong.Context, runtime *commandRuntime) e
 	}
 	switch engineName {
 	case "re2":
-		regexp.SetEngine(regexpre2.RE2{})
+		runtime.engine = regexpre2.RE2{}
 	case "stdlib":
-		regexp.SetEngine(regexp.Stdlib{})
+		runtime.engine = regexp.Stdlib{}
 	default:
 		return fmt.Errorf("unknown regex engine %q (valid values: re2, stdlib)", engineName)
 	}
@@ -182,7 +190,7 @@ func initConfig(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags,
 		bannerPrinted = true
 	}
 
-	runtime.Logger().Debug("using regex engine", "version", regexp.Version())
+	runtime.Logger().Debug("using regex engine", "version", runtime.regexEngine().Version())
 
 	cfgPath := globals.Config
 	if cfgPath != "" {
@@ -420,6 +428,7 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 		runtime.fatal("provider-rps-rule", "error", err)
 	}
 	scannerOptions := []scan.Option{
+		scan.WithRegexEngine(runtime.regexEngine()),
 		scan.WithWorkers(resolveScanWorkers(flags.Jobs)),
 		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
 		scan.WithMinimumConfidence(scan.Confidence(flags.Confidence)),
@@ -443,6 +452,7 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 		}
 		pipelineOptions = append(pipelineOptions, pipeline.WithValidationStatuses(statuses...))
 		analyzer, err = analyze.New(cfg,
+			analyze.WithRegexEngine(runtime.regexEngine()),
 			analyze.WithLogger(runtime.Logger()),
 			analyze.WithWorkers(resolveAnalyzeWorkers(flags.ProviderWorkers)),
 			analyze.WithDebug(flags.ProviderDebug),
@@ -514,6 +524,7 @@ func loadScanFilters(runtime *commandRuntime, cfg *config.Config, ignorePath, so
 	}
 	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{
 		ExcludedPaths: excluded,
+		RegexEngine:   runtime.regexEngine(),
 		Logger:        runtime.Logger(),
 	})
 	if err != nil {

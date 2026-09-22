@@ -14,12 +14,11 @@ import (
 func TestPrefixWindowsPreserveEligibility(t *testing.T) {
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		t.Run(engine.Version(), func(t *testing.T) {
-			regexp.SetEngine(engine)
-			t.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
+			t.Parallel()
 			pattern := `(?i)(?:password=[a-z]{5,}|(?:login|log_in|authenticate)[ \t]*\([ \t]*[a-z]+,[ \t]*"([a-z]{4,})"[ \t]*\))`
 			cfg := &config.Config{Rules: []config.Rule{{ID: "password", Regex: pattern, Keywords: []string{"password", "login(", "login (", "log_in(", "log_in (", "authenticate(", "authenticate ("}}}}
-			narrowed := mustNew(t, cfg, WithMaxDecodeDepth(2), WithMatchContext("2L,20C"))
-			original := mustNew(t, cfg, WithMaxDecodeDepth(2), WithMatchContext("2L,20C"))
+			narrowed := mustNew(t, cfg, WithRegexEngine(engine), WithMaxDecodeDepth(2), WithMatchContext("2L,20C"))
+			original := mustNew(t, cfg, WithRegexEngine(engine), WithMaxDecodeDepth(2), WithMatchContext("2L,20C"))
 			for i := range original.rulesBySpecificity {
 				original.rulesBySpecificity[i].span = nil
 				original.rulesBySpecificity[i].searchAnchors = nil
@@ -59,7 +58,6 @@ func TestPrefixWindowsPreserveEligibility(t *testing.T) {
 }
 
 func FuzzSearchAnchorEligibility(f *testing.F) {
-	regexp.SetEngine(regexp.Stdlib{})
 	cfg := &config.Config{Rules: []config.Rule{{
 		ID: "password", Regex: `(?i)(?:passw[a-z]{0,5}=[a-z]{5,}|(?:login|log_in)[ \t]*\([a-z]+,[ \t]*"([a-z]{4,})"\))`,
 		Keywords: []string{"passw", "login(", "login (", "log_in(", "log_in ("},

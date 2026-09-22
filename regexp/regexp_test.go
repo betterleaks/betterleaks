@@ -27,13 +27,9 @@ func (e failingEngine) Compile(string) (internal.CompiledRegexp, error) {
 func (e failingEngine) Version() string { return "failing" }
 
 func TestCompileIsLazy(t *testing.T) {
-	previous := currentEngine
-	defer SetEngine(previous)
-
 	engine := &countingEngine{}
-	SetEngine(engine)
 
-	re, err := Compile(`(foo)(bar)?`)
+	re, err := CompileWithEngine(`(foo)(bar)?`, engine)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,12 +59,7 @@ func TestCompileIsLazy(t *testing.T) {
 }
 
 func TestLazyCompileFailureDoesNotPanic(t *testing.T) {
-	previous := currentEngine
-	defer SetEngine(previous)
-
-	SetEngine(failingEngine{})
-
-	re, err := Compile(`foo`)
+	re, err := CompileWithEngine(`foo`, failingEngine{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,12 +87,7 @@ func TestLazyCompileFailureDoesNotPanic(t *testing.T) {
 }
 
 func TestCompileReturnsLazyCompileError(t *testing.T) {
-	previous := currentEngine
-	defer SetEngine(previous)
-
-	SetEngine(failingEngine{})
-
-	re, err := Compile(`foo`)
+	re, err := CompileWithEngine(`foo`, failingEngine{})
 	if err != nil {
 		t.Fatal(err)
 	}

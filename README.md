@@ -227,6 +227,16 @@ reused. `scan.WithPrecompile` checks detection regexes and filters;
 [concurrent scanner example](examples/concurrent_scanner.go),
 and [analysis example](examples/with_analysis.go)
 
+The SDK defaults to Go's standard-library regex engine and does not import the
+RE2/Wazero backend. To opt in for a scanner, import
+`github.com/betterleaks/betterleaks/v2/regexp/re2` and pass
+`scan.WithRegexEngine(re2.RE2{})` to `scan.New`. Selection belongs to that scanner;
+different engines can be used concurrently. Provider expressions and source
+prefilters select their engines independently through `analyze.WithRegexEngine`
+and `prefilter.Options.RegexEngine`. The CLI defaults to RE2 and passes its
+`--regex-engine` selection to all three. See the
+[RE2 example](examples/with_re2_regexp.go).
+
 Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
 `sources.Git`. `sources.Git{URL: repoURL}` scans a temporary HTTP(S) clone;
 `sources.URL{URL: contentURL}` downloads one response, with optional archive

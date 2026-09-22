@@ -32,7 +32,7 @@ func (cmd *ConfigCheckCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	if err != nil {
 		return err
 	}
-	if err := validateConfig(resolved.cfg); err != nil {
+	if err := validateConfig(resolved.cfg, runtime.regexEngine()); err != nil {
 		return err
 	}
 	withValidation, withoutValidation := countValidationRules(resolved.cfg)
@@ -55,7 +55,7 @@ func (cmd *ConfigShowTOMLCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	if err != nil {
 		return err
 	}
-	if err := validateConfig(resolved.cfg); err != nil {
+	if err := validateConfig(resolved.cfg, runtime.regexEngine()); err != nil {
 		return err
 	}
 	_, _ = runtime.stdout.Write([]byte(renderConfigTOML(renderConfig(resolved.cfg))))
@@ -115,15 +115,15 @@ func loadConfigFile(path string, options ...configpkg.LoadOption) (*resolvedConf
 	return &resolvedConfig{cfg: cfg, source: path}, nil
 }
 
-func validateConfig(cfg *configpkg.Config) error {
+func validateConfig(cfg *configpkg.Config, engine regexp.Engine) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
 	compileKeywordTrie(cfg)
-	if err := compileRuleRegexps(cfg); err != nil {
+	if err := compileRuleRegexps(cfg, engine); err != nil {
 		return err
 	}
-	rt, err := exprruntime.New(nil)
+	rt, err := exprruntime.NewWithRegexEngine(nil, engine)
 	if err != nil {
 		return err
 	}
@@ -227,13 +227,13 @@ func compileKeywordTrie(cfg *configpkg.Config) {
 	_ = ahocorasick.CompileStrings(keywords)
 }
 
-func compileRuleRegexps(cfg *configpkg.Config) error {
+func compileRuleRegexps(cfg *configpkg.Config, engine regexp.Engine) error {
 	for _, rule := range cfg.Rules {
 		for _, entry := range []struct{ kind, pattern string }{{"regex", rule.Regex}, {"path regex", rule.Path}} {
 			if entry.pattern == "" {
 				continue
 			}
-			re, err := regexp.Compile(entry.pattern)
+			re, err := regexp.CompileWithEngine(entry.pattern, engine)
 			if err == nil {
 				err = re.Compile()
 			}

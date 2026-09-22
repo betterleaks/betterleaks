@@ -9,13 +9,16 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-// Options adds exact path exclusions and evaluation diagnostics.
+// Options configures path exclusions, diagnostics, and the regex engine.
 type Options struct {
 	ExcludedPaths []string
 	Logger        *slog.Logger
+	// RegexEngine selects the engine for regex helpers. Nil uses regexp.Stdlib.
+	RegexEngine regexp.Engine
 }
 
 // Compile creates a predicate reusable across concurrent sources.
@@ -32,7 +35,7 @@ func Compile(expression string, options Options) (sources.SkipFunc, error) {
 	var runtime *exprruntime.LocalRuntime
 	var program exprruntime.Program
 	if expression != "" {
-		runtime = exprruntime.NewLocal()
+		runtime = exprruntime.NewLocal(options.RegexEngine)
 		var err error
 		program, err = runtime.CompilePrefilter(expression)
 		if err != nil {

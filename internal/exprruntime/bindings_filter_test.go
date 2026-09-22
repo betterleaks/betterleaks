@@ -27,7 +27,7 @@ func TestCompiledAttributeMatchPreservesPrefilterSemantics(t *testing.T) {
 		{`let path = attributes.path; matchesAny(path, ["secret"])`, false},
 	} {
 		t.Run(test.expression, func(t *testing.T) {
-			runtime := NewLocal()
+			runtime := NewLocal(nil)
 			program, err := runtime.CompilePrefilter(test.expression)
 			require.NoError(t, err)
 			require.Equal(t, test.compiled, program.attributeMatch != nil)
@@ -52,7 +52,7 @@ func TestCompiledAttributeMatchPreservesPrefilterSemantics(t *testing.T) {
 }
 
 func TestCompiledAttributeMatchIsConcurrent(t *testing.T) {
-	runtime := NewLocal()
+	runtime := NewLocal(nil)
 	program, err := runtime.CompilePrefilter(`matchesAny(attributes.path, ["^skip$"])`)
 	require.NoError(t, err)
 	var workers sync.WaitGroup
@@ -72,15 +72,9 @@ func TestCompiledAttributeMatchIsConcurrent(t *testing.T) {
 }
 
 func BenchmarkPrefilterAttributeMatch(b *testing.B) {
-	b.Cleanup(func() {
-		blregexp.SetEngine(blregexp.Stdlib{})
-		regexCache.Clear()
-	})
 	for _, engine := range []blregexp.Engine{blregexp.Stdlib{}, re2.RE2{}} {
 		b.Run(engine.Version(), func(b *testing.B) {
-			blregexp.SetEngine(engine)
-			regexCache.Clear()
-			runtime := NewLocal()
+			runtime := NewLocal(engine)
 			program, err := runtime.CompilePrefilter(`matchesAny(attributes.path, ["(?i)\\.png$", "(?:^|/)vendor/", "(?:^|/)node_modules/"])`)
 			require.NoError(b, err)
 			attrs := map[string]string{"path": "project/src/main.go"}
@@ -176,7 +170,7 @@ func TestMatchesAnyStringOrList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := matchesAny(tt.input, tt.patterns)
+			got, err := new(Runtime).matchesAny(tt.input, tt.patterns)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +182,7 @@ func TestMatchesAnyStringOrList(t *testing.T) {
 }
 
 func TestMatchesAnyRejectsInvalidPattern(t *testing.T) {
-	_, err := matchesAny("read_repository", []string{"*read"})
+	_, err := new(Runtime).matchesAny("read_repository", []string{"*read"})
 	if err == nil {
 		t.Fatal("matchesAny accepted an invalid regular expression")
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // Confidence is the minimum confidence classification accepted by a scanner.
@@ -22,6 +23,7 @@ const (
 )
 
 type scannerOptions struct {
+	regexEngine         regexp.Engine
 	workers             int
 	maxDecodeDepth      int
 	matchContext        contextwindow.Spec
@@ -36,6 +38,19 @@ type scannerOptions struct {
 // With... functions in this package.
 type Option struct {
 	apply func(*scannerOptions) error
+}
+
+// WithRegexEngine selects the engine for detection regexes, path regexes, and
+// finding filter helpers. The default is regexp.Stdlib. Engine is retained and
+// must support concurrent use. Source prefilters are configured separately.
+func WithRegexEngine(engine regexp.Engine) Option {
+	return Option{apply: func(options *scannerOptions) error {
+		if engine == nil {
+			return errors.New("regex engine is required")
+		}
+		options.regexEngine = engine
+		return nil
+	}}
 }
 
 // WithIgnoredFingerprints suppresses completed findings whose primary secret

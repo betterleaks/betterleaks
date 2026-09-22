@@ -122,12 +122,12 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	if settings.workers == 0 {
 		settings.workers = max(runtime.GOMAXPROCS(0), 1)
 	}
-	rulesBySpecificity, ruleIndexByID, snapshotErr := snapshotRules(cfg)
+	rulesBySpecificity, ruleIndexByID, snapshotErr := snapshotRules(cfg, settings.regexEngine)
 	if snapshotErr != nil {
 		return nil, fmt.Errorf("invalid config: %w", snapshotErr)
 	}
 
-	exprRuntime := exprruntime.NewLocal()
+	exprRuntime := exprruntime.NewLocal(settings.regexEngine)
 
 	keywordToRuleIndexes := make(map[string][]int)
 	anchorToRuleIndexes := make(map[string][]int)
@@ -683,7 +683,7 @@ func (s *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
 	return findings
 }
 
-func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
+func snapshotRules(cfg *config.Config, engine blregexp.Engine) ([]compiledRule, map[string]int, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -700,7 +700,7 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 			if compiled.span == nil {
 				compiled.span, compiled.searchAnchors = compilePrefixWindows(rule.Regex, rule.Keywords)
 			}
-			compiled.regex, err = blregexp.Compile(rule.Regex)
+			compiled.regex, err = blregexp.CompileWithEngine(rule.Regex, engine)
 			if err != nil {
 				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.ID, err)
 			}
@@ -708,7 +708,7 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 		if rule.Path != "" {
 			var err error
 			compiled.pathSuffixes = compilePathSuffixes(rule.Path)
-			compiled.path, err = blregexp.Compile(rule.Path)
+			compiled.path, err = blregexp.CompileWithEngine(rule.Path, engine)
 			if err != nil {
 				return nil, nil, fmt.Errorf("compile rule %q path regex: %w", rule.ID, err)
 			}

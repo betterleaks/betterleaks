@@ -15,6 +15,7 @@ import (
 	"github.com/expr-lang/expr/vm"
 
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
+	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // Program is the compiled representation used by filter, validation, analysis,
@@ -115,7 +116,9 @@ const maxResponseBody = 1 << 20 // 1 MB
 // Runtime holds compiled Expr programs and the provider services used by
 // validation, analysis, and explicit revocation.
 type Runtime struct {
-	client *http.Client
+	regexEngine blregexp.Engine
+	regexCache  sync.Map // pattern list -> *blregexp.Regexp; owned by this engine runtime
+	client      *http.Client
 	// validationLimiter is applied to every request made through client,
 	// including generic HTTP and typed cloud validation bindings.
 	validationLimiter *validationRequestLimiter
@@ -163,12 +166,19 @@ func (e *Runtime) SetTokenCounterProvider(provider func() *tokenizer.Counter) {
 }
 
 func New(httpClient *http.Client) (*Runtime, error) {
+	return NewWithRegexEngine(httpClient, nil)
+}
+
+// NewWithRegexEngine creates a runtime with an independent regex cache.
+// A nil engine selects the standard-library engine.
+func NewWithRegexEngine(httpClient *http.Client, engine blregexp.Engine) (*Runtime, error) {
 	if httpClient == nil {
 		httpClient = DefaultHTTPClient()
 	}
 	return &Runtime{
-		client: httpClient,
-		cache:  make(map[string]Program),
+		client:      httpClient,
+		regexEngine: engine,
+		cache:       make(map[string]Program),
 	}, nil
 }
 
@@ -224,7 +234,7 @@ func (e *Runtime) compile(mode compileMode, expression string, counter *tokenize
 		bindings:             programBindings(mode, b),
 	}
 	if mode == modePrefilter {
-		prg.attributeMatch = compileAttributeMatch(vmPrg.Node())
+		prg.attributeMatch = e.compileAttributeMatch(vmPrg.Node())
 	}
 
 	e.mu.Lock()
@@ -278,9 +288,9 @@ func programBindings(mode compileMode, b bindings) bindings {
 func (e *Runtime) compileBindings(mode compileMode, counter *tokenizer.Counter) (bindings, []expr.Option) {
 	switch mode {
 	case modeFilter:
-		return filterBindings(counter, emptyFilterFinding, emptyStringMap), []expr.Option{expr.AsBool()}
+		return e.filterBindings(counter, emptyFilterFinding, emptyStringMap), []expr.Option{expr.AsBool()}
 	case modePrefilter:
-		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
+		return e.prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
 	case modeValidation:
 		b := e.validationBindings(context.Background(), nil, nil, nil, nil, nil)
 		setCompileMaps(b)
@@ -483,7 +493,7 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 		components: components,
 		debug:      state,
 	}
-	b := baseBindings(rt)
+	b := e.baseBindings(rt)
 	delete(b, "attributes")
 	b["ctx"] = rt.ctx
 	b["finding"] = rt.finding
@@ -514,7 +524,7 @@ type runtimeBindings struct {
 	debug                *evalState
 }
 
-func baseBindings(rt *runtimeBindings) bindings {
+func (e *Runtime) baseBindings(rt *runtimeBindings) bindings {
 	if rt.ctx == nil {
 		rt.ctx = context.Background()
 	}
@@ -524,11 +534,11 @@ func baseBindings(rt *runtimeBindings) bindings {
 
 	rtb := bindings{
 		"attributes":           rt.attrs,
-		"findMatch":            findMatch,
+		"findMatch":            e.findMatch,
 		"intersects":           intersects,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
 		"tokenRatio":           rt.tokenRatio,
-		"matchesAny":           matchesAny,
+		"matchesAny":           e.matchesAny,
 		"containsAny":          containsAny,
 		"startsWithAny":        startsWithAny,
 		"entropy":              shannonEntropy,
@@ -549,19 +559,19 @@ func nonNilStringMap(m map[string]string) map[string]string {
 	return m
 }
 
-func filterBindings(counter *tokenizer.Counter, finding map[string]any, attributes map[string]string) bindings {
+func (e *Runtime) filterBindings(counter *tokenizer.Counter, finding map[string]any, attributes map[string]string) bindings {
 	rt := &runtimeBindings{tokenCounter: counter, attrs: attributes}
-	b := baseBindings(rt)
+	b := e.baseBindings(rt)
 	b["setConfidence"] = rt.setConfidence
 	b["finding"] = finding
 	b["crypto"] = map[string]any{"sha256": sha256Fingerprint}
 	return b
 }
 
-func prefilterBindings(attributes map[string]string) bindings {
+func (e *Runtime) prefilterBindings(attributes map[string]string) bindings {
 	return bindings{
 		"attributes":    attributes,
-		"matchesAny":    matchesAny,
+		"matchesAny":    e.matchesAny,
 		"containsAny":   containsAny,
 		"startsWithAny": startsWithAny,
 	}
