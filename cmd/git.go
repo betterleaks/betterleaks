@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/betterleaks/betterleaks"
@@ -17,6 +20,10 @@ func init() {
 	gitCmd.Flags().String("platform", "", "the target platform used to generate links (github, gitlab)")
 	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
 	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
+	gitCmd.Flags().Bool("pre-receive", false, "run as a git pre-receive hook, scanning pushed commits read from stdin")
+	gitCmd.Flags().String("pre-receive-error-message", "",
+		"error message printed to stderr when the pre-receive hook finds leaks; "+
+			"$VAR and ${VAR} are expanded from the environment")
 	gitCmd.Flags().String("log-opts", "", "git log options")
 	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process, default)")
 }
@@ -47,6 +54,7 @@ func runGit(cmd *cobra.Command, args []string) {
 	logOpts := mustGetStringFlag(cmd, "log-opts")
 	staged := mustGetBoolFlag(cmd, "staged")
 	preCommit := mustGetBoolFlag(cmd, "pre-commit")
+	preReceive := mustGetBoolFlag(cmd, "pre-receive")
 	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
 	maxDecodeDepth := mustGetIntFlag(cmd, "max-decode-depth")
 	verbose := mustGetBoolFlag(cmd, "verbose")
@@ -59,7 +67,14 @@ func runGit(cmd *cobra.Command, args []string) {
 
 	sema := semgroup.NewGroup(cmd.Context(), 10)
 
-	if preCommit || staged {
+	if preReceive && (preCommit || staged) {
+		logging.Fatal().Msg("--pre-receive cannot be combined with --pre-commit or --staged")
+	}
+	if preReceive && logOpts != "" {
+		logging.Fatal().Msg("--log-opts cannot be combined with --pre-receive")
+	}
+
+	if preReceive || preCommit || staged {
 		scmPlatform = scm.NoPlatform
 	} else {
 		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
@@ -71,7 +86,45 @@ func runGit(cmd *cobra.Command, args []string) {
 
 	gitWorkers := mustGetIntFlag(cmd, "git-workers")
 
-	if preCommit || staged {
+	if preReceive {
+		updates, parseErr := git.ParsePreReceiveInput(cmd.InOrStdin())
+		if parseErr != nil {
+			logging.Fatal().Err(parseErr).Msg("could not read pre-receive input")
+		}
+		logArgs, resolveErr := git.PreReceiveLogArgs(updates, git.NewGitCommitResolver(cmd.Context(), source))
+		if resolveErr != nil {
+			logging.Fatal().Err(resolveErr).Msg("could not resolve pre-receive ref updates")
+		}
+		if len(logArgs) == 0 {
+			logging.Info().Msg("pre-receive: no new commits to scan")
+			findingSummary(cmd, cfg, nil, time.Now(), nil)
+			return
+		}
+		logOpts = strings.Join(logArgs, " ")
+		if gitWorkers > 0 {
+			src = &git.ParallelGit{
+				RepoPath:        source,
+				Config:          &cfg,
+				Remote:          remote,
+				Sema:            sema,
+				MaxArchiveDepth: maxArchiveDepth,
+				LogOpts:         logOpts,
+				Workers:         gitWorkers,
+			}
+		} else {
+			var gitLogCmd *git.GitCmd
+			if gitLogCmd, err = git.NewGitLogCmdContext(cmd.Context(), source, logOpts); err != nil {
+				logging.Fatal().Err(err).Msg("could not create Git log cmd")
+			}
+			src = &git.Git{
+				Cmd:             gitLogCmd,
+				Config:          &cfg,
+				Remote:          remote,
+				Sema:            sema,
+				MaxArchiveDepth: maxArchiveDepth,
+			}
+		}
+	} else if preCommit || staged {
 		var gitDiffCmd *git.GitCmd
 		if gitDiffCmd, err = git.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
 			logging.Fatal().Err(err).Msg("could not create Git diff cmd")
@@ -144,6 +197,12 @@ func runGit(cmd *cobra.Command, args []string) {
 		findings = append(findings, finding)
 		return nil
 	})
+
+	if preReceive && len(findings) != 0 {
+		if msg := mustGetStringFlag(cmd, "pre-receive-error-message"); msg != "" {
+			fmt.Fprintln(os.Stderr, os.ExpandEnv(msg))
+		}
+	}
 
 	findingSummary(cmd, cfg, findings, start, err, p.TotalBytes())
 }
