@@ -36,7 +36,9 @@ var (
 // infer a resource type or other provenance; callers can supply that context
 // through Attributes.
 type Reader struct {
-	// Content is the stream to scan.
+	// Content is the stream to scan. Reader does not close it. The caller must
+	// cancel or close the underlying reader to interrupt a blocked Read;
+	// context cancellation alone cannot interrupt an arbitrary io.Reader.
 	Content io.Reader
 	// Attributes are copied onto every fragment yielded from Content.
 	Attributes map[string]string

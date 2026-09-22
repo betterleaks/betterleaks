@@ -255,6 +255,7 @@ type Handler func(report.Finding) error
 // per-call summary. Recoverable source errors are joined. Returning an error
 // from handler stops the scan. A nil handler discards findings. Finding order
 // is not guaranteed. Concurrent calls are safe with independent sources.
+// Detection regex compilation failures stop the scan and are returned as errors.
 // A nil or zero-value Scanner returns an error.
 func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handler) (ScanSummary, error) {
 	if s == nil || s.workerSlots == nil {
@@ -297,6 +298,8 @@ type scanState struct {
 type fragmentResult struct {
 	findings []report.Finding
 	err      error
+	// Detection failures stop the scan; yielded source errors can be accumulated.
+	fatal bool
 }
 
 //nolint:nonamedreturns // Deferred cleanup joins workers before collecting the final byte count.
@@ -366,9 +369,9 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(sca
 				return err
 			}
 			workers.Go(func() {
-				findings := s.detectFragmentWithState(runCtx, fragment, &state)
+				findings, err := s.detectFragmentWithState(runCtx, fragment, &state)
 				s.workerSlots.Release(1)
-				resultsCh <- fragmentResult{findings: findings}
+				resultsCh <- fragmentResult{findings: findings, err: err, fatal: err != nil}
 			})
 			return nil
 		})
@@ -381,13 +384,7 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(sca
 
 	for result := range resultsCh {
 		<-resultSlots
-		if isPipelineStop(result.err) {
-			continue
-		}
-		if result.err != nil {
-			if !yield(scanResult{err: result.err}) {
-				return state.summary
-			}
+		if !result.fatal && isPipelineStop(result.err) {
 			continue
 		}
 		for _, finding := range result.findings {
@@ -399,6 +396,11 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(sca
 				return state.summary
 			}
 		}
+		if result.err != nil {
+			if !yield(scanResult{err: result.err}) || result.fatal {
+				return state.summary
+			}
+		}
 	}
 	return state.summary
 }
@@ -407,9 +409,15 @@ func isPipelineStop(err error) bool {
 	return errors.Is(err, errStopScan) || errors.Is(err, context.Canceled)
 }
 
-func rulePathMatchesFragment(rule *compiledRule, fragment sources.Fragment) bool {
+func rulePathMatchesFragment(rule *compiledRule, fragment sources.Fragment) (bool, error) {
 	path := fragment.Attr(sources.AttrPath)
-	return path != "" && rule.path != nil && pathSuffixPossible(path, rule.pathSuffixes) && rule.path.MatchString(path)
+	if path == "" || rule.path == nil || !pathSuffixPossible(path, rule.pathSuffixes) {
+		return false, nil
+	}
+	if err := rule.path.Compile(); err != nil {
+		return false, fmt.Errorf("compile rule %q path regex: %w", rule.rule.ID, err)
+	}
+	return rule.path.MatchString(path), nil
 }
 
 func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Finding {
@@ -441,6 +449,8 @@ func promoteConfidence(finding *report.Finding, findingMap map[string]any, attri
 
 // ScanString scans content and returns its findings. It is a convenience for
 // callers that do not need source errors or a scan summary.
+// Backend compilation failures are logged through the configured logger;
+// findings collected before the failure are returned. Use Scan to receive errors.
 // If the Scanner is nil or was not constructed with New, it logs a warning
 // through slog's default logger and returns no findings.
 func (s *Scanner) ScanString(content string) []report.Finding {
@@ -458,10 +468,14 @@ func (s *Scanner) detectFragment(ctx context.Context, fragment sources.Fragment)
 		return nil
 	}
 	defer s.workerSlots.Release(1)
-	return s.detectFragmentWithState(ctx, fragment, nil)
+	findings, err := s.detectFragmentWithState(ctx, fragment, nil)
+	if err != nil {
+		s.logger.Error("could not scan fragment", "error", err)
+	}
+	return findings
 }
 
-func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.Fragment, state *scanState) []report.Finding {
+func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.Fragment, state *scanState) ([]report.Finding, error) {
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
@@ -479,6 +493,7 @@ func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.
 	encodedSegments := []*codec.EncodedSegment{}
 	currentDecodeDepth := 0
 	detection := detectionState{}
+	var detectionErr error
 
 ScanLoop:
 	for {
@@ -511,6 +526,7 @@ ScanLoop:
 				candidates.marked[ruleIndex] = true
 			}
 
+		RulesLoop:
 			for ruleIndex := range s.rulesBySpecificity {
 				if !candidates.marked[ruleIndex] {
 					continue
@@ -535,7 +551,12 @@ ScanLoop:
 						continue
 					}
 					detection.spans = candidates.windows[ruleIndex].Spans
-					for _, finding := range s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, &detection) {
+					ruleFindings, err := s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, &detection)
+					if err != nil {
+						detectionErr = err
+						break RulesLoop
+					}
+					for _, finding := range ruleFindings {
 						// These findings have their components assembled. Recursive
 						// component matching never applies fingerprint suppression.
 						if len(s.ignoredFingerprints) > 0 {
@@ -557,6 +578,9 @@ ScanLoop:
 				candidates.windows[i].Reset()
 			}
 			s.candidatePool.Put(candidates)
+			if detectionErr != nil {
+				break ScanLoop
+			}
 
 			// increment the depth by 1 as we start our decoding pass
 			currentDecodeDepth++
@@ -577,7 +601,7 @@ ScanLoop:
 	}
 	findings = s.filterIndexed(findings, priorFindings)
 	detachFindingText(findings)
-	return findings
+	return findings, detectionErr
 }
 
 // Copy text after filtering so returned findings don't keep entire source or
@@ -636,15 +660,15 @@ func (s *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
 	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings *findingIndex,
-	state *detectionState) []report.Finding {
+	state *detectionState) ([]report.Finding, error) {
 	if ruleTimings == nil {
 		return s.detectFragmentWithRule(nil, fragment, currentRaw, r, encodedSegments, priorFindings, state)
 	}
 
 	start := time.Now()
-	findings := s.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings, state)
+	findings, err := s.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings, state)
 	ruleTimings.Record(r.rule.ID, time.Since(start))
-	return findings
+	return findings, err
 }
 
 func snapshotRules(cfg *config.Config, engine blregexp.Engine) ([]compiledRule, map[string]int, error) {
@@ -709,14 +733,14 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings *findingIndex,
-	state *detectionState) []report.Finding {
+	state *detectionState) ([]report.Finding, error) {
 	var (
 		findings []report.Finding
 		logger   = s.logger
 	)
 
 	if r.rule.SkipReport && !state.component {
-		return findings
+		return findings, nil
 	}
 
 	// Ensure default fields are properly set
@@ -725,38 +749,55 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	if r.regex == nil {
 		// Decoding content cannot change a path-only result.
 		if len(encodedSegments) > 0 {
-			return findings
+			return findings, nil
 		}
-		if rulePathMatchesFragment(r, fragment) {
+		matched, err := rulePathMatchesFragment(r, fragment)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
 			finding := newPathOnlyFinding(r, fragment)
 			if !s.filterPathFinding(r, &finding) {
-				return append(findings, finding)
+				return append(findings, finding), nil
 			}
 		}
-		return findings
+		return findings, nil
 	}
 
-	if r.path != nil && !rulePathMatchesFragment(r, fragment) {
+	if r.path != nil {
 		// If a rule defines both `path` and `regex`, the normalized fragment path
 		// must match before we spend time checking the content regex.
-		return findings
+		matched, err := rulePathMatchesFragment(r, fragment)
+		if err != nil || !matched {
+			return nil, err
+		}
 	}
 
 	var matches [][]int
-	find := func(raw string) [][]int {
+	find := func(raw string) ([][]int, error) {
 		if r.span != nil && r.span.RequiredByte != 0 && strings.IndexByte(raw, r.span.RequiredByte) < 0 {
-			return nil
+			return nil, nil
+		}
+		if err := r.regex.Compile(); err != nil {
+			return nil, fmt.Errorf("compile rule %q regex: %w", r.rule.ID, err)
 		}
 		if r.regex.NumSubexp() > 0 {
-			return r.regex.FindAllStringSubmatchIndex(raw, -1)
+			return r.regex.FindAllStringSubmatchIndex(raw, -1), nil
 		}
-		return r.regex.FindAllStringIndex(raw, -1)
+		return r.regex.FindAllStringIndex(raw, -1), nil
 	}
 	if len(state.spans) == 0 {
-		matches = find(currentRaw)
+		var err error
+		matches, err = find(currentRaw)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		for _, span := range state.spans {
-			part := find(currentRaw[span.Start:span.End])
+			part, err := find(currentRaw[span.Start:span.End])
+			if err != nil {
+				return nil, err
+			}
 			// Translate every participating capture, keeping currentRaw intact
 			// for decoded mappings, filter context, and finding construction.
 			for _, indexes := range part {
@@ -770,7 +811,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 	}
 	if len(matches) == 0 {
-		return findings
+		return findings, nil
 	}
 	var names []string
 	if r.regex.NumSubexp() > 0 {
@@ -968,23 +1009,27 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 	// Handle component rules (multi-part rules).
 	if state.component || len(r.components) == 0 {
-		return findings
+		return findings, nil
 	}
 
 	return s.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state)
 }
 
 // processComponents attaches nearby component matches and enforces required components.
-func (s *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState) []report.Finding {
+func (s *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState) ([]report.Finding, error) {
 	if len(primaryFindings) == 0 {
-		return primaryFindings
+		return primaryFindings, nil
 	}
 
 	allComponentFindings := make([][]report.Finding, len(r.components))
 	componentState := detectionState{component: true, lineOffsets: state.lineOffsets}
 	for i, component := range r.components {
 		rule := &s.rulesBySpecificity[component.ruleIndex]
-		allComponentFindings[i] = s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, &componentState)
+		var err error
+		allComponentFindings[i], err = s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, &componentState)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var finalFindings []report.Finding
@@ -1011,7 +1056,7 @@ nextPrimary:
 		primaryFinding.ComponentSets, primaryFinding.ComponentSetsTruncated = buildComponentSets(componentFindings, maxComponentSets)
 		finalFindings = append(finalFindings, primaryFinding)
 	}
-	return finalFindings
+	return finalFindings, nil
 }
 
 func withinProximity(raw string, lineOffsets []int, fragmentStartLine int, primary, component report.Finding, window contextwindow.Spec) bool {
