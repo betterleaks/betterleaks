@@ -791,7 +791,7 @@ func TestParseTOMLRejectsUnknownFields(t *testing.T) {
 			require.NoError(t, os.WriteFile(basePath, []byte(test.content), 0o600))
 			_, err = ParseTOMLString(fmt.Sprintf("[extend]\npath = %q\n[[rules]]\nid = 'token'\nregex = 'REPLACEMENT'", basePath), "child.toml")
 			require.ErrorContains(t, err, test.field)
-			require.ErrorContains(t, err, basePath)
+			require.ErrorContains(t, err, fmt.Sprintf("%q", basePath))
 		})
 	}
 }
@@ -862,6 +862,6 @@ func TestMinVersionEnforcement(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("minVersion = 'v9.0.0'"), 0o600))
 		_, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q", path), "")
 		require.ErrorContains(t, err, "requires Betterleaks v9.0.0")
-		require.ErrorContains(t, err, path)
+		require.ErrorContains(t, err, fmt.Sprintf("%q", path))
 	})
 }
