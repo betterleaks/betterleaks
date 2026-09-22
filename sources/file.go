@@ -14,7 +14,7 @@ import (
 	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
 
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
 
 const InnerPathSeparator = "!"

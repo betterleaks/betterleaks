@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
-	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
 )
 

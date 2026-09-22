@@ -16,7 +16,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/analyze"
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/pipeline"
 	"github.com/betterleaks/betterleaks/v2/regexp"
 	regexpre2 "github.com/betterleaks/betterleaks/v2/regexp/re2"

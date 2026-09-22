@@ -10,7 +10,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/rules"
 	"github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
 
 const (

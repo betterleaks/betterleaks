@@ -12,7 +12,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )

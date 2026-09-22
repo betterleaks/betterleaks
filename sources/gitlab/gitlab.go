@@ -23,8 +23,8 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
-	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"

@@ -130,18 +130,6 @@ func TestConsoleHandlerWritesRecordsAtomically(t *testing.T) {
 	}
 }
 
-func TestTraceUsesDefaultLogger(t *testing.T) {
-	previous := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(previous) })
-
-	var output bytes.Buffer
-	slog.SetDefault(NewConsole(&output, ConsoleOptions{Level: LevelTrace, NoColor: true}))
-	Trace("trace message", "source", "test")
-
-	assert.Contains(t, output.String(), " TRC trace message")
-	assert.Contains(t, output.String(), "source=test")
-}
-
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) {

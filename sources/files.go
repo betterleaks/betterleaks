@@ -14,7 +14,7 @@ import (
 
 	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
 
 type filePath struct {

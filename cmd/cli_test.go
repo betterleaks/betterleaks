@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/kong"
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
