@@ -238,6 +238,39 @@ func TestSourcePrefilter(t *testing.T) {
 	assert.False(t, skip(map[string]string{sources.AttrPath: "kept.txt"}))
 }
 
+func TestScannerRequiresConstruction(t *testing.T) {
+	var output bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	for _, tc := range []struct {
+		name    string
+		scanner *Scanner
+	}{
+		{name: "nil"},
+		{name: "zero value", scanner: &Scanner{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Bound the test if an uninitialized scanner waits for a worker slot.
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			summary, err := tc.scanner.Scan(ctx, fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(report.Finding) error {
+				t.Error("uninitialized scanner invoked handler")
+				return nil
+			})
+			require.EqualError(t, err, "scanner must be constructed with New")
+			assert.Equal(t, ScanSummary{}, summary)
+			for _, content := range []string{"", "secret-alpha"} {
+				output.Reset()
+				assert.Empty(t, tc.scanner.ScanString(content))
+				assert.Contains(t, output.String(), `"level":"WARN"`)
+				assert.Contains(t, output.String(), "scanner must be constructed with New")
+			}
+		})
+	}
+}
+
 func TestScannerScanReturnsHandlerAndSourceErrors(t *testing.T) {
 	scanner, err := New(testConfig())
 	require.NoError(t, err)

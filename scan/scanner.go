@@ -59,6 +59,7 @@ type ruleCandidates struct {
 // Scanner is an immutable rule engine with thread-safe lazy regex compilation. A
 // Scanner may be reused concurrently with independent sources. Each scan
 // owns its execution state and shares the Scanner's detection worker limit.
+// A Scanner must be constructed with New; its zero value is not usable.
 type Scanner struct {
 	ignoredFingerprints map[fingerprint.Hash]struct{}
 	maxDecodeDepth      int
@@ -254,9 +255,10 @@ type Handler func(report.Finding) error
 // per-call summary. Recoverable source errors are joined. Returning an error
 // from handler stops the scan. A nil handler discards findings. Finding order
 // is not guaranteed. Concurrent calls are safe with independent sources.
+// A nil or zero-value Scanner returns an error.
 func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handler) (ScanSummary, error) {
-	if s == nil {
-		return ScanSummary{}, errors.New("scanner is nil")
+	if s == nil || s.workerSlots == nil {
+		return ScanSummary{}, errors.New("scanner must be constructed with New")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -439,8 +441,11 @@ func promoteConfidence(finding *report.Finding, findingMap map[string]any, attri
 
 // ScanString scans content and returns its findings. It is a convenience for
 // callers that do not need source errors or a scan summary.
+// If the Scanner is nil or was not constructed with New, it logs a warning
+// through slog's default logger and returns no findings.
 func (s *Scanner) ScanString(content string) []report.Finding {
-	if s == nil {
+	if s == nil || s.workerSlots == nil {
+		slog.Warn("scanner must be constructed with New")
 		return nil
 	}
 	return s.detectFragment(context.Background(), sources.Fragment{
