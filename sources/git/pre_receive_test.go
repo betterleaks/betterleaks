@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,11 +41,11 @@ func TestPreReceiveLogArgs(t *testing.T) {
 		newSHA  = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 		blobSHA = "cccccccccccccccccccccccccccccccccccccccc"
 	)
-	resolve := func(oid string) (string, bool) {
+	resolve := func(oid string) (string, bool, error) {
 		if oid == blobSHA {
-			return "", false
+			return "", false, nil
 		}
-		return oid, true
+		return oid, true, nil
 	}
 
 	tests := []struct {
@@ -92,19 +93,39 @@ func TestPreReceiveLogArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, PreReceiveLogArgs(tt.updates, resolve))
+			got, err := PreReceiveLogArgs(tt.updates, resolve)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
+func TestPreReceiveLogArgsPropagatesResolverErrors(t *testing.T) {
+	resolveErr := errors.New("git unavailable")
+	resolve := func(string) (string, bool, error) {
+		return "", false, resolveErr
+	}
+
+	_, err := PreReceiveLogArgs([]PreReceiveRefUpdate{{
+		OldValue: zeroOID,
+		NewValue: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		RefName:  "refs/heads/main",
+	}}, resolve)
+	require.ErrorIs(t, err, resolveErr)
+}
+
 func TestPreReceiveLogArgsRejectsNonOIDInput(t *testing.T) {
 	const newSHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	require.Nil(t, PreReceiveLogArgs([]PreReceiveRefUpdate{
+	got, err := PreReceiveLogArgs([]PreReceiveRefUpdate{
 		{OldValue: zeroOID, NewValue: "--all", RefName: "refs/heads/evil"},
-	}, nil))
-	require.Nil(t, PreReceiveLogArgs([]PreReceiveRefUpdate{
+	}, nil)
+	require.NoError(t, err)
+	require.Nil(t, got)
+	got, err = PreReceiveLogArgs([]PreReceiveRefUpdate{
 		{OldValue: "HEAD", NewValue: newSHA, RefName: "refs/heads/main"},
-	}, nil))
+	}, nil)
+	require.NoError(t, err)
+	require.Nil(t, got)
 }
 
 func TestOIDValidation(t *testing.T) {
@@ -141,16 +162,23 @@ func TestNewGitCommitResolver(t *testing.T) {
 	commitTagSHA := runGitTestCommand(t, repo, "rev-parse", "commit-tag")
 
 	resolve := NewGitCommitResolver(t.Context(), repo)
-	got, ok := resolve(commitSHA)
+	got, ok, err := resolve(commitSHA)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, commitSHA, got)
-	got, ok = resolve(commitTagSHA)
+	got, ok, err = resolve(commitTagSHA)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, commitSHA, got)
-	_, ok = resolve(blobTagSHA)
+	_, ok, err = resolve(blobTagSHA)
+	require.NoError(t, err)
 	require.False(t, ok)
-	_, ok = resolve("--all")
-	require.False(t, ok)
+	_, _, err = resolve("--all")
+	require.Error(t, err)
+
+	resolve = NewGitCommitResolver(t.Context(), filepath.Join(repo, "missing"))
+	_, _, err = resolve(commitSHA)
+	require.Error(t, err)
 }
 
 func runGitTestCommand(t *testing.T, repo string, args ...string) string {

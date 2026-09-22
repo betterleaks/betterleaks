@@ -91,7 +91,10 @@ func runGit(cmd *cobra.Command, args []string) {
 		if parseErr != nil {
 			logging.Fatal().Err(parseErr).Msg("could not read pre-receive input")
 		}
-		logArgs := git.PreReceiveLogArgs(updates, git.NewGitCommitResolver(cmd.Context(), source))
+		logArgs, resolveErr := git.PreReceiveLogArgs(updates, git.NewGitCommitResolver(cmd.Context(), source))
+		if resolveErr != nil {
+			logging.Fatal().Err(resolveErr).Msg("could not resolve pre-receive ref updates")
+		}
 		if len(logArgs) == 0 {
 			logging.Info().Msg("pre-receive: no new commits to scan")
 			findingSummary(cmd, cfg, nil, time.Now(), nil)
