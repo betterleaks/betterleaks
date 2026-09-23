@@ -12,10 +12,17 @@ const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "htt
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
       "analysis": {
-        "id": string(r.json?.id ?? ""),
+        "id": r.json?.id != nil ? string(int(r.json.id)) : "",
         "username": (r.json?.login ?? ""),
         "name": (r.json?.name ?? ""),
         "email": (r.json?.email ?? ""),
+        "url": (r.json?.html_url ?? ""),
+        "account_type": (r.json?.type ?? ""),
+        "site_admin": r.json?.site_admin,
+        "company": (r.json?.company ?? ""),
+        "location": (r.json?.location ?? ""),
+        "ldap_dn": (r.json?.ldap_dn ?? ""),
+        "expires_at": (r.headers["github-authentication-token-expiration"] ?? ""),
         "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
         "sso": (r.headers["x-github-sso"] ?? "")
       }
@@ -24,13 +31,22 @@ const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "htt
       "reason": "Unauthorized"
     } : validate.unknown(r))`
 
+// Profile attributes describe the owner, not the token's effective permissions.
+// Preserve an absent site_admin as nil so it is omitted from reports.
 const githubTokenAnalyzeExpr = `let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
   "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
-    "sso": input["sso"] ?? ""
+    "sso": input["sso"] ?? "",
+    "url": input["url"] ?? "",
+    "account_type": input["account_type"] ?? "",
+    "site_admin": input["site_admin"],
+    "company": input["company"] ?? "",
+    "location": input["location"] ?? "",
+    "ldap_dn": input["ldap_dn"] ?? "",
+    "expires_at": input["expires_at"] ?? ""
   },
   "identity": {
     "id": input["id"] ?? "",
