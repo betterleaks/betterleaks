@@ -62,9 +62,9 @@ func TestReaderFragmentsTracksLinesAcrossChunks(t *testing.T) {
 		t.Context(),
 		strings.NewReader("one\n\ntwo"),
 		make([]byte, 3),
-		func(chunk readerChunk, err error) error {
+		func(fragment Fragment, err error) error {
 			require.NoError(t, err)
-			fragments = append(fragments, chunk.fragment)
+			fragments = append(fragments, fragment)
 			return nil
 		},
 	)

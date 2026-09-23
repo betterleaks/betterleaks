@@ -59,7 +59,7 @@
         "array",
         "null"
       ],
-      "description": "Rule and detection tags. Always emitted; a nil Go slice serializes as null.",
+      "description": "Rule-defined tags. Always emitted; a nil Go slice serializes as null.",
       "items": {
         "type": "string"
       }
@@ -71,6 +71,20 @@
     "component_sets_truncated": {
       "type": "boolean",
       "description": "True when the hard combination limit omitted possible credentials. Invalid attempted sets cannot establish an exhaustive invalid result."
+    },
+    "encodings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      },
+      "description": "Distinct encodings encountered during decoding (for example base64, percent, hex, unicode), not an ordered decoding sequence. Omitted when no decoding occurred."
+    },
+    "decode_depth": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of decoding passes. Omitted when no decoding occurred."
     }
   },
   "$defs": {
@@ -276,6 +290,20 @@
         },
         "location": {
           "$ref": "#/$defs/location"
+        },
+        "encodings": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "Distinct encodings encountered during decoding (for example base64, percent, hex, unicode), not an ordered decoding sequence. Omitted when no decoding occurred."
+        },
+        "decode_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of decoding passes. Omitted when no decoding occurred."
         }
       }
     },
@@ -364,6 +392,53 @@
       },
       "tags": [],
       "schema_version": 2
+    },
+    {
+      "schema_version": 2,
+      "rule_id": "example-token",
+      "description": "Decoded token",
+      "confidence": "high",
+      "encodings": [
+        "percent",
+        "base64"
+      ],
+      "decode_depth": 3,
+      "match": {
+        "full": "REDACTED",
+        "value": "REDACTED"
+      },
+      "location": {
+        "path": "data.db",
+        "start_line": 1,
+        "end_line": 1,
+        "start_column": 1,
+        "end_column": 40
+      },
+      "tags": [],
+      "component_sets": [
+        {
+          "components": [
+            {
+              "rule_id": "account",
+              "match": {
+                "full": "REDACTED",
+                "value": "REDACTED"
+              },
+              "location": {
+                "path": "data.db",
+                "start_line": 1,
+                "end_line": 1,
+                "start_column": 42,
+                "end_column": 60
+              },
+              "encodings": [
+                "hex"
+              ],
+              "decode_depth": 1
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -11,7 +11,6 @@ require (
 	github.com/expr-lang/expr v1.17.8
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-github/v72 v72.0.0
-	github.com/h2non/filetype v1.1.3
 	github.com/hashicorp/go-version v1.7.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mholt/archives v0.1.6-0.20260429171216-ef71b7a32fae

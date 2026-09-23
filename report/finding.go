@@ -18,6 +18,12 @@ type Finding struct {
 	Description string `json:"description"`
 	Confidence  string `json:"confidence"`
 
+	// Encodings lists distinct encodings encountered, not an ordered decoding
+	// sequence. Empty means the finding was detected without decoding.
+	Encodings []string `json:"encodings,omitempty"`
+	// DecodeDepth is the number of decoding passes; zero means no decoding.
+	DecodeDepth int `json:"decode_depth,omitempty"`
+
 	Match Match `json:"match"`
 
 	// Attributes holds extensible source metadata. Well-known keys are defined
@@ -129,6 +135,10 @@ type ComponentFinding struct {
 	Optional bool     `json:"optional,omitempty"`
 	Match    Match    `json:"match"`
 	Location Location `json:"location"`
+	// Encodings and DecodeDepth describe this component's decoding, independently
+	// of the primary finding, with the same semantics as Finding.
+	Encodings   []string `json:"encodings,omitempty"`
+	DecodeDepth int      `json:"decode_depth,omitempty"`
 }
 
 // Redact removes sensitive information from a finding.
@@ -200,6 +210,7 @@ func (f Finding) RedactedCopy(percent uint) Finding {
 func (f Finding) Clone() Finding {
 	f.Attributes = maps.Clone(f.Attributes)
 	f.Tags = slices.Clone(f.Tags)
+	f.Encodings = slices.Clone(f.Encodings)
 	f.Analysis = cloneAnalysis(f.Analysis)
 	f.Match.Captures = maps.Clone(f.Match.Captures)
 
@@ -210,6 +221,7 @@ func (f Finding) Clone() Finding {
 		set.Components = slices.Clone(set.Components)
 		for j := range set.Components {
 			set.Components[j].Match.Captures = maps.Clone(set.Components[j].Match.Captures)
+			set.Components[j].Encodings = slices.Clone(set.Components[j].Encodings)
 		}
 	}
 	return f

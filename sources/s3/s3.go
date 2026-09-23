@@ -380,7 +380,7 @@ func (s *Source) objectAttributes(target s3Target, obj s3Object) map[string]stri
 }
 
 // scanObject GETs an object and pipes its body through File.Fragments, which
-// already handles archives, mime sniffing, and chunk boundaries.
+// already handles archives and chunk boundaries.
 func (s *Source) scanObject(ctx context.Context, client *http.Client, target s3Target, obj s3Object, attrs map[string]string, yield sources.FragmentsFunc) error {
 	objCtx, cancel := context.WithTimeout(ctx, s3PerObjectTimeout)
 	defer cancel()

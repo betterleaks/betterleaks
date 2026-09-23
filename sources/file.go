@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
 
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
@@ -240,8 +239,6 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 	}
 }
 
-var errStopFileFragments = errors.New("stop file fragments")
-
 // fileFragments adds filesystem policy and metadata to source-neutral reader
 // fragments.
 func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveContent bool, yield FragmentsFunc) error {
@@ -261,8 +258,7 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 	}
 	firstFragment := true
 
-	err := readerFragments(ctx, content, s.Buffer, func(chunk readerChunk, readErr error) error {
-		fragment := chunk.fragment
+	return readerFragments(ctx, content, s.Buffer, func(fragment Fragment, readErr error) error {
 		first := "false"
 		if firstFragment {
 			first = "true"
@@ -278,26 +274,6 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 			return yield(fragment, fmt.Errorf("could not read file: %w", readErr))
 		}
 
-		// MIME detection is filesystem policy. Reader intentionally scans the
-		// text it is given without trying to classify the underlying resource.
-		if firstFragment {
-			mimetype, matchErr := filetype.Match(chunk.initial)
-			if matchErr != nil {
-				if isArchiveContent {
-					logging.OrDiscard(s.Logger).Warn("could not determine archive content type", "error", matchErr, "path", fullPath)
-					return errStopFileFragments
-				}
-				if err := yield(fragment, fmt.Errorf("could not read file: could not determine type: %w", matchErr)); err != nil {
-					return err
-				}
-				return errStopFileFragments
-			}
-			if mimetype.MIME.Type == "application" {
-				logging.OrDiscard(s.Logger).Debug("skipping binary file", "mime_type", mimetype.MIME.Value, "path", fullPath)
-				return errStopFileFragments
-			}
-		}
-
 		if s.Symlink != "" {
 			symlink := s.Symlink
 			if isWindows {
@@ -309,10 +285,6 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 		firstFragment = false
 		return yield(fragment, nil)
 	})
-	if errors.Is(err, errStopFileFragments) {
-		return nil
-	}
-	return err
 }
 
 // Copy source metadata so fragment-specific changes don't affect other fragments.

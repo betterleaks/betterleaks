@@ -228,6 +228,41 @@ func TestFindingJSONSchema(t *testing.T) {
 	assert.Equal(t, f, roundTrip)
 }
 
+func TestFindingDecodingMetadata(t *testing.T) {
+	for _, decoded := range []bool{false, true} {
+		t.Run(fmt.Sprintf("decoded=%t", decoded), func(t *testing.T) {
+			f := Finding{Tags: []string{"custom"}, ComponentSets: []ComponentSet{{Components: []ComponentFinding{{}}}}}
+			if decoded {
+				f.Encodings, f.DecodeDepth = []string{"percent", "base64"}, 3
+				f.ComponentSets[0].Components[0].Encodings = []string{"hex"}
+				f.ComponentSets[0].Components[0].DecodeDepth = 1
+			}
+			data, err := json.Marshal(f)
+			require.NoError(t, err)
+			var wire map[string]any
+			require.NoError(t, json.Unmarshal(data, &wire))
+			if decoded {
+				assert.Equal(t, []any{"percent", "base64"}, wire["encodings"])
+				assert.Equal(t, float64(3), wire["decode_depth"])
+			} else {
+				assert.NotContains(t, string(data), "encodings")
+				assert.NotContains(t, string(data), "decode_depth")
+			}
+			assert.Equal(t, []any{"custom"}, wire["tags"])
+			var got Finding
+			require.NoError(t, json.Unmarshal(data, &got))
+			assert.Equal(t, f, got)
+			if decoded {
+				clone := f.Clone()
+				clone.Encodings[0] = "changed"
+				clone.ComponentSets[0].Components[0].Encodings[0] = "changed"
+				assert.Equal(t, []string{"percent", "base64"}, f.Encodings)
+				assert.Equal(t, []string{"hex"}, f.ComponentSets[0].Components[0].Encodings)
+			}
+		})
+	}
+}
+
 func TestFindingJSONOmitsInternalAttributes(t *testing.T) {
 	f := Finding{
 		Location: Location{Path: "secrets.txt"},

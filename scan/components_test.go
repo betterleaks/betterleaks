@@ -56,6 +56,19 @@ func TestBuildComponentSets_MultiRuleMultiFinding(t *testing.T) {
 	assert.True(t, secrets["a2"])
 }
 
+func TestBuildComponentSetsOwnEncodings(t *testing.T) {
+	input := []report.ComponentFinding{
+		{RuleID: "account", Encodings: []string{"base64"}, DecodeDepth: 1},
+		{RuleID: "region", Match: report.Match{Value: "east"}},
+		{RuleID: "region", Match: report.Match{Value: "west"}},
+	}
+	sets, _ := buildComponentSets(input, 100)
+	require.Len(t, sets, 2)
+	sets[0].Components[0].Encodings[0] = "changed"
+	assert.Equal(t, []string{"base64"}, sets[1].Components[0].Encodings)
+	assert.Equal(t, []string{"base64"}, input[0].Encodings)
+}
+
 func TestBuildComponentSets_MaxCap(t *testing.T) {
 	// 3 × 3 = 9 sets, cap at 5
 	reqs := []report.ComponentFinding{
@@ -217,6 +230,15 @@ func TestComponentProximityUsesOriginalFragmentOffsets(t *testing.T) {
 				assert.Equal(t, 41+i*2, finding.Location.StartLine)
 				assert.Equal(t, finding.Location.StartLine, component.Location.StartLine)
 				assert.Equal(t, fmt.Sprintf("COMPONENT%c", 'A'+i), component.Match.Value)
+				assert.Equal(t, depth, finding.DecodeDepth)
+				assert.Equal(t, depth, component.DecodeDepth)
+				if depth > 0 {
+					assert.Equal(t, []string{"base64"}, finding.Encodings)
+					assert.Equal(t, []string{"base64"}, component.Encodings)
+				} else {
+					assert.Empty(t, finding.Encodings)
+					assert.Empty(t, component.Encodings)
+				}
 			}
 		})
 	}

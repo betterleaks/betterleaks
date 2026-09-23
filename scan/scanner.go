@@ -823,8 +823,8 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
 		filterMatchStartIdx, filterMatchEndIdx := matchIndex[0], matchIndex[1]
 
-		// For any meta data from decoding
-		var metaTags []string
+		var encodings []string
+		var decodeDepth int
 		currentLine := ""
 
 		// Check if the decoded portions of the segment overlap with the match
@@ -837,7 +837,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 
 			matchIndex = codec.AdjustMatchIndex(segments, matchIndex)
-			metaTags = append(metaTags, codec.Tags(segments)...)
+			encodings, decodeDepth = codec.Decoding(segments)
 			currentLine = codec.CurrentLine(segments, currentRaw)
 		} else {
 			// Fixes: https://github.com/gitleaks/gitleaks/issues/1352
@@ -856,14 +856,13 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		loc := location(state.lineOffsets, fragment.Raw, matchIndex)
 
 		tags := append([]string{}, r.rule.Tags...)
-		if len(metaTags) > 0 {
-			tags = append(tags, metaTags...)
-		}
 
 		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
 			RuleID:      r.rule.ID,
 			Description: r.rule.Description,
+			Encodings:   encodings,
+			DecodeDepth: decodeDepth,
 			Match: report.Match{
 				Full:  secret,
 				Value: secret,
@@ -1041,10 +1040,12 @@ nextPrimary:
 			for _, found := range allComponentFindings[i] {
 				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, component.window) {
 					componentFindings = append(componentFindings, report.ComponentFinding{
-						RuleID:   found.RuleID,
-						Optional: component.optional,
-						Match:    found.Match,
-						Location: found.Location,
+						RuleID:      found.RuleID,
+						Optional:    component.optional,
+						Match:       found.Match,
+						Location:    found.Location,
+						Encodings:   found.Encodings,
+						DecodeDepth: found.DecodeDepth,
 					})
 				}
 			}

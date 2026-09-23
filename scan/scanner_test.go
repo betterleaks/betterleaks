@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1880,7 +1881,9 @@ func TestDetect(t *testing.T) {
 					Description: "Private Key",
 					Match:       report.Match{Value: "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Full: "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Line: "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n"},
 					RuleID:      "private-key",
-					Tags:        []string{"key", "private", "decoded:base64", "decode-depth:1"},
+					Tags:        []string{"key", "private"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   9,
 						EndLine:     9,
@@ -1892,7 +1895,9 @@ func TestDetect(t *testing.T) {
 					Description: "Small Secret",
 					Match:       report.Match{Value: "small-secret", Full: "small-secret", Line: "c21hbGwtc2VjcmV0\n"},
 					RuleID:      "small-secret",
-					Tags:        []string{"small", "secret", "decoded:base64", "decode-depth:1"},
+					Tags:        []string{"small", "secret"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   16,
 						EndLine:     16,
@@ -1904,7 +1909,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value00", Full: "secret=decoded-secret-value00", Line: "secret=ZGVjb2RlZC1zZWNyZXQtdmFsdWUwMA==\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:1"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   19,
 						EndLine:     19,
@@ -1916,7 +1923,9 @@ func TestDetect(t *testing.T) {
 					Description: "Make sure this would be detected without a filter",
 					Match:       report.Match{Value: "lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw", Full: "password=\"lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw\"", Line: "password=\"bFJxQkstejVrZjQtcGxlYXNlLWlnbm9yZS1tZS1YLVhJSk0yUGRkdw==\"\n"},
 					RuleID:      "decoded-password-dont-ignore",
-					Tags:        []string{"decode-ignore", "decoded:base64", "decode-depth:1"},
+					Tags:        []string{"decode-ignore"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   24,
 						EndLine:     24,
@@ -1928,7 +1937,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuevHEX", Full: "secret=decoded-secret-valuevHEX", Line: "secret=6465636F6465642D7365637265742D76616C756576484558\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:hex", "decode-depth:1"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"hex"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   27,
 						EndLine:     27,
@@ -1940,7 +1951,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuev2", Full: "secret=decoded-secret-valuev2", Line: "secret=decoded-%73%65%63%72%65%74-valuev2\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   31,
 						EndLine:     31,
@@ -1952,7 +1965,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuev3", Full: "secret=decoded-secret-valuev3", Line: "secret=%64%65coded-%73%65%63%72%65%74-valuev3\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   33,
 						EndLine:     33,
@@ -1964,7 +1979,9 @@ func TestDetect(t *testing.T) {
 					Description: "AWS IAM Unique Identifier",
 					Match:       report.Match{Value: "ASIAIOSFODNN7LXM10JI", Full: " ASIAIOSFODNN7LXM10JI", Line: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n"},
 					RuleID:      "aws-iam-unique-identifier",
-					Tags:        []string{"aws", "identifier", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"aws", "identifier"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   12,
 						EndLine:     12,
@@ -1976,7 +1993,9 @@ func TestDetect(t *testing.T) {
 					Description: "AWS Secret Access Key",
 					Match:       report.Match{Value: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A", Full: "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A", Line: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n"},
 					RuleID:      "aws-secret-access-key",
-					Tags:        []string{"aws", "secret", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"aws", "secret"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   12,
 						EndLine:     12,
@@ -1988,7 +2007,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "c2VjcmV0PVpHVmpiMlJsWkMxelpXTnlaWFF0ZG1Gc2RXVT0=\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   21,
 						EndLine:     21,
@@ -2000,7 +2021,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuev5", Full: "secret=decoded-secret-valuev5", Line: "secret%3d6465636F6465642D7365637265742D76616C75657635\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decode-depth:2"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "hex"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   41,
 						EndLine:     41,
@@ -2012,7 +2035,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuev4", Full: "secret=decoded-secret-valuev4", Line: "c2VjcmV0PVpHVmpiMl%4AsWkMxelpXTnlaWFF0ZG1Gc2RXVjJOQT09\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:3"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 3,
 					Location: report.Location{
 						StartLine:   39,
 						EndLine:     39,
@@ -2024,7 +2049,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuex86", Full: "secret=decoded-secret-valuex86", Line: "secret=ZGVjb2%52lZC1zZWNyZXQtdm%46sdWV4ODY=  # ends in x86\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   43,
 						EndLine:     43,
@@ -2036,7 +2063,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret=ZGVjb2RlZC0lNzMlNjUlNjMlNzIlNjUlNzQtdmFsdWU=\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   45,
 						EndLine:     45,
@@ -2048,7 +2077,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "Look at this value: %4EjMzMjU2NkE2MzZENTYzMDUwNTY3MDQ4%4eTY2RDcwNjk0RDY5NTUzMTRENkQ3ODYx%25%34%65TE3QTQ2MzY1NzZDNjQ0RjY1NTY3MDU5NTU1ODUyNkI2MjUzNTUzMDRFNkU0RTZCNTYzMTU1MzkwQQ== # isn't it crazy?\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decoded:base64", "decode-depth:7"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "hex", "base64"},
+					DecodeDepth: 7,
 					Location: report.Location{
 						StartLine:   48,
 						EndLine:     48,
@@ -2060,7 +2091,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret=ZG%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%36%25%33%31%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%33%25%33%322RlZC1zZWNyZXQtd%25%36%64%25%34%36%25%37%33dWU=\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:5"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 5,
 					Location: report.Location{
 						StartLine:   51,
 						EndLine:     51,
@@ -2072,7 +2105,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret=%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 4,
 					Location: report.Location{
 						StartLine:   53,
 						EndLine:     53,
@@ -2084,7 +2119,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret%3D%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 4,
 					Location: report.Location{
 						StartLine:   55,
 						EndLine:     55,
@@ -2503,6 +2540,109 @@ func TestFromGitStaged(t *testing.T) {
 			f.Match.Full = "" // remove lines cause copying and pasting them has some wack formatting
 		}
 		assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+	}
+}
+
+func TestScanBinaryFiles(t *testing.T) {
+	cfg, err := config.Default()
+	require.NoError(t, err)
+	dir := t.TempDir()
+	const token = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5" // betterleaks:allow
+	files := map[string]string{
+		"program":     "\x7fELF\x02\x01\x01\x00",
+		"program.exe": "MZ\x90\x00",
+		"report.pdf":  "%PDF-1.4\n",
+		"image.png":   "\x89PNG\r\n\x1a\n",
+		"font.woff":   "wOFF\x00\x01\x00\x00",
+		"data.bin":    "\x00\xff\xfe\x80",
+	}
+	for name, header := range files {
+		content := header + strings.Repeat("\x00", 256) + "\nGITHUB_TOKEN=" + token + "\n\xff\x00"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+	}
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		t.Run(engine.Version(), func(t *testing.T) {
+			for _, usePrefilter := range []bool{true, false} {
+				t.Run(fmt.Sprintf("prefilter=%t", usePrefilter), func(t *testing.T) {
+					source := &sources.Files{Path: dir}
+					want := []string{"program"}
+					if usePrefilter {
+						source.ShouldSkip = mustPrefilter(t, cfg.Prefilter)
+					} else {
+						want = []string{"program", "program.exe", "report.pdf", "image.png", "font.woff", "data.bin"}
+					}
+					scanner := mustNew(t, cfg, WithRegexEngine(engine))
+					findings, err := collectSourceFindings(t.Context(), scanner, source)
+					require.NoError(t, err)
+					var seen []string
+					for _, finding := range findings {
+						assert.Equal(t, "github-pat", finding.RuleID)
+						assert.Equal(t, token, finding.Match.Value)
+						seen = append(seen, filepath.Base(finding.Location.Path))
+					}
+					assert.ElementsMatch(t, want, seen)
+				})
+			}
+		})
+	}
+}
+
+func TestBinaryFindingReports(t *testing.T) {
+	const token = "token-abc123XYZ"
+	cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: `token-[a-zA-Z0-9]+`}}}
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		for _, decoded := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/decoded=%t", engine.Version(), decoded), func(t *testing.T) {
+				payload := token
+				if decoded {
+					payload = base64.StdEncoding.EncodeToString([]byte(token))
+				}
+				prefix := "SQLite format 3\x00\xff\x1b[2J" + strings.Repeat("\x00", 256)
+				raw := prefix + `"` + payload + `"` + "\x00\xfe"
+				path := filepath.Join(t.TempDir(), "data.db")
+				require.NoError(t, os.WriteFile(path, []byte(raw), 0o600))
+				scanner := mustNew(t, cfg, WithRegexEngine(engine), WithMaxDecodeDepth(1))
+				findings, err := collectSourceFindings(t.Context(), scanner, &sources.Files{Path: path})
+				require.NoError(t, err)
+				require.Len(t, findings, 1)
+				f := findings[0]
+				assert.Empty(t, f.Tags, "decoding metadata must not become rule tags")
+				if decoded {
+					assert.Equal(t, []string{"base64"}, f.Encodings)
+					assert.Equal(t, 1, f.DecodeDepth)
+				} else {
+					assert.Empty(t, f.Encodings)
+					assert.Zero(t, f.DecodeDepth)
+				}
+				require.Equal(t, token, f.Match.Value)
+				require.Equal(t, token, f.Match.Full)
+				assert.Equal(t, payload, raw[f.Location.StartColumn-1:f.Location.EndColumn])
+				var pretty bytes.Buffer
+				require.NoError(t, report.WritePretty(&pretty, f, report.PrettyOptions{NoColor: true}))
+				assert.Contains(t, pretty.String(), token)
+				assert.Contains(t, pretty.String(), strings.Repeat("^", len(token)))
+				assert.NotContains(t, pretty.String(), "decoded value:")
+				for _, jsonl := range []bool{false, true} {
+					var output bytes.Buffer
+					var got []report.Finding
+					if jsonl {
+						require.NoError(t, report.WriteJSONL(&output, findings))
+						got = make([]report.Finding, 1)
+						require.NoError(t, json.Unmarshal(output.Bytes(), &got[0]))
+					} else {
+						require.NoError(t, report.WriteJSON(&output, findings))
+						require.NoError(t, json.Unmarshal(output.Bytes(), &got))
+					}
+					require.Len(t, got, 1)
+					assert.Equal(t, f.Match.Value, got[0].Match.Value)
+					assert.Equal(t, f.Match.Full, got[0].Match.Full)
+					assert.Equal(t, f.Location, got[0].Location)
+					assert.Equal(t, f.Tags, got[0].Tags)
+					assert.Equal(t, f.Encodings, got[0].Encodings)
+					assert.Equal(t, f.DecodeDepth, got[0].DecodeDepth)
+				}
+			})
+		}
 	}
 }
 

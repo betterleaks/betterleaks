@@ -167,6 +167,32 @@ credential environment variables.
 Scan commands print findings in the human-readable format by default. Use
 `--jsonl` to emit one compact JSON finding per line instead.
 
+Binary previews show readable context, replacing runs of binary bytes with
+`⟨binary⟩` and underlining the secret with carets. Bytes inside the secret are
+escaped rather than omitted. The original source line number appears in the
+usual snippet gutter. Decoded findings
+show the decoded match with carets and an `encoding` field (such as `base64` or
+`percent`). Report coordinates still point to the encoded source. JSON and JSONL store the extracted secret in `match.value`;
+terminal escaping does not change that value. JSON preserves text and control
+characters, but invalid UTF-8 bytes are replaced with U+FFFD by the JSON encoder.
+
+Decoded findings include top-level `encodings` and `decode_depth` fields:
+
+```json
+{
+  "encodings": ["percent", "base64"],
+  "decode_depth": 3
+}
+```
+
+`encodings` lists distinct encodings encountered, not their decoding order.
+`decode_depth` counts decoding passes, so an encoding used repeatedly appears
+only once in the list. Both fields are omitted when no decoding occurred.
+Component findings carry their own decoding metadata independently of the primary
+finding. These fields replace the generated `decoded:*` and `decode-depth:*` tags;
+`tags` contains rule-defined labels. Encoding metadata describes how the match was
+decoded, not the source file's MIME type or character set.
+
 JSON Schema definitions are available for [one finding](schemas/finding.schema.json)
 and [a JSON report array](schemas/findings.schema.json), using
 [Draft 2020-12](https://json-schema.org/draft/2020-12). Validate each parsed JSONL
@@ -274,6 +300,11 @@ the same review as an ordinary allowlist exception.
 ## Filesystem scanning
 
 Use `filesystem` (or `fs`) to scan files and directories in their current state.
+
+Files are not skipped by MIME type. The default source `prefilter` still excludes
+common image, font, document, and executable extensions. Binary files that pass
+the configured path exclusions are scanned for matching byte sequences; this
+does not extract rendered text from documents or images.
 
 ```sh
 # current directory
