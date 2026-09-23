@@ -302,7 +302,7 @@ the same review as an ordinary allowlist exception.
 Use `filesystem` (or `fs`) to scan files and directories in their current state.
 
 Files are not skipped by MIME type. The default source `prefilter` still excludes
-common image, font, document, and executable extensions. Binary files that pass
+common image and font extensions. Binary files that pass
 the configured path exclusions are scanned for matching byte sequences; this
 does not extract rendered text from documents or images.
 

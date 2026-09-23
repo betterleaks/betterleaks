@@ -87,18 +87,24 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	}()
 	var format archives.Format
 	stream := s.Content
+	archiveName := s.Path
+	if ext := filepath.Ext(archiveName); strings.EqualFold(ext, ".tgz") {
+		// The archive library's filename matching requires .tar.gz. Keep the
+		// original path for prefilters and finding attribution.
+		archiveName = strings.TrimSuffix(archiveName, ext) + ".tar.gz"
+	}
 
 	// Downloads may have opaque names. Local .tar files also need content
 	// inspection because their compression is not always reflected in the name.
 	if s.DetectArchive {
 		format, stream, err = archives.Identify(ctx, "", stream)
 		if errors.Is(err, archives.NoMatch) {
-			format, _, err = archives.Identify(ctx, s.Path, nil)
+			format, _, err = archives.Identify(ctx, archiveName, nil)
 		}
 	} else if filepath.Ext(s.Path) == ".tar" {
 		format, stream, err = archives.Identify(ctx, s.Path, stream)
 	} else {
-		format, _, err = archives.Identify(ctx, s.Path, nil)
+		format, _, err = archives.Identify(ctx, archiveName, nil)
 	}
 
 	// Process the file as an archive if there's no error && Identify returns

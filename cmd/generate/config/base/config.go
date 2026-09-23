@@ -6,7 +6,6 @@ const GlobalPrefilter = `matchesAny(attributes["path"], [
   ` + "`gitleaks\\.toml`" + `,
   ` + "`(?i)\\.(?:bmp|gif|jpe?g|png|svg|tiff?)$`" + `,
   ` + "`(?i)\\.(?:eot|[ot]tf|woff2?)$`" + `,
-  ` + "`(?i)\\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|dll|pdb|exe|gltf)$`" + `,
   ` + "`go\\.(?:mod|sum|work(?:\\.sum)?)$`" + `,
   ` + "`(?:^|/)vendor/modules\\.txt$`" + `,
   ` + "`(?:^|/)vendor/(?:github\\.com|golang\\.org/x|google\\.golang\\.org|gopkg\\.in|istio\\.io|k8s\\.io|sigs\\.k8s\\.io)(?:/.*)?$`" + `,
@@ -27,7 +26,6 @@ const GlobalPrefilter = `matchesAny(attributes["path"], [
   ` + "`\\.gem$`" + `,
   ` + "`verification-metadata\\.xml`" + `,
   ` + "`Database.refactorlog`" + `,
-  ` + "`(?:^|/)\\.git$`" + `
 ])
 `
 

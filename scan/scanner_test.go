@@ -1,7 +1,9 @@
 package scan
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -2565,7 +2567,7 @@ func TestScanBinaryFiles(t *testing.T) {
 			for _, usePrefilter := range []bool{true, false} {
 				t.Run(fmt.Sprintf("prefilter=%t", usePrefilter), func(t *testing.T) {
 					source := &sources.Files{Path: dir}
-					want := []string{"program"}
+					want := []string{"program", "program.exe", "report.pdf", "data.bin"}
 					if usePrefilter {
 						source.ShouldSkip = mustPrefilter(t, cfg.Prefilter)
 					} else {
@@ -2582,6 +2584,51 @@ func TestScanBinaryFiles(t *testing.T) {
 					}
 					assert.ElementsMatch(t, want, seen)
 				})
+			}
+		})
+	}
+}
+
+func TestScanTGZArchives(t *testing.T) {
+	const secret = "secret-token-EXAMPLE"
+	archive := func(name string, content []byte) []byte {
+		var output bytes.Buffer
+		gz := gzip.NewWriter(&output)
+		tw := tar.NewWriter(gz)
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(content))}))
+		_, err := tw.Write(content)
+		require.NoError(t, err)
+		require.NoError(t, tw.Close())
+		require.NoError(t, gz.Close())
+		return output.Bytes()
+	}
+	payload := archive("secret.txt", []byte(secret+"\n"))
+	scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: `secret-token-[A-Z]+`}}})
+	for _, tc := range []struct {
+		name  string
+		data  []byte
+		inner string
+		depth int
+	}{
+		{"fixture.tar.gz", payload, "secret.txt", 1},
+		{"fixture.tgz", payload, "secret.txt", 1},
+		{"fixture.TGZ", payload, "secret.txt", 1},
+		{"outer.tar.gz", archive("nested.tgz", payload), "nested.tgz!secret.txt", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), tc.name)
+			require.NoError(t, os.WriteFile(path, tc.data, 0o600))
+			for depth := 0; depth <= tc.depth; depth++ {
+				findings, err := collectSourceFindings(t.Context(), scanner, &sources.Files{Path: path, MaxArchiveDepth: depth})
+				require.NoError(t, err)
+				if depth < tc.depth {
+					require.Empty(t, findings, "archive depth %d", depth)
+					continue
+				}
+				require.Len(t, findings, 1)
+				assert.Equal(t, secret, findings[0].Match.Value)
+				assert.Equal(t, filepath.ToSlash(path)+"!"+tc.inner, findings[0].Location.Path)
+				assert.Equal(t, 1, findings[0].Location.StartLine)
 			}
 		})
 	}
