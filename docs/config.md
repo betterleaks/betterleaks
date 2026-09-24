@@ -609,10 +609,12 @@ let r = http.get("https://api.github.com/app", {
   });
 r.status == 200 && (r.json?.slug ?? "") != "" ? {
     "result": "valid",
-    "slug": r.json?.slug ?? "",
-    "name": r.json?.name ?? "",
-    "html_url": r.json?.html_url ?? "",
-    "external_url": r.json?.external_url ?? ""
+    "metadata": {
+      "slug": r.json?.slug ?? "",
+      "name": r.json?.name ?? "",
+      "html_url": r.json?.html_url ?? "",
+      "external_url": r.json?.external_url ?? ""
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

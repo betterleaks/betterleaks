@@ -456,8 +456,9 @@ betterleaks git https://git.example.com/group/repo.git --token "$TOKEN"
 `HUGGINGFACE_TOKEN`/`HF_TOKEN`. Environment tokens are used only for HTTPS on
 those public hosts, never arbitrary servers. The SDK uses an explicit
 `sources.Git{URL: target, Token: token}`. `URL` cannot be combined with `RepoPath`
-or a diff mode. Remote scans load configuration from the local working directory,
-not from the downloaded repository. `--staged` and `--unstaged` require a
+or a diff mode. Remote scans use the invocation's explicitly selected config or
+embedded defaults; they do not discover config files in the downloaded repository
+or local working directory. `--staged` and `--unstaged` require a
 local repository. A clone does not contain another machine's local reflogs.
 
 `--staged` and `--unstaged` are mutually exclusive. Without either flag, `git`

@@ -27,6 +27,9 @@ Development is supported by
 
 
 ### Installation
+
+Upgrading from v1? See the [v2 migration guide](docs/v2_migration.md) for CLI, config, report, and SDK changes.
+
 ```
 # Package managers
 brew install betterleaks
