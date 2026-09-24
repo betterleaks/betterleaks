@@ -6,76 +6,38 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
-func TestNewAuthenticatedClient_setsBearerOnAllowedHost(t *testing.T) {
-	t.Parallel()
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
-
-	u := srv.URL // e.g. http://127.0.0.1:12345
-	host := strings.TrimPrefix(strings.TrimPrefix(u, "http://"), "https://")
-	cli := NewAuthenticatedClient("secret", http.DefaultTransport, host)
-
-	req, err := http.NewRequest(http.MethodGet, u+"/x", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := cli.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if gotAuth != "Bearer secret" {
-		t.Fatalf("Authorization = %q, want Bearer secret", gotAuth)
-	}
-}
-
-func TestNewAuthenticatedClient_noBearerOnForeignHost(t *testing.T) {
-	t.Parallel()
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
-
-	cli := NewAuthenticatedClient("secret", http.DefaultTransport, "api.github.com")
-
-	resp, err := cli.Get(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	if gotAuth != "" {
-		t.Fatalf("Authorization leaked to foreign host: %q", gotAuth)
-	}
-}
-
-func TestNewAuthenticatedClient_emptyTokenNoAuth(t *testing.T) {
-	t.Parallel()
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
-
-	host := strings.TrimPrefix(strings.TrimPrefix(srv.URL, "http://"), "https://")
-	cli := NewAuthenticatedClient("", http.DefaultTransport, host)
-
-	resp, err := cli.Get(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if gotAuth != "" {
-		t.Fatalf("unexpected Authorization: %q", gotAuth)
+func TestAuthenticatedClient(t *testing.T) {
+	for _, tc := range []struct {
+		name, token, want string
+		foreignHost       bool
+	}{
+		{"allowed host", "secret", "Bearer secret", false},
+		{"foreign host", "secret", "", true},
+		{"empty token", "", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Echo the header so assertions run in the test goroutine.
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, r.Header.Get("Authorization"))
+			}))
+			defer server.Close()
+			host := strings.TrimPrefix(server.URL, "http://")
+			if tc.foreignHost {
+				host = "api.github.com"
+			}
+			client := NewAuthenticatedClient(tc.token, http.DefaultTransport, host)
+			response, err := client.Get(server.URL + "/x")
+			require.NoError(t, err)
+			defer response.Body.Close()
+			got, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, string(got))
+		})
 	}
 }
 

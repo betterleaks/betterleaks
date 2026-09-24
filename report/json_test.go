@@ -102,7 +102,10 @@ func TestReportsSummarizeComponentAnalysis(t *testing.T) {
 	finding := Finding{
 		RuleID: "composite", Match: Match{Value: "primary-secret"}, Analysis: analysis,
 		ComponentSets: []ComponentSet{
-			{Components: []ComponentFinding{{RuleID: "part", Match: Match{Value: "component-secret"}}}, Analysis: analysis},
+			{Components: []ComponentFinding{
+				{RuleID: "part", Match: Match{Value: "component-secret"}, Location: Location{StartLine: 10}},
+				{RuleID: "region", Optional: true, Match: Match{Value: "us-east-1"}, Location: Location{StartLine: 11}},
+			}, Analysis: analysis},
 			{Analysis: Analysis{Status: ValidationStatusInvalid, StatusReason: "Unauthorized"}},
 			{Analysis: Analysis{Reason: "No provider result"}},
 		},
@@ -150,6 +153,13 @@ func TestReportsSummarizeComponentAnalysis(t *testing.T) {
 				assert.Equal(t, map[string]any{"status": "valid", "severity": "high"}, sets[0].(map[string]any)["analysis"])
 				assert.Equal(t, map[string]any{"status": "invalid"}, sets[1].(map[string]any)["analysis"])
 				assert.NotContains(t, sets[2].(map[string]any), "analysis")
+				components := sets[0].(map[string]any)["components"].([]any)
+				require.Len(t, components, 2)
+				assert.NotContains(t, components[0].(map[string]any), "optional")
+				assert.Equal(t, true, components[1].(map[string]any)["optional"])
+				if format != "credential" {
+					assert.Contains(t, components[0].(map[string]any), "location")
+				}
 				if redact {
 					assert.NotContains(t, output.String(), "primary-secret")
 					assert.NotContains(t, output.String(), "component-secret")

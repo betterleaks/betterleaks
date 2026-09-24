@@ -1097,110 +1097,85 @@ func Test_ParseGitHubURL(t *testing.T) {
 	}
 }
 
-func TestGitHub_ResolveResources_fromIncludeExclude(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:     "https://github.com/owner/repo",
-		Token:   "tok",
-		Include: []string{"repos", "issues", "releases"},
-		Exclude: []string{"repos"},
+func TestGitHubResolveResources(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		source  *Source
+		want    ResourceSet
+		wantErr string
+	}{
+		{
+			name:    "include and exclude",
+			source:  &Source{URL: "https://github.com/owner/repo", Token: "tok", Include: []string{"repos", "issues", "releases"}, Exclude: []string{"repos"}},
+			want:    ResourceSet{ResourceTypeIssues: true, ResourceTypeReleases: true, ResourceTypeReleaseAssets: true},
+			wantErr: "",
+		},
+		{
+			name:    "explicit resources",
+			source:  &Source{URL: "https://github.com/owner/repo", Token: "tok", Include: []string{"issues"}, Resources: ResourceSet{ResourceTypePRs: true}},
+			want:    ResourceSet{ResourceTypePRs: true},
+			wantErr: "",
+		},
+		{
+			name:    "owner defaults",
+			source:  &Source{URL: "https://github.com/myorg", Token: "tok"},
+			want:    ResourceSet{ResourceTypeRepos: true},
+			wantErr: "",
+		},
+		{
+			name:    "unknown resource",
+			source:  &Source{URL: "https://github.com/owner/repo", Token: "tok", Include: []string{"bogus"}},
+			want:    nil,
+			wantErr: "unknown resource type",
+		},
+		{
+			name:    "missing target",
+			source:  &Source{Token: "tok"},
+			want:    nil,
+			wantErr: "target URL is required",
+		},
+		{
+			name:    "resource requires token",
+			source:  &Source{URL: "https://github.com/owner/repo/issues/1"},
+			want:    nil,
+			wantErr: "token is required",
+		},
+		{
+			name:    "owner requires token",
+			source:  &Source{URL: "https://github.com/myorg"},
+			want:    nil,
+			wantErr: "token is required",
+		},
+		{
+			name:    "public repository",
+			source:  &Source{URL: "https://github.com/owner/repo"},
+			want:    ResourceSet{ResourceTypeRepos: true},
+			wantErr: "",
+		},
+		{
+			name:    "API requires token",
+			source:  &Source{URL: "https://github.com/owner/repo", Include: []string{"issues"}},
+			want:    nil,
+			wantErr: "token is required",
+		},
+		{
+			name:    "repository with API access",
+			source:  &Source{URL: "https://github.com/owner/repo", Token: "tok", Include: []string{"issues"}},
+			want:    ResourceSet{ResourceTypeRepos: true, ResourceTypeIssues: true},
+			wantErr: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.source.resolveResources()
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, tc.source.Resources)
+		})
 	}
-	require.NoError(t, src.resolveResources())
-
-	require.False(t, src.Resources.Has(ResourceTypeRepos))
-	require.True(t, src.Resources.Has(ResourceTypeIssues))
-	require.True(t, src.Resources.Has(ResourceTypeReleases))
-	require.True(t, src.Resources.Has(ResourceTypeReleaseAssets), "release-assets auto-included")
-}
-
-func TestGitHub_ResolveResources_skipsWhenResourcesAlreadySet(t *testing.T) {
-	t.Parallel()
-
-	existing := ResourceSet{ResourceTypePRs: true}
-	src := &Source{
-		URL:       "https://github.com/owner/repo",
-		Token:     "tok",
-		Include:   []string{"issues"},
-		Resources: existing,
-	}
-	require.NoError(t, src.resolveResources())
-	require.True(t, src.Resources.Has(ResourceTypePRs), "programmatic set preserved")
-	require.False(t, src.Resources.Has(ResourceTypeIssues), "Include ignored when Resources pre-set")
-}
-
-func TestGitHub_ResolveResources_ownerDefaultsToRepos(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:   "https://github.com/myorg",
-		Token: "tok",
-	}
-	require.NoError(t, src.resolveResources())
-	require.True(t, src.Resources.Has(ResourceTypeRepos))
-}
-
-func TestGitHub_ResolveResources_unknownTypeErrors(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:     "https://github.com/owner/repo",
-		Token:   "tok",
-		Include: []string{"bogus"},
-	}
-	require.Error(t, src.resolveResources())
-}
-
-func TestGitHub_ResolveResources_noTargetErrors(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{Token: "tok"}
-	require.ErrorContains(t, src.resolveResources(), "target URL is required")
-}
-
-func TestGitHub_ResolveResources_resourceURLNeedsToken(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{URL: "https://github.com/owner/repo/issues/1"}
-	require.ErrorContains(t, src.resolveResources(), "token is required")
-}
-
-func TestGitHub_ResolveResources_ownerURLNeedsToken(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{URL: "https://github.com/myorg"}
-	require.ErrorContains(t, src.resolveResources(), "token is required")
-}
-
-func TestGitHub_ResolveResources_repoWithOnlyReposNoTokenOK(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{URL: "https://github.com/owner/repo"}
-	require.NoError(t, src.resolveResources())
-	require.True(t, src.Resources.Has(ResourceTypeRepos))
-}
-
-func TestGitHub_ResolveResources_repoWithAPIResourceNeedsToken(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:     "https://github.com/owner/repo",
-		Include: []string{"issues"},
-	}
-	require.ErrorContains(t, src.resolveResources(), "token is required")
-}
-
-func TestGitHub_ResolveResources_repoWithTokenAndAPIResourceOK(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:     "https://github.com/owner/repo",
-		Token:   "tok",
-		Include: []string{"issues"},
-	}
-	require.NoError(t, src.resolveResources())
-	require.True(t, src.Resources.Has(ResourceTypeIssues))
-	require.True(t, src.Resources.Has(ResourceTypeRepos), "repos included by default for repo URL")
 }
 
 var _ sources.Source = (*Source)(nil)

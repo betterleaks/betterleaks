@@ -3,149 +3,61 @@ package exprruntime
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestBindings(t *testing.T) {
 	env, err := New(nil)
-	if err != nil {
-		t.Fatalf("exprruntime.New: %v", err)
-	}
-
-	tests := []struct {
-		name   string
-		expr   string
-		secret string
-		want   string
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name, expression string
+		want             any
+		wantErr          string
 	}{
-		{
-			name: "md5 literal",
-			expr: `hex.encode(crypto.md5(bytes("hello")))`,
-			want: "5d41402abc4b2a76b9719d911017c592",
-		},
-		{
-			name: "md5 empty string",
-			expr: `hex.encode(crypto.md5(bytes("")))`,
-			want: "d41d8cd98f00b204e9800998ecf8427e",
-		},
-		{
-			name:   "md5 secret variable",
-			expr:   `hex.encode(crypto.md5(bytes(finding["secret"])))`,
-			secret: "test123",
-			want:   "cc03e747a6afbbcbf8be7668acfebee5",
-		},
-		{
-			name: "md5 bytes literal",
-			expr: `hex.encode(crypto.md5(bytes("hello")))`,
-			want: "5d41402abc4b2a76b9719d911017c592",
-		},
-		{
-			name: "hex encode sha1 bytes",
-			expr: `hex.encode(crypto.sha1(bytes("hello")))`,
-			want: "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d",
-		},
-	}
-
-	// Verify crypto.hmac_sha256 returns correct HMAC
-	t.Run("hmac_sha256", func(t *testing.T) {
-		prg, err := env.CompileValidation(`crypto.hmacSha256(bytes("key"), bytes("hello"))`)
-		if err != nil {
-			t.Fatalf("compile: %v", err)
-		}
-		got, err := env.Eval(prg, nil, nil)
-		if err != nil {
-			t.Fatalf("eval: %v", err)
-		}
-		// HMAC-SHA256("key", "hello") = a]aedc7b02c5c85b5262... (raw bytes)
-		// We check the length is 32 bytes (SHA-256 output).
-		bs := got.([]byte)
-		if len(bs) != 32 {
-			t.Errorf("expected 32 bytes, got %d", len(bs))
-		}
-	})
-
-	t.Run("hmac_sha1", func(t *testing.T) {
-		prg, err := env.CompileValidation(`hex.encode(crypto.hmacSha1(bytes("key"), bytes("hello")))`)
-		if err != nil {
-			t.Fatalf("compile: %v", err)
-		}
-		got, err := env.Eval(prg, nil, nil)
-		if err != nil {
-			t.Fatalf("eval: %v", err)
-		}
-		if got != "b34ceac4516ff23a143e61d79d0fa7a4fbe5f266" {
-			t.Errorf("got %v", got)
-		}
-	})
-
-	t.Run("url_query_escape", func(t *testing.T) {
-		prg, err := env.CompileValidation(`strings.urlQueryEscape("a b+/:")`)
-		if err != nil {
-			t.Fatalf("compile: %v", err)
-		}
-		got, err := env.Eval(prg, nil, nil)
-		if err != nil {
-			t.Fatalf("eval: %v", err)
-		}
-		if got != "a+b%2B%2F%3A" {
-			t.Errorf("got %v", got)
-		}
-	})
-
-	// Verify time.now_unix returns a numeric string
-	t.Run("time_now_unix", func(t *testing.T) {
-		prg, err := env.CompileValidation(`time.nowUnix()`)
-		if err != nil {
-			t.Fatalf("compile: %v", err)
-		}
-		got, err := env.Eval(prg, nil, nil)
-		if err != nil {
-			t.Fatalf("eval: %v", err)
-		}
-		s, ok := got.(string)
-		if !ok {
-			t.Fatalf("expected string, got %T", got)
-		}
-		if len(s) < 10 {
-			t.Errorf("expected unix timestamp string, got %q", s)
-		}
-	})
-
-	t.Run("time_now_rfc3339", func(t *testing.T) {
-		prg, err := env.CompileValidation(`time.nowRFC3339()`)
-		if err != nil {
-			t.Fatalf("compile: %v", err)
-		}
-		got, err := env.Eval(prg, nil, nil)
-		if err != nil {
-			t.Fatalf("eval: %v", err)
-		}
-		s, ok := got.(string)
-		if !ok {
-			t.Fatalf("expected string, got %T", got)
-		}
-		if _, err := time.Parse(time.RFC3339, s); err != nil {
-			t.Errorf("expected RFC3339 timestamp, got %q", s)
-		}
-	})
-
-	for _, tc := range tests {
+		{"md5", `hex.encode(crypto.md5(bytes("hello")))`, "5d41402abc4b2a76b9719d911017c592", ""},
+		{"md5 empty", `hex.encode(crypto.md5(bytes("")))`, "d41d8cd98f00b204e9800998ecf8427e", ""},
+		{"md5 finding", `hex.encode(crypto.md5(bytes(finding.secret)))`, "cc03e747a6afbbcbf8be7668acfebee5", ""},
+		{"sha1", `hex.encode(crypto.sha1(bytes("hello")))`, "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d", ""},
+		{"hmac sha256", `hex.encode(crypto.hmacSha256(bytes("key"), bytes("hello")))`, "9307b3b915efb5171ff14d8cb55fbcc798c6c0ef1456d66ded1a6aa723a58b7b", ""},
+		{"hmac sha1", `hex.encode(crypto.hmacSha1(bytes("key"), bytes("hello")))`, "b34ceac4516ff23a143e61d79d0fa7a4fbe5f266", ""},
+		{"query escape", `strings.urlQueryEscape("a b+/:")`, "a+b%2B%2F%3A", ""},
+		{"split empty", `strings.splitTrim("", ",")`, []string{}, ""},
+		{"split comma", `strings.splitTrim(" repo, read:org, repo, ", ",")`, []string{"repo", "read:org", "repo"}, ""},
+		{"split separator", `strings.splitTrim("read | write | ", "|")`, []string{"read", "write"}, ""},
+		{"split invalid separator", `strings.splitTrim("read,write", "")`, nil, "separator must not be empty"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			prg, err := env.CompileValidation(tc.expr)
-			if err != nil {
-				t.Fatalf("compile: %v", err)
+			program, err := env.CompileValidation(tc.expression)
+			require.NoError(t, err)
+			got, err := env.Eval(program, map[string]string{"secret": "test123"}, nil)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
 			}
-
-			got, err := env.Eval(prg, map[string]string{"secret": tc.secret}, nil)
-			if err != nil {
-				t.Fatalf("eval: %v", err)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+	for _, expression := range []string{`time.nowUnix()`, `time.nowRFC3339()`} {
+		t.Run(expression, func(t *testing.T) {
+			program, err := env.CompileValidation(expression)
+			require.NoError(t, err)
+			value, err := env.Eval(program, nil, nil)
+			require.NoError(t, err)
+			got, ok := value.(string)
+			require.True(t, ok)
+			if expression == `time.nowUnix()` {
+				_, err = strconv.ParseInt(got, 10, 64)
+				require.GreaterOrEqual(t, len(got), 10)
+			} else {
+				_, err = time.Parse(time.RFC3339, got)
 			}
-
-			if got != tc.want {
-				t.Errorf("got %v, want %s", got, tc.want)
-			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -262,5 +174,94 @@ func TestOptionalComponentAccess(t *testing.T) {
 	}
 	if got != "missing" {
 		t.Fatalf("missing component secret = %#v, want missing", got)
+	}
+}
+
+func TestGeneralHelpersAcrossStages(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	for _, mode := range []compileMode{modePrefilter, modeFilter, modeValidation, modeAnalysis} {
+		expressions := []string{
+			`matchesAny("example", ["exam"])`,
+			`containsAny("example", ["EXAM"])`,
+			`startsWithAny("example", ["exam"])`,
+			`filter([1, 2, 3], { # > 1 }) == [2, 3]`,
+			`filter(["read_api", "write_api"], { startsWithAny(#, ["read"]) }) == ["read_api"]`,
+		}
+		if mode != modePrefilter {
+			expressions = append(expressions,
+				`entropy("aaaa") == 0`,
+				`findMatch("example", "exam") == "exam"`,
+				`intersects(["read", "write"], ["write"])`,
+			)
+		}
+		for _, expression := range expressions {
+			t.Run(string(mode)+"/"+expression, func(t *testing.T) {
+				program, err := env.compile(mode, expression, nil)
+				require.NoError(t, err)
+				var got any
+				switch mode {
+				case modePrefilter:
+					got, err = env.EvalPrefilter(program, nil)
+				case modeFilter:
+					got, err = env.EvalFilter(program, nil, nil)
+				case modeValidation:
+					got, err = env.Eval(program, nil, nil)
+				case modeAnalysis:
+					result, evalErr := env.EvalAnalysisWithComponents(t.Context(), program, nil, nil, nil, nil, nil, EvalOptions{})
+					got, err = result.Value, evalErr
+				}
+				require.NoError(t, err)
+				require.Equal(t, true, got)
+			})
+		}
+	}
+}
+
+func TestCryptoFingerprintProviderStages(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	for _, mode := range []compileMode{modeValidation, modeAnalysis} {
+		t.Run(string(mode), func(t *testing.T) {
+			program, err := env.compile(mode, `crypto.sha256("abc")`, nil)
+			require.NoError(t, err)
+			var got any
+			if mode == modeValidation {
+				got, err = env.Eval(program, nil, nil)
+			} else {
+				result, evalErr := env.EvalAnalysisWithComponents(t.Context(), program, nil, nil, nil, nil, nil, EvalOptions{})
+				got, err = result.Value, evalErr
+			}
+			require.NoError(t, err)
+			require.Equal(t, "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", got)
+		})
+	}
+}
+
+func TestNativeExprHelpers(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	for _, expression := range []string{
+		`(get({}, "missing") ?? "fallback") == "fallback"`,
+		`(get({"zero": 0}, "zero") ?? 42) == 0`,
+		`(get({"empty": ""}, "empty") ?? "fallback") == ""`,
+		`(get({"value": nil}, "value") ?? "fallback") == "fallback"`,
+		`len([1, 2]) == 2 && len({"x": 1}) == 1`,
+		`len("é") == 1 && len(bytes("é")) == 2`,
+		`replace("aaa", "a", "b") == "bbb"`,
+		`replace("aaa", "a", "b", 1) == "baa"`,
+		`lastIndexOf("key-us1", "-") == 3`,
+		`let s = "key-us1"; s[lastIndexOf(s, "-") + 1:] == "us1"`,
+		`let s = "key"; s[lastIndexOf(s, "-") + 1:] == "key"`,
+		`"abc"[max(0, -1):] == "abc" && "abc"[99:] == ""`,
+		`toJSON("a\"b\n") == "\"a\\\"b\\n\""`,
+	} {
+		t.Run(expression, func(t *testing.T) {
+			program, err := env.CompileValidation(expression)
+			require.NoError(t, err)
+			got, err := env.Eval(program, nil, nil)
+			require.NoError(t, err)
+			require.Equal(t, true, got)
+		})
 	}
 }

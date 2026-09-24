@@ -19,82 +19,45 @@ func TestParseValidationEnvAllowlist(t *testing.T) {
 	}, got)
 }
 
-func TestEnvBinding_allowlistedSet(t *testing.T) {
-	t.Setenv("FOO", "bar")
+func TestEnvironmentBindings(t *testing.T) {
+	const present = "BETTERLEAKS_TEST_ENV_PRESENT"
+	const absent = "BETTERLEAKS_TEST_ENV_ABSENT"
+	t.Setenv(present, "override")
+	t.Setenv(absent, "") // Restore any original value after exercising an unset variable.
+	require.NoError(t, os.Unsetenv(absent))
 	env, err := New(nil)
 	require.NoError(t, err)
-	env.AllowedEnv = map[string]struct{}{"FOO": {}}
-
-	prg, err := env.CompileValidation(`env.get("FOO")`)
+	get, err := env.CompileValidation(`env.get(finding.secret)`)
 	require.NoError(t, err)
-	got, err := env.Eval(prg, nil, nil)
+	fallback, err := env.CompileValidation(`env.getOrDefault(finding.secret, "fallback")`)
 	require.NoError(t, err)
-	require.Equal(t, "bar", got)
-}
-
-func TestEnvBinding_allowlistedUnset(t *testing.T) {
-	const name = "BETTERLEAKS_TEST_ENV_UNSET_XYZ"
-	_ = os.Unsetenv(name)
-	env, err := New(nil)
-	require.NoError(t, err)
-	env.AllowedEnv = map[string]struct{}{name: {}}
-
-	prg, err := env.CompileValidation(`env.get("` + name + `") == ""`)
-	require.NoError(t, err)
-	got, err := env.Eval(prg, nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, true, got)
-}
-
-func TestEnvBinding_notAllowlisted(t *testing.T) {
-	env, err := New(nil)
-	require.NoError(t, err)
-	env.AllowedEnv = map[string]struct{}{"ONLY": {}}
-
-	prg, err := env.CompileValidation(`env.get("OPENAI_API_KEY")`)
-	require.NoError(t, err)
-	_, err = env.Eval(prg, nil, nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not in provider env allowlist")
-}
-
-func TestEnvBinding_nilAllowlistDisables(t *testing.T) {
-	env, err := New(nil)
-	require.NoError(t, err)
-
-	prg, err := env.CompileValidation(`env.get("ANYTHING")`)
-	require.NoError(t, err)
-	_, err = env.Eval(prg, nil, nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "provider env allowlist")
-}
-
-func TestEnvBinding_emptyAllowlistDisables(t *testing.T) {
-	env, err := New(nil)
-	require.NoError(t, err)
-	env.AllowedEnv = map[string]struct{}{}
-
-	prg, err := env.CompileValidation(`env.get("X")`)
-	require.NoError(t, err)
-	_, err = env.Eval(prg, nil, nil)
-	require.Error(t, err)
-}
-
-func TestEnvGetOrDefault(t *testing.T) {
-	t.Setenv("CELENV_DEFAULT_TEST", "override")
-	env, err := New(nil)
-	require.NoError(t, err)
-
-	prg, err := env.CompileValidation(`env.getOrDefault("CELENV_DEFAULT_TEST", "fallback")`)
-	require.NoError(t, err)
-	got, err := env.Eval(prg, nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, "fallback", got)
-
-	env.AllowedEnv = map[string]struct{}{"CELENV_DEFAULT_TEST": {}}
-	got, err = env.Eval(prg, nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, "override", got)
+	for _, tc := range []struct {
+		name                             string
+		allowlist                        map[string]struct{}
+		key, want, wantFallback, wantErr string
+	}{
+		{"nil allowlist", nil, present, "", "fallback", "provider env allowlist"},
+		{"empty allowlist", map[string]struct{}{}, present, "", "fallback", "provider env allowlist"},
+		{"not allowed", map[string]struct{}{"OTHER": {}}, present, "", "fallback", "not in provider env allowlist"},
+		{"allowed set", map[string]struct{}{present: {}}, present, "override", "override", ""},
+		{"allowed unset", map[string]struct{}{absent: {}}, absent, "", "fallback", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Reuse programs to prove access policy is read at evaluation time.
+			env.AllowedEnv = tc.allowlist
+			finding := map[string]string{"secret": tc.key}
+			got, err := env.Eval(get, finding, nil)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.want, got)
+			}
+			got, err = env.Eval(fallback, finding, nil)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantFallback, got)
+		})
+	}
 }
 
 func TestEnvBinding_httpGetAuthorizationHeader(t *testing.T) {

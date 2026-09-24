@@ -14,41 +14,33 @@ func TestRuleValidateRechecksCurrentData(t *testing.T) {
 	require.ErrorContains(t, rule.Validate(), "|id| is missing or empty")
 }
 
-func TestRuleValidateRejectsInvalidSecretGroups(t *testing.T) {
-	tests := []struct {
+func TestRuleValidation(t *testing.T) {
+	for _, tc := range []struct {
 		name string
 		rule Rule
 		want string
 	}{
-		{
-			name: "negative",
-			rule: Rule{ID: "test", Regex: `(secret)`, SecretGroup: -1},
-			want: "must be non-negative",
-		},
-		{
-			name: "without regex",
-			rule: Rule{ID: "test", Path: `\.env$`, SecretGroup: 1},
-			want: "requires a regex",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			require.ErrorContains(t, test.rule.Validate(), test.want)
+		{"negative group", Rule{ID: "test", Regex: `(secret)`, SecretGroup: -1}, "must be non-negative"},
+		{"group without regex", Rule{ID: "test", Path: `\.env$`, SecretGroup: 1}, "requires a regex"},
+		{"capture overflow", Rule{ID: "test", Regex: `(?P<secret>secret)`, SecretGroup: 2}, "max regex secret group 1"},
+		{"invalid regex", Rule{ID: "test", Regex: `(`}, "invalid regex"},
+		{"invalid path", Rule{ID: "test", Path: `[`}, "invalid path regex"},
+		{"analysis without validation", Rule{ID: "test", Regex: `secret`, AnalyzeExpr: `{}`}, "analyze expression requires a validate expression"},
+		{"analysis with validation", Rule{ID: "test", Regex: `secret`, ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{}`}, ""},
+		{"path validation", Rule{ID: "path", Path: `\.env$`, ValidateExpr: `{"result":"valid"}`}, "path-only rules cannot"},
+		{"path components", Rule{ID: "path", Path: `\.env$`, Components: []Component{{RuleID: "part"}}}, "path-only rules cannot"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := tc.rule
+			err := tc.rule.Validate()
+			if tc.want == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.want)
+			}
+			require.Equal(t, original, tc.rule, "validation must not mutate the rule")
 		})
 	}
-}
-
-func TestRuleValidateRequiresValidationForAnalysis(t *testing.T) {
-	rule := Rule{
-		ID:          "test",
-		Regex:       `secret`,
-		AnalyzeExpr: `{}`,
-	}
-	require.ErrorContains(t, rule.Validate(), "analyze expression requires a validate expression")
-
-	rule.ValidateExpr = `{"result": "valid"}`
-	require.NoError(t, rule.Validate())
 }
 
 func TestConfigValidateRejectsAmbiguousRuleGraph(t *testing.T) {
@@ -58,6 +50,32 @@ func TestConfigValidateRejectsAmbiguousRuleGraph(t *testing.T) {
 		rules []Rule
 		want  string
 	}{
+		{
+			name: "nested components",
+			rules: []Rule{
+				{ID: "a", Regex: "AAA", Components: []Component{{RuleID: "b"}}},
+				{ID: "b", Regex: "BBB", Components: []Component{{RuleID: "c"}}},
+				{ID: "c", Regex: "CCC"},
+			},
+			want: "must not itself have components",
+		},
+		{
+			name: "component cycle",
+			rules: []Rule{
+				{ID: "a", Regex: "AAA", Components: []Component{{RuleID: "b"}}},
+				{ID: "b", Regex: "BBB", Components: []Component{{RuleID: "c"}}},
+				{ID: "c", Regex: "CCC", Components: []Component{{RuleID: "a"}}},
+			},
+			want: "must not itself have components",
+		},
+		{
+			name: "path-only component",
+			rules: []Rule{
+				{ID: "primary", Regex: "TOKEN", Components: []Component{{RuleID: "path"}}},
+				{ID: "path", Path: `\.env$`},
+			},
+			want: "cannot be a credential component",
+		},
 		{
 			name: "duplicate rule ID",
 			rules: []Rule{
@@ -90,48 +108,28 @@ func TestConfigValidateRejectsAmbiguousRuleGraph(t *testing.T) {
 	}
 }
 
-func TestParseRejectsDuplicateRuleIDs(t *testing.T) {
-	_, err := ParseTOMLString(`
-[[rules]]
+func TestParseRejectsInvalidRules(t *testing.T) {
+	for _, tc := range []struct{ name, input, want string }{
+		{"duplicate ID", `[[rules]]
 id = "duplicate"
 description = "first"
 regex = "first"
-
 [[rules]]
 id = "duplicate"
 description = "second"
 regex = "second"
-`, "")
-	require.ErrorContains(t, err, `duplicate rule ID "duplicate"`)
-}
-
-func TestRuleValidatePatternStrings(t *testing.T) {
-	tests := []struct {
-		name string
-		rule Rule
-		want string
-	}{
-		{"invalid regex", Rule{ID: "test", Regex: `(`}, "invalid regex"},
-		{"invalid path", Rule{ID: "test", Path: `[`}, "invalid path regex"},
-		{"capture overflow", Rule{ID: "test", Regex: `(?P<secret>secret)`, SecretGroup: 2}, "max regex secret group 1"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			original := test.rule
-			require.ErrorContains(t, test.rule.Validate(), test.want)
-			require.Equal(t, original, test.rule)
-		})
-	}
-}
-
-func TestParseRejectsInvalidPattern(t *testing.T) {
-	_, err := ParseTOMLString(`
-[[rules]]
+`, `duplicate rule ID "duplicate"`},
+		{"invalid pattern", `[[rules]]
 id = "invalid"
 regex = "("
 [[rules]]
 id = "valid"
 regex = "valid"
-`, "")
-	require.ErrorContains(t, err, "invalid regex")
+`, "invalid regex"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseTOMLString(tc.input, "")
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
 }

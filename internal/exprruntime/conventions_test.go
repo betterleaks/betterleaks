@@ -89,14 +89,6 @@ func TestFilterScopes(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestCELBindIsRejected(t *testing.T) {
-	env, err := New(nil)
-	require.NoError(t, err)
-
-	_, err = env.CompileValidation(`cel.bind(secret, finding["secret"], secret)`)
-	require.Error(t, err)
-}
-
 func TestCredentialBindingsRejectLegacyAliases(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
@@ -149,19 +141,11 @@ func TestAttributeMapAccessIsSafeWhenKeyIsMissing(t *testing.T) {
 func TestFilterEntropy(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
-	for _, expression := range []string{
-		`entropy(finding["secret"]) <= 1.0`,
-		`entropy(finding["secret"]) <= 1.0`,
-	} {
-		prg, err := env.CompileFilter(expression, nil)
-		require.NoError(t, err)
-
-		skip, err := env.EvalFilter(prg, map[string]any{
-			"secret": "aaaaaaaa",
-		}, nil)
-		require.NoError(t, err)
-		require.True(t, skip)
-	}
+	program, err := env.CompileFilter(`entropy(finding["secret"]) <= 1.0`, nil)
+	require.NoError(t, err)
+	skip, err := env.EvalFilter(program, map[string]any{"secret": "aaaaaaaa"}, nil)
+	require.NoError(t, err)
+	require.True(t, skip)
 }
 
 func TestFilterSHA256(t *testing.T) {
@@ -257,4 +241,45 @@ func functionNames(env map[string]any) map[string]struct{} {
 		out[name] = struct{}{}
 	}
 	return out
+}
+
+func TestBindingsRejectAliases(t *testing.T) {
+	env, err := New(nil)
+	require.NoError(t, err)
+	for _, stage := range []struct {
+		name    string
+		compile func(string) (Program, error)
+	}{
+		{"prefilter", env.CompilePrefilter},
+		{"filter", func(s string) (Program, error) { return env.CompileFilter(s, nil) }},
+		{"validation", env.CompileValidation},
+		{"analysis", env.CompileAnalysis},
+	} {
+		t.Run(stage.name, func(t *testing.T) {
+			for _, expression := range []string{
+				`env_get("X") == ""`,
+				`cel.bind(secret, finding["secret"], secret)`,
+				`filter.matchesAny("x", ["x"])`,
+				`filter.findMatch("x", "x") == "x"`,
+				`filter.containsAny("x", ["x"])`,
+				`filter.startsWithAny("x", ["x"])`,
+				`filter.entropy("x") == 0`,
+				`filter.intersects(["x"], ["x"])`,
+				`filter.failsTokenEfficiency("x")`,
+				`filter.tokenRatio("x") == 0`,
+				`filter.setConfidence("high") == "high"`,
+				`fingerprint.sha256("x") == "x"`,
+				`unknown({"status": 429}).result == "unknown"`,
+				`obfuscate("x") == "x"`,
+				`crypto.hmac_sha256(bytes("k"), bytes("x")) == nil`,
+				`strings.url_query_escape("x") == "x"`, `time.now_unix() == ""`,
+				`size([]) == 0`, `substring("abc", 1) == "bc"`,
+				`json.string("x") == "x"`, `sha256("x") == "x"`,
+				`get({}, "missing", "fallback") == "fallback"`,
+			} {
+				_, err := stage.compile(expression)
+				require.Error(t, err, expression)
+			}
+		})
+	}
 }
