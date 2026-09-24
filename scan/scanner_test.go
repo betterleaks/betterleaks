@@ -146,37 +146,71 @@ func TestIgnoredFingerprintsUseExtractedSecret(t *testing.T) {
 	require.Len(t, scanner.ScanString("token=secret-ignored"), 1)
 }
 
-func TestIgnoredFingerprintsPreserveComponents(t *testing.T) {
+func TestIgnoredFingerprintsFilterComponents(t *testing.T) {
 	for _, optional := range []bool{false, true} {
 		for _, skipReport := range []bool{false, true} {
 			cfg := &config.Config{Rules: []config.Rule{
-				{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "2L", Optional: optional}}},
-				{ID: "component", Regex: `companion-token`, SkipReport: skipReport},
+				{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "1L", Optional: optional}}},
+				{ID: "component", Regex: `companion=(?P<secret>ignored|visible)`, SkipReport: skipReport},
 			}}
-			scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("companion-token"))))
-			findings := scanner.ScanString("primary-token companion-token")
-			require.Len(t, findings, 1)
-			assert.Equal(t, "primary", findings[0].RuleID)
-			require.Len(t, findings[0].ComponentSets, 1)
-			require.Len(t, findings[0].ComponentSets[0].Components, 1)
-			assert.Equal(t, "companion-token", findings[0].ComponentSets[0].Components[0].Match.Value)
-			assert.Empty(t, scanner.ScanString("companion-token"))
-			// An ignored primary suppresses the assembled finding itself.
-			scanner = mustNew(t, cfg, WithIgnoredFingerprints(
-				fingerprint.Sum([]byte("primary-token")), fingerprint.Sum([]byte("companion-token")),
-			))
-			assert.Empty(t, scanner.ScanString("primary-token companion-token"))
+			scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("ignored"))))
+			for _, tc := range []struct {
+				name, raw                  string
+				requiredSets, optionalSets []int
+			}{
+				{"all ignored", "primary-token companion=ignored", nil, []int{0}},
+				{"alternative survives", "primary-token companion=ignored companion=visible", []int{1}, []int{1}},
+				{"absent", "primary-token", nil, []int{0}},
+				{"outside proximity", "primary-token\ncompanion=ignored", nil, []int{0}},
+				{"different occurrence", "primary-token companion=ignored\nprimary-token companion=visible", []int{1}, []int{0, 1}},
+			} {
+				t.Run(fmt.Sprintf("%s/optional=%t/skipReport=%t", tc.name, optional, skipReport), func(t *testing.T) {
+					want := tc.requiredSets
+					if optional {
+						want = tc.optionalSets
+					}
+					for range 2 {
+						findings := scanner.ScanString(tc.raw)
+						var componentSetCounts []int
+						for _, f := range findings {
+							assert.NotEqual(t, "ignored", f.Match.Value)
+							if f.RuleID != "primary" {
+								continue
+							}
+							componentSetCounts = append(componentSetCounts, len(f.ComponentSets))
+							for _, set := range f.ComponentSets {
+								require.Len(t, set.Components, 1)
+								assert.Equal(t, "visible", set.Components[0].Match.Value)
+							}
+						}
+						assert.ElementsMatch(t, want, componentSetCounts)
+					}
+				})
+			}
 		}
 	}
-	// Explicit global filters retain their original component filtering semantics.
-	cfg := &config.Config{
-		Filter: `finding["secret"] == "companion-token"`,
-		Rules: []config.Rule{
-			{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "2L"}}},
-			{ID: "component", Regex: `companion-token`, SkipReport: true},
-		},
-	}
-	assert.Empty(t, mustNew(t, cfg).ScanString("primary-token companion-token"))
+	t.Run("ignored candidates do not consume the combination limit", func(t *testing.T) {
+		cfg := &config.Config{Rules: []config.Rule{
+			{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "account"}}},
+			{ID: "account", Regex: `account-[0-9]{3}`, SkipReport: true},
+		}}
+		var input strings.Builder
+		input.WriteString("primary-token\n")
+		var hashes []fingerprint.Hash
+		for i := 0; i <= maxComponentSets; i++ {
+			value := fmt.Sprintf("account-%03d", i)
+			fmt.Fprintln(&input, value)
+			if i < maxComponentSets {
+				hashes = append(hashes, fingerprint.Sum([]byte(value)))
+			}
+		}
+		scanner := mustNew(t, cfg, WithIgnoredFingerprints(hashes...))
+		findings := scanner.ScanString(input.String())
+		require.Len(t, findings, 1)
+		require.Len(t, findings[0].ComponentSets, 1)
+		assert.Equal(t, "account-100", findings[0].ComponentSets[0].Components[0].Match.Value)
+		assert.False(t, findings[0].ComponentSetsTruncated)
+	})
 }
 
 func TestIgnoredFingerprintsSnapshotAndReuse(t *testing.T) {
@@ -3997,5 +4031,40 @@ func BenchmarkFindingText(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func BenchmarkIgnoredComponentFingerprints(b *testing.B) {
+	for _, count := range []int{1, 100} {
+		var input strings.Builder
+		input.WriteString("primary-token\n")
+		for i := range count {
+			fmt.Fprintf(&input, "account-%03d\n", i)
+		}
+		raw := input.String()
+		cfg := &config.Config{Rules: []config.Rule{
+			{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "account"}}},
+			{ID: "account", Regex: `account-[0-9]{3}`, SkipReport: true},
+		}}
+		for _, entries := range []int{0, 10000} {
+			b.Run(fmt.Sprintf("components=%d/ignores=%d", count, entries), func(b *testing.B) {
+				hashes := make([]fingerprint.Hash, entries)
+				for i := range hashes {
+					hashes[i] = fingerprint.Sum([]byte(fmt.Sprintf("unmatched-%d", i)))
+				}
+				scanner, err := New(cfg, WithIgnoredFingerprints(hashes...), WithPrecompile())
+				if err != nil {
+					b.Fatal(err)
+				}
+				b.ReportAllocs()
+				b.SetBytes(int64(len(raw)))
+				for b.Loop() {
+					findings := scanner.ScanString(raw)
+					if len(findings) != 1 || len(findings[0].ComponentSets) != count {
+						b.Fatal("unexpected findings")
+					}
+				}
+			})
+		}
 	}
 }

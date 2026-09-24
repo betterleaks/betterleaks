@@ -558,8 +558,8 @@ ScanLoop:
 						break RulesLoop
 					}
 					for _, finding := range ruleFindings {
-						// These findings have their components assembled. Recursive
-						// component matching never applies fingerprint suppression.
+						// Components are checked during assembly; an ignored primary
+						// suppresses every combination that remains.
 						if len(s.ignoredFingerprints) > 0 {
 							if _, ignored := s.ignoredFingerprints[fingerprint.Sum([]byte(finding.Match.Value))]; ignored {
 								continue
@@ -1042,6 +1042,11 @@ nextPrimary:
 			before := len(componentFindings)
 			for _, found := range allComponentFindings[i] {
 				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, component.window) {
+					if len(s.ignoredFingerprints) > 0 {
+						if _, ignored := s.ignoredFingerprints[fingerprint.Sum([]byte(found.Match.Value))]; ignored {
+							continue
+						}
+					}
 					componentFindings = append(componentFindings, report.ComponentFinding{
 						RuleID:      found.RuleID,
 						RuleHash:    found.RuleHash,

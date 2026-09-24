@@ -245,8 +245,11 @@ and [explicit revocation](config.md#explicit-credential-revocation).
 ### Ignore files
 
 v2 `.betterleaksignore` entries are `sha256:<64 hex characters>` over the exact
-secret bytes. They suppress that primary secret across rules, paths, commits,
-and sources. Legacy location fingerprints and `.gitleaksignore` discovery are
+secret bytes. They suppress that primary secret and exclude matching component
+values across rules, paths, commits, and sources. If a required component has no
+remaining matches, the primary is suppressed. Ignored optional components are
+treated as absent, so the primary survives without them.
+Legacy location fingerprints and `.gitleaksignore` discovery are
 not supported; regenerate entries from the original secret values:
 
 ```sh

@@ -311,15 +311,29 @@ SHA-256 digest of the exact secret bytes:
 sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 ```
 
-The scanner checks ignore fingerprints against each completed finding's primary
-secret after assembling components and before validation or analysis. Ignoring a
-component secret suppresses its standalone finding, but the component remains
-available to assemble other credentials. Ignoring a primary secret suppresses
-every completed finding with that primary, regardless of its component values.
+Ignore fingerprints apply to primary and component secret values before
+validation or analysis. Ignoring a primary suppresses every finding with that
+primary. Ignoring a component suppresses its standalone finding and excludes
+that component match from assembly. For a required component, other combinations
+remain eligible:
 
-Ignore files do not modify the configured filter. Projects can still write an
-explicit global filter when they want filtering to apply to internal component
-matches as well:
+```text
+Ignore: sha256 of ACCOUNT_B
+TOKEN_A + ACCOUNT_B -> suppressed
+TOKEN_A + ACCOUNT_C -> retained
+```
+
+If a required component has no remaining matches, the primary finding is
+suppressed. Ignored optional components are treated as absent: the primary
+survives without them, and non-ignored optional alternatives remain attached.
+Only matches within the component's configured proximity participate. Captures
+are not independently checked against ignore hashes.
+
+Ignored component matches are excluded before the combination limit is applied,
+so they do not consume the slots available to non-ignored combinations.
+
+Ignore files do not modify the configured filter. Projects can also write an
+explicit global filter for exact values:
 
 ```toml
 filter = '''
@@ -329,8 +343,8 @@ crypto.sha256(finding["secret"]) in [
 '''
 ```
 
-Both forms hash exact secret bytes, but an explicit global filter runs before
-component assembly and can therefore prevent a multipart finding from forming.
+Both forms hash exact secret bytes and exclude matching components before
+assembly. A filtered or ignored optional component is treated as absent.
 
 SDK callers can pass hashes directly to `scan.WithIgnoredFingerprints(hashes...)`.
 The public `fingerprint` package provides `Sum`, `Parse`, `Format`, and `Load`.

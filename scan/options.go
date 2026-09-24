@@ -53,9 +53,10 @@ func WithRegexEngine(engine regexp.Engine) Option {
 	}}
 }
 
-// WithIgnoredFingerprints suppresses completed findings whose primary secret
-// matches a hash, independent of rule, source, or location. Component matches
-// remain available to assemble other findings. Suppression precedes validation
+// WithIgnoredFingerprints suppresses findings with an ignored primary secret
+// and excludes ignored component matches, independent of rule, source, or location.
+// A primary is suppressed if a required component has no remaining matches.
+// Ignored optional components are treated as absent. Filtering precedes validation
 // and analysis and applies to Scan and ScanString.
 // The hashes are copied; repeated options add to the ignored set.
 func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {

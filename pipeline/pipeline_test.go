@@ -68,42 +68,69 @@ func testConfig() *config.Config {
 }
 
 func TestIgnoredFingerprintsSkipProviderRequests(t *testing.T) {
-	var requests, ignoredRequests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		if r.URL.Query().Get("secret") == "secret-ignored" {
-			ignoredRequests.Add(1)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(server.Close)
-	cfg := testConfig()
-	cfg.Rules[0].ValidateExpr = fmt.Sprintf(`let r = http.get(%q + "?secret=" + finding["secret"], {}); {"result": r.status == 200 ? "valid" : "error"}`, server.URL)
-	cfg.Rules[0].AnalyzeExpr = fmt.Sprintf(`let r = http.get(%q + "?secret=" + finding["secret"], {}); {"capabilities": r.status == 200 ? ["read"] : []}`, server.URL)
-	runner := mustPipeline(t, cfg, scan.WithIgnoredFingerprints(fingerprint.Sum([]byte("secret-ignored"))))
-	source := fragmentSource{fragments: []sources.Fragment{{Raw: "secret-ignored secret-visible", Attributes: map[string]string{sources.AttrPath: "one.txt"}}, {Raw: "secret-ignored", Attributes: map[string]string{sources.AttrPath: "two.txt"}}}}
-	var findings []report.Finding
-	summary, err := runner.Scan(t.Context(), source, func(f report.Finding) error {
-		findings = append(findings, f)
-		return nil
-	})
-	require.NoError(t, err)
-	require.Len(t, findings, 1)
-	assert.Equal(t, "secret-visible", findings[0].Match.Value)
-	assert.Equal(t, report.SeverityMedium, findings[0].Analysis.Severity)
-	assert.Equal(t, 1, summary.EmittedFindings)
-	assert.Equal(t, map[report.ValidationStatus]int{report.ValidationStatusValid: 1}, summary.ValidationCounts)
-	assert.Equal(t, int32(2), requests.Load())
-	count := 0
-	_, err = runner.Scan(t.Context(), source, func(f report.Finding) error {
-		assert.Equal(t, "secret-visible", f.Match.Value)
-		count++
-		return nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, count)
-	assert.Equal(t, int32(4), requests.Load())
-	assert.Zero(t, ignoredRequests.Load())
+	for _, tc := range []struct {
+		name, input, ignored string
+		component, optional  bool
+		want                 int
+	}{
+		{"primary", "secret-ignored secret-visible", "secret-ignored", false, false, 1},
+		{"required component", "secret-visible account-ignored", "account-ignored", true, false, 0},
+		{"optional component", "secret-visible account-ignored", "account-ignored", true, true, 1},
+		{"required alternative", "secret-visible account-ignored account-visible", "account-ignored", true, false, 1},
+		{"optional alternative", "secret-visible account-ignored account-visible", "account-ignored", true, true, 1},
+		{"optional absent", "secret-visible", "account-ignored", true, true, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var requests, ignoredRequests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if strings.Contains(r.URL.RawQuery, tc.ignored) {
+					ignoredRequests.Add(1)
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(server.Close)
+			cfg := testConfig()
+			cfg.Rules[0].ValidateExpr = fmt.Sprintf(`let r = http.get(%q + "?secret=" + finding.secret + "&account=" + (components["account"]?.secret ?? ""), {}); {"result": r.status == 200 ? "valid" : "error"}`, server.URL)
+			cfg.Rules[0].AnalyzeExpr = fmt.Sprintf(`let r = http.get(%q + "?secret=" + finding.secret + "&account=" + (components["account"]?.secret ?? ""), {}); {"capabilities": r.status == 200 ? ["read"] : []}`, server.URL)
+			if tc.component {
+				cfg.Rules[0].Components = []config.Component{{RuleID: "account", Optional: tc.optional}}
+				cfg.Rules = append(cfg.Rules, config.Rule{ID: "account", Regex: `account-[a-z]+`, SkipReport: true})
+			}
+			runner := mustPipeline(t, cfg, scan.WithIgnoredFingerprints(fingerprint.Sum([]byte(tc.ignored))))
+			// Repeat occurrences share provider work; a new scan gets a fresh cache.
+			source := fragmentSource{fragments: []sources.Fragment{
+				{Raw: tc.input, Attributes: map[string]string{sources.AttrPath: "one.txt"}},
+				{Raw: tc.input, Attributes: map[string]string{sources.AttrPath: "two.txt"}},
+			}}
+			for pass := 1; pass <= 2; pass++ {
+				var findings []report.Finding
+				summary, err := runner.Scan(t.Context(), source, func(f report.Finding) error {
+					findings = append(findings, f)
+					return nil
+				})
+				require.NoError(t, err)
+				require.Len(t, findings, 2*tc.want)
+				assert.Equal(t, 2*tc.want, summary.EmittedFindings)
+				for _, f := range findings {
+					assert.Equal(t, "secret-visible", f.Match.Value)
+					assert.Equal(t, report.SeverityMedium, f.Analysis.Severity)
+					if tc.component && strings.Contains(tc.input, "account-visible") {
+						require.Len(t, f.ComponentSets, 1)
+					} else {
+						require.Empty(t, f.ComponentSets)
+					}
+					for _, set := range f.ComponentSets {
+						for _, c := range set.Components {
+							assert.Equal(t, "account-visible", c.Match.Value)
+						}
+					}
+				}
+				assert.Equal(t, int32(pass*2*tc.want), requests.Load())
+				assert.Zero(t, ignoredRequests.Load())
+			}
+		})
+	}
 }
 
 func TestPipelineScanIsReusableWithValidation(t *testing.T) {

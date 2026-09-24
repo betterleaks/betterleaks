@@ -391,9 +391,11 @@ crypto.sha256(finding["secret"]) in [
 
 The constant list on the right side of `in` is compiled into a lookup map.
 This explicit global filter also applies to internal component matches.
-`.betterleaksignore` entries are handled separately by the scanner after
-component assembly, so ignoring a component secret does not prevent other
-credentials from using it. Ignore files do not modify the configured filter.
+`.betterleaksignore` entries suppress primary secrets and exclude ignored component
+matches before provider work. If a required component has no remaining matches,
+the primary is suppressed; ignored optional components are treated as absent.
+See [ignore semantics](scanning.md#ignore-exact-secret-values).
+Ignore files do not modify the configured filter.
 
 Example:
 
