@@ -14,13 +14,18 @@ type URLCmd struct {
 
 func (cmd *URLCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	start := time.Now()
-	initConfig(runtime, &cli.GlobalFlags, &cmd.ScanFlags, ".")
+	cfg := initConfig(runtime, &cli.GlobalFlags, &cmd.ScanFlags)
 	initDiagnostics(runtime, &cmd.ScanFlags)
 
-	cfg := Config(runtime)
-	filters := loadScanFilters(runtime, cfg, cmd.IgnoreFile, "")
-	runner := newScanPipeline(runtime, &cli.GlobalFlags, &cmd.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
-	findings := mustNewFindingCollector(runtime, &cmd.ScanFlags, cli.NoColor)
+	filters, err := loadScanFilters(runtime, cfg, cmd.IgnoreFile, "")
+	if err != nil {
+		return err
+	}
+	runner, err := newScanPipeline(runtime, &cli.GlobalFlags, &cmd.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	if err != nil {
+		return err
+	}
+	findings := mustNewFindingCollector(runtime, &cmd.ScanFlags, cli.NoColor, start, cfg, "url", cmd.URL)
 
 	src := &sources.URL{
 		URL:             cmd.URL,
@@ -30,6 +35,7 @@ func (cmd *URLCmd) Run(cli *CLI, runtime *commandRuntime) error {
 		MaxSize:         int64(cmd.MaxTargetMegabytes) * 1_000_000,
 	}
 
+	findings.startScan(runtime)
 	summary, err := runner.Scan(runtime.Context, src, findings.Add)
 	if err != nil {
 		runtime.Logger().Error("failed to scan URL", "error", err)

@@ -1,22 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Betterleaks v2 finding",
-  "description": "One serialized report.Finding, emitted on each JSONL line or in a JSON report array. Discovery supplies match and location; optional analysis describes credential state, identity, and permissions.",
+  "description": "One serialized report.Finding, nested in a JSONL finding envelope or in the findings array of a JSON scan report; versioning belongs to the enclosing report. Discovery supplies match and location; optional analysis describes credential state, identity, and permissions.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version",
     "rule_id",
     "description",
     "confidence",
     "match",
-    "location",
-    "tags"
+    "location"
   ],
   "properties": {
     "rule_id": {
       "type": "string",
       "description": "Identifier of the detection rule."
+    },
+    "rule_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Hash of this rule and its required and optional component definitions, including provider expressions. Excludes global filters. Supplied by Scanner; may be absent on externally constructed findings."
     },
     "description": {
       "type": "string",
@@ -55,18 +58,12 @@
       "maxItems": 100
     },
     "tags": {
-      "type": [
-        "array",
-        "null"
-      ],
-      "description": "Rule-defined tags. Always emitted; a nil Go slice serializes as null.",
+      "type": "array",
+      "minItems": 1,
+      "description": "Rule-defined tags. Omitted when empty.",
       "items": {
         "type": "string"
       }
-    },
-    "schema_version": {
-      "const": 2,
-      "description": "Shared v2 report schema version."
     },
     "component_sets_truncated": {
       "type": "boolean",
@@ -281,6 +278,11 @@
         "rule_id": {
           "type": "string"
         },
+        "rule_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Hash of this rule and its required and optional component definitions, including provider expressions. Excludes global filters. Supplied by Scanner; may be absent on externally constructed findings."
+        },
         "optional": {
           "type": "boolean",
           "description": "Whether this component is optional in the primary rule. Omitted when false."
@@ -348,9 +350,7 @@
         "end_line": 1,
         "start_column": 1,
         "end_column": 20
-      },
-      "tags": [],
-      "schema_version": 2
+      }
     },
     {
       "rule_id": "example-token",
@@ -389,12 +389,9 @@
             "example:write"
           ]
         }
-      },
-      "tags": [],
-      "schema_version": 2
+      }
     },
     {
-      "schema_version": 2,
       "rule_id": "example-token",
       "description": "Decoded token",
       "confidence": "high",
@@ -414,7 +411,6 @@
         "start_column": 1,
         "end_column": 40
       },
-      "tags": [],
       "component_sets": [
         {
           "components": [

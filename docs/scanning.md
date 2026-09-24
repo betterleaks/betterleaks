@@ -165,7 +165,11 @@ credential environment variables.
 ## Finding output
 
 Scan commands print findings in the human-readable format by default. Use
-`--jsonl` to emit one compact JSON finding per line instead.
+`--jsonl` to emit one versioned finding envelope per line, followed by a final scan
+metadata record. The final record is also emitted when no findings are found.
+Each finding record has the shape `{"schema_version":"1","finding":{...}}`.
+Findings themselves do not contain `schema_version`; JSON reports version the
+whole document, while JSONL versions each envelope independently.
 
 Binary previews show readable context, replacing runs of binary bytes with
 `⟨binary⟩` and underlining the secret with carets. Bytes inside the secret are
@@ -193,23 +197,97 @@ finding. These fields replace the generated `decoded:*` and `decode-depth:*` tag
 `tags` contains rule-defined labels. Encoding metadata describes how the match was
 decoded, not the source file's MIME type or character set.
 
+Scanner findings and their components include `rule_hash`, identifying each
+rule's definition and component dependencies, including provider expressions.
+Global filters are excluded. The hash is preserved through analysis and
+redaction but is not printed in pretty output. Externally constructed SDK
+findings may omit it.
+
+CLI JSON reports contain `schema_version`, `findings`, and `scan`:
+
+```json
+{
+  "schema_version": "1",
+  "findings": [],
+  "scan": {
+    "state": "complete",
+    "source": {"type": "filesystem", "targets": ["./src", "./tests"]},
+    "started": "2026-09-23T17:00:00Z",
+    "finished": "2026-09-23T17:00:01Z",
+    "betterleaks_version": "v2.0.0-rc.1",
+    "config_hash": "...",
+    "bytes_scanned": 1234,
+    "num_findings": 0,
+    "confidence_counts": {"high": 0, "medium": 0, "low": 0, "none": 0, "other": 0},
+    "severity_counts": {"high": 0, "medium": 0, "unknown": 0, "none": 0},
+    "status_counts": {"valid": 0, "invalid": 0, "revoked": 0, "needs_validation": 0, "unknown": 0, "error": 0, "none": 0}
+  }
+}
+```
+
+`state` is `complete` when scanning finishes normally, even when findings or
+recoverable warnings (such as corrupt archives or permission-denied skips) are
+reported. It is `incomplete` when cancellation or a fatal scan error prevents
+normal completion, including failures before any findings are emitted.
+
+`num_findings` counts reported top-level findings after all filters, including
+`--status`. It equals the length of `findings` in JSON, or the number of finding
+records in JSONL. Components and component sets are not counted separately.
+Each of `confidence_counts`, `severity_counts`, and `status_counts` sums to
+`num_findings`, and all buckets are included even when zero. `none` means the
+field is unset; `unknown` is an explicit analysis or validation result. Custom
+confidence values count as `other`. Incomplete scans count findings emitted so
+far. A provider validation result of `error` does not itself make a scan incomplete.
+
+`started` and `finished` are UTC timestamps for invocation start and report
+finalization. `bytes_scanned` totals inspected fragment bytes across all targets,
+after exclusions and source archive expansion; it is not the input's disk size.
+`config_hash` identifies the resolved config after `--isolate-rule`
+and `--disable-rule`. All targets use the same configuration, loaded once per
+invocation. `.betterleaks.toml` files in targets or the current directory are
+not loaded automatically; select a config explicitly with `--config` or the
+configuration environment variables. The hash is logged at info level before
+each target scan. It includes detection configuration and provider expressions
+but excludes runtime settings; see
+[SDK cache hashes](config.md#configuration-hashes-for-sdk-caches).
+
+`source` records the resolved source `type` and selected `targets`. Types are
+`filesystem`, `git`, `url`, `github`, `gitlab`, `huggingface`, `s3`, and `stdin`;
+auto-detection reports the selected type. Stdin omits `targets`. Filesystem
+targets reflect removal of nested paths and default to `["."]` when no path
+is supplied. Local paths retain their spelling. Remote URLs omit credentials,
+query strings, and fragments. On incomplete scans the list can include targets
+that were not reached. It identifies the inputs, without recording source settings
+such as Git revisions or symlink handling.
+
+Findings are streamed immediately; `scan` is appended during finalization, so
+metadata does not require retaining findings in memory. JSONL emits the same
+metadata as its last line, `{"schema_version":"1","scan":{...}}`. Consumers should
+distinguish this record from findings by the `scan` field. `finished` is recorded
+for both states; it does not by itself indicate successful completion. On errors
+or cancellation, the byte count reflects work completed so far and already
+emitted findings remain in the report. Raw command
+arguments are not included.
+
 JSON Schema definitions are available for [one finding](schemas/finding.schema.json)
-and [a JSON report array](schemas/findings.schema.json), using
-[Draft 2020-12](https://json-schema.org/draft/2020-12). Validate each parsed JSONL
-line with the single-finding schema. Keep both schema files together when
-validating an array report so the relative reference resolves. These schemas
+and [a JSON scan report](schemas/findings.schema.json), using
+[Draft 2020-12](https://json-schema.org/draft/2020-12). For CLI JSONL, validate each
+record against `findings.schema.json#/$defs/jsonlRecord`. Keep both schema files
+together so relative references resolve. Low-level SDK `report.WriteJSON` and
+`report.WriteJSONL` emit an unversioned finding array or versioned finding
+envelopes, respectively; neither emits scan metadata. The CLI adds invocation metadata. These schemas
 describe scan output; `validate` and `analyze` share a separate credential report. Fixed objects
 reject unknown fields; source attributes and provider metadata are extensible.
-Unclassified confidence is an empty string, and `tags` may be `null` when the
-underlying Go slice is nil.
+Unclassified confidence is an empty string. `tags` is omitted when empty.
 
 `-o, --output <path>` writes a second, streaming report. The filename selects the
-format: `.json` writes a JSON array and `.jsonl` writes JSON Lines. Use
+format: `.json` writes a JSON scan report and `.jsonl` writes JSON Lines. Use
 `--output -` to write the report to stdout; it writes JSON by default and JSONL
 when combined with `--jsonl`. A stdout report replaces the normal finding
 output so the two formats are never interleaved. If a scan is interrupted, the
 report is finalized with the findings emitted before cancellation, including
-the closing bracket required for valid JSON.
+the closing delimiters required for valid JSON. Abrupt termination may prevent
+finalization; JSONL findings already written remain independently readable.
 
 `--silent` suppresses terminal findings and the banner. An explicit report is
 still written. Use `--no-banner` when only the banner should be hidden.
@@ -358,8 +436,8 @@ supply `sources.URL.HTTPClient` for other authentication or timeout policies.
 Archive entries retain the URL attributes, so prefilters can combine `url`,
 `resource`, and the full archive entry `path` (for example, `download!secret.txt`).
 
-Like other remote sources, this command loads local configuration and still
-fetches its source with `--offline`; that flag disables credential validation
+Like other sources, this command uses the explicitly selected configuration or
+embedded defaults. It still fetches its source with `--offline`; that flag disables credential validation
 and analysis requests.
 
 ---
@@ -1042,7 +1120,7 @@ and source locations; supplied source-independent attributes remain at the root.
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": "1",
   "rule_id": "github-pat",
   "analysis": {
     "status": "valid",
@@ -1058,7 +1136,7 @@ has its own `analysis` result and identifies optional components explicitly:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": "1",
   "rule_id": "example-credential",
   "analysis": {"status": "valid"},
   "component_sets": [
@@ -1233,7 +1311,11 @@ betterleaks filesystem ./artifacts --max-archive-depth 2 --max-decode-depth 5
 
 - [docs/config.md](config.md)
 
-All v2 finding and credential JSON uses snake_case and `schema_version: 2`.
+All v2 finding and credential JSON uses snake_case. Report envelopes and
+credential reports use `schema_version: "1"`; nested and standalone findings
+carry no version field.
+The schema version is independent of the Betterleaks application version and
+changes when the report contract introduces a breaking change.
 Credential state uses `analysis.status`, `status_reason`, and `status_metadata`;
 permission enrichment uses `reason`, `metadata`, identity and capabilities.
 `component_sets_truncated` means the 100-combination discovery limit omitted

@@ -424,6 +424,7 @@ func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Findi
 	path := fragment.Attr(sources.AttrPath)
 	finding := report.Finding{
 		RuleID:      r.rule.ID,
+		RuleHash:    r.hash,
 		Description: r.rule.Description,
 		Match:       report.Match{Full: "file detected: " + path},
 		Tags:        append([]string{}, r.rule.Tags...),
@@ -672,7 +673,8 @@ func (s *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
 }
 
 func snapshotRules(cfg *config.Config, engine blregexp.Engine) ([]compiledRule, map[string]int, error) {
-	if err := cfg.Validate(); err != nil {
+	hashes, err := cfg.RuleHashes()
+	if err != nil {
 		return nil, nil, err
 	}
 	rules := make([]compiledRule, len(cfg.Rules))
@@ -680,7 +682,7 @@ func snapshotRules(cfg *config.Config, engine blregexp.Engine) ([]compiledRule, 
 		rule := source
 		rule.Keywords = slices.Clone(source.Keywords)
 		rule.Tags = slices.Clone(source.Tags)
-		compiled := compiledRule{rule: rule}
+		compiled := compiledRule{rule: rule, hash: hashes[rule.ID]}
 		if rule.Regex != "" {
 			var err error
 			compiled.guard = compileAssignmentGuard(rule.Regex, rule.Keywords)
@@ -860,6 +862,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
 			RuleID:      r.rule.ID,
+			RuleHash:    r.hash,
 			Description: r.rule.Description,
 			Encodings:   encodings,
 			DecodeDepth: decodeDepth,
@@ -1041,6 +1044,7 @@ nextPrimary:
 				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, component.window) {
 					componentFindings = append(componentFindings, report.ComponentFinding{
 						RuleID:      found.RuleID,
+						RuleHash:    found.RuleHash,
 						Optional:    component.optional,
 						Match:       found.Match,
 						Location:    found.Location,

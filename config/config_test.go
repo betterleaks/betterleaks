@@ -34,6 +34,190 @@ title = "logger test"
 
 const configPath = "../testdata/config/"
 
+func TestHashes(t *testing.T) {
+	newConfig := func() *Config {
+		return &Config{
+			Filter: "false", Prefilter: "false",
+			Rules: []Rule{
+				{ID: "primary", Regex: `(TOKEN)(OTHER)?`, SecretGroup: 1, Specificity: 100,
+					Components:   []Component{{RuleID: "required", Within: "5L"}, {RuleID: "optional", Optional: true}},
+					ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{}`},
+				{ID: "required", Regex: `REQUIRED`, SkipReport: true},
+				{ID: "optional", Regex: `OPTIONAL`, SkipReport: true},
+				{ID: "other", Regex: `OTHER`},
+			},
+		}
+	}
+	original := newConfig()
+	wantConfig := original.Hash()
+	wantRule, err := original.RuleHash("primary")
+	require.NoError(t, err)
+	assert.Equal(t, "7eea25c39bea00e213445c60c29ac2fe5872e078d95695d5a55df155baae1fd9", wantConfig)
+	assert.Equal(t, "036fb0e0df4b98ce6847d8ca567f32b60e5366734f1ab8149c4d29a1e03dea0d", wantRule)
+	for _, tc := range []struct {
+		name       string
+		change     func(*Config)
+		configSame bool
+		ruleSame   bool
+	}{
+		{"description", func(c *Config) { c.Rules[0].Description = "updated" }, false, false},
+		{"regex", func(c *Config) { c.Rules[0].Regex = `(CHANGED)(OTHER)?` }, false, false},
+		{"path", func(c *Config) { c.Rules[0].Path = `\.env$` }, false, false},
+		{"secret group", func(c *Config) { c.Rules[0].SecretGroup = 2 }, false, false},
+		{"keywords", func(c *Config) { c.Rules[0].Keywords = []string{"TOKEN"} }, false, false},
+		{"tags", func(c *Config) { c.Rules[0].Tags = []string{"credential"} }, false, false},
+		{"specificity", func(c *Config) { c.Rules[0].Specificity++ }, false, false},
+		{"confidence", func(c *Config) { c.Rules[0].Confidence = "high" }, false, false},
+		{"rule filter", func(c *Config) { c.Rules[0].Filter = "true" }, false, false},
+		{"skip report", func(c *Config) { c.Rules[0].SkipReport = true }, false, false},
+		{"component reference", func(c *Config) { c.Rules[0].Components[0].RuleID = "other" }, false, false},
+		{"component optionality", func(c *Config) { c.Rules[0].Components[0].Optional = true }, false, false},
+		{"component proximity", func(c *Config) { c.Rules[0].Components[0].Within = "10L" }, false, false},
+		{"component order", func(c *Config) { slices.Reverse(c.Rules[0].Components) }, false, false},
+		{"required component regex", func(c *Config) { c.Rules[1].Regex = "NEW" }, false, false},
+		{"optional component regex", func(c *Config) { c.Rules[2].Regex = "NEW" }, false, false},
+		{"component filter", func(c *Config) { c.Rules[1].Filter = "true" }, false, false},
+		{"global filter", func(c *Config) { c.Filter = "true" }, false, true},
+		{"global prefilter", func(c *Config) { c.Prefilter = "true" }, false, true},
+		{"other rule", func(c *Config) { c.Rules[3].Regex = "NEW" }, false, true},
+		{"other specificity", func(c *Config) { c.Rules[3].Specificity = 200 }, false, true},
+		{"rule order", func(c *Config) { slices.Reverse(c.Rules) }, false, true},
+		{"validation", func(c *Config) { c.Rules[0].ValidateExpr = "not a valid expression" }, false, false},
+		{"analysis", func(c *Config) { c.Rules[0].AnalyzeExpr = "not a valid expression" }, false, false},
+		{"revocation", func(c *Config) { c.Rules[0].RevokeExpr = "not a valid expression" }, false, false},
+		{"component validation", func(c *Config) { c.Rules[1].ValidateExpr = "changed" }, false, false},
+		{"component analysis", func(c *Config) {
+			c.Rules[1].ValidateExpr, c.Rules[1].AnalyzeExpr = "changed", "changed"
+		}, false, false},
+		{"component revocation", func(c *Config) { c.Rules[1].RevokeExpr = "changed" }, false, false},
+		{"optional component validation", func(c *Config) { c.Rules[2].ValidateExpr = "changed" }, false, false},
+		{"other rule validation", func(c *Config) { c.Rules[3].ValidateExpr = "changed" }, false, true},
+		{"config metadata", func(c *Config) {
+			c.Title, c.Description, c.Path, c.MinVersion = "new", "new", "/elsewhere/config.toml", "v99.0.0"
+		}, true, true},
+		{"nil and empty slices", func(c *Config) {
+			c.Rules[0].Keywords, c.Rules[0].Tags, c.Rules[1].Components = []string{}, []string{}, []Component{}
+		}, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := newConfig()
+			tc.change(cfg)
+			gotRule, err := cfg.RuleHash("primary")
+			require.NoError(t, err)
+			hashes, err := cfg.RuleHashes()
+			require.NoError(t, err)
+			assert.Equal(t, gotRule, hashes["primary"])
+			assert.Equal(t, tc.configSame, wantConfig == cfg.Hash(), "config hash equality")
+			assert.Equal(t, tc.ruleSame, wantRule == gotRule, "rule hash equality")
+		})
+	}
+	t.Run("rule ID", func(t *testing.T) {
+		cfg := newConfig()
+		cfg.Rules[0].ID = "renamed"
+		gotRule, err := cfg.RuleHash("renamed")
+		require.NoError(t, err)
+		assert.NotEqual(t, wantRule, gotRule)
+		assert.NotEqual(t, wantConfig, cfg.Hash())
+	})
+	// Hashing reads current values without mutating or memoizing the config.
+	assert.Equal(t, newConfig(), original)
+	assert.Equal(t, wantConfig, original.Hash())
+	gotRule, err := original.RuleHash("primary")
+	require.NoError(t, err)
+	assert.Equal(t, wantRule, gotRule)
+	original.Rules[1].Regex = "CHANGED"
+	assert.NotEqual(t, wantConfig, original.Hash())
+	gotRule, err = original.RuleHash("primary")
+	require.NoError(t, err)
+	assert.NotEqual(t, wantRule, gotRule)
+}
+
+func TestHashEncoding(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		a, b []string
+	}{
+		{"field boundaries", []string{"ab", "c"}, []string{"a", "bc"}},
+		{"embedded separator", []string{"a\x00b", "c"}, []string{"a", "b\x00c"}},
+		{"invalid UTF-8", []string{"\xff"}, []string{"\xfe"}},
+		{"slice length", nil, []string{""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &Config{Rules: []Rule{{ID: "test", Regex: "TOKEN", Tags: tc.a}}}
+			b := &Config{Rules: []Rule{{ID: "test", Regex: "TOKEN", Tags: tc.b}}}
+			assert.NotEqual(t, a.Hash(), b.Hash())
+			ah, err := a.RuleHash("test")
+			require.NoError(t, err)
+			bh, err := b.RuleHash("test")
+			require.NoError(t, err)
+			assert.NotEqual(t, ah, bh)
+		})
+	}
+}
+
+func TestRuleHashErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  *Config
+		id   string
+		want string
+	}{
+		{"nil", nil, "test", "config is required"},
+		{"unknown", &Config{}, "test", `rule "test" not found`},
+		{"missing component", &Config{Rules: []Rule{{ID: "test", Regex: "TOKEN", Components: []Component{{RuleID: "missing"}}}}}, "test", "does not exist"},
+		{"duplicate", &Config{Rules: []Rule{{ID: "test", Regex: "A"}, {ID: "test", Regex: "B"}}}, "test", "duplicate rule ID"},
+		{"nested components", &Config{Rules: []Rule{
+			{ID: "test", Regex: "A", Components: []Component{{RuleID: "nested"}}},
+			{ID: "nested", Regex: "B", Components: []Component{{RuleID: "leaf"}}},
+			{ID: "leaf", Regex: "C"},
+		}}, "test", "must not itself have components"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hash, err := tc.cfg.RuleHash(tc.id)
+			require.ErrorContains(t, err, tc.want)
+			assert.Empty(t, hash)
+		})
+	}
+	assert.Empty(t, (*Config)(nil).Hash())
+}
+
+func TestHashesResolvedConfig(t *testing.T) {
+	const plain = `filter = 'false'
+[[rules]]
+id = 'test'
+regex = '(TOKEN)'
+secretGroup = 1
+`
+	const formatted = `# Formatting and source location do not identify the ruleset.
+filter='false'
+
+[[rules]] # rule comment
+id="test"
+regex="(TOKEN)"
+secretGroup=1
+`
+	a, err := ParseTOMLString(plain, "first.toml")
+	require.NoError(t, err)
+	b, err := ParseTOMLString(formatted, "second.toml")
+	require.NoError(t, err)
+	assert.Equal(t, a.Hash(), b.Hash())
+	ah, err := a.RuleHash("test")
+	require.NoError(t, err)
+	bh, err := b.RuleHash("test")
+	require.NoError(t, err)
+	assert.Equal(t, ah, bh)
+	assert.Equal(t, "025e0865f67aa331e50d02e8a638eed9e3c761ddebe399f0accaf32ac13bb8a6", a.Hash())
+	assert.Equal(t, "276517af2a9452977d37603713da1d5a1f5d0e8f84ae9f48ba2c1adc0427d700", ah)
+	basePath := filepath.Join(t.TempDir(), "base.toml")
+	require.NoError(t, os.WriteFile(basePath, []byte(plain), 0o600))
+	extended, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = '%s'\n", filepath.ToSlash(basePath)), "extended.toml")
+	require.NoError(t, err)
+	assert.Equal(t, a.Hash(), extended.Hash())
+	extendedHash, err := extended.RuleHash("test")
+	require.NoError(t, err)
+	assert.Equal(t, ah, extendedHash)
+}
+
 type translateCase struct {
 	// Configuration file basename to load, from `../testdata/config/`.
 	cfgName string

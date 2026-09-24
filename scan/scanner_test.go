@@ -339,6 +339,47 @@ func TestScannerDoesNotCompileProviderExpressions(t *testing.T) {
 	}
 }
 
+func TestScannerRuleHashes(t *testing.T) {
+	cfg := &config.Config{Rules: []config.Rule{
+		{ID: "primary", Regex: "PRIMARY", Components: []config.Component{{RuleID: "part"}}},
+		{ID: "part", Regex: "COMPONENT", SkipReport: true},
+		{ID: "path", Path: `\.env$`},
+	}}
+	wantHashes, err := cfg.RuleHashes()
+	require.NoError(t, err)
+	scanner := mustNew(t, cfg)
+	// Existing scanners retain both matching behavior and hashes after mutation.
+	cfg.Rules[1].Regex = "CHANGED"
+	changedHash, err := cfg.RuleHash("primary")
+	require.NoError(t, err)
+	require.NotEqual(t, wantHashes["primary"], changedHash)
+	findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{
+		Content:    strings.NewReader("PRIMARY COMPONENT\n"),
+		Attributes: map[string]string{sources.AttrPath: "secrets.env"},
+	})
+	require.NoError(t, err)
+	require.Len(t, findings, 2)
+	for _, finding := range findings {
+		require.Equal(t, wantHashes[finding.RuleID], finding.RuleHash)
+		if finding.RuleID == "primary" {
+			require.Len(t, finding.ComponentSets, 1)
+			require.Len(t, finding.ComponentSets[0].Components, 1)
+			require.Equal(t, wantHashes["part"], finding.ComponentSets[0].Components[0].RuleHash)
+		}
+		var decoded report.Finding
+		data, err := json.Marshal(finding.RedactedCopy(100))
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(data, &decoded))
+		assert.Equal(t, finding.RuleHash, decoded.RuleHash)
+		if finding.RuleID == "primary" {
+			assert.Equal(t, wantHashes["part"], decoded.ComponentSets[0].Components[0].RuleHash)
+		}
+		var pretty bytes.Buffer
+		require.NoError(t, report.WritePretty(&pretty, finding, report.PrettyOptions{NoColor: true}))
+		assert.NotContains(t, pretty.String(), finding.RuleHash)
+	}
+}
+
 func TestNewValidatesOptions(t *testing.T) {
 	_, err := New(nil)
 	assert.Error(t, err)
@@ -509,8 +550,8 @@ username = "admin"
 
 func compare(t *testing.T, got, want []report.Finding) {
 	t.Helper()
-	got = stripFindingAttributes(append([]report.Finding(nil), got...))
-	want = stripFindingAttributes(append([]report.Finding(nil), want...))
+	got = stripFindingMetadata(append([]report.Finding(nil), got...))
+	want = stripFindingMetadata(append([]report.Finding(nil), want...))
 	if diff := cmp.Diff(want, got,
 		cmpopts.SortSlices(func(a, b report.Finding) bool {
 			if a.Attr(sources.AttrPath) != b.Attr(sources.AttrPath) {
@@ -551,11 +592,12 @@ func compare(t *testing.T, got, want []report.Finding) {
 	}
 }
 
-// stripFindingAttributes clears source metadata for match-only assertions.
+// stripFindingMetadata clears rule and source metadata for match-only assertions.
 // Location paths are checked separately in source handoff tests.
-func stripFindingAttributes(findings []report.Finding) []report.Finding {
+func stripFindingMetadata(findings []report.Finding) []report.Finding {
 	for i := range findings {
 		findings[i].Attributes = nil
+		findings[i].RuleHash = ""
 		findings[i].Location.Path = ""
 		for si := range findings[i].ComponentSets {
 			for ci := range findings[i].ComponentSets[si].Components {
@@ -2480,7 +2522,7 @@ func TestFromGit(t *testing.T) {
 			for _, f := range findings {
 				f.Match.Full = "" // remove lines cause copying and pasting them has some wack formatting
 			}
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+			assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
 		})
 	}
 }
@@ -2541,7 +2583,7 @@ func TestFromGitStaged(t *testing.T) {
 		for _, f := range findings {
 			f.Match.Full = "" // remove lines cause copying and pasting them has some wack formatting
 		}
-		assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+		assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
 	}
 }
 
@@ -2674,8 +2716,13 @@ func TestBinaryFindingReports(t *testing.T) {
 					var got []report.Finding
 					if jsonl {
 						require.NoError(t, report.WriteJSONL(&output, findings))
-						got = make([]report.Finding, 1)
-						require.NoError(t, json.Unmarshal(output.Bytes(), &got[0]))
+						var record struct {
+							SchemaVersion string         `json:"schema_version"`
+							Finding       report.Finding `json:"finding"`
+						}
+						require.NoError(t, json.Unmarshal(output.Bytes(), &record))
+						assert.Equal(t, report.SchemaVersion, record.SchemaVersion)
+						got = []report.Finding{record.Finding}
 					} else {
 						require.NoError(t, report.WriteJSON(&output, findings))
 						require.NoError(t, json.Unmarshal(output.Bytes(), &got))
@@ -2684,7 +2731,8 @@ func TestBinaryFindingReports(t *testing.T) {
 					assert.Equal(t, f.Match.Value, got[0].Match.Value)
 					assert.Equal(t, f.Match.Full, got[0].Match.Full)
 					assert.Equal(t, f.Location, got[0].Location)
-					assert.Equal(t, f.Tags, got[0].Tags)
+					assert.Empty(t, got[0].Tags)
+					assert.NotContains(t, output.String(), `"tags"`)
 					assert.Equal(t, f.Encodings, got[0].Encodings)
 					assert.Equal(t, f.DecodeDepth, got[0].DecodeDepth)
 				}
@@ -2785,7 +2833,7 @@ func TestFromFiles(t *testing.T) {
 			require.NoError(t, err)
 
 			normalizeFindings(findings)
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+			assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
 		})
 	}
 }
@@ -3240,7 +3288,7 @@ func TestDetectWithArchives(t *testing.T) {
 			}
 
 			normalizeFindings(findings)
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+			assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
 		})
 	}
 
@@ -3291,7 +3339,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 			})
 
 		require.NoError(t, err)
-		assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+		assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
 	}
 }
 

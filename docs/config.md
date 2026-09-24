@@ -7,6 +7,18 @@ Unknown keys are errors at every level, including inherited configurations.
 Errors identify the field and its line and column; a misspelled key is never
 silently ignored.
 
+Configuration selection follows this order:
+
+1. `--config` / `-c`.
+2. `BETTERLEAKS_CONFIG`, containing a file path.
+3. `BETTERLEAKS_CONFIG_TOML`, containing inline TOML.
+4. The embedded default configuration.
+
+Files named `.betterleaks.toml` in scan targets or the current directory are not
+loaded automatically. Use `--config .betterleaks.toml` to select one. A scan
+invocation resolves configuration once and uses it for every target. Explicit
+config paths passed to `config show`, `config check`, or `config hash` override these defaults.
+
 ## Inspect a config
 
 ```sh
@@ -27,6 +39,82 @@ requests. It uses the same config resolution as `config show`, including
 `--config` and the config environment variables. A positional config path takes
 precedence over `--config`. Use the listed IDs with `validate --rule` or
 `analyze --rule`, or `revoke --rule`.
+
+## Inspect configuration hashes
+
+```sh
+# Hash the whole resolved configuration
+betterleaks config hash --config custom.toml
+
+# Compare with a finding's rule_hash
+betterleaks config hash --config custom.toml --rule github-pat
+
+# Use embedded defaults or configuration selected through environment variables
+betterleaks config hash --rule github-pat
+
+# A positional config path is also supported
+betterleaks config hash custom.toml --rule github-pat
+```
+
+The command prints one bare SHA-256 hash and a newline. Invalid configurations
+and unknown rule IDs fail with a nonzero exit status. It makes no provider
+requests and does not compile filter or provider expressions; use `config check`
+to check expressions. `--rule` selects the hash to print, preserving the rule's
+required and optional component definitions.
+
+The whole-config hash describes the configuration as loaded. A scan using
+`--isolate-rule` or `--disable-rule` hashes its reduced configuration instead.
+A matching rule hash means its rule and component definitions are unchanged, not that a
+rescan or provider validation will produce the same result. The included and
+excluded fields are described below.
+
+## Configuration hashes for SDK caches
+
+After loading and customizing a configuration, use `cfg.Hash()` to
+identify its resolved configuration. Use `cfg.RuleHash(ruleID)` to
+identify one rule together with its required and optional component definitions;
+this method returns an error for an invalid configuration or unknown rule ID.
+`cfg.RuleHashes()` returns all rule hashes in a caller-owned map and
+validates the configuration once. Scanner computes this map during construction
+and includes the corresponding `rule_hash` in each finding and component.
+
+```go
+configHash := cfg.Hash()
+ruleHash, err := cfg.RuleHash("github-pat")
+if err != nil {
+    return err
+}
+```
+
+Both hashes include matching fields, filters, component references and proximity,
+specificity, confidence, `skipReport`, rule descriptions, tags, and provider
+`validate`, `analyze`, and `revoke` expressions, including those on components.
+Changing a component definition also changes its parent's rule hash. Provider
+expressions participate even in offline scans; runtime flags do not change what
+the hash identifies.
+Only the overall hash includes the global `filter` and `prefilter` and the order
+of rules. Config title, description, file path, and minimum version are excluded.
+
+Hashes describe current configuration data, not an existing scanner's snapshot.
+Compute them from the same state used to construct your scanner and source
+filters; they are not cached inside Config. Do not mutate Config concurrently
+with hashing. `Hash` does not validate the configuration; a nil Config
+returns an empty string. Neither method compiles provider expressions or forces
+scanner regex compilation.
+
+Both hashes are 64-character lowercase SHA-256 hex strings with no prefix.
+Compare them as opaque identities. TOML comments and formatting outside string values do not
+affect the hashes. Expression and regex text is hashed exactly; equivalent
+expressions with different spelling can produce different hashes. Slice order
+is preserved; nil and empty slices are equivalent.
+
+A rule hash is useful for identifying changed rule definitions, but is not enough
+to reuse final findings: global filters and competing rules can change which
+findings survive. Use the overall hash as one part of a scan-result cache key,
+alongside input content and attributes, source and scanner settings, Betterleaks
+and regex backend versions, and redaction/output policy. Provider results need
+their own freshness policy because credentials can change state independently
+of configuration.
 
 ## Top-level shape
 

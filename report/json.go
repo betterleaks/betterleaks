@@ -47,7 +47,10 @@ func (w *jsonFindingWriter) WriteFinding(finding Finding) error {
 		return errors.New("report writer is closed")
 	}
 	if w.encoder != nil {
-		return w.encoder.Encode(finding)
+		return w.encoder.Encode(struct {
+			SchemaVersion string  `json:"schema_version"`
+			Finding       Finding `json:"finding"`
+		}{SchemaVersion: SchemaVersion, Finding: finding})
 	}
 
 	encoded, err := json.MarshalIndent(finding, " ", " ")
@@ -84,7 +87,7 @@ func (w *jsonFindingWriter) Close() error {
 	return err
 }
 
-// NewJSONLWriter writes one compact JSON finding per line. Close leaves w open.
+// NewJSONLWriter writes one versioned finding envelope per line. Close leaves w open.
 func NewJSONLWriter(w io.Writer) (FindingWriter, error) {
 	if w == nil {
 		return nil, errors.New("report writer is nil")
@@ -92,7 +95,7 @@ func NewJSONLWriter(w io.Writer) (FindingWriter, error) {
 	return &jsonFindingWriter{w: w, encoder: json.NewEncoder(w)}, nil
 }
 
-// WriteJSONL writes findings as JSONL without closing w.
+// WriteJSONL writes versioned finding envelopes as JSONL without closing w.
 func WriteJSONL(w io.Writer, findings []Finding) error {
 	writer, err := NewJSONLWriter(w)
 	if err != nil {

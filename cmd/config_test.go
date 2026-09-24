@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,16 +13,16 @@ import (
 	"testing"
 
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolveConfigIgnoresGitleaksCompatibility(t *testing.T) {
+func TestResolveConfigIgnoresImplicitAndLegacyConfigs(t *testing.T) {
 	dir := t.TempDir()
 	legacyConfig := filepath.Join(dir, ".gitleaks.toml")
 	require.NoError(t, os.WriteFile(legacyConfig, []byte(`title = "legacy"`), 0o600))
 	t.Chdir(dir)
+	require.NoError(t, os.WriteFile(".betterleaks.toml", []byte("invalid TOML ["), 0o600))
 	t.Setenv("BETTERLEAKS_CONFIG", "")
 	t.Setenv("BETTERLEAKS_CONFIG_TOML", "")
 	t.Setenv("GITLEAKS_CONFIG", legacyConfig)
@@ -32,6 +31,76 @@ func TestResolveConfigIgnoresGitleaksCompatibility(t *testing.T) {
 	resolved, err := resolveConfig(&commandRuntime{stderr: io.Discard}, "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "default", resolved.source)
+}
+
+func TestConfigHash(t *testing.T) {
+	t.Setenv("BETTERLEAKS_CONFIG", "")
+	t.Setenv("BETTERLEAKS_CONFIG_TOML", "")
+	const component = "[[rules]]\nid='part'\nregex='COMPONENT'\nskipReport=true\n"
+	const primary = "[[rules]]\nid='token'\nregex='PRIMARY'\ncomponents=[{id='part'}]\nvalidate='missingFunction()'\nanalyze='missingFunction()'\n"
+	custom := writeTestConfig(t, component+primary)
+	base := writeTestConfig(t, component)
+	inherited := writeTestConfig(t, fmt.Sprintf("[extend]\npath='%s'\n%s", filepath.ToSlash(base), primary))
+	invalid := writeTestConfig(t, "[[rules]]\nid='broken'\nregex='['\n")
+	defaults, err := configpkg.Default()
+	require.NoError(t, err)
+	defaultRuleHash, err := defaults.RuleHash("github-pat")
+	require.NoError(t, err)
+
+	// Compare the command with real scan output, including inherited components.
+	root, output := newTestCLI(t)
+	root.SetIn(strings.NewReader("PRIMARY COMPONENT\n"))
+	root.SetArgs([]string{"stdin", "--config", inherited, "--offline", "--no-banner", "--exit-code=0", "--output=-"})
+	require.NoError(t, root.Execute())
+	metadata, findings := decodeScanJSON(t, output.Bytes())
+	require.Len(t, findings, 1)
+	require.Len(t, findings[0].ComponentSets, 1)
+	require.Len(t, findings[0].ComponentSets[0].Components, 1)
+	ruleHash := findings[0].RuleHash
+	writeErr := errors.New("output disconnected")
+	for _, tc := range []struct {
+		name      string
+		args      []string
+		envPath   string
+		envTOML   string
+		want      string
+		wantErr   string
+		failWrite bool
+	}{
+		{name: "default config", want: defaults.Hash()},
+		{name: "default rule", args: []string{"--rule", "github-pat"}, want: defaultRuleHash},
+		{name: "custom config", args: []string{"--config", custom}, want: metadata.ConfigHash},
+		{name: "custom rule", args: []string{"--config", custom, "--rule", "token"}, want: ruleHash},
+		{name: "inherited config", args: []string{inherited}, want: metadata.ConfigHash},
+		{name: "inherited rule", args: []string{inherited, "--rule", "token"}, want: ruleHash},
+		{name: "component rule", args: []string{inherited, "--rule", "part"}, want: findings[0].ComponentSets[0].Components[0].RuleHash},
+		{name: "positional path wins", args: []string{"--config", invalid, inherited, "--rule", "token"}, want: ruleHash},
+		{name: "environment file", envPath: inherited, args: []string{"--rule", "token"}, want: ruleHash},
+		{name: "environment content", envTOML: primary + component, args: []string{"--rule", "token"}, want: ruleHash},
+		{name: "unknown rule", args: []string{custom, "--rule", "missing"}, wantErr: `rule "missing" not found`},
+		{name: "invalid config", args: []string{invalid}, wantErr: "invalid regex"},
+		{name: "output error", args: []string{custom}, failWrite: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BETTERLEAKS_CONFIG", tc.envPath)
+			t.Setenv("BETTERLEAKS_CONFIG_TOML", tc.envTOML)
+			root, stdout := newTestCLI(t)
+			if tc.failWrite {
+				root.runtime.stdout = testErrorWriter{err: writeErr}
+			}
+			root.SetArgs(append([]string{"config", "hash"}, tc.args...))
+			err := root.Execute()
+			if tc.failWrite {
+				require.ErrorIs(t, err, writeErr)
+			} else if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				require.Empty(t, stdout.String())
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.want+"\n", stdout.String())
+			}
+		})
+	}
 }
 
 func TestRenderConfigTOMLComponents(t *testing.T) {
@@ -103,11 +172,9 @@ func TestCLIExplicitlyExcludesLoadedConfig(t *testing.T) {
 	root, stdout := newTestCLI(t)
 	root.SetArgs([]string{"fs", dir, "--config", configPath, "--offline", "--jsonl", "--no-color", "--exit-code=0"})
 	require.NoError(t, root.Execute())
-	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	require.Len(t, lines, 1)
-	var finding report.Finding
-	require.NoError(t, json.Unmarshal([]byte(lines[0]), &finding))
-	require.Equal(t, filepath.ToSlash(filepath.Join(dir, "app.env")), finding.Location.Path)
+	_, findings := decodeScanJSONL(t, stdout.Bytes())
+	require.Len(t, findings, 1)
+	require.Equal(t, filepath.ToSlash(filepath.Join(dir, "app.env")), findings[0].Location.Path)
 }
 
 func TestInvalidPrefilterStopsBeforeSourceIO(t *testing.T) {
@@ -123,10 +190,10 @@ prefilter = 'tokenRatio(attributes.path) > 0'
 id = "token"
 regex = 'TOKEN'
 `)
-	root, _ := newTestCLI(t)
-	root.runtime.exit = func(code int) { panic(code) }
-	root.SetArgs([]string{"url", server.URL, "--config", path, "--offline", "--no-color"})
-	require.PanicsWithValue(t, 1, func() { _ = root.Execute() })
+	root, stdout := newTestCLI(t)
+	root.SetArgs([]string{"url", server.URL, "--config", path, "--offline", "--no-color", "--no-banner", "--output=-"})
+	require.ErrorContains(t, root.Execute(), "unable to compile source prefilter")
+	require.Empty(t, stdout.String())
 	require.Zero(t, requests.Load())
 }
 

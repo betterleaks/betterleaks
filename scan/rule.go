@@ -13,6 +13,7 @@ import (
 // compiledRule owns the runtime regexes for an immutable snapshot of a rule.
 // Regex backends are initialized lazily, unless precompilation is requested.
 type compiledRule struct {
+	hash          string
 	guard         *assignmentGuard
 	span          *regexspan.Plan
 	searchAnchors []string

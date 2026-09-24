@@ -13,15 +13,16 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-// SchemaVersion identifies the v2 JSON finding and credential report contracts.
-const SchemaVersion = 2
+// SchemaVersion identifies the JSON report contract, independently of the
+// Betterleaks application version.
+const SchemaVersion = "1"
 
 const CredentialReportSchemaVersion = SchemaVersion
 
 // CredentialReport is a sanitized direct credential result. Match material and
 // source locations are omitted because no source discovery was performed.
 type CredentialReport struct {
-	SchemaVersion int                            `json:"schema_version"`
+	SchemaVersion string                         `json:"schema_version"`
 	RuleID        string                         `json:"rule_id"`
 	Attributes    map[string]string              `json:"attributes,omitempty"`
 	Analysis      Analysis                       `json:"analysis,omitzero"`
@@ -52,7 +53,7 @@ type CredentialComponentReport struct {
 
 // CredentialRuleList is a versioned list of credential rules and input requirements.
 type CredentialRuleList struct {
-	SchemaVersion int                     `json:"schema_version"`
+	SchemaVersion string                  `json:"schema_version"`
 	Rules         []CredentialRuleSummary `json:"rules"`
 }
 

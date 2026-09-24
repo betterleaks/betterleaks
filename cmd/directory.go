@@ -33,7 +33,8 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 
 	// start timer
 	start := time.Now()
-	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "filesystem", sourcesList...)
 
 	var (
 		summary           pipeline.ScanSummary
@@ -42,10 +43,19 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 	)
 
 	for _, source := range sourcesList {
-		initConfig(runtime, globals, &options.ScanFlags, source)
-		cfg := Config(runtime)
-		filters := loadScanFilters(runtime, cfg, options.IgnoreFile, source)
-		runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+		// Once output is open, setup failures must also reach report finalization.
+		filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, source)
+		if err != nil {
+			scanErrs = append(scanErrs, err)
+			runtime.Logger().Error("unable to prepare source", "path", source, "error", err)
+			break
+		}
+		runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+		if err != nil {
+			scanErrs = append(scanErrs, err)
+			runtime.Logger().Error("unable to prepare scan", "error", err)
+			break
+		}
 		validationEnabled = validationEnabled || runner.ValidationEnabled()
 
 		s := &sources.Files{
@@ -58,6 +68,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 			Workers:         resolveSourceWorkers(options.Jobs, defaultFilesystemWorkers),
 		}
 
+		findings.startScan(runtime)
 		nextSummary, scanErr := runner.Scan(runtime.Context, s, findings.Add)
 		addScanSummary(&summary, nextSummary)
 		if scanErr != nil {

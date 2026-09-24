@@ -31,12 +31,19 @@ func (cmd *GitLabCmd) Run(cli *CLI, runtime *commandRuntime) error {
 func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd) {
 	start := time.Now()
 
-	initConfig(runtime, globals, &options.ScanFlags, ".")
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
 	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config(runtime)
-	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
+	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
 
 	targetURL := options.TargetURL
 
@@ -46,7 +53,6 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 	}
 
 	var since, until time.Time
-	var err error
 	if s := options.Since; s != "" {
 		since, err = parseDateFlag(s)
 		if err != nil {
@@ -80,8 +86,9 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 		},
 	}
 
-	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "gitlab", options.TargetURL)
 
+	findings.startScan(runtime)
 	summary, scanErr := runner.Scan(runtime.Context, src, findings.Add)
 	if scanErr != nil {
 		runtime.Logger().Error("scan error", "error", scanErr)

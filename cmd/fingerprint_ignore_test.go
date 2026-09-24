@@ -218,7 +218,8 @@ func TestSourceAndFindingFilters(t *testing.T) {
 	cfg := ignoreTestConfig()
 	cfg.Path = filepath.Join(dir, "rules.toml")
 	cfg.Prefilter = `startsWithAny(attributes.path, ["archived/"])`
-	filters := loadScanFilters(&commandRuntime{stderr: io.Discard}, cfg, "", dir)
+	filters, err := loadScanFilters(&commandRuntime{stderr: io.Discard}, cfg, "", dir)
+	require.NoError(t, err)
 
 	for _, excluded := range []string{path, ".betterleaksignore", cfg.Path, "archived/test.env"} {
 		assert.True(t, filters.shouldSkip(map[string]string{sources.AttrPath: excluded}), excluded)
@@ -228,7 +229,8 @@ func TestSourceAndFindingFilters(t *testing.T) {
 	assert.Empty(t, scanner.ScanString("secret-value"))
 	assert.Len(t, scanner.ScanString("secret-visible"), 1)
 
-	remote := loadScanFilters(&commandRuntime{stderr: io.Discard}, ignoreTestConfig(), path, "")
+	remote, err := loadScanFilters(&commandRuntime{stderr: io.Discard}, ignoreTestConfig(), path, "")
+	require.NoError(t, err)
 	assert.Nil(t, remote.shouldSkip)
 	assert.Equal(t, filters.fingerprints, remote.fingerprints)
 }

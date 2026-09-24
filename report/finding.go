@@ -14,7 +14,10 @@ import (
 // Finding describes what a rule matched, where it was found, and optional provider
 // enrichment. Scanner owns discovery fields; Analyzer owns Analysis.
 type Finding struct {
-	RuleID      string `json:"rule_id"`
+	RuleID string `json:"rule_id"`
+	// RuleHash identifies the rule and its component definitions, including provider expressions.
+	// Scanner supplies it; externally constructed findings may omit it.
+	RuleHash    string `json:"rule_hash,omitempty"`
 	Description string `json:"description"`
 	Confidence  string `json:"confidence"`
 
@@ -42,7 +45,7 @@ type Finding struct {
 	// A successful tested set establishes validity; failed tests cannot exhaust the search.
 	ComponentSetsTruncated bool `json:"component_sets_truncated,omitempty"`
 
-	Tags []string `json:"tags"`
+	Tags []string `json:"tags,omitempty"`
 }
 
 // MarshalJSON omits internal attributes and limits Git message metadata to its
@@ -53,10 +56,7 @@ func (f Finding) MarshalJSON() ([]byte, error) {
 
 	wire := wireFinding(f)
 	wire.Attributes = reportAttributes(f.Attributes)
-	return json.Marshal(struct {
-		SchemaVersion int `json:"schema_version"`
-		wireFinding
-	}{SchemaVersion: SchemaVersion, wireFinding: wire})
+	return json.Marshal(wire)
 }
 
 func reportAttributes(attributes map[string]string) map[string]string {
@@ -131,6 +131,7 @@ func (s ComponentSet) MarshalJSON() ([]byte, error) {
 
 // ComponentFinding is the discovery information for one component match.
 type ComponentFinding struct {
+	RuleHash string   `json:"rule_hash,omitempty"`
 	RuleID   string   `json:"rule_id"`
 	Optional bool     `json:"optional,omitempty"`
 	Match    Match    `json:"match"`

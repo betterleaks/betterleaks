@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -16,25 +14,71 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestJSONWritersRespectOutputOwnership(t *testing.T) {
-	for name, newWriter := range map[string]func(io.Writer) (FindingWriter, error){
-		"json": NewJSONWriter, "jsonl": NewJSONLWriter,
+func TestJSONWriterContract(t *testing.T) {
+	for _, format := range []struct {
+		name  string
+		new   func(io.Writer) (FindingWriter, error)
+		write func(io.Writer, []Finding) error
+		empty string
+	}{
+		{"json", NewJSONWriter, WriteJSON, "[]\n"},
+		{"jsonl", NewJSONLWriter, WriteJSONL, ""},
 	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := newWriter(nil)
-			require.Error(t, err)
-			var output bytes.Buffer
-			writer, err := newWriter(&output)
-			require.NoError(t, err)
-			require.NoError(t, writer.WriteFinding(simpleFinding))
-			require.NoError(t, writer.Close())
-			finished := output.String()
-			require.NoError(t, writer.Close())
-			require.Equal(t, finished, output.String())
-			require.Error(t, writer.WriteFinding(simpleFinding))
-			_, err = output.WriteString("caller still owns output")
-			require.NoError(t, err)
-		})
+		for _, count := range []int{0, 2} {
+			t.Run(fmt.Sprintf("%s/findings=%d", format.name, count), func(t *testing.T) {
+				_, err := format.new(nil)
+				require.Error(t, err)
+				output, err := os.CreateTemp(t.TempDir(), "report")
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = output.Close() })
+				writer, err := format.new(output)
+				require.NoError(t, err)
+				var want []Finding
+				for i := range count {
+					finding := simpleFinding
+					finding.RuleID = fmt.Sprintf("rule-%d", i)
+					want = append(want, finding)
+					require.NoError(t, writer.WriteFinding(finding))
+					data, err := os.ReadFile(output.Name())
+					require.NoError(t, err)
+					require.Contains(t, string(data), finding.RuleID, "findings must be written before Close")
+				}
+				require.NoError(t, writer.Close())
+				finished, err := os.ReadFile(output.Name())
+				require.NoError(t, err)
+				require.NoError(t, writer.Close())
+				require.Error(t, writer.WriteFinding(simpleFinding))
+				unchanged, err := os.ReadFile(output.Name())
+				require.NoError(t, err)
+				assert.Equal(t, finished, unchanged)
+				_, err = output.WriteString("caller still owns output")
+				require.NoError(t, err)
+
+				var batch bytes.Buffer
+				require.NoError(t, format.write(&batch, want))
+				assert.Equal(t, string(finished), batch.String())
+				if count == 0 {
+					assert.Equal(t, format.empty, string(finished))
+					return
+				}
+				var got []Finding
+				if format.name == "json" {
+					require.NoError(t, json.Unmarshal(finished, &got))
+					assert.NotContains(t, string(finished), `"schema_version"`)
+				} else {
+					for _, line := range bytes.Split(bytes.TrimSpace(finished), []byte("\n")) {
+						var record struct {
+							SchemaVersion string  `json:"schema_version"`
+							Finding       Finding `json:"finding"`
+						}
+						require.NoError(t, json.Unmarshal(line, &record))
+						assert.Equal(t, SchemaVersion, record.SchemaVersion)
+						got = append(got, record.Finding)
+					}
+				}
+				assert.Equal(t, want, got)
+			})
+		}
 	}
 }
 
@@ -89,6 +133,13 @@ func TestReportsSummarizeComponentAnalysis(t *testing.T) {
 				} else {
 					require.NoError(t, json.Unmarshal(output.Bytes(), &record))
 				}
+				if format == "jsonl" {
+					assert.Equal(t, SchemaVersion, record["schema_version"])
+					record = record["finding"].(map[string]any)
+				}
+				if format != "credential" {
+					assert.NotContains(t, record, "schema_version")
+				}
 				expected, err := json.Marshal(analysis)
 				require.NoError(t, err)
 				actual, err := json.Marshal(record["analysis"])
@@ -128,111 +179,12 @@ var simpleFinding = Finding{
 		sources.AttrGitDate:        "10-19-2003",
 		sources.AttrGitMessage:     "opps",
 	},
-	Tags: []string{},
-}
-
-func TestJSONFindingWriterStreams(t *testing.T) {
-	var output bytes.Buffer
-	writer, err := NewJSONWriter(&output)
-	require.NoError(t, err)
-
-	first := simpleFinding
-	first.RuleID = "first"
-	second := simpleFinding
-	second.RuleID = "second"
-	require.NoError(t, writer.WriteFinding(first))
-	require.NoError(t, writer.WriteFinding(second))
-	require.NoError(t, writer.Close())
-
-	var findings []Finding
-	require.NoError(t, json.Unmarshal(output.Bytes(), &findings))
-	require.Len(t, findings, 2)
-	require.Equal(t, "first", findings[0].RuleID)
-	require.Equal(t, "second", findings[1].RuleID)
-}
-
-func TestJSONFindingWriterFinalizesEmptyReport(t *testing.T) {
-	var output bytes.Buffer
-	writer, err := NewJSONWriter(&output)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-	require.Equal(t, "[]\n", output.String())
-}
-
-func TestWriteJSONL(t *testing.T) {
-	first := simpleFinding
-	first.RuleID = "first"
-	second := simpleFinding
-	second.RuleID = "second"
-
-	var output bytes.Buffer
-	require.NoError(t, WriteJSONL(testWriter{Buffer: &output}, []Finding{first, second}))
-
-	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
-	require.Len(t, lines, 2)
-	for i, line := range lines {
-		var finding Finding
-		require.NoError(t, json.Unmarshal([]byte(line), &finding))
-		require.Equal(t, []string{"first", "second"}[i], finding.RuleID)
-	}
-}
-
-func TestWriteEmptyJSONL(t *testing.T) {
-	var output bytes.Buffer
-	require.NoError(t, WriteJSONL(testWriter{Buffer: &output}, nil))
-	require.Empty(t, output.String())
 }
 
 func TestWriteJSON(t *testing.T) {
-	tests := []struct {
-		findings       []Finding
-		testReportName string
-		expected       string
-		wantEmpty      bool
-	}{
-		{
-			testReportName: "simple",
-			expected:       filepath.Join(expectPath, "report", "json_simple.json"),
-			findings: []Finding{
-				simpleFinding,
-			}},
-		{
-
-			testReportName: "empty",
-			expected:       filepath.Join(expectPath, "report", "empty.json"),
-			findings:       []Finding{}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.testReportName, func(t *testing.T) {
-			tmpfile, err := os.Create(filepath.Join(t.TempDir(), test.testReportName+".json"))
-			require.NoError(t, err)
-			defer tmpfile.Close()
-
-			err = WriteJSON(tmpfile, test.findings)
-			require.NoError(t, err)
-			assert.FileExists(t, tmpfile.Name())
-
-			got, err := os.ReadFile(tmpfile.Name())
-			require.NoError(t, err)
-			if test.wantEmpty {
-				assert.Empty(t, got)
-				return
-			}
-
-			want, err := os.ReadFile(test.expected)
-			require.NoError(t, err)
-
-			wantStr := lineEndingReplacer.Replace(string(want))
-			gotStr := lineEndingReplacer.Replace(string(got))
-
-			var wantJSON any
-			require.NoError(t, json.Unmarshal([]byte(wantStr), &wantJSON))
-
-			var gotJSON any
-			require.NoError(t, json.Unmarshal([]byte(gotStr), &gotJSON))
-
-			assert.Equal(t, wantJSON, gotJSON)
-		})
-	}
+	var output bytes.Buffer
+	require.NoError(t, WriteJSON(&output, []Finding{simpleFinding}))
+	want, err := os.ReadFile("../testdata/expected/report/json_simple.json")
+	require.NoError(t, err)
+	assert.JSONEq(t, string(want), output.String())
 }

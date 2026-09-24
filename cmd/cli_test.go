@@ -3,7 +3,6 @@ package cmd
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,8 +15,11 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
+	"time"
 
 	"github.com/alecthomas/kong"
+	configpkg "github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/stretchr/testify/assert"
@@ -294,7 +296,7 @@ keywords = ["fixture-secret-"]
 			if command != "" {
 				args = append(args, command)
 			}
-			args = append(args, srv.URL+"/secret.txt", "--offline", "--jsonl", "--no-banner", "--exit-code", "0")
+			args = append(args, strings.Replace(srv.URL, "http://", "http://user:password@", 1)+"/secret.txt?token=private#fragment", "--offline", "--jsonl", "--no-banner", "--exit-code", "0")
 			root.SetArgs(args)
 			require.NoError(t, root.Execute())
 			if command == "" || command == "auto" {
@@ -310,6 +312,8 @@ keywords = ["fixture-secret-"]
 				return
 			}
 			require.Zero(t, code)
+			metadata, _ := decodeScanJSONL(t, output.Bytes())
+			assert.Equal(t, report.ScanSource{Type: "url", Targets: []string{srv.URL + "/secret.txt"}}, metadata.Source)
 			require.Contains(t, output.String(), "fixture-secret-value")
 			require.Contains(t, output.String(), "url.content")
 			require.EqualValues(t, 1, downloads.Load())
@@ -363,7 +367,8 @@ keywords = ["fixture-secret-"]
 				root.SetArgs(append(args, srv.URL+"/download", "--offline", "--jsonl", "--no-banner"))
 				require.NoError(t, root.Execute())
 				if exclude {
-					require.Empty(t, output.String())
+					_, findings := decodeScanJSONL(t, output.Bytes())
+					require.Empty(t, findings)
 					require.Zero(t, code)
 				} else {
 					require.Contains(t, output.String(), "fixture-secret-value")
@@ -440,7 +445,7 @@ func TestSourceHelpDoesNotFetch(t *testing.T) {
 	require.Zero(t, requests.Load())
 }
 
-func TestImplicitRemoteGitScansHistoryWithLocalConfig(t *testing.T) {
+func TestImplicitRemoteGitScansHistoryWithExplicitConfig(t *testing.T) {
 	local := t.TempDir()
 	t.Chdir(local)
 	require.NoError(t, os.WriteFile(".betterleaks.toml", []byte(`[[rules]]
@@ -479,7 +484,7 @@ keywords = ["fixture-secret-"]
 	for _, explicit := range []bool{false, true} {
 		cli, output := newTestCLI(t)
 		cli.runtime.exit = func(code int) { require.Zero(t, code) }
-		args := []string{srv.URL + "/repo", "--offline", "--jsonl", "--no-banner", "--exit-code", "0", "-j", "1"}
+		args := []string{srv.URL + "/repo", "--config", filepath.Join(local, ".betterleaks.toml"), "--offline", "--jsonl", "--no-banner", "--exit-code", "0", "-j", "1"}
 		if explicit {
 			args = append([]string{"git"}, args...)
 		}
@@ -621,8 +626,7 @@ validate = '''let r = http.get(%q); {"result": "valid"}'''
 			assert.NotContains(t, string(raw), "fixture-secret-alpha")
 			assert.NotContains(t, stdout.String(), "fixture-secret-alpha")
 			assert.NotContains(t, stderr.String(), "fixture-secret-alpha")
-			var findings []report.Finding
-			require.NoError(t, json.Unmarshal(raw, &findings))
+			_, findings := decodeScanJSON(t, raw)
 			require.Len(t, findings, 1)
 			assert.Equal(t, "REDACTED", findings[0].Match.Value)
 			assert.True(t, findings[0].Analysis.IsZero())
@@ -664,10 +668,186 @@ func TestGitFlagsSelectHistoryStagedOrUnstaged(t *testing.T) {
 			require.NoError(t, root.Execute())
 			raw, err := os.ReadFile(outputPath)
 			require.NoError(t, err)
-			var findings []report.Finding
-			require.NoError(t, json.Unmarshal(raw, &findings))
+			metadata, findings := decodeScanJSON(t, raw)
+			assert.Equal(t, report.ScanSource{Type: "git", Targets: []string{repo}}, metadata.Source)
 			require.Len(t, findings, 1)
 			require.Equal(t, tc.want, findings[0].Match.Value)
 		})
 	}
+}
+
+func TestScanReportMultipleTargets(t *testing.T) {
+	configPath := writeTestConfig(t, "[[rules]]\nid='token'\nregex='TOKEN_[AB]'\n[[rules]]\nid='unused'\nregex='NEVER_MATCH'\n")
+	cfg, err := configpkg.LoadFile(configPath)
+	require.NoError(t, err)
+	unselectedHash := cfg.Hash()
+	cfg.Rules = cfg.Rules[:1]
+	wantHash := cfg.Hash()
+	require.NotEqual(t, unselectedHash, wantHash)
+	wantRuleHash, err := cfg.RuleHash("token")
+	require.NoError(t, err)
+	var targets []string
+	for _, token := range []string{"TOKEN_A", "TOKEN_A", "TOKEN_B"} {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".betterleaks.toml"), []byte("invalid TOML ["), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "input.txt"), []byte(token), 0o600))
+		targets = append(targets, dir)
+	}
+	for _, jsonl := range []bool{false, true} {
+		t.Run(fmt.Sprintf("jsonl=%t", jsonl), func(t *testing.T) {
+			root, stdout := newTestCLI(t)
+			var logs bytes.Buffer
+			root.runtime.stderr = &logs
+			args := append([]string{"fs"}, targets...)
+			args = append(args, "--config", configPath, "--offline", "--no-banner", "--exit-code=0", "--disable-rule=unused", "--output=-")
+			if jsonl {
+				args = append(args, "--jsonl")
+			}
+			before := time.Now()
+			root.SetArgs(args)
+			require.NoError(t, root.Execute())
+			var metadata report.ScanMetadata
+			var findings []report.Finding
+			if jsonl {
+				metadata, findings = decodeScanJSONL(t, stdout.Bytes())
+			} else {
+				metadata, findings = decodeScanJSON(t, stdout.Bytes())
+			}
+			assert.Equal(t, wantHash, metadata.ConfigHash)
+			assert.Equal(t, report.ScanSource{Type: "filesystem", Targets: targets}, metadata.Source)
+			assert.Equal(t, uint64(3*(len("TOKEN_A")+len("invalid TOML ["))), metadata.BytesScanned)
+			assert.False(t, metadata.Started.Before(before))
+			assert.False(t, metadata.Finished.Before(metadata.Started))
+			assert.False(t, metadata.Finished.After(time.Now()))
+			for _, timestamp := range []time.Time{metadata.Started, metadata.Finished} {
+				_, offset := timestamp.Zone()
+				assert.Zero(t, offset)
+			}
+			require.Len(t, findings, 3)
+			for _, finding := range findings {
+				assert.Equal(t, wantRuleHash, finding.RuleHash)
+			}
+			assert.Equal(t, 3, strings.Count(logs.String(), "starting scan"))
+			assert.Equal(t, 3, strings.Count(logs.String(), wantHash))
+			assert.Equal(t, 1, strings.Count(logs.String(), "Disabling rules"), "config selection runs once per invocation")
+			assert.NotContains(t, stdout.String(), "starting scan")
+		})
+	}
+}
+
+func TestScanIgnoresImplicitConfigFiles(t *testing.T) {
+	t.Setenv("BETTERLEAKS_CONFIG", "")
+	t.Setenv("BETTERLEAKS_CONFIG_TOML", "")
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	require.NoError(t, os.WriteFile(".betterleaks.toml", []byte("invalid TOML ["), 0o600))
+	var targets []string
+	for range 2 {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".betterleaks.toml"), []byte("invalid TOML ["), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "input.txt"), []byte("GITHUB_TOKEN=ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5\n"), 0o600)) // betterleaks:allow
+		targets = append(targets, dir)
+	}
+	root, stdout := newTestCLI(t)
+	args := append([]string{"fs"}, targets...)
+	root.SetArgs(append(args, "--offline", "--no-banner", "--exit-code=0", "--isolate-rule=github-pat", "--output=-"))
+	require.NoError(t, root.Execute())
+	metadata, findings := decodeScanJSON(t, stdout.Bytes())
+	require.Len(t, findings, 2)
+	defaults, err := configpkg.Default()
+	require.NoError(t, err)
+	rule, ok := defaults.Rule("github-pat")
+	require.True(t, ok)
+	defaults.Rules = []configpkg.Rule{rule}
+	assert.Equal(t, defaults.Hash(), metadata.ConfigHash)
+}
+
+func TestFilesystemSetupFailureFinalizesIncompleteReport(t *testing.T) {
+	for _, jsonl := range []bool{false, true} {
+		for _, failure := range []string{"second target", "finding filter", "source prefilter"} {
+			t.Run(fmt.Sprintf("%s/jsonl=%t", failure, jsonl), func(t *testing.T) {
+				configText := "[[rules]]\nid='token'\nregex='TOKEN'\n"
+				switch failure {
+				case "finding filter":
+					configText = "filter='finding.'\n" + configText
+				case "source prefilter":
+					configText = "prefilter='attributes.'\n" + configText
+				}
+				configPath := writeTestConfig(t, configText)
+				cfg, err := configpkg.LoadFile(configPath)
+				require.NoError(t, err)
+				dir := t.TempDir()
+				const content = "TOKEN\n"
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "input.txt"), []byte(content), 0o600))
+				args := []string{"fs", dir}
+				wantCount := 0
+				var wantBytes uint64
+				if failure == "second target" {
+					args = append(args, filepath.Join(t.TempDir(), "missing"))
+					wantCount, wantBytes = 1, uint64(len(content))
+				}
+				wantSource := report.ScanSource{Type: "filesystem", Targets: args[1:]}
+				args = append(args, "--config", configPath, "--offline", "--no-banner", "--exit-code=0", "--output=-")
+				if jsonl {
+					args = append(args, "--jsonl")
+				}
+				root, stdout := newTestCLI(t)
+				var exits []int
+				root.runtime.exit = func(code int) { exits = append(exits, code) }
+				root.SetArgs(args)
+				require.NoError(t, root.Execute())
+				assert.Equal(t, []int{1}, exits)
+				var metadata report.ScanMetadata
+				var findings []report.Finding
+				if jsonl {
+					metadata, findings = decodeScanJSONL(t, stdout.Bytes())
+				} else {
+					metadata, findings = decodeScanJSON(t, stdout.Bytes())
+				}
+				assert.Equal(t, report.ScanStateIncomplete, metadata.State)
+				assert.Equal(t, wantSource, metadata.Source)
+				assert.Equal(t, cfg.Hash(), metadata.ConfigHash)
+				assert.Equal(t, wantBytes, metadata.BytesScanned)
+				assert.Equal(t, wantCount, metadata.NumFindings)
+				require.Len(t, findings, wantCount)
+				if wantCount > 0 {
+					assert.Equal(t, "TOKEN", findings[0].Match.Value)
+				}
+			})
+		}
+	}
+}
+
+func TestStdinReadFailureFinalizesIncompleteReport(t *testing.T) {
+	configPath := writeTestConfig(t, "[[rules]]\nid='token'\nregex='TOKEN'\n")
+	root, stdout := newTestCLI(t)
+	root.SetIn(iotest.ErrReader(fmt.Errorf("input failed")))
+	var exitCode int
+	root.runtime.exit = func(code int) { exitCode = code }
+	root.SetArgs([]string{"stdin", "--config", configPath, "--offline", "--no-banner", "--output=-"})
+	require.NoError(t, root.Execute())
+	metadata, findings := decodeScanJSON(t, stdout.Bytes())
+	assert.Equal(t, report.ScanStateIncomplete, metadata.State)
+	assert.Equal(t, 1, exitCode)
+	assert.Empty(t, findings)
+	assert.Zero(t, metadata.BytesScanned)
+}
+
+func TestCorruptArchiveWarningKeepsScanComplete(t *testing.T) {
+	configPath := writeTestConfig(t, "[[rules]]\nid='token'\nregex='TOKEN'\n")
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.gz"), []byte{0x1f, 0x8b, 0x08, 0x00}, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "input.txt"), []byte("TOKEN\n"), 0o600))
+	root, stdout := newTestCLI(t)
+	var logs bytes.Buffer
+	root.runtime.stderr = &logs
+	var exitCode int
+	root.runtime.exit = func(code int) { exitCode = code }
+	root.SetArgs([]string{"fs", dir, "--config", configPath, "--offline", "--no-banner", "--no-color", "--exit-code=0", "--output=-"})
+	require.NoError(t, root.Execute())
+	metadata, findings := decodeScanJSON(t, stdout.Bytes())
+	assert.Equal(t, report.ScanStateComplete, metadata.State)
+	assert.Zero(t, exitCode)
+	require.Len(t, findings, 1)
+	assert.Contains(t, logs.String(), "could not read compressed file")
 }

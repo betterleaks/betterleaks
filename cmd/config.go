@@ -21,6 +21,30 @@ type ConfigCmd struct {
 	Check ConfigCheckCmd `cmd:"" help:"Validate a betterleaks config."`
 	Show  ConfigShowCmd  `cmd:"" help:"Print the resolved betterleaks config."`
 	Path  ConfigPathCmd  `cmd:"" help:"Print the selected config source."`
+	Hash  ConfigHashCmd  `cmd:"" help:"Print the hash of the resolved config or one rule."`
+}
+
+type ConfigHashCmd struct {
+	Rule string `help:"Hash this rule and its component definitions instead of the whole config."`
+	Path string `arg:"" optional:"" name:"config-path" help:"Config file to hash."`
+}
+
+func (cmd *ConfigHashCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	resolved, err := resolveConfig(runtime, cli.Config, cmd.Path)
+	if err != nil {
+		return err
+	}
+	var hash string
+	if cmd.Rule == "" {
+		hash = resolved.cfg.Hash()
+	} else {
+		hash, err = resolved.cfg.RuleHash(cmd.Rule)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintln(runtime.stdout, hash)
+	return err
 }
 
 type ConfigCheckCmd struct {
@@ -96,9 +120,6 @@ func resolveConfig(runtime *commandRuntime, configPath, argumentPath string) (*r
 			return nil, err
 		}
 		return &resolvedConfig{cfg: cfg, source: "env:BETTERLEAKS_CONFIG_TOML"}, nil
-	}
-	if path := findConfigFile("."); path != "" {
-		return loadConfigFile(path, loadOption)
 	}
 	cfg, err := configpkg.Default(loadOption)
 	if err != nil {

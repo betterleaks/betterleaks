@@ -69,26 +69,27 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	}
 
 	// setup config (aka, the thing that defines rules)
-	configSource, ignoreSource := source, source
+	ignoreSource := source
 	remote := remoteGitURL(source)
 	if remote {
-		configSource, ignoreSource = ".", ""
+		ignoreSource = ""
 	}
-	initConfig(runtime, globals, &options.ScanFlags, configSource)
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
 	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config(runtime)
-
 	// create runner
-	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, ignoreSource)
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, ignoreSource)
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
+	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
 
-	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
-
-	var (
-		err error
-		src sources.Source
-	)
+	var src sources.Source
 
 	if options.Unstaged || options.Staged {
 		mode := sources.GitWorkingTree
@@ -137,6 +138,8 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		src = gitSource
 	}
 
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "git", source)
+	findings.startScan(runtime)
 	summary, err := runner.Scan(runtime.Context, src, findings.Add)
 	if err != nil {
 		runtime.Logger().Error("failed to scan Git repository", "error", err)

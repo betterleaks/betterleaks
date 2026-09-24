@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -212,8 +210,9 @@ analyze = '''
 			root.SetArgs(args)
 			require.NoError(t, root.Execute())
 
-			var finding report.Finding
-			require.NoError(t, json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &finding))
+			_, findings := decodeScanJSONL(t, stdout.Bytes())
+			require.Len(t, findings, 1)
+			finding := findings[0]
 			if !test.wantValidation {
 				assert.Empty(t, finding.Analysis.Status)
 				assert.True(t, finding.Analysis.IsZero())
@@ -232,6 +231,56 @@ analyze = '''
 			require.NotNil(t, finding.Analysis.Identity)
 			assert.Equal(t, "user-1", finding.Analysis.Identity.ID)
 		})
+	}
+}
+
+func TestScanReportCountsAfterStatusFilter(t *testing.T) {
+	configPath := writeTestConfig(t, `
+[[rules]]
+id = "test-token"
+regex = '''secret-[a-z]+'''
+confidence = "high"
+validate = '''
+{"result": finding.secret == "secret-live" ? "valid" : finding.secret == "secret-dead" ? "invalid" : "error"}
+'''
+`)
+	for _, jsonl := range []bool{false, true} {
+		for _, status := range []string{"", "valid", "revoked"} {
+			t.Run(fmt.Sprintf("jsonl=%t/status=%s", jsonl, status), func(t *testing.T) {
+				root, stdout := newTestCLI(t)
+				root.SetIn(strings.NewReader("secret-live\nsecret-dead\nsecret-error\n"))
+				args := []string{"stdin", "--config", configPath, "--no-banner", "--no-analysis", "--exit-code=0", "--output=-"}
+				if jsonl {
+					args = append(args, "--jsonl")
+				}
+				if status != "" {
+					args = append(args, "--status", status)
+				}
+				root.SetArgs(args)
+				require.NoError(t, root.Execute())
+				var metadata report.ScanMetadata
+				if jsonl {
+					metadata, _ = decodeScanJSONL(t, stdout.Bytes())
+				} else {
+					metadata, _ = decodeScanJSON(t, stdout.Bytes())
+				}
+				assert.Equal(t, report.ScanStateComplete, metadata.State)
+				wantCount := 0
+				var wantStatuses report.StatusCounts
+				switch status {
+				case "":
+					wantCount = 3
+					wantStatuses = report.StatusCounts{Valid: 1, Invalid: 1, Error: 1}
+				case "valid":
+					wantCount = 1
+					wantStatuses = report.StatusCounts{Valid: 1}
+				}
+				assert.Equal(t, wantCount, metadata.NumFindings)
+				assert.Equal(t, wantStatuses, metadata.StatusCounts)
+				assert.Equal(t, report.ConfidenceCounts{High: wantCount}, metadata.ConfidenceCounts)
+				assert.Equal(t, report.SeverityCounts{None: wantCount}, metadata.SeverityCounts)
+			})
+		}
 	}
 }
 

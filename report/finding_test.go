@@ -222,6 +222,12 @@ func TestFindingJSONSchema(t *testing.T) {
 	assert.NotContains(t, got["attributes"], "path")
 	assert.NotContains(t, got, "StartLine")
 	assert.NotContains(t, got, "ValidationStatus")
+	assert.NotContains(t, got, "schema_version")
+	assert.NotContains(t, got, "tags")
+	f.Tags = nil
+	withoutTags, err := json.Marshal(f)
+	require.NoError(t, err)
+	assert.Equal(t, data, withoutTags, "nil and empty tags are both omitted")
 
 	var roundTrip Finding
 	require.NoError(t, json.Unmarshal(data, &roundTrip))

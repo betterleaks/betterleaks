@@ -65,7 +65,7 @@ finding.secret != "" ? {
 		t.Fatalf("decode report: %v\n%s", err, stdout.String())
 	}
 	if got.SchemaVersion != report.CredentialReportSchemaVersion {
-		t.Fatalf("schema version = %d, want %d", got.SchemaVersion, report.CredentialReportSchemaVersion)
+		t.Fatalf("schema version = %s, want %s", got.SchemaVersion, report.CredentialReportSchemaVersion)
 	}
 	if got.RuleID != "test-token" {
 		t.Fatalf("rule ID = %q", got.RuleID)

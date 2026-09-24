@@ -26,12 +26,19 @@ func (cmd *S3Cmd) Run(cli *CLI, runtime *commandRuntime) error {
 func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 	start := time.Now()
 
-	initConfig(runtime, globals, &options.ScanFlags, ".")
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
 	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config(runtime)
-	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
+	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
 
 	src := &s3.Source{
 		Logger:          runtime.Logger(),
@@ -47,8 +54,9 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 		MaxArchiveDepth: options.MaxArchiveDepth,
 	}
 
-	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "s3", options.URL)
 
+	findings.startScan(runtime)
 	summary, scanErr := runner.Scan(runtime.Context, src, findings.Add)
 	if scanErr != nil {
 		runtime.Logger().Error("scan error", "error", scanErr)

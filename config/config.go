@@ -2,7 +2,9 @@ package config
 
 import (
 	"bytes"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -259,6 +261,123 @@ func (c *Config) Rule(id string) (Rule, bool) {
 		}
 	}
 	return Rule{}, false
+}
+
+// Hash identifies the resolved configuration, including rule order, finding
+// metadata, global filters, and validate, analyze, and revoke expressions. Config
+// title, description, path, and minimum version are excluded.
+//
+// The hash describes the current configuration; it is not cached or validated.
+// Compute it after customization, from the same state used to construct the
+// scanner and source filters. A nil Config returns an empty string.
+//
+// This is one cache-key input, not an identity for scan results: callers must
+// also account for input, source and scanner options, implementation versions,
+// and output policy. The result is a lowercase SHA-256 hex string.
+func (c *Config) Hash() string {
+	if c == nil {
+		return ""
+	}
+	data := appendHashString(nil, c.Prefilter)
+	data = appendHashString(data, c.Filter)
+	data = binary.AppendUvarint(data, uint64(len(c.Rules)))
+	for _, rule := range c.Rules {
+		// Every component definition is already present in the resolved rules.
+		data = appendHashRule(data, rule)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+// RuleHash identifies a rule and its required and optional component definitions,
+// including finding metadata and validate, analyze, and revoke expressions.
+// Global filters are excluded. The resolved configuration must
+// pass Validate, and ruleID must exist. No provider expressions are compiled.
+//
+// An unchanged hash does not guarantee unchanged final findings: global filters
+// and competing rules can still affect them. Use Hash for the complete
+// configuration. Like Hash, this describes current config data rather
+// than an existing scanner's snapshot. The result is a lowercase SHA-256 hex string.
+func (c *Config) RuleHash(ruleID string) (string, error) {
+	if err := c.Validate(); err != nil {
+		return "", err
+	}
+	rule, ok := c.Rule(ruleID)
+	if !ok {
+		return "", fmt.Errorf("rule %q not found in config", ruleID)
+	}
+	return c.ruleHash(rule), nil
+}
+
+// RuleHashes returns the component-aware hash of every rule,
+// keyed by rule ID. It validates the configuration once. The returned map belongs
+// to the caller and does not change when Config is modified.
+func (c *Config) RuleHashes() (map[string]string, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	hashes := make(map[string]string, len(c.Rules))
+	for _, rule := range c.Rules {
+		hashes[rule.ID] = c.ruleHash(rule)
+	}
+	return hashes, nil
+}
+
+func (c *Config) ruleHash(rule Rule) string {
+	data := appendHashRule(nil, rule)
+	for _, component := range rule.Components {
+		// Validate ensures references exist and components have no components.
+		componentRule, _ := c.Rule(component.RuleID)
+		data = appendHashRule(data, componentRule)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+// Length prefixes preserve field boundaries and arbitrary string bytes. Keep
+// this explicit field order stable to avoid invalidating unchanged configs.
+// Nil and empty slices intentionally share an encoding.
+func appendHashRule(data []byte, rule Rule) []byte {
+	data = appendHashString(data, rule.ID)
+	data = appendHashString(data, rule.Description)
+	data = appendHashString(data, rule.Regex)
+	data = appendHashString(data, rule.Path)
+	data = binary.AppendVarint(data, int64(rule.SecretGroup))
+	data = appendHashStrings(data, rule.Keywords)
+	data = appendHashStrings(data, rule.Tags)
+	data = binary.AppendVarint(data, int64(rule.Specificity))
+	data = appendHashString(data, rule.Confidence)
+	data = appendHashString(data, rule.Filter)
+	if rule.SkipReport {
+		data = append(data, 1)
+	} else {
+		data = append(data, 0)
+	}
+	data = binary.AppendUvarint(data, uint64(len(rule.Components)))
+	for _, component := range rule.Components {
+		data = appendHashString(data, component.RuleID)
+		data = appendHashString(data, component.Within)
+		if component.Optional {
+			data = append(data, 1)
+		} else {
+			data = append(data, 0)
+		}
+	}
+	data = appendHashString(data, rule.ValidateExpr)
+	data = appendHashString(data, rule.AnalyzeExpr)
+	data = appendHashString(data, rule.RevokeExpr)
+	return data
+}
+
+func appendHashString(data []byte, value string) []byte {
+	data = binary.AppendUvarint(data, uint64(len(value)))
+	return append(data, value...)
+}
+
+func appendHashStrings(data []byte, values []string) []byte {
+	data = binary.AppendUvarint(data, uint64(len(values)))
+	for _, value := range values {
+		data = appendHashString(data, value)
+	}
+	return data
 }
 
 // Validate checks the resolved declarative configuration without mutating it.

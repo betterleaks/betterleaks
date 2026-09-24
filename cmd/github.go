@@ -29,12 +29,19 @@ func (cmd *GitHubCmd) Run(cli *CLI, runtime *commandRuntime) error {
 func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd) {
 	start := time.Now()
 
-	initConfig(runtime, globals, &options.ScanFlags, ".")
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
 	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config(runtime)
-	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
+	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
 
 	targetURL := options.TargetURL
 
@@ -46,7 +53,6 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 
 	// Parse date range flags.
 	var since, until time.Time
-	var err error
 	if s := options.Since; s != "" {
 		since, err = parseDateFlag(s)
 		if err != nil {
@@ -80,8 +86,9 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		},
 	}
 
-	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "github", options.TargetURL)
 
+	findings.startScan(runtime)
 	summary, scanErr := runner.Scan(runtime.Context, src, findings.Add)
 	if scanErr != nil {
 		runtime.Logger().Error("scan error", "error", scanErr)
