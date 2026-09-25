@@ -38,7 +38,7 @@ type Files struct {
 	MaxFileSize     int
 	Path            string
 	MaxArchiveDepth int
-	Workers         int // 0 is automatic
+	Workers         int // 0 uses GOMAXPROCS workers.
 	budget          *sourceworkers.Budget
 }
 
@@ -160,7 +160,8 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	g, groupCtx := errgroup.WithContext(ctx)
-	workers := sourceworkers.WithinBudget(s.Workers, sourceworkers.AutomaticFiles(), s.budget)
+	// Extra readers retain buffers and decompressor workspaces while detection catches up.
+	workers := sourceworkers.WithinBudget(s.Workers, sourceworkers.Automatic(), s.budget)
 	paths := make(chan filePath, workers)
 	for range workers {
 		g.Go(func() error {

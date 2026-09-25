@@ -41,13 +41,15 @@ The CLI has three independent worker limits:
 
 | Stage | Default | Override |
 | :--- | :--- | :--- |
-| Source: read files or download content | 4; filesystem uses 120 | `--jobs` |
+| Source: read files or download content | 4; filesystem uses `GOMAXPROCS` | `--jobs` |
 | Detection: scan source text for secrets | `GOMAXPROCS` | `--jobs`, capped at `GOMAXPROCS` |
 | Analyze: validate credentials, then optionally analyze them | 10 | `--provider-workers` |
 
 These limits add capacity to separate stages; they are not a shared pool.
 For example, with `GOMAXPROCS=10`, an online filesystem scan can have up to
-120 source operations, 10 detections, and 10 credential evaluations in progress.
+10 source operations, 10 detections, and 10 credential evaluations in progress.
+Filesystem readers are limited to CPU parallelism by default because additional
+readers retain buffers and archive workspaces while waiting for detection.
 Git, S3, GitHub, GitLab, and Hugging Face instead default to 4 source slots,
 with the same 10 detection and 10 credential-evaluation slots on that machine.
 `--offline` disables credential evaluations. `--no-analysis` retains validation
@@ -57,8 +59,9 @@ Sources enforce their own tighter limits. Git history processes are capped at
 `GOMAXPROCS`. GitHub, GitLab, and Hugging Face schedule at most four repositories
 at once (one for a single-repository target), sharing the source budget across
 nested Git/download work. This repository cap does not reduce detection slots.
-URL and stdin have no source worker pool. These CLI defaults do not change the
-Go source API's own automatic behavior for `Workers: 0`.
+URL and stdin have no source worker pool. The filesystem CLI and Go API use the
+same automatic limit for `Workers: 0`; other sources may use different automatic
+limits in the Go API.
 
 `-j 1` serializes source work and detection; use `--provider-workers=1` as well
 to serialize credential evaluations. Provider request rate limits are separate.

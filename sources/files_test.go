@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -66,59 +67,75 @@ func TestFilesFragmentsOwnContents(t *testing.T) {
 	}
 }
 
-func TestFilesCancellationJoinsReaders(t *testing.T) {
+func TestFilesConcurrencyAndCancellation(t *testing.T) {
 	root := t.TempDir()
 	for i := range 32 {
 		require.NoError(t, os.WriteFile(filepath.Join(root, fmt.Sprintf("%d.txt", i)), []byte("content"), 0o600))
 	}
-	for _, cancelScan := range []bool{false, true} {
-		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-		defer cancel()
-		source := &Files{Path: root, Workers: 2}
-		started := make(chan struct{}, 32)
-		release := make(chan struct{})
-		done := make(chan error, 1)
-		callbackErr := errors.New("stop callback")
-		go func() {
-			done <- source.Fragments(ctx, func(_ Fragment, err error) error {
-				if err != nil {
-					return err
+	for _, test := range []struct {
+		name    string
+		cpus    int
+		workers int
+		want    int
+	}{
+		{name: "automatic single CPU", cpus: 1, want: 1},
+		{name: "automatic two CPUs", cpus: 2, want: 2},
+		{name: "automatic ten CPUs", cpus: 10, want: 10},
+		{name: "explicit workers exceed CPUs", cpus: 2, workers: 3, want: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			previous := runtime.GOMAXPROCS(test.cpus)
+			t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+			for _, cancelScan := range []bool{false, true} {
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+				source := &Files{Path: root, Workers: test.workers}
+				started := make(chan struct{}, 32)
+				release := make(chan struct{})
+				done := make(chan error, 1)
+				callbackErr := errors.New("stop callback")
+				go func() {
+					done <- source.Fragments(ctx, func(_ Fragment, err error) error {
+						if err != nil {
+							return err
+						}
+						started <- struct{}{}
+						select {
+						case <-release:
+							return callbackErr
+						case <-ctx.Done():
+							return nil
+						}
+					})
+				}()
+				for range test.want {
+					select {
+					case <-started:
+					case <-ctx.Done():
+						t.Fatal("workers failed to start")
+					}
 				}
-				started <- struct{}{}
 				select {
-				case <-release:
-					return callbackErr
-				case <-ctx.Done():
-					return nil
+				case <-started:
+					t.Fatal("exceeded the file worker limit")
+				case <-time.After(20 * time.Millisecond):
 				}
-			})
-		}()
-		for range source.Workers {
-			select {
-			case <-started:
-			case <-ctx.Done():
-				t.Fatal("workers failed to start")
+				want := callbackErr
+				if cancelScan {
+					want = context.Canceled
+					cancel()
+				} else {
+					close(release)
+				}
+				select {
+				case err := <-done:
+					require.ErrorIs(t, err, want)
+				case <-time.After(5 * time.Second):
+					t.Fatal("source did not join its workers")
+				}
+				cancel()
 			}
-		}
-		select {
-		case <-started:
-			t.Fatal("exceeded the file worker limit")
-		case <-time.After(20 * time.Millisecond):
-		}
-		want := callbackErr
-		if cancelScan {
-			want = context.Canceled
-			cancel()
-		} else {
-			close(release)
-		}
-		select {
-		case err := <-done:
-			require.ErrorIs(t, err, want)
-		case <-time.After(5 * time.Second):
-			t.Fatal("source did not join its workers")
-		}
-		cancel()
+		})
 	}
 }
 

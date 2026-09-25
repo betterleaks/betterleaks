@@ -22,11 +22,6 @@ func AutomaticGit() int {
 	return min(Automatic(), 4)
 }
 
-func AutomaticFiles() int {
-	processorCount := Automatic()
-	return max(processorCount, min(processorCount*12, 120))
-}
-
 func AutomaticObjects() int {
 	return Automatic() * 2
 }

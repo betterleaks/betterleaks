@@ -396,9 +396,8 @@ func TestWorkerLimits(t *testing.T) {
 			previous := runtime.GOMAXPROCS(cpus)
 			t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 
-			// Source and analyze defaults are independent of available CPUs.
+			// Provider source and analyze defaults are independent of available CPUs.
 			require.Equal(t, 4, resolveSourceWorkers(0, defaultSourceWorkers))
-			require.Equal(t, 120, resolveSourceWorkers(0, defaultFilesystemWorkers))
 			require.Equal(t, cpus, resolveScanWorkers(0))
 			require.Equal(t, 10, resolveAnalyzeWorkers(0))
 
@@ -406,9 +405,7 @@ func TestWorkerLimits(t *testing.T) {
 			require.Equal(t, cpus+3, resolveSourceWorkers(cpus+3, defaultSourceWorkers))
 			require.Equal(t, cpus, resolveScanWorkers(cpus+3))
 			require.Equal(t, 1, resolveSourceWorkers(1, defaultSourceWorkers))
-			require.Equal(t, 1, resolveSourceWorkers(1, defaultFilesystemWorkers))
 			require.Equal(t, 8, resolveSourceWorkers(8, defaultSourceWorkers))
-			require.Equal(t, 8, resolveSourceWorkers(8, defaultFilesystemWorkers))
 			require.Equal(t, 1, resolveScanWorkers(1))
 			require.Equal(t, 25, resolveAnalyzeWorkers(25))
 		})

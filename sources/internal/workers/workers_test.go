@@ -31,11 +31,8 @@ func TestProviderTargetWorkers(t *testing.T) {
 	}
 }
 
-func TestAutomaticSourceWorkersUseAdditionalIOFanout(t *testing.T) {
+func TestAutomaticObjectWorkersUseAdditionalIOFanout(t *testing.T) {
 	processorCount := Automatic()
-	if got, want := AutomaticFiles(), max(processorCount, min(processorCount*12, 120)); got != want {
-		t.Fatalf("AutomaticFiles() = %d, want %d", got, want)
-	}
 	if got, want := AutomaticObjects(), processorCount*2; got != want {
 		t.Fatalf("AutomaticObjects() = %d, want %d", got, want)
 	}
