@@ -325,6 +325,11 @@
           "type": "string",
           "description": "Extracted value. May be a non-secret component, empty for path-only findings, or redacted."
         },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the original match.value bytes as 64 lowercase hexadecimal characters without a prefix, using the .betterleaksignore format. The value may be a secret or a non-secret component, such as an account ID. Preserved through redaction and analysis. Supplied by Scanner for non-empty primary and component values; may be absent on externally constructed matches."
+        },
         "captures": {
           "$ref": "#/$defs/stringMap",
           "description": "Named regex captures from this match."

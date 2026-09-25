@@ -233,7 +233,7 @@ func TestCryptoFingerprintProviderStages(t *testing.T) {
 				got, err = result.Value, evalErr
 			}
 			require.NoError(t, err)
-			require.Equal(t, "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", got)
+			require.Equal(t, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", got)
 		})
 	}
 }

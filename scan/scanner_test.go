@@ -140,6 +140,7 @@ func TestIgnoredFingerprintsUseExtractedSecret(t *testing.T) {
 		findings := scanner.ScanString(input)
 		require.Len(t, findings, 1)
 		assert.Equal(t, "secret-visible", findings[0].Match.Value)
+		assert.Equal(t, fingerprint.Format(fingerprint.Sum([]byte("secret-visible"))), findings[0].Match.Fingerprint)
 	}
 	// A fingerprint of the entire regex match must not suppress its capture.
 	scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("token=secret-ignored"))))
@@ -373,7 +374,7 @@ func TestScannerDoesNotCompileProviderExpressions(t *testing.T) {
 	}
 }
 
-func TestScannerRuleHashes(t *testing.T) {
+func TestScannerHashes(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
 		{ID: "primary", Regex: "PRIMARY", Components: []config.Component{{RuleID: "part"}}},
 		{ID: "part", Regex: "COMPONENT", SkipReport: true},
@@ -396,21 +397,41 @@ func TestScannerRuleHashes(t *testing.T) {
 	for _, finding := range findings {
 		require.Equal(t, wantHashes[finding.RuleID], finding.RuleHash)
 		if finding.RuleID == "primary" {
+			require.Equal(t, fingerprint.Format(fingerprint.Sum([]byte("PRIMARY"))), finding.Match.Fingerprint)
 			require.Len(t, finding.ComponentSets, 1)
 			require.Len(t, finding.ComponentSets[0].Components, 1)
 			require.Equal(t, wantHashes["part"], finding.ComponentSets[0].Components[0].RuleHash)
+			require.Equal(t, fingerprint.Format(fingerprint.Sum([]byte("COMPONENT"))), finding.ComponentSets[0].Components[0].Match.Fingerprint)
+		} else {
+			require.Empty(t, finding.Match.Fingerprint)
 		}
 		var decoded report.Finding
 		data, err := json.Marshal(finding.RedactedCopy(100))
 		require.NoError(t, err)
 		require.NoError(t, json.Unmarshal(data, &decoded))
 		assert.Equal(t, finding.RuleHash, decoded.RuleHash)
+		assert.Equal(t, finding.Match.Fingerprint, decoded.Match.Fingerprint)
 		if finding.RuleID == "primary" {
 			assert.Equal(t, wantHashes["part"], decoded.ComponentSets[0].Components[0].RuleHash)
+			assert.Equal(t, finding.ComponentSets[0].Components[0].Match.Fingerprint, decoded.ComponentSets[0].Components[0].Match.Fingerprint)
+			assert.Equal(t, "REDACTED", decoded.Match.Value)
+			parsed, err := fingerprint.Parse(decoded.ComponentSets[0].Components[0].Match.Fingerprint)
+			require.NoError(t, err)
+			// An entry copied from a redacted component suppresses its parent.
+			originalCfg := &config.Config{Rules: []config.Rule{
+				{ID: "primary", Regex: "PRIMARY", Components: []config.Component{{RuleID: "part"}}},
+				{ID: "part", Regex: "COMPONENT", SkipReport: true},
+			}}
+			assert.Empty(t, mustNew(t, originalCfg, WithIgnoredFingerprints(parsed)).ScanString("PRIMARY COMPONENT"))
+		} else {
+			assert.NotContains(t, string(data), `"fingerprint"`)
 		}
 		var pretty bytes.Buffer
 		require.NoError(t, report.WritePretty(&pretty, finding, report.PrettyOptions{NoColor: true}))
 		assert.NotContains(t, pretty.String(), finding.RuleHash)
+		if finding.Match.Fingerprint != "" {
+			assert.NotContains(t, pretty.String(), finding.Match.Fingerprint)
+		}
 	}
 }
 
@@ -632,10 +653,12 @@ func stripFindingMetadata(findings []report.Finding) []report.Finding {
 	for i := range findings {
 		findings[i].Attributes = nil
 		findings[i].RuleHash = ""
+		findings[i].Match.Fingerprint = ""
 		findings[i].Location.Path = ""
 		for si := range findings[i].ComponentSets {
 			for ci := range findings[i].ComponentSets[si].Components {
 				findings[i].ComponentSets[si].Components[ci].Location.Path = ""
+				findings[i].ComponentSets[si].Components[ci].Match.Fingerprint = ""
 			}
 		}
 	}
@@ -2738,6 +2761,7 @@ func TestBinaryFindingReports(t *testing.T) {
 					assert.Zero(t, f.DecodeDepth)
 				}
 				require.Equal(t, token, f.Match.Value)
+				require.Equal(t, fingerprint.Format(fingerprint.Sum([]byte(token))), f.Match.Fingerprint)
 				require.Equal(t, token, f.Match.Full)
 				assert.Equal(t, payload, raw[f.Location.StartColumn-1:f.Location.EndColumn])
 				var pretty bytes.Buffer
@@ -2763,6 +2787,7 @@ func TestBinaryFindingReports(t *testing.T) {
 					}
 					require.Len(t, got, 1)
 					assert.Equal(t, f.Match.Value, got[0].Match.Value)
+					assert.Equal(t, f.Match.Fingerprint, got[0].Match.Fingerprint)
 					assert.Equal(t, f.Match.Full, got[0].Match.Full)
 					assert.Equal(t, f.Location, got[0].Location)
 					assert.Empty(t, got[0].Tags)
@@ -3667,7 +3692,7 @@ func TestFindingMatchAndLocationHandoff(t *testing.T) {
 	summary, err := scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("token=alpha"), Attributes: attrs}, func(f report.Finding) error { finding = f; return nil })
 	require.NoError(t, err)
 	require.Equal(t, 1, summary.Findings)
-	require.Equal(t, report.Match{Full: "token=alpha", Value: "alpha", Captures: map[string]string{"token": "alpha"}, Line: "token=alpha"}, finding.Match)
+	require.Equal(t, report.Match{Full: "token=alpha", Value: "alpha", Fingerprint: fingerprint.Format(fingerprint.Sum([]byte("alpha"))), Captures: map[string]string{"token": "alpha"}, Line: "token=alpha"}, finding.Match)
 	require.Equal(t, "archive.zip!service.env", finding.Location.Path)
 	require.Equal(t, 1, finding.Location.StartLine)
 	require.Equal(t, "high", finding.Confidence)

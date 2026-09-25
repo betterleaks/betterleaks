@@ -244,9 +244,10 @@ and [explicit revocation](config.md#explicit-credential-revocation).
 
 ### Ignore files
 
-v2 `.betterleaksignore` entries are `sha256:<64 hex characters>` over the exact
-secret bytes. They suppress that primary secret and exclude matching component
-values across rules, paths, commits, and sources. If a required component has no
+v2 `.betterleaksignore` entries are bare SHA-256 digests (64 hexadecimal
+characters) over the exact secret bytes. The `sha256:` prefix is not accepted.
+They suppress that primary secret and exclude matching component values across
+rules, paths, commits, and sources. If a required component has no
 remaining matches, the primary is suppressed. Ignored optional components are
 treated as absent, so the primary survives without them.
 Legacy location fingerprints and `.gitleaksignore` discovery are
@@ -288,7 +289,12 @@ The Go fields and serialized names have changed together:
 | `ValidationStatus`, `ValidationReason`, `ValidationMeta` | `Analysis.Status`, `Analysis.StatusReason`, `Analysis.StatusMetadata` | `analysis.status`, `analysis.status_reason`, `analysis.status_metadata` |
 | `Commit`, `Author`, etc. | Source metadata in `Attributes` | `attributes`, using keys such as `git.sha` and `git.author_name`. |
 
-Legacy `Fingerprint`, `Entropy`, and `Fragment` fields are gone. `tags` remains
+The legacy location-based `Fingerprint` is replaced by `Match.Fingerprint`
+(`match.fingerprint` in JSON): SHA-256 of the original `match.value` bytes as
+64 lowercase hexadecimal characters without a prefix, in `.betterleaksignore`
+format. It is included on non-empty primary and component matches, including
+non-secret components such as account IDs, and preserved through redaction and
+analysis. `Entropy` and `Fragment` fields are gone. `tags` remains
 available for rule labels and is omitted when empty. Decoding uses `encodings`
 and `decode_depth`, not generated `decoded:*` tags. Source coordinates point to
 the encoded input; `match.value` contains the extracted secret. JSON encoding

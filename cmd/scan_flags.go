@@ -18,7 +18,7 @@ type ScanFlags struct {
 	MaxArchiveDepth     int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
 	DisableRule         []string `group:"scanning" name:"disable-rule" help:"Disable specific rules by id (repeatable; shorthand: -dr)."`
 	IsolateRule         []string `group:"scanning" name:"isolate-rule" help:"Only enable specific rules by id (repeatable; shorthand: -ir)."`
-	IgnoreFile          string   `group:"scanning" name:"ignore-file" placeholder:"PATH" help:"Read secret fingerprints from PATH."`
+	IgnoreFile          string   `group:"scanning" name:"ignore-file" placeholder:"PATH" help:"Read value fingerprints from PATH."`
 	IgnoreAllowComments bool     `group:"scanning" name:"no-allow-comments" help:"Ignore allow comments."`
 
 	Output       string     `group:"output" name:"output" short:"o" placeholder:"PATH" help:"Write findings to PATH (.json or .jsonl; use '-' for stdout)."`

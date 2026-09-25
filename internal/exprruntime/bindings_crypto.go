@@ -41,7 +41,7 @@ func hmacSha1Bytes(key, msg []byte) []byte {
 	return h.Sum(nil)
 }
 
-// sha256Fingerprint returns the canonical ignore-file fingerprint, not raw digest bytes.
+// sha256Fingerprint hashes exact string bytes in the same format as match.fingerprint.
 func sha256Fingerprint(value string) string {
 	return fingerprint.Format(fingerprint.Sum([]byte(value)))
 }

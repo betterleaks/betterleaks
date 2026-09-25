@@ -151,7 +151,7 @@ func TestFilterEntropy(t *testing.T) {
 func TestFilterSHA256(t *testing.T) {
 	env, err := New(nil)
 	require.NoError(t, err)
-	prg, err := env.CompileFilter("crypto.sha256(finding[\"secret\"]) in [\"sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"]", nil)
+	prg, err := env.CompileFilter("crypto.sha256(finding[\"secret\"]) in [\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"]", nil)
 	require.NoError(t, err)
 
 	for secret, want := range map[string]bool{"abc": true, "ABC": false, "abc\n": false, "abc ": false} {

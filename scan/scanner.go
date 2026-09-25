@@ -558,18 +558,21 @@ ScanLoop:
 						break RulesLoop
 					}
 					for _, finding := range ruleFindings {
+						if !confidence.Meets(finding.Confidence, s.minimumConfidence) {
+							continue
+						}
 						// Components are checked during assembly; an ignored primary
 						// suppresses every combination that remains.
-						if len(s.ignoredFingerprints) > 0 {
-							if _, ignored := s.ignoredFingerprints[fingerprint.Sum([]byte(finding.Match.Value))]; ignored {
-								continue
-							}
+						hash := fingerprint.Sum([]byte(finding.Match.Value))
+						if _, ignored := s.ignoredFingerprints[hash]; ignored {
+							continue
 						}
-						if confidence.Meets(finding.Confidence, s.minimumConfidence) {
-							findings = append(findings, finding)
-							priorFindings.findings = findings
-							priorFindings.add(len(findings) - 1)
+						if finding.Match.Value != "" {
+							finding.Match.Fingerprint = fingerprint.Format(hash)
 						}
+						findings = append(findings, finding)
+						priorFindings.findings = findings
+						priorFindings.add(len(findings) - 1)
 					}
 				}
 			}
@@ -1042,10 +1045,12 @@ nextPrimary:
 			before := len(componentFindings)
 			for _, found := range allComponentFindings[i] {
 				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, component.window) {
-					if len(s.ignoredFingerprints) > 0 {
-						if _, ignored := s.ignoredFingerprints[fingerprint.Sum([]byte(found.Match.Value))]; ignored {
-							continue
-						}
+					hash := fingerprint.Sum([]byte(found.Match.Value))
+					if _, ignored := s.ignoredFingerprints[hash]; ignored {
+						continue
+					}
+					if found.Match.Value != "" {
+						found.Match.Fingerprint = fingerprint.Format(hash)
 					}
 					componentFindings = append(componentFindings, report.ComponentFinding{
 						RuleID:      found.RuleID,

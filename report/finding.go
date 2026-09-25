@@ -86,9 +86,15 @@ func reportAttributes(attributes map[string]string) map[string]string {
 // Match groups matched text, the extracted value, and retained source text.
 // A component or path rule need not identify a secret.
 type Match struct {
-	Full     string            `json:"full"`
-	Value    string            `json:"value"`
-	Captures map[string]string `json:"captures,omitempty"`
+	Full  string `json:"full"`
+	Value string `json:"value"`
+	// Fingerprint is the SHA-256 hash of the original Value bytes as 64 lowercase
+	// hexadecimal characters without a prefix, independently of rule or location.
+	// Value may be a secret or a non-secret component. Scanner supplies the hash
+	// for non-empty values; redaction and analysis preserve it. Externally
+	// constructed matches may omit it.
+	Fingerprint string            `json:"fingerprint,omitempty"`
+	Captures    map[string]string `json:"captures,omitempty"`
 
 	// Line contains the original source line(s) covering the match, retained for
 	// pretty-output snippets and local filtering. It is not serialized or exposed

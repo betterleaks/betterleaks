@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,6 +111,11 @@ func TestReportsSummarizeComponentAnalysis(t *testing.T) {
 			{Analysis: Analysis{Reason: "No provider result"}},
 		},
 	}
+	finding.Match.Fingerprint = fingerprint.Format(fingerprint.Sum([]byte(finding.Match.Value)))
+	for i := range finding.ComponentSets[0].Components {
+		m := &finding.ComponentSets[0].Components[i].Match
+		m.Fingerprint = fingerprint.Format(fingerprint.Sum([]byte(m.Value)))
+	}
 	original := finding.Clone()
 	for _, redact := range []bool{false, true} {
 		for _, format := range []string{"json", "jsonl", "credential"} {
@@ -159,6 +165,10 @@ func TestReportsSummarizeComponentAnalysis(t *testing.T) {
 				assert.Equal(t, true, components[1].(map[string]any)["optional"])
 				if format != "credential" {
 					assert.Contains(t, components[0].(map[string]any), "location")
+					assert.Equal(t, finding.Match.Fingerprint, record["match"].(map[string]any)["fingerprint"])
+					for i, component := range components {
+						assert.Equal(t, finding.ComponentSets[0].Components[i].Match.Fingerprint, component.(map[string]any)["match"].(map[string]any)["fingerprint"])
+					}
 				}
 				if redact {
 					assert.NotContains(t, output.String(), "primary-secret")

@@ -203,6 +203,16 @@ Global filters are excluded. The hash is preserved through analysis and
 redaction but is not printed in pretty output. Externally constructed SDK
 findings may omit it.
 
+Primary and component matches include `match.fingerprint`, a SHA-256 hash
+of the exact original `match.value` bytes, encoded as 64 lowercase hexadecimal
+characters without a prefix, in `.betterleaksignore` format. The value can be a
+secret or a non-secret component, such as an account ID. The fingerprint does
+not include the rule, location, full regex match, captures, or other components.
+Decoded values are hashed after decoding. Redaction and analysis preserve the
+fingerprint; it is not recomputed from the redacted value. The field is omitted
+for empty values (such as path-only findings), and externally constructed SDK
+matches may omit it. Pretty output does not display fingerprints.
+
 CLI JSON reports contain `schema_version`, `findings`, and `scan`:
 
 ```json
@@ -305,13 +315,14 @@ Use `--no-allow-comments` to report these findings anyway.
 
 `.betterleaksignore` suppresses a secret everywhere it appears, independent of
 rule, path, source, location, commit, or decoding. Each entry is the complete
-SHA-256 digest of the exact secret bytes:
+SHA-256 digest of the exact secret bytes as 64 hexadecimal characters, without
+a prefix:
 
 ```text
-sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 ```
 
-Ignore fingerprints apply to primary and component secret values before
+Ignore fingerprints apply to primary and component `match.value` bytes before
 validation or analysis. Ignoring a primary suppresses every finding with that
 primary. Ignoring a component suppresses its standalone finding and excludes
 that component match from assembly. For a required component, other combinations
@@ -338,12 +349,12 @@ explicit global filter for exact values:
 ```toml
 filter = '''
 crypto.sha256(finding["secret"]) in [
-    "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
 ]
 '''
 ```
 
-Both forms hash exact secret bytes and exclude matching components before
+Both forms hash exact `match.value` bytes and exclude matching components before
 assembly. A filtered or ignored optional component is treated as absent.
 
 SDK callers can pass hashes directly to `scan.WithIgnoredFingerprints(hashes...)`.
@@ -354,7 +365,7 @@ discovery; callers control which policy to load.
 
 Blank lines and full-line `#` comments are allowed. Hex digits may be uppercase
 or lowercase. Invalid entries are reported with their file and line number and
-do not prevent valid entries from loading. Bare hashes, legacy location
+do not prevent valid entries from loading. Prefixed hashes (including `sha256:`), legacy location
 fingerprints, `.gitleaksignore`, HMAC, Argon2id, and shortened hashes are not
 accepted.
 
@@ -367,6 +378,20 @@ betterleaks fingerprint
 # hashes piped bytes exactly, including whitespace and a trailing newline
 printf 'secret bytes' | betterleaks fingerprint
 ```
+
+You can also copy fingerprints from JSON reports, including redacted reports:
+
+```sh
+# Primary secret fingerprints
+jq -r '.findings[].match.fingerprint // empty' results.json
+
+# Component value fingerprints (including non-secret values)
+jq -r '.findings[].component_sets[]?.components[]?.match.fingerprint // empty' results.json
+```
+
+Select the values you intend to ignore; primary and component entries follow
+the suppression rules above. Hashing a redacted `match.value` instead would
+identify the replacement text, not the original value.
 
 For external reproduction, use `printf`, not `echo`:
 

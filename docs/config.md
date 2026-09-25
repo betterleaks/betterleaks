@@ -316,7 +316,7 @@ filter expression evaluates to `true`, the item is skipped.
 | `containsAny(string-or-list, terms)` | Returns `true` if the string, or any string in the list, contains a term. Uses an efficient Aho-Corasick substring match. |
 | `startsWithAny(string-or-list, prefixes)` | Returns `true` if the string, or any string in the list, starts with a prefix. |
 | `intersects(string-or-list, candidates)` | Returns `true` if at least one input string exactly equals a candidate. Matching is case-sensitive. |
-| `crypto.sha256(string)` | Returns the canonical `sha256:` fingerprint of the exact string bytes as lowercase hexadecimal. Available in finding filters, validation, and analysis. |
+| `crypto.sha256(string)` | Returns the SHA-256 fingerprint of the exact string bytes as 64 lowercase hexadecimal characters. Available in finding filters, validation, and analysis. |
 | `entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
 | `failsTokenEfficiency(string)` | Returns `true` when the generic-secret heuristic identifies readable text using token ratio, wordlist matches, and a length-sensitive threshold. |
@@ -384,7 +384,7 @@ Exact secret values can be filtered without storing the plaintext:
 ```toml
 filter = '''
 crypto.sha256(finding["secret"]) in [
-    "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
 ]
 '''
 ```
@@ -577,7 +577,7 @@ because it mutates finding output.
 | `strings.urlQueryEscape(value)` | URL-query escapes a string. Useful when building signed validation request URLs. |
 | `crypto.md5(bytes)` | Returns the MD5 hash as bytes. |
 | `crypto.sha1(bytes)` | Returns the SHA-1 hash as bytes. |
-| `crypto.sha256(string)` | Returns a canonical `sha256:<hex>` fingerprint string, not raw digest bytes. |
+| `crypto.sha256(string)` | Returns the SHA-256 digest as 64 lowercase hexadecimal characters, without a prefix. |
 | `crypto.hmacSha1(key, msg)` | Returns the HMAC-SHA1 signature as bytes. |
 | `crypto.hmacSha256(key, msg)` | Returns the HMAC-SHA256 signature as bytes. |
 | `hex.encode(bytes)` | Returns lowercase hex encoding. |

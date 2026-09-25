@@ -1,4 +1,7 @@
-// Package fingerprint implements .betterleaksignore secret fingerprints.
+// Package fingerprint hashes exact match values for reports and .betterleaksignore.
+// Values may be secrets or non-secret components, such as account IDs.
+// Fingerprints are SHA-256 digests formatted as 64 lowercase hexadecimal
+// characters without a prefix.
 package fingerprint
 
 import (
@@ -10,32 +13,24 @@ import (
 	"strings"
 )
 
-// Prefix identifies the supported SHA-256 fingerprint format.
-const Prefix = "sha256:"
-
-// Hash identifies the exact secret bytes, independent of rule or location.
+// Hash identifies exact match value bytes, independent of rule or location.
 type Hash [sha256.Size]byte
 
-// Sum hashes exact secret bytes, including any whitespace.
+// Sum hashes exact value bytes, including any whitespace.
 func Sum(secret []byte) Hash { return sha256.Sum256(secret) }
 
-// Format returns the canonical sha256: prefix and lowercase hexadecimal digest.
-func Format(hash Hash) string { return Prefix + hex.EncodeToString(hash[:]) }
+// Format returns the SHA-256 digest as 64 lowercase hexadecimal characters.
+func Format(hash Hash) string {
+	return hex.EncodeToString(hash[:])
+}
 
-// Parse accepts a sha256: prefix followed by a full hexadecimal digest.
+// Parse accepts exactly 64 hexadecimal characters in either case, without a prefix.
 func Parse(s string) (Hash, error) {
 	var hash Hash
-	prefix, digest, ok := strings.Cut(s, ":")
-	if !ok {
-		return hash, fmt.Errorf("missing %q prefix", Prefix)
-	}
-	if prefix != "sha256" {
-		return hash, fmt.Errorf("unsupported fingerprint algorithm %q", prefix)
-	}
-	if len(digest) != sha256.Size*2 {
+	if len(s) != sha256.Size*2 {
 		return hash, fmt.Errorf("SHA-256 digest must be exactly %d hexadecimal characters", sha256.Size*2)
 	}
-	if _, err := hex.Decode(hash[:], []byte(digest)); err != nil {
+	if _, err := hex.Decode(hash[:], []byte(s)); err != nil {
 		return Hash{}, fmt.Errorf("invalid SHA-256 digest: %w", err)
 	}
 	return hash, nil

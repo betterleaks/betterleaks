@@ -20,6 +20,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/stretchr/testify/assert"
@@ -726,6 +727,7 @@ func TestScanReportMultipleTargets(t *testing.T) {
 			require.Len(t, findings, 3)
 			for _, finding := range findings {
 				assert.Equal(t, wantRuleHash, finding.RuleHash)
+				assert.Equal(t, fingerprint.Format(fingerprint.Sum([]byte(finding.Match.Value))), finding.Match.Fingerprint)
 			}
 			assert.Equal(t, 3, strings.Count(logs.String(), "starting scan"))
 			assert.Equal(t, 3, strings.Count(logs.String(), wantHash))

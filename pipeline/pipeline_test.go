@@ -114,6 +114,7 @@ func TestIgnoredFingerprintsSkipProviderRequests(t *testing.T) {
 				assert.Equal(t, 2*tc.want, summary.EmittedFindings)
 				for _, f := range findings {
 					assert.Equal(t, "secret-visible", f.Match.Value)
+					assert.Equal(t, fingerprint.Format(fingerprint.Sum([]byte(f.Match.Value))), f.Match.Fingerprint)
 					assert.Equal(t, report.SeverityMedium, f.Analysis.Severity)
 					if tc.component && strings.Contains(tc.input, "account-visible") {
 						require.Len(t, f.ComponentSets, 1)
@@ -123,6 +124,7 @@ func TestIgnoredFingerprintsSkipProviderRequests(t *testing.T) {
 					for _, set := range f.ComponentSets {
 						for _, c := range set.Components {
 							assert.Equal(t, "account-visible", c.Match.Value)
+							assert.Equal(t, fingerprint.Format(fingerprint.Sum([]byte(c.Match.Value))), c.Match.Fingerprint)
 						}
 					}
 				}
