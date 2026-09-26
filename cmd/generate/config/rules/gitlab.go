@@ -171,7 +171,7 @@ func GitlabIncomingMailAddressToken() *config.Rule {
 		Description: "Identified a GitLab incoming mail token embedded in an email address, risking manipulation of data sent by mail.",
 		Regex:       `incoming\+(?:[A-Za-z0-9._-]+-)?\d+-([A-Za-z0-9_-]+)-(?:issue(?:-\d+)?|merge-request)@`,
 		Keywords:    []string{"incoming+"},
-		Specificity: 50,
+		Specificity: -50,
 		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 	token := secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3)

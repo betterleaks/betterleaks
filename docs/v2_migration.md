@@ -196,6 +196,19 @@ global or rule `filter` expressions for secret, match, or line exclusions. Prese
 the original allowlist's AND/OR grouping and regex target when translating it.
 See [filtering](config.md#filtering).
 
+### Specificity defaults to zero
+
+Omitting `specificity` now means `0`, matching the zero value of Go's
+`Rule.Specificity`. Negative values lower a rule's precedence; positive values
+raise it. Higher values still win when findings compete.
+
+Earlier v2 TOML configs used a default of `100`. To preserve their relative
+priorities, subtract `100` from explicitly configured values: `0` becomes
+`-100`, `50` becomes `-50`, and `110` becomes `10`. Omitted values remain omitted.
+This is a config migration, not an automatic conversion performed by the loader.
+Built-in rules have already been adjusted to preserve their ordering.
+Rule and config hashes change because they include specificity.
+
 ### Inherited rules are replaced, not merged
 
 A child rule with the same ID as an inherited rule replaces the **entire rule**.
@@ -407,6 +420,11 @@ remains `filter`.
 Components are `[]config.Component`. Keyword indexes and compiled expression
 programs are no longer public config state. Use `config.Default`, `LoadFile`,
 `ParseTOML`, or `ParseTOMLString`, or construct the data directly.
+
+`Rule.Specificity` defaults to zero in both Go and TOML. The
+`DefaultRuleSpecificity` constant has been removed; omit the field or use zero.
+Rules and components are decoded directly into these public data types;
+extension instructions and loading diagnostics stay private to the loader.
 
 Constructors return errors and snapshot the config. Finish edits before calling
 `scan.New` / `analyze.New`; construct new engines when rules change. Finding

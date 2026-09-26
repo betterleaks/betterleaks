@@ -25,67 +25,31 @@ var (
 )
 
 const maxExtendDepth = 2
-const DefaultRuleSpecificity = 100
 
+// rawConfig keeps loading instructions separate from the resolved configuration.
 type rawConfig struct {
-	Title       string       `toml:"title"`
-	Description string       `toml:"description"`
-	Extend      extendConfig `toml:"extend"`
-	Rules       []rawRule    `toml:"rules"`
-
-	MinVersion string `toml:"minVersion"`
-
-	// Global filter expressions.
-	Prefilter string `toml:"prefilter"`
-	Filter    string `toml:"filter"`
-
-	path   string
+	Config
+	Extend extendConfig `toml:"extend"`
 	logger *slog.Logger
-}
-
-type rawRule struct {
-	ID          string   `toml:"id"`
-	Description string   `toml:"description"`
-	Path        string   `toml:"path"`
-	Regex       string   `toml:"regex"`
-	ValueGroup  int      `toml:"valueGroup"`
-	Keywords    []string `toml:"keywords"`
-	Tags        []string `toml:"tags"`
-	Specificity *int     `toml:"specificity"`
-	Confidence  string   `toml:"confidence"`
-
-	Components []rawComponent `toml:"components"`
-
-	Validate   string `toml:"validate"`
-	Analyze    string `toml:"analyze"`
-	Revoke     string `toml:"revoke"`
-	SkipReport bool   `toml:"skipReport"`
-	Filter     string `toml:"filter"`
-}
-
-type rawComponent struct {
-	ID       string `toml:"id"`
-	Optional bool   `toml:"optional"`
-	Within   string `toml:"within"`
 }
 
 // Config is a configuration struct that contains detection rules and filters.
 type Config struct {
-	Title       string
-	Path        string
-	Description string
+	Title       string `toml:"title"`
+	Path        string `toml:"-"`
+	Description string `toml:"description"`
 	// Rules is the resolved rule set in deterministic configuration order.
 	// Scanner construction derives all lookup and dispatch indexes from it.
-	Rules []Rule
+	Rules []Rule `toml:"rules"`
 
-	MinVersion string
+	MinVersion string `toml:"minVersion"`
 
 	// Prefilter is a global expression (attributes only) evaluated before any
 	// per-match work. Returns true = skip this fragment entirely; false = keep.
-	Prefilter string
+	Prefilter string `toml:"prefilter"`
 	// Filter is a global expression (attributes + finding) evaluated per match.
 	// Returns true = skip (discard) this finding; false = keep.
-	Filter string
+	Filter string `toml:"filter"`
 }
 
 // LoadOption configures a config loading operation.
@@ -125,18 +89,33 @@ type extendConfig struct {
 
 func ParseTOML(data []byte, path string, options ...LoadOption) (*Config, error) {
 	loadOptions := resolveLoadOptions(options)
-	rc := rawConfig{path: path, logger: loadOptions.logger}
+	rc := rawConfig{Config: Config{Path: path}, logger: loadOptions.logger}
 	if err := rc.decode(data); err != nil {
 		return nil, err
 	}
 	if err := rc.resolve(0); err != nil {
 		return nil, err
 	}
-	cfg := rc.translate()
+	cfg := rc.Config
+	if cfg.Rules == nil {
+		cfg.Rules = []Rule{}
+	}
+	for i := range cfg.Rules {
+		rule := &cfg.Rules[i]
+		if rule.Keywords == nil {
+			rule.Keywords = []string{}
+		}
+		for i, keyword := range rule.Keywords {
+			rule.Keywords[i] = strings.ToLower(keyword)
+		}
+		if rule.Tags == nil {
+			rule.Tags = []string{}
+		}
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return cfg, nil
+	return &cfg, nil
 }
 
 func (rc *rawConfig) decode(data []byte) error {
@@ -150,8 +129,8 @@ func (rc *rawConfig) decode(data []byte) error {
 		}
 		err = fmt.Errorf("unknown configuration fields: %s: %w", strings.Join(fields, ", "), err)
 	}
-	if err != nil && rc.path != "" {
-		return fmt.Errorf("config %q: %w", rc.path, err)
+	if err != nil && rc.Path != "" {
+		return fmt.Errorf("config %q: %w", rc.Path, err)
 	}
 	return err
 }
@@ -170,57 +149,6 @@ func LoadFile(path string, options ...LoadOption) (*Config, error) {
 
 func Default(options ...LoadOption) (*Config, error) {
 	return ParseTOMLString(defaultConfig, "", options...)
-}
-
-func (rc *rawConfig) translate() *Config {
-	c := &Config{
-		Title:       rc.Title,
-		Path:        rc.path,
-		Description: rc.Description,
-		Rules:       make([]Rule, 0, len(rc.Rules)),
-		MinVersion:  rc.MinVersion,
-		Prefilter:   rc.Prefilter,
-		Filter:      rc.Filter,
-	}
-	for _, raw := range rc.Rules {
-		rule := Rule{
-			ID:           raw.ID,
-			Description:  raw.Description,
-			Regex:        raw.Regex,
-			Path:         raw.Path,
-			ValueGroup:   raw.ValueGroup,
-			Specificity:  DefaultRuleSpecificity,
-			Confidence:   raw.Confidence,
-			SkipReport:   raw.SkipReport,
-			ValidateExpr: raw.Validate,
-			AnalyzeExpr:  raw.Analyze,
-			RevokeExpr:   raw.Revoke,
-			FilterExpr:   raw.Filter,
-			Keywords:     raw.Keywords,
-			Tags:         raw.Tags,
-		}
-		if raw.Specificity != nil {
-			rule.Specificity = *raw.Specificity
-		}
-		if rule.Keywords == nil {
-			rule.Keywords = []string{}
-		}
-		for i, keyword := range rule.Keywords {
-			rule.Keywords[i] = strings.ToLower(keyword)
-		}
-		if rule.Tags == nil {
-			rule.Tags = []string{}
-		}
-		for _, component := range raw.Components {
-			rule.Components = append(rule.Components, Component{
-				RuleID:   component.ID,
-				Optional: component.Optional,
-				Within:   component.Within,
-			})
-		}
-		c.Rules = append(c.Rules, rule)
-	}
-	return c
 }
 
 func validateMinVersion(logger *slog.Logger, minVersion, configPath string) error {
@@ -414,7 +342,7 @@ func (c *Config) Validate() error {
 }
 
 func (rc *rawConfig) resolve(depth int) error {
-	if err := validateMinVersion(rc.logger, rc.MinVersion, rc.path); err != nil {
+	if err := validateMinVersion(rc.logger, rc.MinVersion, rc.Path); err != nil {
 		return err
 	}
 	// Duplicate IDs are errors even in overridden rules.
@@ -448,7 +376,7 @@ func (rc *rawConfig) resolve(depth int) error {
 			return fmt.Errorf("load extended config %q: %w", name, err)
 		}
 	}
-	base := rawConfig{path: rc.Extend.Path, logger: rc.logger}
+	base := rawConfig{Config: Config{Path: rc.Extend.Path}, logger: rc.logger}
 	if err := base.decode(data); err != nil {
 		return fmt.Errorf("load extended config %q: %w", name, err)
 	}

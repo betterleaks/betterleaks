@@ -34,9 +34,7 @@ regex = '''{{ . }}'''{{ end -}}
 path = '''{{ . }}'''{{ end -}}
 {{- with $rule.ValueGroup }}
 valueGroup = {{ . }}{{ end -}}
-{{- if eq $rule.ID "generic-api-key" }}
-specificity = 0
-{{- else if $rule.Specificity }}
+{{- if $rule.Specificity }}
 specificity = {{ $rule.Specificity }}
 {{- end -}}
 {{- with $rule.Confidence }}

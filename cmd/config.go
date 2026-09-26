@@ -316,7 +316,7 @@ func renderConfig(cfg *configpkg.Config) configView {
 			ValueGroup:  rule.ValueGroup,
 			Keywords:    rule.Keywords,
 			Tags:        rule.Tags,
-			Specificity: renderedSpecificity(rule.Specificity),
+			Specificity: rule.Specificity,
 			Confidence:  rule.Confidence,
 			Validate:    rule.ValidateExpr,
 			Analyze:     rule.AnalyzeExpr,
@@ -480,11 +480,4 @@ func hasControlChar(s string) bool {
 		}
 	}
 	return false
-}
-
-func renderedSpecificity(specificity int) int {
-	if specificity == configpkg.DefaultRuleSpecificity {
-		return 0
-	}
-	return specificity
 }

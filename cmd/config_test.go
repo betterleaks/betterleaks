@@ -103,7 +103,7 @@ func TestConfigHash(t *testing.T) {
 	}
 }
 
-func TestRenderConfigTOMLComponents(t *testing.T) {
+func TestRenderConfigTOMLRoundTrip(t *testing.T) {
 	cfg := &configpkg.Config{
 		MinVersion: "v1.8.0",
 		Rules: []configpkg.Rule{
@@ -125,7 +125,15 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 		},
 	}
 
+	for _, specificity := range []int{-100, 0, 10} {
+		cfg.Rules = append(cfg.Rules, configpkg.Rule{
+			ID: fmt.Sprintf("priority-%d", specificity), Regex: "TOKEN", Specificity: specificity,
+		})
+	}
 	rendered := renderConfigTOML(renderConfig(cfg))
+	assert.Contains(t, rendered, "specificity = -100")
+	assert.Contains(t, rendered, "specificity = 10")
+	assert.NotContains(t, rendered, "specificity = 0")
 	assert.Contains(t, rendered, "minVersion = 'v1.8.0'")
 	assert.NotContains(t, rendered, "betterleaksMinVersion")
 	assert.Contains(t, rendered, `components = [
@@ -135,11 +143,18 @@ func TestRenderConfigTOMLComponents(t *testing.T) {
 
 	parsed, err := configpkg.ParseTOMLString(rendered, "")
 	require.NoError(t, err)
+	require.Equal(t, cfg.Hash(), parsed.Hash())
 	primary, ok := parsed.Rule("primary")
 	require.True(t, ok)
 	require.Len(t, primary.Components, 1)
 	assert.True(t, primary.Components[0].Optional)
 	assert.Equal(t, "-5L,+2L", primary.Components[0].Within)
+
+	defaults, err := configpkg.Default()
+	require.NoError(t, err)
+	parsed, err = configpkg.ParseTOMLString(renderConfigTOML(renderConfig(defaults)), "")
+	require.NoError(t, err)
+	require.Equal(t, defaults.Hash(), parsed.Hash(), "export preserves the complete built-in ruleset")
 }
 
 func TestConfigRevokeRoundTripAndCompile(t *testing.T) {

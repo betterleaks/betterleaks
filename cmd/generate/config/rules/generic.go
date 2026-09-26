@@ -35,7 +35,7 @@ func GenericCredential() *config.Rule {
 			"secret",
 			"token",
 		},
-		Specificity: 0,
+		Specificity: -100,
 		FilterExpr: `// Reject implausible values before preparing context and confidence.
 entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])

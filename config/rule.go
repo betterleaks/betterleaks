@@ -13,74 +13,75 @@ import (
 // Rules contain information that define details on how to detect secrets
 type Rule struct {
 	// ID is a unique identifier for this rule
-	ID string
+	ID string `toml:"id"`
 
 	// Description is the description of the rule.
-	Description string
+	Description string `toml:"description"`
 
 	// ValueGroup selects the capture group used for Match.Value.
 	// Positive values are 1-based capture group indexes.
 	// Zero selects the first non-empty capture group, falling back to
 	// Match.Full if none exists. An explicitly selected group that
 	// does not participate produces an empty value.
-	ValueGroup int
+	ValueGroup int `toml:"valueGroup"`
 
 	// Regex is a Go regular expression pattern used to detect secrets.
 	// An empty pattern disables content matching. Scanner owns compilation.
-	Regex string
+	Regex string `toml:"regex"`
 
 	// Path is a Go regular expression pattern used to filter secrets by path.
 	// An empty pattern matches any path when Regex is set.
-	Path string
+	Path string `toml:"path"`
 
 	// Tags is an array of strings used for metadata
 	// and reporting purposes.
-	Tags []string
+	Tags []string `toml:"tags"`
 
 	// Specificity controls precedence when overlapping findings compete.
 	// Higher specificity findings suppress lower specificity findings.
-	Specificity int
+	// Zero is the default; negative values lower precedence and positive values raise it.
+	Specificity int `toml:"specificity"`
 
 	// Confidence estimates how likely a match is to be a real secret.
-	Confidence string
+	Confidence string `toml:"confidence"`
 
 	// Keywords are used for pre-regex check filtering. Rules that contain
 	// keywords will perform a quick string compare check to make sure the
 	// keyword(s) are in the content being scanned.
-	Keywords []string
+	Keywords []string `toml:"keywords"`
 
 	// Components are other rules whose matches contribute to this rule.
 	// Required components gate the rule; optional components are attached when found.
-	Components []Component
+	Components []Component `toml:"components"`
 
-	SkipReport bool
+	SkipReport bool `toml:"skipReport"`
 
 	// ValidateExpr is the raw expression used for secret validation.
-	ValidateExpr string
+	ValidateExpr string `toml:"validate"`
 
 	// AnalyzeExpr is the raw expression used to enrich a valid credential with
 	// identity and provider-neutral capabilities.
-	AnalyzeExpr string
+	AnalyzeExpr string `toml:"analyze"`
 
 	// RevokeExpr is an optional credential revocation program. It executes only
 	// through the explicit revoke command, never during scanning or analysis.
-	RevokeExpr string
+	RevokeExpr string `toml:"revoke"`
 
 	// FilterExpr is an expression evaluated against attributes + finding per regex match.
 	// finding.captures holds this match's named groups. Components are assembled
 	// after filtering. Provider expressions, including explicit revocation, read
 	// supplied components independently of filtering.
 	// Returns true = skip (discard this finding); false = keep.
-	FilterExpr string
+	FilterExpr string `toml:"filter"`
 }
 
 // Component references another rule that contributes a nearby match to a multipart finding.
 type Component struct {
-	RuleID string
+	RuleID string `toml:"id"`
 	// Optional components are attached when found but do not gate the primary finding.
-	Optional bool
+	Optional bool `toml:"optional"`
 	// Within uses the same directional L/C grammar as --match-context.
-	Within string
+	Within string `toml:"within"`
 }
 
 // Validate guards against common misconfigurations.

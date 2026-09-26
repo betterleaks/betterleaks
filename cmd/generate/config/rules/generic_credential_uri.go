@@ -46,7 +46,7 @@ func GenericCredentialURI() *config.Rule {
 		},
 		// Prefer this structural URI match over the generic username/password
 		// rules while leaving provider-specific rules at the default 100 ahead.
-		Specificity: 30,
+		Specificity: -70,
 		FilterExpr: `let isExampleValue = matchesAny(finding["secret"], [
   ` + "`(?i)^(?:(?:(?:an?|my)(?:[ _.-]|%(?:20|2d|5f))*)?example(?:(?:[ _.-]|%(?:20|2d|5f))*(?:password|passwd|pwd))?|(?:password|passwd|pwd)(?:[ _.-]|%(?:20|2d|5f))*example)(?:(?:[ _.-]|%(?:20|2d|5f))*[0-9]{1,4})?[!?.]*$`" + `
 ]);

@@ -20,7 +20,7 @@ func GenericPassword() *config.Rule {
 			"log_in(", "log_in (",
 			"authenticate(", "authenticate (",
 		},
-		Specificity: 20,
+		Specificity: -80,
 		Components: []config.Component{
 			{
 				RuleID:   "generic-username",

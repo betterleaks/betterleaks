@@ -179,7 +179,7 @@ Each `[[rules]]` entry can use:
   `match.full` if none exists. An explicitly selected group that does not
   participate produces an empty value.
 - `specificity`: precedence among overlapping findings; higher values win
-  (default `100`).
+  (default `0`). Negative values lower precedence; positive values raise it.
 - `tags`: optional metadata labels.
 - `skipReport`: suppress standalone reporting of this rule, commonly used for
   credential components (`false` by default).
