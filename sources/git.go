@@ -61,7 +61,7 @@ type Git struct {
 	// GitHistory mode.
 	Include []string
 
-	ShouldSkip      SkipFunc
+	Prefilter       PrefilterFunc
 	Platform        scm.Platform
 	RemoteURL       string
 	MaxArchiveDepth int
@@ -275,7 +275,7 @@ func (s *Git) fragmentsFromCommitMessages(ctx context.Context, commits []string,
 			fragment.SetAttr(AttrGitRemoteURL, s.RemoteURL)
 			fragment.SetAttr(AttrGitPlatform, s.Platform.String())
 		}
-		if fragment.Raw == "" || (s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes)) {
+		if fragment.Raw == "" || (s.Prefilter != nil && s.Prefilter(fragment.Attributes)) {
 			continue
 		}
 		if err := yield(fragment, nil); err != nil {
@@ -450,7 +450,7 @@ func (s *Git) fragmentsFromTagMessages(ctx context.Context, yield FragmentsFunc)
 			fragment.SetAttr(AttrGitRemoteURL, s.RemoteURL)
 			fragment.SetAttr(AttrGitPlatform, s.Platform.String())
 		}
-		if fragment.Raw == "" || (s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes)) {
+		if fragment.Raw == "" || (s.Prefilter != nil && s.Prefilter(fragment.Attributes)) {
 			continue
 		}
 		if err := yield(fragment, nil); err != nil {
@@ -551,7 +551,7 @@ func (s *Git) fragmentsFromReflogs(ctx context.Context, yield FragmentsFunc) (sc
 			fragment.SetAttr(AttrGitRemoteURL, s.RemoteURL)
 			fragment.SetAttr(AttrGitPlatform, s.Platform.String())
 		}
-		if fragment.Raw == "" || (s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes)) {
+		if fragment.Raw == "" || (s.Prefilter != nil && s.Prefilter(fragment.Attributes)) {
 			continue
 		}
 		if err := yield(fragment, nil); err != nil {
@@ -604,7 +604,7 @@ func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *gitCmd) e
 			return nil, nil
 		}
 		attrs := s.gitAttributes(file)
-		if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+		if s.Prefilter != nil && s.Prefilter(attrs) {
 			logging.OrDiscard(s.Logger).Log(ctx, logging.LevelTrace, "skipping diff entry: global prefilter", "commit", attrs[AttrGitSHA], "path", file.NewName)
 			return nil, nil
 		}
@@ -655,7 +655,7 @@ func (s *Git) fragmentsFromArchive(ctx context.Context, path string, commitAttrs
 		Path:            path,
 		Attributes:      commitAttrs,
 		MaxArchiveDepth: s.MaxArchiveDepth,
-		ShouldSkip:      s.ShouldSkip,
+		Prefilter:       s.Prefilter,
 	}
 	err = file.Fragments(ctx, yield)
 	if closeErr := blob.Close(); closeErr != nil {

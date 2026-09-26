@@ -38,9 +38,9 @@ type File struct {
 	Symlink string
 	// Buffer is used for reading the content in chunks
 	Buffer []byte
-	// ShouldSkip is a callback that decides whether to skip a file based on its
+	// Prefilter is a callback that decides whether to skip a file based on its
 	// attributes (e.g. path). If nil, no skipping is performed.
-	ShouldSkip SkipFunc
+	Prefilter PrefilterFunc
 	// MaxArchiveDepth limits how deep the sources will explore nested archives
 	MaxArchiveDepth int
 	// DetectArchive also identifies archives by content, for downloads whose
@@ -61,7 +61,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !s.prefiltered && s.ShouldSkip != nil && s.ShouldSkip(s.attributes(s.FullPath())) {
+	if !s.prefiltered && s.Prefilter != nil && s.Prefilter(s.attributes(s.FullPath())) {
 		return nil
 	}
 	// Archive walkers may log errors. Preserve callback errors for every caller.
@@ -71,7 +71,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 		if yieldErr != nil {
 			return yieldErr
 		}
-		if err == nil && !s.prefiltered && s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+		if err == nil && !s.prefiltered && s.Prefilter != nil && s.Prefilter(fragment.Attributes) {
 			return nil
 		}
 		yieldErr = emit(fragment, err)
@@ -193,8 +193,8 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		}
 		defer innerReader.Close()
 
-		if s.ShouldSkip != nil && shouldSkipPath(func(attrs map[string]string) bool {
-			return s.ShouldSkip(s.attributes(attrs[AttrPath]))
+		if s.Prefilter != nil && shouldSkipPath(func(attrs map[string]string) bool {
+			return s.Prefilter(s.attributes(attrs[AttrPath]))
 		}, path) {
 			logging.OrDiscard(s.Logger).Debug("skipping file: global prefilter", "path", s.FullPath())
 			return nil
@@ -206,7 +206,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			Path:            path,
 			Attributes:      s.Attributes,
 			Symlink:         s.Symlink,
-			ShouldSkip:      s.ShouldSkip,
+			Prefilter:       s.Prefilter,
 			outerPaths:      append(s.outerPaths, filepath.ToSlash(s.Path)),
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			DetectArchive:   s.DetectArchive,

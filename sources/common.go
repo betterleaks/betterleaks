@@ -34,7 +34,7 @@ func isArchive(ctx context.Context, path string) bool {
 
 // shouldSkipPath checks a path against the skip callback.
 // Also handles the Windows forward-slash path normalization workaround.
-func shouldSkipPath(skip SkipFunc, path string) bool {
+func shouldSkipPath(skip PrefilterFunc, path string) bool {
 	if skip == nil {
 		return false
 	}

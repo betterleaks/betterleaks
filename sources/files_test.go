@@ -29,7 +29,7 @@ func TestFilesDoesNotRepeatPrefilterForAcceptedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file.txt")
 	require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("content\n\n", 100_000)), 0o600))
 	var checks, fragments atomic.Int32
-	source := &Files{Path: path, ShouldSkip: func(map[string]string) bool {
+	source := &Files{Path: path, Prefilter: func(map[string]string) bool {
 		checks.Add(1)
 		return false
 	}}
@@ -163,7 +163,7 @@ func TestFilesPrefilterPrecedesSizeChecks(t *testing.T) {
 			Path:        path,
 			MaxFileSize: 10,
 			Logger:      slog.New(slog.NewJSONHandler(&output, nil)),
-			ShouldSkip: func(attrs map[string]string) bool {
+			Prefilter: func(attrs map[string]string) bool {
 				require.Equal(t, path, attrs[AttrPath])
 				checks++
 				return true
@@ -186,7 +186,7 @@ func TestFilesDirectoryPrefilterPrunesTraversal(t *testing.T) {
 	accepted := filepath.Join(root, "keep.txt")
 	require.NoError(t, os.WriteFile(accepted, []byte("keep"), 0o600))
 	for _, follow := range []bool{false, true} {
-		source := &Files{Path: root, FollowSymlinks: follow, ShouldSkip: func(attrs map[string]string) bool {
+		source := &Files{Path: root, FollowSymlinks: follow, Prefilter: func(attrs map[string]string) bool {
 			path := filepath.FromSlash(attrs[AttrPath])
 			if strings.HasPrefix(path, skipped+string(filepath.Separator)) {
 				t.Errorf("visited child of skipped directory: %s", path)
@@ -214,7 +214,7 @@ func TestFilesPrefilterStillAppliesToArchiveEntries(t *testing.T) {
 	require.NoError(t, writer.Close())
 	path := filepath.Join(t.TempDir(), "bundle.zip")
 	require.NoError(t, os.WriteFile(path, archive.Bytes(), 0o600))
-	source := &Files{Path: path, MaxArchiveDepth: 1, ShouldSkip: func(attrs map[string]string) bool {
+	source := &Files{Path: path, MaxArchiveDepth: 1, Prefilter: func(attrs map[string]string) bool {
 		return strings.HasSuffix(attrs[AttrPath], "!skip.txt")
 	}}
 	var paths []string
@@ -262,7 +262,7 @@ func TestFilesWalkFilesPathsMatchFilepathWalkDir(t *testing.T) {
 	)
 	source := &Files{
 		Path: scanRoot,
-		ShouldSkip: func(attrs map[string]string) bool {
+		Prefilter: func(attrs map[string]string) bool {
 			visitedMu.Lock()
 			visited = append(visited, attrs[AttrPath])
 			visitedMu.Unlock()
@@ -401,7 +401,7 @@ func TestFilesDirectorySymlinkPrefilter(t *testing.T) {
 	require.NoError(t, os.Symlink(target, link))
 	for _, scanRoot := range []string{root, link} {
 		for _, skipped := range []string{link, target} {
-			source := &Files{Path: scanRoot, FollowSymlinks: true, ShouldSkip: func(attrs map[string]string) bool {
+			source := &Files{Path: scanRoot, FollowSymlinks: true, Prefilter: func(attrs map[string]string) bool {
 				return attrs[AttrPath] == skipped
 			}}
 			require.NoError(t, source.walkFiles(t.Context(), func(filePath) error {
@@ -479,7 +479,7 @@ func TestFilesDisappearingDirectoryDoesNotAbortScan(t *testing.T) {
 		require.NoError(t, os.Mkdir(vanishing, 0o700))
 		readable := filepath.Join(root, "readable.txt")
 		require.NoError(t, os.WriteFile(readable, []byte("readable"), 0o600))
-		source := &Files{Path: root, FollowSymlinks: follow, ShouldSkip: func(attrs map[string]string) bool {
+		source := &Files{Path: root, FollowSymlinks: follow, Prefilter: func(attrs map[string]string) bool {
 			if attrs[AttrPath] == vanishing {
 				// Remove it after inspection but before fastwalk reads it.
 				if err := os.Remove(vanishing); err != nil {

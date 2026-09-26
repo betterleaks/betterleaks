@@ -9,10 +9,9 @@ import (
 // consuming the source. A non-nil return value asks the source to stop.
 type FragmentsFunc func(fragment Fragment, err error) error
 
-// SkipFunc decides whether to skip a fragment based on its attributes.
-// Returns true to skip (discard), false to keep.
-// Used by sources as a callback to decouple path/commit filtering from config.
-type SkipFunc func(attrs map[string]string) bool
+// PrefilterFunc evaluates source attributes before scanning content.
+// It returns true to skip the input, false to keep it.
+type PrefilterFunc func(attrs map[string]string) bool
 
 // Source yields content and metadata for scanning.
 type Source interface {

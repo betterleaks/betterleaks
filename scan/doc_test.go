@@ -71,8 +71,8 @@ func Example_customConfig() {
 	}
 
 	source := &sources.Reader{
-		Content:    os.Stdin,
-		ShouldSkip: skip,
+		Content:   os.Stdin,
+		Prefilter: skip,
 	}
 	_, err = scanner.Scan(context.Background(), source, func(finding report.Finding) error {
 		fmt.Println(finding.RuleID, finding.Confidence)

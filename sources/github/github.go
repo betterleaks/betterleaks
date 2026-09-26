@@ -65,7 +65,7 @@ type Source struct {
 	Resources ResourceSet
 
 	// Scan config (passed through to sources.Git per repo)
-	ShouldSkip      sources.SkipFunc
+	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
 	LogOpts         string
 
@@ -414,7 +414,7 @@ func (s *Source) scanRepo(ctx context.Context, client *github.Client, repo *gith
 	logger := logging.OrDiscard(s.Logger).With("repo", name)
 	repoAttrs := s.repoAttributes(repo, "")
 
-	if s.ShouldSkip != nil && s.ShouldSkip(s.repoAttributes(repo, ResourceRepo)) {
+	if s.Prefilter != nil && s.Prefilter(s.repoAttributes(repo, ResourceRepo)) {
 		logger.Debug("skipping repository based on prefilter")
 		return nil
 	}
@@ -474,7 +474,7 @@ func (s *Source) scanRepo(ctx context.Context, client *github.Client, repo *gith
 }
 
 // wrapYieldWithAttrs returns a yield function that stamps attrs on every fragment,
-// applies ShouldSkip, and serializes calls through a mutex.
+// applies Prefilter, and serializes calls through a mutex.
 func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.FragmentsFunc) sources.FragmentsFunc {
 	var mu sync.Mutex
 	return func(fragment sources.Fragment, err error) error {
@@ -485,7 +485,7 @@ func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.Fragm
 				}
 				fragment.SetAttr(k, v)
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+			if s.Prefilter != nil && s.Prefilter(fragment.Attributes) {
 				return nil
 			}
 		}
@@ -577,7 +577,7 @@ func (s *Source) downloadAndScan(ctx context.Context, rawURL string, reader io.R
 	}, func(content *os.File) error {
 		file := &sources.File{
 			Content: content, Path: path, Attributes: attrs,
-			Logger: s.Logger, ShouldSkip: s.ShouldSkip,
+			Logger: s.Logger, Prefilter: s.Prefilter,
 			MaxArchiveDepth: max(1, s.MaxArchiveDepth), DetectArchive: true,
 		}
 		return file.Fragments(ctx, yield)
@@ -624,7 +624,7 @@ func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, yield
 	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		src := &sources.Git{
 			Logger:   s.Logger,
-			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
+			RepoPath: repoPath, Prefilter: s.Prefilter,
 			Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			LogOpts:         s.LogOpts,
@@ -1350,7 +1350,7 @@ func (s *Source) scanReleases(ctx context.Context, client *github.Client, repo *
 // emitRelease emits a release body fragment and scans its assets.
 func (s *Source) emitRelease(ctx context.Context, client *github.Client, httpClient *http.Client, owner, repo string, rel *github.RepositoryRelease, yield sources.FragmentsFunc) error {
 	tag := rel.GetTagName()
-	if s.ShouldSkip != nil && s.ShouldSkip(map[string]string{
+	if s.Prefilter != nil && s.Prefilter(map[string]string{
 		sources.AttrURL:      rel.GetHTMLURL(),
 		sources.AttrResource: ResourceRelease,
 		AttrReleaseTag:       tag,
@@ -1500,7 +1500,7 @@ func (s *Source) emitGist(ctx context.Context, client *github.Client, gistID, ow
 		frag.SetAttr(AttrGistID, gistID)
 		frag.SetAttr(AttrGistOwner, owner)
 		frag.SetAttr(AttrGistFilename, string(filename))
-		if s.ShouldSkip == nil || !s.ShouldSkip(frag.Attributes) {
+		if s.Prefilter == nil || !s.Prefilter(frag.Attributes) {
 			if err := yield(frag, nil); err != nil {
 				return err
 			}

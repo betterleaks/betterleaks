@@ -42,8 +42,8 @@ type Reader struct {
 	Content io.Reader
 	// Attributes are copied onto every fragment yielded from Content.
 	Attributes map[string]string
-	// ShouldSkip decides whether to discard a fragment from Content.
-	ShouldSkip SkipFunc
+	// Prefilter decides whether to discard a fragment from Content.
+	Prefilter PrefilterFunc
 }
 
 func (s *Reader) Fragments(ctx context.Context, yield FragmentsFunc) error {
@@ -63,7 +63,7 @@ func (s *Reader) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		if err != nil {
 			return yield(fragment, fmt.Errorf("could not read reader: %w", err))
 		}
-		if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+		if s.Prefilter != nil && s.Prefilter(fragment.Attributes) {
 			return nil
 		}
 		return yield(fragment, nil)

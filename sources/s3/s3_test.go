@@ -338,7 +338,7 @@ func TestS3_prefilterSkipsBucket(t *testing.T) {
 		URL:       fmt.Sprintf("%s/mybucket/", srv.URL),
 		Region:    "us-east-1",
 		AccessKey: "ak", SecretKey: "sk",
-		ShouldSkip: func(attrs map[string]string) bool {
+		Prefilter: func(attrs map[string]string) bool {
 			return attrs[AttrBucket] == "mybucket"
 		},
 	}

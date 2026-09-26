@@ -365,7 +365,7 @@ func run() error {
 	source := &sources.Reader{
 		Content:    strings.NewReader("GITHUB_TOKEN=" + token),
 		Attributes: map[string]string{sources.AttrPath: "application.env"},
-		ShouldSkip: skip,
+		Prefilter: skip,
 	}
 	summary, err := scanner.Scan(context.Background(), source, func(f report.Finding) error {
 		_, err := fmt.Println(f.RuleID, f.Location.Path)
@@ -380,7 +380,7 @@ func run() error {
 ```
 
 Source prefilters are explicit: compile `cfg.Prefilter` and set the source's
-`ShouldSkip`. The scanner does not apply it for you. Archive depth, file-size
+`Prefilter`. The scanner does not apply it for you. Archive depth, file-size
 limits, and symlink handling belong to sources; detection options belong to
 `scan.New`. Use `sources.Git{RepoPath: ".", Mode: sources.GitStaged}` for staged
 changes instead of constructing Git commands or sharing a detector semaphore.

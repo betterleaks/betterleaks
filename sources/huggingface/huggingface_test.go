@@ -343,7 +343,7 @@ func TestHuggingFaceScanBucketSkipsPrefilteredObjectBeforeDownload(t *testing.T)
 		baseURL:    mustParseURL(t, server.URL+"/"),
 		restRetry:  httpclient.NewRetryTransport(nil),
 		httpClient: http.DefaultClient,
-		ShouldSkip: func(attrs map[string]string) bool {
+		Prefilter: func(attrs map[string]string) bool {
 			return attrs[AttrBucketPath] == "prod/skip.txt"
 		},
 	}

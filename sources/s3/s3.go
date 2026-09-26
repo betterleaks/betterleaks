@@ -65,7 +65,7 @@ type Source struct {
 
 	// Scan config
 	MaxObjectSize   int64
-	ShouldSkip      sources.SkipFunc
+	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
 
 	parsed s3Target
@@ -286,7 +286,7 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 	if target.Endpoint != "" {
 		bucketAttrs[AttrEndpoint] = target.Endpoint
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(bucketAttrs) {
+	if s.Prefilter != nil && s.Prefilter(bucketAttrs) {
 		logging.OrDiscard(s.Logger).Info("skipping bucket: filtered by prefilter", "bucket", target.Bucket)
 		return nil
 	}
@@ -331,7 +331,7 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 				continue
 			}
 			attrs := s.objectAttributes(target, obj)
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				logging.OrDiscard(s.Logger).Log(gctx, logging.LevelTrace, "skipping object: filtered by prefilter", "key", obj.Key)
 				continue
 			}
@@ -428,13 +428,13 @@ func (s *Source) scanObject(ctx context.Context, client *http.Client, target s3T
 		Path:            obj.Key,
 		Attributes:      attrs,
 		MaxArchiveDepth: s.MaxArchiveDepth,
-		ShouldSkip:      s.ShouldSkip,
+		Prefilter:       s.Prefilter,
 	}
 	return file.Fragments(objCtx, stampedYield)
 }
 
 // wrapYieldWithAttrs returns a yield that stamps the given attrs on every
-// fragment, re-applies ShouldSkip with the merged attrs, and serializes calls
+// fragment, re-applies Prefilter with the merged attrs, and serializes calls
 // through a mutex. Mirrors the GitHub source.
 func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.FragmentsFunc) sources.FragmentsFunc {
 	var mu sync.Mutex
@@ -450,7 +450,7 @@ func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.Fragm
 					fragment.SetAttr(k, v)
 				}
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+			if s.Prefilter != nil && s.Prefilter(fragment.Attributes) {
 				return nil
 			}
 		}

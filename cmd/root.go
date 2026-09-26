@@ -423,7 +423,7 @@ func parseValidationStatuses(value string) ([]report.ValidationStatus, error) {
 }
 
 type scanFilters struct {
-	shouldSkip   sources.SkipFunc
+	shouldSkip   sources.PrefilterFunc
 	fingerprints []fingerprint.Hash
 }
 

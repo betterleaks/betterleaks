@@ -492,12 +492,12 @@ func TestGitCommitMessagesFilteringAndStop(t *testing.T) {
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	repo := newGitTestRepo(t, 3)
 	source := &Git{RepoPath: repo, Include: []string{GitResourceTypeCommitMessages}}
-	source.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitCommitMessage }
+	source.Prefilter = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitCommitMessage }
 	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 		require.NotEqual(t, ResourceGitCommitMessage, f.Attr(AttrResource))
 		return err
 	}))
-	source.ShouldSkip = nil
+	source.Prefilter = nil
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	stop := errors.New("stop on message")
@@ -611,12 +611,12 @@ func TestGitTagMessagesFilteringAndStop(t *testing.T) {
 	runGitTestCommand(t, repo, "tag", "-a", "first", "-m", "first message")
 	runGitTestCommand(t, repo, "tag", "-a", "second", "-m", "second message")
 	source := &Git{RepoPath: repo, Include: []string{GitResourceTypeTagMessages}}
-	source.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitTagMessage }
+	source.Prefilter = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitTagMessage }
 	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 		require.NotEqual(t, ResourceGitTagMessage, f.Attr(AttrResource))
 		return err
 	}))
-	source.ShouldSkip = nil
+	source.Prefilter = nil
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	stop := errors.New("stop on tag")
@@ -768,12 +768,12 @@ func TestGitReflogsFilteringAndStop(t *testing.T) {
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	repo := newGitTestRepo(t, 2)
 	source := &Git{RepoPath: repo, Include: []string{GitResourceTypeReflogs}}
-	source.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitReflogMessage }
+	source.Prefilter = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceGitReflogMessage }
 	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
 		require.NotEqual(t, ResourceGitReflogMessage, f.Attr(AttrResource))
 		return err
 	}))
-	source.ShouldSkip = nil
+	source.Prefilter = nil
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	stop := errors.New("stop on reflog")

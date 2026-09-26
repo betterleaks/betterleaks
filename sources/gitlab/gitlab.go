@@ -66,7 +66,7 @@ type Source struct {
 	IncludeSubgroups bool
 
 	// Scan config (passed through to sources.Git per project)
-	ShouldSkip      sources.SkipFunc
+	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
 	LogOpts         string
 
@@ -807,9 +807,9 @@ func (s *Source) projectAttributes(proj *gitlabProject, resource string) map[str
 }
 
 // wrapGitLabYield stamps project-level attributes onto every fragment and
-// applies ShouldSkip as a final per-fragment filter (L3). Callers must use
+// applies Prefilter as a final per-fragment filter (L3). Callers must use
 // the returned yield in place of the original.
-func wrapGitLabYield(skip sources.SkipFunc, attrs map[string]string, yield sources.FragmentsFunc) sources.FragmentsFunc {
+func wrapGitLabYield(skip sources.PrefilterFunc, attrs map[string]string, yield sources.FragmentsFunc) sources.FragmentsFunc {
 	var mu sync.Mutex
 	return func(fragment sources.Fragment, err error) error {
 		if err == nil {
@@ -850,13 +850,13 @@ func (s *Source) scanProject(ctx context.Context, proj *gitlabProject, yield sou
 	projectAttrs := s.projectAttributes(proj, "")
 
 	// L1 — drop the whole project early.
-	if s.ShouldSkip != nil && s.ShouldSkip(s.projectAttributes(proj, ResourceProject)) {
+	if s.Prefilter != nil && s.Prefilter(s.projectAttributes(proj, ResourceProject)) {
 		logger.Debug("skipping project based on prefilter")
 		return nil
 	}
 
 	// L3 — every fragment from this project gets project attrs + per-fragment skip.
-	glYield := wrapGitLabYield(s.ShouldSkip, projectAttrs, yield)
+	glYield := wrapGitLabYield(s.Prefilter, projectAttrs, yield)
 
 	run := func(label string, fn func() error) error {
 		logger.Info("scanning", "resource", label)
@@ -908,7 +908,7 @@ func (s *Source) scanProjectGit(ctx context.Context, proj *gitlabProject, yield 
 	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		src := &sources.Git{
 			Logger:   s.Logger,
-			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
+			RepoPath: repoPath, Prefilter: s.Prefilter,
 			Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			LogOpts:         s.LogOpts,
@@ -956,7 +956,7 @@ func (s *Source) scanIssues(ctx context.Context, proj *gitlabProject, yield sour
 				sources.AttrURL:      issue.WebURL,
 			}
 			// L2 skip: drop this whole issue (body + comments) without fetching notes.
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			if s.Resources.Has(ResourceTypeIssues) {
@@ -999,7 +999,7 @@ func (s *Source) scanMRs(ctx context.Context, proj *gitlabProject, yield sources
 				AttrMRIID:            strconv.Itoa(mr.IID),
 				sources.AttrURL:      mr.WebURL,
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			if s.Resources.Has(ResourceTypeMRs) {
@@ -1042,7 +1042,7 @@ func (s *Source) scanItemNotes(ctx context.Context, projectID int, itemKind stri
 				sources.AttrURL:      gitlabNoteURL(parentURL, note.ID),
 				parentAttrKey:        parentAttrVal,
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			frag := sources.Fragment{Raw: note.Body, Attributes: cloneAttrs(attrs)}
@@ -1072,7 +1072,7 @@ func (s *Source) scanSnippets(ctx context.Context, proj *gitlabProject, yield so
 				sources.AttrURL:      snip.WebURL,
 				sources.AttrPath:     snip.FileName,
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			raw, err := s.apiURL(fmt.Sprintf("projects/%d/snippets/%d/raw", proj.ID, snip.ID))
@@ -1107,7 +1107,7 @@ func (s *Source) scanReleases(ctx context.Context, proj *gitlabProject, yield so
 				sources.AttrResource: ResourceRelease,
 				AttrReleaseTag:       rel.TagName,
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			if rel.Description != "" {
@@ -1184,7 +1184,7 @@ func (s *Source) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 		AttrCIPipelineID:     strconv.FormatInt(job.Pipeline.ID, 10),
 		sources.AttrURL:      job.WebURL,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	traceURL, err := s.apiURL(fmt.Sprintf("projects/%d/jobs/%d/trace", proj.ID, job.ID))
@@ -1205,7 +1205,7 @@ func (s *Source) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 		AttrCIPipelineID:     strconv.FormatInt(job.Pipeline.ID, 10),
 		sources.AttrURL:      job.WebURL,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(artifactAttrs) {
+	if s.Prefilter != nil && s.Prefilter(artifactAttrs) {
 		return nil
 	}
 	artURL, err := s.apiURL(fmt.Sprintf("projects/%d/jobs/%d/artifacts", proj.ID, job.ID))
@@ -1224,10 +1224,10 @@ func (s *Source) scanDirect(ctx context.Context, target *gitlabTarget, yield sou
 		return fmt.Errorf("direct scan requires a resolved project")
 	}
 	projectAttrs := s.projectAttributes(target.Project, "")
-	if s.ShouldSkip != nil && s.ShouldSkip(s.projectAttributes(target.Project, ResourceProject)) {
+	if s.Prefilter != nil && s.Prefilter(s.projectAttributes(target.Project, ResourceProject)) {
 		return nil
 	}
-	glYield := wrapGitLabYield(s.ShouldSkip, projectAttrs, yield)
+	glYield := wrapGitLabYield(s.Prefilter, projectAttrs, yield)
 
 	switch target.Kind {
 	case "issue":
@@ -1281,7 +1281,7 @@ func (s *Source) scanSingleIssue(ctx context.Context, proj *gitlabProject, iid i
 		AttrIssueIID:         strconv.Itoa(issue.IID),
 		sources.AttrURL:      issue.WebURL,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	if s.Resources.Has(ResourceTypeIssues) {
@@ -1310,7 +1310,7 @@ func (s *Source) scanSingleMR(ctx context.Context, proj *gitlabProject, iid int,
 		AttrMRIID:            strconv.Itoa(mr.IID),
 		sources.AttrURL:      mr.WebURL,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	if s.Resources.Has(ResourceTypeMRs) {
@@ -1341,7 +1341,7 @@ func (s *Source) scanSingleSnippet(ctx context.Context, proj *gitlabProject, sni
 		sources.AttrURL:      snip.WebURL,
 		sources.AttrPath:     snip.FileName,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	raw, err := s.apiURL(fmt.Sprintf("projects/%d/snippets/%d/raw", proj.ID, snip.ID))
@@ -1364,7 +1364,7 @@ func (s *Source) scanSingleRelease(ctx context.Context, proj *gitlabProject, tag
 		sources.AttrResource: ResourceRelease,
 		AttrReleaseTag:       rel.TagName,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	if rel.Description != "" && s.Resources.Has(ResourceTypeReleases) {
@@ -1393,7 +1393,7 @@ func (s *Source) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield
 			AttrReleaseTag:       rel.TagName,
 			AttrReleaseAssetName: name,
 		}
-		if s.ShouldSkip != nil && s.ShouldSkip(assetAttrs) {
+		if s.Prefilter != nil && s.Prefilter(assetAttrs) {
 			continue
 		}
 		if err := s.downloadAndScan(ctx, src.URL, "release/"+rel.TagName+"/"+name, assetAttrs, yield); err != nil {
@@ -1409,7 +1409,7 @@ func (s *Source) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield
 			AttrReleaseTag:       rel.TagName,
 			AttrReleaseAssetName: link.Name,
 		}
-		if s.ShouldSkip != nil && s.ShouldSkip(assetAttrs) {
+		if s.Prefilter != nil && s.Prefilter(assetAttrs) {
 			continue
 		}
 		if err := s.downloadAndScan(ctx, link.URL, "release/"+rel.TagName+"/"+link.Name, assetAttrs, yield); err != nil {
@@ -1438,7 +1438,7 @@ func (s *Source) downloadAndScan(ctx context.Context, rawURL, path string, attrs
 	}, func(content *os.File) error {
 		file := &sources.File{
 			Content: content, Path: path, Attributes: attrs,
-			Logger: s.Logger, ShouldSkip: s.ShouldSkip,
+			Logger: s.Logger, Prefilter: s.Prefilter,
 			MaxArchiveDepth: max(1, s.MaxArchiveDepth), DetectArchive: true,
 		}
 		return file.Fragments(ctx, yield)

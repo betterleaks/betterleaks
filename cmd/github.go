@@ -73,7 +73,7 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		Include:         options.Include,
 		Exclude:         options.Exclude,
 		ExcludeRepos:    options.ExcludeRepo,
-		ShouldSkip:      filters.shouldSkip,
+		Prefilter:       filters.shouldSkip,
 		MaxArchiveDepth: options.MaxArchiveDepth,
 		LogOpts:         options.LogOpts,
 		Actions: github.ActionsOptions{

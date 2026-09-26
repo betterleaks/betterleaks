@@ -2569,7 +2569,7 @@ func TestFromGit(t *testing.T) {
 				&sources.Git{
 					RepoPath:        tt.source,
 					LogOpts:         tt.logOpts,
-					ShouldSkip:      mustPrefilter(t, cfg.Prefilter),
+					Prefilter:       mustPrefilter(t, cfg.Prefilter),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
 					MaxArchiveDepth: 8,
@@ -2629,11 +2629,11 @@ func TestFromGitStaged(t *testing.T) {
 			t.Context(), scanner,
 
 			&sources.Git{
-				RepoPath:   tt.source,
-				Mode:       sources.GitStaged,
-				ShouldSkip: mustPrefilter(t, cfg.Prefilter),
-				Platform:   platform,
-				RemoteURL:  remoteURL,
+				RepoPath:  tt.source,
+				Mode:      sources.GitStaged,
+				Prefilter: mustPrefilter(t, cfg.Prefilter),
+				Platform:  platform,
+				RemoteURL: remoteURL,
 			})
 
 		require.NoError(t, err)
@@ -2669,7 +2669,7 @@ func TestScanBinaryFiles(t *testing.T) {
 					source := &sources.Files{Path: dir}
 					want := []string{"program", "program.exe", "report.pdf", "data.bin"}
 					if usePrefilter {
-						source.ShouldSkip = mustPrefilter(t, cfg.Prefilter)
+						source.Prefilter = mustPrefilter(t, cfg.Prefilter)
 					} else {
 						want = []string{"program", "program.exe", "report.pdf", "image.png", "font.woff", "data.bin"}
 					}
@@ -2885,7 +2885,7 @@ func TestFromFiles(t *testing.T) {
 				t.Context(), scanner,
 
 				&sources.Files{
-					ShouldSkip:     mustPrefilter(t, cfg.Prefilter),
+					Prefilter:      mustPrefilter(t, cfg.Prefilter),
 					FollowSymlinks: true,
 					Path:           tt.source,
 				})
@@ -3337,7 +3337,7 @@ func TestDetectWithArchives(t *testing.T) {
 				ctx, scanner,
 				&sources.Files{
 					Path:            tt.source,
-					ShouldSkip:      mustPrefilter(t, cfg.Prefilter),
+					Prefilter:       mustPrefilter(t, cfg.Prefilter),
 					MaxArchiveDepth: 8,
 				})
 
@@ -3393,7 +3393,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 			t.Context(), scanner,
 
 			&sources.Files{
-				ShouldSkip:     mustPrefilter(t, cfg.Prefilter),
+				Prefilter:      mustPrefilter(t, cfg.Prefilter),
 				FollowSymlinks: true,
 				Path:           tt.source,
 			})
@@ -3753,7 +3753,7 @@ func TestComponentMatchesRetainSourceText(t *testing.T) {
 func TestConfigPathDoesNotControlSDKScanning(t *testing.T) {
 	cfg := &config.Config{Path: "rules.toml", Rules: []config.Rule{{ID: "token", Regex: `TOKEN`}}}
 	for _, exclude := range []bool{false, true} {
-		var skip sources.SkipFunc
+		var skip sources.PrefilterFunc
 		if exclude {
 			var err error
 			skip, err = prefilter.Compile("", prefilter.Options{ExcludedPaths: []string{"rules.toml"}})
@@ -3762,7 +3762,7 @@ func TestConfigPathDoesNotControlSDKScanning(t *testing.T) {
 		scanner, err := New(cfg)
 		require.NoError(t, err)
 		count := 0
-		_, err = scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("TOKEN"), Attributes: map[string]string{sources.AttrPath: "rules.toml"}, ShouldSkip: skip}, func(f report.Finding) error { count++; return nil })
+		_, err = scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("TOKEN"), Attributes: map[string]string{sources.AttrPath: "rules.toml"}, Prefilter: skip}, func(f report.Finding) error { count++; return nil })
 		require.NoError(t, err)
 		if exclude {
 			require.Zero(t, count)
@@ -3786,7 +3786,7 @@ func TestPathOnlyFindingsHonorFilters(t *testing.T) {
 		for _, path := range []string{"skip.env", "keep.env"} {
 			attrs := map[string]string{sources.AttrPath: path}
 			for _, source := range []sources.Source{
-				&sources.Reader{Content: strings.NewReader("content"), Attributes: attrs, ShouldSkip: nil},
+				&sources.Reader{Content: strings.NewReader("content"), Attributes: attrs, Prefilter: nil},
 				fragmentSource{fragments: []sources.Fragment{{Raw: "", StartLine: 0, Attributes: attrs}}, err: nil},
 			} {
 				count := 0
@@ -3899,7 +3899,7 @@ func BenchmarkComponentProximity(b *testing.B) {
 	}
 }
 
-func mustPrefilter(t *testing.T, expression string) sources.SkipFunc {
+func mustPrefilter(t *testing.T, expression string) sources.PrefilterFunc {
 	t.Helper()
 	skip, err := prefilter.Compile(expression, prefilter.Options{})
 	require.NoError(t, err)
@@ -3973,7 +3973,7 @@ func TestScannerDoesNotOwnSourcePrefilter(t *testing.T) {
 	findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{
 		Content:    strings.NewReader("secret-alpha"),
 		Attributes: map[string]string{sources.AttrPath: "kept.env"},
-		ShouldSkip: func(attrs map[string]string) bool {
+		Prefilter: func(attrs map[string]string) bool {
 			checks++
 			return skip(attrs)
 		},

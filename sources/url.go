@@ -20,7 +20,7 @@ type URL struct {
 	URL             string
 	HTTPClient      *http.Client
 	Logger          *slog.Logger
-	ShouldSkip      SkipFunc
+	Prefilter       PrefilterFunc
 	MaxArchiveDepth int
 	// MaxSize limits the downloaded response in bytes. Zero means unlimited.
 	// Oversized responses are skipped before any fragments are emitted.
@@ -44,7 +44,7 @@ func (s *URL) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		AttrURL:      urlredact.Public(u),
 		AttrResource: ResourceURLContent,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	return download.WithFile(ctx, download.Options{
@@ -52,7 +52,7 @@ func (s *URL) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	}, func(content *os.File) error {
 		file := &File{
 			Content: content, Path: path, Attributes: attrs,
-			Logger: s.Logger, ShouldSkip: s.ShouldSkip,
+			Logger: s.Logger, Prefilter: s.Prefilter,
 			MaxArchiveDepth: s.MaxArchiveDepth, DetectArchive: true,
 		}
 		return file.Fragments(ctx, yield)

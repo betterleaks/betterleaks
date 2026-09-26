@@ -318,8 +318,8 @@ func TestFindingCollectorSkipsReportBeforeFilesOpenIt(t *testing.T) {
 		return filepath.Clean(filepath.FromSlash(attributes[sources.AttrPath])) == blockedPath
 	}
 	files := &sources.Files{
-		Path:       directory,
-		ShouldSkip: collector.FileSkipFunc(configuredSkip),
+		Path:      directory,
+		Prefilter: collector.FileSkipFunc(configuredSkip),
 	}
 	var visited []string
 	err = files.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {

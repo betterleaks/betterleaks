@@ -57,11 +57,11 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
 }
 
-func newStdinSource(content io.Reader, attrs map[string]string, shouldSkip sources.SkipFunc) sources.Source {
+func newStdinSource(content io.Reader, attrs map[string]string, shouldSkip sources.PrefilterFunc) sources.Source {
 	return &sources.Reader{
 		Content:    content,
 		Attributes: attrs,
-		ShouldSkip: shouldSkip,
+		Prefilter:  shouldSkip,
 	}
 }
 

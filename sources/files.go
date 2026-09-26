@@ -32,7 +32,7 @@ func (e *walkCallbackError) Unwrap() error { return e.err }
 type Files struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger          *slog.Logger
-	ShouldSkip      SkipFunc
+	Prefilter       PrefilterFunc
 	FollowSymlinks  bool // Follow file and directory links; visit each directory once.
 	MaxFileSize     int
 	Path            string
@@ -88,7 +88,7 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 			name = filePath{path: realPath, symlink: path}
 		}
 
-		if shouldSkipPath(s.ShouldSkip, path) || (name.symlink != "" && shouldSkipPath(s.ShouldSkip, name.path)) {
+		if shouldSkipPath(s.Prefilter, path) || (name.symlink != "" && shouldSkipPath(s.Prefilter, name.path)) {
 			if mode.IsDir() {
 				return filepath.SkipDir
 			}
@@ -201,7 +201,7 @@ func (s *Files) readFile(ctx context.Context, name filePath, yield FragmentsFunc
 		Content:         f,
 		Path:            name.path,
 		Symlink:         name.symlink,
-		ShouldSkip:      s.ShouldSkip,
+		Prefilter:       s.Prefilter,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		prefiltered:     true,
 	}

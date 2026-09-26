@@ -76,7 +76,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 		ExcludeRepos:     options.ExcludeRepo,
 		AllGroups:        options.AllGroups,
 		IncludeSubgroups: options.IncludeSubgroups,
-		ShouldSkip:       filters.shouldSkip,
+		Prefilter:        filters.shouldSkip,
 		MaxArchiveDepth:  options.MaxArchiveDepth,
 		LogOpts:          options.LogOpts,
 		DateRangeOpts: gitlab.DateRangeOptions{

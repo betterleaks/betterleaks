@@ -222,7 +222,7 @@ func (c *findingCollector) countFinding(finding report.Finding) {
 // FileSkipFunc composes the configured source prefilter with a guard for the
 // report file. Files invokes this callback before opening a path, which keeps a
 // scan from consuming the report while the collector is appending to it.
-func (c *findingCollector) FileSkipFunc(configured sources.SkipFunc) sources.SkipFunc {
+func (c *findingCollector) FileSkipFunc(configured sources.PrefilterFunc) sources.PrefilterFunc {
 	if c.reportPath == "" || c.reportPath == stdoutReportPath {
 		return configured
 	}

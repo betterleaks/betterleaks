@@ -1,4 +1,4 @@
-// Package prefilter compiles attribute predicates for source ShouldSkip callbacks.
+// Package prefilter compiles attribute predicates for source Prefilter callbacks.
 package prefilter
 
 import (
@@ -24,7 +24,7 @@ type Options struct {
 // Compile creates a predicate reusable across concurrent sources.
 // It copies exclusions and borrows attributes only during evaluation. Evaluation
 // errors keep the input and are logged when Logger is set. No policy returns nil.
-func Compile(expression string, options Options) (sources.SkipFunc, error) {
+func Compile(expression string, options Options) (sources.PrefilterFunc, error) {
 	if expression == "" && len(options.ExcludedPaths) == 0 {
 		return nil, nil
 	}

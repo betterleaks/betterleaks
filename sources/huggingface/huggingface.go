@@ -50,7 +50,7 @@ type Source struct {
 	ExcludeRepos []string // glob patterns matched against "owner/name"
 	Resources    ResourceSet
 
-	ShouldSkip      sources.SkipFunc
+	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
 	LogOpts         string
 
@@ -532,7 +532,7 @@ func parseHuggingFaceSlug(kind RepoKind, raw string) (owner, name string, ok boo
 func (s *Source) scanRepo(ctx context.Context, repo huggingFaceRepo, yield sources.FragmentsFunc) error {
 	logger := logging.OrDiscard(s.Logger).With("repo", repo.Slug(), "type", string(repo.Kind))
 	repoAttrs := s.repoAttributes(repo, "")
-	if s.ShouldSkip != nil && s.ShouldSkip(s.repoAttributes(repo, ResourceRepo)) {
+	if s.Prefilter != nil && s.Prefilter(s.repoAttributes(repo, ResourceRepo)) {
 		logger.Debug("skipping Hugging Face repository based on prefilter")
 		return nil
 	}
@@ -587,7 +587,7 @@ func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.Fragm
 				}
 				fragment.SetAttr(k, v)
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+			if s.Prefilter != nil && s.Prefilter(fragment.Attributes) {
 				return nil
 			}
 		}
@@ -602,7 +602,7 @@ func (s *Source) scanRepoGit(ctx context.Context, repo huggingFaceRepo, yield so
 	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		src := &sources.Git{
 			Logger:   s.Logger,
-			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
+			RepoPath: repoPath, Prefilter: s.Prefilter,
 			Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			LogOpts:         s.LogOpts,
@@ -622,7 +622,7 @@ type huggingFaceBucketEntry struct {
 func (s *Source) scanBucket(ctx context.Context, bucket huggingFaceBucket, yield sources.FragmentsFunc) error {
 	logger := logging.OrDiscard(s.Logger).With("bucket", bucket.ID())
 	logger.Info("scanning Hugging Face bucket", "prefix", bucket.Prefix)
-	if s.ShouldSkip != nil && s.ShouldSkip(s.bucketAttributes(bucket, nil, ResourceBucket)) {
+	if s.Prefilter != nil && s.Prefilter(s.bucketAttributes(bucket, nil, ResourceBucket)) {
 		logger.Debug("skipping Hugging Face bucket based on prefilter")
 		return nil
 	}
@@ -655,7 +655,7 @@ func (s *Source) scanBucket(ctx context.Context, bucket huggingFaceBucket, yield
 			skippedOversized++
 			return nil
 		}
-		if s.ShouldSkip != nil && s.ShouldSkip(s.bucketAttributes(bucket, &entry, ResourceBucket)) {
+		if s.Prefilter != nil && s.Prefilter(s.bucketAttributes(bucket, &entry, ResourceBucket)) {
 			logging.OrDiscard(s.Logger).Log(ctx, logging.LevelTrace, "skipping Hugging Face bucket object based on prefilter", "bucket", bucket.ID(), "path", entry.Path)
 			skippedPrefilter++
 			return nil
@@ -731,7 +731,7 @@ func (s *Source) scanBucketObject(ctx context.Context, bucket huggingFaceBucket,
 	}, func(content *os.File) error {
 		file := &sources.File{
 			Content: content, Path: entry.Path, Attributes: attrs,
-			Logger: s.Logger, ShouldSkip: s.ShouldSkip,
+			Logger: s.Logger, Prefilter: s.Prefilter,
 			MaxArchiveDepth: max(1, s.MaxArchiveDepth), DetectArchive: true,
 		}
 		return file.Fragments(ctx, yield)
@@ -874,7 +874,7 @@ func (s *Source) emitDiscussionEvents(ctx context.Context, repo huggingFaceRepo,
 		}
 		attrs[AttrCommunityResource] = resource
 		fragment := sources.Fragment{Raw: raw, Attributes: attrs}
-		if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+		if s.Prefilter != nil && s.Prefilter(fragment.Attributes) {
 			continue
 		}
 		select {

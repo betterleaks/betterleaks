@@ -101,7 +101,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 			Logger:          runtime.Logger(),
 			RepoPath:        source,
 			Mode:            mode,
-			ShouldSkip:      filters.shouldSkip,
+			Prefilter:       filters.shouldSkip,
 			Platform:        scm.NoPlatform,
 			MaxArchiveDepth: options.MaxArchiveDepth,
 		}
@@ -118,7 +118,7 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		gitSource := &sources.Git{
 			Logger:          runtime.Logger(),
 			RepoPath:        source,
-			ShouldSkip:      filters.shouldSkip,
+			Prefilter:       filters.shouldSkip,
 			Platform:        resolvedPlatform,
 			RemoteURL:       remoteURL,
 			MaxArchiveDepth: options.MaxArchiveDepth,

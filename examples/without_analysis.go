@@ -52,7 +52,7 @@ func run() error {
 			sources.AttrPath:     "application.env",
 			sources.AttrResource: sources.ResourceFileContent,
 		},
-		ShouldSkip: skip,
+		Prefilter: skip,
 	}
 
 	// For caller-supplied paths or URLs, sources.Auto(ctx, target) returns

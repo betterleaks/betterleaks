@@ -30,7 +30,7 @@ func (cmd *URLCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	src := &sources.URL{
 		URL:             cmd.URL,
 		Logger:          runtime.Logger(),
-		ShouldSkip:      filters.shouldSkip,
+		Prefilter:       filters.shouldSkip,
 		MaxArchiveDepth: cmd.MaxArchiveDepth,
 		MaxSize:         int64(cmd.MaxTargetMegabytes) * 1_000_000,
 	}

@@ -34,7 +34,7 @@ func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes["resource"] == "github.repository" && attributes["github.repo"] == "repo"`)
 
-	src := &Source{ShouldSkip: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
+	src := &Source{Prefilter: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []sources.Fragment
@@ -53,7 +53,7 @@ func TestGitHub_scanRepo_prefilterUsesMergedRepoAttrsOnFragments(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes["github.repo"] == "repo" && attributes["path"] != ""`)
 
-	src := &Source{ShouldSkip: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
+	src := &Source{Prefilter: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []sources.Fragment
@@ -72,7 +72,7 @@ func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `containsAny(attributes["path"], ["does-not-match"])`)
 
-	src := &Source{ShouldSkip: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
+	src := &Source{Prefilter: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []sources.Fragment
@@ -378,8 +378,8 @@ func TestGitHub_emitRelease_prefilterSkipsReleaseByTag(t *testing.T) {
 	}
 
 	src := &Source{
-		Resources:  ResourceSet{ResourceTypeReleases: true},
-		ShouldSkip: compileGitHubPrefilter(t, `attributes["resource"] == "github.release" && attributes["github.release.tag"] == "v1.0.0"`),
+		Resources: ResourceSet{ResourceTypeReleases: true},
+		Prefilter: compileGitHubPrefilter(t, `attributes["resource"] == "github.release" && attributes["github.release.tag"] == "v1.0.0"`),
 	}
 
 	called := false
@@ -689,7 +689,7 @@ func TestGitHub_streamWorkflowRuns_usesCombinedCreatedRange(t *testing.T) {
 	require.Equal(t, []int64{12}, got)
 }
 
-func compileGitHubPrefilter(t *testing.T, expression string) sources.SkipFunc {
+func compileGitHubPrefilter(t *testing.T, expression string) sources.PrefilterFunc {
 	t.Helper()
 
 	env, err := exprruntime.New(nil)

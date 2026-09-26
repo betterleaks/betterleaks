@@ -147,7 +147,7 @@ func run() error {
 				sources.AttrPath:     path,
 				sources.AttrResource: sources.ResourceFileContent,
 			},
-			ShouldSkip: skip,
+			Prefilter: skip,
 		}
 		summary, err := p.Scan(ctx, source, func(finding report.Finding) error {
 			// Finding.Analysis contains status, identity, account, capabilities,
