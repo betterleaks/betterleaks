@@ -26,22 +26,21 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
-	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
 const (
 	// Retry/concurrency limits.
-	defaultActionsWorkers = 4
-	itemsPerPage          = 100
-	gqlIssuesFirst        = 50
-	gqlPRsFirst           = 25
-	gqlCommentsFirst      = 25
-	gqlThreadsFirst       = 20
-	gqlRepliesFirst       = 25
-	gqlCommentsTailFirst  = 50
-	gqlRepliesTailFirst   = 50
-	gqlThreadsTailFirst   = 50
+	actionRunConcurrency = 4
+	itemsPerPage         = 100
+	gqlIssuesFirst       = 50
+	gqlPRsFirst          = 25
+	gqlCommentsFirst     = 25
+	gqlThreadsFirst      = 20
+	gqlRepliesFirst      = 25
+	gqlCommentsTailFirst = 50
+	gqlRepliesTailFirst  = 50
+	gqlThreadsTailFirst  = 50
 )
 
 // Source enumerates repositories via the GitHub API and delegates scanning
@@ -68,9 +67,7 @@ type Source struct {
 	// Scan config (passed through to sources.Git per repo)
 	ShouldSkip      sources.SkipFunc
 	MaxArchiveDepth int
-	Workers         int // 0 is automatic
 	LogOpts         string
-	budget          *sourceworkers.Budget
 
 	// GitHub API
 	BaseURL       string // GitHub Enterprise base URL; empty = github.com
@@ -240,69 +237,70 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 		return err
 	}
 	s.logScanStart()
-
 	start := time.Now()
 	s.restRetry = httpclient.NewRetryTransport(nil)
 	s.restRetry.Decider = githubRetryDecider
 	s.restRetry.StateExtractor = githubRateLimitStateExtractor
-
 	target, direct, err := s.dispatchURL(ctx, s.URL)
 	if err != nil {
 		return err
 	}
-	workers, budget := sourceworkers.EnsureBudget(s.Workers, sourceworkers.AutomaticProvider(), s.budget)
-	s.Workers = workers
-	s.budget = budget
-	targetWorkers := sourceworkers.ProviderTargets(workers, direct || target.Resource == "repo")
-
 	client := s.newClient(ctx)
 	s.gqlClient = s.newGraphQLClient(ctx)
-	s.gqlSem = make(chan struct{}, min(workers, 10))
-
+	s.gqlSem = make(chan struct{}, 10)
+	ctx, cancelScans := context.WithCancelCause(ctx)
+	defer cancelScans(nil)
+	// A rejected yield must stop enumeration even when resource errors are skippable.
+	onFragment := yield
+	yield = func(fragment sources.Fragment, err error) error {
+		err = onFragment(fragment, err)
+		if err != nil {
+			cancelScans(err)
+		}
+		return err
+	}
 	if direct {
-		return s.scanURL(ctx, client, s.URL, yield)
+		err := s.scanURL(ctx, client, s.URL, yield)
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
+		return err
 	}
-
-	scanCtx, cancelScans := context.WithCancel(ctx)
-	defer cancelScans()
-
-	var scanGroup errgroup.Group
-	scanGroup.SetLimit(targetWorkers)
-
+	var gistErr error
 	if target.Resource == "user" && s.Resources.Has(ResourceTypeGists) {
-		scanGroup.Go(func() error {
-			return s.scanUserGists(scanCtx, client, target.Owner, yield)
-		})
+		gistErr = s.scanUserGists(ctx, client, target.Owner, yield)
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
 		if !s.Resources.Has(ResourceTypeRepos) {
-			return scanGroup.Wait()
+			return gistErr
 		}
-
 	}
-
 	repoCh, enumErrCh := s.enumerateRepos(ctx, client, target)
-	var repoCount atomic.Int64
-	for repo := range repoCh {
-		repoCount.Add(1)
-		scanGroup.Go(func() error {
-			return s.scanRepoWithWorkers(scanCtx, client, repo, workers, yield)
-		})
-	}
-	enumErr := <-enumErrCh
-	if enumErr != nil {
-		cancelScans()
-		scanErr := scanGroup.Wait()
-		combined := fmt.Errorf("enumerate repos: %w", enumErr)
-		if scanErr != nil && !errors.Is(scanErr, context.Canceled) {
-			combined = errors.Join(combined, scanErr)
+	var scans errgroup.Group
+	repoCount := 0
+	scans.Go(func() error {
+		var firstErr error
+		for repo := range repoCh {
+			if err := context.Cause(ctx); err != nil {
+				return err
+			}
+			repoCount++
+			if err := s.scanRepo(ctx, client, repo, yield); err != nil && firstErr == nil {
+				firstErr = err
+			}
 		}
-		return combined
+		return firstErr
+	})
+	if err := <-enumErrCh; err != nil {
+		cancelScans(fmt.Errorf("enumerate repos: %w", err))
 	}
-	logging.OrDiscard(s.Logger).Info("enumeration complete, waiting for scans", "repos", repoCount.Load(), "duration", time.Since(start))
-
-	scanErr := scanGroup.Wait()
-	logging.OrDiscard(s.Logger).Info("scan complete", "repos", repoCount.Load(), "duration", time.Since(start))
-
-	return scanErr
+	scanErr := scans.Wait()
+	logging.OrDiscard(s.Logger).Info("scan complete", "repos", repoCount, "duration", time.Since(start))
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	return errors.Join(gistErr, scanErr)
 }
 
 // dispatchURL resolves a raw GitHub URL into either a direct resource scan or
@@ -339,7 +337,7 @@ func (s *Source) dispatchURL(ctx context.Context, rawURL string) (*ParsedURL, bo
 
 // enumerateRepos streams repos for a URL-derived repo, org, or user target.
 func (s *Source) enumerateRepos(ctx context.Context, client *github.Client, target *ParsedURL) (<-chan *github.Repository, <-chan error) {
-	ch := make(chan *github.Repository, 100)
+	ch := make(chan *github.Repository, 1)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -409,13 +407,9 @@ func (s *Source) enumerateRepos(ctx context.Context, client *github.Client, targ
 	return ch, errCh
 }
 
-// scanRepo runs all scans for a single repo under the shared worker budget.
+// scanRepo scans a repository's selected resources sequentially.
 // Git history remains non-fatal; API-backed scans still return errors.
 func (s *Source) scanRepo(ctx context.Context, client *github.Client, repo *github.Repository, yield sources.FragmentsFunc) error {
-	return s.scanRepoWithWorkers(ctx, client, repo, 0, yield)
-}
-
-func (s *Source) scanRepoWithWorkers(ctx context.Context, client *github.Client, repo *github.Repository, workers int, yield sources.FragmentsFunc) error {
 	name := repo.GetFullName()
 	logger := logging.OrDiscard(s.Logger).With("repo", name)
 	repoAttrs := s.repoAttributes(repo, "")
@@ -453,10 +447,10 @@ func (s *Source) scanRepoWithWorkers(ctx context.Context, client *github.Client,
 	}
 
 	if s.Resources.Has(ResourceTypeRepos) {
-		_ = run(string(ResourceTypeRepos), func() error { return s.scanRepoGit(ctx, repo, workers, ghYield) })
+		_ = run(string(ResourceTypeRepos), func() error { return s.scanRepoGit(ctx, repo, ghYield) })
 	}
 	if s.Resources.Has(ResourceTypeActions) {
-		if err := run("actions", func() error { return s.scanActionsWithWorkers(ctx, client, repo, workers, ghYield) }); err != nil {
+		if err := run("actions", func() error { return s.scanActions(ctx, client, repo, ghYield) }); err != nil {
 			return err
 		}
 	}
@@ -626,28 +620,24 @@ func (s *Source) newClient(ctx context.Context) *github.Client {
 }
 
 // scanRepoGit clones and scans a repo's git history.
-func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, workers int, yield sources.FragmentsFunc) error {
+func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, yield sources.FragmentsFunc) error {
 	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		src := &sources.Git{
 			Logger:   s.Logger,
 			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
 			Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
 			MaxArchiveDepth: s.MaxArchiveDepth,
-			LogOpts:         s.LogOpts, Workers: workers,
+			LogOpts:         s.LogOpts,
 		}
-		return src.Fragments(sourceworkers.WithBudget(ctx, s.budget), yield)
+		return src.Fragments(ctx, yield)
 	})
 }
 
 // scanActions scans workflow run logs (and optionally artifacts) for a repo.
 func (s *Source) scanActions(ctx context.Context, client *github.Client, repo *github.Repository, yield sources.FragmentsFunc) error {
-	return s.scanActionsWithWorkers(ctx, client, repo, s.Workers, yield)
-}
-
-func (s *Source) scanActionsWithWorkers(ctx context.Context, client *github.Client, repo *github.Repository, configuredWorkers int, yield sources.FragmentsFunc) error {
 	owner := repo.GetOwner().GetLogin()
 	repoName := repo.GetName()
-	workers := sourceworkers.WithinBudget(configuredWorkers, defaultActionsWorkers, s.budget)
+	workers := actionRunConcurrency
 
 	runs := make(chan *github.WorkflowRun, workers)
 	g, gctx := errgroup.WithContext(ctx)
@@ -674,25 +664,19 @@ func (s *Source) scanActionsWithWorkers(ctx context.Context, client *github.Clie
 					if !ok {
 						return nil
 					}
-					err := s.budget.Run(gctx, func() error {
-						if err := s.scanRunLogs(gctx, client, owner, repoName, run, yield); err != nil {
+					if err := s.scanRunLogs(gctx, client, owner, repoName, run, yield); err != nil {
+						if !isGitHubGone(err) {
+							logging.OrDiscard(s.Logger).Error("could not scan run logs", "error", err, "run_id", run.GetID())
+							return fmt.Errorf("scan run %d logs: %w", run.GetID(), err)
+						}
+					}
+					if s.Resources.Has(ResourceTypeActionArtifacts) {
+						if err := s.scanRunArtifacts(gctx, client, owner, repoName, run, yield); err != nil {
 							if !isGitHubGone(err) {
-								logging.OrDiscard(s.Logger).Error("could not scan run logs", "error", err, "run_id", run.GetID())
-								return fmt.Errorf("scan run %d logs: %w", run.GetID(), err)
+								logging.OrDiscard(s.Logger).Error("could not scan run artifacts", "error", err, "run_id", run.GetID())
+								return fmt.Errorf("scan run %d artifacts: %w", run.GetID(), err)
 							}
 						}
-						if s.Resources.Has(ResourceTypeActionArtifacts) {
-							if err := s.scanRunArtifacts(gctx, client, owner, repoName, run, yield); err != nil {
-								if !isGitHubGone(err) {
-									logging.OrDiscard(s.Logger).Error("could not scan run artifacts", "error", err, "run_id", run.GetID())
-									return fmt.Errorf("scan run %d artifacts: %w", run.GetID(), err)
-								}
-							}
-						}
-						return nil
-					})
-					if err != nil {
-						return err
 					}
 				}
 			}

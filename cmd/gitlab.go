@@ -78,7 +78,6 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 		IncludeSubgroups: options.IncludeSubgroups,
 		ShouldSkip:       filters.shouldSkip,
 		MaxArchiveDepth:  options.MaxArchiveDepth,
-		Workers:          resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		LogOpts:          options.LogOpts,
 		DateRangeOpts: gitlab.DateRangeOptions{
 			Since: since,

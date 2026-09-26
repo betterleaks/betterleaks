@@ -49,7 +49,6 @@ func runS3(runtime *commandRuntime, globals *GlobalFlags, options *S3Cmd) {
 		SecretKey:       options.SecretKey,
 		SessionToken:    options.SessionToken,
 		MaxObjectSize:   options.MaxObjectSize,
-		Workers:         resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		ShouldSkip:      filters.shouldSkip,
 		MaxArchiveDepth: options.MaxArchiveDepth,
 	}

@@ -65,7 +65,6 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 			MaxFileSize:     options.MaxTargetMegabytes * 1_000_000,
 			Path:            source,
 			MaxArchiveDepth: options.MaxArchiveDepth,
-			Workers:         options.Jobs,
 		}
 
 		findings.startScan(runtime)

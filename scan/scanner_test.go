@@ -2279,6 +2279,8 @@ func expectedAWSFinding(line string, location report.Location) report.Finding {
 
 // TestFromGit tests the FromGit function
 func TestFromGit(t *testing.T) {
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	// TODO: Fix this test on windows.
 	if runtime.GOOS == "windows" {
 		t.Skipf("TODO: this fails on Windows: [git] fatal: bad object refs/remotes/origin/main?")
@@ -2567,7 +2569,6 @@ func TestFromGit(t *testing.T) {
 				&sources.Git{
 					RepoPath:        tt.source,
 					LogOpts:         tt.logOpts,
-					Workers:         1,
 					ShouldSkip:      mustPrefilter(t, cfg.Prefilter),
 					Platform:        platform,
 					RemoteURL:       remoteURL,

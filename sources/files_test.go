@@ -46,6 +46,8 @@ func TestFilesDoesNotRepeatPrefilterForAcceptedFile(t *testing.T) {
 }
 
 func TestFilesFragmentsOwnContents(t *testing.T) {
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	root := t.TempDir()
 	contents := make(map[string]string)
 	for i := range 6 {
@@ -54,7 +56,7 @@ func TestFilesFragmentsOwnContents(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(contents[path]), 0o600))
 	}
 	// One reader forces buffer reuse before retained fragments are inspected.
-	source := &Files{Path: root, Workers: 1}
+	source := &Files{Path: root}
 	var fragments []Fragment
 	require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
 		fragments = append(fragments, fragment)
@@ -73,15 +75,13 @@ func TestFilesConcurrencyAndCancellation(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(root, fmt.Sprintf("%d.txt", i)), []byte("content"), 0o600))
 	}
 	for _, test := range []struct {
-		name    string
-		cpus    int
-		workers int
-		want    int
+		name string
+		cpus int
+		want int
 	}{
 		{name: "automatic single CPU", cpus: 1, want: 1},
 		{name: "automatic two CPUs", cpus: 2, want: 2},
 		{name: "automatic ten CPUs", cpus: 10, want: 10},
-		{name: "explicit workers exceed CPUs", cpus: 2, workers: 3, want: 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			previous := runtime.GOMAXPROCS(test.cpus)
@@ -89,7 +89,7 @@ func TestFilesConcurrencyAndCancellation(t *testing.T) {
 			for _, cancelScan := range []bool{false, true} {
 				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				defer cancel()
-				source := &Files{Path: root, Workers: test.workers}
+				source := &Files{Path: root}
 				started := make(chan struct{}, 32)
 				release := make(chan struct{})
 				done := make(chan error, 1)
@@ -140,7 +140,9 @@ func TestFilesConcurrencyAndCancellation(t *testing.T) {
 }
 
 func TestFilesMissingRootReturnsError(t *testing.T) {
-	source := &Files{Path: filepath.Join(t.TempDir(), "missing"), Workers: 1}
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+	source := &Files{Path: filepath.Join(t.TempDir(), "missing")}
 	yield := func(Fragment, error) error {
 		t.Error("missing root should fail before yielding")
 		return nil
@@ -280,7 +282,9 @@ func TestFilesWalkFilesPathsMatchFilepathWalkDir(t *testing.T) {
 	require.Equal(t, wantTargets, targets)
 }
 
-func TestFilesJobsLimitConcurrency(t *testing.T) {
+func TestFilesReadersBoundReadAhead(t *testing.T) {
+	previous := runtime.GOMAXPROCS(2)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	const fileCount = 6
 
 	root := t.TempDir()
@@ -289,7 +293,7 @@ func TestFilesJobsLimitConcurrency(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("content"), 0o600))
 	}
 
-	source := &Files{Path: root, Workers: 2}
+	source := &Files{Path: root}
 	started := make(chan struct{}, fileCount)
 	release := make(chan struct{})
 	done := make(chan error, 1)
@@ -320,7 +324,7 @@ func TestFilesJobsLimitConcurrency(t *testing.T) {
 		})
 	}()
 
-	for range source.Workers {
+	for range 2 {
 		select {
 		case <-started:
 		case err := <-done:
@@ -345,11 +349,13 @@ func TestFilesJobsLimitConcurrency(t *testing.T) {
 		t.Fatal("timed out waiting for scan completion")
 	}
 
-	require.Equal(t, int64(source.Workers), peak.Load())
+	require.Equal(t, int64(2), peak.Load())
 	require.Equal(t, int64(fileCount), yielded.Load())
 }
 
 func TestFilesFollowDirectorySymlinks(t *testing.T) {
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	disk := t.TempDir()
 	volumes := filepath.Join(disk, "Volumes")
 	require.NoError(t, os.Mkdir(volumes, 0o755))
@@ -362,7 +368,7 @@ func TestFilesFollowDirectorySymlinks(t *testing.T) {
 	require.NoError(t, os.Symlink("..", filepath.Join(disk, "nested", "back")))
 	for _, root := range []string{volumes, link} {
 		for _, follow := range []bool{false, true} {
-			source := &Files{Path: root, FollowSymlinks: follow, Workers: 1}
+			source := &Files{Path: root, FollowSymlinks: follow}
 			for range 2 { // Directory deduplication must be scoped to each scan.
 				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				var contents []string
@@ -428,6 +434,8 @@ func TestFilesSymlinksUseTargetSizeAndHandleBrokenLinks(t *testing.T) {
 }
 
 func TestFilesUnreadableDirectoriesDoNotAbortScan(t *testing.T) {
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	root := t.TempDir()
 	denied := filepath.Join(root, "denied")
 	require.NoError(t, os.Mkdir(denied, 0o700))
@@ -445,7 +453,7 @@ func TestFilesUnreadableDirectoriesDoNotAbortScan(t *testing.T) {
 	}
 	for _, follow := range []bool{false, true} {
 		for _, path := range []string{root, denied, link} {
-			source := &Files{Path: path, FollowSymlinks: follow, Workers: 1}
+			source := &Files{Path: path, FollowSymlinks: follow}
 			var contents []string
 			err := source.Fragments(t.Context(), func(f Fragment, err error) error {
 				if err != nil {

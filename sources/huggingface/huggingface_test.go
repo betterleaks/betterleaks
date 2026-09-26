@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -98,6 +99,9 @@ func TestHuggingFaceResolveResources_BucketTargetDefaultsToBuckets(t *testing.T)
 }
 
 func TestHuggingFaceEnumerateRepos_PaginatesAndDedupeTyped(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	firstReceived := make(chan struct{})
 	var authHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader = r.Header.Get("Authorization")
@@ -106,6 +110,11 @@ func TestHuggingFaceEnumerateRepos_PaginatesAndDedupeTyped(t *testing.T) {
 			w.Header().Set("Link", "<"+serverURL(r)+"/api/models?cursor=next>; rel=\"next\"")
 			_, _ = w.Write([]byte(`[{"modelId":"acme/model"}]`))
 		case r.URL.Path == "/api/models":
+			select {
+			case <-firstReceived:
+			case <-r.Context().Done():
+				return
+			}
 			_, _ = w.Write([]byte(`[{"id":"acme/model"}]`))
 		case r.URL.Path == "/api/datasets":
 			_, _ = w.Write([]byte(`[{"id":"acme/model"}]`))
@@ -129,9 +138,12 @@ func TestHuggingFaceEnumerateRepos_PaginatesAndDedupeTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, errCh := src.enumerateRepos(context.Background(), target)
+	ch, errCh := src.enumerateRepos(ctx, target)
 	var got []huggingFaceRepo
 	for repo := range ch {
+		if len(got) == 0 {
+			close(firstReceived)
+		}
 		got = append(got, repo)
 	}
 	if err := <-errCh; err != nil {
@@ -247,15 +259,28 @@ func TestHuggingFaceEnumerateBuckets(t *testing.T) {
 	}
 }
 
-func TestHuggingFaceScanBucketObject(t *testing.T) {
+func TestHuggingFaceBucketPaginationAndScan(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	downloaded := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/buckets/acme/logs/tree":
+			if r.URL.Query().Get("cursor") == "next" {
+				select {
+				case <-downloaded:
+					_, _ = w.Write([]byte(`[]`))
+				case <-r.Context().Done():
+				}
+				return
+			}
+			w.Header().Set("Link", "<"+serverURL(r)+"/api/buckets/acme/logs/tree?cursor=next>; rel=\"next\"")
 			if r.URL.Query().Get("prefix") != "prod" || r.URL.Query().Get("recursive") != "true" {
 				t.Fatalf("unexpected query: %s", r.URL.RawQuery)
 			}
 			_, _ = w.Write([]byte(`[{"type":"file","path":"prod/secret.txt","size":28,"lastModified":"2026-01-02T03:04:05Z","xetHash":"abc"}]`))
 		case "/buckets/acme/logs/resolve/prod/secret.txt":
+			close(downloaded)
 			_, _ = w.Write([]byte("token=AKIALALEMEL33243OLIA\n"))
 		default:
 			http.NotFound(w, r)
@@ -271,7 +296,7 @@ func TestHuggingFaceScanBucketObject(t *testing.T) {
 		httpClient: httpclient.NewAuthenticatedClient("secret", http.DefaultTransport, strings.TrimPrefix(server.URL, "http://")),
 	}
 	var fragments []sources.Fragment
-	err := src.scanBucket(context.Background(), huggingFaceBucket{Owner: "acme", Name: "logs", Prefix: "prod"}, func(fragment sources.Fragment, err error) error {
+	err := src.Fragments(ctx, func(fragment sources.Fragment, err error) error {
 		if err != nil {
 			return err
 		}
@@ -363,9 +388,13 @@ func TestHuggingFaceListDiscussionsDecodesEnvelope(t *testing.T) {
 		restRetry:  httpclient.NewRetryTransport(nil),
 		httpClient: http.DefaultClient,
 	}
-	got, err := src.listDiscussions(context.Background(), huggingFaceRepo{Kind: RepoKindModel, Owner: "acme", Name: "model"})
+	var got []huggingFaceDiscussion
+	err := src.streamDiscussions(context.Background(), huggingFaceRepo{Kind: RepoKindModel, Owner: "acme", Name: "model"}, func(discussion huggingFaceDiscussion) error {
+		got = append(got, discussion)
+		return nil
+	})
 	if err != nil {
-		t.Fatalf("listDiscussions: %v", err)
+		t.Fatalf("streamDiscussions: %v", err)
 	}
 	if pages != 2 {
 		t.Fatalf("got %d pages, want 2", pages)

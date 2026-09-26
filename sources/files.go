@@ -7,12 +7,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"github.com/charlievieth/fastwalk"
 	"golang.org/x/sync/errgroup"
-
-	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
@@ -38,8 +37,6 @@ type Files struct {
 	MaxFileSize     int
 	Path            string
 	MaxArchiveDepth int
-	Workers         int // 0 uses GOMAXPROCS workers.
-	budget          *sourceworkers.Budget
 }
 
 // walkFiles serializes callbacks while fastwalk inspects paths concurrently.
@@ -161,7 +158,7 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	g, groupCtx := errgroup.WithContext(ctx)
 	// Extra readers retain buffers and decompressor workspaces while detection catches up.
-	workers := sourceworkers.WithinBudget(s.Workers, sourceworkers.Automatic(), s.budget)
+	workers := max(runtime.GOMAXPROCS(0), 1)
 	paths := make(chan filePath, workers)
 	for range workers {
 		g.Go(func() error {
@@ -169,9 +166,7 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				if err := groupCtx.Err(); err != nil {
 					return err
 				}
-				if err := s.budget.Run(groupCtx, func() error {
-					return s.readFile(groupCtx, name, yield)
-				}); err != nil {
+				if err := s.readFile(groupCtx, name, yield); err != nil {
 					return err
 				}
 			}

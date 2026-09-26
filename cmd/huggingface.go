@@ -58,7 +58,6 @@ func runHuggingFace(runtime *commandRuntime, globals *GlobalFlags, options *Hugg
 		ExcludeRepos:        options.ExcludeRepo,
 		ShouldSkip:          filters.shouldSkip,
 		MaxArchiveDepth:     options.MaxArchiveDepth,
-		Workers:             resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		LogOpts:             options.LogOpts,
 		MaxBucketObjectSize: options.MaxBucketObjectSize,
 	}

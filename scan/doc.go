@@ -13,8 +13,8 @@
 //
 // Use Scanner.Scan for callbacks and per-call statistics, or Scanner.ScanString
 // for small inputs. Calls may run concurrently with independent sources and share
-// the detection worker limit set by WithWorkers. Source and provider concurrency
-// are configured independently.
+// the detection worker limit set by WithWorkers. Sources use their own bounded
+// I/O concurrency; credential evaluation is configured on the analyzer.
 //
 // Findings carry detection confidence, captures, complete component combinations,
 // and Match.Fingerprint for each non-empty primary and component value. These

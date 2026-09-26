@@ -75,7 +75,6 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		ExcludeRepos:    options.ExcludeRepo,
 		ShouldSkip:      filters.shouldSkip,
 		MaxArchiveDepth: options.MaxArchiveDepth,
-		Workers:         resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		LogOpts:         options.LogOpts,
 		Actions: github.ActionsOptions{
 			Workflows: options.ActionsWorkflow,

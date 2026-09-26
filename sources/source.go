@@ -26,5 +26,8 @@ type Source interface {
 	// that error. It may call yield concurrently, but every call must finish
 	// before Fragments returns. It must not mutate a fragment or its attributes
 	// after yield accepts it.
+	//
+	// Yield may block. Bound readers and queues so a slow consumer stops further
+	// read-ahead, including API pagination. Sources choose their own concurrency.
 	Fragments(ctx context.Context, yield FragmentsFunc) error
 }

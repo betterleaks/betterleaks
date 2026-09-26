@@ -25,7 +25,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
-	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
@@ -54,6 +53,8 @@ type Git struct {
 	URL   string
 	Token string
 	// LogOpts selects history with Git log arguments. It requires GitHistory.
+	// Nonempty options use one history stream to preserve Git's selection and
+	// diff semantics, independently of detection concurrency.
 	LogOpts string
 	// Include adds resources to the default patch scan. Supported values:
 	// commit-messages, tag-messages, reflogs. Additional resources require
@@ -64,9 +65,6 @@ type Git struct {
 	Platform        scm.Platform
 	RemoteURL       string
 	MaxArchiveDepth int
-	// Workers bounds concurrent Git history processes. Zero is automatic.
-	// Diff modes use one process; scanner detection workers remain independent.
-	Workers int
 }
 
 const (
@@ -103,7 +101,6 @@ func (s *Git) Validate() error {
 
 // Fragments yields fragments from a git repo
 func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	budget := sourceworkers.FromContext(ctx)
 	if err := s.Validate(); err != nil {
 		return err
 	}
@@ -127,53 +124,44 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		return errors.New("git source requires URL or RepoPath")
 	}
 	if s.Mode != GitHistory {
-		return budget.Run(ctx, func() error {
-			cmd, err := newGitDiffCmd(ctx, s.RepoPath, s.Mode == GitStaged, s.Logger)
-			if err != nil {
-				return err
-			}
-			return s.runGitCmd(ctx, yield, cmd)
-		})
+		cmd, err := newGitDiffCmd(ctx, s.RepoPath, s.Mode == GitStaged, s.Logger)
+		if err != nil {
+			return err
+		}
+		return s.runGitCmd(ctx, yield, cmd)
 	}
-	if err := s.fragmentsFromRepo(ctx, yield, budget); err != nil {
+	if err := s.fragmentsFromRepo(ctx, yield); err != nil {
 		return err
 	}
 	if slices.Contains(s.Include, GitResourceTypeReflogs) {
-		if err := budget.Run(ctx, func() error {
-			return s.fragmentsFromReflogs(ctx, yield)
-		}); err != nil {
+		if err := s.fragmentsFromReflogs(ctx, yield); err != nil {
 			return err
 		}
 	}
 	if slices.Contains(s.Include, GitResourceTypeTagMessages) {
-		return budget.Run(ctx, func() error {
-			return s.fragmentsFromTagMessages(ctx, yield)
-		})
+		return s.fragmentsFromTagMessages(ctx, yield)
 	}
 	return nil
 }
 
-// fragmentsFromRepo partitions Git history across at most GOMAXPROCS processes.
+// fragmentsFromRepo uses at most four history processes to limit retained buffers.
 // Each process consumes fragments serially; the detector provides the other
 // half of the bounded worker pipeline.
-func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc, budget *sourceworkers.Budget) error {
-	workerLimit := sourceworkers.WithinBudget(s.Workers, sourceworkers.AutomaticGit(), budget)
-	historyWorkers := min(workerLimit, sourceworkers.Automatic())
+func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error {
+	// Selecting commits first loses pathspecs and diff options when producing
+	// their patches. Let Git apply explicit options in a single history walk.
+	if s.LogOpts != "" {
+		return s.runFullHistory(ctx, yield)
+	}
+	historyWorkers := min(max(runtime.GOMAXPROCS(0), 1), 4)
 
 	includeMessages := slices.Contains(s.Include, GitResourceTypeCommitMessages)
 	includeReflogs := slices.Contains(s.Include, GitResourceTypeReflogs)
 	if historyWorkers <= 1 && !includeMessages && !includeReflogs {
-		return budget.Run(ctx, func() error {
-			return s.runFullHistory(ctx, yield)
-		})
+		return s.runFullHistory(ctx, yield)
 	}
 
-	var commits []string
-	err := budget.Run(ctx, func() error {
-		var err error
-		commits, err = listCommits(ctx, s.RepoPath, s.LogOpts, includeReflogs)
-		return err
-	})
+	commits, err := listCommits(ctx, s.RepoPath, s.LogOpts, includeReflogs)
 	if err != nil {
 		return fmt.Errorf("list commits: %w", err)
 	}
@@ -183,9 +171,7 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc, budget
 
 	workers := min(historyWorkers, len(commits))
 	if workers == 1 && !includeMessages && !includeReflogs {
-		return budget.Run(ctx, func() error {
-			return s.runFullHistory(ctx, yield)
-		})
+		return s.runFullHistory(ctx, yield)
 	}
 
 	chunkSize := (len(commits) + workers - 1) / workers
@@ -200,20 +186,35 @@ func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc, budget
 		end := min(start+chunkSize, len(commits))
 		chunk := commits[start:end]
 		g.Go(func() error {
-			return budget.Run(groupCtx, func() error {
-				return s.runHistoryChunk(groupCtx, yield, chunk)
-			})
+			return s.runHistoryChunk(groupCtx, yield, chunk)
 		})
 	}
 	return g.Wait()
 }
 
 func (s *Git) runFullHistory(ctx context.Context, yield FragmentsFunc) error {
-	cmd, err := newGitLogCmd(ctx, s.RepoPath, s.LogOpts, s.Logger)
+	logOpts := s.LogOpts
+	includeReflogs := slices.Contains(s.Include, GitResourceTypeReflogs)
+	if includeReflogs {
+		logOpts = "--reflog " + logOpts
+	}
+	cmd, err := newGitLogCmd(ctx, s.RepoPath, logOpts, s.Logger)
 	if err != nil {
 		return err
 	}
-	return s.runGitCmd(ctx, yield, cmd)
+	if err := s.runGitCmd(ctx, yield, cmd); err != nil {
+		return err
+	}
+	if slices.Contains(s.Include, GitResourceTypeCommitMessages) {
+		commits, err := listCommits(ctx, s.RepoPath, s.LogOpts, includeReflogs)
+		if err != nil {
+			return fmt.Errorf("list commits: %w", err)
+		}
+		if len(commits) > 0 {
+			return s.fragmentsFromCommitMessages(ctx, commits, yield)
+		}
+	}
+	return nil
 }
 
 func (s *Git) runHistoryChunk(ctx context.Context, yield FragmentsFunc, commits []string) error {
@@ -232,8 +233,7 @@ func (s *Git) runHistoryChunk(ctx context.Context, yield FragmentsFunc, commits 
 
 // fragmentsFromCommitMessages reads one commit object per selected revision.
 // Batch framing preserves message bytes, including blank lines and text that
-// resembles a patch header. The caller already holds a budget slot, so this does
-// not multiply the Git process budget.
+// resembles a patch header. Each history worker reads messages after its patches.
 func (s *Git) fragmentsFromCommitMessages(ctx context.Context, commits []string, yield FragmentsFunc) (scanErr error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -367,7 +367,7 @@ type gitTagRef struct {
 
 // fragmentsFromTagMessages scans each distinct annotation reachable from local
 // tag refs. Tags select their own objects independently of commit LogOpts. The
-// caller holds a budget slot; one cat-file process handles all tag objects,
+// single cat-file process handles all tag objects,
 // including annotations reached through other annotated tags.
 func (s *Git) fragmentsFromTagMessages(ctx context.Context, yield FragmentsFunc) (scanErr error) {
 	list := exec.CommandContext(ctx, "git", "-C", s.RepoPath, "for-each-ref",
@@ -949,7 +949,7 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, l
 // once even when multiple refs and reflog entries refer to it.
 func listCommits(ctx context.Context, source string, logOpts string, includeReflogs bool) ([]string, error) {
 	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "rev-list"}
+	args := []string{"-C", sourceClean, "log"}
 	if includeReflogs {
 		args = append(args, "--reflog")
 	}
@@ -963,12 +963,19 @@ func listCommits(ctx context.Context, source string, logOpts string, includeRefl
 	} else {
 		args = append(args, "--all")
 	}
+	// Use log rather than rev-list so diff-based selection (such as -G) also
+	// applies to commit messages. Override presentation before any pathspecs.
+	optionsEnd := slices.Index(args, "--")
+	if optionsEnd < 0 {
+		optionsEnd = len(args)
+	}
+	args = slices.Insert(args, optionsEnd, "--format=%H", "--no-patch", "--no-abbrev-commit", "--no-color", "--no-decorate")
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = gitConfigIsolationEnv()
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git rev-list: %w", err)
+		return nil, fmt.Errorf("git log: %w", err)
 	}
 
 	text := strings.TrimSpace(string(out))

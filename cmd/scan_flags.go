@@ -12,7 +12,7 @@ import (
 
 // ScanFlags are shared by commands that detect findings from a source.
 type ScanFlags struct {
-	Jobs                int      `group:"scanning" name:"jobs" short:"j" help:"Source and detection concurrency; detection caps at GOMAXPROCS, sources may apply tighter limits (0 = defaults)."`
+	Jobs                int      `group:"scanning" name:"jobs" short:"j" help:"Detection concurrency, capped at GOMAXPROCS (0 = GOMAXPROCS)."`
 	MaxTargetMegabytes  int      `group:"scanning" name:"max-target-megabytes" help:"Files larger than this will be skipped."`
 	MaxDecodeDepth      int      `group:"scanning" name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
 	MaxArchiveDepth     int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`

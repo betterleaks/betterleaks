@@ -29,7 +29,7 @@ type GitCmd struct {
 	Platform  string   `group:"source" help:"Target platform used to generate links: github or gitlab."`
 	Staged    bool     `group:"source" help:"Scan added lines in staged changes."`
 	Unstaged  bool     `group:"source" help:"Scan added lines in unstaged changes to tracked files."`
-	LogOpts   string   `group:"source" name:"log-opts" help:"Git log options."`
+	LogOpts   string   `group:"source" name:"log-opts" help:"Git log options (uses one history stream to preserve option semantics)."`
 	Include   []string `group:"source" help:"Additional Git resources to scan: commit-messages, tag-messages, reflogs."`
 	Repo      string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
 }
@@ -104,7 +104,6 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 			ShouldSkip:      filters.shouldSkip,
 			Platform:        scm.NoPlatform,
 			MaxArchiveDepth: options.MaxArchiveDepth,
-			Workers:         resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		}
 	} else {
 		scmPlatform, platformErr := scm.PlatformFromString(options.Platform)
@@ -125,7 +124,6 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 			MaxArchiveDepth: options.MaxArchiveDepth,
 			LogOpts:         options.LogOpts,
 			Include:         options.Include,
-			Workers:         resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		}
 		if remote {
 			gitSource.RepoPath = ""

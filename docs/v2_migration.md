@@ -81,7 +81,7 @@ betterleaks git --staged --offline --redact
 | `--validation-status` | `--status` |
 | `--validation-workers`, `--validation-timeout`, `--validation-debug` | `--provider-workers`, `--provider-timeout`, `--provider-debug` |
 | `--validation-max-requests`, `--validation-rps`, `--validation-rps-rule`, `--validation-env-vars` | Corresponding `--provider-*` flags. |
-| `--git-workers` | `--jobs` / `-j`; also controls detection concurrency. |
+| `--git-workers` | Removed; sources choose their own I/O concurrency. Explicit `--log-opts` uses one history stream to preserve Git option semantics. `--jobs` / `-j` controls detection. |
 | `--enable-rule` | `--isolate-rule` |
 | `--ignore-gitleaks-allow` | `--no-allow-comments` |
 | `--gitleaks-ignore-path` / `-i` | `--ignore-file PATH`, naming the file itself. See the ignore-format change below. |
@@ -415,9 +415,10 @@ pipeline's `Scan` method. Use `pipeline.WithValidationOnly()` for validation
 without enrichment. For already extracted credentials, use
 `Analyzer.ValidateCredential` or `Analyzer.AnalyzeCredential` with `credential.Input`.
 
-Configure detection workers with `scan.WithWorkers`, provider workers and request
-limits with `analyze` options, and source workers on the source itself. Scanners
-and analyzers are silent by default; inject `*slog.Logger` through their
+Configure detection workers with `scan.WithWorkers`, and provider workers and
+request limits with `analyze` options. Sources use internal concurrency limits;
+their `Workers` fields have been removed. See [parallel jobs](scanning.md#parallel-jobs).
+Scanners and analyzers are silent by default; inject `*slog.Logger` through their
 `WithLogger` options. Reporting and redaction belong to your application; use
 `Finding.RedactedCopy` when exporting findings that should hide credentials.
 

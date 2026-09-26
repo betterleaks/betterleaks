@@ -60,8 +60,8 @@ betterleaks fs /path/to/target
 # Flags may also precede the command
 betterleaks --offline --no-banner fs /path/to/target
 
-# Scan Git
-betterleaks git /path/to/repo -j 4
+# Scan a git repo
+betterleaks git /path/to/repo
 
 # Automatically detect a remote repository and scan its history
 betterleaks https://github.com/betterleaks/betterleaks
@@ -110,7 +110,10 @@ printf '%s\n' "$GITHUB_TOKEN" | betterleaks analyze --rule github-pat
 printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat --simple
 ```
 
-For more advanced scanning examples check out the [scanning doc](docs/scanning.md).
+`-j` / `--jobs` controls detection concurrency only. Sources manage their own
+bounded reads and downloads; Git uses one history stream when `--log-opts` is
+provided. See [parallel jobs](docs/scanning.md#parallel-jobs)
+and the [scanning guide](docs/scanning.md) for details and more examples.
 
 Rules may also define an optional `revoke` Expr for explicit credential revocation.
 Use `betterleaks config show ids --revocation` to find configured support and

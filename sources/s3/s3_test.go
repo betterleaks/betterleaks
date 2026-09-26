@@ -3,13 +3,16 @@ package s3
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -544,3 +547,101 @@ func TestS3_skipsBeforeFetch(t *testing.T) {
 }
 
 var _ sources.Source = (*Source)(nil)
+
+func TestS3ReadAheadAndCancellation(t *testing.T) {
+	const workers = 4
+	for _, outcome := range []string{"complete", "cancel", "yield error"} {
+		t.Run(outcome, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			secondPage := make(chan struct{})
+			thirdPage := make(chan struct{}, 1)
+			started := make(chan struct{}, workers)
+			release := make(chan struct{})
+			var gets atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("list-type") != "2" {
+					gets.Add(1)
+					_, _ = w.Write([]byte("content"))
+					return
+				}
+				page := r.URL.Query().Get("continuation-token")
+				count, next := workers, "second"
+				switch page {
+				case "second":
+					close(secondPage)
+					count, next = workers+2, "third"
+				case "third":
+					thirdPage <- struct{}{}
+					count, next = 1, ""
+				}
+				result := s3ListBucketResult{IsTruncated: next != "", NextContinuationToken: next}
+				for i := range count {
+					result.Contents = append(result.Contents, s3Object{Key: fmt.Sprintf("%s-%d.txt", page, i), Size: 7})
+				}
+				_ = xml.NewEncoder(w).Encode(result)
+			}))
+			defer server.Close()
+			source := &Source{URL: server.URL + "/bucket", Region: "us-east-1", Anonymous: true}
+			stop := errors.New("consumer stopped")
+			done := make(chan error, 1)
+			var yielded atomic.Int32
+			go func() {
+				done <- source.Fragments(ctx, func(_ sources.Fragment, err error) error {
+					if err != nil {
+						return err
+					}
+					if yielded.Add(1) <= int32(workers) {
+						started <- struct{}{}
+					}
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-release:
+						if outcome == "yield error" {
+							return stop
+						}
+						return nil
+					}
+				})
+			}()
+			for range workers {
+				select {
+				case <-started:
+				case <-ctx.Done():
+					t.Fatal("readers did not reach yield")
+				}
+			}
+			select {
+			case <-secondPage:
+			case <-ctx.Done():
+				t.Fatal("next page waited for all active objects")
+			}
+			select {
+			case <-thirdPage:
+				t.Fatal("pagination ran past bounded read-ahead")
+			case <-time.After(30 * time.Millisecond):
+			}
+			require.EqualValues(t, workers, gets.Load(), "blocked yields must bound downloads")
+			if outcome == "cancel" {
+				cancel()
+			} else {
+				close(release)
+			}
+			select {
+			case err := <-done:
+				switch outcome {
+				case "complete":
+					require.NoError(t, err)
+					require.EqualValues(t, 2*workers+3, yielded.Load())
+				case "cancel":
+					require.ErrorIs(t, err, context.Canceled)
+				case "yield error":
+					require.ErrorIs(t, err, stop)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("source did not join blocked readers")
+			}
+		})
+	}
+}

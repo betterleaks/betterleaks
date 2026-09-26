@@ -23,55 +23,54 @@ The v1 provider-control aliases are no longer accepted:
 
 ## Parallel jobs
 
-Use `-j` or `--jobs` to control pipeline width. A positive value bounds source
-work. CPU-bound detection uses the smaller of that value and `GOMAXPROCS`, so
-large I/O budgets do not oversubscribe the processor. Nested provider scans
-share the source-side budget rather than multiplying it per repository. Zero
-selects the default limits below.
+Use `-j` or `--jobs` to set detection concurrency. Zero uses `GOMAXPROCS`;
+positive values are capped at `GOMAXPROCS`.
 
 ```sh
-# use up to eight scan jobs
+# use up to eight concurrent detections
 betterleaks filesystem . -j 8
-
-# limit repository and nested content scanning
 betterleaks github https://github.com/my-company -j 8
 ```
 
-The CLI has three independent worker limits:
+Sources choose their own bounded I/O concurrency. These are internal policies,
+not configuration options:
 
-| Stage | Default | Override |
-| :--- | :--- | :--- |
-| Source: read files or download content | 4; filesystem uses `GOMAXPROCS` | `--jobs` |
-| Detection: scan source text for secrets | `GOMAXPROCS` | `--jobs`, capped at `GOMAXPROCS` |
-| Analyze: validate credentials, then optionally analyze them | 10 | `--provider-workers` |
+| Source work | Concurrency |
+| :--- | :--- |
+| Filesystem readers | `GOMAXPROCS` |
+| Git history processes | Up to `min(GOMAXPROCS, 4)`; one with explicit `--log-opts` |
+| S3 and Hugging Face object reads | 4 |
+| GitHub Actions runs | 4 |
+| Provider repositories or buckets | One target at a time |
+| URL and stdin | Serial |
 
-These limits add capacity to separate stages; they are not a shared pool.
-For example, with `GOMAXPROCS=10`, an online filesystem scan can have up to
-10 source operations, 10 detections, and 10 credential evaluations in progress.
-Filesystem readers are limited to CPU parallelism by default because additional
-readers retain buffers and archive workspaces while waiting for detection.
-Git, S3, GitHub, GitLab, and Hugging Face instead default to 4 source slots,
-with the same 10 detection and 10 credential-evaluation slots on that machine.
-`--offline` disables credential evaluations. `--no-analysis` retains validation
-using the same analyze worker pool. `--provider-workers=0` selects its default.
+Reading and detection overlap. When detection or finding output falls behind,
+yielding blocks, readers stop advancing, and bounded enumeration queues stop
+further read-ahead. Provider enumeration can queue one upcoming target while the
+current target is scanned. Paginated listings stream into bounded work instead
+of collecting every page first. S3 can request its next object-list page while
+the previous page's bounded reads finish.
 
-Sources enforce their own tighter limits. Git history processes are capped at
-`GOMAXPROCS`. GitHub, GitLab, and Hugging Face schedule at most four repositories
-at once (one for a single-repository target), sharing the source budget across
-nested Git/download work. This repository cap does not reduce detection slots.
-URL and stdin have no source worker pool. The filesystem CLI and Go API use the
-same automatic limit for `Workers: 0`; other sources may use different automatic
-limits in the Go API.
+These limits bound concurrent work and queued content, not total process memory.
+Each active reader can retain buffers and archive workspaces; individual API
+responses and regex-engine memory also contribute. Independent source invocations
+have independent limits.
 
-`-j 1` serializes source work and detection; use `--provider-workers=1` as well
-to serialize credential evaluations. Provider request rate limits are separate.
+`-j 1` serializes detection; sources can still read ahead. Credential evaluation
+has a separate pool: `--provider-workers` defaults to 10, and zero selects that
+default. `--offline` disables credential evaluations; `--no-analysis` retains
+validation only. Source API request ceilings and provider rate limits remain
+independent of these settings.
 
-The Go API configures detection with `scan.WithWorkers(n)`, provider execution
-with `analyze.WithWorkers(n)`, and source concurrency with fields such as
-`sources.Files{Workers: n}`. The detection limit is shared across all concurrent
-`Scan` and `ScanString` calls on the same scanner. Provider and source
-limits apply per operation. The CLI translates `-j` / `--jobs` into the source
-and detection worker counts described above.
+The Go API configures detection with `scan.WithWorkers(n)` and credential
+evaluation with `analyze.WithWorkers(n)`. Sources have no worker setting. The
+detection limit is shared across concurrent `Scan` and `ScanString` calls on the
+same scanner. Unlike the CLI, an explicit SDK detection count is not capped at
+`GOMAXPROCS`.
+
+Custom sources keep `Fragments(ctx, yield)`: bound readers and queues, allow
+blocking yields to stop upstream work, and honor cancellation. No scanner worker
+count or shared budget is passed to sources.
 
 ## Pick a target
 
@@ -530,7 +529,7 @@ so commits do not depend on network validation and findings are redacted.
 # full repo history
 betterleaks git .
 
-# scan with four jobs
+# scan with up to four concurrent detections
 betterleaks git . -j 4
 
 # custom git log scope
@@ -564,10 +563,18 @@ betterleaks git . --include=reflogs
 betterleaks git . --include=reflogs,commit-messages
 ```
 
+Nonempty `--log-opts` uses one patch history stream so Git applies pathspecs,
+diff filters, and history options together. For example,
+`--log-opts="--all -- src/"` scans patches only under `src/`, including when
+selected commits also change other paths. This also applies with
+`--include=commit-messages` or `--include=reflogs`. Without `--log-opts`, history
+can be partitioned across the bounded Git processes described above.
+`-j` still controls detection concurrency in either case.
+
 `--include=commit-messages` adds message scanning to the default patch scan.
 Each selected commit's full message is scanned once, including empty commits
 and merge commits with no patch. `--log-opts` selects the history for both
-resources, and `--jobs` bounds their Git processes.
+resources. Each history process reads patches and then commit messages.
 
 Message findings use `resource=git.commit_message`, carry the commit SHA and
 author metadata, and have line numbers relative to the message. Their source
@@ -578,8 +585,8 @@ same prefilters and finding filters as other sources.
 `--include=tag-messages` scans each distinct annotated tag object reachable from
 local tag refs, including nested annotations and tags targeting trees or blobs.
 Lightweight tags have no message. All local tags are included independently of
-`--log-opts`, which continues to select commit history. Tag scanning also stays
-within the `--jobs` process limit.
+`--log-opts`, which continues to select commit history. Tag scanning runs after
+history scanning.
 
 Tag findings use `resource=git.tag_message`. Their `git.sha` identifies the tag
 object, `git.tag_name` is the name stored in the annotation, and `git.tag_ref`
@@ -603,7 +610,7 @@ identity in `git.reflog_actor_name` and `git.reflog_actor_email`. `git.date` is
 the reflog entry time, and `git.sha` identifies its referenced commit. Each
 entry is a separate resource, including entries for the same action in HEAD
 and a branch reflog. Message line numbers start at one, and these local records
-have no file path or web link. Reflog scanning stays within the `--jobs` limit.
+have no file path or web link. Reflog messages are scanned after history.
 
 Reports show only the first line of `git.message` for these resources, appending
 `...` when further message text is omitted. The full message remains available
@@ -1056,7 +1063,7 @@ betterleaks s3 --max-object-size=1073741824 https://my-bucket.s3.us-east-1.amazo
 # scan inside archives (.zip, .tar.gz, ...) in S3 objects
 betterleaks s3 --max-archive-depth=2 https://my-bucket.s3.us-east-1.amazonaws.com/
 
-# fewer concurrent GETs against a rate-limited endpoint
+# limit detection concurrency; object downloads remain independently bounded
 betterleaks s3 -j 4 https://my-bucket.s3.us-east-1.amazonaws.com/
 ```
 

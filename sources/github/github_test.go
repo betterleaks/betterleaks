@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -777,14 +778,17 @@ func buildGitHubTestZip(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-// TestFragments_A2_schedulesAllReposAboveConcurrencyLimit verifies that when
-// more than 8 repos are present, every repo is eventually scanned.
-// Before the fix (TryGo→Go), repos beyond the worker limit were silently
-// dropped.
-func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
+func TestFragmentsScansTargetsSequentially(t *testing.T) {
 	t.Parallel()
 
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	const numRepos = 12
+	started := make(chan string, numRepos)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseAll()
 
 	var mu sync.Mutex
 	scannedReleases := make(map[string]bool)
@@ -824,11 +828,17 @@ func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 		}
 		// GET /api/v3/repos/owner/{repo}/releases
 		if len(parts) == 6 && parts[5] == "releases" {
+			started <- parts[4]
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
 			mu.Lock()
 			scannedReleases[parts[4]] = true
 			mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, "[]")
+			fmt.Fprint(w, `[{"id":1,"body":"release content"}]`)
 			return
 		}
 		// GraphQL — return empty to avoid panics when gqlClient is initialised.
@@ -847,13 +857,34 @@ func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 		Token:     "tok",
 		Resources: ResourceSet{ResourceTypeReleases: true},
 	}
-	err := src.Fragments(t.Context(), func(_ sources.Fragment, _ error) error { return nil })
-	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() {
+		done <- src.Fragments(ctx, func(_ sources.Fragment, err error) error { return err })
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("first repository did not start")
+	}
+	select {
+	case repo := <-started:
+		t.Fatalf("started %s while the first repository was blocked", repo)
+	case <-time.After(30 * time.Millisecond):
+	}
+	releaseAll()
+	require.NoError(t, <-done)
 
 	mu.Lock()
 	got := len(scannedReleases)
 	mu.Unlock()
 	require.Equal(t, numRepos, got, "expected all %d repos to be scanned for releases, got %d", numRepos, got)
+	for len(started) > 0 {
+		<-started
+	}
+	stop := errors.New("consumer stopped")
+	err := src.Fragments(ctx, func(sources.Fragment, error) error { return stop })
+	require.ErrorIs(t, err, stop)
+	require.Len(t, started, 1, "callback failure must stop before the next target")
 }
 
 // TestFragments_A3_enumErrWaitsForScans verifies that when enumeration fails,

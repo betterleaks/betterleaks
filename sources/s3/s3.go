@@ -21,7 +21,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/sigv4"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 )
 
 const (
@@ -66,10 +65,8 @@ type Source struct {
 
 	// Scan config
 	MaxObjectSize   int64
-	Workers         int // concurrent object scans; 0 is automatic
 	ShouldSkip      sources.SkipFunc
 	MaxArchiveDepth int
-	budget          *sourceworkers.Budget
 
 	parsed s3Target
 	creds  s3Creds
@@ -184,10 +181,27 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 		}
 	}
 	httpClient := &http.Client{}
-	if s.parsed.IsEnumerate() {
-		return s.scanEnumerated(ctx, httpClient, yield)
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	// A rejected yield must stop enumeration even when resource errors are skippable.
+	onFragment := yield
+	yield = func(fragment sources.Fragment, err error) error {
+		err = onFragment(fragment, err)
+		if err != nil {
+			cancel(err)
+		}
+		return err
 	}
-	return s.scanBucket(ctx, httpClient, s.parsed, yield)
+	var err error
+	if s.parsed.IsEnumerate() {
+		err = s.scanEnumerated(ctx, httpClient, yield)
+	} else {
+		err = s.scanBucket(ctx, httpClient, s.parsed, yield)
+	}
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	return err
 }
 
 // scanEnumerated lists buckets at the endpoint, filters by glob, and scans
@@ -218,6 +232,9 @@ func (s *Source) scanEnumerated(ctx context.Context, client *http.Client, yield 
 	logging.OrDiscard(s.Logger).Info("bucket enumeration complete", "total", len(buckets), "matched", len(matched))
 
 	for _, b := range matched {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		sub, err := s.bucketSubTarget(ctx, b)
 		if err != nil {
 			logging.OrDiscard(s.Logger).Error("could not resolve bucket; skipping", "error", err, "bucket", b)
@@ -260,7 +277,6 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 	if maxSize <= 0 {
 		maxSize = s3DefaultMaxObjectSize
 	}
-	workers := sourceworkers.WithinBudget(s.Workers, sourceworkers.AutomaticObjects(), s.budget)
 
 	bucketAttrs := map[string]string{
 		AttrBucket:           target.Bucket,
@@ -289,17 +305,27 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 		mu           sync.Mutex
 	)
 
+	// Bound object reads while allowing the next metadata page to overlap them.
+	ctx, cancel := context.WithCancel(ctx)
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(4)
+	defer func() {
+		cancel()
+		_ = g.Wait()
+	}()
 	var continuationToken string
 	for {
-		page, err := s3ListPage(ctx, client, target, s.creds, target.Prefix, continuationToken)
+		page, err := s3ListPage(gctx, client, target, s.creds, target.Prefix, continuationToken)
 		if err != nil {
-			return fmt.Errorf("list objects: %w", err)
+			cancel()
+			return errors.Join(fmt.Errorf("list objects: %w", err), g.Wait())
 		}
 		listedCount += len(page.Contents)
 
-		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(workers)
 		for _, obj := range page.Contents {
+			if err := gctx.Err(); err != nil {
+				return errors.Join(err, g.Wait())
+			}
 			if skipReason := s.skipReason(obj, maxSize); skipReason != "" {
 				logging.OrDiscard(s.Logger).Log(gctx, logging.LevelTrace, "skipping object", "key", obj.Key, "reason", skipReason)
 				continue
@@ -310,20 +336,21 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 				continue
 			}
 			g.Go(func() error {
-				return s.budget.Run(gctx, func() error {
-					if err := s.scanObject(gctx, client, target, obj, attrs, yield); err != nil {
-						logging.OrDiscard(s.Logger).Error("could not scan S3 object", "error", err, "key", obj.Key)
-						return nil
+				if err := gctx.Err(); err != nil {
+					return err
+				}
+				if err := s.scanObject(gctx, client, target, obj, attrs, yield); err != nil {
+					if cause := context.Cause(gctx); cause != nil {
+						return cause
 					}
-					mu.Lock()
-					scannedCount++
-					mu.Unlock()
+					logging.OrDiscard(s.Logger).Error("could not scan S3 object", "error", err, "key", obj.Key)
 					return nil
-				})
+				}
+				mu.Lock()
+				scannedCount++
+				mu.Unlock()
+				return nil
 			})
-		}
-		if err := g.Wait(); err != nil {
-			return err
 		}
 		if !page.IsTruncated || page.NextContinuationToken == "" {
 			break
@@ -331,6 +358,9 @@ func (s *Source) scanBucket(ctx context.Context, client *http.Client, target s3T
 		continuationToken = page.NextContinuationToken
 	}
 
+	if err := g.Wait(); err != nil {
+		return err
+	}
 	logging.OrDiscard(s.Logger).Info("S3 scan complete",
 		"bucket", target.Bucket,
 		"objects_listed", listedCount,
