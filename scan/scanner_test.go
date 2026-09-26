@@ -1660,6 +1660,53 @@ func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 	require.Len(t, mustNew(t, cfg).detectFragment(context.Background(), sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
 }
 
+func TestAllowSignatures(t *testing.T) {
+	for _, test := range []struct {
+		name, input string
+		options     []Option
+		want        int
+		wantError   bool
+	}{
+		{name: "default betterleaks", input: "secret-alpha # betterleaks:allow"},
+		{name: "default gitleaks", input: "secret-alpha # gitleaks:allow"},
+		{name: "custom is opt in", input: "secret-alpha #nosec", want: 1},
+		{name: "custom", input: "secret-alpha #nosec", options: []Option{WithAllowSignatures("#nosec")}},
+		{name: "replace defaults", input: "secret-alpha # betterleaks:allow", options: []Option{WithAllowSignatures("#nosec")}, want: 1},
+		{name: "disable", input: "secret-alpha betterleaks:allow gitleaks:allow", options: []Option{WithAllowSignatures()}, want: 1},
+		{name: "case sensitive", input: "secret-alpha #NOSEC", options: []Option{WithAllowSignatures("#nosec")}, want: 1},
+		{name: "literal substring", input: "secret-alpha prefix[x],y_suffix", options: []Option{WithAllowSignatures("unused", "[x],y")}},
+		{name: "different line", input: "secret-alpha\n#nosec", options: []Option{WithAllowSignatures("#nosec")}, want: 1},
+		{name: "last option replaces", input: "secret-alpha first", options: []Option{WithAllowSignatures("first"), WithAllowSignatures("second")}, want: 1},
+		{name: "empty marker", options: []Option{WithAllowSignatures("#nosec", "")}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scanner, err := New(testConfig(), test.options...)
+			if test.wantError {
+				require.ErrorContains(t, err, "allow signatures must not be empty")
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, scanner.ScanString(test.input), test.want)
+			findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{Content: strings.NewReader(test.input)})
+			require.NoError(t, err)
+			require.Len(t, findings, test.want)
+		})
+	}
+
+	t.Run("option snapshots caller slice and can be reused", func(t *testing.T) {
+		signatures := []string{"#nosec"}
+		option := WithAllowSignatures(signatures...)
+		signatures[0] = "changed-before-construction"
+		first := mustNew(t, testConfig(), option)
+		signatures[0] = "changed-after-construction"
+		second := mustNew(t, testConfig(), option, WithAllowSignatures("other"))
+		third := mustNew(t, testConfig(), option)
+		require.Empty(t, first.ScanString("secret-alpha #nosec"))
+		require.Len(t, second.ScanString("secret-alpha #nosec"), 1)
+		require.Empty(t, third.ScanString("secret-alpha #nosec"))
+	})
+}
+
 func TestDetect(t *testing.T) {
 	tests := map[string]struct {
 		cfgName  string

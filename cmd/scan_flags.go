@@ -12,14 +12,15 @@ import (
 
 // ScanFlags are shared by commands that detect findings from a source.
 type ScanFlags struct {
-	Jobs                int      `group:"scanning" name:"jobs" short:"j" help:"Detection concurrency, capped at GOMAXPROCS (0 = GOMAXPROCS)."`
-	MaxTargetMegabytes  int      `group:"scanning" name:"max-target-megabytes" help:"Files larger than this will be skipped."`
-	MaxDecodeDepth      int      `group:"scanning" name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
-	MaxArchiveDepth     int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
-	DisableRule         []string `group:"scanning" name:"disable-rule" help:"Disable specific rules by id (repeatable; shorthand: -dr)."`
-	IsolateRule         []string `group:"scanning" name:"isolate-rule" help:"Only enable specific rules by id (repeatable; shorthand: -ir)."`
-	IgnoreFile          string   `group:"scanning" name:"ignore-file" placeholder:"PATH" help:"Read value fingerprints from PATH."`
-	IgnoreAllowComments bool     `group:"scanning" name:"no-allow-comments" help:"Ignore allow comments."`
+	Jobs               int      `group:"scanning" name:"jobs" short:"j" help:"Detection concurrency, capped at GOMAXPROCS (0 = GOMAXPROCS)."`
+	MaxTargetMegabytes int      `group:"scanning" name:"max-target-megabytes" help:"Files larger than this will be skipped."`
+	MaxDecodeDepth     int      `group:"scanning" name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
+	MaxArchiveDepth    int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
+	DisableRule        []string `group:"scanning" name:"disable-rule" help:"Disable specific rules by id (repeatable; shorthand: -dr)."`
+	IsolateRule        []string `group:"scanning" name:"isolate-rule" help:"Only enable specific rules by id (repeatable; shorthand: -ir)."`
+	IgnoreFile         string   `group:"scanning" name:"ignore-file" placeholder:"PATH" help:"Read value fingerprints from PATH."`
+	AllowSignatures    []string `group:"scanning" name:"allow-signature" sep:"none" help:"Allow marker matched literally on finding lines (repeatable; replaces default markers)."`
+	NoAllowSignatures  bool     `group:"scanning" name:"no-allow-signatures" help:"Disable all allow markers."`
 
 	Output       string     `group:"output" name:"output" short:"o" placeholder:"PATH" help:"Write findings to PATH (.json or .jsonl; use '-' for stdout)."`
 	JSONL        bool       `group:"output" name:"jsonl" help:"Print findings as JSONL."`
@@ -41,6 +42,14 @@ type ScanFlags struct {
 }
 
 func (f ScanFlags) Validate() error {
+	if f.NoAllowSignatures && len(f.AllowSignatures) > 0 {
+		return fmt.Errorf("--allow-signature and --no-allow-signatures cannot be combined")
+	}
+	for _, signature := range f.AllowSignatures {
+		if signature == "" {
+			return fmt.Errorf("--allow-signature must not be empty")
+		}
+	}
 	if f.Jobs < 0 {
 		return fmt.Errorf("--jobs must be non-negative")
 	}

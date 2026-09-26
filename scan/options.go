@@ -28,7 +28,7 @@ type scannerOptions struct {
 	maxDecodeDepth      int
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
-	ignoreAllowComments bool
+	allowSignatures     []string
 	ignoredFingerprints []fingerprint.Hash
 	precompile          bool
 	logger              *slog.Logger
@@ -119,11 +119,20 @@ func WithMinimumConfidence(value Confidence) Option {
 	}}
 }
 
-// WithIgnoreAllowComments controls whether allow comments are ignored instead
-// of suppressing findings.
-func WithIgnoreAllowComments(ignore bool) Option {
+// WithAllowSignatures replaces the default betterleaks:allow and gitleaks:allow
+// markers. Matching is a case-sensitive literal substring check on finding lines;
+// markers need not appear inside comments. No signatures disables suppression.
+// Empty strings are rejected by New. The slice is copied when the option is
+// created; repeated options replace the list, with the last option taking effect.
+func WithAllowSignatures(signatures ...string) Option {
+	signatures = slices.Clone(signatures)
 	return Option{apply: func(options *scannerOptions) error {
-		options.ignoreAllowComments = ignore
+		for _, signature := range signatures {
+			if signature == "" {
+				return errors.New("allow signatures must not be empty")
+			}
+		}
+		options.allowSignatures = signatures
 		return nil
 	}}
 }

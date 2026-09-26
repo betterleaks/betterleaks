@@ -200,9 +200,8 @@ func (index *findingIndex) add(i int) {
 	}
 }
 
-// containsAllowSignature checks whether the line contains an allow comment.
-func containsAllowSignature(line string) bool {
-	for _, signature := range allowSignatures {
+func (s *Scanner) containsAllowSignature(line string) bool {
+	for _, signature := range s.allowSignatures {
 		if strings.Contains(line, signature) {
 			return true
 		}

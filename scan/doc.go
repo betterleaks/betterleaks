@@ -16,6 +16,10 @@
 // the detection worker limit set by WithWorkers. Sources use their own bounded
 // I/O concurrency; credential evaluation is configured on the analyzer.
 //
+// Finding lines containing betterleaks:allow or gitleaks:allow are skipped by
+// default. WithAllowSignatures replaces these literal markers; calling it with
+// no arguments disables marker-based suppression.
+//
 // Findings carry detection confidence, captures, complete component combinations,
 // and Match.Fingerprint for each non-empty primary and component value. These
 // fingerprints hash exact Match.Value bytes, including non-secret components,

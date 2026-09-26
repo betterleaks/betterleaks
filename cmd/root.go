@@ -345,7 +345,11 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 		scan.WithWorkers(resolveScanWorkers(flags.Jobs)),
 		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
 		scan.WithMinimumConfidence(scan.Confidence(flags.Confidence)),
-		scan.WithIgnoreAllowComments(flags.IgnoreAllowComments),
+	}
+	if flags.NoAllowSignatures {
+		scannerOptions = append(scannerOptions, scan.WithAllowSignatures())
+	} else if len(flags.AllowSignatures) > 0 {
+		scannerOptions = append(scannerOptions, scan.WithAllowSignatures(flags.AllowSignatures...))
 	}
 	if flags.MatchContext != "" {
 		scannerOptions = append(scannerOptions, scan.WithMatchContext(flags.MatchContext))

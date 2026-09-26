@@ -25,7 +25,8 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"max-target-megabytes",
 		"jobs",
 		"ignore-file",
-		"no-allow-comments",
+		"allow-signature",
+		"no-allow-signatures",
 		"redact",
 		"no-banner",
 		"disable-rule",
@@ -166,6 +167,43 @@ func commandNode(t *testing.T, parent *kong.Node, name string) *kong.Node {
 	}
 	t.Fatalf("command %q not found", name)
 	return nil
+}
+
+func TestAllowSignatureFlags(t *testing.T) {
+	configPath := writeTestConfig(t, "[[rules]]\nid = 'token'\nregex = 'secret-[a-z]+'\n")
+	for _, test := range []struct {
+		name, input string
+		flags       []string
+		want        int
+		wantError   string
+	}{
+		{name: "defaults", input: "secret-alpha betterleaks:allow\nsecret-beta gitleaks:allow"},
+		{name: "custom", input: "secret-alpha #nosec", flags: []string{"--allow-signature", "#nosec"}},
+		{name: "repeated", input: "secret-alpha first\nsecret-beta second", flags: []string{"--allow-signature", "first", "--allow-signature", "second"}},
+		{name: "replaces defaults", input: "secret-alpha betterleaks:allow", flags: []string{"--allow-signature", "#nosec"}, want: 1},
+		{name: "disabled", input: "secret-alpha betterleaks:allow\nsecret-beta gitleaks:allow", flags: []string{"--no-allow-signatures"}, want: 2},
+		{name: "literal comma", input: "secret-alpha first", flags: []string{"--allow-signature", "first,second"}, want: 1},
+		{name: "comma match", input: "secret-alpha first,second", flags: []string{"--allow-signature", "first,second"}},
+		{name: "conflict", flags: []string{"--allow-signature", "#nosec", "--no-allow-signatures"}, wantError: "cannot be combined"},
+		{name: "empty", flags: []string{"--allow-signature="}, wantError: "must not be empty"},
+		{name: "removed flag", flags: []string{"--no-allow-comments"}, wantError: "unknown flag"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"stdin", "--config", configPath, "--offline", "--jsonl", "--no-banner", "--exit-code=0"}, test.flags...)
+			_, err := parseCLIForTest(t, args...)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+			root, output := newTestCLI(t)
+			root.SetIn(strings.NewReader(test.input))
+			root.SetArgs(args)
+			require.NoError(t, root.Execute())
+			_, findings := decodeScanJSONL(t, output.Bytes())
+			require.Len(t, findings, test.want)
+		})
+	}
 }
 
 func TestScanProviderModes(t *testing.T) {

@@ -306,10 +306,29 @@ still written. Use `--no-banner` when only the banner should be hidden.
 
 ---
 
-## Allow comments
+## Allow signatures
 
 Add `betterleaks:allow` or `gitleaks:allow` to a finding's line to suppress it.
-Use `--no-allow-comments` to report these findings anyway.
+These are the default allow signatures. Matching is a case-sensitive literal
+substring check; Betterleaks does not parse comment syntax.
+
+Use repeatable `--allow-signature` flags to replace the defaults:
+
+```sh
+betterleaks fs . --allow-signature betterleaks:allow --allow-signature '#nosec'
+```
+
+This honors only `betterleaks:allow` and `#nosec`. Commas are literal parts of
+signatures, not list separators. A marker anywhere on the finding's line can
+suppress it, including inside a string or a longer word.
+
+Use `--no-allow-signatures` to report findings regardless of allow markers.
+It cannot be combined with `--allow-signature`. Empty signatures are rejected.
+
+In the Go SDK, `scan.WithAllowSignatures("betterleaks:allow", "#nosec")` replaces
+the defaults, and `scan.WithAllowSignatures()` disables allow signatures. Omitting
+the option keeps the defaults. The option copies the supplied slice; when supplied
+more than once, the last option sets the list.
 
 ---
 

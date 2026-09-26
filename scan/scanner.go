@@ -33,8 +33,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-var allowSignatures = [...]string{"betterleaks:allow", "gitleaks:allow"}
-
 var errStopScan = errors.New("scanner: stop scan")
 
 const (
@@ -65,7 +63,7 @@ type Scanner struct {
 	maxDecodeDepth      int
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
-	ignoreAllowComments bool
+	allowSignatures     []string
 	workers             int
 	workerSlots         *semaphore.Weighted
 	logger              *slog.Logger
@@ -110,7 +108,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required to create scanner")
 	}
-	var settings scannerOptions
+	settings := scannerOptions{allowSignatures: []string{"betterleaks:allow", "gitleaks:allow"}}
 	for _, option := range options {
 		if option.apply == nil {
 			return nil, errors.New("scanner option is invalid")
@@ -168,20 +166,20 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		anchorRuleIndexes[patternID] = anchorToRuleIndexes[keyword]
 	}
 	s := &Scanner{
-		maxDecodeDepth:      settings.maxDecodeDepth,
-		matchContext:        settings.matchContext,
-		minimumConfidence:   settings.minimumConfidence,
-		ignoreAllowComments: settings.ignoreAllowComments,
-		workers:             settings.workers,
-		workerSlots:         semaphore.NewWeighted(int64(settings.workers)),
-		logger:              logging.OrDiscard(settings.logger),
-		keywordMatcher:      ahocorasick.Compile(keywords, true),
-		exprRuntime:         exprRuntime,
-		rulesBySpecificity:  rulesBySpecificity,
-		ruleIndexByID:       ruleIndexByID,
-		keywordRuleIndexes:  keywordRuleIndexes,
-		anchorRuleIndexes:   anchorRuleIndexes,
-		noKeywordIndexes:    noKeywordIndexes,
+		maxDecodeDepth:     settings.maxDecodeDepth,
+		matchContext:       settings.matchContext,
+		minimumConfidence:  settings.minimumConfidence,
+		allowSignatures:    settings.allowSignatures,
+		workers:            settings.workers,
+		workerSlots:        semaphore.NewWeighted(int64(settings.workers)),
+		logger:             logging.OrDiscard(settings.logger),
+		keywordMatcher:     ahocorasick.Compile(keywords, true),
+		exprRuntime:        exprRuntime,
+		rulesBySpecificity: rulesBySpecificity,
+		ruleIndexByID:      ruleIndexByID,
+		keywordRuleIndexes: keywordRuleIndexes,
+		anchorRuleIndexes:  anchorRuleIndexes,
+		noKeywordIndexes:   noKeywordIndexes,
 	}
 	if len(settings.ignoredFingerprints) > 0 {
 		s.ignoredFingerprints = make(map[fingerprint.Hash]struct{}, len(settings.ignoredFingerprints))
@@ -895,7 +893,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 
 		// move to filter?
-		if !s.ignoreAllowComments && containsAllowSignature(finding.Match.Line) {
+		if s.containsAllowSignature(finding.Match.Line) {
 			logTrace(logger, "skipping finding: allow signature found", "rule_id", finding.RuleID)
 			continue
 		}

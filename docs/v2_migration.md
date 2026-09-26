@@ -83,7 +83,7 @@ betterleaks git --staged --offline --redact
 | `--validation-max-requests`, `--validation-rps`, `--validation-rps-rule`, `--validation-env-vars` | Corresponding `--provider-*` flags. |
 | `--git-workers` | Removed; sources choose their own I/O concurrency. Explicit `--log-opts` uses one history stream to preserve Git option semantics. `--jobs` / `-j` controls detection. |
 | `--enable-rule` | `--isolate-rule` |
-| `--ignore-gitleaks-allow` | `--no-allow-comments` |
+| `--ignore-gitleaks-allow` | `--no-allow-signatures` |
 | `--gitleaks-ignore-path` / `-i` | `--ignore-file PATH`, naming the file itself. See the ignore-format change below. |
 | `--report-path` / `-r` | `--output` / `-o` |
 | `--report-format=json` | `--output report.json`, or `--output -` for stdout. |
@@ -259,7 +259,11 @@ printf '%s' "$SECRET" | betterleaks fingerprint
 ```
 
 Do not hash a redacted value or add a trailing newline. Existing `betterleaks:allow`
-and `gitleaks:allow` comments still work. See [ignore semantics and discovery](scanning.md#ignore-exact-secret-values).
+and `gitleaks:allow` comments still work by default. Repeat `--allow-signature`
+to replace those markers, or use `--no-allow-signatures` to disable them.
+The earlier v2 flag `--no-allow-comments` has been removed.
+See [allow signatures](scanning.md#allow-signatures) and
+[ignore semantics and discovery](scanning.md#ignore-exact-secret-values).
 
 ## Report changes
 
@@ -410,6 +414,12 @@ filters compile in `scan.New`; detection regexes and validation/analysis program
 normally compile lazily. `scan.WithPrecompile()` and `analyze.WithPrecompile()`
 check those programs at construction. Neither substitutes for compiling source
 prefilters or checking a rule's `revoke` expression.
+
+`scan.WithAllowSignatures(...)` replaces the default allow markers; calling it
+without arguments disables them. It replaces `scan.WithIgnoreAllowComments`:
+use `scan.WithAllowSignatures()` instead of `WithIgnoreAllowComments(true)`,
+and omit the option to retain the defaults. Signatures are literal, case-sensitive
+substrings on finding lines, and empty strings are rejected by `scan.New`.
 
 ### Provider work is an explicit opt-in
 
