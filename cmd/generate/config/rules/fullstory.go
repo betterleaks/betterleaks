@@ -42,7 +42,7 @@ func FullStoryAPIKey() *config.Rule {
 		Keywords:     []string{"fullstory", "fs_api"},
 		ValidateExpr: fullstoryValidateExpr,
 		AnalyzeExpr:  fullstoryAnalyzeExpr,
-		Filter:       utils.MinEntropy(3.3),
+		FilterExpr:   utils.MinEntropy(3.3),
 	}
 
 	// validate

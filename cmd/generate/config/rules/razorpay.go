@@ -16,7 +16,7 @@ func RazorpayKeyID() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`rzp_(?:live|test)_[A-Za-z0-9]{14}`, false),
 		Keywords:    []string{"rzp_live_", "rzp_test_"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	keyID := "rzp_live_" + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{14}`, 3.0)
@@ -56,7 +56,7 @@ func RazorpayKeySecret() *config.Rule {
     "result": "invalid",
     "reason": "Invalid Razorpay key ID or secret"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	keySecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{24}`, 3.0)

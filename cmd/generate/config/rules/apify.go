@@ -35,7 +35,7 @@ func ApifyAPIToken() *config.Rule {
 		Keywords:     []string{"apify_api_"},
 		ValidateExpr: apifyValidateExpr,
 		AnalyzeExpr:  apifyAnalyzeExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	return utils.Validate(r,

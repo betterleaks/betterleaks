@@ -28,7 +28,7 @@ func GenericPassword() *config.Rule {
 				Within:   "7L,200C",
 			},
 		},
-		Filter: `// Restrict nearby evidence to the password's line and the
+		FilterExpr: `// Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
 // from the evidence patterns below.
 let raw = finding["fragment_raw"];
@@ -265,7 +265,7 @@ func GenericUsername() *config.Rule {
 			"client",
 		},
 		SkipReport: true,
-		Filter: `// An unquoted value is an ambiguous scalar in configuration, but
+		FilterExpr: `// An unquoted value is an ambiguous scalar in configuration, but
 // not a string literal in the source languages recognized below.
 let isCodeFile = matchesAny(attributes["path"], [
   ` + "`(?i)\\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|gemspec|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rake|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\\.(?:example|sample|template))?$`" + `

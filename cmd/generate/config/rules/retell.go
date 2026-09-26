@@ -22,7 +22,7 @@ func RetellAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	key := "key_" + secrets.NewSecretWithEntropy(`[a-f0-9]{28}`, 3.0)

@@ -13,7 +13,7 @@ func DenoAccountToken() *config.Rule {
 		Regex:        utils.GenerateUniqueTokenRegex(`ddp_[A-Za-z0-9]{36}`, false),
 		Keywords:     []string{"ddp_"},
 		ValidateExpr: utils.BearerGetValidationExpr("https://api.deno.com/v1/user", `(r.body contains "\"id\"")`),
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

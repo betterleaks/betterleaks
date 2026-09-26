@@ -241,7 +241,7 @@ func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 		{
 			ID: "primary", Regex: `(?P<tenant>acme):(?P<key>primary)`, SecretGroup: 2,
 			// Inspect this match's captures before any companion is assembled.
-			Filter:     `finding.captures.tenant != "acme"`,
+			FilterExpr: `finding.captures.tenant != "acme"`,
 			Components: []config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}},
 			ValidateExpr: `finding.secret == "primary" && finding.captures.tenant == "acme"
 && components["part"].captures.tenant == "companion"
@@ -256,7 +256,7 @@ func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 		},
 		{
 			ID: "part", Regex: `(?P<tenant>companion|fixture):(?P<key>readkey|writekey)`, SecretGroup: 2,
-			Filter: `finding.captures.tenant == "fixture"`, SkipReport: true,
+			FilterExpr: `finding.captures.tenant == "fixture"`, SkipReport: true,
 		},
 		{ID: "optional", Regex: `optional-key`, SkipReport: true},
 	}}

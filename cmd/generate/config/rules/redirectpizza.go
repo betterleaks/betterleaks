@@ -23,7 +23,7 @@ func RedirectPizzaAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthenticated"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

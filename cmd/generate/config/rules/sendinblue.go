@@ -42,7 +42,7 @@ func SendInBlueAPIToken() *config.Rule {
 		},
 		ValidateExpr: brevoValidateExpr,
 		AnalyzeExpr:  brevoAnalyzeExpr,
-		Filter:       utils.MinEntropy(3.2),
+		FilterExpr:   utils.MinEntropy(3.2),
 	}
 
 	return utils.Validate(r,

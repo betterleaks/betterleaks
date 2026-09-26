@@ -35,7 +35,7 @@ func FigmaPersonalAccessToken() *config.Rule {
 		Keywords:     []string{"figd_"},
 		ValidateExpr: figmaValidateExpr,
 		AnalyzeExpr:  figmaAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate

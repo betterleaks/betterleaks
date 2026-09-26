@@ -337,14 +337,14 @@ func TestNewRejectsInvalidFindingFilters(t *testing.T) {
 				case "global":
 					cfg.Filter = expression
 				case "rule":
-					cfg.Rules[0].Filter = expression
+					cfg.Rules[0].FilterExpr = expression
 					want = "compiling rule " + cfg.Rules[0].ID + " filter"
 				case "path":
-					cfg.Rules = append(cfg.Rules, config.Rule{ID: "path-only", Path: `\.env$`, Filter: expression})
+					cfg.Rules = append(cfg.Rules, config.Rule{ID: "path-only", Path: `\.env$`, FilterExpr: expression})
 					want = "compiling rule path-only filter"
 				case "component":
 					cfg.Rules[0].Components = []config.Component{{RuleID: "part"}}
-					cfg.Rules = append(cfg.Rules, config.Rule{ID: "part", Regex: "COMPONENT", SkipReport: true, Filter: expression})
+					cfg.Rules = append(cfg.Rules, config.Rule{ID: "part", Regex: "COMPONENT", SkipReport: true, FilterExpr: expression})
 					want = "compiling rule part filter"
 				}
 				for _, options := range [][]Option{nil, {WithPrecompile()}} {
@@ -1577,9 +1577,9 @@ skipReport = true
 
 func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	rule := config.Rule{
-		ID:     "near-match",
-		Regex:  `[A-Z0-9]{20}`,
-		Filter: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; matchesAny(matchContext, ["red-herring"])`,
+		ID:         "near-match",
+		Regex:      `[A-Z0-9]{20}`,
+		FilterExpr: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; matchesAny(matchContext, ["red-herring"])`,
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
@@ -1594,7 +1594,7 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 
 func TestConfidenceAttributeAndFilter(t *testing.T) {
 	low := config.Rule{ID: "specific-low", Regex: `[A-Z0-9]{20}`, Specificity: 1, Confidence: "low"}
-	promoted := config.Rule{ID: "promoted", Regex: `[A-Z0-9]{20}`, Confidence: "medium", Filter: `let _ = setConfidence("high"); false`}
+	promoted := config.Rule{ID: "promoted", Regex: `[A-Z0-9]{20}`, Confidence: "medium", FilterExpr: `let _ = setConfidence("high"); false`}
 	cfg := &config.Config{
 		Rules: []config.Rule{low, promoted},
 	}
@@ -1620,9 +1620,9 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rule := config.Rule{
-				ID:     "decoded-near-match",
-				Regex:  `decoded-secret-[A-Z]{20}`,
-				Filter: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; containsAny(matchContext, ["provider"])`, tc.before),
+				ID:         "decoded-near-match",
+				Regex:      `decoded-secret-[A-Z]{20}`,
+				FilterExpr: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; containsAny(matchContext, ["provider"])`, tc.before),
 			}
 			cfg := &config.Config{
 				Rules: []config.Rule{rule},
@@ -1636,9 +1636,9 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 
 func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	rule := config.Rule{
-		ID:     "original-match-bounds",
-		Regex:  "\nSECRET",
-		Filter: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; matchesAny(matchContext, [`\\nSECRET$`])",
+		ID:         "original-match-bounds",
+		Regex:      "\nSECRET",
+		FilterExpr: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; matchesAny(matchContext, [`\\nSECRET$`])",
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
@@ -1649,9 +1649,9 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 
 func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 	rule := config.Rule{
-		ID:     "line-context",
-		Regex:  `SECRET`,
-		Filter: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; containsAny(matchContext, ["other-line"])`,
+		ID:         "line-context",
+		Regex:      `SECRET`,
+		FilterExpr: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; containsAny(matchContext, ["other-line"])`,
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
@@ -3581,7 +3581,7 @@ func TestCapturesUseOriginalMatch(t *testing.T) {
 			t.Run("decoded offsets and filter bindings", func(t *testing.T) {
 				scanner := mustNew(t, &config.Config{Rules: []config.Rule{{
 					ID: "token", Regex: `^(?P<start>secret)|(?P<later>secret)`,
-					Filter: `finding.captures.later != "secret" || finding.match_start_idx != 1 || finding.match_end_idx != 7`,
+					FilterExpr: `finding.captures.later != "secret" || finding.match_start_idx != 1 || finding.match_end_idx != 7`,
 				}}}, WithMaxDecodeDepth(2))
 				encoded := base64.StdEncoding.EncodeToString([]byte("xsecret padding-1234567890"))
 				encoded = base64.StdEncoding.EncodeToString([]byte(encoded))
@@ -3604,7 +3604,7 @@ func TestFiltersReceiveNamedCaptures(t *testing.T) {
 			if scope == "global" {
 				cfg.Filter = filter
 			} else {
-				cfg.Rules[0].Filter = filter
+				cfg.Rules[0].FilterExpr = filter
 			}
 			d := mustNew(t, cfg, WithPrecompile())
 			findings := d.ScanString("example:key-fixture alice:key-live")
@@ -3616,7 +3616,7 @@ func TestFiltersReceiveNamedCaptures(t *testing.T) {
 
 	for _, pattern := range []string{`key`, `(?P<optional>prefix)?key`} {
 		cfg := &config.Config{Rules: []config.Rule{{ID: "empty", Regex: pattern,
-			Filter: `len(finding.captures) == 0 && (finding.captures?.missing ?? "fallback") == "fallback"`,
+			FilterExpr: `len(finding.captures) == 0 && (finding.captures?.missing ?? "fallback") == "fallback"`,
 		}}}
 		require.Empty(t, mustNew(t, cfg, WithPrecompile()).ScanString("key"))
 	}
@@ -3686,7 +3686,7 @@ func TestFindingMatchAndLocationHandoff(t *testing.T) {
 	cfg := testConfig()
 	cfg.Rules[0].Regex = `token=(?P<token>[a-z]+)`
 	cfg.Rules[0].Keywords = nil
-	cfg.Rules[0].Filter = `let _ = setConfidence("high"); attributes.path != "archive.zip!service.env"`
+	cfg.Rules[0].FilterExpr = `let _ = setConfidence("high"); attributes.path != "archive.zip!service.env"`
 	scanner := mustNew(t, cfg, WithPrecompile())
 	attrs := map[string]string{sources.AttrPath: "archive.zip!service.env", sources.AttrResource: sources.ResourceFileContent}
 	var finding report.Finding
@@ -3715,7 +3715,7 @@ func TestContextRetentionIsExplicit(t *testing.T) {
 			cfg.Rules[0].AnalyzeExpr = `{"reason":finding.context}`
 			// Local context extraction needs no retained copy. The optional context
 			// binding must reflect exactly the window the caller requested.
-			cfg.Rules[0].Filter = fmt.Sprintf(`finding.line != "secret-alpha\n" || finding.context != %q || !(finding.fragment_raw[max(finding.match_start_idx - 20, 0):finding.match_start_idx] contains "tenant=acme")`, tc.want)
+			cfg.Rules[0].FilterExpr = fmt.Sprintf(`finding.line != "secret-alpha\n" || finding.context != %q || !(finding.fragment_raw[max(finding.match_start_idx - 20, 0):finding.match_start_idx] contains "tenant=acme")`, tc.want)
 			options := []Option{WithPrecompile()}
 			if tc.window != "" {
 				options = append(options, WithMatchContext(tc.window))
@@ -3779,7 +3779,7 @@ func TestPathOnlyFindingsHonorFilters(t *testing.T) {
 		if global {
 			cfg.Filter = expression
 		} else {
-			cfg.Rules[0].Filter = expression
+			cfg.Rules[0].FilterExpr = expression
 		}
 		scanner, err := New(cfg, WithPrecompile())
 		require.NoError(t, err)
@@ -4035,7 +4035,7 @@ func BenchmarkFindingText(b *testing.B) {
 						want := 1_000
 						switch mode {
 						case "filtered":
-							cfg.Rules[0].Filter = "true"
+							cfg.Rules[0].FilterExpr = "true"
 							want = 0
 						case "missing_component":
 							cfg.Rules[0].Components = []config.Component{{RuleID: "missing"}}

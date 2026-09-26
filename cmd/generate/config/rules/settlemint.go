@@ -16,7 +16,7 @@ func SettlemintPersonalAccessToken() *config.Rule {
 		Keywords: []string{
 			"sm_pat",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -38,7 +38,7 @@ func SettlemintApplicationAccessToken() *config.Rule {
 		Keywords: []string{
 			"sm_aat",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -60,7 +60,7 @@ func SettlemintServiceAccessToken() *config.Rule {
 		Keywords: []string{
 			"sm_sat",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

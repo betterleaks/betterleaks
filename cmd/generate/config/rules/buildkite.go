@@ -79,7 +79,7 @@ func BuildkiteUserAccessToken() *config.Rule {
 		ValidateExpr: buildkiteValidateExpr,
 		AnalyzeExpr:  buildkiteAnalyzeExpr,
 		RevokeExpr:   buildkiteRevokeExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	return utils.Validate(r,
@@ -108,8 +108,8 @@ func BuildkiteServiceToken() *config.Rule {
 			`bkpat_[A-Za-z0-9_-]{54}|` +
 			`bkps_[A-Za-z0-9_-]{64}` +
 			`)(?:$|[^A-Za-z0-9_-])`,
-		Keywords: []string{"bkaa_", "bkaj_", "bkar_", "bkct_", "bkpt_", "bkpat_", "bkps_"},
-		Filter:   utils.MinEntropy(3.5),
+		Keywords:   []string{"bkaa_", "bkaj_", "bkar_", "bkct_", "bkpt_", "bkpat_", "bkps_"},
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	return utils.Validate(r,

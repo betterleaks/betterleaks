@@ -14,7 +14,7 @@ func Twilio() *config.Rule {
 		Description: "Found a Twilio API Key, posing a risk to communication services and sensitive customer interaction data.",
 		Regex:       `SK[0-9a-fA-F]{32}`,
 		Keywords:    []string{"twilio"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

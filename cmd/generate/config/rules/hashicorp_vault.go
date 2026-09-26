@@ -16,8 +16,8 @@ func VaultServiceToken() *config.Rule {
 		// `s.` (legacy tokens) appears in over half of all fragments, so gate
 		// the rule on `vault` context instead to avoid running the regex
 		// everywhere. `hvs.` is precise enough to keep as-is.
-		Keywords: []string{"hvs.", "vault"},
-		Filter:   "entropy(finding[\"secret\"]) <= 3.5\n|| matchesAny(finding[\"secret\"], [`s\\.[A-Za-z]{24}`])",
+		Keywords:   []string{"hvs.", "vault"},
+		FilterExpr: "entropy(finding[\"secret\"]) <= 3.5\n|| matchesAny(finding[\"secret\"], [`s\\.[A-Za-z]{24}`])",
 	}
 
 	// validate
@@ -53,7 +53,7 @@ func VaultBatchToken() *config.Rule {
 		Description: "Detected a Vault Batch Token, risking unauthorized access to secret management services and sensitive data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`hvb\.[\w-]{138,300}`, false),
 		Keywords:    []string{"hvb."},
-		Filter:      `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

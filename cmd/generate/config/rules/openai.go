@@ -24,7 +24,7 @@ func OpenAI() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

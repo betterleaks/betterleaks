@@ -29,7 +29,7 @@ func FlyIOAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

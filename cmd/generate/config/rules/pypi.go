@@ -16,7 +16,7 @@ func PyPiUploadToken() *config.Rule {
 		Keywords: []string{
 			"pypi-AgEIcHlwaS5vcmc",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

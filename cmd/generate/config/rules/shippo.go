@@ -16,7 +16,7 @@ func ShippoAPIToken() *config.Rule {
 		Keywords: []string{
 			"shippo_",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

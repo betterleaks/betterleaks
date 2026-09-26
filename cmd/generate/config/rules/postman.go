@@ -16,7 +16,7 @@ func PostManAPI() *config.Rule {
 		Keywords: []string{
 			"PMAK-",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

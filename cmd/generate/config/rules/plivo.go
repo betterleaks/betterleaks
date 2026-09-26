@@ -19,7 +19,7 @@ func PlivoAuthID() *config.Rule {
 		),
 		Keywords:   []string{"plivo"},
 		SkipReport: true,
-		Filter:     `entropy(finding["secret"]) < 2.8 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 2.8 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -61,7 +61,7 @@ let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
   "result": "invalid",
   "reason": "Unauthorized"
 } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

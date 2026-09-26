@@ -18,7 +18,7 @@ func LinkedinClientID() *config.Rule {
 			"linked_in",
 			"linked-in",
 		},
-		Filter: utils.MinEntropyAndTokenEfficiency,
+		FilterExpr: utils.MinEntropyAndTokenEfficiency,
 	}
 
 	// validate
@@ -40,7 +40,7 @@ func LinkedinClientSecret() *config.Rule {
 			"linked_in",
 			"linked-in",
 		},
-		Filter: utils.MinEntropyAndTokenEfficiency,
+		FilterExpr: utils.MinEntropyAndTokenEfficiency,
 	}
 
 	// validate

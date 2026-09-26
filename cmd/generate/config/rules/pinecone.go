@@ -33,7 +33,7 @@ func PineconeAPIKeyV1() *config.Rule {
 		),
 		Keywords:     []string{"pinecone"},
 		ValidateExpr: pineconeValidateExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -56,7 +56,7 @@ func PineconeAPIKeyV2() *config.Rule {
 		Regex:        utils.GenerateUniqueTokenRegex(`pcsk_[A-Za-z0-9]{5,6}_[A-Za-z0-9]{63}`, false),
 		Keywords:     []string{"pcsk_"},
 		ValidateExpr: pineconeValidateExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	// validate

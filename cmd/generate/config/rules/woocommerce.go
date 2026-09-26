@@ -15,7 +15,7 @@ func WooCommerceConsumerSecret() *config.Rule {
 		Description: "WooCommerce REST API consumer secret, which may allow read or write access to a store with the associated consumer key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"woo"}, `cs_`+utils.Hex("40"), true),
 		Keywords:    []string{"wooc", "woo-", "woo_", "cs_"},
-		Filter:      utils.MinEntropy(3.5),
+		FilterExpr:  utils.MinEntropy(3.5),
 	}
 
 	secret := "cs_" + secrets.NewSecretWithEntropy(`[a-f0-9]{40}`, 3.5)

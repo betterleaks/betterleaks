@@ -26,7 +26,7 @@ func FalAPIKey() *config.Rule {
     "result": "invalid",
     "reason": (r.json?.error?.message ?? "Invalid API key")
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[a-f0-9]{8}`, 2.5) + "-" +

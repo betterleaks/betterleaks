@@ -55,7 +55,7 @@ func MiroAccessToken() *config.Rule {
 		Keywords:     []string{"miro"},
 		ValidateExpr: miroValidateExpr,
 		AnalyzeExpr:  miroAnalyzeExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	token := "eyJtaXJv" +
@@ -78,7 +78,7 @@ func MiroClientID() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{`miro[_. -]*client[_. -]*id`}, utils.Numeric("15,21"), true),
 		Keywords:    []string{"miro"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(2.5),
+		FilterExpr:  utils.MinEntropy(2.5),
 	}
 
 	clientID := secrets.NewSecretWithEntropy(`[0-9]{19}`, 2.5)
@@ -122,7 +122,7 @@ func MiroClientSecret() *config.Rule {
     "result": "invalid",
     "reason": (r.json?.message ?? "Invalid client credentials")
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	clientSecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{32}`, 3.5)

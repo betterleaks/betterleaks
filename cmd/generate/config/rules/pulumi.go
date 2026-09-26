@@ -16,7 +16,7 @@ func PulumiAPIToken() *config.Rule {
 		Keywords: []string{
 			"pul-",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

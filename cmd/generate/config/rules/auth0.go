@@ -43,7 +43,7 @@ func Auth0ClientID() *config.Rule {
 		),
 		Keywords:   []string{"auth0"},
 		SkipReport: true,
-		Filter:     utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	clientID := secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{32}`, 3.0)
@@ -94,7 +94,7 @@ oauthError == "invalid_grant" ? {
   "result": "invalid",
   "reason": "Invalid Auth0 client credentials"
 } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	clientSecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{64}`, 3.5)

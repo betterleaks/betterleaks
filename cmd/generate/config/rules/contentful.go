@@ -14,8 +14,8 @@ func Contentful() *config.Rule {
 		Confidence:  "medium",
 		Regex: utils.GenerateSemiGenericRegex([]string{"contentful"},
 			utils.AlphaNumericExtended("43"), true),
-		Keywords: []string{"contentful"},
-		Filter:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		Keywords:   []string{"contentful"},
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

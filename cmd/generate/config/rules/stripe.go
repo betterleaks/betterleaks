@@ -30,7 +30,7 @@ func StripeAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
+		FilterExpr: `matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
 || entropy(finding["secret"]) <= 2.0`,
 	}
 

@@ -21,7 +21,7 @@ func Cerebras() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("cerebras", "csk-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("48"), 3.0))

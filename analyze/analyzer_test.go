@@ -155,7 +155,7 @@ func TestValidateCredentialPipeline(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &config.Config{Prefilter: "invalid scan syntax ???", Filter: "invalid scan syntax ???", Rules: []config.Rule{{
-				ID: "credential", Regex: `never-matches-this-input`, Filter: "invalid scan syntax ???", Confidence: "low", SkipReport: true,
+				ID: "credential", Regex: `never-matches-this-input`, FilterExpr: "invalid scan syntax ???", Confidence: "low", SkipReport: true,
 				ValidateExpr: tc.validation, AnalyzeExpr: tc.analysis,
 			}}}
 			d := mustNew(t, cfg)

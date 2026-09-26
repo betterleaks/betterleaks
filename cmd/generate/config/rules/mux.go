@@ -18,7 +18,7 @@ func MuxAccessTokenID() *config.Rule {
 		),
 		Keywords:   []string{"mux"},
 		SkipReport: true,
-		Filter:     utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	tokenID := secrets.NewSecretWithEntropy(utils.Hex8_4_4_4_12(), 3.0)
@@ -60,7 +60,7 @@ func MuxAccessTokenSecret() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	tokenSecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{75}`, 3.5)

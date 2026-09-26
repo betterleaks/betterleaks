@@ -17,7 +17,7 @@ func KucoinAccessToken() *config.Rule {
 		Keywords: []string{
 			"kucoin",
 		},
-		Filter: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -36,7 +36,7 @@ func KucoinSecretKey() *config.Rule {
 		Keywords: []string{
 			"kucoin",
 		},
-		Filter: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

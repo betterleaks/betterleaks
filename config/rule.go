@@ -62,12 +62,12 @@ type Rule struct {
 	// through the explicit revoke command, never during scanning or analysis.
 	RevokeExpr string
 
-	// Filter is an expression evaluated against attributes + finding per regex match.
+	// FilterExpr is an expression evaluated against attributes + finding per regex match.
 	// finding.captures holds this match's named groups. Components are assembled
 	// after filtering. Provider expressions, including explicit revocation, read
 	// supplied components independently of filtering.
 	// Returns true = skip (discard this finding); false = keep.
-	Filter string
+	FilterExpr string
 }
 
 // Component references another rule that contributes a nearby match to a multipart finding.

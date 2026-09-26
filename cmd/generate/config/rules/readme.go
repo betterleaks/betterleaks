@@ -16,7 +16,7 @@ func ReadMe() *config.Rule {
 		Keywords: []string{
 			"rdme_",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

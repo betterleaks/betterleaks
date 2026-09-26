@@ -13,7 +13,7 @@ func Deepgram() *config.Rule {
 		Description: "Detected a Deepgram API Key, which may expose speech recognition services and audio data to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"deepgram"}, utils.Hex("40"), true),
 		Keywords:    []string{"deepgram"},
-		Filter:      `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("deepgram", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.3))

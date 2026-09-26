@@ -41,7 +41,7 @@ func BitlyAccessToken() *config.Rule {
 		Keywords:     []string{"bitly"},
 		ValidateExpr: bitlyValidateExpr,
 		AnalyzeExpr:  bitlyAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

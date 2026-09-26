@@ -23,7 +23,7 @@ func ZuploConsumerAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Authorization failed"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.3),
+		FilterExpr: utils.MinEntropy(3.3),
 	}
 
 	// validate

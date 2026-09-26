@@ -54,7 +54,7 @@ func SalesforceAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.3),
+		FilterExpr: utils.MinEntropy(3.3),
 	}
 
 	// validate

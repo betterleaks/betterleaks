@@ -77,7 +77,7 @@ func TableauPersonalAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Invalid Tableau credentials"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

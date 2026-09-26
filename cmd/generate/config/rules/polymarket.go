@@ -14,7 +14,7 @@ func PolymarketAPISecret() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}secret"}, `[a-zA-Z0-9+/]{40,}={0,2}`, false),
 		Keywords:    []string{"poly"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("poly_secret", secrets.NewSecretWithEntropy(`[a-zA-Z0-9+/]{40}`, 4))
@@ -82,7 +82,7 @@ func PolymarketAPIKey() *config.Rule {
         "result": "invalid",
         "reason": "Unauthorized"
       } : validate.unknown(r)))`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("poly_key", secrets.NewSecretWithEntropy(utils.Hex8_4_4_4_12(), 3))
@@ -96,7 +96,7 @@ func PolymarketPrivateKey() *config.Rule {
 		Description: "Discovered a Polymarket private key, which could allow unauthorized trading and fund transfers.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}private.{0,20}key"}, `0x[a-fA-F0-9]{64}`, false),
 		Keywords:    []string{"poly"},
-		Filter:      `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("poly_private_key", "0x"+secrets.NewSecretWithEntropy(`[a-fA-F0-9]{64}`, 3.5))

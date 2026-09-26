@@ -395,6 +395,8 @@ scan errors; use `Scan` when failures must be observable. Callers own
 
 `Config.Rules` is now `[]config.Rule`, not a map. `Rule.RuleID` becomes `Rule.ID`;
 `Rule.Regex` and `Rule.Path` are pattern strings, not compiled regex objects.
+The rule's finding filter expression is `Rule.FilterExpr` in Go; its TOML key
+remains `filter`.
 Components are `[]config.Component`. Keyword indexes and compiled expression
 programs are no longer public config state. Use `config.Default`, `LoadFile`,
 `ParseTOML`, or `ParseTOMLString`, or construct the data directly.

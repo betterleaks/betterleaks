@@ -13,7 +13,7 @@ func Atlassian() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`ATAT[A-Za-z0-9_\-=]{100,}`, false),
 		Keywords:    []string{"atat"},
-		Filter:      `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	currentToken := "ATATT3" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_\-=]{186}`, 3.5)

@@ -21,7 +21,7 @@ func ClerkSecretKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.3`,
+		FilterExpr: `entropy(finding["secret"]) < 3.3`,
 	}
 
 	tps := []string{

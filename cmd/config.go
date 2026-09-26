@@ -168,8 +168,8 @@ func validateConfig(cfg *configpkg.Config, engine regexp.Engine) error {
 	}
 	for _, rule := range cfg.Rules {
 		id := rule.ID
-		if rule.Filter != "" {
-			prg, err := rt.CompileFilter(rule.Filter, nil)
+		if rule.FilterExpr != "" {
+			prg, err := rt.CompileFilter(rule.FilterExpr, nil)
 			if err != nil {
 				return fmt.Errorf("compiling rule %s filter: %w", id, err)
 			}
@@ -322,7 +322,7 @@ func renderConfig(cfg *configpkg.Config) configView {
 			Analyze:     rule.AnalyzeExpr,
 			Revoke:      rule.RevokeExpr,
 			SkipReport:  rule.SkipReport,
-			Filter:      rule.Filter,
+			Filter:      rule.FilterExpr,
 		}
 		for _, component := range rule.Components {
 			rv.Components = append(rv.Components, componentView{

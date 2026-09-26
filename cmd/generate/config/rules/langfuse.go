@@ -14,7 +14,7 @@ func LangfusePublicKey() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`pk-lf-`+uuidPattern(), false),
 		Keywords:    []string{"pk-lf-"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	publicKey := "pk-lf-" + randomUUID()
@@ -47,7 +47,7 @@ func LangfuseSecretKey() *config.Rule {
   }); r.status == 200 ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	secretKey := "sk-lf-" + randomUUID()

@@ -54,7 +54,7 @@ func AWS() *config.Rule {
   } : validate.unknown(r)
 `,
 		AnalyzeExpr: awsAnalyzeExpr,
-		Filter:      "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])",
+		FilterExpr:  "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])",
 	}
 
 	// validate
@@ -88,7 +88,7 @@ func AWSSecretAccessKey() *config.Rule {
 		// SkipReport suppresses standalone secret-key findings; the key is
 		// always surfaced as a required component of the aws-access-token finding.
 		SkipReport: true,
-		Filter:     `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("aws_secret_key", secrets.NewSecretWithEntropy(`[A-Za-z0-9/+=]{40}`, 4))
@@ -107,7 +107,7 @@ func AmazonBedrockAPIKeyLongLived() *config.Rule {
 		Keywords: []string{
 			"ABSK", // Amazon Bedrock API Key (long-lived)
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -142,7 +142,7 @@ func AmazonBedrockAPIKeyShortLived() *config.Rule {
 		Keywords: []string{
 			"bedrock-api-key-", // Amazon Bedrock API Key (short lived)
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

@@ -32,7 +32,7 @@ func PostmarkAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(account))`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	token := secrets.NewSecretWithEntropy(utils.Hex8_4_4_4_12(), 3.0)

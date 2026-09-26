@@ -96,7 +96,7 @@ func GitHubPat() *config.Rule {
 		ValidateExpr: githubTokenExpr,
 		AnalyzeExpr:  githubTokenAnalyzeExpr,
 		RevokeExpr:   githubRevokeExpr,
-		Filter: `entropy(finding["secret"]) <= 3.0
+		FilterExpr: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	}
 
@@ -119,7 +119,7 @@ func GitHubFineGrainedPat() *config.Rule {
 		ValidateExpr: githubTokenExpr,
 		AnalyzeExpr:  githubTokenAnalyzeExpr,
 		RevokeExpr:   githubRevokeExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -141,7 +141,7 @@ func GitHubOauth() *config.Rule {
 		ValidateExpr: githubTokenExpr,
 		AnalyzeExpr:  githubTokenAnalyzeExpr,
 		RevokeExpr:   githubRevokeExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -173,7 +173,7 @@ func GitHubApp() *config.Rule {
 		Regex:        `(?:ghu|ghs)_[0-9a-zA-Z]{36}`,
 		Keywords:     []string{"ghu_", "ghs_"},
 		ValidateExpr: githubAppTokenExpr,
-		Filter: `entropy(finding["secret"]) <= 3.0
+		FilterExpr: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	}
 
@@ -197,7 +197,7 @@ func GitHubRefresh() *config.Rule {
 		Keywords:     []string{"ghr_"},
 		ValidateExpr: githubTokenExpr,
 		RevokeExpr:   githubRevokeExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

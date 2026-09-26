@@ -33,7 +33,7 @@ func LinearAPIToken() *config.Rule {
 		Keywords:     []string{"lin_api_"},
 		ValidateExpr: linearValidateExpr,
 		AnalyzeExpr:  linearAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -49,7 +49,7 @@ func LinearClientSecret() *config.Rule {
 		Description: "Identified a Linear Client Secret, which may compromise secure integrations and sensitive project management data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"linear"}, utils.Hex("32"), true),
 		Keywords:    []string{"linear"},
-		Filter:      `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

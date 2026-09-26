@@ -51,7 +51,7 @@ func TestWorkersSharedAcrossScanAndScanString(t *testing.T) {
 		defer unblock()
 		gate := &detectionGate{resume: resume}
 		cfg := testConfig()
-		cfg.Rules[0].Filter = "true"
+		cfg.Rules[0].FilterExpr = "true"
 		scanner := mustNew(t, cfg, WithWorkers(5), WithLogger(slog.New(gate)))
 
 		const scans = 100
@@ -94,7 +94,7 @@ func TestWaitingScanCancellationDoesNotStopOtherScans(t *testing.T) {
 		defer unblock()
 		gate := &detectionGate{resume: resume}
 		cfg := testConfig()
-		cfg.Rules[0].Filter = "true"
+		cfg.Rules[0].FilterExpr = "true"
 		scanner := mustNew(t, cfg, WithWorkers(1), WithLogger(slog.New(gate)))
 		ownerDone := make(chan struct{})
 		go func() {

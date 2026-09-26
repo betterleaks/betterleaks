@@ -70,7 +70,7 @@ func VercelAPIToken() *config.Rule {
 		Keywords:     []string{"vercel"},
 		ValidateExpr: vercelTokenValidateExpr,
 		AnalyzeExpr:  vercelTokenAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", secrets.NewSecretWithEntropy(`[A-Z0-9]{24}`, 3.5))
@@ -98,7 +98,7 @@ func VercelPersonalAccessToken() *config.Rule {
 		Keywords:     []string{"vcp_"},
 		ValidateExpr: vercelTokenValidateExpr,
 		AnalyzeExpr:  vercelTokenAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vcp_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -131,7 +131,7 @@ func VercelIntegrationToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vci_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -163,7 +163,7 @@ func VercelAppAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vca_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -197,7 +197,7 @@ func VercelAppRefreshToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vcr_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -229,7 +229,7 @@ func VercelAIGatewayKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vck_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))

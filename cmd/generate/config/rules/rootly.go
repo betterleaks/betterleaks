@@ -23,7 +23,7 @@ func RootlyAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid token"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

@@ -34,7 +34,7 @@ func HunterAPIKey() *config.Rule {
 		Keywords:     []string{"hunter"},
 		ValidateExpr: hunterValidateExpr,
 		AnalyzeExpr:  hunterAnalyzeExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[a-f0-9]{40}`, 3.5)

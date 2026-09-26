@@ -27,7 +27,7 @@ func ResendAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := "re_" +

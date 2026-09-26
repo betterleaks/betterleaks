@@ -16,7 +16,7 @@ func AzureTenantID() *config.Rule {
 		Regex:       `(?i)\b(?:tenant[_\s.-]*(?:id)?|AZURE_TENANT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`,
 		Keywords:    []string{"tenant"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.5`,
 	}
 	return utils.Validate(r, []string{`azure_tenant_id=72f988bf-86f1-41af-91ab-2d7cd011db47`}, nil)
 }
@@ -29,7 +29,7 @@ func AzureClientID() *config.Rule {
 		Regex:       `(?i)\b(?:client[_\s.-]*id|AZURE_CLIENT_ID)\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`,
 		Keywords:    []string{"client"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.5`,
 	}
 	return utils.Validate(r, []string{`azure_client_id=f47ac10b-58cc-4372-a567-0e02b2c3d479`}, nil)
 }
@@ -65,7 +65,7 @@ func AzureActiveDirectoryClientSecret() *config.Rule {
   "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -105,7 +105,7 @@ func AzureStorageAccountName() *config.Rule {
 		Regex:       `(?i)(?:\bAccountName\s*=\s*([a-z0-9]{3,24})\b|https://([a-z0-9]{3,24})\.blob\.core\.windows\.net\b|\b(?:azure[_\s.-]*storage[_\s.-]*(?:account[_\s.-]*)?name|storage[_\s.-]*account[_\s.-]*name)\b(?s:.{0,24}?)([a-z0-9]{3,24})\b)`,
 		Keywords:    []string{"AccountName", "blob.core.windows.net", "storage"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 1.5`,
+		FilterExpr:  `entropy(finding["secret"]) <= 1.5`,
 	}
 	storageKey := azureStorageKeySample()
 	return utils.Validate(r, []string{
@@ -133,7 +133,7 @@ func AzureStorageAccountKey() *config.Rule {
   "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 	return utils.Validate(r, []string{`AccountName=mystorageaccount;AccountKey=` + azureStorageKeySample()}, nil)
 }
@@ -158,7 +158,7 @@ func AzureAppConfigurationConnectionString() *config.Rule {
   "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 	return utils.Validate(r, []string{
 		`Endpoint=https://foo-nonprod-appconfig.azconfig.io;Id=ABCD-E6-s0:tl6ABcdefGHi7kLMno/p;Secret=` + secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{44}=`, 3.5),
@@ -180,7 +180,7 @@ func AzureServiceBusConnectionString() *config.Rule {
   "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 	return utils.Validate(r, []string{`Endpoint=sb://orders-prod.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=` + secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{56}`, 3.5) + `;EntityPath=orders`}, nil)
 }

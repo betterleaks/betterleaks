@@ -25,7 +25,7 @@ func DevCycleClientSDKKey() *config.Rule {
 		Regex:        `\b(dvc_client_[A-Za-z0-9]{8,32})`,
 		Keywords:     []string{"dvc_client_"},
 		ValidateExpr: devCycleValidationExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -47,7 +47,7 @@ func DevCycleMobileSDKKey() *config.Rule {
 		Regex:        `\b(dvc_mobile_[A-Za-z0-9]{8,32})`,
 		Keywords:     []string{"dvc_mobile_"},
 		ValidateExpr: devCycleValidationExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -69,7 +69,7 @@ func DevCycleServerSDKKey() *config.Rule {
 		Regex:        `\b(dvc_server_[A-Za-z0-9]{8,32})`,
 		Keywords:     []string{"dvc_server_"},
 		ValidateExpr: devCycleValidationExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate

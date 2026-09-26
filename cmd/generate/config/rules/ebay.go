@@ -15,7 +15,7 @@ func EBayClientID() *config.Rule {
 		Regex:       `\b([a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+-PRD-[a-f0-9]{8,12}-[a-f0-9]{8,12})`,
 		Keywords:    []string{"-PRD-"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -55,7 +55,7 @@ r.status == 200 && (r.json?.active ?? true) == false ? {
   "result": "invalid",
   "reason": "Invalid client"
 } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	// validate

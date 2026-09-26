@@ -13,7 +13,7 @@ func AikidoClientID() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`AIK_CLIENT_[A-Za-z0-9]{24}`, false),
 		Keywords:    []string{"AIK_CLIENT_"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) < 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	}
 
 	tps := []string{
@@ -35,7 +35,7 @@ func AikidoClientSecret() *config.Rule {
 		Components: []config.Component{
 			{RuleID: "aikido-client-id"},
 		},
-		Filter: `entropy(finding["secret"]) < 3.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{
@@ -54,7 +54,7 @@ func AikidoCIToken() *config.Rule {
 		Description: "Detected an Aikido CI token, which may allow unauthorized CI scan integration activity in Aikido.",
 		Regex:       `\b(AIK_CI_[A-Za-z0-9]{20,44})\b`,
 		Keywords:    []string{"AIK_CI_"},
-		Filter:      `entropy(finding["secret"]) < 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	}
 
 	tps := []string{

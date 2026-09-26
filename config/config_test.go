@@ -68,7 +68,7 @@ func TestHashes(t *testing.T) {
 		{"tags", func(c *Config) { c.Rules[0].Tags = []string{"credential"} }, false, false},
 		{"specificity", func(c *Config) { c.Rules[0].Specificity++ }, false, false},
 		{"confidence", func(c *Config) { c.Rules[0].Confidence = "high" }, false, false},
-		{"rule filter", func(c *Config) { c.Rules[0].Filter = "true" }, false, false},
+		{"rule filter", func(c *Config) { c.Rules[0].FilterExpr = "true" }, false, false},
 		{"skip report", func(c *Config) { c.Rules[0].SkipReport = true }, false, false},
 		{"component reference", func(c *Config) { c.Rules[0].Components[0].RuleID = "other" }, false, false},
 		{"component optionality", func(c *Config) { c.Rules[0].Components[0].Optional = true }, false, false},
@@ -76,7 +76,7 @@ func TestHashes(t *testing.T) {
 		{"component order", func(c *Config) { slices.Reverse(c.Rules[0].Components) }, false, false},
 		{"required component regex", func(c *Config) { c.Rules[1].Regex = "NEW" }, false, false},
 		{"optional component regex", func(c *Config) { c.Rules[2].Regex = "NEW" }, false, false},
-		{"component filter", func(c *Config) { c.Rules[1].Filter = "true" }, false, false},
+		{"component filter", func(c *Config) { c.Rules[1].FilterExpr = "true" }, false, false},
 		{"global filter", func(c *Config) { c.Filter = "true" }, false, true},
 		{"global prefilter", func(c *Config) { c.Prefilter = "true" }, false, true},
 		{"other rule", func(c *Config) { c.Rules[3].Regex = "NEW" }, false, true},
@@ -242,7 +242,7 @@ func TestTranslate(t *testing.T) {
 					Regex:       `(?i)(?:key|api|token|secret|client|passwd|password|auth|access)(?:[0-9a-z\-_\t .]{0,20})(?:[\s|']|[\s|"]){0,3}(?:=|>|:{1,3}=|\|\|:|<=|=>|:|\?=)(?:'|\"|\s|=|\x60){0,5}([0-9a-z\-_.=]{10,150})(?:['|\"|\n|\r|\s|\x60|;]|$)`,
 					Keywords:    []string{"key", "api", "token", "secret", "client", "passwd", "password", "auth", "access"},
 					Tags:        []string{},
-					Filter:      `entropy(finding["secret"]) <= 3.5`,
+					FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 				}},
 			},
 		},
@@ -280,7 +280,7 @@ func TestTranslate(t *testing.T) {
 					SecretGroup: 3,
 					Keywords:    []string{},
 					Tags:        []string{},
-					Filter:      `entropy(finding["secret"]) <= 3.5`,
+					FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 				}},
 			},
 		},
@@ -325,8 +325,8 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 	}
 
 	for _, rule := range cfg.Rules {
-		if rule.Filter != "" {
-			_, err = filterRuntime.CompileFilter(rule.Filter, nil)
+		if rule.FilterExpr != "" {
+			_, err = filterRuntime.CompileFilter(rule.FilterExpr, nil)
 			require.NoErrorf(t, err, "rule %q filter", rule.ID)
 		}
 		if rule.ValidateExpr != "" {
@@ -378,8 +378,8 @@ func TestGenericRuleConfidence(t *testing.T) {
 	require.Equal(t, "low", requireRule(t, cfg, "generic-api-key").Confidence)
 	require.Equal(t, "medium", requireRule(t, cfg, "box-api-access-token").Confidence)
 	require.Equal(t, "high", requireRule(t, cfg, "openai-api-key").Confidence)
-	require.Contains(t, requireRule(t, cfg, "generic-api-key").Filter, `\b[a-z0-9]+[_.-]+token\b`)
-	require.Contains(t, requireRule(t, cfg, "generic-api-key").Filter, `]) ? "medium" : "low";`)
+	require.Contains(t, requireRule(t, cfg, "generic-api-key").FilterExpr, `\b[a-z0-9]+[_.-]+token\b`)
+	require.Contains(t, requireRule(t, cfg, "generic-api-key").FilterExpr, `]) ? "medium" : "low";`)
 }
 
 func TestRuleConfidence(t *testing.T) {

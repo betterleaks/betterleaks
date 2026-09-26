@@ -22,7 +22,7 @@ func DeepSeek() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("deepseek", "sk-"+secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5))

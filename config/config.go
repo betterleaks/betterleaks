@@ -195,7 +195,7 @@ func (rc *rawConfig) translate() *Config {
 			ValidateExpr: raw.Validate,
 			AnalyzeExpr:  raw.Analyze,
 			RevokeExpr:   raw.Revoke,
-			Filter:       raw.Filter,
+			FilterExpr:   raw.Filter,
 			Keywords:     raw.Keywords,
 			Tags:         raw.Tags,
 		}
@@ -345,7 +345,7 @@ func appendHashRule(data []byte, rule Rule) []byte {
 	data = appendHashStrings(data, rule.Tags)
 	data = binary.AppendVarint(data, int64(rule.Specificity))
 	data = appendHashString(data, rule.Confidence)
-	data = appendHashString(data, rule.Filter)
+	data = appendHashString(data, rule.FilterExpr)
 	if rule.SkipReport {
 		data = append(data, 1)
 	} else {

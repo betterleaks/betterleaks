@@ -39,7 +39,7 @@ func ClickUpPersonalAPIToken() *config.Rule {
 		Keywords:     []string{"clickup"},
 		ValidateExpr: clickupValidateExpr,
 		AnalyzeExpr:  clickupAnalyzeExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

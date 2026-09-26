@@ -18,7 +18,7 @@ func BrowserStackUsername() *config.Rule {
 		),
 		Keywords:   []string{"browserstack"},
 		SkipReport: true,
-		Filter:     utils.MinEntropy(2.0),
+		FilterExpr: utils.MinEntropy(2.0),
 	}
 
 	username := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{12}`, 2.0)
@@ -59,7 +59,7 @@ func BrowserStackAccessKey() *config.Rule {
     "result": "invalid",
     "reason": "Authentication failed"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	accessKey := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{20}`, 3.0)

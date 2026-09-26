@@ -57,7 +57,7 @@ func TestScannerOwnsRegexSelection(t *testing.T) {
 			engine := new(recordingEngine)
 			cfg := &config.Config{Rules: []config.Rule{{
 				ID: "token", Regex: "TOKEN", Path: `\.env$`,
-				Filter: `matchesAny(finding.secret, ["^skip$"]) || findMatch(finding.secret, "TOKEN") == ""`,
+				FilterExpr: `matchesAny(finding.secret, ["^skip$"]) || findMatch(finding.secret, "TOKEN") == ""`,
 			}}}
 			scanner, err := scan.New(cfg, scan.WithRegexEngine(engine))
 			require.NoError(t, err)
@@ -142,7 +142,7 @@ func TestExpressionRegexFailuresFollowRuntimeErrorPolicy(t *testing.T) {
 			`findMatch(finding.secret, "TOKEN") == ""`,
 		} {
 			var logs bytes.Buffer
-			scanner, err := scan.New(&config.Config{Rules: []config.Rule{{ID: "test", Regex: "TOKEN", Filter: expression}}},
+			scanner, err := scan.New(&config.Config{Rules: []config.Rule{{ID: "test", Regex: "TOKEN", FilterExpr: expression}}},
 				scan.WithRegexEngine(engine), scan.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
 			require.NoError(t, err)
 			for range 2 {

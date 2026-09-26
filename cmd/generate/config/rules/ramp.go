@@ -15,7 +15,7 @@ func RampClientID() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`ramp_id_[A-Za-z0-9]{40}`, false),
 		Keywords:    []string{"ramp_id_"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -54,7 +54,7 @@ func RampClientSecret() *config.Rule {
     "result": "invalid",
     "reason": "Invalid client credentials"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

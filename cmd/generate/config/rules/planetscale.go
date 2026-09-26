@@ -16,7 +16,7 @@ func PlanetScalePassword() *config.Rule {
 		Keywords: []string{
 			"pscale_pw_",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -36,7 +36,7 @@ func PlanetScaleID() *config.Rule {
 		Regex:       `(?i)(?:pscale|planetscale)(?:.|[\n\r]){0,16}?(?:USER|ID|NAME)(?:.|[\n\r]){0,16}?([a-z0-9]{12})`,
 		Keywords:    []string{"pscale", "planetscale"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := []string{
@@ -70,7 +70,7 @@ func PlanetScaleAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -90,7 +90,7 @@ func PlanetScaleOAuthToken() *config.Rule {
 		Keywords: []string{
 			"pscale_oauth_",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

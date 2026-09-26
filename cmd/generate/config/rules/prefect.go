@@ -16,7 +16,7 @@ func Prefect() *config.Rule {
 		Keywords: []string{
 			"pnu_",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

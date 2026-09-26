@@ -59,7 +59,7 @@ validate = {{ tomlExpr . }}{{ end }}
 analyze = {{ tomlExpr . }}{{ end }}
 {{- with $rule.RevokeExpr }}
 revoke = {{ tomlExpr . }}{{ end }}
-{{- with $rule.Filter }}
+{{- with $rule.FilterExpr }}
 filter = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Components }}
 components = [{{ range . }}

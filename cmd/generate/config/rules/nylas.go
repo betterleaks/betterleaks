@@ -31,7 +31,7 @@ func NylasAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(eu))`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := "nyk_" + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{67}`, 3.5)

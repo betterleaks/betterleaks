@@ -21,7 +21,7 @@ func LlamaCloudAPIKey() *config.Rule {
   }); r.status == 200 ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := "llx-" + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{48}`, 3.5)

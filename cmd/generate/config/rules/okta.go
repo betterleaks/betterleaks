@@ -16,7 +16,7 @@ func OktaAccessToken() *config.Rule {
 		Keywords: []string{
 			"okta",
 		},
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

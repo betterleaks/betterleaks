@@ -14,7 +14,7 @@ func OctopusDeployApiKey() *config.Rule {
 		Description: "Discovered a potential Octopus Deploy API key, risking application deployments and operational security.",
 		Regex:       utils.GenerateUniqueTokenRegex(`API-[A-Z0-9]{26}`, false),
 		Keywords:    []string{"api-"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

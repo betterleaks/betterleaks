@@ -16,7 +16,7 @@ func NPM() *config.Rule {
 		Keywords: []string{
 			"npm_",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

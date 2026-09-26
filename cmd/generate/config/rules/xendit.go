@@ -22,7 +22,7 @@ func XenditProductionAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	key := "xnd_production_" + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{64}`, 3.0)

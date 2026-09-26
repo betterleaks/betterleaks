@@ -18,7 +18,7 @@ func OpenshiftUserToken() *config.Rule {
 		Keywords: []string{
 			"sha256~",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate

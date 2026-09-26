@@ -100,7 +100,7 @@ func GitlabCiCdJobToken() *config.Rule {
 		Regex:        `glcbt-[0-9a-zA-Z]{1,5}_[0-9a-zA-Z_-]{20}`,
 		Keywords:     []string{"glcbt-"},
 		ValidateExpr: gitlabUserExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 	tps := utils.GenerateSampleSecrets("gitlab", "glcbt-"+secrets.NewSecret(utils.AlphaNumeric("5"))+"_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	return utils.Validate(r, tps, nil)
@@ -114,7 +114,7 @@ func GitlabDeployToken() *config.Rule {
 		Regex:        `gldt-[0-9a-zA-Z_\-]{20}`,
 		Keywords:     []string{"gldt-"},
 		ValidateExpr: gitlabUserExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 	tps := []string{
 		utils.GenerateSampleSecret("gitlab", "gldt-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3)),
@@ -129,7 +129,7 @@ func GitlabFeatureFlagClientToken() *config.Rule {
 		Description: "Identified a GitLab feature flag client token, risks exposing user lists and features flags used by an application.",
 		Regex:       `glffct-[0-9a-zA-Z_\-]{20}`,
 		Keywords:    []string{"glffct-"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 	tps := utils.GenerateSampleSecrets("gitlab", "glffct-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	return utils.Validate(r, tps, nil)
@@ -142,7 +142,7 @@ func GitlabFeedToken() *config.Rule {
 		Description: "Identified a GitLab feed token, risking exposure of user data.",
 		Regex:       `glft-[0-9a-zA-Z_\-]{20}`,
 		Keywords:    []string{"glft-"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 	tps := utils.GenerateSampleSecrets("gitlab", "glft-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
 	return utils.Validate(r, tps, nil)
@@ -155,7 +155,7 @@ func GitlabIncomingMailToken() *config.Rule {
 		Description: "Identified a GitLab incoming mail token, risking manipulation of data sent by mail.",
 		Regex:       `glimt-[0-9a-zA-Z_\-]{25}`,
 		Keywords:    []string{"glimt-"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 	tps := utils.GenerateSampleSecrets("gitlab", "glimt-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3))
 	return utils.Validate(r, tps, nil)
@@ -172,7 +172,7 @@ func GitlabIncomingMailAddressToken() *config.Rule {
 		Regex:       `incoming\+(?:[A-Za-z0-9._-]+-)?\d+-([A-Za-z0-9_-]+)-(?:issue(?:-\d+)?|merge-request)@`,
 		Keywords:    []string{"incoming+"},
 		Specificity: 50,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 	token := secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3)
 	glimtToken := "glimt-" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("25"), 3)
@@ -192,7 +192,7 @@ func GitlabKubernetesAgentToken() *config.Rule {
 		Description: "Identified a GitLab Kubernetes Agent token, risking access to repos and registry of projects connected via agent.",
 		Regex:       `glagent-[0-9a-zA-Z_\-]{50}`,
 		Keywords:    []string{"glagent-"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 	tps := utils.GenerateSampleSecrets("gitlab", "glagent-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("50"), 3))
 	return utils.Validate(r, tps, nil)
@@ -205,7 +205,7 @@ func GitlabOauthAppSecret() *config.Rule {
 		Description: "Identified a GitLab OIDC Application Secret, risking access to apps using GitLab as authentication provider.",
 		Regex:       `gloas-[0-9a-zA-Z_\-]{64}`,
 		Keywords:    []string{"gloas-"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 	tps := utils.GenerateSampleSecrets("gitlab", "gloas-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("64"), 3))
 	return utils.Validate(r, tps, nil)
@@ -229,7 +229,7 @@ func GitlabPat() *config.Rule {
 		ValidateExpr: gitlabPatExpr,
 		AnalyzeExpr:  gitlabPatAnalyzeExpr,
 		RevokeExpr:   gitlabPatRevokeExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -250,7 +250,7 @@ func GitlabPatRoutable() *config.Rule {
 		ValidateExpr: gitlabPatExpr,
 		AnalyzeExpr:  gitlabPatAnalyzeExpr,
 		RevokeExpr:   gitlabPatRevokeExpr,
-		Filter:       `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate
@@ -271,7 +271,7 @@ func GitlabPatRoutableVersioned() *config.Rule {
 		ValidateExpr: gitlabPatExpr,
 		AnalyzeExpr:  gitlabPatAnalyzeExpr,
 		RevokeExpr:   gitlabPatRevokeExpr,
-		Filter:       `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate
@@ -294,7 +294,7 @@ func GitlabPipelineTriggerToken() *config.Rule {
 		Regex:        `glptt-[0-9a-f]{40}`,
 		Keywords:     []string{"glptt-"},
 		ValidateExpr: gitlabUserExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -313,7 +313,7 @@ func GitlabRunnerRegistrationToken() *config.Rule {
 		Regex:        `GR1348941[\w-]{20}`,
 		Keywords:     []string{"GR1348941"},
 		ValidateExpr: gitlabRunnerRegistrationExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "GR1348941"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
@@ -332,7 +332,7 @@ func GitlabRunnerAuthenticationToken() *config.Rule {
 		Regex:        `glrt-[0-9a-zA-Z_\-]{20}`,
 		Keywords:     []string{"glrt-"},
 		ValidateExpr: gitlabUserExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "glrt-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
@@ -347,7 +347,7 @@ func GitlabRunnerAuthenticationTokenRoutable() *config.Rule {
 		Regex:        `\bglrt-t\d_[0-9a-zA-Z_\-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b`,
 		Keywords:     []string{"glrt-"},
 		ValidateExpr: gitlabUserExpr,
-		Filter:       `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "glrt-t"+secrets.NewSecret(utils.Numeric("1"))+"_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("27"), 4)+"."+secrets.NewSecret(utils.AlphaNumeric("2"))+secrets.NewSecret(utils.AlphaNumeric("7")))
@@ -365,7 +365,7 @@ func GitlabScimToken() *config.Rule {
 		Description: "Discovered a GitLab SCIM Token, posing a risk to unauthorized access for a organization or instance.",
 		Regex:       `glsoat-[0-9a-zA-Z_\-]{20}`,
 		Keywords:    []string{"glsoat-"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gitlab", "glsoat-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("20"), 3))
@@ -379,7 +379,7 @@ func GitlabSessionCookie() *config.Rule {
 		Description: "Discovered a GitLab Session Cookie, posing a risk to unauthorized access to a user account.",
 		Regex:       `_gitlab_session=[0-9a-z]{32}`,
 		Keywords:    []string{"_gitlab_session="},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

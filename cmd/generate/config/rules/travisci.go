@@ -17,7 +17,7 @@ func TravisCIAccessToken() *config.Rule {
 		Keywords: []string{
 			"travis",
 		},
-		Filter: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

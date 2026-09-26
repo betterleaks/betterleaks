@@ -129,7 +129,7 @@ func CloudflareGlobalAPIKey() *config.Rule {
 		Description: "Detected a Cloudflare Global API Key, potentially compromising cloud application deployments and operational security.",
 		Regex:       utils.GenerateSemiGenericRegex(cloudflareIdentifiers, utils.Hex("37"), true),
 		Keywords:    cloudflareIdentifiers,
-		Filter:      `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecretWithEntropy(utils.Hex("37"), 3.3))
@@ -148,7 +148,7 @@ func CloudflareAPIKeyV1() *config.Rule {
 		Keywords:     cloudflareIdentifiers,
 		ValidateExpr: cloudflareAPITokenValidateExpr,
 		AnalyzeExpr:  cloudflareAPITokenAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("cloudflare", secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("40"), 3.5))
@@ -170,7 +170,7 @@ func CloudflareAPIKeyV2() *config.Rule {
 		},
 		ValidateExpr: cloudflareAPITokenValidateExpr,
 		AnalyzeExpr:  cloudflareAPITokenAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	userToken := "cfut_" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("40"), 3.0) + secrets.NewSecret(utils.Hex("8"))
@@ -190,7 +190,7 @@ func CloudflareOriginCAKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`v1\.0-`+utils.Hex("24")+"-"+utils.Hex("146"), false),
 		Keywords:    caIdentifiers,
-		Filter:      `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("cloudflare", "v1.0-aaa334dc886f30631ba0a610-0d98ef66290d7e50aac7c27b5986c99e6f3f1084c881d8ac0eae5de1d1aa0644076ff57022069b3237d19afe60ad045f207ef2b16387ee37b749441b2ae2e9ebe5b4606e846475d4a5")

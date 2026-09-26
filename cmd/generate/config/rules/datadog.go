@@ -25,7 +25,7 @@ func DatadogAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	tps := utils.GenerateSampleSecrets("datadog", secrets.NewSecret(utils.AlphaNumeric("32")))
@@ -42,7 +42,7 @@ func DatadogApplicationKey() *config.Rule {
 		Keywords: []string{
 			"datadog",
 		},
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

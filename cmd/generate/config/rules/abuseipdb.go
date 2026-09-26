@@ -22,7 +22,7 @@ func AbuseIPDBAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[a-f0-9]{80}`, 3.5)

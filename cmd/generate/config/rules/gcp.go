@@ -86,7 +86,7 @@ func GCPServiceAccount() *config.Rule {
     "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 `,
-		Filter: `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,
+		FilterExpr: `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,
 	}
 
 	tps := []string{
@@ -108,7 +108,7 @@ func GCPAPIKey() *config.Rule {
 		Regex:        utils.GenerateUniqueTokenRegex(`AIza[\w-]{35}`, false),
 		Keywords:     []string{"AIza"},
 		ValidateExpr: gcpAPIKeyValidationExpr,
-		Filter:       "entropy(finding[\"secret\"]) <= 4.0\n|| matchesAny(finding[\"secret\"], [\n  `AIzaSyabcdefghijklmnopqrstuvwxyz1234567`,\n  `AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs`,\n  `AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM`,\n  `AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU`,\n  `AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0`,\n  `AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A`,\n  `AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c`,\n  `AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4`,\n  `AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY`,\n  `AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM`,\n  `AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ`,\n  `AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g`,\n  `AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU`,\n  `AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw`,\n  `AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE`,\n  `AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY`\n])",
+		FilterExpr:   "entropy(finding[\"secret\"]) <= 4.0\n|| matchesAny(finding[\"secret\"], [\n  `AIzaSyabcdefghijklmnopqrstuvwxyz1234567`,\n  `AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs`,\n  `AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM`,\n  `AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU`,\n  `AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0`,\n  `AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A`,\n  `AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c`,\n  `AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4`,\n  `AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY`,\n  `AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM`,\n  `AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ`,\n  `AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g`,\n  `AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU`,\n  `AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw`,\n  `AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE`,\n  `AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY`\n])",
 	}
 
 	// validate
@@ -151,7 +151,7 @@ func GCPGeminiAPIKey() *config.Rule {
 		Regex:        utils.GenerateUniqueTokenRegex(`AQ\.Ab8RN6[A-Za-z0-9_-]{44}`, false),
 		Keywords:     []string{"AQ.Ab8RN6"},
 		ValidateExpr: gcpAPIKeyValidationExpr,
-		Filter:       `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gemini", "AQ.Ab8RN6"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{44}`, 4))
