@@ -230,11 +230,11 @@ func TestRedactedTraceOutput(t *testing.T) {
 		{name: "allow comment", suffix: " # betterleaks:allow", message: "allow signature found"},
 		{name: "global filter", globalFilter: "filter='true'\n", message: "skipping finding: global filter"},
 		{name: "rule filter", ruleFilter: "filter='true'\n", message: "skipping finding: rule filter"},
-		{name: "specificity", extraRules: "\n[[rules]]\nid='specific'\nregex='(?P<other>OTHER_PRIVATE):(?P<secret>SECRET_PRIVATE)'\nsecretGroup=2\nspecificity=200\n", message: "more specific rule takes precedence"},
+		{name: "specificity", extraRules: "\n[[rules]]\nid='specific'\nregex='(?P<other>OTHER_PRIVATE):(?P<secret>SECRET_PRIVATE)'\nvalueGroup=2\nspecificity=200\n", message: "more specific rule takes precedence"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "rules.toml")
-			config := test.globalFilter + "[[rules]]\nid='fixture'\nregex='(?P<other>OTHER_PRIVATE):(?P<secret>SECRET_PRIVATE)'\nsecretGroup=2\n" + test.ruleFilter + test.extraRules
+			config := test.globalFilter + "[[rules]]\nid='fixture'\nregex='(?P<other>OTHER_PRIVATE):(?P<secret>SECRET_PRIVATE)'\nvalueGroup=2\n" + test.ruleFilter + test.extraRules
 			require.NoError(t, os.WriteFile(path, []byte(config), 0o600))
 			root, output := newTestCLI(t)
 			var logs bytes.Buffer

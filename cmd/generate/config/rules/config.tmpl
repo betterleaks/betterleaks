@@ -32,8 +32,8 @@ description = "{{$rule.Description}}"
 regex = '''{{ . }}'''{{ end -}}
 {{- with $rule.Path }}
 path = '''{{ . }}'''{{ end -}}
-{{- with $rule.SecretGroup }}
-secretGroup = {{ . }}{{ end -}}
+{{- with $rule.ValueGroup }}
+valueGroup = {{ . }}{{ end -}}
 {{- if eq $rule.ID "generic-api-key" }}
 specificity = 0
 {{- else if $rule.Specificity }}

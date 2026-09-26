@@ -1063,7 +1063,7 @@ components = [
 id = "azure-app-configuration-connection-string"
 description = "Detected an Azure App Configuration connection string."
 regex = '''(?i)Endpoint=(?P<azure_appconfig_endpoint>https://[a-z0-9-]+\.azconfig\.io);Id=(?P<azure_appconfig_id>[^;\s'"]{4,80});Secret=([A-Za-z0-9+/]{36,100}={0,2})'''
-secretGroup = 3
+valueGroup = 3
 confidence = "high"
 keywords = [
     "azconfig.io",
@@ -5473,7 +5473,7 @@ matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
 id = "generic-credential-uri"
 description = "Detected a password embedded in a service connection URI, which may expose direct access to the referenced service."
 regex = '''(?i)\b(?P<uri>(?P<scheme>https?|postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|ldaps?|smtps?|ftps?|ssh)://(?P<username>[^:/@\s'"\x60]{0,128}):(?P<password>[^/@\s'"\x60]{1,256})@(?P<host>(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252}))(?::[0-9]{1,5})?(?:,(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252})(?::[0-9]{1,5})?)*(?:[/?][a-z0-9._~!$&(*+,;=:@%/?-]*)?)(?:[\s'"\x60#<>{}\[\],;)]|\\[nr]|$)'''
-secretGroup = 4
+valueGroup = 4
 specificity = 30
 confidence = "medium"
 keywords = [
@@ -10916,7 +10916,7 @@ keywords = ["snyk"]
 id = "sonar-api-token"
 description = "Uncovered a Sonar API token, potentially compromising software vulnerability scanning and code security."
 regex = '''(?i)(?:sonar[_.-]?(login|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:squ_|sqp_|sqa_)?[a-z0-9=_\-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-secretGroup = 2
+valueGroup = 2
 confidence = "high"
 keywords = ["sonar"]
 

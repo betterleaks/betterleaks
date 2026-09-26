@@ -180,7 +180,7 @@ func TestValidateCredentialPipeline(t *testing.T) {
 
 func TestValidateCredentialInputs(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
-		{ID: "primary", Regex: `(?P<tenant>tenant)-(?P<secret>key)`, SecretGroup: 2, ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{"identity":{"id":finding.captures["tenant"]}}`, Components: []config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}}},
+		{ID: "primary", Regex: `(?P<tenant>tenant)-(?P<secret>key)`, ValueGroup: 2, ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{"identity":{"id":finding.captures["tenant"]}}`, Components: []config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}}},
 		{ID: "part", Regex: `part`}, {ID: "optional", Regex: `optional`},
 	}}
 	d := mustNew(t, cfg)
@@ -470,7 +470,7 @@ func TestMalformedFindingsNeverReachProvider(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.WriteHeader(200) }))
 	defer server.Close()
 	cfg := &config.Config{Rules: []config.Rule{
-		{ID: "key", Regex: `(?P<tenant>tenant):(?P<token>token)`, SecretGroup: 2,
+		{ID: "key", Regex: `(?P<tenant>tenant):(?P<token>token)`, ValueGroup: 2,
 			ValidateExpr: fmt.Sprintf(`let r=http.get(%q, {}); {"result": finding.captures.tenant != "" && components.part.captures.region != "" ? "valid" : "invalid"}`, server.URL),
 			Components:   []config.Component{{RuleID: "part"}}},
 		{ID: "part", Regex: `part`},

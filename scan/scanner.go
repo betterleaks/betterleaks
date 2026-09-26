@@ -850,10 +850,8 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			matchIndex[1] = matchIndex[0] + len(secret)
 		}
 
-		// determine location of match. Note that the location
-		// in the finding will be the line/column numbers of the _match_
-		// not the _secret_, which will be different if the secretGroup
-		// value is set for this rule
+		// Locations describe the full match even when ValueGroup extracts
+		// a smaller value from it.
 		if state.lineOffsets == nil {
 			state.lineOffsets = computeLineOffsets(fragment.Raw)
 		}
@@ -909,8 +907,8 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		// is trimmed or mapped back to encoded source bytes. Rematching the
 		// extracted text would change anchor and boundary semantics.
 		if len(indexes) > 2 {
-			if r.rule.SecretGroup > 0 {
-				group := 2 * r.rule.SecretGroup
+			if r.rule.ValueGroup > 0 {
+				group := 2 * r.rule.ValueGroup
 				if group+1 >= len(indexes) {
 					// Config validation should prevent this
 					continue

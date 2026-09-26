@@ -161,6 +161,7 @@ Remove compatibility fields rather than leaving them alongside their replacement
 | Global or rule `allowlist` / `allowlists` | Explicit `prefilter` / `filter` expressions. |
 | Rule `entropy = 3.5` | `filter = 'entropy(finding.secret) <= 3.5'` |
 | Rule `tokenEfficiency = true` | `filter = 'failsTokenEfficiency(finding.secret)'` |
+| Rule `secretGroup` | `valueGroup`; capture selection behavior is unchanged. |
 | `[[rules.required]]` with `withinLines` / `withinColumns` | `components = [{ id = "other-rule", within = "5L,100C" }]` for those example bounds. |
 | `betterleaksMinVersion` | `minVersion`, now a minimum **Betterleaks** version. |
 
@@ -395,6 +396,8 @@ scan errors; use `Scan` when failures must be observable. Callers own
 
 `Config.Rules` is now `[]config.Rule`, not a map. `Rule.RuleID` becomes `Rule.ID`;
 `Rule.Regex` and `Rule.Path` are pattern strings, not compiled regex objects.
+`Rule.SecretGroup` becomes `Rule.ValueGroup`, selecting `Finding.Match.Value`
+for both secrets and non-secret components. The TOML key is `valueGroup`.
 The rule's finding filter expression is `Rule.FilterExpr` in Go; its TOML key
 remains `filter`.
 Components are `[]config.Component`. Keyword indexes and compiled expression

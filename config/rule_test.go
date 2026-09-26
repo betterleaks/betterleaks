@@ -20,9 +20,9 @@ func TestRuleValidation(t *testing.T) {
 		rule Rule
 		want string
 	}{
-		{"negative group", Rule{ID: "test", Regex: `(secret)`, SecretGroup: -1}, "must be non-negative"},
-		{"group without regex", Rule{ID: "test", Path: `\.env$`, SecretGroup: 1}, "requires a regex"},
-		{"capture overflow", Rule{ID: "test", Regex: `(?P<secret>secret)`, SecretGroup: 2}, "max regex secret group 1"},
+		{"negative group", Rule{ID: "test", Regex: `(secret)`, ValueGroup: -1}, "must be non-negative"},
+		{"group without regex", Rule{ID: "test", Path: `\.env$`, ValueGroup: 1}, "requires a regex"},
+		{"capture overflow", Rule{ID: "test", Regex: `(?P<secret>secret)`, ValueGroup: 2}, "max regex value group 1"},
 		{"invalid regex", Rule{ID: "test", Regex: `(`}, "invalid regex"},
 		{"invalid path", Rule{ID: "test", Path: `[`}, "invalid path regex"},
 		{"analysis without validation", Rule{ID: "test", Regex: `secret`, AnalyzeExpr: `{}`}, "analyze expression requires a validate expression"},

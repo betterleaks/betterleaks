@@ -173,7 +173,11 @@ Each `[[rules]]` entry can use:
 - `regex`: regular expression used to detect the secret.
 - `path`: regular expression restricting matching to paths; can be used without
   `regex` for a path-only rule.
-- `secretGroup`: capture group used as the secret; zero selects automatically.
+- `valueGroup`: capture group used for `match.value`, which may be a secret or
+  a non-secret component. Positive values are 1-based capture group indexes.
+  Zero (the default) selects the first non-empty capture group, falling back to
+  `match.full` if none exists. An explicitly selected group that does not
+  participate produces an empty value.
 - `specificity`: precedence among overlapping findings; higher values win
   (default `100`).
 - `tags`: optional metadata labels.
@@ -237,7 +241,7 @@ components["account-id"].captures["region"]
 credential or its only sensitive field. Captures belong to that same match;
 components come from other rules' matches. A capture can be required for
 authentication without being a component. Named groups include the selected
-secret group if it has a name; unmatched or empty groups are omitted during
+value group if it has a name; unmatched or empty groups are omitted during
 scanning. Use `?.` and `??` for values that may be absent.
 
 For example, a URI rule can select the password from
@@ -886,5 +890,5 @@ combination establishes validity; otherwise a truncated search yields
 
 `Analyzer.Requirements` describes primary and component captures required by both
 provider stages. Optional access and `??` fallbacks do not require a capture;
-dynamic keys cannot be inferred. An explicitly selected named secret group is
+dynamic keys cannot be inferred. An explicitly selected named value group is
 populated from the value, and contradictory supplied values are rejected.

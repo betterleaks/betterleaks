@@ -17,7 +17,7 @@ func TestSearchWindowsPreserveFindings(t *testing.T) {
 		t.Run(engine.Version(), func(t *testing.T) {
 			t.Parallel()
 			pattern := `(?i)(?:key|keyword)[\w ]{0,3}[\s'"]{0,2}(?:=|:)(missing)?(?P<value>[a-z0-9]{8,})(?:;|$)`
-			cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: pattern, Keywords: []string{"key", "keyword"}, SecretGroup: 2}}}
+			cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: pattern, Keywords: []string{"key", "keyword"}, ValueGroup: 2}}}
 			narrowed := mustNew(t, cfg, WithRegexEngine(engine), WithMaxDecodeDepth(2), WithMatchContext("1L,20C"))
 			original := mustNew(t, cfg, WithRegexEngine(engine), WithMaxDecodeDepth(2), WithMatchContext("1L,20C"))
 			for i := range original.rulesBySpecificity {

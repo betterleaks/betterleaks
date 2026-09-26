@@ -127,7 +127,7 @@ func testConfig() *config.Config {
 
 func TestIgnoredFingerprintsUseExtractedSecret(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{{
-		ID: "token", Regex: `token=(secret-[a-z]+)`, SecretGroup: 1,
+		ID: "token", Regex: `token=(secret-[a-z]+)`, ValueGroup: 1,
 	}}}
 	ignored := fingerprint.Sum([]byte("secret-ignored"))
 	for _, input := range []string{
@@ -3555,21 +3555,23 @@ func TestCapturesUseOriginalMatch(t *testing.T) {
 			t.Parallel()
 			for _, tc := range []struct {
 				name, pattern, input, full, value string
-				secretGroup                       int
+				valueGroup                        int
 				captures                          map[string]string
 			}{
 				{name: "start anchor", pattern: `^(?P<start>secret)|(?P<later>secret)`, input: "xsecret", full: "secret", value: "secret", captures: map[string]string{"later": "secret"}},
 				{name: "end anchor", pattern: `(?P<end>secret)$|(?P<before>secret)`, input: "secretx", full: "secret", value: "secret", captures: map[string]string{"before": "secret"}},
 				{name: "word boundary", pattern: `\b(?P<word>secret)|(?P<inside>secret)`, input: "xsecret", full: "secret", value: "secret", captures: map[string]string{"inside": "secret"}},
-				{name: "explicit group", pattern: `^(?P<start>a)b|a(?P<later>b)`, input: "xab", secretGroup: 2, full: "ab", value: "b", captures: map[string]string{"later": "b"}},
-				{name: "unmatched group", pattern: `(?P<optional>missing)?(?P<token>secret)`, input: "secret", secretGroup: 1, full: "secret", value: "", captures: map[string]string{"token": "secret"}},
+				{name: "explicit group", pattern: `^(?P<start>a)b|a(?P<later>b)`, input: "xab", valueGroup: 2, full: "ab", value: "b", captures: map[string]string{"later": "b"}},
+				{name: "unmatched group", pattern: `(?P<optional>missing)?(?P<token>secret)`, input: "secret", valueGroup: 1, full: "secret", value: "", captures: map[string]string{"token": "secret"}},
 				{name: "first participating group", pattern: `(missing)?(?P<token>secret)`, input: "secret", full: "secret", value: "secret", captures: map[string]string{"token": "secret"}},
 				{name: "empty group", pattern: `(?P<empty>)(?P<token>secret)`, input: "secret", full: "secret", value: "secret", captures: map[string]string{"token": "secret"}},
+				{name: "no capture groups", pattern: `secret`, input: "secret", full: "secret", value: "secret"},
+				{name: "no nonempty capture", pattern: `(missing)?()secret`, input: "secret", full: "secret", value: "secret"},
 				{name: "trimmed newline", pattern: `(?P<token>secret)\n`, input: "secret\n", full: "secret", value: "secret", captures: map[string]string{"token": "secret"}},
 				{name: "newline in capture", pattern: `(?P<token>secret\n)`, input: "secret\n", full: "secret", value: "secret\n", captures: map[string]string{"token": "secret\n"}},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern, SecretGroup: tc.secretGroup}}}, WithRegexEngine(engine))
+					scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern, ValueGroup: tc.valueGroup}}}, WithRegexEngine(engine))
 					findings := scanner.ScanString(tc.input)
 					require.Len(t, findings, 1)
 					assert.Equal(t, tc.full, findings[0].Match.Full)
@@ -3598,7 +3600,7 @@ func TestFiltersReceiveNamedCaptures(t *testing.T) {
 	for _, scope := range []string{"global", "rule"} {
 		t.Run(scope, func(t *testing.T) {
 			cfg := &config.Config{Rules: []config.Rule{{
-				ID: "connection", Regex: `(?P<username>[a-z]+):(?P<password>key-[a-z]+)`, SecretGroup: 2,
+				ID: "connection", Regex: `(?P<username>[a-z]+):(?P<password>key-[a-z]+)`, ValueGroup: 2,
 			}}}
 			filter := `finding.captures["username"] == "example" && finding.secret == "key-fixture"`
 			if scope == "global" {
@@ -3811,10 +3813,10 @@ func TestPathOnlyFindingsHonorFilters(t *testing.T) {
 
 func TestScannerOwnsRegexesFromPatternStrings(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{{
-		ID:          "token",
-		Regex:       `token=(?P<secret>[a-z]+)`,
-		Path:        `\.env$`,
-		SecretGroup: 1,
+		ID:         "token",
+		Regex:      `token=(?P<secret>[a-z]+)`,
+		Path:       `\.env$`,
+		ValueGroup: 1,
 	}}}
 	lazy := mustNew(t, cfg)
 	eager := mustNew(t, cfg, WithPrecompile())

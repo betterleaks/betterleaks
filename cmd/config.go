@@ -280,7 +280,7 @@ type ruleView struct {
 	Description string          `toml:"description,omitempty"`
 	Path        string          `toml:"path,omitempty"`
 	Regex       string          `toml:"regex,omitempty"`
-	SecretGroup int             `toml:"secretGroup,omitempty"`
+	ValueGroup  int             `toml:"valueGroup,omitempty"`
 	Keywords    []string        `toml:"keywords,omitempty"`
 	Tags        []string        `toml:"tags,omitempty"`
 	Specificity int             `toml:"specificity,omitempty"`
@@ -313,7 +313,7 @@ func renderConfig(cfg *configpkg.Config) configView {
 			Description: rule.Description,
 			Path:        rule.Path,
 			Regex:       rule.Regex,
-			SecretGroup: rule.SecretGroup,
+			ValueGroup:  rule.ValueGroup,
 			Keywords:    rule.Keywords,
 			Tags:        rule.Tags,
 			Specificity: renderedSpecificity(rule.Specificity),
@@ -354,7 +354,7 @@ func renderConfigTOML(view configView) string {
 		writeString(&b, "description", rule.Description)
 		writeString(&b, "path", rule.Path)
 		writeString(&b, "regex", rule.Regex)
-		writeInt(&b, "secretGroup", rule.SecretGroup)
+		writeInt(&b, "valueGroup", rule.ValueGroup)
 		writeStrings(&b, "keywords", rule.Keywords)
 		writeStrings(&b, "tags", rule.Tags)
 		writeInt(&b, "specificity", rule.Specificity)

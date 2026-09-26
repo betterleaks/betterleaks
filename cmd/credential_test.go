@@ -450,7 +450,7 @@ func TestValidateCommandRequiresReferencedNamedCaptures(t *testing.T) {
 [[rules]]
 id = "capture-dependent"
 regex = '''(?P<tenant>[a-z]+)-(?P<id>[a-z]+)-(?P<credential>secret-[a-z]+)'''
-secretGroup = 3
+valueGroup = 3
 validate = '''
 finding.captures.tenant == "acme" ? {"result": "valid"} : {"result": "invalid"}
 '''

@@ -48,7 +48,7 @@ type rawRule struct {
 	Description string   `toml:"description"`
 	Path        string   `toml:"path"`
 	Regex       string   `toml:"regex"`
-	SecretGroup int      `toml:"secretGroup"`
+	ValueGroup  int      `toml:"valueGroup"`
 	Keywords    []string `toml:"keywords"`
 	Tags        []string `toml:"tags"`
 	Specificity *int     `toml:"specificity"`
@@ -188,7 +188,7 @@ func (rc *rawConfig) translate() *Config {
 			Description:  raw.Description,
 			Regex:        raw.Regex,
 			Path:         raw.Path,
-			SecretGroup:  raw.SecretGroup,
+			ValueGroup:   raw.ValueGroup,
 			Specificity:  DefaultRuleSpecificity,
 			Confidence:   raw.Confidence,
 			SkipReport:   raw.SkipReport,
@@ -340,7 +340,7 @@ func appendHashRule(data []byte, rule Rule) []byte {
 	data = appendHashString(data, rule.Description)
 	data = appendHashString(data, rule.Regex)
 	data = appendHashString(data, rule.Path)
-	data = binary.AppendVarint(data, int64(rule.SecretGroup))
+	data = binary.AppendVarint(data, int64(rule.ValueGroup))
 	data = appendHashStrings(data, rule.Keywords)
 	data = appendHashStrings(data, rule.Tags)
 	data = binary.AppendVarint(data, int64(rule.Specificity))

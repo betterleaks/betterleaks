@@ -144,7 +144,7 @@ func AzureAppConfigurationConnectionString() *config.Rule {
 		Confidence:  "high",
 		Description: "Detected an Azure App Configuration connection string.",
 		Regex:       `(?i)Endpoint=(?P<azure_appconfig_endpoint>https://[a-z0-9-]+\.azconfig\.io);Id=(?P<azure_appconfig_id>[^;\s'"]{4,80});Secret=([A-Za-z0-9+/]{36,100}={0,2})`,
-		SecretGroup: 3,
+		ValueGroup:  3,
 		Keywords:    []string{"azconfig.io", "Endpoint=", "Secret="},
 		ValidateExpr: `let r = azure.validateAppConfig(
   finding["captures"]?.azure_appconfig_endpoint ?? "",

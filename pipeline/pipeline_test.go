@@ -239,7 +239,7 @@ func TestPipelineNeverCompilesOrExecutesRevocation(t *testing.T) {
 func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
 		{
-			ID: "primary", Regex: `(?P<tenant>acme):(?P<key>primary)`, SecretGroup: 2,
+			ID: "primary", Regex: `(?P<tenant>acme):(?P<key>primary)`, ValueGroup: 2,
 			// Inspect this match's captures before any companion is assembled.
 			FilterExpr: `finding.captures.tenant != "acme"`,
 			Components: []config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}},
@@ -255,7 +255,7 @@ func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 : {"reason": "credential inputs changed between stages"}`,
 		},
 		{
-			ID: "part", Regex: `(?P<tenant>companion|fixture):(?P<key>readkey|writekey)`, SecretGroup: 2,
+			ID: "part", Regex: `(?P<tenant>companion|fixture):(?P<key>readkey|writekey)`, ValueGroup: 2,
 			FilterExpr: `finding.captures.tenant == "fixture"`, SkipReport: true,
 		},
 		{ID: "optional", Regex: `optional-key`, SkipReport: true},

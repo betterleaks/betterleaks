@@ -39,7 +39,7 @@ func TestHashes(t *testing.T) {
 		return &Config{
 			Filter: "false", Prefilter: "false",
 			Rules: []Rule{
-				{ID: "primary", Regex: `(TOKEN)(OTHER)?`, SecretGroup: 1, Specificity: 100,
+				{ID: "primary", Regex: `(TOKEN)(OTHER)?`, ValueGroup: 1, Specificity: 100,
 					Components:   []Component{{RuleID: "required", Within: "5L"}, {RuleID: "optional", Optional: true}},
 					ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{}`},
 				{ID: "required", Regex: `REQUIRED`, SkipReport: true},
@@ -63,7 +63,7 @@ func TestHashes(t *testing.T) {
 		{"description", func(c *Config) { c.Rules[0].Description = "updated" }, false, false},
 		{"regex", func(c *Config) { c.Rules[0].Regex = `(CHANGED)(OTHER)?` }, false, false},
 		{"path", func(c *Config) { c.Rules[0].Path = `\.env$` }, false, false},
-		{"secret group", func(c *Config) { c.Rules[0].SecretGroup = 2 }, false, false},
+		{"value group", func(c *Config) { c.Rules[0].ValueGroup = 2 }, false, false},
 		{"keywords", func(c *Config) { c.Rules[0].Keywords = []string{"TOKEN"} }, false, false},
 		{"tags", func(c *Config) { c.Rules[0].Tags = []string{"credential"} }, false, false},
 		{"specificity", func(c *Config) { c.Rules[0].Specificity++ }, false, false},
@@ -186,7 +186,7 @@ func TestHashesResolvedConfig(t *testing.T) {
 [[rules]]
 id = 'test'
 regex = '(TOKEN)'
-secretGroup = 1
+valueGroup = 1
 `
 	const formatted = `# Formatting and source location do not identify the ruleset.
 filter='false'
@@ -194,7 +194,7 @@ filter='false'
 [[rules]] # rule comment
 id="test"
 regex="(TOKEN)"
-secretGroup=1
+valueGroup=1
 `
 	a, err := ParseTOMLString(plain, "first.toml")
 	require.NoError(t, err)
@@ -271,13 +271,13 @@ func TestTranslate(t *testing.T) {
 			},
 		},
 		{
-			cfgName: "valid/rule_secret_group",
+			cfgName: "valid/rule_value_group",
 			cfg: &Config{
 				Rules: []Rule{{
 					ID:          "discord-api-key",
 					Description: "Discord API key",
 					Regex:       `(?i)(discord[a-z0-9_ .\-,]{0,25})(=|>|:=|\|\|:|<=|=>|:).{0,5}['\"]([a-h0-9]{64})['\"]`,
-					SecretGroup: 3,
+					ValueGroup:  3,
 					Keywords:    []string{},
 					Tags:        []string{},
 					FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
@@ -297,9 +297,9 @@ func TestTranslate(t *testing.T) {
 			wantError: errors.New("discord-api-key: both |regex| and |path| are empty, this rule will have no effect"),
 		},
 		{
-			cfgName:   "invalid/rule_bad_secret_group",
+			cfgName:   "invalid/rule_bad_value_group",
 			cfg:       &Config{},
-			wantError: errors.New("discord-api-key: invalid regex secret group 5, max regex secret group 3"),
+			wantError: errors.New("discord-api-key: invalid regex value group 5, max regex value group 3"),
 		},
 	}
 	for _, tt := range tests {
@@ -630,7 +630,7 @@ id = "token"
 description = "base description"
 regex = '(TOKEN)'
 path = 'base.env'
-secretGroup = 1
+valueGroup = 1
 specificity = 17
 skipReport = true
 confidence = "high"
@@ -648,7 +648,7 @@ regex = 'PART'
 	for _, fields := range []string{
 		"regex = 'CHILD'",
 		"path = 'child.env'",
-		"regex = '(CHILD)'\nsecretGroup = 1\nspecificity = 0\nskipReport = true\nkeywords = ['CHILD']\ntags = ['child']",
+		"regex = '(CHILD)'\nvalueGroup = 1\nspecificity = 0\nskipReport = true\nkeywords = ['CHILD']\ntags = ['child']",
 	} {
 		t.Run(fields, func(t *testing.T) {
 			child := "[[rules]]\nid = 'token'\n" + fields
@@ -670,7 +670,7 @@ func TestNestedRuleReplacement(t *testing.T) {
 [[rules]]
 id = "token"
 regex = '(TOKEN)'
-secretGroup = 1
+valueGroup = 1
 specificity = 17
 skipReport = true
 keywords = ["BASE"]
@@ -686,7 +686,7 @@ path = %q
 [[rules]]
 id = "token"
 regex = 'MIDDLE'
-secretGroup = 0
+valueGroup = 0
 specificity = 0
 skipReport = false
 keywords = ["MIDDLE"]
@@ -709,7 +709,7 @@ regex = 'PART'
 	require.Equal(t, "part", cfg.Rules[0].ID)
 	require.Equal(t, DefaultRuleSpecificity, cfg.Rules[0].Specificity)
 	rule := requireRule(t, cfg, "token")
-	assert.Zero(t, rule.SecretGroup)
+	assert.Zero(t, rule.ValueGroup)
 	assert.Equal(t, DefaultRuleSpecificity, rule.Specificity)
 	assert.Equal(t, "CHILD", rule.Regex)
 	assert.False(t, rule.SkipReport)
@@ -740,16 +740,16 @@ func TestInheritanceValidatesResolvedRules(t *testing.T) {
 	for _, test := range []struct {
 		name, baseRegex, override, wantError string
 	}{
-		{name: "replace regex and reset group", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nsecretGroup = 0"},
+		{name: "replace regex and reset group", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nvalueGroup = 0"},
 		{name: "omitted group defaults to zero", baseRegex: "(TOKEN)", override: "regex = 'VALUE'"},
 		{name: "replace invalid inherited regex", baseRegex: "(", override: "regex = '(VALUE)'"},
 		{name: "partial override is invalid", baseRegex: "(TOKEN)", override: "description = 'partial'", wantError: "both |regex| and |path| are empty"},
-		{name: "own group must fit", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nsecretGroup = 1", wantError: "max regex secret group 0"},
-		{name: "cannot clear both patterns", baseRegex: "(TOKEN)", override: "regex = ''\nsecretGroup = 0", wantError: "both |regex| and |path| are empty"},
+		{name: "own group must fit", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nvalueGroup = 1", wantError: "max regex value group 0"},
+		{name: "cannot clear both patterns", baseRegex: "(TOKEN)", override: "regex = ''\nvalueGroup = 0", wantError: "both |regex| and |path| are empty"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			basePath := filepath.Join(t.TempDir(), "base.toml")
-			require.NoError(t, os.WriteFile(basePath, fmt.Appendf(nil, "[[rules]]\nid = 'token'\nregex = %q\nsecretGroup = 1\n", test.baseRegex), 0o600))
+			require.NoError(t, os.WriteFile(basePath, fmt.Appendf(nil, "[[rules]]\nid = 'token'\nregex = %q\nvalueGroup = 1\n", test.baseRegex), 0o600))
 			_, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q\n[[rules]]\nid = 'token'\n%s\n", basePath, test.override), "")
 			if test.wantError != "" {
 				require.ErrorContains(t, err, test.wantError)
@@ -958,6 +958,7 @@ func TestParseTOMLRejectsUnknownFields(t *testing.T) {
 	for _, test := range []struct{ name, content, field string }{
 		{"top level", "minVerison = 'v2.0.0'", "minVerison"},
 		{"rule", "[[rules]]\nid = 'token'\nregex = 'TOKEN'\nvalidte = 'true'", "rules.validte"},
+		{"removed secretGroup", "[[rules]]\nid = 'token'\nregex = '(TOKEN)'\nsecretGroup = 1", "rules.secretGroup"},
 		{"component", "[[rules]]\nid = 'token'\nregex = 'TOKEN'\ncomponents = [{id = 'part', optonal = true}]", "rules.components.optonal"},
 		{"extension", "[extend]\nuseDefaut = true", "extend.useDefaut"},
 		{"unsupported URL", "[extend]\nurl = 'https://example.invalid/rules.toml'", "extend.url"},

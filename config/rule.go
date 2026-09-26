@@ -18,8 +18,12 @@ type Rule struct {
 	// Description is the description of the rule.
 	Description string
 
-	// SecretGroup identifies the regex group used as the secret.
-	SecretGroup int
+	// ValueGroup selects the capture group used for Match.Value.
+	// Positive values are 1-based capture group indexes.
+	// Zero selects the first non-empty capture group, falling back to
+	// Match.Full if none exists. An explicitly selected group that
+	// does not participate produces an empty value.
+	ValueGroup int
 
 	// Regex is a Go regular expression pattern used to detect secrets.
 	// An empty pattern disables content matching. Scanner owns compilation.
@@ -114,15 +118,14 @@ func (r *Rule) Validate() error {
 		return err
 	}
 
-	// Ensure |secretGroup| works.
-	if r.SecretGroup < 0 {
-		return fmt.Errorf("%s: invalid regex secret group %d, must be non-negative", r.ID, r.SecretGroup)
+	if r.ValueGroup < 0 {
+		return fmt.Errorf("%s: invalid regex value group %d, must be non-negative", r.ID, r.ValueGroup)
 	}
-	if r.Regex == "" && r.SecretGroup != 0 {
-		return fmt.Errorf("%s: regex secret group %d requires a regex", r.ID, r.SecretGroup)
+	if r.Regex == "" && r.ValueGroup != 0 {
+		return fmt.Errorf("%s: regex value group %d requires a regex", r.ID, r.ValueGroup)
 	}
-	if r.Regex != "" && r.SecretGroup > maxCapture {
-		return fmt.Errorf("%s: invalid regex secret group %d, max regex secret group %d", r.ID, r.SecretGroup, maxCapture)
+	if r.Regex != "" && r.ValueGroup > maxCapture {
+		return fmt.Errorf("%s: invalid regex value group %d, max regex value group %d", r.ID, r.ValueGroup, maxCapture)
 	}
 	if strings.TrimSpace(r.AnalyzeExpr) != "" && strings.TrimSpace(r.ValidateExpr) == "" {
 		return fmt.Errorf("%s: analyze expression requires a validate expression", r.ID)

@@ -29,14 +29,14 @@ func RequirementsFor(rule config.Rule, primaryCaptures map[string]string, expres
 	return result
 }
 
-// PrimaryCapture returns the name of the capture selected as the rule's secret,
+// PrimaryCapture returns the name of the capture selected as the rule's value,
 // or an empty string when it is unnamed or cannot be inferred without matching.
 func PrimaryCapture(rule config.Rule) string {
 	re, err := syntax.Parse(rule.Regex, syntax.Perl)
 	if err != nil {
 		return ""
 	}
-	group := rule.SecretGroup
+	group := rule.ValueGroup
 	// With multiple default groups the scanner chooses the first nonempty one;
 	// its name cannot be inferred from an extracted credential alone.
 	if group == 0 && re.MaxCap() == 1 {
