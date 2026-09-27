@@ -15,8 +15,10 @@ func PowerAutomateWorkflowURL() *config.Rule {
 		ID:          "microsoft-power-automate-workflow-url",
 		Confidence:  "high",
 		Description: "Identified a Power Automate or Logic Apps workflow invoke URL. The sig query parameter is a SAS signature, so the URL alone can trigger the flow.",
-		Regex:       `(?P<url>https://[a-z0-9.\-]+\.(?:logic\.azure\.com|environment\.api\.powerplatform\.com)(?::443)?/[^\s"'<>]*?/triggers/[A-Za-z0-9_\-]+/paths/invoke\?[^\s"'<>]*sig=(?P<sig>[A-Za-z0-9_\-]{32,}))`,
-		ValueGroup:  2,
+		// sig is base64 (standard or urlsafe alphabet) and may have its +, /,
+		// and = percent-encoded.
+		Regex:      `(?P<url>https://[a-z0-9.\-]+\.(?:logic\.azure\.com|environment\.api\.powerplatform\.com)(?::443)?/[^\s"'<>]*?/triggers/[A-Za-z0-9_\-]+/paths/invoke\?[^\s"'<>]*sig=(?P<sig>(?:[A-Za-z0-9_\-]|%(?:2[BbFf]|3[Dd])){32,}))`,
+		ValueGroup: 2,
 		Keywords: []string{
 			"logic.azure.com",
 			"powerplatform.com",
@@ -54,6 +56,11 @@ r.status == 200 ? {
 			secrets.NewSecret(utils.Hex("32")) +
 			"/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=" +
 			secrets.NewSecret(`[A-Za-z0-9_\-]{43}`), // betterleaks:allow
+		// Standard-base64 signature with percent-encoded +, /, and = characters.
+		"https://prod-19.eastus.logic.azure.com:443/workflows/" +
+			secrets.NewSecret(utils.Hex("32")) +
+			"/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=" +
+			secrets.NewSecret(`[A-Za-z0-9]{20}`) + "%2B" + secrets.NewSecret(`[A-Za-z0-9]{10}`) + "%2F" + secrets.NewSecret(`[A-Za-z0-9]{10}`) + "%3D", // betterleaks:allow
 	}
 	fps := []string{
 		// Documentation placeholders fall below the 32-character floor or use
