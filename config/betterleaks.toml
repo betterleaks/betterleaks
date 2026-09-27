@@ -8119,18 +8119,37 @@ entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
-# microsoft-teams-webhook
+# microsoft-power-automate-workflow-url
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
-id = "microsoft-teams-webhook"
-description = "Uncovered a Microsoft Teams Webhook, which could lead to unauthorized access to team collaboration tools and data leaks."
-regex = '''https://[a-z0-9]+\.webhook\.office\.com/webhookb2/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}@[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}/IncomingWebhook/[a-z0-9]{32}/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}'''
+id = "microsoft-power-automate-workflow-url"
+description = "Identified a Power Automate or Logic Apps workflow invoke URL. The sig query parameter is a SAS signature, so the URL alone can trigger the flow."
+regex = '''(?P<url>https://[a-z0-9.\-]+\.(?:logic\.azure\.com|environment\.api\.powerplatform\.com)(?::443)?/[^\s"'<>]*?/triggers/[A-Za-z0-9_\-]+/paths/invoke\?[^\s"'<>]*sig=(?P<sig>[A-Za-z0-9_\-]{32,}))'''
+valueGroup = 2
 confidence = "high"
 keywords = [
-    "webhook.office.com",
-    "webhookb2",
-    "incomingwebhook",
+    "logic.azure.com",
+    "powerplatform.com",
+    "paths/invoke",
 ]
+validate = '''
+let r = http.get(finding["captures"]["url"], {"User-Agent": "betterleaks"});
+let code = r.json?.error?.code ?? "";
+r.status == 200 ? {
+    "result": "valid"
+  } : code == "TriggerRequestMethodNotValid" ? {
+    "result": "valid"
+  } : code == "WorkflowTriggerIsNotEnabled" && (r.body contains "state 'Deleted'") ? {
+    "result": "invalid",
+    "reason": "Workflow deleted"
+  } : code == "WorkflowTriggerIsNotEnabled" ? {
+    "result": "invalid",
+    "reason": "Workflow disabled; can be re-enabled without changing the signature"
+  } : r.status in [401, 404] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # midtrans-production-server-client-key
