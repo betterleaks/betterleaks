@@ -12,6 +12,7 @@ import (
 
 // ScanFlags are shared by commands that detect findings from a source.
 type ScanFlags struct {
+	HMACKey            *string  `group:"scanning" name:"hmac-key" placeholder:"KEY" help:"HMAC fingerprint key; overrides BETTERLEAKS_FINGERPRINT_HMAC_KEY."`
 	Jobs               int      `group:"scanning" name:"jobs" short:"j" help:"Detection concurrency (0 = 4 * GOMAXPROCS)."`
 	MaxTargetMegabytes int      `group:"scanning" name:"max-target-megabytes" help:"Files larger than this will be skipped."`
 	MaxDecodeDepth     int      `group:"scanning" name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`

@@ -258,7 +258,7 @@ and [explicit revocation](config.md#explicit-credential-revocation).
 
 ### Ignore files
 
-v2 `.betterleaksignore` entries are bare SHA-256 digests (64 hexadecimal
+By default, v2 `.betterleaksignore` entries are bare SHA-256 digests (64 hexadecimal
 characters) over the exact secret bytes. The `sha256:` prefix is not accepted.
 They suppress that primary secret and exclude matching component values across
 rules, paths, commits, and sources. If a required component has no
@@ -270,6 +270,10 @@ not supported; regenerate entries from the original secret values:
 ```sh
 printf '%s' "$SECRET" | betterleaks fingerprint
 ```
+
+For keyed fingerprints, use `--hmac-key KEY` or `BETTERLEAKS_FINGERPRINT_HMAC_KEY`
+with scanning and `betterleaks fingerprint`. Entries use `hmac-sha256:<hex>`;
+use the same private key for both commands. See [key setup and precedence](scanning.md#ignore-exact-secret-values).
 
 Do not hash a redacted value or add a trailing newline. Existing `betterleaks:allow`
 and `gitleaks:allow` comments still work by default. Repeat `--allow-signature`
@@ -310,13 +314,18 @@ The Go fields and serialized names have changed together:
 The legacy location-based `Fingerprint` is replaced by `Match.Fingerprint`
 (`match.fingerprint` in JSON): SHA-256 of the original `match.value` bytes as
 64 lowercase hexadecimal characters without a prefix, in `.betterleaksignore`
-format. It is included on non-empty primary and component matches, including
+format. `scan.WithFingerprintKey(key)` selects HMAC-SHA-256 with the
+`hmac-sha256:` prefix instead, and copies the non-empty key. The fingerprint
+is included on non-empty primary and component matches, including
 non-secret components such as account IDs, and preserved through redaction and
 analysis. `Entropy` and `Fragment` fields are gone. `tags` remains
 available for rule labels and is omitted when empty. Decoding uses `encodings`
 and `decode_depth`, not generated `decoded:*` tags. Source coordinates point to
 the encoded input; `match.value` contains the extracted secret. JSON encoding
 replaces invalid UTF-8 bytes with U+FFFD, so reports are not a lossless binary format.
+
+`fingerprint.Hash` is now an opaque comparable value carrying both digest and
+mode; use `Sum`, `SumWithKey`, or `Parse` to construct it, and `Format` to serialize it.
 
 `scan` records state (`complete` or `incomplete`), source targets, start/finish
 times, Betterleaks version, config hash, inspected bytes, finding count, and

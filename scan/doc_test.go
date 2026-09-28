@@ -51,6 +51,21 @@ func ExampleWithIgnoredFingerprints() {
 	// Output: secret-live
 }
 
+func ExampleWithFingerprintKey() {
+	// Use a stable, private key supplied by your application's secret store.
+	key := []byte("example-only private key")
+	cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: `secret-[a-z]+`}}}
+	ignored := fingerprint.SumWithKey([]byte("secret-fixture"), key)
+	scanner, err := scan.New(cfg, scan.WithFingerprintKey(key), scan.WithIgnoredFingerprints(ignored))
+	if err != nil {
+		panic(err)
+	}
+	for _, finding := range scanner.ScanString("secret-fixture secret-live") {
+		fmt.Println(finding.Match.Value, strings.HasPrefix(finding.Match.Fingerprint, "hmac-sha256:"))
+	}
+	// Output: secret-live true
+}
+
 func Example_customConfig() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 

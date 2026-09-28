@@ -30,6 +30,7 @@ type scannerOptions struct {
 	minimumConfidence   string
 	allowSignatures     []string
 	ignoredFingerprints []fingerprint.Hash
+	fingerprintKey      []byte
 	precompile          bool
 	logger              *slog.Logger
 }
@@ -53,13 +54,29 @@ func WithRegexEngine(engine regexp.Engine) Option {
 	}}
 }
 
+// WithFingerprintKey selects HMAC-SHA-256 for match fingerprints and ignore matching.
+// The key must be non-empty and is copied when this option is created. Omit this
+// option to use ordinary SHA-256. Rule and config hashes are unaffected.
+// Changing the key invalidates existing keyed fingerprints and ignore entries.
+func WithFingerprintKey(key []byte) Option {
+	key = slices.Clone(key)
+	return Option{apply: func(options *scannerOptions) error {
+		if len(key) == 0 {
+			return errors.New("fingerprint key must not be empty")
+		}
+		options.fingerprintKey = key
+		return nil
+	}}
+}
+
 // WithIgnoredFingerprints suppresses findings with an ignored primary secret
 // and excludes ignored component matches, independent of rule, source, or location.
 // Hashes identify exact Match.Value bytes, including non-secret component values.
 // A primary is suppressed if a required component has no remaining matches.
 // Ignored optional components are treated as absent. Filtering precedes validation
 // and analysis and applies to Scan and ScanString.
-// The hashes are copied; repeated options add to the ignored set.
+// The hashes are copied; repeated options add to the ignored set. Their mode must
+// match the scanner: HMAC requires WithFingerprintKey; plain SHA-256 requires no key.
 func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {
 	hashes = slices.Clone(hashes)
 	return Option{apply: func(options *scannerOptions) error {

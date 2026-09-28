@@ -208,7 +208,9 @@ findings may omit it.
 
 Primary and component matches include `match.fingerprint`, a SHA-256 hash
 of the exact original `match.value` bytes, encoded as 64 lowercase hexadecimal
-characters without a prefix, in `.betterleaksignore` format. The value can be a
+characters without a prefix, in `.betterleaksignore` format. With `--hmac-key` or `BETTERLEAKS_FINGERPRINT_HMAC_KEY`
+(or SDK `scan.WithFingerprintKey`), it is instead `hmac-sha256:` followed by the
+HMAC-SHA-256 digest. Rule and config hashes are unaffected. The value can be a
 secret or a non-secret component, such as an account ID. The fingerprint does
 not include the rule, location, full regex match, captures, or other components.
 Decoded values are hashed after decoding. Redaction and analysis preserve the
@@ -336,7 +338,7 @@ more than once, the last option sets the list.
 ## Ignore exact secret values
 
 `.betterleaksignore` suppresses a secret everywhere it appears, independent of
-rule, path, source, location, commit, or decoding. Each entry is the complete
+rule, path, source, location, commit, or decoding. By default, each entry is the complete
 SHA-256 digest of the exact secret bytes as 64 hexadecimal characters, without
 a prefix:
 
@@ -380,16 +382,19 @@ Both forms hash exact `match.value` bytes and exclude matching components before
 assembly. A filtered or ignored optional component is treated as absent.
 
 SDK callers can pass hashes directly to `scan.WithIgnoredFingerprints(hashes...)`.
-The public `fingerprint` package provides `Sum`, `Parse`, `Format`, and `Load`.
+The public `fingerprint` package provides `Sum`, `SumWithKey`, `Parse`, `Format`,
+and `Load`. `SumWithKey(value, key)` selects HMAC-SHA-256 for a non-empty key
+and ordinary SHA-256 for an empty key. `Hash` is an opaque, comparable value
+that retains its hash mode; `Hash.IsHMAC()` identifies keyed entries.
 `Load` accepts an `io.Reader` and returns deduplicated hashes, line diagnostics,
 and a read error. The scanner copies supplied hashes and performs no ignore-file
 discovery; callers control which policy to load.
 
 Blank lines and full-line `#` comments are allowed. Hex digits may be uppercase
 or lowercase. Invalid entries are reported with their file and line number and
-do not prevent valid entries from loading. Prefixed hashes (including `sha256:`), legacy location
-fingerprints, `.gitleaksignore`, HMAC, Argon2id, and shortened hashes are not
-accepted.
+do not prevent valid entries from loading. The `hmac-sha256:` prefix selects
+keyed fingerprints. The `sha256:` prefix, legacy location fingerprints,
+`.gitleaksignore`, Argon2id, and shortened hashes are not accepted.
 
 Generate an entry without putting the secret in an argument:
 
@@ -400,6 +405,29 @@ betterleaks fingerprint
 # hashes piped bytes exactly, including whitespace and a trailing newline
 printf 'secret bytes' | betterleaks fingerprint
 ```
+
+For private fingerprints, supply a stable random key through
+`BETTERLEAKS_FINGERPRINT_HMAC_KEY` or `--hmac-key KEY` (the flag takes precedence).
+Without either, fingerprints remain SHA-256. An explicitly empty flag, or an
+empty environment variable when no flag is supplied, is an error. Keys are used
+as exact bytes, without trimming or decoding.
+
+```sh
+# Prefer the environment variable in CI; flag values can appear in process arguments or logs.
+printf '%s' "$SECRET" | betterleaks fingerprint --hmac-key "$KEY"
+betterleaks fs . --offline --hmac-key "$KEY" --redact=100 -o report.json
+```
+
+HMAC fingerprints use `hmac-sha256:<hex>`. Use the same private key for scans and
+ignore generation; changing it requires regenerating ignore entries. Mixed
+SHA-256/HMAC ignore modes are rejected. HMAC protects against guessing values
+from published fingerprints without the key; ordinary SHA-256 does not.
+It does not redact report contents.
+
+The SDK remains explicit: `scan.WithFingerprintKey(key)` copies a non-empty key;
+`fingerprint.SumWithKey(value, key)` generates matching ignore entries. SDK code
+does not read the environment automatically. Rule/config hashes and
+`crypto.sha256` expressions are unaffected.
 
 You can also copy fingerprints from JSON reports, including redacted reports:
 

@@ -24,6 +24,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"max-target-megabytes",
 		"jobs",
 		"ignore-file",
+		"hmac-key",
 		"allow-signature",
 		"no-allow-signatures",
 		"redact",

@@ -129,18 +129,24 @@ func TestIgnoredFingerprintsUseExtractedSecret(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{{
 		ID: "token", Regex: `token=(secret-[a-z]+)`, ValueGroup: 1,
 	}}}
-	ignored := fingerprint.Sum([]byte("secret-ignored"))
-	for _, input := range []string{
-		"token=secret-ignored token=secret-visible",
-		base64.StdEncoding.EncodeToString([]byte("token=secret-ignored token=secret-visible")),
-	} {
-		baseline := mustNew(t, cfg, WithMaxDecodeDepth(2))
-		require.Len(t, baseline.ScanString(input), 2)
-		scanner := mustNew(t, cfg, WithMaxDecodeDepth(2), WithIgnoredFingerprints(ignored))
-		findings := scanner.ScanString(input)
-		require.Len(t, findings, 1)
-		assert.Equal(t, "secret-visible", findings[0].Match.Value)
-		assert.Equal(t, fingerprint.Format(fingerprint.Sum([]byte("secret-visible"))), findings[0].Match.Fingerprint)
+	for _, key := range [][]byte{nil, []byte("primary test key")} {
+		options := []Option{WithMaxDecodeDepth(2)}
+		if len(key) > 0 {
+			options = append(options, WithFingerprintKey(key))
+		}
+		ignored := fingerprint.SumWithKey([]byte("secret-ignored"), key)
+		for _, input := range []string{
+			"token=secret-ignored token=secret-visible",
+			base64.StdEncoding.EncodeToString([]byte("token=secret-ignored token=secret-visible")),
+		} {
+			baseline := mustNew(t, cfg, WithMaxDecodeDepth(2))
+			require.Len(t, baseline.ScanString(input), 2)
+			scanner := mustNew(t, cfg, append(options, WithIgnoredFingerprints(ignored))...)
+			findings := scanner.ScanString(input)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "secret-visible", findings[0].Match.Value)
+			assert.Equal(t, fingerprint.Format(fingerprint.SumWithKey([]byte("secret-visible"), key)), findings[0].Match.Fingerprint)
+		}
 	}
 	// A fingerprint of the entire regex match must not suppress its capture.
 	scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("token=secret-ignored"))))
@@ -148,45 +154,51 @@ func TestIgnoredFingerprintsUseExtractedSecret(t *testing.T) {
 }
 
 func TestIgnoredFingerprintsFilterComponents(t *testing.T) {
-	for _, optional := range []bool{false, true} {
-		for _, skipReport := range []bool{false, true} {
-			cfg := &config.Config{Rules: []config.Rule{
-				{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "1L", Optional: optional}}},
-				{ID: "component", Regex: `companion=(?P<secret>ignored|visible)`, SkipReport: skipReport},
-			}}
-			scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("ignored"))))
-			for _, tc := range []struct {
-				name, raw                  string
-				requiredSets, optionalSets []int
-			}{
-				{"all ignored", "primary-token companion=ignored", nil, []int{0}},
-				{"alternative survives", "primary-token companion=ignored companion=visible", []int{1}, []int{1}},
-				{"absent", "primary-token", nil, []int{0}},
-				{"outside proximity", "primary-token\ncompanion=ignored", nil, []int{0}},
-				{"different occurrence", "primary-token companion=ignored\nprimary-token companion=visible", []int{1}, []int{0, 1}},
-			} {
-				t.Run(fmt.Sprintf("%s/optional=%t/skipReport=%t", tc.name, optional, skipReport), func(t *testing.T) {
-					want := tc.requiredSets
-					if optional {
-						want = tc.optionalSets
-					}
-					for range 2 {
-						findings := scanner.ScanString(tc.raw)
-						var componentSetCounts []int
-						for _, f := range findings {
-							assert.NotEqual(t, "ignored", f.Match.Value)
-							if f.RuleID != "primary" {
-								continue
-							}
-							componentSetCounts = append(componentSetCounts, len(f.ComponentSets))
-							for _, set := range f.ComponentSets {
-								require.Len(t, set.Components, 1)
-								assert.Equal(t, "visible", set.Components[0].Match.Value)
-							}
+	for _, key := range [][]byte{nil, []byte("component test key")} {
+		for _, optional := range []bool{false, true} {
+			for _, skipReport := range []bool{false, true} {
+				cfg := &config.Config{Rules: []config.Rule{
+					{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "1L", Optional: optional}}},
+					{ID: "component", Regex: `companion=(?P<secret>ignored|visible)`, SkipReport: skipReport},
+				}}
+				options := []Option{WithIgnoredFingerprints(fingerprint.SumWithKey([]byte("ignored"), key))}
+				if len(key) > 0 {
+					options = append(options, WithFingerprintKey(key))
+				}
+				scanner := mustNew(t, cfg, options...)
+				for _, tc := range []struct {
+					name, raw                  string
+					requiredSets, optionalSets []int
+				}{
+					{"all ignored", "primary-token companion=ignored", nil, []int{0}},
+					{"alternative survives", "primary-token companion=ignored companion=visible", []int{1}, []int{1}},
+					{"absent", "primary-token", nil, []int{0}},
+					{"outside proximity", "primary-token\ncompanion=ignored", nil, []int{0}},
+					{"different occurrence", "primary-token companion=ignored\nprimary-token companion=visible", []int{1}, []int{0, 1}},
+				} {
+					t.Run(fmt.Sprintf("%s/optional=%t/skipReport=%t/keyed=%t", tc.name, optional, skipReport, len(key) > 0), func(t *testing.T) {
+						want := tc.requiredSets
+						if optional {
+							want = tc.optionalSets
 						}
-						assert.ElementsMatch(t, want, componentSetCounts)
-					}
-				})
+						for range 2 {
+							findings := scanner.ScanString(tc.raw)
+							var componentSetCounts []int
+							for _, f := range findings {
+								assert.NotEqual(t, "ignored", f.Match.Value)
+								if f.RuleID != "primary" {
+									continue
+								}
+								componentSetCounts = append(componentSetCounts, len(f.ComponentSets))
+								for _, set := range f.ComponentSets {
+									require.Len(t, set.Components, 1)
+									assert.Equal(t, "visible", set.Components[0].Match.Value)
+								}
+							}
+							assert.ElementsMatch(t, want, componentSetCounts)
+						}
+					})
+				}
 			}
 		}
 	}
@@ -215,6 +227,48 @@ func TestIgnoredFingerprintsFilterComponents(t *testing.T) {
 }
 
 func TestIgnoredFingerprintsSnapshotAndReuse(t *testing.T) {
+	// CLI environment settings must not change SDK fingerprint behavior.
+	t.Setenv("BETTERLEAKS_FINGERPRINT_HMAC_KEY", "environment-only key")
+	plain := mustNew(t, testConfig())
+	for _, value := range []string{"short-token", strings.Repeat("fixture", 100)} {
+		var hash fingerprint.Hash
+		baseline := testing.AllocsPerRun(100, func() { hash = fingerprint.Sum([]byte(value)) })
+		actual := testing.AllocsPerRun(100, func() { hash = plain.valueFingerprint(value) })
+		require.LessOrEqual(t, actual, baseline, "unkeyed scanning must not pay HMAC conversion costs")
+		require.Equal(t, fingerprint.Sum([]byte(value)), hash)
+	}
+
+	t.Run("key ownership and mode validation", func(t *testing.T) {
+		key := []byte("private key")
+		want := fingerprint.SumWithKey([]byte("secret-alpha"), key)
+		option := WithFingerprintKey(key)
+		clear(key)
+		for range 2 {
+			scanner := mustNew(t, testConfig(), option)
+			var wg sync.WaitGroup
+			for range 4 {
+				wg.Go(func() {
+					findings := scanner.ScanString("secret-alpha")
+					if len(findings) != 1 || findings[0].Match.Fingerprint != fingerprint.Format(want) {
+						t.Error("fingerprint key was not retained across scans")
+					}
+				})
+			}
+			wg.Wait()
+		}
+		for _, tc := range []struct {
+			options []Option
+			message string
+		}{
+			{[]Option{WithFingerprintKey(nil)}, "must not be empty"},
+			{[]Option{WithIgnoredFingerprints(want)}, "require a fingerprint key"},
+			{[]Option{option, WithIgnoredFingerprints(fingerprint.Sum([]byte("secret-alpha")))}, "cannot be used with a fingerprint key"},
+			{[]Option{option, WithIgnoredFingerprints(want, fingerprint.Sum([]byte("secret-alpha")))}, "cannot be used with a fingerprint key"},
+		} {
+			_, err := New(testConfig(), tc.options...)
+			require.ErrorContains(t, err, tc.message)
+		}
+	})
 	hashes := []fingerprint.Hash{fingerprint.Sum([]byte("secret-alpha"))}
 	option := WithIgnoredFingerprints(hashes...)
 	hashes[0] = fingerprint.Sum([]byte("secret-beta"))
@@ -375,63 +429,72 @@ func TestScannerDoesNotCompileProviderExpressions(t *testing.T) {
 }
 
 func TestScannerHashes(t *testing.T) {
-	cfg := &config.Config{Rules: []config.Rule{
-		{ID: "primary", Regex: "PRIMARY", Components: []config.Component{{RuleID: "part"}}},
-		{ID: "part", Regex: "COMPONENT", SkipReport: true},
-		{ID: "path", Path: `\.env$`},
-	}}
-	wantHashes, err := cfg.RuleHashes()
-	require.NoError(t, err)
-	scanner := mustNew(t, cfg)
-	// Existing scanners retain both matching behavior and hashes after mutation.
-	cfg.Rules[1].Regex = "CHANGED"
-	changedHash, err := cfg.RuleHash("primary")
-	require.NoError(t, err)
-	require.NotEqual(t, wantHashes["primary"], changedHash)
-	findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{
-		Content:    strings.NewReader("PRIMARY COMPONENT\n"),
-		Attributes: map[string]string{sources.AttrPath: "secrets.env"},
-	})
-	require.NoError(t, err)
-	require.Len(t, findings, 2)
-	for _, finding := range findings {
-		require.Equal(t, wantHashes[finding.RuleID], finding.RuleHash)
-		if finding.RuleID == "primary" {
-			require.Equal(t, fingerprint.Format(fingerprint.Sum([]byte("PRIMARY"))), finding.Match.Fingerprint)
-			require.Len(t, finding.ComponentSets, 1)
-			require.Len(t, finding.ComponentSets[0].Components, 1)
-			require.Equal(t, wantHashes["part"], finding.ComponentSets[0].Components[0].RuleHash)
-			require.Equal(t, fingerprint.Format(fingerprint.Sum([]byte("COMPONENT"))), finding.ComponentSets[0].Components[0].Match.Fingerprint)
-		} else {
-			require.Empty(t, finding.Match.Fingerprint)
-		}
-		var decoded report.Finding
-		data, err := json.Marshal(finding.RedactedCopy(100))
-		require.NoError(t, err)
-		require.NoError(t, json.Unmarshal(data, &decoded))
-		assert.Equal(t, finding.RuleHash, decoded.RuleHash)
-		assert.Equal(t, finding.Match.Fingerprint, decoded.Match.Fingerprint)
-		if finding.RuleID == "primary" {
-			assert.Equal(t, wantHashes["part"], decoded.ComponentSets[0].Components[0].RuleHash)
-			assert.Equal(t, finding.ComponentSets[0].Components[0].Match.Fingerprint, decoded.ComponentSets[0].Components[0].Match.Fingerprint)
-			assert.Equal(t, "REDACTED", decoded.Match.Value)
-			parsed, err := fingerprint.Parse(decoded.ComponentSets[0].Components[0].Match.Fingerprint)
-			require.NoError(t, err)
-			// An entry copied from a redacted component suppresses its parent.
-			originalCfg := &config.Config{Rules: []config.Rule{
+	for _, key := range [][]byte{nil, []byte("private test key")} {
+		t.Run(fmt.Sprintf("keyed=%t", len(key) > 0), func(t *testing.T) {
+			var options []Option
+			if len(key) > 0 {
+				options = append(options, WithFingerprintKey(key))
+			}
+
+			cfg := &config.Config{Rules: []config.Rule{
 				{ID: "primary", Regex: "PRIMARY", Components: []config.Component{{RuleID: "part"}}},
 				{ID: "part", Regex: "COMPONENT", SkipReport: true},
+				{ID: "path", Path: `\.env$`},
 			}}
-			assert.Empty(t, mustNew(t, originalCfg, WithIgnoredFingerprints(parsed)).ScanString("PRIMARY COMPONENT"))
-		} else {
-			assert.NotContains(t, string(data), `"fingerprint"`)
-		}
-		var pretty bytes.Buffer
-		require.NoError(t, report.WritePretty(&pretty, finding, report.PrettyOptions{NoColor: true}))
-		assert.NotContains(t, pretty.String(), finding.RuleHash)
-		if finding.Match.Fingerprint != "" {
-			assert.NotContains(t, pretty.String(), finding.Match.Fingerprint)
-		}
+			wantHashes, err := cfg.RuleHashes()
+			require.NoError(t, err)
+			scanner := mustNew(t, cfg, options...)
+			// Existing scanners retain both matching behavior and hashes after mutation.
+			cfg.Rules[1].Regex = "CHANGED"
+			changedHash, err := cfg.RuleHash("primary")
+			require.NoError(t, err)
+			require.NotEqual(t, wantHashes["primary"], changedHash)
+			findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{
+				Content:    strings.NewReader("PRIMARY COMPONENT\n"),
+				Attributes: map[string]string{sources.AttrPath: "secrets.env"},
+			})
+			require.NoError(t, err)
+			require.Len(t, findings, 2)
+			for _, finding := range findings {
+				require.Equal(t, wantHashes[finding.RuleID], finding.RuleHash)
+				if finding.RuleID == "primary" {
+					require.Equal(t, fingerprint.Format(fingerprint.SumWithKey([]byte("PRIMARY"), key)), finding.Match.Fingerprint)
+					require.Len(t, finding.ComponentSets, 1)
+					require.Len(t, finding.ComponentSets[0].Components, 1)
+					require.Equal(t, wantHashes["part"], finding.ComponentSets[0].Components[0].RuleHash)
+					require.Equal(t, fingerprint.Format(fingerprint.SumWithKey([]byte("COMPONENT"), key)), finding.ComponentSets[0].Components[0].Match.Fingerprint)
+				} else {
+					require.Empty(t, finding.Match.Fingerprint)
+				}
+				var decoded report.Finding
+				data, err := json.Marshal(finding.RedactedCopy(100))
+				require.NoError(t, err)
+				require.NoError(t, json.Unmarshal(data, &decoded))
+				assert.Equal(t, finding.RuleHash, decoded.RuleHash)
+				assert.Equal(t, finding.Match.Fingerprint, decoded.Match.Fingerprint)
+				if finding.RuleID == "primary" {
+					assert.Equal(t, wantHashes["part"], decoded.ComponentSets[0].Components[0].RuleHash)
+					assert.Equal(t, finding.ComponentSets[0].Components[0].Match.Fingerprint, decoded.ComponentSets[0].Components[0].Match.Fingerprint)
+					assert.Equal(t, "REDACTED", decoded.Match.Value)
+					parsed, err := fingerprint.Parse(decoded.ComponentSets[0].Components[0].Match.Fingerprint)
+					require.NoError(t, err)
+					// An entry copied from a redacted component suppresses its parent.
+					originalCfg := &config.Config{Rules: []config.Rule{
+						{ID: "primary", Regex: "PRIMARY", Components: []config.Component{{RuleID: "part"}}},
+						{ID: "part", Regex: "COMPONENT", SkipReport: true},
+					}}
+					assert.Empty(t, mustNew(t, originalCfg, append(options, WithIgnoredFingerprints(parsed))...).ScanString("PRIMARY COMPONENT"))
+				} else {
+					assert.NotContains(t, string(data), `"fingerprint"`)
+				}
+				var pretty bytes.Buffer
+				require.NoError(t, report.WritePretty(&pretty, finding, report.PrettyOptions{NoColor: true}))
+				assert.NotContains(t, pretty.String(), finding.RuleHash)
+				if finding.Match.Fingerprint != "" {
+					assert.NotContains(t, pretty.String(), finding.Match.Fingerprint)
+				}
+			}
+		})
 	}
 }
 

@@ -61,6 +61,7 @@ type ruleCandidates struct {
 // A Scanner must be constructed with New; its zero value is not usable.
 type Scanner struct {
 	ignoredFingerprints map[fingerprint.Hash]struct{}
+	fingerprintKey      []byte
 	maxDecodeDepth      int
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
@@ -118,6 +119,14 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 			return nil, err
 		}
 	}
+	for _, hash := range settings.ignoredFingerprints {
+		if hash.IsHMAC() && len(settings.fingerprintKey) == 0 {
+			return nil, errors.New("HMAC ignore fingerprints require a fingerprint key")
+		}
+		if !hash.IsHMAC() && len(settings.fingerprintKey) > 0 {
+			return nil, errors.New("SHA-256 ignore fingerprints cannot be used with a fingerprint key; regenerate them using the key")
+		}
+	}
 	if settings.workers == 0 {
 		// Allow detection and result handoffs to overlap without increasing source read-ahead.
 		settings.workers = 4 * max(runtime.GOMAXPROCS(0), 1)
@@ -169,6 +178,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	}
 	s := &Scanner{
 		maxDecodeDepth:     settings.maxDecodeDepth,
+		fingerprintKey:     settings.fingerprintKey,
 		matchContext:       settings.matchContext,
 		minimumConfidence:  settings.minimumConfidence,
 		allowSignatures:    settings.allowSignatures,
@@ -563,7 +573,7 @@ ScanLoop:
 						}
 						// Components are checked during assembly; an ignored primary
 						// suppresses every combination that remains.
-						hash := fingerprint.Sum([]byte(finding.Match.Value))
+						hash := s.valueFingerprint(finding.Match.Value)
 						if _, ignored := s.ignoredFingerprints[hash]; ignored {
 							continue
 						}
@@ -1022,6 +1032,15 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	return s.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state)
 }
 
+// Keep the unkeyed conversion separate: passing it through HMAC would make
+// the value bytes escape to the heap even when no key is configured.
+func (s *Scanner) valueFingerprint(value string) fingerprint.Hash {
+	if len(s.fingerprintKey) == 0 {
+		return fingerprint.Sum([]byte(value))
+	}
+	return fingerprint.SumWithKey([]byte(value), s.fingerprintKey)
+}
+
 // processComponents attaches nearby component matches and enforces required components.
 func (s *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState) ([]report.Finding, error) {
 	if len(primaryFindings) == 0 {
@@ -1047,7 +1066,7 @@ nextPrimary:
 			before := len(componentFindings)
 			for _, found := range allComponentFindings[i] {
 				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, component.window) {
-					hash := fingerprint.Sum([]byte(found.Match.Value))
+					hash := s.valueFingerprint(found.Match.Value)
 					if _, ignored := s.ignoredFingerprints[hash]; ignored {
 						continue
 					}

@@ -110,6 +110,9 @@ printf '%s\n' "$GITHUB_TOKEN" | betterleaks analyze --rule github-pat
 printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat --simple
 ```
 
+Use `--hmac-key` or `BETTERLEAKS_FINGERPRINT_HMAC_KEY` for keyed match fingerprints;
+see [fingerprint privacy and key setup](docs/scanning.md#ignore-exact-secret-values).
+
 `-j` / `--jobs` controls detection concurrency only, defaulting to `4 * GOMAXPROCS`.
 Sources manage their own
 bounded reads and downloads; Git uses one history stream when `--log-opts` is

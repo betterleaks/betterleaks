@@ -88,8 +88,9 @@ func reportAttributes(attributes map[string]string) map[string]string {
 type Match struct {
 	Full  string `json:"full"`
 	Value string `json:"value"`
-	// Fingerprint is the SHA-256 hash of the original Value bytes as 64 lowercase
-	// hexadecimal characters without a prefix, independently of rule or location.
+	// Fingerprint identifies the original Value bytes independently of rule or location.
+	// It is a 64-character lowercase SHA-256 digest, or hmac-sha256: followed by
+	// the HMAC-SHA-256 digest when the scanner has a fingerprint key.
 	// Value may be a secret or a non-secret component. Scanner supplies the hash
 	// for non-empty values; redaction and analysis preserve it. Externally
 	// constructed matches may omit it.
