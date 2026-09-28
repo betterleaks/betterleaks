@@ -1,16 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func LlamaCloudAPIKey() *config.Rule {
 	// LlamaCloud keys can be region-specific. Only a successful response from
 	// the global API proves validity; a non-success remains unknown.
 	r := config.Rule{
-		RuleID:      "llama-cloud-api-key.1",
+		ID:          "llama-cloud-api-key.1",
 		Confidence:  "high",
 		Description: "LlamaCloud API key, which may allow access to managed parsing, ingestion, and retrieval projects.",
 		Regex:       utils.GenerateUniqueTokenRegex(`llx-[A-Za-z0-9]{44,52}`, false),
@@ -21,7 +21,7 @@ func LlamaCloudAPIKey() *config.Rule {
   }); r.status == 200 ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := "llx-" + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{48}`, 3.5)

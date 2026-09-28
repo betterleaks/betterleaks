@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func MiniMaxAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "minimax-api-key",
+		ID:          "minimax-api-key",
 		Confidence:  "high",
 		Description: "Detected a MiniMax API key, which may expose AI model, speech, image, video, or file services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-api-[A-Za-z0-9_-]{119}`, true),
@@ -22,12 +22,10 @@ func MiniMaxAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
-	tps := append(
-		utils.GenerateSampleSecrets("minimax", "sk-api-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{119}`, 3.5)),
-	)
+	tps := utils.GenerateSampleSecrets("minimax", "sk-api-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{119}`, 3.5))
 	fps := []string{
 		`minimax_api_key = "sk-api-uBf3S6jw9Akw0X6u9KDy"`,
 		`minimax_api_key = "sk-api-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`,

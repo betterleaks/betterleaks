@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DroneciAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "droneci-access-token",
+		ID:          "droneci-access-token",
 		Confidence:  "high",
 		Description: "Detected a Droneci Access Token, potentially compromising continuous integration and deployment workflows.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"droneci"}, utils.AlphaNumeric("32"), true),
@@ -17,7 +17,7 @@ func DroneciAccessToken() *config.Rule {
 		Keywords: []string{
 			"droneci",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

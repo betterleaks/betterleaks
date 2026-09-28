@@ -1,21 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DockerSwarmJoinToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "docker-swarm-join-token",
+		ID:          "docker-swarm-join-token",
 		Confidence:  "high",
 		Description: "Docker Swarm join token.",
-		Regex:       regexp.MustCompile(`\b(SWMTKN-1-[a-z0-9]{50,60}-[a-z0-9]{24,30})`),
+		Regex:       `\b(SWMTKN-1-[a-z0-9]{50,60}-[a-z0-9]{24,30})`,
 		Keywords:    []string{"SWMTKN-1-"},
-		Filter:      utils.MinEntropy(3.5),
+		FilterExpr:  utils.MinEntropy(3.5),
 	}
 
 	// validate
@@ -31,12 +30,12 @@ func DockerSwarmJoinToken() *config.Rule {
 func DockerSwarmUnlockKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "docker-swarm-unlock-key",
+		ID:          "docker-swarm-unlock-key",
 		Confidence:  "high",
 		Description: "Docker Swarm unlock key.",
-		Regex:       regexp.MustCompile(`\b(SWMKEY-1-[A-Za-z0-9+/]{40,50})`),
+		Regex:       `\b(SWMKEY-1-[A-Za-z0-9+/]{40,50})`,
 		Keywords:    []string{"SWMKEY-1-"},
-		Filter:      utils.MinEntropy(3.5),
+		FilterExpr:  utils.MinEntropy(3.5),
 	}
 
 	// validate

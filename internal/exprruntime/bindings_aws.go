@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/internal/sigv4"
+	"github.com/betterleaks/betterleaks/v2/internal/sigv4"
 )
 
 // STS = Security Token Service

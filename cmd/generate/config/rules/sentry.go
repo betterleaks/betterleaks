@@ -3,23 +3,22 @@ package rules
 import (
 	"encoding/base64"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func SentryAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "sentry-access-token",
+		ID:          "sentry-access-token",
 		Confidence:  "medium",
 		Description: "Found a Sentry.io Access Token (old format), risking unauthorized access to error tracking services and sensitive application data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"sentry"}, utils.Hex("64"), true),
 		Keywords: []string{
 			"sentry",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -42,23 +41,23 @@ func SentryOrgToken() *config.Rule {
 
 	// define rule
 	r := config.Rule{
-		RuleID:      "sentry-org-token",
+		ID:          "sentry-org-token",
 		Confidence:  "high",
 		Description: "Found a Sentry.io Organization Token, risking unauthorized access to error tracking services and sensitive application data.",
-		Regex:       regexp.MustCompile(`\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}(?:[^a-zA-Z0-9+/]|\z)`),
+		Regex:       `\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}(?:[^a-zA-Z0-9+/]|\z)`,
 		Keywords:    []string{"sntrys_eyJpYXQiO"},
-		Filter:      `filter.entropy(finding["secret"]) < 4.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 4.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
 	tps := utils.GenerateSampleSecrets("sentry",
-		`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`, // gitleaks:allow
+		`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`, // betterleaks:allow
 	)
 	tps = append(tps, utils.GenerateSampleSecrets("sentry",
-		`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`, // gitleaks:allow
+		`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`, // betterleaks:allow
 	)...)
 	tps = append(tps,
-		` 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`, // gitleaks:allow
+		` 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`, // betterleaks:allow
 	)
 
 	encodedJson := base64.StdEncoding.EncodeToString([]byte(secrets.NewSecretWithEntropy(
@@ -82,12 +81,12 @@ func SentryOrgToken() *config.Rule {
 func SentryUserToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "sentry-user-token",
+		ID:          "sentry-user-token",
 		Confidence:  "high",
 		Description: "Found a Sentry.io User Token, risking unauthorized access to error tracking services and sensitive application data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sntryu_[a-f0-9]{64}`, false),
 		Keywords:    []string{"sntryu_"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

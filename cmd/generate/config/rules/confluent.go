@@ -1,22 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ConfluentSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "confluent-secret-key",
+		ID:          "confluent-secret-key",
 		Confidence:  "high",
 		Description: "Found a Confluent Secret Key, potentially risking unauthorized operations and data access within Confluent services.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"confluent"}, utils.AlphaNumeric("64"), true),
 		Keywords: []string{
 			"confluent",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -27,11 +27,11 @@ func ConfluentSecretKey() *config.Rule {
 func ConfluentAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "confluent-access-token",
+		ID:          "confluent-access-token",
 		Confidence:  "high",
 		Description: "Identified a Confluent Access Token, which could compromise access to streaming data platforms and sensitive data flow.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"confluent"}, utils.AlphaNumeric("16"), true),
-		Filter:      utils.MinEntropyAndTokenEfficiency,
+		FilterExpr:  utils.MinEntropyAndTokenEfficiency,
 
 		Keywords: []string{
 			"confluent",

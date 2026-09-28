@@ -1,21 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Twilio() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "twilio-api-key",
+		ID:          "twilio-api-key",
 		Confidence:  "high",
 		Description: "Found a Twilio API Key, posing a risk to communication services and sensitive customer interaction data.",
-		Regex:       regexp.MustCompile(`SK[0-9a-fA-F]{32}`),
+		Regex:       `SK[0-9a-fA-F]{32}`,
 		Keywords:    []string{"twilio"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

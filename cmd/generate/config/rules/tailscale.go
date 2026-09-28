@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func TailscaleAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "tailscale-api-key.1",
+		ID:          "tailscale-api-key.1",
 		Confidence:  "high",
 		Description: "Tailscale API access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`tskey-api-[A-Za-z0-9_-]{20,36}`, false),
@@ -23,7 +23,7 @@ func TailscaleAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API token"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	// validate

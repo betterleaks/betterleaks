@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Groq() *config.Rule {
 	r := config.Rule{
-		RuleID:      "groq-api-key",
+		ID:          "groq-api-key",
 		Confidence:  "high",
 		Description: "Identified a Groq API Key, which may expose high-speed AI inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`gsk_[A-Z0-9]{52}`, true),
@@ -21,7 +21,7 @@ func Groq() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("groq", "gsk_"+secrets.NewSecretWithEntropy(`[A-Z0-9]{52}`, 3.5))

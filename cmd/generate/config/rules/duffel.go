@@ -1,21 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Duffel() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "duffel-api-token",
+		ID:          "duffel-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a Duffel API token, which may compromise travel platform integrations and sensitive customer data.",
-		Regex:       regexp.MustCompile(`duffel_(?:test|live)_(?i)[a-z0-9_\-=]{43}`),
+		Regex:       `duffel_(?:test|live)_(?i)[a-z0-9_\-=]{43}`,
 		Keywords:    []string{"duffel_"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

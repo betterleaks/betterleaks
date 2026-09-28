@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func NytimesAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "nytimes-access-token",
+		ID:          "nytimes-access-token",
 		Confidence:  "high",
 		Description: "Detected a Nytimes Access Token, risking unauthorized access to New York Times APIs and content services.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
@@ -21,7 +21,7 @@ func NytimesAccessToken() *config.Rule {
 			"new-york-times",
 			"newyorktimes",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -1,19 +1,18 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Authress() *config.Rule {
 	// Rule Definition
-	// (Note: When changes are made to this, rerun `go generate ./...` and commit the config/gitleaks.toml file
+	// When changes are made to this rule, regenerate and commit config/betterleaks.toml.
 	r := config.Rule{
-		RuleID:      "authress-service-client-access-key",
+		ID:          "authress-service-client-access-key",
 		Confidence:  "high",
 		Description: "Uncovered a possible Authress Service Client Access Key, which may compromise access control services and sensitive data.",
-		Regex:       regexp.MustCompile(`(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b`),
+		Regex:       `(?i)\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.acc[_-][a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})\b`,
 		// The `.acc_`/`.acc-` segment is required by the regex and is far
 		// rarer in real code than the `sc_`/`ext_` prefixes.
 		Keywords: []string{".acc_", ".acc-"},
@@ -25,7 +24,7 @@ func Authress() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 4.0`,
+		FilterExpr: `entropy(finding["secret"]) < 4.0`,
 	}
 
 	// validate

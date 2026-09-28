@@ -1,21 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Doppler() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "doppler-api-token",
+		ID:          "doppler-api-token",
 		Confidence:  "high",
 		Description: "Discovered a Doppler API token, posing a risk to environment and secrets management security.",
-		Regex:       regexp.MustCompile(`dp\.pt\.(?i)[a-z0-9]{43}`),
+		Regex:       `dp\.pt\.(?i)[a-z0-9]{43}`,
 		Keywords:    []string{`dp.pt.`},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

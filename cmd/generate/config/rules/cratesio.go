@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CratesIOAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "crates-io-api-key",
+		ID:          "crates-io-api-key",
 		Confidence:  "high",
 		Description: "crates.io API key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`crates(?:[_.-]?io)?`}, `cio[A-Za-z0-9]{32}`, true),

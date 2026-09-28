@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func RapidAPIAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "rapidapi-access-token",
+		ID:          "rapidapi-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a RapidAPI Access Token, which could lead to unauthorized access to various APIs and data services.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"rapidapi"},
@@ -18,7 +18,7 @@ func RapidAPIAccessToken() *config.Rule {
 		Keywords: []string{
 			"rapidapi",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

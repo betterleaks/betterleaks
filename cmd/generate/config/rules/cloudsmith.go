@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CloudsmithAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cloudsmith-api-key",
+		ID:          "cloudsmith-api-key",
 		Confidence:  "high",
 		Description: "Detected a Cloudsmith API key, which may expose package repositories and artifact management operations to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`csa_[a-f0-9]{30}[A-Za-z0-9]{6}`, false),
@@ -16,7 +16,7 @@ func CloudsmithAPIKey() *config.Rule {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.json?.authenticated ?? false) == true ? {
     "result": "valid",
-    "account": (r.json?.slug ?? "")
+    "metadata": {"account": (r.json?.slug ?? "")}
   } : r.status in [401, 403] || (r.status == 200 && (r.json?.authenticated ?? false) == false) ? {
     "result": "invalid",
     "reason": "Unauthorized"

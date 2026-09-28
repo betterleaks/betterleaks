@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func XenditProductionAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "xendit-production-api-key.1",
+		ID:          "xendit-production-api-key.1",
 		Confidence:  "high",
 		Description: "Xendit production API key, which may allow access to payment and balance APIs.",
 		Regex:       utils.GenerateUniqueTokenRegex(`xnd_production_[A-Za-z0-9]{56,72}`, false),
@@ -22,7 +22,7 @@ func XenditProductionAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	key := "xnd_production_" + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{64}`, 3.0)

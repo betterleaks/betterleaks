@@ -7,10 +7,10 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
-	"github.com/betterleaks/betterleaks/cmd/generate/config/rules"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/rules"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
 
 const (
@@ -147,7 +147,9 @@ func main() {
 		rules.ClickHouseCloud(),
 		rules.ClickUpPersonalAPIToken(),
 		rules.Clojars(),
-		rules.CloudflareAPIKey(),
+		rules.CloudflareAccountIDV1(),
+		rules.CloudflareAPIKeyV1(),
+		rules.CloudflareAPIKeyV2(),
 		rules.CloudflareGlobalAPIKey(),
 		rules.CloudflareOriginCAKey(),
 		rules.CloudsmithAPIKey(),
@@ -544,24 +546,27 @@ func main() {
 	}
 
 	// ensure rules have unique ids
-	ruleLookUp := make(map[string]config.Rule, len(configRules))
+	ruleIDs := make(map[string]struct{}, len(configRules))
+	ruleList := make([]config.Rule, 0, len(configRules))
 	for _, rule := range configRules {
 		if err := rule.Validate(); err != nil {
-			logging.Fatal().Err(err).
-				Str("rule-id", rule.RuleID).
-				Msg("Failed to validate rule")
+			logging.Fatal("Failed to validate rule", "error", err, "rule_id", rule.ID)
 		}
 
 		// check if rule is in ruleLookUp
-		if _, ok := ruleLookUp[rule.RuleID]; ok {
-			logging.Fatal().
-				Str("rule-id", rule.RuleID).
-				Msg("rule id is not unique")
+		if _, ok := ruleIDs[rule.ID]; ok {
+			logging.Fatal("rule id is not unique", "rule_id", rule.ID)
 		}
 		// TODO: eventually change all the signatures to get ride of this
 		// nasty dereferencing.
-		ruleLookUp[rule.RuleID] = *rule
+		ruleIDs[rule.ID] = struct{}{}
+		ruleList = append(ruleList, *rule)
 	}
+	// The template previously ranged over a map, which emitted string keys in
+	// sorted order. Keep generated configs stable now that Rules is a slice.
+	sort.Slice(ruleList, func(i, j int) bool {
+		return ruleList[i].ID < ruleList[j].ID
+	})
 
 	funcMap := template.FuncMap{
 		"tomlQuote": tomlQuote,
@@ -597,19 +602,19 @@ func main() {
 	}
 	tmpl, err := template.New("config.tmpl").Funcs(funcMap).ParseFiles(templatePath)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("Failed to parse template")
+		logging.Fatal("Failed to parse template", "error", err)
 	}
 
 	f, err := os.Create(betterleaksConfigPath)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("Failed to create rules.toml")
+		logging.Fatal("Failed to create rules.toml", "error", err)
 	}
 	defer f.Close()
 
 	cfg := base.CreateGlobalConfig()
-	cfg.Rules = ruleLookUp
+	cfg.Rules = ruleList
 
 	if err = tmpl.Execute(f, cfg); err != nil {
-		logging.Fatal().Err(err).Msg("could not execute template")
+		logging.Fatal("could not execute template", "error", err)
 	}
 }

@@ -1,21 +1,21 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Intercom() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Identified an Intercom API Token, which could compromise customer communication channels and data privacy.",
-		RuleID:      "intercom-api-key",
+		ID:          "intercom-api-key",
 		Confidence:  "medium",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"intercom"}, utils.AlphaNumericExtended("60"), true),
 
-		Keywords: []string{"intercom"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Keywords:   []string{"intercom"},
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -3,9 +3,9 @@ package rules
 import (
 	"strings"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 // https://fly.io/docs/security/tokens/
@@ -14,7 +14,7 @@ import (
 func FlyIOAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "flyio-access-token",
+		ID:          "flyio-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a Fly.io API key", // TODO
 		Regex:       utils.GenerateUniqueTokenRegex(`FlyV1\s[A-Za-z0-9=_\-,/+]{100,}`, false),
@@ -24,13 +24,12 @@ func FlyIOAccessToken() *config.Rule {
     "Content-Type": "application/json"
   }, "{\"query\": \"query { viewer { id email name } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") && (r.body contains "\"email\"") ? {
     "result": "valid",
-    "email": (r.json?.data?.viewer?.email ?? ""),
-    "name": (r.json?.data?.viewer?.name ?? "")
+    "metadata": {"email": (r.json?.data?.viewer?.email ?? ""), "name": (r.json?.data?.viewer?.name ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

@@ -1,0 +1,168 @@
+package provider
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/betterleaks/betterleaks/v2/report"
+)
+
+// validStatuses is the set of recognised validation statuses.
+var validStatuses = map[report.ValidationStatus]bool{
+	report.ValidationStatusValid:           true,
+	report.ValidationStatusNeedsValidation: true,
+	report.ValidationStatusInvalid:         true,
+	report.ValidationStatusRevoked:         true,
+	report.ValidationStatusUnknown:         true,
+	report.ValidationStatusError:           true,
+}
+
+// Result holds the outcome of a validation expression evaluation.
+type Result struct {
+	// Debug holds runtime diagnostics separately from public provider metadata.
+	Debug    map[string]any
+	Status   report.ValidationStatus // valid, invalid, revoked, unknown, error
+	Reason   string                  // human-readable explanation
+	Metadata map[string]any          // explicit public metadata
+	Analysis map[string]any          // private fields passed only to credential analysis
+}
+
+// ParseResult interprets the expression output value into a Result.
+func ParseResult(val any) *Result {
+	switch v := val.(type) {
+	case map[string]any:
+		return parseResultMap(v)
+	case map[any]any:
+		m := make(map[string]any, len(v))
+		for k, value := range v {
+			s, ok := k.(string)
+			if !ok {
+				return &Result{Status: report.ValidationStatusError, Reason: "validation result keys must be strings"}
+			}
+			m[s] = value
+		}
+		return parseResultMap(m)
+	default:
+		return &Result{
+			Status:   report.ValidationStatusError,
+			Reason:   fmt.Sprintf("expression returned unexpected type: %T", val),
+			Metadata: map[string]any{},
+		}
+	}
+}
+
+// statusPriority defines precedence for status rollup.
+// Higher value = higher priority. "valid" wins over everything; "" loses to everything.
+var statusPriority = map[report.ValidationStatus]int{
+	report.ValidationStatusNone:            0,
+	report.ValidationStatusError:           1,
+	report.ValidationStatusInvalid:         2,
+	report.ValidationStatusUnknown:         3,
+	report.ValidationStatusRevoked:         4,
+	report.ValidationStatusNeedsValidation: 5,
+	report.ValidationStatusValid:           6,
+}
+
+// BetterStatus returns whichever of a or b has higher priority.
+// Priority order: valid > needs_validation > revoked > unknown > invalid > error > "".
+// This is used for rolling up per-component validation results into an
+// overall finding-level status for composite rules.
+func BetterStatus(a, b report.ValidationStatus) report.ValidationStatus {
+	if statusPriority[b] > statusPriority[a] {
+		return b
+	}
+	return a
+}
+
+// reservedKeys are map keys consumed by parseResultMap and excluded from metadata.
+var reservedKeys = map[string]bool{
+	"result": true, "reason": true, "analysis": true, "metadata": true,
+}
+
+// parseResultMap interprets a map result from a validation expression.
+//
+// The expected form is {"result": "<status>", ...} where <status> is one of
+// the validStatuses.
+func parseResultMap(m map[string]any) *Result {
+	result := &Result{
+		Status:   report.ValidationStatusError,
+		Metadata: make(map[string]any),
+	}
+
+	value, exists := m["result"]
+	if !exists {
+		result.Reason = "validation result is required"
+		return result
+	}
+	text, ok := value.(string)
+	if !ok {
+		result.Reason = "validation result must be a string"
+		return result
+	}
+	status := report.ValidationStatus(strings.ToLower(text))
+	if !validStatuses[status] {
+		result.Reason = "validation result must be one of: valid, needs_validation, invalid, revoked, unknown, error"
+		return result
+	}
+
+	// Extract reason.
+	if r, ok := m["reason"]; ok {
+		s, ok := r.(string)
+		if !ok {
+			result.Reason = "validation reason must be a string"
+			return result
+		}
+		result.Reason = s
+	}
+	result.Status = status
+
+	// Analysis input is deliberately separate from validation metadata. It
+	// carries facts discovered by validation to a subsequent analysis program
+	// without exposing those implementation details in reports.
+	if value, ok := m["analysis"]; ok {
+		switch analysis := value.(type) {
+		case map[string]any:
+			result.Analysis = analysis
+		case map[any]any:
+			result.Analysis = make(map[string]any, len(analysis))
+			for key, value := range analysis {
+				name, ok := key.(string)
+				if !ok {
+					return &Result{Status: report.ValidationStatusError, Reason: "validation analysis keys must be strings"}
+				}
+				result.Analysis[name] = value
+			}
+		case nil:
+		default:
+			result.Status = report.ValidationStatusError
+			result.Reason = fmt.Sprintf("validation analysis must be an object, got %T", value)
+		}
+	}
+
+	// The result contract is closed: unknown fields are almost always an authoring
+	// error, and must never accidentally publish a provider response body.
+	for key := range m {
+		if !reservedKeys[key] {
+			return &Result{Status: report.ValidationStatusError, Reason: fmt.Sprintf("unknown validation result field %q", key)}
+		}
+	}
+	if value, exists := m["metadata"]; exists {
+		switch metadata := value.(type) {
+		case map[string]any:
+			result.Metadata = metadata
+		case map[any]any:
+			result.Metadata = make(map[string]any, len(metadata))
+			for key, value := range metadata {
+				name, ok := key.(string)
+				if !ok {
+					return &Result{Status: report.ValidationStatusError, Reason: "validation metadata keys must be strings"}
+				}
+				result.Metadata[name] = value
+			}
+		case nil:
+		default:
+			return &Result{Status: report.ValidationStatusError, Reason: fmt.Sprintf("validation metadata must be an object, got %T", value)}
+		}
+	}
+	return result
+}

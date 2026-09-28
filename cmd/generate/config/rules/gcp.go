@@ -1,10 +1,9 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=" + finding["secret"], {}); k.status == 400 ? {
@@ -12,47 +11,35 @@ const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/id
     "reason": "Unauthorized"
   } : (let r = http.get("https://generativelanguage.googleapis.com/v1beta/models?key=" + finding["secret"], {}); r.status == 200 && (r.body contains '"models"') ? {
     "result": "valid",
-    "active_google_key": true,
-    "gemini_access": true
+    "metadata": {"active_google_key": true, "gemini_access": true}
   } : r.status == 403 && (r.body contains "API_KEY_HTTP_REFERRER_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked by HTTP referrer restriction",
-    "active_google_key": true,
-    "gemini_access": "unknown",
-    "restriction": "http_referrer"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown", "restriction": "http_referrer"}
   } : r.status == 403 && (r.body contains "API_KEY_IP_ADDRESS_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked by IP address restriction",
-    "active_google_key": true,
-    "gemini_access": "unknown",
-    "restriction": "ip_address"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown", "restriction": "ip_address"}
   } : r.status == 403 && (r.body contains "API_KEY_IOS_APP_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked by iOS app restriction",
-    "active_google_key": true,
-    "gemini_access": "unknown",
-    "restriction": "ios_app"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown", "restriction": "ios_app"}
   } : r.status == 403 && (r.body contains "API_KEY_ANDROID_APP_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked by Android app restriction",
-    "active_google_key": true,
-    "gemini_access": "unknown",
-    "restriction": "android_app"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown", "restriction": "android_app"}
   } : r.status == 403 && (r.body contains "API_KEY_SERVICE_BLOCKED") ? {
     "result": "needs_validation",
     "reason": "Active Google API key blocked from Gemini API",
-    "active_google_key": true,
-    "gemini_access": false
+    "metadata": {"active_google_key": true, "gemini_access": false}
   } : r.status == 403 ? {
     "result": "needs_validation",
     "reason": "Active Google API key with unknown Gemini access",
-    "active_google_key": true,
-    "gemini_access": "unknown"
+    "metadata": {"active_google_key": true, "gemini_access": "unknown"}
   } : r.status == 400 && k.status in [200, 403] ? {
     "result": "needs_validation",
     "reason": "Active Google API key not accepted by Gemini API",
-    "active_google_key": true,
-    "gemini_access": false
+    "metadata": {"active_google_key": true, "gemini_access": false}
   } : r.status == 400 && (r.body contains "API_KEY_INVALID") ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -64,18 +51,16 @@ const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/id
 func GCPApplicationDefaultCredentials() *config.Rule {
 	r := config.Rule{
 		Description: "Google (GCP) Application Default Credentials",
-		RuleID:      "gcp-application-default-credentials",
+		ID:          "gcp-application-default-credentials",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}`),
+		Regex:       `\{[^{]+(?:(?:"client_secret"\s*:\s*"[^"]+"[^}]+"refresh_token"\s*:\s*"[^"]+")|(?:"refresh_token"\s*:\s*"[^"]+"[^}]+"client_secret"\s*:\s*"[^"]+"))[^}]+\}`,
 		Keywords:    []string{".apps.googleusercontent.com"},
 		ValidateExpr: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
-    "result": "valid",
-    "credential_type": r.credential_type,
-    "client_id": r.client_id
-  } : r.status in [400, 401] ? {
+  "result": "valid",
+  "metadata": {"credential_type": r.credential_type, "client_id": r.client_id}
+} : r.status in [400, 401] ? {
     "result": "invalid",
-    "error_code": r.error_code,
-    "error_message": r.error_message
+    "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 `,
 	}
@@ -89,22 +74,19 @@ func GCPApplicationDefaultCredentials() *config.Rule {
 func GCPServiceAccount() *config.Rule {
 	r := config.Rule{
 		Description: "Google (GCP) Service-account",
-		RuleID:      "gcp-service-account",
+		ID:          "gcp-service-account",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}`),
+		Regex:       `\{[^{]+(?:(?:"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\}`,
 		Keywords:    []string{"provider_x509"},
 		ValidateExpr: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
-    "result": "valid",
-    "credential_type": r.credential_type,
-    "project_id": r.project_id,
-    "client_email": r.client_email
-  } : r.status in [400, 401] ? {
+  "result": "valid",
+  "metadata": {"credential_type": r.credential_type, "project_id": r.project_id, "client_email": r.client_email}
+} : r.status in [400, 401] ? {
     "result": "invalid",
-    "error_code": r.error_code,
-    "error_message": r.error_message
+    "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 `,
-		Filter: `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,
+		FilterExpr: `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,
 	}
 
 	tps := []string{
@@ -120,20 +102,20 @@ func GCPServiceAccount() *config.Rule {
 func GCPAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "gcp-api-key",
+		ID:           "gcp-api-key",
 		Confidence:   "high",
 		Description:  "Uncovered a GCP API key, which could lead to unauthorized access to Google Cloud services and data breaches.",
 		Regex:        utils.GenerateUniqueTokenRegex(`AIza[\w-]{35}`, false),
 		Keywords:     []string{"AIza"},
 		ValidateExpr: gcpAPIKeyValidationExpr,
-		Filter:       "entropy(finding[\"secret\"]) <= 4.0\n|| matchesAny(finding[\"secret\"], [\n  `AIzaSyabcdefghijklmnopqrstuvwxyz1234567`,\n  `AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs`,\n  `AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM`,\n  `AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU`,\n  `AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0`,\n  `AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A`,\n  `AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c`,\n  `AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4`,\n  `AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY`,\n  `AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM`,\n  `AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ`,\n  `AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g`,\n  `AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU`,\n  `AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw`,\n  `AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE`,\n  `AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY`\n])",
+		FilterExpr:   "entropy(finding[\"secret\"]) <= 4.0\n|| matchesAny(finding[\"secret\"], [\n  `AIzaSyabcdefghijklmnopqrstuvwxyz1234567`,\n  `AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs`,\n  `AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM`,\n  `AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU`,\n  `AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0`,\n  `AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A`,\n  `AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c`,\n  `AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4`,\n  `AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY`,\n  `AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM`,\n  `AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ`,\n  `AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g`,\n  `AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU`,\n  `AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw`,\n  `AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE`,\n  `AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY`\n])",
 	}
 
 	// validate
 	tps := utils.GenerateSampleSecrets("gcp", secrets.NewSecretWithEntropy(`AIza[\w-]{35}`, 4))
 	tps = append(tps,
 		// non-word character at end
-		`AIzaSyNHxIf32IQ1a1yjl3ZJIqKZqzLAK1XhDk-`, // gitleaks:allow
+		`AIzaSyNHxIf32IQ1a1yjl3ZJIqKZqzLAK1XhDk-`, // betterleaks:allow
 	)
 	fps := []string{
 		`GWw4hjABFzZCGiRpmlDyDdo87Jn9BN9THUA47muVRNunLxsa82tMAdvmrhOqNkRKiYMEAFbTJAIzaTesb6Tscfcni8vIpWZqNCXFDFslJtVSvFDq`, // text boundary start
@@ -163,13 +145,13 @@ func GCPAPIKey() *config.Rule {
 
 func GCPGeminiAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:       "gcp-gemini-api",
+		ID:           "gcp-gemini-api",
 		Confidence:   "high",
 		Description:  "Detected a Google Gemini API key, which may expose Gemini model access and usage to unauthorized parties.",
 		Regex:        utils.GenerateUniqueTokenRegex(`AQ\.Ab8RN6[A-Za-z0-9_-]{44}`, false),
 		Keywords:     []string{"AQ.Ab8RN6"},
 		ValidateExpr: gcpAPIKeyValidationExpr,
-		Filter:       `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gemini", "AQ.Ab8RN6"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{44}`, 4))

@@ -1,22 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func RazorpayKeyID() *config.Rule {
 	// Razorpay key IDs are intentionally used in client-side integrations and
 	// are not confidential. They only gate and validate the associated secret.
 	r := config.Rule{
-		RuleID:      "razorpay-key-id.1",
+		ID:          "razorpay-key-id.1",
 		Confidence:  "high",
 		Description: "Razorpay key ID, used as a component of the Razorpay key-secret composite rule.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rzp_(?:live|test)_[A-Za-z0-9]{14}`, false),
 		Keywords:    []string{"rzp_live_", "rzp_test_"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	keyID := "rzp_live_" + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{14}`, 3.0)
@@ -35,7 +35,7 @@ func RazorpayKeyID() *config.Rule {
 
 func RazorpayKeySecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "razorpay-key-secret.1",
+		ID:          "razorpay-key-secret.1",
 		Confidence:  "high",
 		Description: "Razorpay key secret, which may authorize payment APIs when paired with its key ID.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -44,7 +44,7 @@ func RazorpayKeySecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"razorpay"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "razorpay-key-id.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.get("https://api.razorpay.com/v1/items?count=1", {
@@ -56,7 +56,7 @@ func RazorpayKeySecret() *config.Rule {
     "result": "invalid",
     "reason": "Invalid Razorpay key ID or secret"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	keySecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{24}`, 3.0)

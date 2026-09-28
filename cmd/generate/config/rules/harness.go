@@ -1,19 +1,18 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func HarnessApiKey() *config.Rule {
 	// Define rule for Harness Personal Access Token (PAT) and Service Account Token (SAT)
 	r := config.Rule{
 		Description: "Identified a Harness Access Token (PAT or SAT), risking unauthorized access to a Harness account.",
-		RuleID:      "harness-api-key",
+		ID:          "harness-api-key",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`(?:pat|sat)\.[a-zA-Z0-9_-]{22}\.[0-9a-f]{24}\.[a-zA-Z0-9]{20}`),
+		Regex:       `(?:pat|sat)\.[a-zA-Z0-9_-]{22}\.[0-9a-f]{24}\.[a-zA-Z0-9]{20}`,
 		Keywords:    []string{"pat.", "sat."},
 		ValidateExpr: `let r = http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {
     "Accept": "application/json",
@@ -24,7 +23,7 @@ func HarnessApiKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.4`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.4`,
 	}
 
 	// Generate a sample secret for validation

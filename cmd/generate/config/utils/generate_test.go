@@ -2,6 +2,8 @@ package utils
 
 import (
 	"testing"
+
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func TestGenerateSemiGenericRegex(t *testing.T) {
@@ -144,7 +146,7 @@ func TestGenerateSemiGenericRegex(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, isCaseInsensitive := range tt.isCaseInsensitive {
-				regex := GenerateSemiGenericRegex(tt.identifiers, tt.secretRegex, isCaseInsensitive)
+				regex := regexp.MustCompile(GenerateSemiGenericRegex(tt.identifiers, tt.secretRegex, isCaseInsensitive))
 				for _, validString := range tt.validStrings {
 					if !regex.MatchString(validString) {
 						t.Errorf("Expected match, but got none, \nfor GenerateSemiGenericRegex(%v, /%v/, caseInsensitive=%v).MatchString(`%v`)\n%v",
@@ -217,7 +219,7 @@ func TestGenerateUniqueTokenRegex(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			regex := GenerateUniqueTokenRegex(tt.secretRegex, tt.isCaseInsensitive)
+			regex := regexp.MustCompile(GenerateUniqueTokenRegex(tt.secretRegex, tt.isCaseInsensitive))
 			for _, validString := range tt.validStrings {
 				if !regex.MatchString(validString) {
 					t.Errorf("Expected match, but got none, \nfor GenerateUniqueTokenRegex(/%v/, caseInsensitive=%v).MatchString(`%v`)\n%v",

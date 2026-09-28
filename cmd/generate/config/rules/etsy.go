@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func EtsyAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "etsy-open-api-key",
+		ID:          "etsy-open-api-key",
 		Confidence:  "high",
 		Description: "Found an Etsy Open API key, potentially compromising Etsy app access and shop integrations.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"etsy", "x-api-key"}, utils.AlphaNumeric("24")+`:`+utils.AlphaNumeric("10,64"), true),
@@ -15,7 +15,7 @@ func EtsyAccessToken() *config.Rule {
 			"etsy",
 			"x-api-key",
 		},
-		ValidateExpr: `let k = finding["secret"].split(":")[0]; (let r = http.get("https://api.etsy.com/v3/application/openapi-ping", {
+		ValidateExpr: `let k = split(finding["secret"], ":")[0]; (let r = http.get("https://api.etsy.com/v3/application/openapi-ping", {
       "x-api-key": k,
       "Accept": "application/json"
     }); r.status == 200 ? {
@@ -24,7 +24,7 @@ func EtsyAccessToken() *config.Rule {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	tps := []string{

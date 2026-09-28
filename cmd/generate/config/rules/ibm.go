@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func IBMCloudUserAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "ibm-cloud-user-api-key",
+		ID:          "ibm-cloud-user-api-key",
 		Confidence:  "high",
 		Description: "Detected an IBM Cloud user API key, which may expose IBM Cloud account resources.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"ibm(?:cloud)?", "bx"}, utils.AlphaNumericExtendedShort("42,44"), true),
@@ -21,7 +21,7 @@ func IBMCloudUserAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

@@ -1,16 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Beamer() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Detected a Beamer API token, potentially compromising content management and exposing sensitive notifications and updates.",
-		RuleID:      "beamer-api-token",
+		ID:          "beamer-api-token",
 		Confidence:  "medium",
 		Regex: utils.GenerateSemiGenericRegex([]string{"beamer"},
 			`b_[a-z0-9=_\-]{44}`, true),

@@ -1,22 +1,21 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func LarkAppID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "lark-app-id",
+		ID:          "lark-app-id",
 		Confidence:  "high",
 		Description: "Lark application ID, used as a component of the Lark application-secret rule.",
-		Regex:       regexp.MustCompile(`\b(cli_[A-Za-z0-9]{16})`),
+		Regex:       `\b(cli_[A-Za-z0-9]{16})`,
 		Keywords:    []string{"cli_"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -32,7 +31,7 @@ func LarkAppID() *config.Rule {
 func LarkAppSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "lark-app-secret",
+		ID:          "lark-app-secret",
 		Confidence:  "high",
 		Description: "Lark application secret.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -41,13 +40,13 @@ func LarkAppSecret() *config.Rule {
 			true,
 		),
 		Keywords: []string{"lark"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "lark-app-id"},
 		},
 		ValidateExpr: `let r = http.post("https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal", {
     "Content-Type": "application/json",
     "Accept": "application/json"
-  }, "{\"app_id\":" + json.string((components["lark-app-id"]?.secret ?? "")) + ",\"app_secret\":" + json.string(finding["secret"]) + "}");
+  }, "{\"app_id\":" + toJSON((components["lark-app-id"]?.secret ?? "")) + ",\"app_secret\":" + toJSON(finding["secret"]) + "}");
 let code = r.json?.code ?? -1;
 r.status == 200 && code == 0 ? {
     "result": "valid"
@@ -55,7 +54,7 @@ r.status == 200 && code == 0 ? {
     "result": "invalid",
     "reason": (r.json?.msg ?? "Invalid application credentials")
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

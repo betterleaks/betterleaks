@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func MuxAccessTokenID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "mux-access-token-id.1",
+		ID:          "mux-access-token-id.1",
 		Confidence:  "medium",
 		Description: "Mux access-token ID, used as a component of the Mux access-token-secret composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -18,7 +18,7 @@ func MuxAccessTokenID() *config.Rule {
 		),
 		Keywords:   []string{"mux"},
 		SkipReport: true,
-		Filter:     utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	tokenID := secrets.NewSecretWithEntropy(utils.Hex8_4_4_4_12(), 3.0)
@@ -36,7 +36,7 @@ func MuxAccessTokenID() *config.Rule {
 
 func MuxAccessTokenSecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "mux-access-token-secret.1",
+		ID:          "mux-access-token-secret.1",
 		Confidence:  "high",
 		Description: "Mux access-token secret, which may grant access to video, data, or system APIs when paired with its token ID.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -45,7 +45,7 @@ func MuxAccessTokenSecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"mux"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "mux-access-token-id.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.get("https://api.mux.com/video/v1/assets?limit=1", {
@@ -60,7 +60,7 @@ func MuxAccessTokenSecret() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	tokenSecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{75}`, 3.5)

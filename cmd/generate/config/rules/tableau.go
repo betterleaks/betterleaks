@@ -1,16 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func TableauPersonalAccessTokenName() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "tableau-personal-access-token-name.1",
+		ID:          "tableau-personal-access-token-name.1",
 		Confidence:  "high",
 		Description: "Tableau personal access-token name, used as a component of the token rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -37,10 +35,10 @@ func TableauPersonalAccessTokenName() *config.Rule {
 func TableauServerHost() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "tableau-server-host.1",
+		ID:          "tableau-server-host.1",
 		Confidence:  "high",
 		Description: "Tableau Online server host, used as a component of the personal access-token rule.",
-		Regex:       regexp.MustCompile(`(?i)\b([a-z0-9-]+\.online\.tableau\.com)\b`),
+		Regex:       `(?i)\b([a-z0-9-]+\.online\.tableau\.com)\b`,
 		Keywords:    []string{"online.tableau.com"},
 		SkipReport:  true,
 	}
@@ -59,12 +57,12 @@ func TableauServerHost() *config.Rule {
 func TableauPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "tableau-personal-access-token.1",
+		ID:          "tableau-personal-access-token.1",
 		Confidence:  "high",
 		Description: "Tableau personal access token.",
-		Regex:       regexp.MustCompile(`\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`),
+		Regex:       `(?:^|[^A-Za-z0-9+/])([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`,
 		Keywords:    []string{"tableau"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "tableau-personal-access-token-name.1", Within: "20L"},
 			{RuleID: "tableau-server-host.1", Within: "20L"},
 		},
@@ -79,15 +77,19 @@ func TableauPersonalAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Invalid Tableau credentials"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate
 	tps := []string{
-		"TABLEAU_PAT_SECRET=" + secrets.NewSecret(`[A-Za-z0-9+/]{22}`) + "==:" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5),
+		`TABLEAU_PAT_SECRET=YMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv`,
+		`TABLEAU_PAT_SECRET=/MqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv`,
+		`TABLEAU_PAT_SECRET=+MqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv`,
 	}
 	fps := []string{
 		`TABLEAU_PAT_SECRET=invalid-secret-format`,
+		`TABLEAU_PAT_SECRET=AYMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv`,
+		`TABLEAU_PAT_SECRET=YMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuvw`,
 		`TOKEN=YMqNfVWiTSa0QgpoJ9GpCw==:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`,
 	}
 	return utils.Validate(r, tps, fps)

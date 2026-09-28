@@ -1,16 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Heroku() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Detected a Heroku API Key, potentially compromising cloud application deployments and operational security.",
-		RuleID:      "heroku-api-key",
+		ID:          "heroku-api-key",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"heroku"}, utils.Hex8_4_4_4_12(), true),
 
@@ -20,8 +20,8 @@ func Heroku() *config.Rule {
 	// validate
 	tps := utils.GenerateSampleSecrets("heroku", secrets.NewSecret(utils.Hex8_4_4_4_12()))
 	tps = append(tps,
-		`const HEROKU_KEY = "12345678-ABCD-ABCD-ABCD-1234567890AB"`, // gitleaks:allow
-		`heroku_api_key = "832d2129-a846-4e27-99f4-7004b6ad53ef"`,   // gitleaks:allow
+		`const HEROKU_KEY = "12345678-ABCD-ABCD-ABCD-1234567890AB"`, // betterleaks:allow
+		`heroku_api_key = "832d2129-a846-4e27-99f4-7004b6ad53ef"`,   // betterleaks:allow
 	)
 	return utils.Validate(r, tps, nil)
 }
@@ -30,11 +30,11 @@ func HerokuV2() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Detected a Heroku API Key, potentially compromising cloud application deployments and operational security.",
-		RuleID:      "heroku-api-key-v2",
+		ID:          "heroku-api-key-v2",
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`(HRKU-AA[0-9a-zA-Z_-]{58})`, false),
 		Keywords:    []string{"HRKU-AA"},
-		Filter:      `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

@@ -1,19 +1,18 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DataStaxAstraApplicationToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "datastax-astra-application-token",
+		ID:          "datastax-astra-application-token",
 		Confidence:  "high",
 		Description: "DataStax Astra application token.",
-		Regex:       regexp.MustCompile(`\b(AstraCS:[A-Za-z0-9]{20,})`),
+		Regex:       `\b(AstraCS:[A-Za-z0-9]{20,})`,
 		Keywords:    []string{"AstraCS:"},
 		ValidateExpr: `let r = http.get("https://api.astra.datastax.com/v2/tokens", {
     "Authorization": "Bearer " + finding["secret"],
@@ -24,7 +23,7 @@ func DataStaxAstraApplicationToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(4.0),
+		FilterExpr: utils.MinEntropy(4.0),
 	}
 
 	// validate

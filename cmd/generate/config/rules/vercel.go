@@ -1,30 +1,76 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
+
+const vercelTokenValidateExpr = `let r = http.get("https://api.vercel.com/v2/user", {
+  "Authorization": "Bearer " + finding["secret"]
+}); r.status == 200 && (r.json?.user?.id ?? "") != "" ? {
+  "result": "valid",
+  "analysis": {
+    "user_id": r.json?.user?.id ?? "",
+    "email": r.json?.user?.email ?? "",
+    "username": r.json?.user?.username ?? "",
+    "name": r.json?.user?.name ?? ""
+  }
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)`
+
+// User/team scopes identify account boundaries, not effective resource grants.
+// One additional GET enriches the cached owner identity without enumerating tokens.
+// https://vercel.com/docs/rest-api/authentication/get-auth-token-metadata
+const vercelTokenAnalyzeExpr = `let input = validation.analysis;
+let r = http.get("https://api.vercel.com/v5/user/tokens/current", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+let details_ok = r.status == 200 && (r.json?.token?.id ?? "") != "";
+let token = details_ok ? (r.json?.token ?? {}) : {};
+let scopes = token["scopes"] ?? [];
+{
+  "reason": !details_ok ? "Vercel token metadata could not be retrieved" :
+    len(scopes) == 0 ? "Vercel did not return token scope metadata" :
+    "Vercel token scopes do not establish resource permissions",
+  "identity": {
+    "id": input["user_id"] ?? "",
+    "email": input["email"] ?? "",
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "account": len(scopes) == 1 && (scopes[0]?.type ?? "") == "team" ? {
+      "id": scopes[0]?.teamId ?? ""
+    } : {}
+  },
+  "metadata": {
+    "token_id": token["id"] ?? "",
+    "token_name": token["name"] ?? "",
+    "token_type": token["type"] ?? "",
+    "scopes": map(scopes, {{
+      "type": #.type ?? "",
+      "team_id": #.teamId ?? "",
+      "created_at": #.createdAt ?? nil,
+      "expires_at": #.expiresAt ?? nil
+    }}),
+    "created_at": token["createdAt"] ?? nil,
+    "expires_at": token["expiresAt"] ?? nil
+  },
+  "capabilities": []
+}`
 
 func VercelAPIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "vercel-api-token",
-		Confidence:  "high",
-		Description: "Detected a Vercel API Token, which may expose deployment and serverless infrastructure to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"vercel"}, `[A-Z0-9]{24}`, true),
-		Keywords:    []string{"vercel"},
-		ValidateExpr: `let r = http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
-    "result": "valid",
-    "email": (r.json?.user?.email ?? ""),
-    "username": (r.json?.user?.username ?? ""),
-    "user_id": (r.json?.user?.id ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		ID:           "vercel-api-token",
+		Confidence:   "high",
+		Description:  "Detected a Vercel API Token, which may expose deployment and serverless infrastructure to unauthorized access.",
+		Regex:        utils.GenerateSemiGenericRegex([]string{"vercel"}, `[A-Z0-9]{24}`, true),
+		Keywords:     []string{"vercel"},
+		ValidateExpr: vercelTokenValidateExpr,
+		AnalyzeExpr:  vercelTokenAnalyzeExpr,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", secrets.NewSecretWithEntropy(`[A-Z0-9]{24}`, 3.5))
@@ -45,23 +91,14 @@ func VercelAPIToken() *config.Rule {
 
 func VercelPersonalAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "vercel-personal-access-token",
-		Confidence:  "high",
-		Description: "Detected a Vercel Personal Access Token (vcp_), which may expose full account and deployment management capabilities.",
-		Regex:       utils.GenerateUniqueTokenRegex(`vcp_[A-Za-z0-9_-]{56}`, true),
-		Keywords:    []string{"vcp_"},
-		ValidateExpr: `let r = http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
-    "result": "valid",
-    "email": (r.json?.user?.email ?? ""),
-    "username": (r.json?.user?.username ?? ""),
-    "user_id": (r.json?.user?.id ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		ID:           "vercel-personal-access-token",
+		Confidence:   "high",
+		Description:  "Detected a Vercel Personal Access Token (vcp_), which may expose full account and deployment management capabilities.",
+		Regex:        utils.GenerateUniqueTokenRegex(`vcp_[A-Za-z0-9_-]{56}`, true),
+		Keywords:     []string{"vcp_"},
+		ValidateExpr: vercelTokenValidateExpr,
+		AnalyzeExpr:  vercelTokenAnalyzeExpr,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vcp_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -80,7 +117,7 @@ func VercelPersonalAccessToken() *config.Rule {
 
 func VercelIntegrationToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "vercel-integration-token",
+		ID:          "vercel-integration-token",
 		Confidence:  "high",
 		Description: "Detected a Vercel Integration Token (vci_), which may allow third-party service integrations to act on behalf of users.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vci_[A-Za-z0-9_-]{56}`, true),
@@ -89,14 +126,12 @@ func VercelIntegrationToken() *config.Rule {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains "\"user\"") ? {
     "result": "valid",
-    "email": (r.json?.user?.email ?? ""),
-    "username": (r.json?.user?.username ?? ""),
-    "user_id": (r.json?.user?.id ?? "")
+    "metadata": {"email": (r.json?.user?.email ?? ""), "username": (r.json?.user?.username ?? ""), "user_id": (r.json?.user?.id ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vci_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -114,7 +149,7 @@ func VercelIntegrationToken() *config.Rule {
 
 func VercelAppAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "vercel-app-access-token",
+		ID:          "vercel-app-access-token",
 		Confidence:  "high",
 		Description: "Detected a Vercel App Access Token (vca_), which may allow Sign in with Vercel apps to access user resources.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vca_[A-Za-z0-9_-]{56}`, true),
@@ -123,13 +158,12 @@ func VercelAppAccessToken() *config.Rule {
     "Authorization": "Bearer " + finding["secret"]
   }, ""); r.status == 200 && (r.body contains "\"sub\"") ? {
     "result": "valid",
-    "email": (r.json?.email ?? ""),
-    "user_id": (r.json?.sub ?? "")
+    "metadata": {"email": (r.json?.email ?? ""), "user_id": (r.json?.sub ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vca_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -147,7 +181,7 @@ func VercelAppAccessToken() *config.Rule {
 
 func VercelAppRefreshToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "vercel-app-refresh-token",
+		ID:          "vercel-app-refresh-token",
 		Confidence:  "high",
 		Description: "Detected a Vercel App Refresh Token (vcr_), which may allow persistent unauthorized access through token refresh flows.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vcr_[A-Za-z0-9_-]{56}`, true),
@@ -163,7 +197,7 @@ func VercelAppRefreshToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vcr_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))
@@ -181,7 +215,7 @@ func VercelAppRefreshToken() *config.Rule {
 
 func VercelAIGatewayKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "vercel-ai-gateway-key",
+		ID:          "vercel-ai-gateway-key",
 		Confidence:  "high",
 		Description: "Detected a Vercel AI Gateway API Key (vck_), which may expose AI model routing and gateway access to unauthorized parties.",
 		Regex:       utils.GenerateUniqueTokenRegex(`vck_[A-Za-z0-9_-]{56}`, true),
@@ -195,7 +229,7 @@ func VercelAIGatewayKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("vercel", "vck_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{56}`, 3.5))

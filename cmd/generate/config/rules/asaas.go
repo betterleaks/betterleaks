@@ -1,19 +1,18 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func AsaasAPIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "asaas-api-token",
+		ID:          "asaas-api-token",
 		Confidence:  "high",
 		Description: "Detected an Asaas API token, which may expose payment and customer data.",
-		Regex:       regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])(\$aact_(?:prod|hmlg)_[A-Za-z0-9_-]{20,100})(?:[^A-Za-z0-9_-]|$)`),
+		Regex:       `(?:^|[^A-Za-z0-9_-])(\$aact_(?:prod|hmlg)_[A-Za-z0-9_-]{20,100})(?:[^A-Za-z0-9_-]|$)`,
 		Keywords:    []string{"$aact_"},
-		ValidateExpr: `let url = finding["secret"].contains("$aact_hmlg_") ? "https://api-sandbox.asaas.com/v3/myAccount/commercialInfo/" : "https://api.asaas.com/v3/myAccount/commercialInfo/";
+		ValidateExpr: `let url = (finding["secret"] contains "$aact_hmlg_") ? "https://api-sandbox.asaas.com/v3/myAccount/commercialInfo/" : "https://api.asaas.com/v3/myAccount/commercialInfo/";
 let r = http.get(url, {
     "access_token": finding["secret"],
     "Accept": "application/json",
@@ -24,7 +23,7 @@ let r = http.get(url, {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	return utils.Validate(r,

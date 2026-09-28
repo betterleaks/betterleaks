@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func TemporalCloudAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "temporal-cloud-api-key.1",
+		ID:          "temporal-cloud-api-key.1",
 		Confidence:  "high",
 		Description: "Temporal Cloud API key.",
 		Regex: utils.GenerateUniqueTokenRegex(
@@ -25,8 +25,8 @@ func TemporalCloudAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Request not authenticated"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.2
-|| !filter.matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){3}"])`,
+		FilterExpr: `entropy(finding["secret"]) < 3.2
+|| !matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){3}"])`,
 	}
 
 	// validate

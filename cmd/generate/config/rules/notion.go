@@ -1,8 +1,8 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Notion() *config.Rule {
@@ -16,11 +16,11 @@ func Notion() *config.Rule {
 
 	r := config.Rule{
 		Description: "Notion API token",
-		RuleID:      "notion-api-token",
+		ID:          "notion-api-token",
 		Confidence:  "high",
 		Regex:       regex,
 		Keywords:    identifiers,
-		Filter:      `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func KagiAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "kagi-api-key",
+		ID:          "kagi-api-key",
 		Confidence:  "high",
 		Description: "Detected a Kagi API key, which may expose Kagi API usage.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"kagi"}, utils.AlphaNumericExtendedShort("11")+`\.`+utils.AlphaNumericExtendedShort("43"), true),
@@ -20,7 +20,7 @@ func KagiAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

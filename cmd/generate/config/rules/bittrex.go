@@ -1,20 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func BittrexAccessKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Identified a Bittrex Access Key, which could lead to unauthorized access to cryptocurrency trading accounts and financial loss.",
-		RuleID:      "bittrex-access-key",
+		ID:          "bittrex-access-key",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"bittrex"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -26,12 +26,12 @@ func BittrexSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Detected a Bittrex Secret Key, potentially compromising cryptocurrency transactions and financial security.",
-		RuleID:      "bittrex-secret-key",
+		ID:          "bittrex-secret-key",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 
-		Keywords: []string{"bittrex"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Keywords:   []string{"bittrex"},
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

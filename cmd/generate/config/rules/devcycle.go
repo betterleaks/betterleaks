@@ -1,10 +1,9 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 const devCycleValidationExpr = `let r = http.post("https://bucketing-api.devcycle.com/v1/variables", {
@@ -20,13 +19,13 @@ const devCycleValidationExpr = `let r = http.post("https://bucketing-api.devcycl
 func DevCycleClientSDKKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "devcycle-client-sdk-key",
+		ID:           "devcycle-client-sdk-key",
 		Confidence:   "high",
 		Description:  "DevCycle client SDK key.",
-		Regex:        regexp.MustCompile(`\b(dvc_client_[A-Za-z0-9]{8,32})`),
+		Regex:        `\b(dvc_client_[A-Za-z0-9]{8,32})`,
 		Keywords:     []string{"dvc_client_"},
 		ValidateExpr: devCycleValidationExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -42,13 +41,13 @@ func DevCycleClientSDKKey() *config.Rule {
 func DevCycleMobileSDKKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "devcycle-mobile-sdk-key",
+		ID:           "devcycle-mobile-sdk-key",
 		Confidence:   "high",
 		Description:  "DevCycle mobile SDK key.",
-		Regex:        regexp.MustCompile(`\b(dvc_mobile_[A-Za-z0-9]{8,32})`),
+		Regex:        `\b(dvc_mobile_[A-Za-z0-9]{8,32})`,
 		Keywords:     []string{"dvc_mobile_"},
 		ValidateExpr: devCycleValidationExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -64,13 +63,13 @@ func DevCycleMobileSDKKey() *config.Rule {
 func DevCycleServerSDKKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "devcycle-server-sdk-key",
+		ID:           "devcycle-server-sdk-key",
 		Confidence:   "high",
 		Description:  "DevCycle server SDK key.",
-		Regex:        regexp.MustCompile(`\b(dvc_server_[A-Za-z0-9]{8,32})`),
+		Regex:        `\b(dvc_server_[A-Za-z0-9]{8,32})`,
 		Keywords:     []string{"dvc_server_"},
 		ValidateExpr: devCycleValidationExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate

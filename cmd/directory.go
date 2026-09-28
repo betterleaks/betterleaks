@@ -6,78 +6,75 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
-
-	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/pipeline"
+	"github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-func init() {
-	rootCmd.AddCommand(directoryCmd)
-	directoryCmd.Flags().Bool("follow-symlinks", false, "scan files that are symlinks to other files")
+type DirectoryCmd struct {
+	ScanFlags      `embed:""`
+	FollowSymlinks bool     `group:"scanning" name:"follow-symlinks" help:"Follow symlinks to files and directories."`
+	Paths          []string `arg:"" optional:"" name:"path" help:"Directories or files to scan."`
 }
 
-var directoryCmd = &cobra.Command{
-	Use:     "dir [flags] [path...]",
-	Aliases: []string{"file", "directory"},
-	Short:   "scan directories or files for secrets",
-	Run:     runDirectory,
+func (cmd *DirectoryCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	runDirectory(runtime, &cli.GlobalFlags, cmd)
+	return nil
 }
 
-func runDirectory(cmd *cobra.Command, args []string) {
-	sourcesList := args
+func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *DirectoryCmd) {
+	sourcesList := options.Paths
 	if len(sourcesList) == 0 {
 		sourcesList = []string{"."}
 	}
 	sourcesList = removeNestedPaths(sourcesList)
 
-	initDiagnostics()
+	initDiagnostics(runtime, &options.ScanFlags)
 
 	// start timer
 	start := time.Now()
-	followSymlinks := mustGetBoolFlag(cmd, "follow-symlinks")
-	maxArchiveDepth := mustGetIntFlag(cmd, "max-archive-depth")
-	maxTargetMegaBytes := mustGetIntFlag(cmd, "max-target-megabytes")
-	exitCode := mustGetIntFlag(cmd, "exit-code")
-	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "filesystem", sourcesList...)
 
 	var (
-		lastDetector *detect.Detector
-		scanErrs     []error
+		summary           pipeline.ScanSummary
+		validationEnabled bool
+		scanErrs          []error
 	)
 
-	totalBytes := uint64(0)
-
 	for _, source := range sourcesList {
-		initConfig(source)
-		cfg := Config(cmd)
-		detector := Detector(cmd, cfg, source)
-		lastDetector = detector
+		// Once output is open, setup failures must also reach report finalization.
+		filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, source)
+		if err != nil {
+			scanErrs = append(scanErrs, err)
+			runtime.Logger().Error("unable to prepare source", "path", source, "error", err)
+			break
+		}
+		runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+		if err != nil {
+			scanErrs = append(scanErrs, err)
+			runtime.Logger().Error("unable to prepare scan", "error", err)
+			break
+		}
+		validationEnabled = validationEnabled || runner.ValidationEnabled()
 
 		s := &sources.Files{
-			ShouldSkip:      detector.SkipFunc(),
-			FollowSymlinks:  followSymlinks,
-			MaxFileSize:     maxTargetMegaBytes * 1_000_000,
+			Logger:          runtime.Logger(),
+			Prefilter:       findings.FileSkipFunc(filters.shouldSkip, source, options.FollowSymlinks),
+			FollowSymlinks:  options.FollowSymlinks,
+			MaxFileSize:     options.MaxTargetMegabytes * 1_000_000,
 			Path:            source,
-			MaxArchiveDepth: maxArchiveDepth,
-			Workers:         mustGetIntFlag(cmd, "source-workers"),
+			MaxArchiveDepth: options.MaxArchiveDepth,
 		}
 
-		for result := range detector.Run(cmd.Context(), s) {
-			if result.Err != nil {
-				scanErrs = append(scanErrs, result.Err)
-				logging.Error().Err(result.Err).Msg("error scanning source")
-				continue
-			}
-
-			collectFinding(cmd, findings, result.Finding)
+		findings.startScan(runtime)
+		nextSummary, scanErr := runner.Scan(runtime.Context, s, findings.Add)
+		addScanSummary(&summary, nextSummary)
+		if scanErr != nil {
+			scanErrs = append(scanErrs, scanErr)
+			runtime.Logger().Error("error scanning source", "error", scanErr)
 		}
-
-		totalBytes += detector.TotalBytes.Load()
 	}
-
-	lastDetector.TotalBytes.Swap(totalBytes)
 
 	var scanErr error
 	if n := len(scanErrs); n > 0 {
@@ -87,7 +84,7 @@ func runDirectory(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	findingSummaryAndExit(cmd, lastDetector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(runtime, summary, validationEnabled, findings, options.ExitCode, start, scanErr)
 }
 
 // removeNestedPaths filters out paths that are children of other paths in the

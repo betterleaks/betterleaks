@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func TravisCIAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "travisci-access-token",
+		ID:          "travisci-access-token",
 		Confidence:  "medium",
 		Description: "Identified a Travis CI Access Token, potentially compromising continuous integration services and codebase security.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"travis"}, utils.AlphaNumeric("22"), true),
@@ -17,7 +17,7 @@ func TravisCIAccessToken() *config.Rule {
 		Keywords: []string{
 			"travis",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

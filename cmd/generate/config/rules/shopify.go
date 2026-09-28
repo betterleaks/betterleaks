@@ -1,21 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ShopifySharedSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "shopify-shared-secret",
+		ID:          "shopify-shared-secret",
 		Confidence:  "high",
 		Description: "Found a Shopify shared secret, posing a risk to application authentication and e-commerce platform security.",
-		Regex:       regexp.MustCompile(`shpss_[a-fA-F0-9]{32}`),
+		Regex:       `shpss_[a-fA-F0-9]{32}`,
 		Keywords:    []string{"shpss_"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -26,12 +25,12 @@ func ShopifySharedSecret() *config.Rule {
 func ShopifyAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "shopify-access-token",
+		ID:          "shopify-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a Shopify access token, which could lead to unauthorized e-commerce platform access and data breaches.",
-		Regex:       regexp.MustCompile(`shpat_[a-fA-F0-9]{32}`),
+		Regex:       `shpat_[a-fA-F0-9]{32}`,
 		Keywords:    []string{"shpat_"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -42,12 +41,12 @@ func ShopifyAccessToken() *config.Rule {
 func ShopifyCustomAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "shopify-custom-access-token",
+		ID:          "shopify-custom-access-token",
 		Confidence:  "high",
 		Description: "Detected a Shopify custom access token, potentially compromising custom app integrations and e-commerce data security.",
-		Regex:       regexp.MustCompile(`shpca_[a-fA-F0-9]{32}`),
+		Regex:       `shpca_[a-fA-F0-9]{32}`,
 		Keywords:    []string{"shpca_"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -58,12 +57,12 @@ func ShopifyCustomAccessToken() *config.Rule {
 func ShopifyPrivateAppAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "shopify-private-app-access-token",
+		ID:          "shopify-private-app-access-token",
 		Confidence:  "high",
 		Description: "Identified a Shopify private app access token, risking unauthorized access to private app data and store operations.",
-		Regex:       regexp.MustCompile(`shppa_[a-fA-F0-9]{32}`),
+		Regex:       `shppa_[a-fA-F0-9]{32}`,
 		Keywords:    []string{"shppa_"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

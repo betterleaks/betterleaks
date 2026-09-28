@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CoinbaseAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "coinbase-access-token",
+		ID:          "coinbase-access-token",
 		Confidence:  "medium",
 		Description: "Detected a Coinbase Access Token, posing a risk of unauthorized access to cryptocurrency accounts and financial transactions.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"coinbase"},
@@ -17,7 +17,7 @@ func CoinbaseAccessToken() *config.Rule {
 		Keywords: []string{
 			"coinbase",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

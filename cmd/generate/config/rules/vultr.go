@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func VultrAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "vultr-api-key.1",
+		ID:          "vultr-api-key.1",
 		Confidence:  "medium",
 		Description: "Vultr API key, which may allow management of cloud account resources.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"vultr"}, utils.Hex("36"), true),
@@ -22,7 +22,7 @@ func VultrAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API token"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.4),
+		FilterExpr: utils.MinEntropy(3.4),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[a-f0-9]{36}`, 3.4)

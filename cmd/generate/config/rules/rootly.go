@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func RootlyAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "rootly-api-key.1",
+		ID:          "rootly-api-key.1",
 		Confidence:  "high",
 		Description: "Rootly API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rootly_[a-f0-9]{64}`, false),
@@ -23,7 +23,7 @@ func RootlyAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid token"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

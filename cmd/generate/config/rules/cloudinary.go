@@ -1,17 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CloudinaryCloudName() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cloudinary-cloud-name",
+		ID:          "cloudinary-cloud-name",
 		Confidence:  "high",
 		Description: "Detected a Cloudinary cloud name, used as a component of the cloudinary-api-secret composite rule.",
-		Regex:       regexp.MustCompile(`(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:CLOUD[_\s]?NAME|CLOUD)(?:.|[\n\r]){0,16}?\b([a-z0-9_-]{3,32})\b`),
+		Regex:       `(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:CLOUD[_\s]?NAME|CLOUD)(?:.|[\n\r]){0,16}?\b([a-z0-9_-]{3,32})\b`,
 		Keywords:    []string{"cloudinary"},
 		SkipReport:  true,
 	}
@@ -29,13 +28,13 @@ func CloudinaryCloudName() *config.Rule {
 
 func CloudinaryAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cloudinary-api-key",
+		ID:          "cloudinary-api-key",
 		Confidence:  "high",
 		Description: "Detected a Cloudinary API key, used as a component of the cloudinary-api-secret composite rule.",
-		Regex:       regexp.MustCompile(`(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:API[_\s]?KEY|KEY)(?:.|[\n\r]){0,16}?\b([0-9]{15})\b`),
+		Regex:       `(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:API[_\s]?KEY|KEY)(?:.|[\n\r]){0,16}?\b([0-9]{15})\b`,
 		Keywords:    []string{"cloudinary"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 2.75`,
+		FilterExpr:  `entropy(finding["secret"]) < 2.75`,
 	}
 
 	tps := []string{
@@ -50,12 +49,12 @@ func CloudinaryAPIKey() *config.Rule {
 
 func CloudinaryAPISecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cloudinary-api-secret",
+		ID:          "cloudinary-api-secret",
 		Confidence:  "high",
 		Description: "Detected a Cloudinary API secret, which may allow unauthorized access to Cloudinary media and account APIs when paired with a cloud name and API key.",
-		Regex:       regexp.MustCompile(`(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|API[_\s]?SECRET)(?:.|[\n\r]){0,32}?\b([A-Za-z0-9]{32})\b`),
+		Regex:       `(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|API[_\s]?SECRET)(?:.|[\n\r]){0,32}?\b([A-Za-z0-9]{32})\b`,
 		Keywords:    []string{"cloudinary"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "cloudinary-api-key"},
 			{RuleID: "cloudinary-cloud-name"},
 		},
@@ -68,7 +67,7 @@ func CloudinaryAPISecret() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

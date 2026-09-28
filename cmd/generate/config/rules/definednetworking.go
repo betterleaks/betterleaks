@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DefinedNetworkingAPIToken() *config.Rule {
@@ -13,7 +13,7 @@ func DefinedNetworkingAPIToken() *config.Rule {
 		Description: "Identified a Defined Networking API token, which could lead to unauthorized network operations and data breaches.",
 
 		// Unique ID for the rule
-		RuleID:     "defined-networking-api-token",
+		ID:         "defined-networking-api-token",
 		Confidence: "high",
 
 		// Regex used for detecting secrets. See regex section below for more details

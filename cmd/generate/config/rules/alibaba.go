@@ -1,21 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func AlibabaAccessKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "alibaba-access-key-id",
+		ID:          "alibaba-access-key-id",
 		Confidence:  "high",
 		Description: "Detected an Alibaba Cloud AccessKey ID, posing a risk of unauthorized cloud resource access and potential data compromise.",
-		Regex:       regexp.MustCompile(`\b(LTAI[A-Za-z0-9]{17,21})\b`),
+		Regex:       `\b(LTAI[A-Za-z0-9]{17,21})\b`,
 		Keywords:    []string{"LTAI"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
@@ -30,19 +29,19 @@ func AlibabaAccessKey() *config.Rule {
 func AlibabaSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "alibaba-secret-key",
+		ID:          "alibaba-secret-key",
 		Confidence:  "high",
 		Description: "Discovered a potential Alibaba Cloud Secret Key, potentially allowing unauthorized operations and data access within Alibaba Cloud.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"alibaba", "aliyun", "secret", "key"}, `[A-Za-z0-9]{30}`, true),
 		Keywords:    []string{"alibaba", "aliyun"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{
 				RuleID: "alibaba-access-key-id",
 				Within: "5L",
 			},
 		},
 		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-access-key-id", "", ""),
-		Filter:       `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -54,13 +53,13 @@ func AlibabaSecretKey() *config.Rule {
 
 func AlibabaSTSAccessKeyID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "alibaba-sts-access-key-id",
+		ID:          "alibaba-sts-access-key-id",
 		Confidence:  "high",
 		Description: "Detected an Alibaba Cloud STS AccessKey ID, used as a component of the alibaba-sts-access-key-secret composite rule.",
-		Regex:       regexp.MustCompile(`\b(STS\.[A-Za-z0-9]{16,64})\b`),
+		Regex:       `\b(STS\.[A-Za-z0-9]{16,64})\b`,
 		Keywords:    []string{"sts."},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	}
 
 	tps := []string{
@@ -75,14 +74,14 @@ func AlibabaSTSAccessKeyID() *config.Rule {
 
 func AlibabaSTSSecurityToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "alibaba-sts-security-token",
+		ID:          "alibaba-sts-security-token",
 		Confidence:  "high",
 		Description: "Detected an Alibaba Cloud STS security token, used as a component of the alibaba-sts-access-key-secret composite rule.",
 		// Regex:       regexp.MustCompile(`(?i)\b(?:security[\s_-]*token|sts[\s_-]*token|x[\s_-]*oss[\s_-]*security[\s_-]*token|alibaba[\s_-]*cloud[\s_-]*security[\s_-]*token|aliyun[\s_-]*security[\s_-]*token)(?:.|[\n\r]){0,16}?(?:=|:|["']\s*:\s*["'])\s*["']?(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})(?:["'\s,;}&\]]|$)`),
 		Regex:      utils.GenerateSemiGenericRegex([]string{"alibaba", "aliyun", "secret", "key"}, `CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24}`, true),
 		Keywords:   []string{"alibaba", "aliyun", "cais"},
 		SkipReport: true,
-		Filter:     `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{
@@ -97,12 +96,12 @@ func AlibabaSTSSecurityToken() *config.Rule {
 
 func AlibabaSTSAccessKeySecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "alibaba-sts-access-key-secret",
+		ID:          "alibaba-sts-access-key-secret",
 		Confidence:  "high",
 		Description: "Detected an Alibaba Cloud STS AccessKey secret, which may allow temporary Alibaba Cloud API access when paired with an STS AccessKey ID and security token.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"alibaba", "aliyun", "secret", "key"}, `[A-Za-z0-9]{30,64}`, true),
 		Keywords:    []string{"alibaba", "aliyun"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{
 				RuleID: "alibaba-sts-access-key-id",
 				Within: "10L",
@@ -113,7 +112,7 @@ func AlibabaSTSAccessKeySecret() *config.Rule {
 			},
 		},
 		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-sts-access-key-id", "alibaba-sts-security-token", "SecurityToken"),
-		Filter:       `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

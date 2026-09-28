@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func IonicPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ionic-personal-access-token",
+		ID:          "ionic-personal-access-token",
 		Confidence:  "high",
 		Description: "Ionic personal access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ion_[A-Za-z0-9]{42}`, false),
@@ -24,7 +24,7 @@ func IonicPersonalAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

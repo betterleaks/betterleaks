@@ -1,26 +1,26 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func OctopusDeployApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "octopus-deploy-api-key",
+		ID:          "octopus-deploy-api-key",
 		Confidence:  "medium",
 		Description: "Discovered a potential Octopus Deploy API key, risking application deployments and operational security.",
 		Regex:       utils.GenerateUniqueTokenRegex(`API-[A-Z0-9]{26}`, false),
 		Keywords:    []string{"api-"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
 	tps := []string{
 		utils.GenerateSampleSecret("octopus", secrets.NewSecretWithEntropy(`API-[A-Z0-9]{26}`, 3)),
-		`set apikey="API-ZNRMR7SL6L3ATMOIK7GKJDKLPY"`, // gitleaks:allow
+		`set apikey="API-ZNRMR7SL6L3ATMOIK7GKJDKLPY"`, // betterleaks:allow
 	}
 	fps := []string{
 		// Invalid start

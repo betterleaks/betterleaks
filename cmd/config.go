@@ -3,15 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	ahocorasick "github.com/rrethy/ahocorasick"
-	"github.com/spf13/cobra"
 
-	configpkg "github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/regexp"
+	configpkg "github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 type resolvedConfig struct {
@@ -19,148 +17,142 @@ type resolvedConfig struct {
 	source string
 }
 
-func init() {
-	rootCmd.AddCommand(configCmd)
-	configCmd.AddCommand(configCheckCmd, configShowCmd, configPathCmd)
+type ConfigCmd struct {
+	Check ConfigCheckCmd `cmd:"" help:"Validate a betterleaks config."`
+	Show  ConfigShowCmd  `cmd:"" help:"Print the resolved betterleaks config."`
+	Path  ConfigPathCmd  `cmd:"" help:"Print the selected config source."`
+	Hash  ConfigHashCmd  `cmd:"" help:"Print the hash of the resolved config or one rule."`
 }
 
-var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "validate and inspect betterleaks configs",
+type ConfigHashCmd struct {
+	Rule string `help:"Hash this rule and its component definitions instead of the whole config."`
+	Path string `arg:"" optional:"" name:"config-path" help:"Config file to hash."`
 }
 
-var configCheckCmd = &cobra.Command{
-	Use:          "check [config-path]",
-	Short:        "validate a betterleaks config",
-	Args:         cobra.MaximumNArgs(1),
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resolved, err := resolveConfig(cmd, args)
+func (cmd *ConfigHashCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	resolved, err := resolveConfig(runtime, cli.Config, cmd.Path)
+	if err != nil {
+		return err
+	}
+	var hash string
+	if cmd.Rule == "" {
+		hash = resolved.cfg.Hash()
+	} else {
+		hash, err = resolved.cfg.RuleHash(cmd.Rule)
 		if err != nil {
 			return err
 		}
-		if err := validateConfig(resolved.cfg); err != nil {
-			return err
-		}
-		withValidation, withoutValidation := countValidationRules(resolved.cfg)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "OK: %d rules (%d with validation, %d without validation)\n",
-			len(resolved.cfg.Rules), withValidation, withoutValidation)
-		return nil
-	},
+	}
+	_, err = fmt.Fprintln(runtime.stdout, hash)
+	return err
 }
 
-var configShowCmd = &cobra.Command{
-	Use:          "show [config-path]",
-	Short:        "print the resolved betterleaks config",
-	Args:         cobra.MaximumNArgs(1),
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resolved, err := resolveConfig(cmd, args)
-		if err != nil {
-			return err
-		}
-		if err := validateConfig(resolved.cfg); err != nil {
-			return err
-		}
-		_, _ = cmd.OutOrStdout().Write([]byte(renderConfigTOML(renderConfig(resolved.cfg))))
-		return nil
-	},
+type ConfigCheckCmd struct {
+	Path string `arg:"" optional:"" name:"config-path" help:"Config file to validate."`
 }
 
-var configPathCmd = &cobra.Command{
-	Use:          "path",
-	Short:        "print the selected config source",
-	Args:         cobra.NoArgs,
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resolved, err := resolveConfig(cmd, args)
-		if err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), resolved.source)
-		return nil
-	},
+func (cmd *ConfigCheckCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	resolved, err := resolveConfig(runtime, cli.Config, cmd.Path)
+	if err != nil {
+		return err
+	}
+	if err := validateConfig(resolved.cfg, runtime.regexEngine()); err != nil {
+		return err
+	}
+	withValidation, withoutValidation := countValidationRules(resolved.cfg)
+	_, _ = fmt.Fprintf(runtime.stdout, "OK: %d rules (%d with validation, %d without validation)\n",
+		len(resolved.cfg.Rules), withValidation, withoutValidation)
+	return nil
 }
 
-func resolveConfig(cmd *cobra.Command, args []string) (*resolvedConfig, error) {
-	if len(args) > 0 {
-		return loadConfigFile(args[0])
+type ConfigShowCmd struct {
+	TOML ConfigShowTOMLCmd `cmd:"" name:"toml" default:"withargs" help:"Print the resolved config as TOML (toml may be omitted before a path)."`
+	IDs  ConfigShowIDsCmd  `cmd:"" name:"ids" help:"List rule IDs from the resolved config."`
+}
+
+type ConfigShowTOMLCmd struct {
+	Path string `arg:"" optional:"" name:"config-path" help:"Config file to render."`
+}
+
+func (cmd *ConfigShowTOMLCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	resolved, err := resolveConfig(runtime, cli.Config, cmd.Path)
+	if err != nil {
+		return err
+	}
+	if err := validateConfig(resolved.cfg, runtime.regexEngine()); err != nil {
+		return err
+	}
+	_, _ = runtime.stdout.Write([]byte(renderConfigTOML(renderConfig(resolved.cfg))))
+	return nil
+}
+
+type ConfigPathCmd struct{}
+
+func (*ConfigPathCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	resolved, err := resolveConfig(runtime, cli.Config, "")
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(runtime.stdout, resolved.source)
+	return nil
+}
+
+func resolveConfig(runtime *commandRuntime, configPath, argumentPath string) (*resolvedConfig, error) {
+	loadOption := configpkg.WithLogger(runtime.Logger())
+	if argumentPath != "" {
+		return loadConfigFile(argumentPath, loadOption)
 	}
 
-	if cfgPath := getConfigFlag(cmd); cfgPath != "" {
-		return loadConfigFile(cfgPath)
+	if configPath != "" {
+		return loadConfigFile(configPath, loadOption)
 	}
-	if envPath, name := getEnvWithName("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
-		resolved, err := loadConfigFile(envPath)
+	if envPath := os.Getenv("BETTERLEAKS_CONFIG"); envPath != "" {
+		resolved, err := loadConfigFile(envPath, loadOption)
 		if err != nil {
 			return nil, err
 		}
-		resolved.source = "env:" + name + ":" + envPath
+		resolved.source = "env:BETTERLEAKS_CONFIG:" + envPath
 		return resolved, nil
 	}
-	if content, name := getEnvWithName("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); content != "" {
-		cfg, err := configpkg.ParseTOMLString(content, "")
+	if content := os.Getenv("BETTERLEAKS_CONFIG_TOML"); content != "" {
+		cfg, err := configpkg.ParseTOMLString(content, "", loadOption)
 		if err != nil {
 			return nil, err
 		}
-		return &resolvedConfig{cfg: cfg, source: "env:" + name}, nil
+		return &resolvedConfig{cfg: cfg, source: "env:BETTERLEAKS_CONFIG_TOML"}, nil
 	}
-	if path := findConfigFile("."); path != "" {
-		return loadConfigFile(path)
-	}
-	cfg, err := configpkg.Default()
+	cfg, err := configpkg.Default(loadOption)
 	if err != nil {
 		return nil, err
 	}
 	return &resolvedConfig{cfg: cfg, source: "default"}, nil
 }
 
-func loadConfigFile(path string) (*resolvedConfig, error) {
-	cfg, err := configpkg.LoadFile(path)
+func loadConfigFile(path string, options ...configpkg.LoadOption) (*resolvedConfig, error) {
+	cfg, err := configpkg.LoadFile(path, options...)
 	if err != nil {
 		return nil, err
 	}
 	return &resolvedConfig{cfg: cfg, source: path}, nil
 }
 
-func getConfigFlag(cmd *cobra.Command) string {
-	if cfgPath, err := cmd.Flags().GetString("config"); err == nil {
-		return cfgPath
+func validateConfig(cfg *configpkg.Config, engine regexp.Engine) error {
+	if err := cfg.Validate(); err != nil {
+		return err
 	}
-	if cfgPath, err := cmd.InheritedFlags().GetString("config"); err == nil {
-		return cfgPath
-	}
-	if cmd.Root() != nil {
-		if cfgPath, err := cmd.Root().PersistentFlags().GetString("config"); err == nil {
-			return cfgPath
-		}
-	}
-	return ""
-}
-
-func getEnvWithName(primary, fallback string) (string, string) {
-	if val := os.Getenv(primary); val != "" {
-		return val, primary
-	}
-	if val := os.Getenv(fallback); val != "" {
-		return val, fallback
-	}
-	return "", ""
-}
-
-func validateConfig(cfg *configpkg.Config) error {
 	compileKeywordTrie(cfg)
-	if err := compileRuleRegexps(cfg); err != nil {
+	if err := compileRuleRegexps(cfg, engine); err != nil {
 		return err
 	}
-	if err := cfg.CompileFilters(nil); err != nil {
-		return err
-	}
-	rt, err := exprruntime.New(nil)
+	rt, err := exprruntime.NewWithRegexEngine(nil, engine)
 	if err != nil {
 		return err
 	}
-	if prg := cfg.PrefilterProgram(); prg != nil {
+	if cfg.Prefilter != "" {
+		prg, err := rt.CompilePrefilter(cfg.Prefilter)
+		if err != nil {
+			return fmt.Errorf("compiling global prefilter: %w", err)
+		}
 		if _, err := rt.EvalPrefilter(prg, fakeAttributes()); err != nil {
 			return fmt.Errorf("evaluating global prefilter: %w", err)
 		}
@@ -174,14 +166,10 @@ func validateConfig(cfg *configpkg.Config) error {
 			return fmt.Errorf("evaluating global filter: %w", err)
 		}
 	}
-	validationRT, err := cfg.CompileValidation()
-	if err != nil {
-		return err
-	}
-	for _, id := range sortedRuleIDs(cfg) {
-		rule := cfg.Rules[id]
-		if rule.Filter != "" {
-			prg, err := rt.CompileFilter(rule.Filter, nil)
+	for _, rule := range cfg.Rules {
+		id := rule.ID
+		if rule.FilterExpr != "" {
+			prg, err := rt.CompileFilter(rule.FilterExpr, nil)
 			if err != nil {
 				return fmt.Errorf("compiling rule %s filter: %w", id, err)
 			}
@@ -189,9 +177,19 @@ func validateConfig(cfg *configpkg.Config) error {
 				return fmt.Errorf("evaluating rule %s filter: %w", id, err)
 			}
 		}
-		if validationRT != nil && rule.ValidateExpr != "" {
-			if _, err := validationRT.CompileValidation(rule.ValidateExpr); err != nil {
+		if rule.ValidateExpr != "" {
+			if _, err := rt.CompileValidation(rule.ValidateExpr); err != nil {
 				return fmt.Errorf("compiling rule %s validation: %w", id, err)
+			}
+		}
+		if rule.AnalyzeExpr != "" {
+			if _, err := rt.CompileAnalysis(rule.AnalyzeExpr); err != nil {
+				return fmt.Errorf("compiling rule %s analysis: %w", id, err)
+			}
+		}
+		if rule.RevokeExpr != "" {
+			if _, err := rt.CompileRevocation(rule.RevokeExpr); err != nil {
+				return fmt.Errorf("compiling rule %s revocation: %w", id, err)
 			}
 		}
 	}
@@ -204,7 +202,7 @@ func fakeFinding() map[string]any {
 		"secret":               "betterleaks-check-secret",
 		"match":                "betterleaks-check-match",
 		"line":                 raw,
-		"ruleID":               "betterleaks-check-rule",
+		"rule_id":              "betterleaks-check-rule",
 		"description":          "betterleaks check rule",
 		"fragment_raw":         raw,
 		"match_start_idx":      0,
@@ -237,57 +235,44 @@ func countValidationRules(cfg *configpkg.Config) (int, int) {
 }
 
 func compileKeywordTrie(cfg *configpkg.Config) {
-	keywords := make([]string, 0, len(cfg.Keywords))
-	for keyword := range cfg.Keywords {
+	unique := make(map[string]struct{})
+	for _, rule := range cfg.Rules {
+		for _, keyword := range rule.Keywords {
+			unique[strings.ToLower(keyword)] = struct{}{}
+		}
+	}
+	keywords := make([]string, 0, len(unique))
+	for keyword := range unique {
 		keywords = append(keywords, keyword)
 	}
 	_ = ahocorasick.CompileStrings(keywords)
 }
 
-func compileRuleRegexps(cfg *configpkg.Config) error {
-	for _, id := range sortedRuleIDs(cfg) {
-		rule := cfg.Rules[id]
-		if rule.Regex != nil {
-			if err := rule.Regex.Compile(); err != nil {
-				return fmt.Errorf("compiling rule %s regex: %w", id, err)
+func compileRuleRegexps(cfg *configpkg.Config, engine regexp.Engine) error {
+	for _, rule := range cfg.Rules {
+		for _, entry := range []struct{ kind, pattern string }{{"regex", rule.Regex}, {"path regex", rule.Path}} {
+			if entry.pattern == "" {
+				continue
 			}
-		}
-		if rule.Path != nil {
-			if err := rule.Path.Compile(); err != nil {
-				return fmt.Errorf("compiling rule %s path regex: %w", id, err)
+			re, err := regexp.CompileWithEngine(entry.pattern, engine)
+			if err == nil {
+				err = re.Compile()
+			}
+			if err != nil {
+				return fmt.Errorf("compiling rule %s %s: %w", rule.ID, entry.kind, err)
 			}
 		}
 	}
 	return nil
 }
 
-func sortedRuleIDs(cfg *configpkg.Config) []string {
-	ids := make([]string, 0, len(cfg.Rules))
-	seen := make(map[string]struct{}, len(cfg.Rules))
-	for _, id := range cfg.OrderedRules {
-		if _, ok := cfg.Rules[id]; ok {
-			ids = append(ids, id)
-			seen[id] = struct{}{}
-		}
-	}
-	var rest []string
-	for id := range cfg.Rules {
-		if _, ok := seen[id]; !ok {
-			rest = append(rest, id)
-		}
-	}
-	sort.Strings(rest)
-	return append(ids, rest...)
-}
-
 type configView struct {
-	Title                 string     `toml:"title,omitempty"`
-	Description           string     `toml:"description,omitempty"`
-	MinVersion            string     `toml:"minVersion,omitempty"`
-	BetterleaksMinVersion string     `toml:"betterleaksMinVersion,omitempty"`
-	Prefilter             string     `toml:"prefilter,omitempty"`
-	Filter                string     `toml:"filter,omitempty"`
-	Rules                 []ruleView `toml:"rules"`
+	Title       string     `toml:"title,omitempty"`
+	Description string     `toml:"description,omitempty"`
+	MinVersion  string     `toml:"minVersion,omitempty"`
+	Prefilter   string     `toml:"prefilter,omitempty"`
+	Filter      string     `toml:"filter,omitempty"`
+	Rules       []ruleView `toml:"rules"`
 }
 
 type ruleView struct {
@@ -295,13 +280,15 @@ type ruleView struct {
 	Description string          `toml:"description,omitempty"`
 	Path        string          `toml:"path,omitempty"`
 	Regex       string          `toml:"regex,omitempty"`
-	SecretGroup int             `toml:"secretGroup,omitempty"`
+	ValueGroup  int             `toml:"valueGroup,omitempty"`
 	Keywords    []string        `toml:"keywords,omitempty"`
 	Tags        []string        `toml:"tags,omitempty"`
 	Specificity int             `toml:"specificity,omitempty"`
 	Confidence  string          `toml:"confidence,omitempty"`
 	Components  []componentView `toml:"components,omitempty"`
 	Validate    string          `toml:"validate,omitempty"`
+	Analyze     string          `toml:"analyze,omitempty"`
+	Revoke      string          `toml:"revoke,omitempty"`
 	SkipReport  bool            `toml:"skipReport,omitempty"`
 	Filter      string          `toml:"filter,omitempty"`
 }
@@ -314,28 +301,28 @@ type componentView struct {
 
 func renderConfig(cfg *configpkg.Config) configView {
 	view := configView{
-		Title:                 cfg.Title,
-		Description:           cfg.Description,
-		MinVersion:            cfg.MinVersion,
-		BetterleaksMinVersion: cfg.BetterleaksMinVersion,
-		Prefilter:             cfg.Prefilter,
-		Filter:                cfg.Filter,
+		Title:       cfg.Title,
+		Description: cfg.Description,
+		MinVersion:  cfg.MinVersion,
+		Prefilter:   cfg.Prefilter,
+		Filter:      cfg.Filter,
 	}
-	for _, id := range sortedRuleIDs(cfg) {
-		rule := cfg.Rules[id]
+	for _, rule := range cfg.Rules {
 		rv := ruleView{
-			ID:          rule.RuleID,
+			ID:          rule.ID,
 			Description: rule.Description,
-			Path:        regexString(rule.Path),
-			Regex:       regexString(rule.Regex),
-			SecretGroup: rule.SecretGroup,
+			Path:        rule.Path,
+			Regex:       rule.Regex,
+			ValueGroup:  rule.ValueGroup,
 			Keywords:    rule.Keywords,
 			Tags:        rule.Tags,
-			Specificity: renderedSpecificity(rule.Specificity),
+			Specificity: rule.Specificity,
 			Confidence:  rule.Confidence,
 			Validate:    rule.ValidateExpr,
+			Analyze:     rule.AnalyzeExpr,
+			Revoke:      rule.RevokeExpr,
 			SkipReport:  rule.SkipReport,
-			Filter:      rule.Filter,
+			Filter:      rule.FilterExpr,
 		}
 		for _, component := range rule.Components {
 			rv.Components = append(rv.Components, componentView{
@@ -355,7 +342,6 @@ func renderConfigTOML(view configView) string {
 	writeString(&b, "title", view.Title)
 	writeString(&b, "description", view.Description)
 	writeString(&b, "minVersion", view.MinVersion)
-	writeString(&b, "betterleaksMinVersion", view.BetterleaksMinVersion)
 	writeString(&b, "prefilter", view.Prefilter)
 	writeString(&b, "filter", view.Filter)
 
@@ -368,12 +354,14 @@ func renderConfigTOML(view configView) string {
 		writeString(&b, "description", rule.Description)
 		writeString(&b, "path", rule.Path)
 		writeString(&b, "regex", rule.Regex)
-		writeInt(&b, "secretGroup", rule.SecretGroup)
+		writeInt(&b, "valueGroup", rule.ValueGroup)
 		writeStrings(&b, "keywords", rule.Keywords)
 		writeStrings(&b, "tags", rule.Tags)
 		writeInt(&b, "specificity", rule.Specificity)
 		writeString(&b, "confidence", rule.Confidence)
 		writeString(&b, "validate", rule.Validate)
+		writeString(&b, "analyze", rule.Analyze)
+		writeString(&b, "revoke", rule.Revoke)
 		writeBool(&b, "skipReport", rule.SkipReport)
 		writeString(&b, "filter", rule.Filter)
 		writeComponents(&b, rule.Components)
@@ -492,18 +480,4 @@ func hasControlChar(s string) bool {
 		}
 	}
 	return false
-}
-
-func regexString(re *regexp.Regexp) string {
-	if re == nil {
-		return ""
-	}
-	return re.String()
-}
-
-func renderedSpecificity(specificity int) int {
-	if specificity == configpkg.DefaultRuleSpecificity {
-		return 0
-	}
-	return specificity
 }

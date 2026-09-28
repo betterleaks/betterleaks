@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func GiteaAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gitea-access-token",
+		ID:          "gitea-access-token",
 		Confidence:  "high",
 		Description: "Detected a Gitea Access Token, which may expose self-hosted Git repositories and associated code to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"gitea[_.-]?(?:token|key|secret|access)"}, utils.Hex("40"), true),
 		Keywords:    []string{"gitea"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("gitea", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.5))

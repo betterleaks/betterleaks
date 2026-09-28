@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Greptile() *config.Rule {
 	r := config.Rule{
-		RuleID:      "greptile-api-key",
+		ID:          "greptile-api-key",
 		Confidence:  "high",
 		Description: "Detected a Greptile API Key, which may expose AI-powered code search and analysis services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"greptile"}, `[a-zA-Z0-9+/]{48}`, true),
 		Keywords:    []string{"greptile"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

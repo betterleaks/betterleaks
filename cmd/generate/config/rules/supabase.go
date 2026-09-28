@@ -1,14 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func SupabaseManagementToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "supabase-management-token",
+		ID:          "supabase-management-token",
 		Confidence:  "high",
 		Description: "Detected a Supabase Management Token, which may allow unauthorized access to Supabase organizations and projects.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sbp_[a-z0-9_-]{40}`, false),
@@ -21,7 +20,7 @@ func SupabaseManagementToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: "entropy(finding[\"secret\"]) <= 3.5\n|| !matchesAny(finding[\"secret\"], [`^sbp_[a-z0-9_-]*[0-9][a-z0-9_-]*[0-9][a-z0-9_-]*$`])",
+		FilterExpr: "entropy(finding[\"secret\"]) <= 3.5\n|| !matchesAny(finding[\"secret\"], [`^sbp_[a-z0-9_-]*[0-9][a-z0-9_-]*[0-9][a-z0-9_-]*$`])",
 	}
 
 	tps := []string{
@@ -37,12 +36,12 @@ func SupabaseManagementToken() *config.Rule {
 
 func SupabaseProjectAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "supabase-project-api-key",
+		ID:          "supabase-project-api-key",
 		Confidence:  "high",
 		Description: "Detected a Supabase Project API Key, which may expose project data through Supabase APIs when paired with a project URL.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sb_secret_[A-Za-z0-9_-]{31}`, false),
 		Keywords:    []string{"sb_secret_"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "supabase-project-url"},
 		},
 		ValidateExpr: `let r = http.get((components["supabase-project-url"]?.secret ?? "") + "/rest/v1/?select=*", {
@@ -54,7 +53,7 @@ func SupabaseProjectAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := []string{
@@ -70,13 +69,13 @@ func SupabaseProjectAPIKey() *config.Rule {
 
 func SupabaseProjectURL() *config.Rule {
 	r := config.Rule{
-		RuleID:      "supabase-project-url",
+		ID:          "supabase-project-url",
 		Confidence:  "high",
 		Description: "Detected a Supabase project URL, used as a component of the supabase-project-api-key composite rule.",
-		Regex:       regexp.MustCompile(`\b(https://[a-z0-9]{16,32}\.supabase\.co)\b`),
+		Regex:       `\b(https://[a-z0-9]{16,32}\.supabase\.co)\b`,
 		Keywords:    []string{"supabase.co"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := []string{

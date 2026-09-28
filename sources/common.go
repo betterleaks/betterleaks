@@ -2,23 +2,15 @@ package sources
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"fmt"
-	"io"
-	"net/http"
-	"os"
 	"path/filepath"
 	"runtime"
-	"time"
 
-	"github.com/betterleaks/betterleaks/logging"
 	"github.com/mholt/archives"
 )
 
 const (
-	maxPeekSize     = 25 * 1_000 // 25kb
-	downloadTimeout = 5 * time.Minute
+	maxPeekSize = 25 * 1_000 // 25kb
 )
 
 var isWhitespace [256]bool
@@ -40,45 +32,37 @@ func isArchive(ctx context.Context, path string) bool {
 	return err == nil && format != nil
 }
 
-// shouldSkipAttrs evaluates the skip callback against attrs.
-// Returns true if the fragment should be skipped.
-// If no callback is set (nil), nothing is skipped.
-func shouldSkipAttrs(skip SkipFunc, attrs map[string]string) bool {
-	if skip == nil {
-		return false
-	}
-	return skip(attrs)
-}
-
 // shouldSkipPath checks a path against the skip callback.
 // Also handles the Windows forward-slash path normalization workaround.
-func shouldSkipPath(skip SkipFunc, path string) bool {
+func shouldSkipPath(skip PrefilterFunc, path string) bool {
 	if skip == nil {
-		logging.Trace().Str("path", path).Msg("not skipping path because skip func is nil")
 		return false
 	}
 	attrs := map[string]string{AttrPath: path}
-	if shouldSkipAttrs(skip, attrs) {
+	if skip(attrs) {
 		return true
 	}
 	// TODO: Remove this Windows workaround in v9 (gitleaks/gitleaks#1641).
 	if isWindows {
 		attrs[AttrPath] = filepath.ToSlash(path)
-		return shouldSkipAttrs(skip, attrs)
+		return skip(attrs)
 	}
 	return false
 }
 
-// readUntilSafeBoundary consumes |f| until it finds two consecutive `\n` characters, up to |maxPeekSize|.
+// readUntilSafeBoundary consumes r until it finds two consecutive `\n`
+// characters, up to maxPeekSize bytes beyond initialSize. data must contain the
+// initial read. Spare capacity is used for lookahead when available; otherwise
+// the chunk grows once before any bytes are appended.
+// EOF is returned with the final bytes so the caller need not read again.
 // This hopefully avoids splitting. (https://github.com/gitleaks/gitleaks/issues/1651)
-func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *bytes.Buffer) error {
-	if peekBuf.Len() == 0 {
-		return nil
+func readUntilSafeBoundary(r *bufio.Reader, data []byte, initialSize int, maxPeekSize int) ([]byte, error) {
+	if len(data) == 0 {
+		return data, nil
 	}
 
 	// Does the buffer end in consecutive newlines?
 	var (
-		data         = peekBuf.Bytes()
 		lastChar     = data[len(data)-1]
 		newlineCount = 0 // Tracks consecutive newlines
 	)
@@ -91,7 +75,7 @@ func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *byt
 
 				// Stop if two consecutive newlines are found
 				if newlineCount >= 2 {
-					return nil
+					return data, nil
 				}
 			} else if isWhitespace[lastChar] {
 				// The presence of other whitespace characters (`\r`, ` `, `\t`) shouldn't reset the count.
@@ -103,122 +87,51 @@ func readUntilSafeBoundary(r *bufio.Reader, n int, maxPeekSize int, peekBuf *byt
 	}
 
 	// If not, read ahead until we (hopefully) find some.
+	if maxPeekSize > 0 && cap(data)-len(data) < maxPeekSize {
+		grown := make([]byte, len(data), len(data)+maxPeekSize)
+		copy(grown, data)
+		data = grown
+	}
+	// The count restarts from the buffer's final byte, as the byte-at-a-time
+	// loop did when it inspected that byte before its first read.
 	newlineCount = 0
+	if data[len(data)-1] == '\n' {
+		newlineCount = 1
+	}
 	for {
-		data = peekBuf.Bytes()
-		// Check if the last character is a newline.
-		lastChar = data[len(data)-1]
-		if lastChar == '\n' {
-			newlineCount++
-
-			// Stop if two consecutive newlines are found
-			if newlineCount >= 2 {
-				break
-			}
-		} else if isWhitespace[lastChar] {
-			// The presence of other whitespace characters (`\r`, ` `, `\t`) shouldn't reset the count.
-			// (Intentionally do nothing.)
-		} else {
-			newlineCount = 0 // Reset if a non-newline character is found
-		}
-
 		// Stop growing the buffer if it reaches maxSize
-		if (peekBuf.Len() - n) >= maxPeekSize {
-			break
+		budget := maxPeekSize - (len(data) - initialSize)
+		if budget <= 0 {
+			return data, nil
 		}
-
-		// Read additional data into a temporary buffer
-		b, err := r.ReadByte()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return err
-		}
-		peekBuf.WriteByte(b)
-	}
-	return nil
-}
-
-type sourceDownloadOptions struct {
-	URL             string
-	Reader          io.ReadCloser
-	HTTPClient      *http.Client
-	Path            string
-	Attrs           map[string]string
-	BearerToken     string
-	MaxArchiveDepth int
-	ShouldSkip      SkipFunc
-	TempPattern     string
-}
-
-// downloadAndScanSource downloads content from a URL or scans an existing reader via File.
-func downloadAndScanSource(ctx context.Context, opts sourceDownloadOptions, yield FragmentsFunc) error {
-	start := time.Now()
-	reader := opts.Reader
-
-	if reader == nil {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, opts.URL, nil)
-		if err != nil {
-			return err
-		}
-		if opts.BearerToken != "" {
-			req.Header.Set("Authorization", "Bearer "+opts.BearerToken)
-		}
-		httpClient := opts.HTTPClient
-		if httpClient == nil {
-			httpClient = &http.Client{
-				Timeout: downloadTimeout,
-			}
-		}
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return err
-		}
-		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			return fmt.Errorf("download returned %s", resp.Status)
-		}
-		reader = resp.Body
-	}
-	defer reader.Close()
-
-	tempPattern := opts.TempPattern
-	if tempPattern == "" {
-		tempPattern = "betterleaks-download-*"
-	}
-	tmp, err := os.CreateTemp("", tempPattern)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		tmp.Close()
-		os.Remove(tmp.Name())
-	}()
-
-	if _, err := io.Copy(tmp, reader); err != nil {
-		return fmt.Errorf("download %s: %w", opts.Path, err)
-	}
-	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-
-	file := &File{
-		Content:         tmp,
-		Path:            opts.Path,
-		MaxArchiveDepth: max(1, opts.MaxArchiveDepth),
-		ShouldSkip:      opts.ShouldSkip,
-	}
-	err = file.Fragments(ctx, func(fragment Fragment, err error) error {
-		if err == nil {
-			for k, v := range opts.Attrs {
-				if k == AttrResource || fragment.Attr(k) == "" {
-					fragment.SetAttr(k, v)
+		// Peek at the buffered bytes and consume only up to the boundary, so
+		// the bytes after it stay in the reader for the next chunk. This
+		// scans whole buffers instead of taking one byte per call.
+		peek, err := r.Peek(min(budget, r.Size()))
+		consumed := 0
+		found := false
+		for _, b := range peek {
+			consumed++
+			if b == '\n' {
+				newlineCount++
+				if newlineCount >= 2 {
+					found = true
+					break
 				}
+			} else if !isWhitespace[b] {
+				// The presence of other whitespace characters (`\r`, ` `, `\t`) shouldn't reset the count.
+				newlineCount = 0
 			}
 		}
-		return yield(fragment, err)
-	})
-	logging.Debug().Str("path", opts.Path).Str("scan_ms", time.Since(start).Round(time.Millisecond).String()).Msg("download scan complete")
-	return err
+		data = append(data, peek[:consumed]...)
+		if _, discardErr := r.Discard(consumed); discardErr != nil {
+			return data, discardErr
+		}
+		if found {
+			return data, nil
+		}
+		if err != nil {
+			return data, err
+		}
+	}
 }

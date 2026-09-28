@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func VoyageAIAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "voyageai-api-key",
+		ID:          "voyageai-api-key",
 		Confidence:  "medium",
 		Description: "Detected a Voyage AI API key, which may expose embedding and retrieval model access to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"voyage"}, `(?:pa|al)-[A-Za-z0-9_-]{43}`, false),
@@ -25,7 +25,7 @@ func VoyageAIAPIKey() *config.Rule {
   } : r.status in [200, 400, 403] ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(4.0),
+		FilterExpr: utils.MinEntropy(4.0),
 	}
 
 	paKey := "pa-" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{43}`, 4.0)

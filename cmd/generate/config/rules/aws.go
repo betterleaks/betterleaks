@@ -1,19 +1,33 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
+
+// STS GetCallerIdentity returns identity without establishing any permission
+// grants. Analysis reuses that response and performs no additional requests.
+// https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html
+const awsAnalyzeExpr = `let input = validation.analysis;
+let arn = input["arn"] ?? "";
+{
+  "reason": "AWS STS does not report credential permissions",
+  "identity": {
+    "id": input["userid"] ?? "",
+    "username": matchesAny(arn, ["^arn:[^:]+:iam::[0-9]{12}:user/"]) ? last(split(arn, "/")) : "",
+    "account": {"id": input["account"] ?? ""}
+  },
+  "metadata": arn != "" ? {"arn": arn} : {}
+}`
 
 func AWS() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "aws-access-token",
+		ID:          "aws-access-token",
 		Confidence:  "high",
 		Description: "Identified an AWS access key ID paired with a secret access key, which together can provide full access to AWS services.",
-		Regex:       regexp.MustCompile(`\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b`),
+		Regex:       `\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b`,
 		Keywords: []string{
 			// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-unique-ids
 			"A3T",  // todo: might not be a valid AWS token
@@ -22,32 +36,29 @@ func AWS() *config.Rule {
 			"ABIA", // AWS STS service bearer token
 			"ACCA", // Context-specific credential
 		},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{
 				RuleID: "aws-secret-access-key",
 				Within: "5L",
 			},
 		},
 		ValidateExpr: `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
-    "result": "valid",
-    "arn": r.arn,
-    "account": r.account,
-    "userid": r.userid
-  } : r.status == 403 && r.error_code == "ExpiredToken" ? {
+  "result": "valid",
+  "analysis": {"arn": r.arn ?? "", "account": r.account ?? "", "userid": r.userid ?? ""}
+} : r.status == 403 && r.error_code == "ExpiredToken" ? {
     "result": "revoked",
-    "error_code": r.error_code,
-    "error_message": r.error_message
+    "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : r.status == 403 ? {
     "result": "invalid",
-    "error_code": r.error_code,
-    "error_message": r.error_message
+    "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 `,
-		Filter: "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])",
+		AnalyzeExpr: awsAnalyzeExpr,
+		FilterExpr:  "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])",
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("AWS", "AKIALALEMEL33243OLIB") // gitleaks:allow
+	tps := utils.GenerateSampleSecrets("AWS", "AKIALALEMEL33243OLIB") // betterleaks:allow
 	// current AWS tokens cannot contain [0,1,8,9], so their entropy is slightly lower than expected.
 	tps = append(tps, utils.GenerateSampleSecrets("AWS", "AKIA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))...)
 	tps = append(tps, utils.GenerateSampleSecrets("AWS", "ASIA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))...)
@@ -65,7 +76,7 @@ func AWS() *config.Rule {
 
 func AWSSecretAccessKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "aws-secret-access-key",
+		ID:          "aws-secret-access-key",
 		Confidence:  "medium",
 		Description: "Identified an AWS secret access key, used as a component of the aws-access-token composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -77,7 +88,7 @@ func AWSSecretAccessKey() *config.Rule {
 		// SkipReport suppresses standalone secret-key findings; the key is
 		// always surfaced as a required component of the aws-access-token finding.
 		SkipReport: true,
-		Filter:     `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("aws_secret_key", secrets.NewSecretWithEntropy(`[A-Za-z0-9/+=]{40}`, 4))
@@ -89,14 +100,14 @@ func AmazonBedrockAPIKeyLongLived() *config.Rule {
 	// https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-how.html
 	// https://medium.com/@adan.alvarez/api-keys-for-bedrock-a-brief-security-overview-2133ed9a2b3f
 	r := config.Rule{
-		RuleID:      "aws-amazon-bedrock-api-key-long-lived",
+		ID:          "aws-amazon-bedrock-api-key-long-lived",
 		Confidence:  "high",
 		Description: "Identified a pattern that may indicate long-lived Amazon Bedrock API keys, risking unauthorized Amazon Bedrock usage",
 		Regex:       utils.GenerateUniqueTokenRegex(`ABSK[A-Za-z0-9+/]{109,269}={0,2}`, false),
 		Keywords: []string{
 			"ABSK", // Amazon Bedrock API Key (long-lived)
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -124,14 +135,14 @@ func AmazonBedrockAPIKeyShortLived() *config.Rule {
 	// https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-how.html
 	// https://github.com/aws/aws-bedrock-token-generator-js/blob/86277e1489354192c64ffc8f995601daacc1f715/src/token.ts#L21
 	r := config.Rule{
-		RuleID:      "aws-amazon-bedrock-api-key-short-lived",
+		ID:          "aws-amazon-bedrock-api-key-short-lived",
 		Confidence:  "high",
 		Description: "Identified a pattern that may indicate short-lived Amazon Bedrock API keys, risking unauthorized Amazon Bedrock usage",
-		Regex:       regexp.MustCompile(`bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t`),
+		Regex:       `bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t`,
 		Keywords: []string{
 			"bedrock-api-key-", // Amazon Bedrock API Key (short lived)
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

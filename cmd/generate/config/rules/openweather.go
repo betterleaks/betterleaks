@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func OpenWeatherAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "openweather-api-key",
+		ID:          "openweather-api-key",
 		Confidence:  "medium",
 		Description: "OpenWeather API key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"openweather", "pyowm"}, `[a-z0-9]{32}`, false),
@@ -22,7 +22,7 @@ func OpenWeatherAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

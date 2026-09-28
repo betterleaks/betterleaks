@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PaddleLiveAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "paddle-live-api-key",
+		ID:          "paddle-live-api-key",
 		Confidence:  "high",
 		Description: "Paddle live API key.",
 		Regex: utils.GenerateUniqueTokenRegex(
@@ -27,7 +27,7 @@ func PaddleLiveAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

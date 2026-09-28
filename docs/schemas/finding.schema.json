@@ -1,0 +1,445 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Betterleaks v2 finding",
+  "description": "One serialized report.Finding, nested in a JSONL finding envelope or in the findings array of a JSON scan report; versioning belongs to the enclosing report. Discovery supplies match and location; optional analysis describes credential state, identity, and permissions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rule_id",
+    "description",
+    "confidence",
+    "match",
+    "location"
+  ],
+  "properties": {
+    "rule_id": {
+      "type": "string",
+      "description": "Identifier of the detection rule."
+    },
+    "rule_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Hash of this rule and its required and optional component definitions, including provider expressions. Excludes global filters. Supplied by Scanner; may be absent on externally constructed findings."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable rule description."
+    },
+    "confidence": {
+      "type": "string",
+      "description": "Detection confidence, normally low, medium, high, or an empty string when unclassified. Custom source attributes can supply other strings; this field is intentionally not an enum.",
+      "examples": [
+        "",
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "match": {
+      "$ref": "#/$defs/match"
+    },
+    "attributes": {
+      "$ref": "#/$defs/stringMap",
+      "description": "Extensible source metadata such as resource, git.sha, or git.author_name. Path is promoted into location.path. fs.first_fragment is omitted; git.message is abbreviated to its first line with ... for further nonblank text."
+    },
+    "location": {
+      "$ref": "#/$defs/location"
+    },
+    "analysis": {
+      "$ref": "#/$defs/analysis",
+      "description": "Credential state and optional identity and permission evidence. Omitted when no provider result exists."
+    },
+    "component_sets": {
+      "type": "array",
+      "description": "Multipart credential combinations, each with its own status and severity. Full analysis is reported on the parent finding. Omitted when empty.",
+      "items": {
+        "$ref": "#/$defs/componentSet"
+      },
+      "maxItems": 100
+    },
+    "tags": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Rule-defined tags. Omitted when empty.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "component_sets_truncated": {
+      "type": "boolean",
+      "description": "True when the hard combination limit omitted possible credentials. Invalid attempted sets cannot establish an exhaustive invalid result."
+    },
+    "encodings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      },
+      "description": "Distinct encodings encountered during decoding (for example base64, percent, hex, unicode), not an ordered decoding sequence. Omitted when no decoding occurred."
+    },
+    "decode_depth": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of decoding passes. Omitted when no decoding occurred."
+    }
+  },
+  "$defs": {
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Provider-specific JSON data; values may include nested objects, arrays, scalars, or null.",
+      "additionalProperties": true
+    },
+    "location": {
+      "type": "object",
+      "description": "Source-relative position. Text matches normally use one-based lines and byte columns; unavailable coordinates and paths are omitted. Message coordinates are message-relative.",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Optional source-defined path, such as a file, Git object, or archive member."
+        },
+        "start_line": {
+          "type": "integer"
+        },
+        "end_line": {
+          "type": "integer"
+        },
+        "start_column": {
+          "type": "integer"
+        },
+        "end_column": {
+          "type": "integer"
+        }
+      }
+    },
+    "analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Credential liveness result. An empty Go status is omitted; none is a CLI selector, not a serialized status.",
+          "enum": [
+            "valid",
+            "needs_validation",
+            "invalid",
+            "revoked",
+            "unknown",
+            "error"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "description": "Explanation of permission enrichment, including incomplete evidence or failure."
+        },
+        "severity": {
+          "type": "string",
+          "description": "Provider-neutral lower bound derived by Betterleaks from positively observed capabilities. Independent of detection confidence and credential validity.",
+          "enum": [
+            "unknown",
+            "medium",
+            "high"
+          ]
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "capabilities": {
+          "type": "array",
+          "description": "Positively observed grants. An absent capability means unknown, not denied.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "read_secrets",
+              "create_credentials",
+              "manage_users",
+              "admin"
+            ]
+          }
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "debug": {
+          "$ref": "#/$defs/metadata",
+          "description": "Optional sanitized provider diagnostics, grouped by validation and analysis Expr stage."
+        },
+        "status_reason": {
+          "type": "string",
+          "description": "Explanation of the credential state or incomplete validation."
+        },
+        "status_metadata": {
+          "$ref": "#/$defs/metadata",
+          "description": "Explicit public metadata produced by validation, independent of enrichment metadata."
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "description": "Available identity of the principal associated with the credential. Fields may be omitted independently.",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "account": {
+          "$ref": "#/$defs/account"
+        }
+      }
+    },
+    "account": {
+      "type": "object",
+      "description": "One unambiguous account or tenant reached by the credential. Omitted when analysis cannot identify a single account.",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "componentAnalysis": {
+      "type": "object",
+      "description": "Compact outcome for one credential combination. Omitted when status and severity are both empty.",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/analysis/properties/status"
+        },
+        "severity": {
+          "$ref": "#/$defs/analysis/properties/severity"
+        }
+      }
+    },
+    "componentSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "components"
+      ],
+      "properties": {
+        "components": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "description": "One credential combination. Normally an array of component findings; nil SDK slices and pointers serialize as null.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/componentFinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "analysis": {
+          "$ref": "#/$defs/componentAnalysis"
+        }
+      }
+    },
+    "componentFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "match",
+        "location"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string"
+        },
+        "rule_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Hash of this rule and its required and optional component definitions, including provider expressions. Excludes global filters. Supplied by Scanner; may be absent on externally constructed findings."
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "Whether this component is optional in the primary rule. Omitted when false."
+        },
+        "match": {
+          "$ref": "#/$defs/match"
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "encodings": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "Distinct encodings encountered during decoding (for example base64, percent, hex, unicode), not an ordered decoding sequence. Omitted when no decoding occurred."
+        },
+        "decode_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of decoding passes. Omitted when no decoding occurred."
+        }
+      }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "full",
+        "value"
+      ],
+      "properties": {
+        "full": {
+          "type": "string",
+          "description": "Matched text, or a description for a path-only rule. May be redacted."
+        },
+        "value": {
+          "type": "string",
+          "description": "Extracted value. May be a non-secret component, empty for path-only findings, or redacted."
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the original match.value bytes as 64 lowercase hexadecimal characters without a prefix, using the .betterleaksignore format. The value may be a secret or a non-secret component, such as an account ID. Preserved through redaction and analysis. Supplied by Scanner for non-empty primary and component values; may be absent on externally constructed matches."
+        },
+        "captures": {
+          "$ref": "#/$defs/stringMap",
+          "description": "Named regex captures from this match."
+        },
+        "context": {
+          "type": "string",
+          "description": "Explicitly requested source window around the match, omitted when empty. It does not default to the source line."
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "rule_id": "example-token",
+      "description": "Example token",
+      "confidence": "",
+      "match": {
+        "full": "REDACTED",
+        "value": "REDACTED"
+      },
+      "location": {
+        "start_line": 1,
+        "end_line": 1,
+        "start_column": 1,
+        "end_column": 20
+      }
+    },
+    {
+      "rule_id": "example-token",
+      "description": "Example token with analysis",
+      "confidence": "high",
+      "match": {
+        "full": "REDACTED",
+        "value": "REDACTED"
+      },
+      "attributes": {
+        "resource": "file"
+      },
+      "location": {
+        "start_line": 12,
+        "end_line": 12,
+        "start_column": 14,
+        "end_column": 53,
+        "path": "service/.env"
+      },
+      "analysis": {
+        "status": "valid",
+        "severity": "high",
+        "identity": {
+          "username": "example-user",
+          "account": {
+            "id": "example-account"
+          }
+        },
+        "capabilities": [
+          "read",
+          "write"
+        ],
+        "metadata": {
+          "scopes": [
+            "example:read",
+            "example:write"
+          ]
+        }
+      }
+    },
+    {
+      "rule_id": "example-token",
+      "description": "Decoded token",
+      "confidence": "high",
+      "encodings": [
+        "percent",
+        "base64"
+      ],
+      "decode_depth": 3,
+      "match": {
+        "full": "REDACTED",
+        "value": "REDACTED"
+      },
+      "location": {
+        "path": "data.db",
+        "start_line": 1,
+        "end_line": 1,
+        "start_column": 1,
+        "end_column": 40
+      },
+      "component_sets": [
+        {
+          "components": [
+            {
+              "rule_id": "account",
+              "match": {
+                "full": "REDACTED",
+                "value": "REDACTED"
+              },
+              "location": {
+                "path": "data.db",
+                "start_line": 1,
+                "end_line": 1,
+                "start_column": 42,
+                "end_column": 60
+              },
+              "encodings": [
+                "hex"
+              ],
+              "decode_depth": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

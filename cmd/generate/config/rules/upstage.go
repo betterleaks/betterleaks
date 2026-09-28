@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Upstage() *config.Rule {
 	r := config.Rule{
-		RuleID:      "upstage-api-key",
+		ID:          "upstage-api-key",
 		Confidence:  "medium",
 		Description: "Detected an Upstage AI API key, which may expose Solar language models and document AI services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"upstage"}, `[A-Za-z0-9]{40,50}`, true),
 		Keywords:    []string{"upstage"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://api.upstage.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"data"') ? {

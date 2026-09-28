@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func RetellAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "retell-api-key.1",
+		ID:          "retell-api-key.1",
 		Confidence:  "high",
 		Description: "Retell AI API key, which may allow access to agents, calls, and account configuration.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"retell"}, `key_`+utils.Hex("28"), false),
@@ -22,7 +22,7 @@ func RetellAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	key := "key_" + secrets.NewSecretWithEntropy(`[a-f0-9]{28}`, 3.0)

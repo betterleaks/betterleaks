@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Ollama() *config.Rule {
 	r := config.Rule{
-		RuleID:      "ollama-api-key",
+		ID:          "ollama-api-key",
 		Confidence:  "high",
 		Description: "Detected an Ollama API Key, which may expose local and hosted AI model serving to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"ollama"}, `[a-f0-9]{32}\.[a-zA-Z0-9_-]{24}`, true),
 		Keywords:    []string{"ollama"},
-		Filter:      `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("ollama", secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5)+"."+secrets.NewSecretWithEntropy(`[a-zA-Z0-9_-]{24}`, 3.5))

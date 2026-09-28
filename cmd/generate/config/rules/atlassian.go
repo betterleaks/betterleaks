@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Atlassian() *config.Rule {
 	r := config.Rule{
 		Description: "Detected an Atlassian Cloud API token, posing a threat to project management and collaboration tool security and data confidentiality.",
-		RuleID:      "atlassian-api-token",
+		ID:          "atlassian-api-token",
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`ATAT[A-Za-z0-9_\-=]{100,}`, false),
 		Keywords:    []string{"atat"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	currentToken := "ATATT3" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_\-=]{186}`, 3.5)

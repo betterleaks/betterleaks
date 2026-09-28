@@ -1,60 +1,22 @@
 package sources
 
 import (
-	"bufio"
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
-	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
-	"github.com/rs/zerolog"
 
-	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
 
-const defaultBufferSize = 100 * 1_000 // 100kb
 const InnerPathSeparator = "!"
-
-var bufferPool = sync.Pool{
-	New: func() any {
-		buf := make([]byte, defaultBufferSize)
-		return &buf
-	},
-}
-
-func getBuffer() []byte {
-	return *bufferPool.Get().(*[]byte)
-}
-
-func putBuffer(buf []byte) {
-	buf = buf[:cap(buf)]
-	bufferPool.Put(&buf)
-}
-
-var readerPool = sync.Pool{
-	New: func() any {
-		// Use the same default size as bufio.NewReader (4096) to preserve
-		// chunk boundary behavior in readUntilSafeBoundary.
-		return bufio.NewReader(nil)
-	},
-}
-
-func getReader(r io.Reader) *bufio.Reader {
-	br := readerPool.Get().(*bufio.Reader)
-	br.Reset(r)
-	return br
-}
-
-func putReader(br *bufio.Reader) {
-	br.Reset(nil)
-	readerPool.Put(br)
-}
 
 type seekReaderAt interface {
 	io.ReaderAt
@@ -63,42 +25,86 @@ type seekReaderAt interface {
 
 // File is a source for yielding fragments from a file or other reader
 type File struct {
+	// Logger receives source diagnostics. A nil logger disables logging.
+	Logger *slog.Logger
 	// Content provides a reader to the file's content
 	Content io.Reader
 	// Path is the resolved real path of the file
 	Path string
+	// Attributes supply source metadata, including an optional resource override.
+	// Path and archive entry paths are always derived from Path.
+	Attributes map[string]string
 	// Symlink represents a symlink to the file if that's how it was discovered
 	Symlink string
 	// Buffer is used for reading the content in chunks
 	Buffer []byte
-	// ShouldSkip is a callback that decides whether to skip a file based on its
+	// Prefilter is a callback that decides whether to skip a file based on its
 	// attributes (e.g. path). If nil, no skipping is performed.
-	ShouldSkip SkipFunc
+	Prefilter PrefilterFunc
 	// MaxArchiveDepth limits how deep the sources will explore nested archives
 	MaxArchiveDepth int
+	// DetectArchive also identifies archives by content, for downloads whose
+	// paths do not have a filename extension. Inherited by nested archive entries.
+	DetectArchive bool
 	// outerPaths is the list of container paths (e.g. archives) that lead to
 	// this file
 	outerPaths []string
 	// archiveDepth is the current archive nesting depth
 	archiveDepth int
+	// prefiltered marks a filesystem file accepted by its walker. The
+	// walker owns its filtering; archive entries are checked independently.
+	prefiltered bool
 }
 
 // Fragments yields fragments for the this source
-func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	var err error
+func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !s.prefiltered && s.Prefilter != nil && s.Prefilter(s.attributes(s.FullPath())) {
+		return nil
+	}
+	// Archive walkers may log errors. Preserve callback errors for every caller.
+	var yieldErr error
+	emit := yield
+	yield = func(fragment Fragment, err error) error {
+		if yieldErr != nil {
+			return yieldErr
+		}
+		if err == nil && !s.prefiltered && s.Prefilter != nil && s.Prefilter(fragment.Attributes) {
+			return nil
+		}
+		yieldErr = emit(fragment, err)
+		return yieldErr
+	}
+	defer func() {
+		if yieldErr != nil {
+			err = yieldErr
+		}
+		if err == nil {
+			err = ctx.Err()
+		}
+	}()
 	var format archives.Format
 	stream := s.Content
+	archiveName := s.Path
+	if ext := filepath.Ext(archiveName); strings.EqualFold(ext, ".tgz") {
+		// The archive library's filename matching requires .tar.gz. Keep the
+		// original path for prefilters and finding attribution.
+		archiveName = strings.TrimSuffix(archiveName, ext) + ".tar.gz"
+	}
 
-	// tar files can sometimes be compressed without having the compression
-	// in their file extension name. Even though it is common to have the
-	// compression in the name, the tar command can still determine if
-	// the file is compressed. So in cases where we're working with tar files
-	// that don't have a compression extension in the name, we should go
-	// ahead and check the content itself to see if it's compressed
-	if filepath.Ext(s.Path) == ".tar" {
+	// Downloads may have opaque names. Local .tar files also need content
+	// inspection because their compression is not always reflected in the name.
+	if s.DetectArchive {
+		format, stream, err = archives.Identify(ctx, "", stream)
+		if errors.Is(err, archives.NoMatch) {
+			format, _, err = archives.Identify(ctx, archiveName, nil)
+		}
+	} else if filepath.Ext(s.Path) == ".tar" {
 		format, stream, err = archives.Identify(ctx, s.Path, stream)
 	} else {
-		format, _, err = archives.Identify(ctx, s.Path, nil)
+		format, _, err = archives.Identify(ctx, archiveName, nil)
 	}
 
 	// Process the file as an archive if there's no error && Identify returns
@@ -107,21 +113,18 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	// decide what to do with it.
 	if err == nil && format != nil {
 		if s.archiveDepth+1 > s.MaxArchiveDepth {
-			var event *zerolog.Event
-
 			// Warn if the feature is enabled; else emit a trace log.
 			if s.MaxArchiveDepth != 0 {
-				event = logging.Warn()
+				logging.OrDiscard(s.Logger).Warn("skipping archive: exceeds max archive depth",
+					"path", s.FullPath(),
+					"max_archive_depth", s.MaxArchiveDepth,
+				)
 			} else {
-				event = logging.Trace()
+				logging.OrDiscard(s.Logger).Log(ctx, logging.LevelTrace, "skipping archive: exceeds max archive depth",
+					"path", s.FullPath(),
+					"max_archive_depth", s.MaxArchiveDepth,
+				)
 			}
-
-			event.Str(
-				"path", s.FullPath(),
-			).Int(
-				"max_archive_depth", s.MaxArchiveDepth,
-			).Msg("skipping archive: exceeds max archive depth")
-
 			return nil
 		}
 		if extractor, ok := format.(archives.Extractor); ok {
@@ -132,13 +135,11 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			s.decompressorFragments(ctx, decompressor, stream, yield)
 			return nil
 		}
-		logging.Warn().Str("path", s.FullPath()).Msg("skipping unknown archive type")
+		logging.OrDiscard(s.Logger).Warn("skipping unknown archive type", "path", s.FullPath())
 	}
 
-	br := getReader(stream)
-	defer putReader(br)
 	isArchiveContent := s.archiveDepth > 0
-	return s.fileFragments(ctx, br, isArchiveContent, yield)
+	return s.fileFragments(ctx, stream, isArchiveContent, yield)
 }
 
 // extractorFragments recursively crawls archives and yields fragments
@@ -151,19 +152,16 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 	// nested entries via file.Fragments below.
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Warn().
-				Str("path", s.FullPath()).
-				Str("panic", fmt.Sprint(r)).
-				Msg("skipping archive: panic during extraction")
+			logging.OrDiscard(s.Logger).Warn("skipping archive: panic during extraction", "path", s.FullPath(), "panic", fmt.Sprint(r))
 		}
 	}()
 
 	if _, isSeekReaderAt := reader.(seekReaderAt); !isSeekReaderAt {
 		switch extractor.(type) {
 		case archives.SevenZip, archives.Zip:
-			tmpfile, err := os.CreateTemp("", "gitleaks-archive-")
+			tmpfile, err := os.CreateTemp("", "betterleaks-archive-")
 			if err != nil {
-				logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not create archive tmp file")
+				logging.OrDiscard(s.Logger).Warn("could not create archive tmp file", "error", err, "path", s.FullPath())
 				return
 			}
 			defer func() {
@@ -173,7 +171,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 			_, err = io.Copy(tmpfile, reader)
 			if err != nil {
-				logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not copy archive file")
+				logging.OrDiscard(s.Logger).Warn("could not copy archive file", "error", err, "path", s.FullPath())
 				return
 			}
 
@@ -184,29 +182,34 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 	err := extractor.Extract(ctx, reader, func(_ context.Context, d archives.FileInfo) error {
 		path := filepath.Clean(d.NameInArchive)
 		if !d.Mode().IsRegular() {
-			logging.Trace().Str("path", path).Msg("skipping non-regular file")
+			logging.OrDiscard(s.Logger).Log(ctx, logging.LevelTrace, "skipping non-regular file", "path", path)
 			return nil
 		}
 
 		innerReader, err := d.Open()
 		if err != nil {
-			logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not open archive inner file")
+			logging.OrDiscard(s.Logger).Warn("could not open archive inner file", "error", err, "path", s.FullPath())
 			return nil
 		}
 		defer innerReader.Close()
 
-		if s.ShouldSkip != nil && shouldSkipPath(s.ShouldSkip, path) {
-			logging.Debug().Str("path", s.FullPath()).Msg("skipping file: global allowlist")
+		if s.Prefilter != nil && shouldSkipPath(func(attrs map[string]string) bool {
+			return s.Prefilter(s.attributes(attrs[AttrPath]))
+		}, path) {
+			logging.OrDiscard(s.Logger).Debug("skipping file: global prefilter", "path", s.FullPath())
 			return nil
 		}
 
 		file := &File{
+			Logger:          s.Logger,
 			Content:         innerReader,
 			Path:            path,
+			Attributes:      s.Attributes,
 			Symlink:         s.Symlink,
-			ShouldSkip:      s.ShouldSkip,
+			Prefilter:       s.Prefilter,
 			outerPaths:      append(s.outerPaths, filepath.ToSlash(s.Path)),
 			MaxArchiveDepth: s.MaxArchiveDepth,
+			DetectArchive:   s.DetectArchive,
 			archiveDepth:    s.archiveDepth + 1,
 		}
 
@@ -214,7 +217,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 	})
 
 	if err != nil {
-		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("error reading archive")
+		logging.OrDiscard(s.Logger).Warn("error reading archive", "error", err, "path", s.FullPath())
 	}
 }
 
@@ -224,31 +227,27 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 	// panic from closing a malformed decompressor reader.
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Warn().
-				Str("path", s.FullPath()).
-				Str("panic", fmt.Sprint(r)).
-				Msg("skipping compressed file: panic during decompression")
+			logging.OrDiscard(s.Logger).Warn("skipping compressed file: panic during decompression", "path", s.FullPath(), "panic", fmt.Sprint(r))
 		}
 	}()
 
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
-		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("could not read compressed file")
+		logging.OrDiscard(s.Logger).Warn("could not read compressed file", "error", err, "path", s.FullPath())
 		return
 	}
 	defer func() {
 		_ = innerReader.Close()
 	}()
 
-	br := getReader(innerReader)
-	defer putReader(br)
-	if err := s.fileFragments(ctx, br, true, yield); err != nil {
-		logging.Warn().Err(err).Str("path", s.FullPath()).Msg("error reading compressed file")
+	if err := s.fileFragments(ctx, innerReader, true, yield); err != nil {
+		logging.OrDiscard(s.Logger).Warn("error reading compressed file", "error", err, "path", s.FullPath())
 	}
 }
 
-// fileFragments reads the file into fragments to yield.
-func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiveContent bool, yield FragmentsFunc) error {
+// fileFragments adds filesystem policy and metadata to source-neutral reader
+// fragments.
+func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveContent bool, yield FragmentsFunc) error {
 	// Use a pooled buffer if the caller hasn't provided one.
 	if s.Buffer == nil {
 		s.Buffer = getBuffer()
@@ -258,119 +257,50 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 		}()
 	}
 
-	prevFragmentEndLine := 0
-	firstFragmentAttr := "true"
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			// Compute the final normalized path upfront (isWindows is a compile-time constant).
-			fullPath := s.FullPath()
-			fragPath := fullPath
-			if isWindows {
-				fragPath = filepath.ToSlash(fullPath)
-			}
-			attr := map[string]string{
-				AttrPath:            fragPath,
-				AttrResource:        ResourceFileContent,
-				AttrFSFirstFragment: firstFragmentAttr,
-			}
-			fragment := Fragment{
-				Attributes: attr,
-			}
+	fullPath := s.FullPath()
+	fragmentPath := fullPath
+	if isWindows {
+		fragmentPath = filepath.ToSlash(fullPath)
+	}
+	firstFragment := true
 
-			n, err := reader.Read(s.Buffer)
-			if n == 0 {
-				if err != nil && err != io.EOF {
-					if isArchiveContent {
-						logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content")
-						return nil
-					}
-					return yield(fragment, fmt.Errorf("could not read file: %w", err))
-				}
+	return readerFragments(ctx, content, s.Buffer, func(fragment Fragment, readErr error) error {
+		first := "false"
+		if firstFragment {
+			first = "true"
+		}
+		fragment.Attributes = s.attributes(fragmentPath)
+		fragment.SetAttr(AttrFSFirstFragment, first)
 
+		if readErr != nil {
+			if isArchiveContent {
+				logging.OrDiscard(s.Logger).Warn("could not read archive content", "error", readErr, "path", fullPath)
 				return nil
 			}
-
-			// Only check the filetype at the start of file.
-			if prevFragmentEndLine == 0 {
-				// TODO: could other optimizations be introduced here?
-				if mimetype, err := filetype.Match(s.Buffer[:n]); err != nil {
-					if isArchiveContent {
-						logging.Warn().Err(err).Str("path", fullPath).Msg("could not determine archive content type")
-						return nil
-					}
-					return yield(
-						fragment,
-						fmt.Errorf("could not read file: could not determine type: %w", err),
-					)
-				} else if mimetype.MIME.Type == "application" {
-					logging.Debug().
-						Str("mime_type", mimetype.MIME.Value).
-						Str("path", fullPath).
-						Msgf("skipping binary file")
-
-					return nil
-				}
-			}
-
-			// Try to split chunks across large areas of whitespace, if possible.
-			peekBuf := bytes.NewBuffer(s.Buffer[:n])
-			stopAfterYield := false
-			if err := readUntilSafeBoundary(reader, n, maxPeekSize, peekBuf); err != nil {
-				if isArchiveContent {
-					logging.Warn().Err(err).Str("path", fullPath).Msg("could not read archive content until safe boundary")
-					stopAfterYield = true
-				} else {
-					return yield(
-						fragment,
-						fmt.Errorf("could not read file: could not read until safe boundary: %w", err),
-					)
-				}
-			}
-
-			fragment.Raw = peekBuf.String()
-			fragment.Bytes = peekBuf.Bytes()
-			fragment.StartLine = prevFragmentEndLine + 1
-
-			// Count the number of newlines in this chunk to determine the end
-			// line for this fragment.
-			prevFragmentEndLine += strings.Count(fragment.Raw, "\n")
-
-			if s.Symlink != "" {
-				symlink := s.Symlink
-				if isWindows {
-					symlink = filepath.ToSlash(s.Symlink)
-				}
-				fragment.SetAttr(AttrFSSymlink, symlink)
-			}
-
-			// log errors but continue since there's content
-			if err != nil && err != io.EOF {
-				if isArchiveContent {
-					logging.Warn().Err(err).Str("path", fullPath).Msg("issue reading archive content")
-					return yield(fragment, nil)
-				} else {
-					logging.Warn().Err(err).Msgf("issue reading file")
-				}
-			}
-
-			if stopAfterYield {
-				return yield(fragment, nil)
-			}
-
-			// Done with the file!
-			if err == io.EOF {
-				return yield(fragment, nil)
-			}
-
-			firstFragmentAttr = "false"
-			if err := yield(fragment, err); err != nil {
-				return err
-			}
+			return yield(fragment, fmt.Errorf("could not read file: %w", readErr))
 		}
-	}
+
+		if s.Symlink != "" {
+			symlink := s.Symlink
+			if isWindows {
+				symlink = filepath.ToSlash(symlink)
+			}
+			fragment.SetAttr(AttrFSSymlink, symlink)
+		}
+
+		firstFragment = false
+		return yield(fragment, nil)
+	})
+}
+
+// Copy source metadata so fragment-specific changes don't affect other fragments.
+// Callers may override the resource type; the supplied path always takes precedence.
+func (s *File) attributes(path string) map[string]string {
+	attrs := make(map[string]string, len(s.Attributes)+2)
+	attrs[AttrResource] = ResourceFileContent
+	maps.Copy(attrs, s.Attributes)
+	attrs[AttrPath] = path
+	return attrs
 }
 
 // FullPath returns the File.Path with any preceding outer paths

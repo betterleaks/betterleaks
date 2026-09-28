@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ScalewaySecretKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "scaleway-secret-key",
+		ID:          "scaleway-secret-key",
 		Confidence:  "high",
 		Description: "Identified a standalone Scaleway Secret Key. This can be used to authenticate API requests.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -16,14 +16,14 @@ func ScalewaySecretKey() *config.Rule {
 			utils.Hex8_4_4_4_12(),
 			true,
 		),
-		Entropy:  3,
-		Keywords: []string{"scaleway", "scw"},
+		FilterExpr: utils.MinEntropy(3),
+		Keywords:   []string{"scaleway", "scw"},
 		ValidateExpr: `let r = http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
     "X-Auth-Token": secret,
     "Accept": "application/json"
   }); r.status in [200, 403] ? {
     "result": "valid",
-    "permission_status": r.status == 200 ? "Active" : "Restricted but still valid (403)",
+    "metadata": {"permission_status": r.status == 200 ? "Active" : "Restricted but still valid (403)"}
   } : r.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"

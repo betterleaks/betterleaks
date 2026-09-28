@@ -3,9 +3,8 @@ package rules
 import (
 	"fmt"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 // KubernetesSecret validates if we detected a kubernetes secret which contains data!
@@ -21,18 +20,18 @@ func KubernetesSecret() *config.Rule {
 
 	// define rule
 	r := config.Rule{
-		RuleID:      "kubernetes-secret-yaml",
+		ID:          "kubernetes-secret-yaml",
 		Confidence:  "high",
 		Description: "Possible Kubernetes Secret detected, posing a risk of leaking credentials/tokens from your deployments",
-		Regex: regexp.MustCompile(fmt.Sprintf(
+		Regex: fmt.Sprintf(
 			//language=regexp
-			`(?i)(?:%s(?s:.){0,1000}?%s|%s(?s:.){0,1000}?%s)`, kindPat, dataPat, dataPat, kindPat)),
+			`(?i)(?:%s(?s:.){0,1000}?%s|%s(?s:.){0,1000}?%s)`, kindPat, dataPat, dataPat, kindPat),
 		Keywords: []string{
 			"secret",
 		},
 		// Kubernetes secrets are usually yaml files.
-		Path:   regexp.MustCompile(`(?i)\.ya?ml$`),
-		Filter: "matchesAny(finding[\"secret\"], [`[\\w.-]+:(?:[ \\t]*(?:\\||>[-+]?)\\s+)?[ \\t]*(?:\\{\\{[ \\t\\w\"|$:=,.-]+}}|\"\"|'')`])\n|| matchesAny(finding[\"match\"], [`(kind:(?s:.)+\\n---\\n(?s:.)+\\bdata:|data:(?s:.)+\\n---\\n(?s:.)+\\bkind:)`])",
+		Path:       `(?i)\.ya?ml$`,
+		FilterExpr: "matchesAny(finding[\"secret\"], [`[\\w.-]+:(?:[ \\t]*(?:\\||>[-+]?)\\s+)?[ \\t]*(?:\\{\\{[ \\t\\w\"|$:=,.-]+}}|\"\"|'')`])\n|| matchesAny(finding[\"match\"], [`(kind:(?s:.)+\\n---\\n(?s:.)+\\bdata:|data:(?s:.)+\\n---\\n(?s:.)+\\bkind:)`])",
 	}
 
 	// validate

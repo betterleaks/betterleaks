@@ -1,55 +1,63 @@
 package report
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-const CredentialReportSchemaVersion = 1
+// SchemaVersion identifies the JSON report contract, independently of the
+// Betterleaks application version.
+const SchemaVersion = "1"
 
-// CredentialReport keeps validation in its own namespace. Credential access
-// analysis can be added later as an "analysis" sibling without changing the
-// validation result contract.
+const CredentialReportSchemaVersion = SchemaVersion
+
+// CredentialReport is a sanitized direct credential result. Match material and
+// source locations are omitted because no source discovery was performed.
 type CredentialReport struct {
-	SchemaVersion int                        `json:"schema_version"`
-	RuleID        string                     `json:"rule_id"`
-	Attributes    map[string]string          `json:"attributes,omitempty"`
-	Validation    CredentialValidationReport `json:"validation"`
-}
-
-// CredentialValidationReport is the validation portion of a credential report.
-type CredentialValidationReport struct {
-	Status        ValidationStatus               `json:"status"`
-	Reason        string                         `json:"reason,omitempty"`
-	Metadata      map[string]any                 `json:"metadata,omitempty"`
+	SchemaVersion string                         `json:"schema_version"`
+	RuleID        string                         `json:"rule_id"`
+	Attributes    map[string]string              `json:"attributes,omitempty"`
+	Analysis      Analysis                       `json:"analysis,omitzero"`
 	ComponentSets []CredentialComponentSetReport `json:"component_sets,omitempty"`
 }
 
-// CredentialComponentSetReport describes one validated set of companion credentials.
+// CredentialComponentSetReport describes one resolved credential combination.
 type CredentialComponentSetReport struct {
-	Status     ValidationStatus            `json:"status,omitempty"`
-	Reason     string                      `json:"reason,omitempty"`
 	Components []CredentialComponentReport `json:"components"`
+	Analysis   Analysis                    `json:"analysis,omitzero"`
+}
+
+// MarshalJSON keeps component outcomes compact, as in scan reports.
+func (s CredentialComponentSetReport) MarshalJSON() ([]byte, error) {
+	type wireComponentSet CredentialComponentSetReport
+	wire := wireComponentSet(s)
+	wire.Analysis = Analysis{Status: s.Analysis.Status, Severity: s.Analysis.Severity}
+	return json.Marshal(wire)
 }
 
 // CredentialComponentReport identifies one component and whether the rule
 // declares it optional.
 type CredentialComponentReport struct {
-	RuleID   string `json:"rule_id"`
-	Optional bool   `json:"optional,omitempty"`
+	RuleID   string   `json:"rule_id"`
+	Optional bool     `json:"optional,omitempty"`
+	Captures []string `json:"captures,omitempty"`
 }
 
-// CredentialRuleList is the versioned output produced by validate --list.
+// CredentialRuleList is a versioned list of credential rules and input requirements.
 type CredentialRuleList struct {
-	SchemaVersion int                     `json:"schema_version"`
+	SchemaVersion string                  `json:"schema_version"`
 	Rules         []CredentialRuleSummary `json:"rules"`
 }
 
-// CredentialRuleSummary describes a rule that supports direct validation.
+// CredentialRuleSummary describes a rule that supports a direct credential command.
 type CredentialRuleSummary struct {
 	RuleID      string                      `json:"rule_id"`
 	Description string                      `json:"description,omitempty"`
@@ -57,35 +65,29 @@ type CredentialRuleSummary struct {
 	Captures    []string                    `json:"captures,omitempty"`
 }
 
-// NewCredentialReport builds a redacted report from a validated finding.
-func NewCredentialReport(finding Finding, secrets []string, includeEmpty bool) CredentialReport {
+// NewCredentialReport builds a redacted report from a validated or analyzed finding.
+func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 	secrets = credentialSecretsForRedaction(secrets)
-	metadata := sanitizeCredentialMetadata(finding.ValidationMeta, secrets, includeEmpty)
 	result := CredentialReport{
 		SchemaVersion: CredentialReportSchemaVersion,
-		RuleID:        finding.RuleID,
+		RuleID:        sanitizeCredentialString(finding.RuleID, secrets),
 		Attributes:    sanitizeCredentialAttributes(finding.Attributes, secrets),
-		Validation: CredentialValidationReport{
-			Status:   finding.ValidationStatus,
-			Reason:   sanitizeCredentialString(finding.ValidationReason, secrets),
-			Metadata: metadata,
-		},
+		Analysis:      SanitizeAnalysis(finding.Analysis, secrets),
 	}
 	for _, set := range finding.ComponentSets {
 		setResult := CredentialComponentSetReport{
-			Status: set.ValidationStatus,
-			Reason: sanitizeCredentialString(set.ValidationReason, secrets),
+			Analysis: SanitizeAnalysis(set.Analysis, secrets),
 		}
 		for _, component := range set.Components {
 			setResult.Components = append(setResult.Components, CredentialComponentReport{
-				RuleID:   component.RuleID,
+				RuleID:   sanitizeCredentialString(component.RuleID, secrets),
 				Optional: component.Optional,
 			})
 		}
 		sort.Slice(setResult.Components, func(i, j int) bool {
 			return setResult.Components[i].RuleID < setResult.Components[j].RuleID
 		})
-		result.Validation.ComponentSets = append(result.Validation.ComponentSets, setResult)
+		result.ComponentSets = append(result.ComponentSets, setResult)
 	}
 	return result
 }
@@ -96,7 +98,13 @@ func sanitizeCredentialAttributes(attributes map[string]string, secrets []string
 	}
 	out := make(map[string]string, len(attributes))
 	for key, value := range attributes {
+		if key == sources.AttrFSFirstFragment || key == sources.AttrPath {
+			continue
+		}
 		out[sanitizeCredentialString(key, secrets)] = sanitizeCredentialString(value, secrets)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -184,7 +192,28 @@ func credentialSecretsForRedaction(secrets []string) []string {
 	return ordered
 }
 
-// CredentialReportFormat identifies a supported direct-validation report format.
+// HTTP diagnostics may contain encoded credential values in URLs and bodies.
+// Expand only for debug output; normal report metadata retains its usual rules.
+func credentialDebugSecretsForRedaction(secrets []string) []string {
+	variants := make([]string, 0, len(secrets)*9)
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		encoded, _ := json.Marshal(secret)
+		jsonValue := string(encoded[1 : len(encoded)-1])
+		jsonUnescapedHTML := strings.NewReplacer(`\u003c`, "<", `\u003e`, ">", `\u0026`, "&").Replace(jsonValue)
+		variants = append(variants, secret, jsonValue, jsonUnescapedHTML,
+			url.QueryEscape(secret), url.PathEscape(secret),
+			base64.StdEncoding.EncodeToString([]byte(secret)),
+			base64.RawStdEncoding.EncodeToString([]byte(secret)),
+			base64.URLEncoding.EncodeToString([]byte(secret)),
+			base64.RawURLEncoding.EncodeToString([]byte(secret)))
+	}
+	return credentialSecretsForRedaction(variants)
+}
+
+// CredentialReportFormat identifies a supported direct credential report format.
 type CredentialReportFormat string
 
 const (
@@ -200,34 +229,34 @@ func ResolveCredentialReportFormat(format string) (CredentialReportFormat, error
 		return CredentialReportFormatPretty, nil
 	}
 	if format != "pretty" && format != "jsonl" {
-		return "", fmt.Errorf("validate output format must be pretty or jsonl, got %q", format)
+		return "", fmt.Errorf("credential output format must be pretty or jsonl, got %q", format)
 	}
 	return CredentialReportFormat(format), nil
 }
 
-// CredentialReporter renders direct-validation results and rule lists.
+// CredentialReporter renders direct credential results and rule lists.
 type CredentialReporter struct {
 	Format  CredentialReportFormat
 	NoColor bool
 	Simple  bool
 }
 
-// Write renders a direct-validation result.
+// Write renders a direct credential result.
 func (r CredentialReporter) Write(w io.Writer, result CredentialReport) error {
 	switch r.Format {
 	case CredentialReportFormatPretty:
 		if r.Simple {
-			return writeCredentialStatus(w, result.Validation.Status, r.NoColor)
+			return writeCredentialStatus(w, result.Analysis.Status, r.NoColor)
 		}
 		return writeCredentialText(w, result, r.NoColor)
 	case CredentialReportFormatJSONL:
 		return writeCredentialJSONL(w, result)
 	default:
-		return fmt.Errorf("unsupported validate output format %q", r.Format)
+		return fmt.Errorf("unsupported credential output format %q", r.Format)
 	}
 }
 
-// WriteRuleList renders the rules that support direct validation.
+// WriteRuleList renders the rules that support a direct credential command.
 func (r CredentialReporter) WriteRuleList(w io.Writer, result CredentialRuleList) error {
 	switch r.Format {
 	case CredentialReportFormatPretty:
@@ -235,7 +264,7 @@ func (r CredentialReporter) WriteRuleList(w io.Writer, result CredentialRuleList
 	case CredentialReportFormatJSONL:
 		return writeCredentialJSONL(w, result)
 	default:
-		return fmt.Errorf("unsupported validate output format %q", r.Format)
+		return fmt.Errorf("unsupported credential output format %q", r.Format)
 	}
 }
 
@@ -246,44 +275,29 @@ func writeCredentialJSONL(w io.Writer, value any) error {
 }
 
 func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) error {
-	if _, err := fmt.Fprintf(w, "\n┌─%s──○\n│\n│ validation:\n", result.RuleID); err != nil {
+	if _, err := fmt.Fprintf(w, "\n┌─%s──○\n│\n", result.RuleID); err != nil {
+		return err
+	}
+	if err := writeCredentialAnalysis(w, result.Analysis, noColor); err != nil {
 		return err
 	}
 
-	maxKey := len("status")
-	if result.Validation.Reason != "" {
-		maxKey = max(maxKey, len("reason"))
-	}
-	for key := range result.Validation.Metadata {
-		maxKey = max(maxKey, len(key))
-	}
-
-	status := formatCredentialStatus(result.Validation.Status, noColor)
-	if err := writeCredentialDotLeader(w, "status", status, maxKey); err != nil {
-		return err
-	}
-	if result.Validation.Reason != "" {
-		if err := writeCredentialDotLeader(w, "reason", result.Validation.Reason, maxKey); err != nil {
-			return err
-		}
-	}
-	for _, key := range sortedAnyMapKeys(result.Validation.Metadata) {
-		if err := writeCredentialDotLeader(w, key, formatCredentialValue(result.Validation.Metadata[key]), maxKey); err != nil {
-			return err
-		}
-	}
-
-	if len(result.Validation.ComponentSets) > 0 {
+	if len(result.ComponentSets) > 0 {
 		if _, err := fmt.Fprintln(w, "│\n│ components:"); err != nil {
 			return err
 		}
-		for _, set := range result.Validation.ComponentSets {
-			icon := formatCredentialStatusIcon(set.Status, noColor)
+		for _, set := range result.ComponentSets {
+			icon := formatCredentialStatusIcon(set.Analysis.Status, noColor)
 			if _, err := fmt.Fprintf(w, "│   %s  %s\n", icon, formatCredentialComponents(set.Components)); err != nil {
 				return err
 			}
-			if set.Reason != "" {
-				if _, err := fmt.Fprintf(w, "│      reason: %s\n", set.Reason); err != nil {
+			if set.Analysis.StatusReason != "" {
+				if _, err := fmt.Fprintf(w, "│      status reason: %s\n", set.Analysis.StatusReason); err != nil {
+					return err
+				}
+			}
+			if set.Analysis.Reason != "" {
+				if _, err := fmt.Fprintf(w, "│      reason: %s\n", set.Analysis.Reason); err != nil {
 					return err
 				}
 			}
@@ -291,6 +305,30 @@ func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) err
 	}
 	_, err := fmt.Fprint(w, "└○\n\n")
 	return err
+}
+
+func writeCredentialAnalysis(w io.Writer, analysis Analysis, noColor bool) error {
+	if !analysis.IsZero() {
+		if _, err := fmt.Fprintln(w, "│\n│ analysis:"); err != nil {
+			return err
+		}
+		values := analysisDisplayValues(analysis, noColor)
+		keys := make([]string, 0, len(values))
+		width := 0
+		for key, value := range values {
+			if value != "" {
+				keys = append(keys, key)
+				width = max(width, len(key))
+			}
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if err := writeCredentialDotLeader(w, key, values[key], width); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func writeCredentialStatus(w io.Writer, status ValidationStatus, noColor bool) error {
@@ -306,7 +344,7 @@ func writeCredentialDotLeader(w io.Writer, key, value string, maxKey int) error 
 
 func formatCredentialStatus(status ValidationStatus, noColor bool) string {
 	text := strings.ToUpper(string(status))
-	return ValidationStyle(string(status), noColor).Render(text)
+	return validationStyle(string(status), noColor).Render(text)
 }
 
 func formatCredentialStatusIcon(status ValidationStatus, noColor bool) string {
@@ -323,7 +361,7 @@ func formatCredentialStatusIcon(status ValidationStatus, noColor bool) string {
 	default:
 		icon = "-"
 	}
-	return ValidationStyle(string(status), noColor).Render(icon)
+	return validationStyle(string(status), noColor).Render(icon)
 }
 
 func writeCredentialRuleListText(w io.Writer, result CredentialRuleList) error {
@@ -332,7 +370,13 @@ func writeCredentialRuleListText(w io.Writer, result CredentialRuleList) error {
 		return err
 	}
 	for _, rule := range result.Rules {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n", rule.RuleID, formatCredentialComponents(rule.Components), strings.Join(rule.Captures, ", ")); err != nil {
+		captures := append([]string(nil), rule.Captures...)
+		for _, component := range rule.Components {
+			for _, name := range component.Captures {
+				captures = append(captures, component.RuleID+":"+name)
+			}
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n", rule.RuleID, formatCredentialComponents(rule.Components), strings.Join(captures, ", ")); err != nil {
 			return err
 		}
 	}
@@ -351,16 +395,25 @@ func formatCredentialComponents(components []CredentialComponentReport) string {
 	return strings.Join(formatted, ", ")
 }
 
-func sortedAnyMapKeys(values map[string]any) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
+func formatMetadataValue(value any) string {
+	switch values := value.(type) {
+	case []string:
+		return "[" + strings.Join(values, ", ") + "]"
+	case []any:
+		items := make([]string, len(values))
+		allStrings := true
+		for i, value := range values {
+			text, ok := value.(string)
+			if !ok {
+				allStrings = false
+				break
+			}
+			items[i] = text
+		}
+		if allStrings {
+			return "[" + strings.Join(items, ", ") + "]"
+		}
 	}
-	sort.Strings(keys)
-	return keys
-}
-
-func formatCredentialValue(value any) string {
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Sprint(value)

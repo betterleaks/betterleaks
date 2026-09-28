@@ -1,18 +1,18 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CoverallsPersonalAPIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "coveralls-personal-api-token",
+		ID:          "coveralls-personal-api-token",
 		Confidence:  "medium",
 		Description: "Detected a Coveralls personal API token, which may expose repository coverage data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"coveralls"}, `[A-Za-z0-9-]{37}`, true),
 		Keywords:    []string{"coveralls"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func StripeAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "stripe-access-token",
+		ID:          "stripe-access-token",
 		Confidence:  "high",
 		Description: "Found a Stripe Access Token, posing a risk to payment processing services and sensitive financial data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`(?:sk|rk)_(?:test|live|prod)_[a-zA-Z0-9]{10,99}`, false),
@@ -30,7 +30,7 @@ func StripeAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
+		FilterExpr: `matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
 || entropy(finding["secret"]) <= 2.0`,
 	}
 
@@ -38,8 +38,8 @@ func StripeAccessToken() *config.Rule {
 	tps := utils.GenerateSampleSecrets("stripe", "sk_test_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("30"), 2))
 	tps = append(tps, utils.GenerateSampleSecrets("stripe", "sk_prod_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("99"), 2))...)
 	tps = append(tps,
-		"sk_test_51OuEMLAlTWGaDypq4P5cuDHbuKeG4tAGPYHJpEXQ7zE8mKK3jkhTFPvCxnSSK5zB5EQZrJsYdsatNmAHGgb0vSKD00GTMSWRHs", // gitleaks:allow
-		"rk_prod_51OuEMLAlTWGaDypquDn9aZigaJOsa9NR1w1BxZXs9JlYsVVkv5XDu6aLmAxwt5Tgun5WcSwQMKzQyqV16c9iD4sx00BRijuoon", // gitleaks:allow
+		"sk_test_51OuEMLAlTWGaDypq4P5cuDHbuKeG4tAGPYHJpEXQ7zE8mKK3jkhTFPvCxnSSK5zB5EQZrJsYdsatNmAHGgb0vSKD00GTMSWRHs", // betterleaks:allow
+		"rk_prod_51OuEMLAlTWGaDypquDn9aZigaJOsa9NR1w1BxZXs9JlYsVVkv5XDu6aLmAxwt5Tgun5WcSwQMKzQyqV16c9iD4sx00BRijuoon", // betterleaks:allow
 	)
 	fps := []string{
 		"nonMatchingToken := \"task_test_" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("30"), 2) + "\"",

@@ -1,29 +1,29 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func OktaAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "okta-access-token",
+		ID:          "okta-access-token",
 		Confidence:  "high",
 		Description: "Identified an Okta Access Token, which may compromise identity management services and user authentication data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`(?-i:[Oo]kta|OKTA)`}, `00[\w=\-]{40}`, false),
 		Keywords: []string{
 			"okta",
 		},
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate
 	tps := utils.GenerateSampleSecrets("okta", secrets.NewSecretWithEntropy(`00[\w=\-]{40}`, 4))
 	tps = append(tps,
-		`"oktaApiToken": "00ebObu4zSNkyc6dimLvUwq4KpTEop-PCEnnfSTpD3",`,       // gitleaks:allow
-		`			var OktaApiToken = "00fWkOjwwL9xiFd-Vfgm_ePATIRxVj852Iblbb1DS_";`, // gitleaks:allow
+		`"oktaApiToken": "00ebObu4zSNkyc6dimLvUwq4KpTEop-PCEnnfSTpD3",`,       // betterleaks:allow
+		`			var OktaApiToken = "00fWkOjwwL9xiFd-Vfgm_ePATIRxVj852Iblbb1DS_";`, // betterleaks:allow
 	)
 	fps := []string{
 		`oktaKey = 00000000000000000000000000000000000TUVWXYZ`,   // low entropy

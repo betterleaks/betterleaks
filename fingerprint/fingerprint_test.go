@@ -1,0 +1,73 @@
+package fingerprint
+
+import (
+	"errors"
+	"io"
+	"strings"
+	"testing"
+	"testing/iotest"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestFingerprint(t *testing.T) {
+	abc := Sum([]byte("abc"))
+	assert.Equal(t, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", Format(abc))
+
+	parsed, err := Parse("BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD")
+	require.NoError(t, err)
+	assert.Equal(t, abc, parsed)
+	assert.Equal(t, Format(abc), Format(parsed))
+}
+
+func TestLoad(t *testing.T) {
+	entry := Format(Sum([]byte("secret")))
+	list, diagnostics, err := Load(strings.NewReader(strings.Join([]string{
+		"",
+		"  # comment",
+		entry,
+		strings.ToUpper(entry),
+		"sha256:" + entry,
+		"sha256:abc",
+		"hmac-sha256:" + strings.Repeat("0", 64),
+		"deadbeef:path:rule:1",
+	}, "\n")))
+
+	require.NoError(t, err)
+	assert.Equal(t, []Hash{Sum([]byte("secret"))}, list)
+	require.Len(t, diagnostics, 4)
+	assert.Equal(t, []int{5, 6, 7, 8}, []int{diagnostics[0].Line, diagnostics[1].Line, diagnostics[2].Line, diagnostics[3].Line})
+}
+
+func TestLoadPreservesOrderAndReadErrors(t *testing.T) {
+	first, second := Sum([]byte("first")), Sum([]byte("second"))
+	input := "  " + Format(first) + " \r\n# comment\n" + Format(second) + "\n" + Format(first) + "\n"
+	hashes, diagnostics, err := Load(strings.NewReader(input))
+	require.NoError(t, err)
+	assert.Empty(t, diagnostics)
+	assert.Equal(t, []Hash{first, second}, hashes)
+	readErr := errors.New("read failed")
+	hashes, diagnostics, err = Load(io.MultiReader(strings.NewReader(input), iotest.ErrReader(readErr)))
+	require.ErrorIs(t, err, readErr)
+	assert.Empty(t, diagnostics)
+	assert.Equal(t, []Hash{first, second}, hashes)
+	hashes, diagnostics, err = Load(strings.NewReader("\n# empty policy\n"))
+	require.NoError(t, err)
+	assert.Empty(t, hashes)
+	assert.Empty(t, diagnostics)
+}
+
+func TestParseRejectsUnsupportedForms(t *testing.T) {
+	for _, entry := range []string{
+		"",
+		strings.Repeat("a", 63),
+		strings.Repeat("a", 65),
+		strings.Repeat("g", 64),
+		"sha256:" + strings.Repeat("a", 64),
+		"argon2id:anything",
+	} {
+		_, err := Parse(entry)
+		assert.Error(t, err, entry)
+	}
+}

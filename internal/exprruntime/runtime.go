@@ -3,21 +3,23 @@ package exprruntime
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"reflect"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/expr-lang/expr"
+	"github.com/expr-lang/expr/types"
 	"github.com/expr-lang/expr/vm"
-	tiktoken "github.com/pkoukk/tiktoken-go"
+
+	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
+	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
 )
 
-// Program is the compiled expression representation used by validation,
-// filters, and prefilters.
+// Program is the compiled representation used by filter, validation, analysis,
+// and explicit revocation expressions.
 type Program = *compiledProgram
 
 type compileMode string
@@ -26,19 +28,23 @@ const (
 	modeFilter     compileMode = "filter"
 	modePrefilter  compileMode = "prefilter"
 	modeValidation compileMode = "validation"
+	modeAnalysis   compileMode = "analysis"
+	modeRevocation compileMode = "revocation"
 )
 
 type compiledProgram struct {
-	vm                *vm.Program
-	mode              compileMode
-	tokenizer         *tiktoken.Tiktoken
-	tokenizerProvider func() *tiktoken.Tiktoken
-	bindings          bindings
+	vm                   *vm.Program
+	mode                 compileMode
+	tokenCounter         *tokenizer.Counter
+	tokenCounterProvider func() *tokenizer.Counter
+	bindings             bindings
+	attributeMatch       func(map[string]string) (bool, error)
 }
 
 var emptyStringMap = map[string]string{}
 var emptyFilterFinding = map[string]any{
 	"secret":               "",
+	"captures":             emptyStringMap,
 	"match":                "",
 	"line":                 "",
 	"rule_id":              "",
@@ -107,9 +113,12 @@ func (s *evalState) validationLimitHit() *ValidationRequestLimitHit {
 // maxResponseBody is the maximum number of bytes read from an HTTP response body.
 const maxResponseBody = 1 << 20 // 1 MB
 
-// Runtime holds compiled Expr programs and validation services (if needed).
+// Runtime holds compiled Expr programs and the provider services used by
+// validation, analysis, and explicit revocation.
 type Runtime struct {
-	client *http.Client
+	regexEngine blregexp.Engine
+	regexCache  sync.Map // pattern list -> *blregexp.Regexp; owned by this engine runtime
+	client      *http.Client
 	// validationLimiter is applied to every request made through client,
 	// including generic HTTP and typed cloud validation bindings.
 	validationLimiter *validationRequestLimiter
@@ -126,7 +135,7 @@ type Runtime struct {
 	AzureServiceBusEndpoint string
 	AllowedEnv              map[string]struct{}
 
-	tokenizerProvider func() *tiktoken.Tiktoken
+	tokenCounterProvider func() *tokenizer.Counter
 }
 
 type bindings = map[string]any
@@ -152,22 +161,29 @@ func (e *Runtime) SetValidationRequestLimits(cfg ValidationRequestLimits) error 
 	return nil
 }
 
-func (e *Runtime) SetTokenizerProvider(provider func() *tiktoken.Tiktoken) {
-	e.tokenizerProvider = provider
+func (e *Runtime) SetTokenCounterProvider(provider func() *tokenizer.Counter) {
+	e.tokenCounterProvider = provider
 }
 
 func New(httpClient *http.Client) (*Runtime, error) {
+	return NewWithRegexEngine(httpClient, nil)
+}
+
+// NewWithRegexEngine creates a runtime with an independent regex cache.
+// A nil engine selects the standard-library engine.
+func NewWithRegexEngine(httpClient *http.Client, engine blregexp.Engine) (*Runtime, error) {
 	if httpClient == nil {
 		httpClient = DefaultHTTPClient()
 	}
 	return &Runtime{
-		client: httpClient,
-		cache:  make(map[string]Program),
+		client:      httpClient,
+		regexEngine: engine,
+		cache:       make(map[string]Program),
 	}, nil
 }
 
-func (e *Runtime) CompileFilter(expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
-	return e.compile(modeFilter, expression, tokenizer)
+func (e *Runtime) CompileFilter(expression string, counter *tokenizer.Counter) (Program, error) {
+	return e.compile(modeFilter, expression, counter)
 }
 
 func (e *Runtime) CompilePrefilter(expression string) (Program, error) {
@@ -178,19 +194,19 @@ func (e *Runtime) CompileValidation(expression string) (Program, error) {
 	return e.compile(modeValidation, expression, nil)
 }
 
-func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktoken.Tiktoken) (Program, error) {
-	exprText := expression
-	if NeedsCELCompat(expression) {
-		var err error
-		exprText, err = RewriteCELCompat(expression)
-		if err != nil {
-			return nil, err
-		}
-	}
+func (e *Runtime) CompileAnalysis(expression string) (Program, error) {
+	return e.compile(modeAnalysis, expression, nil)
+}
 
+// CompileRevocation checks an explicit revocation expression without executing it.
+func (e *Runtime) CompileRevocation(expression string) (Program, error) {
+	return e.compile(modeRevocation, expression, nil)
+}
+
+func (e *Runtime) compile(mode compileMode, expression string, counter *tokenizer.Counter) (Program, error) {
 	// One Runtime compiles all expression types. The mode is part of the cache key
-	// because filter, prefilter, and validation expose different bindings.
-	cacheKey := compileCacheKey(mode, exprText, tokenizer)
+	// because each expression kind exposes a different binding contract.
+	cacheKey := compileCacheKey(mode, expression, counter)
 	e.mu.RLock()
 	if prg, ok := e.cache[cacheKey]; ok {
 		e.mu.RUnlock()
@@ -198,20 +214,27 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 	}
 	e.mu.RUnlock()
 
-	b, options := e.compileBindings(mode, tokenizer)
-	vmPrg, err := expr.Compile(exprText, append([]expr.Option{expr.Env(b)}, options...)...)
-	if err != nil {
-		if exprText != expression {
-			return nil, fmt.Errorf("%s expr compile error: %w\noriginal expression:\n%s\ncompat expression:\n%s", mode, err, expression, exprText)
+	b, options := e.compileBindings(mode, counter)
+	env := compileEnv(b)
+	if mode == modeValidation || mode == modeAnalysis || mode == modeRevocation {
+		env["finding"] = types.Map{
+			"secret": types.String, "rule_id": types.String,
+			"captures": types.Map{types.Extra: types.Any},
 		}
+	}
+	vmPrg, err := expr.Compile(expression, append([]expr.Option{expr.Env(env)}, options...)...)
+	if err != nil {
 		return nil, fmt.Errorf("%s expr compile error: %w", mode, err)
 	}
 	prg := &compiledProgram{
-		vm:                vmPrg,
-		mode:              mode,
-		tokenizer:         tokenizer,
-		tokenizerProvider: e.tokenizerProvider,
-		bindings:          programBindings(mode, b),
+		vm:                   vmPrg,
+		mode:                 mode,
+		tokenCounter:         counter,
+		tokenCounterProvider: e.tokenCounterProvider,
+		bindings:             programBindings(mode, b),
+	}
+	if mode == modePrefilter {
+		prg.attributeMatch = e.compileAttributeMatch(vmPrg.Node())
 	}
 
 	e.mu.Lock()
@@ -220,12 +243,37 @@ func (e *Runtime) compile(mode compileMode, expression string, tokenizer *tiktok
 	return prg, nil
 }
 
-func compileCacheKey(mode compileMode, exprText string, tokenizer *tiktoken.Tiktoken) string {
+func compileCacheKey(mode compileMode, exprText string, counter *tokenizer.Counter) string {
 	key := string(mode) + "\x00" + exprText
 	if mode == modeFilter {
-		key += fmt.Sprintf("\x00%p", tokenizer)
+		key += fmt.Sprintf("\x00%p", counter)
 	}
 	return key
+}
+
+// Function namespaces have a closed set of members and known signatures.
+// Keep input maps dynamic: providers and sources supply their keys at runtime.
+func compileEnv(b bindings) types.Map {
+	env := make(types.Map, len(b))
+	for name, value := range b {
+		if namespace, ok := value.(map[string]any); ok && len(namespace) > 0 {
+			members := make(types.Map, len(namespace))
+			for member, function := range namespace {
+				functionType := reflect.TypeOf(function)
+				if functionType == nil || functionType.Kind() != reflect.Func {
+					members = nil
+					break
+				}
+				members[member] = types.TypeOf(function)
+			}
+			if members != nil {
+				env[name] = members
+				continue
+			}
+		}
+		env[name] = types.TypeOf(value)
+	}
+	return env
 }
 
 func programBindings(mode compileMode, b bindings) bindings {
@@ -237,16 +285,28 @@ func programBindings(mode compileMode, b bindings) bindings {
 	}
 }
 
-func (e *Runtime) compileBindings(mode compileMode, tokenizer *tiktoken.Tiktoken) (bindings, []expr.Option) {
+func (e *Runtime) compileBindings(mode compileMode, counter *tokenizer.Counter) (bindings, []expr.Option) {
 	switch mode {
 	case modeFilter:
-		return filterBindings(tokenizer, emptyFilterFinding, emptyStringMap), []expr.Option{expr.AsBool()}
+		return e.filterBindings(counter, emptyFilterFinding, emptyStringMap), []expr.Option{expr.AsBool()}
 	case modePrefilter:
-		return prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
-	default:
+		return e.prefilterBindings(emptyStringMap), []expr.Option{expr.AsBool()}
+	case modeValidation:
 		b := e.validationBindings(context.Background(), nil, nil, nil, nil, nil)
 		setCompileMaps(b)
 		return b, []expr.Option{expr.WithContext("ctx")}
+	case modeAnalysis:
+		b := e.validationBindings(context.Background(), nil, nil, nil, nil, nil)
+		setCompileMaps(b)
+		b["validation"] = emptyValidationMap()
+		b["analysis"] = analysisNamespace()
+		return b, []expr.Option{expr.WithContext("ctx")}
+	case modeRevocation:
+		b := e.revocationBindings(context.Background(), nil, nil, nil, nil)
+		setCompileMaps(b)
+		return b, []expr.Option{expr.WithContext("ctx")}
+	default:
+		panic(fmt.Sprintf("unsupported expression mode %q", mode))
 	}
 }
 
@@ -264,14 +324,15 @@ func (e *Runtime) EvalFilter(prg Program, finding map[string]any, attributes map
 	b["attributes"] = attributes
 	if rt, ok := b["__runtime"].(*runtimeBindings); ok {
 		rt.attrs = attributes
-		filter := filterNamespace(rt)
-		filter["setConfidence"] = rt.setConfidence
-		b["filter"] = filter
+		b["setConfidence"] = rt.setConfidence
 	}
 	return runBool(prg, b, "filter")
 }
 
 func (e *Runtime) EvalPrefilter(prg Program, attributes map[string]string) (bool, error) {
+	if prg.attributeMatch != nil {
+		return prg.attributeMatch(attributes)
+	}
 	b := prg.evalBindings()
 	b["attributes"] = nonNilStringMap(attributes)
 	return runBool(prg, b, "prefilter")
@@ -283,11 +344,11 @@ func (prg Program) evalBindings() bindings {
 		if rt, ok := b["__runtime"].(*runtimeBindings); ok {
 			rtCopy := *rt
 			rt = &rtCopy
-			rt.tokenizer = prg.tokenizer
-			rt.tokenizerProvider = prg.tokenizerProvider
+			rt.tokenCounter = prg.tokenCounter
+			rt.tokenCounterProvider = prg.tokenCounterProvider
 			b["__runtime"] = rt
-			b["filter"] = filterNamespace(rt)
 			b["failsTokenEfficiency"] = rt.failsTokenEfficiency
+			b["tokenRatio"] = rt.tokenRatio
 		}
 		return b
 	}
@@ -296,9 +357,7 @@ func (prg Program) evalBindings() bindings {
 
 func cloneBindings(src bindings) bindings {
 	dst := make(bindings, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
+	maps.Copy(dst, src)
 	return dst
 }
 
@@ -341,21 +400,66 @@ func (e *Runtime) EvalValidation(ctx context.Context, prg Program, finding, capt
 // EvalValidationWithComponents evaluates a validation program with structured
 // component findings isolated from the primary rule's named capture groups.
 func (e *Runtime) EvalValidationWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, opts EvalOptions) (EvalResult, error) {
+	if prg != nil && prg.mode == modeRevocation {
+		return EvalResult{}, fmt.Errorf("revocation programs require explicit revocation execution")
+	}
+	return e.evalProviderProgram(ctx, prg, finding, captures, components, attributes, nil, opts)
+}
+
+// EvalAnalysisWithComponents evaluates an analysis program with the successful
+// validation result that authorized the analysis stage.
+func (e *Runtime) EvalAnalysisWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation map[string]any, opts EvalOptions) (EvalResult, error) {
+	if prg != nil && prg.mode == modeRevocation {
+		return EvalResult{}, fmt.Errorf("revocation programs require explicit revocation execution")
+	}
+	if validation == nil {
+		validation = emptyValidationMap()
+	}
+	return e.evalProviderProgram(ctx, prg, finding, captures, components, attributes, validation, opts)
+}
+
+// EvalRevocationWithComponents is deliberately separate from scan-time evaluation.
+func (e *Runtime) EvalRevocationWithComponents(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, opts EvalOptions) (EvalResult, error) {
+	if prg == nil || prg.mode != modeRevocation {
+		return EvalResult{}, fmt.Errorf("expected a revocation program")
+	}
+	return e.evalProviderProgram(ctx, prg, finding, captures, components, nil, nil, opts)
+}
+
+func (e *Runtime) evalProviderProgram(ctx context.Context, prg Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation map[string]any, opts EvalOptions) (EvalResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	state := &evalState{debug: opts.Debug}
 	ctx = context.WithValue(ctx, validationRequestContextKey{}, &validationRequestContext{
-		ruleID: lookupString(finding, "rule_id"),
+		ruleID: finding["rule_id"],
 		state:  state,
 	})
-	b := e.validationBindings(ctx, finding, captures, components, attributes, state)
+	var b bindings
+	if prg.mode == modeRevocation {
+		b = e.revocationBindings(ctx, finding, captures, components, state)
+	} else {
+		b = e.validationBindings(ctx, finding, captures, components, attributes, state)
+	}
+	if validation != nil {
+		b["validation"] = validation
+		b["analysis"] = analysisNamespace()
+	}
 	val, err := expr.Run(prg.vm, b)
 	return EvalResult{
 		Value:           val,
 		Debug:           state.meta,
 		RequestLimitHit: state.validationLimitHit(),
 	}, err
+}
+
+func emptyValidationMap() map[string]any {
+	return map[string]any{
+		"status":   "",
+		"reason":   "",
+		"metadata": map[string]any{},
+		"analysis": map[string]any{},
+	}
 }
 
 func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[string]string, components map[string]any, attributes map[string]string, state *evalState) bindings {
@@ -365,45 +469,40 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 	if captures == nil {
 		captures = emptyStringMap
 	}
-	if components == nil {
-		components = map[string]any{}
+	componentInputs := make(map[string]any, len(components))
+	for id, value := range components {
+		component, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		captures := component["captures"]
+		if strings, ok := captures.(map[string]string); ok {
+			captures = captureBindings(strings)
+		}
+		componentInputs[id] = map[string]any{"secret": component["secret"], "captures": captures}
 	}
-	if attributes == nil {
-		attributes = emptyStringMap
+	components = componentInputs
+	findingWithCaptures := map[string]any{
+		"secret": finding["secret"], "rule_id": finding["rule_id"], "captures": captureBindings(captures),
 	}
-	findingWithCaptures := make(map[string]any, len(finding)+1)
-	for key, value := range finding {
-		findingWithCaptures[key] = value
-	}
-	findingWithCaptures["captures"] = captures
-	legacyCaptures := legacyValidationCaptures(captures, components)
+
 	rt := &runtimeBindings{
 		validation: e,
 		ctx:        ctx,
-		tokenizer:  nil,
 		finding:    findingWithCaptures,
-		attrs:      attributes,
-		captures:   legacyCaptures,
 		components: components,
 		debug:      state,
 	}
-	b := baseBindings(rt)
+	b := e.baseBindings(rt)
+	delete(b, "attributes")
 	b["ctx"] = rt.ctx
 	b["finding"] = rt.finding
-	b["captures"] = rt.captures
 	b["components"] = rt.components
-	b["secret"] = lookupString(rt.finding, "secret")
 	b["bytes"] = func(s string) []byte { return []byte(s) }
-	b["size"] = size
-	b["substring"] = substring
-	b["lastIndexOf"] = strings.LastIndex
-	b["replace"] = strings.ReplaceAll
 	b["http"] = httpNamespace(rt)
 	b["env"] = envNamespace(rt)
-	b["env_get"] = rt.envGet
 	b["strings"] = stringsNamespace()
 	b["validate"] = validateNamespace()
-	b["json"] = jsonNamespace()
 	b["crypto"] = cryptoNamespace()
 	b["hex"] = hexNamespace()
 	b["base64"] = base64Namespace()
@@ -411,61 +510,21 @@ func (e *Runtime) validationBindings(ctx context.Context, finding, captures map[
 	b["aws"] = awsNamespace(rt)
 	b["gcp"] = gcpNamespace(rt)
 	b["azure"] = azureNamespace(rt)
-	b["unknown"] = unknownResult
-	b["obfuscate"] = func(s string) (string, error) { return obfuscate(s), nil }
 	return b
 }
 
-// legacyValidationCaptures preserves the v1 composite-validation contract at
-// the top-level captures binding. New expressions should use finding["captures"]
-// for primary named groups and components for component data. The overloaded
-// binding can be removed in a future breaking release.
-func legacyValidationCaptures(primary map[string]string, components map[string]any) map[string]string {
-	if len(components) == 0 {
-		return primary
-	}
-
-	legacy := make(map[string]string, len(primary)+len(components)*2)
-	for name, value := range primary {
-		legacy[name] = value
-	}
-	for ruleID, raw := range components {
-		component, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		if secret, ok := component["secret"].(string); ok {
-			legacy[ruleID] = secret
-		}
-		switch captures := component["captures"].(type) {
-		case map[string]string:
-			for name, value := range captures {
-				legacy[ruleID+":"+name] = value
-			}
-		case map[string]any:
-			for name, rawValue := range captures {
-				if value, ok := rawValue.(string); ok {
-					legacy[ruleID+":"+name] = value
-				}
-			}
-		}
-	}
-	return legacy
-}
-
 type runtimeBindings struct {
-	validation        *Runtime
-	ctx               context.Context
-	tokenizer         *tiktoken.Tiktoken
-	tokenizerProvider func() *tiktoken.Tiktoken
-	finding           any
-	attrs             any
-	captures          any
-	components        any
-	debug             *evalState
+	validation           *Runtime
+	ctx                  context.Context
+	tokenCounter         *tokenizer.Counter
+	tokenCounterProvider func() *tokenizer.Counter
+	finding              any
+	attrs                any
+	components           any
+	debug                *evalState
 }
 
-func baseBindings(rt *runtimeBindings) bindings {
+func (e *Runtime) baseBindings(rt *runtimeBindings) bindings {
 	if rt.ctx == nil {
 		rt.ctx = context.Background()
 	}
@@ -475,12 +534,14 @@ func baseBindings(rt *runtimeBindings) bindings {
 
 	rtb := bindings{
 		"attributes":           rt.attrs,
-		"get":                  getDefault,
-		"filter":               filterNamespace(rt),
-		"matchesAny":           matchesAny,
-		"containsAny":          containsAny,
-		"entropy":              shannonEntropy,
+		"findMatch":            e.findMatch,
+		"intersects":           intersects,
 		"failsTokenEfficiency": rt.failsTokenEfficiency,
+		"tokenRatio":           rt.tokenRatio,
+		"matchesAny":           e.matchesAny,
+		"containsAny":          containsAny,
+		"startsWithAny":        startsWithAny,
+		"entropy":              shannonEntropy,
 	}
 	rtb["__runtime"] = rt
 	return rtb
@@ -488,10 +549,7 @@ func baseBindings(rt *runtimeBindings) bindings {
 
 func setCompileMaps(b bindings) {
 	b["finding"] = map[string]any{"captures": map[string]any{}}
-	b["attributes"] = map[string]any{}
-	b["captures"] = map[string]any{}
 	b["components"] = map[string]any{}
-	b["secret"] = ""
 }
 
 func nonNilStringMap(m map[string]string) map[string]string {
@@ -501,100 +559,34 @@ func nonNilStringMap(m map[string]string) map[string]string {
 	return m
 }
 
-func filterBindings(tokenizer *tiktoken.Tiktoken, finding map[string]any, attributes map[string]string) bindings {
-	rt := &runtimeBindings{tokenizer: tokenizer, attrs: attributes}
-	b := baseBindings(rt)
-	b["filter"].(map[string]any)["setConfidence"] = rt.setConfidence
+func (e *Runtime) filterBindings(counter *tokenizer.Counter, finding map[string]any, attributes map[string]string) bindings {
+	rt := &runtimeBindings{tokenCounter: counter, attrs: attributes}
+	b := e.baseBindings(rt)
+	b["setConfidence"] = rt.setConfidence
 	b["finding"] = finding
+	b["crypto"] = map[string]any{"sha256": sha256Fingerprint}
 	return b
 }
 
-func prefilterBindings(attributes map[string]string) bindings {
-	return baseBindings(&runtimeBindings{attrs: attributes})
-}
-
-func size(v any) int {
-	switch x := v.(type) {
-	case string:
-		return len(x)
-	case []any:
-		return len(x)
-	case []string:
-		return len(x)
-	case []byte:
-		return len(x)
-	case map[string]any:
-		return len(x)
-	case map[string]string:
-		return len(x)
-	default:
-		return 0
+func (e *Runtime) prefilterBindings(attributes map[string]string) bindings {
+	return bindings{
+		"attributes":    attributes,
+		"matchesAny":    e.matchesAny,
+		"containsAny":   containsAny,
+		"startsWithAny": startsWithAny,
 	}
-}
-
-func substring(s string, start int) string {
-	if start < 0 {
-		start = 0
-	}
-	if start > len(s) {
-		return ""
-	}
-	return s[start:]
-}
-
-func lookupString(container any, key string) string {
-	if v, ok := lookup(container, key); ok {
-		s, ok := v.(string)
-		if ok {
-			return s
-		}
-	}
-	return ""
-}
-
-func getDefault(container any, key string, fallback any) any {
-	if v, ok := lookup(container, key); ok && v != nil {
-		return v
-	}
-	return fallback
-}
-
-func lookup(container any, key string) (any, bool) {
-	switch m := container.(type) {
-	case map[string]any:
-		v, ok := m[key]
-		return v, ok
-	case map[string]string:
-		v, ok := m[key]
-		return v, ok
-	case []any:
-		i, err := strconv.Atoi(key)
-		if err != nil || i < 0 || i >= len(m) {
-			return nil, false
-		}
-		return m[i], true
-	default:
-		rv := reflect.ValueOf(container)
-		if rv.Kind() == reflect.Map && rv.Type().Key().Kind() == reflect.String {
-			v := rv.MapIndex(reflect.ValueOf(key))
-			if v.IsValid() {
-				return v.Interface(), true
-			}
-		}
-	}
-	return nil, false
 }
 
 func (rt *runtimeBindings) envGet(name string) (string, error) {
 	e := rt.validation
 	if e == nil {
-		return "", fmt.Errorf("env: validation environment unavailable")
+		return "", fmt.Errorf("env: provider environment unavailable")
 	}
 	if len(e.AllowedEnv) == 0 {
-		return "", fmt.Errorf("env: no validation env allowlist configured (use --validation-env-vars)")
+		return "", fmt.Errorf("env: no provider env allowlist configured (use --provider-env-vars)")
 	}
 	if _, ok := e.AllowedEnv[name]; !ok {
-		return "", fmt.Errorf("env: %q not in validation env allowlist", name)
+		return "", fmt.Errorf("env: %q not in provider env allowlist", name)
 	}
 	return os.Getenv(name), nil
 }
@@ -611,4 +603,14 @@ func (rt *runtimeBindings) envGetOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// Capture maps use interface values so missing names are nil in Expr. That
+// preserves optional access and null-coalescing semantics for absent captures.
+func captureBindings(captures map[string]string) map[string]any {
+	values := make(map[string]any, len(captures))
+	for name, value := range captures {
+		values[name] = value
+	}
+	return values
 }

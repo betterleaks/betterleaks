@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ElevenLabs() *config.Rule {
 	r := config.Rule{
-		RuleID:      "elevenlabs-api-key",
+		ID:          "elevenlabs-api-key",
 		Confidence:  "high",
 		Description: "Detected an ElevenLabs API Key, which may expose AI voice synthesis services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"elevenlabs"}, `sk_[0-9a-f]{48}`, true),
 		Keywords:    []string{"elevenlabs"},
-		Filter:      `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("elevenlabs", "sk_"+secrets.NewSecretWithEntropy(utils.Hex("48"), 3.5))

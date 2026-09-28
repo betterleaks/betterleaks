@@ -3,10 +3,94 @@ package rules
 import (
 	"fmt"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
+
+const huggingFaceValidateExpr = `let r = http.get("https://huggingface.co/api/whoami-v2", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); r.status == 200 ? {
+    "result": "valid",
+    "analysis": {
+      "id": (r.json?.id ?? ""),
+      "username": (r.json?.name ?? ""),
+      "name": (r.json?.fullname ?? ""),
+      "email": (r.json?.email ?? ""),
+      "orgs": (r.json?.orgs ?? []),
+      "auth": (r.json?.auth ?? {})
+    }
+  } : r.status == 401 && (r.body contains "expired") ? {
+    "result": "revoked",
+    "reason": "Token expired"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`
+
+// whoami-v2 returns token grants, including their resource scopes. Organization
+// policies and the owner's access can restrict their use further. Membership
+// alone does not establish fine-grained access.
+// https://huggingface.co/.well-known/openapi.json
+// https://huggingface.co/docs/hub/security-tokens
+// Permission names: Hugging Face's FineGrainedToken/ViewUtils definitions.
+// Inference invocation is not a data write, and configuring secrets does not
+// establish the ability to read secret values.
+const huggingFaceAnalyzeExpr = `let input = validation.analysis;
+let auth = input["auth"] ?? {};
+let access_token = auth["accessToken"] ?? {};
+let role = access_token["role"] ?? "";
+let orgs = input["orgs"] ?? [];
+let fine_grained = role == "fineGrained" ? (access_token["fineGrained"] ?? {}) : {};
+let global = fine_grained["global"] ?? [];
+let scoped = fine_grained["scoped"] ?? [];
+let permissions = sort(uniq(concat(global, flatten(map(scoped, {#.permissions ?? []})))));
+let gated = fine_grained["canReadGatedRepos"] ?? false;
+let capabilities = analysis.capabilities({
+  "read": role in ["read", "write"] || gated || any(permissions, {# in [
+    "repo.read", "repo.content.read", "repo.content.metadata.read", "repo.lfs.read",
+    "repo.config.read", "repo.access.read", "collection.read", "org.read", "org.members.read",
+    "user.billing.read", "user.notifications.read", "user.membership.read",
+    "inference.endpoints.read", "job.read"
+  ]}),
+  "write": role == "write" || any(permissions, {# in [
+    "repo.write", "repo.content.write", "repo.config.write", "repo.config.doi.write",
+    "repo.config.visibility.write", "repo.config.variables.write", "repo.config.secrets.write",
+    "repo.access.write", "discussion.write", "post.write", "collection.write",
+    "inference.endpoints.write", "job.write"
+  ]}),
+  "manage_users": any(permissions, {# in ["org.write", "org.members.write"]})
+});
+{
+  "reason": len(capabilities) > 0 ? "" : "Hugging Face returned no recognized permission grants",
+  "metadata": role == "fineGrained" ? {
+    "role": role,
+    "token_name": access_token["displayName"] ?? "",
+    "permissions": permissions
+  } : (role == "" ? {} : {"role": role}),
+  "identity": {
+    "id": string(input["id"] ?? ""),
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? "",
+    "account": role != "fineGrained" && len(orgs) == 1 ? {
+      "id": string(orgs[0]?.id ?? ""),
+      "name": orgs[0]?.name ?? ""
+    } : {}
+  },
+  "capabilities": capabilities
+}`
+
+// The provider documents immediate, global invalidation of matching tokens on
+// 202, while deliberately not disclosing whether the submitted token existed.
+// https://huggingface.co/docs/hub/security-tokens#revoking-a-leaked-token
+const huggingFaceRevokeExpr = `let r = http.post("https://huggingface.co/api/credentials/revoke", {
+  "Content-Type": "application/json"
+}, toJSON({"credentials": [finding["secret"]]}));
+r.status == 202 ? {
+  "result": "revoked",
+  "reason": "Hugging Face invalidated any matching token; prior token validity is not disclosed"
+} : revoke.unknown(r)`
 
 // Reference: https://huggingface.co/docs/hub/security-tokens
 //
@@ -15,26 +99,17 @@ import (
 func HuggingFaceAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "huggingface-access-token",
+		ID:          "huggingface-access-token",
 		Confidence:  "high",
 		Description: "Discovered a Hugging Face Access token, which could lead to unauthorized access to AI models and sensitive data.",
 		Regex:       utils.GenerateUniqueTokenRegex("hf_(?i:[a-z]{34})", false),
 		Keywords: []string{
 			"hf_",
 		},
-		ValidateExpr: `let r = http.get("https://huggingface.co/api/whoami-v2", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 ? {
-    "result": "valid",
-    "username": (r.json?.name ?? "")
-  } : r.status == 401 && (r.body contains "expired") ? {
-    "result": "revoked",
-    "reason": "Token expired"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		ValidateExpr: huggingFaceValidateExpr,
+		AnalyzeExpr:  huggingFaceAnalyzeExpr,
+		RevokeExpr:   huggingFaceRevokeExpr,
+		FilterExpr:   `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -83,26 +158,17 @@ func HuggingFaceAccessToken() *config.Rule {
 func HuggingFaceOrganizationApiToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "huggingface-organization-api-token",
+		ID:          "huggingface-organization-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a Hugging Face Organization API token, potentially compromising AI organization accounts and associated data.",
 		Regex:       utils.GenerateUniqueTokenRegex("api_org_(?i:[a-z]{34})", false),
 		Keywords: []string{
 			"api_org_",
 		},
-		ValidateExpr: `let r = http.get("https://huggingface.co/api/whoami-v2", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 ? {
-    "result": "valid",
-    "username": (r.json?.name ?? "")
-  } : r.status == 401 && (r.body contains "expired") ? {
-    "result": "revoked",
-    "reason": "Token expired"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		ValidateExpr: huggingFaceValidateExpr,
+		AnalyzeExpr:  huggingFaceAnalyzeExpr,
+		RevokeExpr:   huggingFaceRevokeExpr,
+		FilterExpr:   `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

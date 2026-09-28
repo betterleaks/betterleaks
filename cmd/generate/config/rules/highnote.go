@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 const highnoteLiveValidationExpr = `let r = http.post("https://api.us.highnote.com/graphql", {
@@ -20,7 +20,7 @@ const highnoteLiveValidationExpr = `let r = http.post("https://api.us.highnote.c
 func HighnoteSecretLiveKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "highnote-secret-live-key",
+		ID:          "highnote-secret-live-key",
 		Confidence:  "high",
 		Description: "Highnote secret API key for the live environment.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -30,7 +30,7 @@ func HighnoteSecretLiveKey() *config.Rule {
 		),
 		Keywords:     []string{"highnote"},
 		ValidateExpr: highnoteLiveValidationExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	// validate

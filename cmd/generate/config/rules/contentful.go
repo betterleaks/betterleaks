@@ -1,21 +1,21 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Contentful() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Discovered a Contentful delivery API token, posing a risk to content management systems and data integrity.",
-		RuleID:      "contentful-delivery-api-token",
+		ID:          "contentful-delivery-api-token",
 		Confidence:  "medium",
 		Regex: utils.GenerateSemiGenericRegex([]string{"contentful"},
 			utils.AlphaNumericExtended("43"), true),
-		Keywords: []string{"contentful"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Keywords:   []string{"contentful"},
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CursorAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cursor-api-key",
+		ID:          "cursor-api-key",
 		Confidence:  "medium",
 		Description: "Detected a Cursor Integrations API Key, which may expose AI-assisted development services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"cursor"}, `key_[0-9a-f]{64}`, true),
@@ -22,7 +22,7 @@ func CursorAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("cursor", "key_"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3.5))

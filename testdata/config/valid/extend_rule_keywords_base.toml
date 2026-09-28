@@ -8,5 +8,3 @@ title = "gitleaks extended 3"
     regex = '''(?i)aws_(.{0,20})?=?.[\'\"0-9a-zA-Z\/+]{40}'''
     tags = ["key", "AWS"]
     keywords = ["AWS"]
-[[rules.allowlists]]
-    stopwords = ["fake"]

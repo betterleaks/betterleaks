@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func InstantlyAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "instantly-api-key.1",
+		ID:          "instantly-api-key.1",
 		Confidence:  "medium",
 		Description: "Instantly API key, which may allow access to campaigns, accounts, leads, and analytics.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"instantly"}, `[A-Za-z0-9+/]{66}==`, false),
@@ -25,7 +25,7 @@ func InstantlyAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.3),
+		FilterExpr: utils.MinEntropy(3.3),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{66}`, 3.3) + "=="

@@ -14,15 +14,21 @@ Development is supported by
 
 | Feature | Description |
 | :--- | :--- |
-| **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. If you're coming from Gitleaks, think of this feature as a more expressive `[[allowlist]]` system. |
+| **Simple Prioritization** | Rank by confidence, validation status, and analyzed severity scores to make triage as simple as 123. |
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using Expr. |
-| **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
+| **Secrets Analysis** | Enrich valid credentials with provider-neutral identity, account, capability, and severity information. |
+| **Secrets Revocation** | Optionally revoke secrets. |
+| **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. |
+| **BPE filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
 
 
 ### Installation
+
+Upgrading from v1? See the [v2 migration guide](docs/v2_migration.md) for CLI, config, report, and SDK changes.
+
 ```
 # Package managers
 brew install betterleaks
@@ -35,7 +41,7 @@ sudo dnf install betterleaks
 docker pull ghcr.io/betterleaks/betterleaks:latest
 
 # Go
-go install github.com/betterleaks/betterleaks@latest
+go install github.com/betterleaks/betterleaks/v2@latest
 
 # Source
 git clone https://github.com/betterleaks/betterleaks
@@ -45,11 +51,24 @@ make build
 
 ### Usage
 ```
-# Scan Git
-betterleaks git /path/to/repo -v --source-workers=16
+# Scan the filesystem
+betterleaks /path/to/target
+# Equivalent explicit command
+betterleaks filesystem /path/to/target
+# Short command alias
+betterleaks fs /path/to/target
+# Flags may also precede the command
+betterleaks --offline --no-banner fs /path/to/target
 
-# Scan local filesystem
-betterleaks dir /path/to/file/or/dir -v
+# Scan a git repo
+betterleaks git /path/to/repo
+
+# Automatically detect a remote repository and scan its history
+betterleaks https://github.com/betterleaks/betterleaks
+# The default command can also be named explicitly
+betterleaks auto https://github.com/betterleaks/betterleaks
+# Explicitly download and scan a web response (without crawling)
+betterleaks url https://example.com/config.txt --offline
 
 # Scan GitHub org
 betterleaks github https://github.com/betterleaks
@@ -76,25 +95,87 @@ betterleaks s3 https://commoncrawl.s3.us-east-1.amazonaws.com/crawl-data/CC-MAIN
 betterleaks s3 'https://<account-id>.r2.cloudflarestorage.com/*'
 
 # Scan stdin
-cat some_file.txt | betterleaks stdin -v
+cat some_file.txt | betterleaks stdin
 
 # Revalidate a known credential without running detection
-printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat
+
+# Find rule IDs that support credential analysis
+betterleaks config show ids --analysis
+
+# Validate it and resolve identity and permissions
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks analyze --rule github-pat
 
 # Print only its status (for example, VALID)
-printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule-id github-pat --simple
+printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat --simple
 ```
 
-For more advanced scanning examples check out the [scanning doc](docs/scanning.md).
+`-j` / `--jobs` controls detection concurrency only. Sources manage their own
+bounded reads and downloads; Git uses one history stream when `--log-opts` is
+provided. See [parallel jobs](docs/scanning.md#parallel-jobs)
+and the [scanning guide](docs/scanning.md) for details and more examples.
+
+Rules may also define an optional `revoke` Expr for explicit credential revocation.
+Use `betterleaks config show ids --revocation` to find configured support and
+`betterleaks revoke --rule <id>` to execute it. Scans never run revocation.
+See the [revocation guide](docs/config.md#explicit-credential-revocation).
+
+### Go SDK
+
+Betterleaks can also be embedded as a Go library. Scanners and analyzers are silent by
+default and safe to reuse across scans.
+
+```sh
+go get github.com/betterleaks/betterleaks/v2
+```
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/scan"
+)
+
+func main() {
+	cfg, err := config.Default()
+	if err != nil {
+		panic(err)
+	}
+	scanner, err := scan.New(cfg)
+	if err != nil {
+		panic(err)
+	}
+
+	const token = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5" // betterleaks:allow
+	for _, finding := range scanner.ScanString("GITHUB_TOKEN=" + token) {
+		fmt.Println(finding.RuleID)
+	}
+}
+```
+
+See the [examples directory](examples/) for runnable SDK examples covering custom configuration, analysis, regex engines, and concurrent scanning.
+
+See the [`scan` package documentation](https://pkg.go.dev/github.com/betterleaks/betterleaks/v2/scan)
+for complete default-config and custom-config examples.
 
 ### Configuration
 
-Betterleaks' strength comes from its expressive configuration. Filtering and validation logic are defined as [Expr](https://expr-lang.org). Previously this logic was implemented in CEL; existing CEL-shaped configs are still accepted for compatibility, but new configs should use Expr. `prefilter`s run before any regex matching occurs and only have access to the `attributes` map. `attributes` describe a resource like a git patch. Use `prefilter`s to quickly bail out before more expensive scanning happens. `filter`s, on the other hand, get evaluated post-regex match and have access to the `attributes` map and candidate `finding` data like `finding["secret"]` or `finding["match"]`.
+Betterleaks' strength comes from its expressive configuration. Filtering,
+validation, and analysis logic are defined as [Expr](https://expr-lang.org).
+`prefilter`s run before any regex matching occurs and only have access to the
+`attributes` map. `attributes` describe a resource like a git patch. Use
+`prefilter`s to quickly bail out before more expensive scanning happens.
+`filter`s, on the other hand, get evaluated post-regex match and have access to
+the `attributes` map and candidate `finding` data like `finding["secret"]` or
+`finding["match"]`.
 
 ```toml
 # Global prefilter, it runs before expensive regex calls
 prefilter = '''
-filter.matchesAny(attributes["path"], [
+matchesAny(attributes["path"], [
   `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff|pdf|exe)$`,
   `(?:^|/)node_modules(?:/.*)?$`,
   `(?:^|/)vendor(?:/.*)?$`
@@ -104,7 +185,7 @@ filter.matchesAny(attributes["path"], [
 
 # Global filter, it runs for _every_ candidate secret.
 filter = '''
-filter.containsAny(finding["secret"], [
+containsAny(finding["secret"], [
   "EXAMPLE",
   "CHANGEME",
   "YOUR_API_KEY_HERE",
@@ -114,19 +195,19 @@ filter.containsAny(finding["secret"], [
 
 # An array of tables that contain data on how to detect secrets
 [[rules]]
-id = "github-fine-grained-pat"
-description = "GitHub Fine-Grained Personal Access Token, risking unauthorized repo access."
-regex = '''github_pat_\w{82}'''
-keywords = ["github_pat_"]
+id = "github-pat"
+description = "GitHub Personal Access Token, risking unauthorized repository access."
+regex = '''ghp_[0-9a-zA-Z]{36}'''
+keywords = ["ghp_"]
 
 # Rule-level filter
 filter = '''
 (
     attributes["git.author_name"] == "ci-runner" &&
-    filter.matchesAny(attributes["path"], [`^mocks/`]) &&
+    matchesAny(attributes["path"], [`^mocks/`]) &&
     finding["secret"] contains "TESTING"
 )
-|| (filter.entropy(finding["secret"]) <= 3.0)
+|| (entropy(finding["secret"]) <= 3.0)
 '''
 
 # Post-match-and-filter async validation check
@@ -137,13 +218,42 @@ let r = http.get("https://api.github.com/user", {
   });
 r.status == 200 && (r.json?.login ?? "") != "" ? {
     "result": "valid",
-    "username": r.json?.login ?? "",
-    "name": r.json?.name ?? "",
-    "scopes": get(r.headers, "x-oauth-scopes", "")
+    "analysis": {
+      "id": string(r.json?.id ?? ""),
+      "username": r.json?.login ?? "",
+      "scopes": strings.splitTrim(r.headers["x-oauth-scopes"] ?? "", ",")
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+
+# Analyze valid credentials using data returned by validation
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "username": input["username"] ?? ""
+  },
+  "metadata": {"scopes": scopes},
+  "capabilities": analysis.capabilities({
+    "read": matchesAny(scopes, [
+      "^read:",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|security_events|user(?::email)?)$"
+    ]),
+    "write": matchesAny(scopes, [
+      "^write:",
+      "^delete:packages$",
+      "^(?:gist|notifications|project|public_repo|repo(?::status)?|repo_deployment|workflow)$"
+    ]),
+    "create_credentials": matchesAny(scopes, [
+      "^admin:(?:gpg_key|public_key|ssh_signing_key)$"
+    ])
+  })
+}
 '''
 ```
 
@@ -153,6 +263,9 @@ through `components["rule-id"]?.secret ?? ""` or
 available through `finding["captures"]`.
 
 Refer to the default [betterleaks config](https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml) for examples and the [config docs](docs/config.md) for more information about the `betterleaks.toml` config. If you're using Betterleaks in production, it is recommended you maintain your own config instead of extending the upstream default config directly. This keeps your rule set stable across Betterleaks upgrades and lets you review new upstream rules before adopting them.
+
+See the [scanning guide](docs/scanning.md#ignore-exact-secret-values) for
+`.betterleaksignore`, `--ignore-file`, and `betterleaks fingerprint`.
 
 Test out your rules in the [Betterleaks Playground](https://betterleaks.com/playground)
 

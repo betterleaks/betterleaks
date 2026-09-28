@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Typeform() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "typeform-api-token",
+		ID:          "typeform-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a Typeform API token, which could lead to unauthorized survey management and data collection.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"typeform"},

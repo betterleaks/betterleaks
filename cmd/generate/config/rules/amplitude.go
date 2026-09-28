@@ -1,24 +1,23 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func AmplitudeSecretKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "amplitude-secret-key",
+		ID:          "amplitude-secret-key",
 		Confidence:  "medium",
 		Description: "Detected an Amplitude secret key, which may allow unauthorized event ingestion or access to Amplitude API functionality.",
-		Regex:       regexp.MustCompile(`(?i)\bamplitude(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN|AUTHORIZATION)(?:.|[\n\r]){0,16}?\b([a-f0-9]{32})\b`),
+		Regex:       `(?i)\bamplitude(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN|AUTHORIZATION)(?:.|[\n\r]){0,16}?\b([a-f0-9]{32})\b`,
 		Keywords:    []string{"amplitude"},
 		ValidateExpr: `let r = http.post("https://api2.amplitude.com/2/httpapi", {
     "Content-Type": "application/json",
     "Accept": "*/*"
   },
   "{" +
-    "\"api_key\":" + json.string(finding["secret"]) + "," +
+    "\"api_key\":" + toJSON(finding["secret"]) + "," +
     "\"events\":[{" +
       "\"user_id\":\"203201202\"," +
       "\"device_id\":\"C8F9E604-F01A-4BD9-95C6-8E5357DF265D\"," +
@@ -30,7 +29,7 @@ func AmplitudeSecretKey() *config.Rule {
     "result": "invalid",
     "reason": (r.json?.error ?? "Unauthorized")
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

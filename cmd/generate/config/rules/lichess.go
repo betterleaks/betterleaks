@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func LichessPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "lichess-personal-access-token",
+		ID:          "lichess-personal-access-token",
 		Confidence:  "high",
 		Description: "Lichess personal access token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`lip_[A-Za-z0-9_]{16,60}`, false),
@@ -19,12 +19,12 @@ func LichessPersonalAccessToken() *config.Rule {
     "Accept": "application/json"
   }); r.status == 200 ? {
     "result": "valid",
-    "username": (r.json?.username ?? "")
+    "metadata": {"username": (r.json?.username ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

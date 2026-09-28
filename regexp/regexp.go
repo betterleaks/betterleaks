@@ -3,12 +3,12 @@ package regexp
 import (
 	"regexp/syntax"
 	"sync"
-
-	"github.com/betterleaks/betterleaks/regexp/internal"
 )
 
+// Engine compiles regular expressions. Implementations must support concurrent
+// calls and must not change behavior while a scanner or runtime uses them.
 type Engine interface {
-	Compile(str string) (internal.CompiledRegexp, error)
+	Compile(str string) (CompiledRegexp, error)
 	Version() string
 }
 
@@ -19,7 +19,7 @@ type Regexp struct {
 	numSubexp int
 
 	once sync.Once
-	e    internal.CompiledRegexp
+	e    CompiledRegexp
 	err  error
 }
 
@@ -45,6 +45,64 @@ func (r *Regexp) FindAllStringIndex(s string, n int) [][]int {
 	}
 	return nil
 }
+func (r *Regexp) FindAllStringSubmatchIndex(s string, n int) [][]int {
+	if e, ok := r.compiled(); ok {
+		return e.FindAllStringSubmatchIndex(s, n)
+	}
+	return nil
+}
+
+// AnchoredFinder is implemented by compiled regexes that can restrict a search
+// to matches beginning at given offsets while keeping the whole text as
+// context for ^, $ and \b.
+type AnchoredFinder interface {
+	FindAllStringIndexAt(s string, starts []int, n int) [][]int
+	FindAllStringSubmatchIndexAt(s string, starts []int, n int) [][]int
+}
+
+// FindAllStringIndexAt is FindAllStringIndex restricted to matches that begin
+// at one of starts (ascending byte offsets). The caller must know that every
+// match of the expression in s begins at a candidate; see the leading-literal
+// analysis in the scanner. The second result is false when the engine cannot
+// anchor at an offset, in which case the caller uses FindAllStringIndex.
+func (r *Regexp) FindAllStringIndexAt(s string, starts []int, n int) ([][]int, bool) {
+	e, ok := r.compiled()
+	if !ok {
+		return nil, true
+	}
+	anchored, ok := e.(AnchoredFinder)
+	if !ok {
+		return nil, false
+	}
+	return anchored.FindAllStringIndexAt(s, starts, n), true
+}
+
+// FindAllStringSubmatchIndexAt is FindAllStringSubmatchIndex under the same
+// contract as FindAllStringIndexAt.
+func (r *Regexp) FindAllStringSubmatchIndexAt(s string, starts []int, n int) ([][]int, bool) {
+	e, ok := r.compiled()
+	if !ok {
+		return nil, true
+	}
+	anchored, ok := e.(AnchoredFinder)
+	if !ok {
+		return nil, false
+	}
+	return anchored.FindAllStringSubmatchIndexAt(s, starts, n), true
+}
+
+// AnchoredEngine is implemented by engines whose compiled regexes implement
+// AnchoredFinder. AnchoredSearch preserves lazy regex compilation.
+type AnchoredEngine interface {
+	AnchoredSearch() bool
+}
+
+// SupportsAnchoredSearch reports whether regexes compiled by engine implement
+// AnchoredFinder.
+func SupportsAnchoredSearch(engine Engine) bool {
+	anchored, ok := engine.(AnchoredEngine)
+	return ok && anchored.AnchoredSearch()
+}
 func (r *Regexp) ReplaceAllString(src, repl string) string {
 	if e, ok := r.compiled(); ok {
 		return e.ReplaceAllString(src, repl)
@@ -68,38 +126,50 @@ func (r *Regexp) Compile() error {
 	return r.err
 }
 
-func (r *Regexp) compiled() (internal.CompiledRegexp, bool) {
+func (r *Regexp) compiled() (CompiledRegexp, bool) {
 	r.once.Do(func() {
 		r.e, r.err = r.engine.Compile(r.pattern)
 	})
 	return r.e, r.err == nil && r.e != nil
 }
 
-var currentEngine Engine = Stdlib{}
-
-// Version returns the name of the active regex engine.
-func Version() string { return currentEngine.Version() }
-
-// SetEngine selects the regex engine used by subsequent MustCompile calls.
-func SetEngine(engine Engine) {
-	currentEngine = engine
+// Compile parses a regular expression using the standard-library engine.
+// Backend compilation is deferred until first use.
+func Compile(str string) (*Regexp, error) {
+	return CompileWithEngine(str, Stdlib{})
 }
 
-// Compile parses a regular expression using the currently selected engine.
-// If successful, returns a [Regexp] object that can be used to match against text.
-func Compile(str string) (*Regexp, error) {
+// CompileWithEngine parses a regular expression and retains engine for deferred
+// compilation. A nil engine selects the standard-library engine.
+func CompileWithEngine(str string, engine Engine) (*Regexp, error) {
+	if engine == nil {
+		engine = Stdlib{}
+	}
 	parsed, err := syntax.Parse(str, syntax.Perl)
 	if err != nil {
 		return nil, err
 	}
 	return &Regexp{
 		pattern:   str,
-		engine:    currentEngine,
+		engine:    engine,
 		numSubexp: parsed.MaxCap(),
 	}, nil
 }
 
-// MustCompile compiles a regular expression using the currently selected engine.
+// CompileParsedWithEngine is CompileWithEngine for a pattern the caller has
+// already parsed with syntax.Perl flags; parsed must be the parse of str.
+func CompileParsedWithEngine(str string, parsed *syntax.Regexp, engine Engine) *Regexp {
+	if engine == nil {
+		engine = Stdlib{}
+	}
+	return &Regexp{
+		pattern:   str,
+		engine:    engine,
+		numSubexp: parsed.MaxCap(),
+	}
+}
+
+// MustCompile is like Compile but panics on invalid syntax.
 func MustCompile(str string) *Regexp {
 	r, err := Compile(str)
 	if err != nil {

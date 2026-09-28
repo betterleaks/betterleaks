@@ -1,22 +1,17 @@
 package report
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"regexp"
+	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
-	"github.com/betterleaks/betterleaks/internal/color"
-)
-
-// terminalControlRe matches ANSI escape sequences and zero-width / disruptive
-// control characters (CR, BS, BEL, VT, FF, NUL, …). These have byte length but
-// zero or destructive display effects, so they must be removed before any
-// caret math runs. Tab (\t) and newline (\n) are intentionally preserved.
-var terminalControlRe = regexp.MustCompile(
-	`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]|[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]`,
+	"github.com/betterleaks/betterleaks/v2/internal/color"
 )
 
 const (
@@ -29,15 +24,43 @@ const (
 	minLineNumWidth = 1
 )
 
-// terminalCols reads $COLUMNS, falling back to defaultTermCols. Re-read per finding
-// so tests and resizes pick up new values without a process restart.
-func terminalCols() int {
-	if v := os.Getenv("COLUMNS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= minTermCols {
-			return n
-		}
+// PrettyOptions controls presentation without consulting process-global state.
+type PrettyOptions struct {
+	NoColor bool
+	Redact  uint
+	// Width is the terminal width in columns. Zero uses 100; values below 60 use 60.
+	Width int
+}
+
+// WritePretty writes one finding to w. The caller owns the writer.
+func WritePretty(w io.Writer, finding Finding, options PrettyOptions) error {
+	if w == nil {
+		return errors.New("report writer is nil")
 	}
-	return defaultTermCols
+	if options.Width == 0 {
+		options.Width = defaultTermCols
+	}
+	p := prettyRenderer{w: w, width: max(options.Width, minTermCols)}
+	p.finding(finding, options.NoColor, options.Redact)
+	return p.err
+}
+
+type prettyRenderer struct {
+	w     io.Writer
+	width int
+	err   error
+}
+
+func (p *prettyRenderer) printf(format string, args ...any) {
+	if p.err == nil {
+		_, p.err = fmt.Fprintf(p.w, format, args...)
+	}
+}
+
+func (p *prettyRenderer) println(args ...any) {
+	if p.err == nil {
+		_, p.err = fmt.Fprintln(p.w, args...)
+	}
 }
 
 // displayWidth returns the number of display columns s occupies. Tabs are
@@ -128,34 +151,50 @@ func lineNumWidth(startLine, lineCount int) int {
 	return w
 }
 
-// normalizeSnippet trims trailing EOL on Line/Match/Secret, strips a leading
-// \n/\r run from Line (detect/location often prepends one), and removes ANSI
-// escape sequences so byte positions in Line equal display columns when
-// rendered. StartColumn is reset because escape stripping shifts byte offsets;
-// secretByteBounds will relocate the secret by searching.
+// escapeSnippet makes binary bytes and terminal controls visible without
+// letting them alter the terminal. Tabs and newlines keep their layout meaning.
+func escapeSnippet(s string) string {
+	var b strings.Builder
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		part := s[:size]
+		s = s[size:]
+		if (r == utf8.RuneError && size == 1) || (r != '\t' && r != '\n' && !unicode.IsPrint(r)) {
+			quoted := strconv.Quote(part)
+			b.WriteString(quoted[1 : len(quoted)-1])
+		} else {
+			b.WriteString(part)
+		}
+	}
+	return b.String()
+}
+
+// normalizeSnippet changes presentation only. Preserve the column hint through
+// escaping so repeated secrets still highlight the correct occurrence.
 func normalizeSnippet(f Finding) Finding {
 	out := f
-	out.Line = strings.TrimRight(f.Line, "\r\n")
-	out.Match = strings.TrimRight(f.Match, "\r\n")
-	out.Secret = strings.TrimRight(f.Secret, "\r\n")
+	out.Match.Line = strings.TrimRight(f.Match.Line, "\r\n")
+	out.Match.Full = strings.TrimRight(f.Match.Full, "\r\n")
+	out.Match.Value = strings.TrimRight(f.Match.Value, "\r\n")
 	n := 0
-	for n < len(out.Line) && (out.Line[n] == '\n' || out.Line[n] == '\r') {
+	for n < len(out.Match.Line) && (out.Match.Line[n] == '\n' || out.Match.Line[n] == '\r') {
 		n++
 	}
 	if n > 0 {
-		out.Line = out.Line[n:]
-		if out.StartColumn > n {
-			out.StartColumn -= n
+		out.Match.Line = out.Match.Line[n:]
+		if out.Location.StartColumn > n {
+			out.Location.StartColumn -= n
 		} else {
-			out.StartColumn = 0
+			out.Location.StartColumn = 0
 		}
 	}
-	if terminalControlRe.MatchString(out.Line) {
-		out.Line = terminalControlRe.ReplaceAllString(out.Line, "")
-		out.Match = terminalControlRe.ReplaceAllString(out.Match, "")
-		out.Secret = terminalControlRe.ReplaceAllString(out.Secret, "")
-		out.StartColumn = 0
+	if out.Location.StartColumn > 0 {
+		prefix := out.Match.Line[:min(out.Location.StartColumn-1, len(out.Match.Line))]
+		out.Location.StartColumn = len(escapeSnippet(prefix)) + 1
 	}
+	out.Match.Line = escapeSnippet(out.Match.Line)
+	out.Match.Full = escapeSnippet(out.Match.Full)
+	out.Match.Value = escapeSnippet(out.Match.Value)
 	return out
 }
 
@@ -349,19 +388,23 @@ func prettySetIcon(status string, noColor bool) string {
 	}
 }
 
-func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
+func (p *prettyRenderer) components(f Finding, noColor bool, redact uint) {
+	if f.ComponentSetsTruncated {
+		p.println("│ components: combination limit reached; additional combinations omitted")
+	}
 	if len(f.ComponentSets) == 0 {
 		return
 	}
 
-	sort.SliceStable(f.ComponentSets, func(i, j int) bool {
-		return f.ComponentSets[i].ValidationStatus == ValidationStatusValid &&
-			f.ComponentSets[j].ValidationStatus != ValidationStatusValid
+	sets := slices.Clone(f.ComponentSets)
+	sort.SliceStable(sets, func(i, j int) bool {
+		return sets[i].Analysis.Status == ValidationStatusValid &&
+			sets[j].Analysis.Status != ValidationStatusValid
 	})
 
 	hasValid := false
-	for _, set := range f.ComponentSets {
-		if set.ValidationStatus == ValidationStatusValid {
+	for _, set := range sets {
+		if set.Analysis.Status == ValidationStatusValid {
 			hasValid = true
 			break
 		}
@@ -370,14 +413,14 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 	var toRender []ComponentSet
 	maxKey := 0
 	invalidCount := 0
-	for _, set := range f.ComponentSets {
-		if hasValid && set.ValidationStatus != ValidationStatusValid {
+	for _, set := range sets {
+		if hasValid && set.Analysis.Status != ValidationStatusValid {
 			invalidCount++
 			continue
 		}
 		toRender = append(toRender, set)
 		for _, comp := range set.Components {
-			k := fmt.Sprintf("%s:%d", comp.RuleID, comp.StartLine)
+			k := fmt.Sprintf("%s:%d", comp.RuleID, comp.Location.StartLine)
 			if len(k) > maxKey {
 				maxKey = len(k)
 			}
@@ -385,20 +428,20 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 	}
 
 	cGrey := color.New().Foreground("#888888")
-	fmt.Printf("│ components:\n")
+	p.printf("│ components:\n")
 
 	// Each set's first row carries the status icon; continuation rows leave the
 	// icon column blank. The icon's presence-or-absence is the set delimiter.
 	for _, set := range toRender {
-		icon := prettySetIcon(string(set.ValidationStatus), noColor)
+		icon := prettySetIcon(string(set.Analysis.Status), noColor)
 		for j, comp := range set.Components {
-			key := fmt.Sprintf("%s:%d", comp.RuleID, comp.StartLine)
+			key := fmt.Sprintf("%s:%d", comp.RuleID, comp.Location.StartLine)
 			dots := strings.Repeat(".", maxKey+6-len(key))
-			val := redactForDisplay(comp.Secret, redact)
+			val := redactForDisplay(comp.Match.Value, redact)
 			if j == 0 {
-				fmt.Printf("│   %s  %s %s %s\n", icon, key, dots, val)
+				p.printf("│   %s  %s %s %s\n", icon, key, dots, val)
 			} else {
-				fmt.Printf("│      %s %s %s\n", key, dots, val)
+				p.printf("│      %s %s %s\n", key, dots, val)
 			}
 		}
 	}
@@ -411,20 +454,20 @@ func (f *Finding) PrintComponentFindings(noColor bool, redact uint) {
 		if !noColor {
 			summary = cGrey.Render(summary)
 		}
-		fmt.Printf("│   %s\n", summary)
+		p.printf("│   %s\n", summary)
 	}
 }
 
-func writeHeader(f Finding) {
-	fmt.Printf("┌─%s──○\n", f.RuleID)
-	fmt.Println("│")
+func (p *prettyRenderer) writeHeader(f Finding) {
+	p.printf("┌─%s──○\n", f.RuleID)
+	p.println("│")
 }
 
-func writeRow(lineNum, pad int, body string) {
-	fmt.Printf("│ %-*d │ %s\n", pad, lineNum, body)
+func (p *prettyRenderer) writeRow(lineNum, pad int, body string) {
+	p.printf("│ %-*d │ %s\n", pad, lineNum, body)
 }
 
-func writeCaretRow(pad, padCols, ptrCols int, ptrTruncated bool, label string, noColor bool) {
+func (p *prettyRenderer) writeCaretRow(pad, padCols, ptrCols int, ptrTruncated bool, label string, noColor bool) {
 	if ptrCols < 0 {
 		ptrCols = 0
 	}
@@ -441,47 +484,59 @@ func writeCaretRow(pad, padCols, ptrCols int, ptrTruncated bool, label string, n
 	if !noColor {
 		body = color.New().Bold().Foreground("#ef4444").Render(body)
 	}
-	fmt.Printf("%s%s\n", gutter, body)
+	p.printf("%s%s\n", gutter, body)
 }
 
-func writeMoreLinesRow(pad, hidden int) {
+func (p *prettyRenderer) writeMoreLinesRow(pad, hidden int) {
 	gutter := "│ " + strings.Repeat(" ", pad) + " │ "
-	fmt.Printf("%s%s (%d more lines)\n", gutter, windowEllipsis, hidden)
+	p.printf("%s%s (%d more lines)\n", gutter, windowEllipsis, hidden)
 }
 
-func writeFooter() {
-	fmt.Printf("└○\n\n\n")
+func (p *prettyRenderer) writeFooter() {
+	p.printf("└○\n\n\n")
 }
 
-func (f Finding) printPretty(noColor bool, redact uint) {
+func (p *prettyRenderer) finding(f Finding, noColor bool, redact uint) {
 	if redact > 0 {
-		secret := MaskSecret(f.Secret, redact)
-		if redact >= 100 {
-			secret = "REDACTED"
-		}
-		f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
-		f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
-		f.MatchContext = strings.ReplaceAll(f.MatchContext, f.Secret, secret)
-		f.Secret = secret
+		f = f.RedactedCopy(redact)
+		redact = 0 // Component values were already masked with the full finding.
 	}
 
-	if strings.HasPrefix(strings.TrimSpace(f.Match), "file detected:") {
-		f.printPrettyFileOnly(noColor, redact)
+	if strings.HasPrefix(strings.TrimSpace(f.Match.Full), "file detected:") {
+		p.fileOnly(f, noColor, redact)
 		return
 	}
 
-	work := normalizeSnippet(f)
-	writeHeader(work)
+	work := f
+	decoded := len(f.Encodings) > 0
+	if decoded {
+		// Source coordinates refer to the encoded bytes. Use the decoded match
+		// for the preview so the usual caret can point to the extracted secret.
+		work.Match.Line = work.Match.Full
+		if work.Match.Line == "" {
+			work.Match.Line = work.Match.Value
+		}
+		work.Location.StartColumn = 1
+	}
+	if work.Match.Value != "" && (decoded || hasBinaryBytes(work.Match.Line)) {
+		p.writeHeader(f)
+		p.binarySnippet(work, noColor)
+		p.meta(f, noColor, redact)
+		p.writeFooter()
+		return
+	}
+	work = normalizeSnippet(work)
+	p.writeHeader(work)
 
-	rawLines := splitLines(work.Line)
+	rawLines := splitLines(work.Match.Line)
 	if len(rawLines) == 0 {
 		rawLines = []string{""}
 	}
-	pad := lineNumWidth(work.StartLine, len(rawLines))
+	pad := lineNumWidth(work.Location.StartLine, len(rawLines))
 	// gutterCols is the terminal display width of "│ %*d │ " — 5 single-column
 	// runes (│ + 2 spaces + │ + 1 separator space) plus `pad` digits.
 	gutterCols := pad + 5
-	budget := max(terminalCols()-gutterCols, minTermCols-10)
+	budget := max(p.width-gutterCols, minTermCols-10)
 
 	// Pre-expand tabs in every line so byte positions in the rendered output
 	// equal display columns. The caret pipeline below operates entirely on the
@@ -492,15 +547,20 @@ func (f Finding) printPretty(noColor bool, redact uint) {
 		lines[i], mappings[i] = expandTabsForBody(l, gutterCols)
 	}
 
-	startByte, lenByte, ok := secretByteBounds(work.Line, work.Match, work.Secret, work.StartColumn)
+	startByte, lenByte, ok := secretByteBounds(work.Match.Line, work.Match.Full, work.Match.Value, work.Location.StartColumn)
 	if !ok {
-		renderLinesOnly(lines, work.StartLine, pad, budget)
-		(&work).printPrettyMeta(noColor, redact)
-		writeFooter()
+		if f.Match.Value == "" {
+			p.renderLinesOnly(lines, work.Location.StartLine, pad, budget)
+		} else {
+			p.printf("│ value: %s\n", fitToBudget(strconv.QuoteToGraphic(f.Match.Value), p.width-9))
+			p.printf("│ source: line %d, column %d\n", f.Location.StartLine, f.Location.StartColumn)
+		}
+		p.meta(work, noColor, redact)
+		p.writeFooter()
 		return
 	}
 
-	segIdx, secretByteInSegRaw := segmentForSecret(work.Line, startByte)
+	segIdx, secretByteInSegRaw := segmentForSecret(work.Match.Line, startByte)
 	segIdx = min(segIdx, len(lines)-1)
 	mapping := mappings[segIdx]
 	secretByteInSeg := mapping[min(secretByteInSegRaw, len(mapping)-1)]
@@ -508,28 +568,80 @@ func (f Finding) printPretty(noColor bool, redact uint) {
 	bytesInSeg := mapping[min(secretByteInSegRaw+rawBytesInSeg, len(mapping)-1)] - secretByteInSeg
 
 	if len(lines) == 1 {
-		renderLineWithCaret(lines[segIdx], work.StartLine, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
+		p.renderLineWithCaret(lines[segIdx], work.Location.StartLine, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
 	} else {
-		renderMultiLine(lines, work.StartLine, segIdx, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
+		p.renderMultiLine(lines, work.Location.StartLine, segIdx, secretByteInSeg, bytesInSeg, lenByte, budget, pad, noColor)
 	}
 
-	(&work).printPrettyMeta(noColor, redact)
-	writeFooter()
+	p.meta(work, noColor, redact)
+	p.writeFooter()
 }
 
-func renderLineWithCaret(secretLine string, lineNum, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad int, noColor bool) {
+func (p *prettyRenderer) renderLineWithCaret(secretLine string, lineNum, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad int, noColor bool) {
 	display, secretStartCol, secretLenCol, winTrunc := windowLine(secretLine, secretByteInSeg, bytesInSeg, budget)
-	writeRow(lineNum, pad, display)
+	p.writeRow(lineNum, pad, display)
 
 	ptrTrunc := winTrunc || bytesInSeg < fullSecretLen
 	label := ""
 	if ptrTrunc {
 		label = fmt.Sprintf(" (%d bytes)", fullSecretLen)
 	}
-	writeCaretRow(pad, secretStartCol, secretLenCol, ptrTrunc, label, noColor)
+	p.writeCaretRow(pad, secretStartCol, secretLenCol, ptrTrunc, label, noColor)
 }
 
-func renderLinesOnly(lines []string, startLine, pad, budget int) {
+func hasBinaryBytes(s string) bool {
+	return !utf8.ValidString(s) || strings.ContainsFunc(s, func(r rune) bool {
+		return r != '\n' && r != '\r' && r != '\t' && !unicode.IsPrint(r)
+	})
+}
+
+// readableContext keeps binary runs from joining otherwise unrelated strings.
+// Whitespace is flattened because this preview has no source-line gutter.
+func readableContext(s string) string {
+	var b strings.Builder
+	inBinary := false
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		part := s[:size]
+		s = s[size:]
+		if r == '\n' || r == '\r' || r == '\t' {
+			b.WriteByte(' ')
+			inBinary = false
+		} else if (r == utf8.RuneError && size == 1) || !unicode.IsPrint(r) {
+			if !inBinary {
+				b.WriteString(" ⟨binary⟩ ")
+			}
+			inBinary = true
+		} else {
+			b.WriteString(part)
+			inBinary = false
+		}
+	}
+	return b.String()
+}
+
+func (p *prettyRenderer) binarySnippet(f Finding, noColor bool) {
+	line := f.Match.Line
+	start, length, ok := secretByteBounds(line, f.Match.Full, f.Match.Value, f.Location.StartColumn)
+	if !ok {
+		line = f.Match.Full
+		start, length, ok = secretByteBounds(line, f.Match.Full, f.Match.Value, 1)
+		if !ok {
+			line, start, length = f.Match.Value, 0, len(f.Match.Value)
+		}
+	}
+	prefix := readableContext(line[:start])
+	// Never collapse bytes inside the secret itself: escaped bytes must remain
+	// visible and covered by the caret, even when surrounding bytes are omitted.
+	quoted := strconv.QuoteToGraphic(line[start : start+length])
+	secret := quoted[1 : len(quoted)-1]
+	text := prefix + secret + readableContext(line[start+length:])
+	pad := lineNumWidth(f.Location.StartLine, 1)
+	budget := max(p.width-pad-5, minTermCols-10)
+	p.renderLineWithCaret(text, f.Location.StartLine, len(prefix), len(secret), length, budget, pad, noColor)
+}
+
+func (p *prettyRenderer) renderLinesOnly(lines []string, startLine, pad, budget int) {
 	n := len(lines)
 	mark := make([]bool, n)
 	for i := 0; i < maxHeadLines && i < n; i++ {
@@ -542,19 +654,19 @@ func renderLinesOnly(lines []string, startLine, pad, budget int) {
 	}
 	for i := 0; i < n; i++ {
 		if mark[i] {
-			writeRow(startLine+i, pad, fitToBudget(lines[i], budget))
+			p.writeRow(startLine+i, pad, fitToBudget(lines[i], budget))
 			continue
 		}
 		j := i
 		for j < n && !mark[j] {
 			j++
 		}
-		writeMoreLinesRow(pad, j-i)
+		p.writeMoreLinesRow(pad, j-i)
 		i = j - 1
 	}
 }
 
-func renderMultiLine(lines []string, startLine, segIdx, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad int, noColor bool) {
+func (p *prettyRenderer) renderMultiLine(lines []string, startLine, segIdx, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad int, noColor bool) {
 	n := len(lines)
 	mark := make([]bool, n)
 	for i := 0; i < maxHeadLines && i < n; i++ {
@@ -569,10 +681,10 @@ func renderMultiLine(lines []string, startLine, segIdx, secretByteInSeg, bytesIn
 
 	emitLine := func(i int) {
 		if i == segIdx {
-			renderLineWithCaret(lines[i], startLine+i, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad, noColor)
+			p.renderLineWithCaret(lines[i], startLine+i, secretByteInSeg, bytesInSeg, fullSecretLen, budget, pad, noColor)
 			return
 		}
-		writeRow(startLine+i, pad, fitToBudget(lines[i], budget))
+		p.writeRow(startLine+i, pad, fitToBudget(lines[i], budget))
 	}
 
 	for i := 0; i < n; i++ {
@@ -584,36 +696,58 @@ func renderMultiLine(lines []string, startLine, segIdx, secretByteInSeg, bytesIn
 		for j < n && !mark[j] {
 			j++
 		}
-		writeMoreLinesRow(pad, j-i)
+		p.writeMoreLinesRow(pad, j-i)
 		i = j - 1
 	}
 }
 
-func (f Finding) printPrettyFileOnly(noColor bool, redact uint) {
-	f.Match = strings.TrimRight(f.Match, "\r\n")
-	f.Secret = strings.TrimRight(f.Secret, "\r\n")
+func (p *prettyRenderer) fileOnly(f Finding, noColor bool, redact uint) {
+	f.Match.Full = strings.TrimRight(f.Match.Full, "\r\n")
+	f.Match.Value = strings.TrimRight(f.Match.Value, "\r\n")
 
-	writeHeader(f)
-	fp := &f
-	fp.printPrettyMeta(noColor, redact)
-	writeFooter()
+	p.writeHeader(f)
+	p.meta(f, noColor, redact)
+	p.writeFooter()
 }
 
 // dotLeader prints "│   <key> <dots> <value>" where dots pad so that
 // `key + " " + dots` aligns to a fixed width of `maxKey + 7` columns (matching
 // the longest key, with a minimum of 6 trailing dots after it).
-func dotLeader(key, value string, maxKey int) {
+func (p *prettyRenderer) dotLeader(key, value string, maxKey int) {
 	dots := strings.Repeat(".", maxKey+6-len(key))
-	fmt.Printf("│   %s %s %s\n", key, dots, value)
+	p.printf("│   %s %s %s\n", key, dots, value)
 }
 
-func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
-	if len(f.Attributes) > 0 {
-		fmt.Println("│")
-		fmt.Printf("│ attributes:\n")
+func (p *prettyRenderer) meta(f Finding, noColor bool, redact uint) {
+	encodings := f.Encodings
+	if f.Location.Path != "" || f.Confidence != "" || len(encodings) > 0 {
+		maxKey := len("path")
+		if len(encodings) > 0 {
+			maxKey = len("encoding")
+		}
+		if f.Confidence != "" {
+			maxKey = len("confidence")
+		}
+		p.println("│")
+		if f.Location.Path != "" {
+			p.dotLeader("path", f.Location.Path, maxKey)
+		}
+		if f.Confidence != "" {
+			p.dotLeader("confidence", strings.ToUpper(f.Confidence), maxKey)
+		}
+		if len(encodings) > 0 {
+			p.dotLeader("encoding", strings.Join(encodings, ", "), maxKey)
+		}
+	}
+	attributes := reportAttributes(f.Attributes)
+	if len(attributes) > 0 {
+		if f.Location.Path == "" && f.Confidence == "" && len(encodings) == 0 {
+			p.println("│")
+		}
+		p.printf("│ attributes:\n")
 		maxK := 0
-		keys := make([]string, 0, len(f.Attributes))
-		for k := range f.Attributes {
+		keys := make([]string, 0, len(attributes))
+		for k := range attributes {
 			keys = append(keys, k)
 			if len(k) > maxK {
 				maxK = len(k)
@@ -621,29 +755,74 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			dotLeader(k, f.Attributes[k], maxK)
+			p.dotLeader(k, attributes[k], maxK)
 		}
 	}
-	if f.ValidationStatus != "" {
-		fmt.Printf("│ validation:\n")
-		maxVK := 6 // "status"/"reason" baseline
-		vk := sortedMapKeys(f.ValidationMeta)
-		for _, k := range vk {
-			if len(k) > maxVK {
-				maxVK = len(k)
-			}
-		}
-		vs := strings.ToUpper(string(f.ValidationStatus))
-		if !noColor {
-			vs = ValidationStyle(string(f.ValidationStatus), noColor).Render(vs)
-		}
-		dotLeader("status", vs, maxVK)
-		if f.ValidationReason != "" {
-			dotLeader("reason", f.ValidationReason, maxVK)
-		}
-		for _, k := range vk {
-			dotLeader(k, fmt.Sprintf("%v", f.ValidationMeta[k]), maxVK)
+	if !f.Analysis.IsZero() {
+		p.analysis(f, noColor)
+	}
+	p.components(f, noColor, redact)
+}
+
+func analysisDisplayValues(analysis Analysis, noColor bool) map[string]string {
+	values := map[string]string{
+		"status":        formatCredentialStatus(analysis.Status, noColor),
+		"severity":      formatAnalysisSeverity(analysis.Severity, noColor),
+		"status_reason": analysis.StatusReason,
+		"capabilities":  capabilitiesText(analysis.Capabilities),
+	}
+	if identity := analysis.Identity; identity != nil {
+		values["identity.id"] = identity.ID
+		values["identity.username"] = identity.Username
+		values["identity.name"] = identity.Name
+		values["identity.email"] = identity.Email
+		if account := identity.Account; account != nil {
+			values["identity.account.id"] = account.ID
+			values["identity.account.name"] = account.Name
+			values["identity.account.domains"] = strings.Join(account.Domains, ", ")
 		}
 	}
-	f.PrintComponentFindings(noColor, redact)
+	for key, value := range analysis.Debug {
+		values["debug."+key] = fmt.Sprintf("%v", value)
+	}
+	for key, value := range analysis.StatusMetadata {
+		values["status_metadata."+key] = formatMetadataValue(value)
+	}
+	for key, value := range analysis.Metadata {
+		values["metadata."+key] = formatMetadataValue(value)
+	}
+
+	return values
+}
+
+func (p *prettyRenderer) analysis(f Finding, noColor bool) {
+	values := analysisDisplayValues(f.Analysis, noColor)
+
+	keys := make([]string, 0, len(values))
+	maxKey := 0
+	for key, value := range values {
+		if value == "" {
+			continue
+		}
+		keys = append(keys, key)
+		maxKey = max(maxKey, len(key))
+	}
+	sort.Strings(keys)
+	p.printf("│ analysis:\n")
+	for _, key := range keys {
+		p.dotLeader(key, values[key], maxKey)
+	}
+}
+
+func formatAnalysisSeverity(severity Severity, noColor bool) string {
+	text := strings.ToUpper(string(severity))
+	return severityStyle(severity, noColor).Render(text)
+}
+
+func capabilitiesText(capabilities []Capability) string {
+	values := make([]string, len(capabilities))
+	for i, capability := range capabilities {
+		values[i] = string(capability)
+	}
+	return strings.Join(values, ", ")
 }

@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func GumroadAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "gumroad-access-token",
+		ID:          "gumroad-access-token",
 		Confidence:  "high",
 		Description: "Detected a Gumroad access token, which may expose Gumroad account and product data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"gumroad"}, `(?:[a-f0-9]{64}|[A-Za-z0-9-]{43})`, true),
@@ -20,7 +20,7 @@ func GumroadAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

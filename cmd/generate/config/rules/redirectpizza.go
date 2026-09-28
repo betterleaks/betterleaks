@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func RedirectPizzaAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "redirect-pizza-api-token.1",
+		ID:          "redirect-pizza-api-token.1",
 		Confidence:  "high",
 		Description: "redirect.pizza API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rpa_[A-Za-z0-9]{30}`, false),
@@ -23,7 +23,7 @@ func RedirectPizzaAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthenticated"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

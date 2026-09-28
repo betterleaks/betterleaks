@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DenoAccountToken() *config.Rule {
 	r := config.Rule{
-		RuleID:       "deno-account-token",
+		ID:           "deno-account-token",
 		Confidence:   "high",
 		Description:  "Detected a Deno account token, which may expose Deno Deploy account access.",
 		Regex:        utils.GenerateUniqueTokenRegex(`ddp_[A-Za-z0-9]{36}`, false),
 		Keywords:     []string{"ddp_"},
 		ValidateExpr: utils.BearerGetValidationExpr("https://api.deno.com/v1/user", `(r.body contains "\"id\"")`),
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

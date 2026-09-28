@@ -3,74 +3,66 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
-
-	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-func init() {
-	rootCmd.AddCommand(stdInCmd)
-	stdInCmd.Flags().StringArray("set-attr", nil, "set source attribute for stdin content, key=value (repeatable)")
+type StdinCmd struct {
+	ScanFlags `embed:""`
+	SetAttr   []string `group:"source" name:"set-attr" sep:"none" help:"Set a source attribute as key=value (repeatable)."`
 }
 
-var stdInCmd = &cobra.Command{
-	Use:   "stdin",
-	Short: "detect secrets from stdin",
-	Run:   runStdIn,
+func (cmd *StdinCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	runStdIn(runtime, &cli.GlobalFlags, cmd)
+	return nil
 }
 
-func runStdIn(cmd *cobra.Command, _ []string) {
+func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) {
 	// start timer
 	start := time.Now()
 
 	// setup config (aka, the thing that defines rules)
-	initConfig(".")
-	initDiagnostics()
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
+	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config(cmd)
-
-	// create detector
-	detector := Detector(cmd, cfg, "")
+	// create runner
+	filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
+	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
 
 	// parse flag(s)
-	exitCode := mustGetIntFlag(cmd, "exit-code")
-	attrs, err := parseSetAttrFlag(cmd)
+	attrs, err := parseSetAttrValues(options.SetAttr)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("invalid --set-attr value")
+		runtime.fatal("invalid --set-attr value", "error", err)
 	}
 
-	findings := newFindingCollector(mustGetStringFlag(cmd, "report-path") != "")
-	source := newStdinSource(os.Stdin, attrs, detector.SkipFunc(), mustGetIntFlag(cmd, "max-archive-depth"))
-	for result := range detector.Run(cmd.Context(), source) {
-		if result.Err != nil {
-			logging.Fatal().Err(result.Err).Msg("failed scan input from stdin")
-		}
-		collectFinding(cmd, findings, result.Finding)
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "stdin")
+	source := newStdinSource(runtime.stdin, attrs, filters.shouldSkip)
+	findings.startScan(runtime)
+	summary, scanErr := runner.Scan(runtime.Context, source, findings.Add)
+	if scanErr != nil {
+		runtime.Logger().Error("failed scan input from stdin", "error", scanErr)
 	}
 
-	findingSummaryAndExit(cmd, detector, findings, exitCode, start, nil)
+	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
 }
 
-func newStdinSource(content io.Reader, attrs map[string]string, shouldSkip sources.SkipFunc, maxArchiveDepth int) sources.Source {
-	return &sources.Stdin{
-		Content:         content,
-		Attributes:      attrs,
-		ShouldSkip:      shouldSkip,
-		MaxArchiveDepth: maxArchiveDepth,
+func newStdinSource(content io.Reader, attrs map[string]string, shouldSkip sources.PrefilterFunc) sources.Source {
+	return &sources.Reader{
+		Content:    content,
+		Attributes: attrs,
+		Prefilter:  shouldSkip,
 	}
-}
-
-func parseSetAttrFlag(cmd *cobra.Command) (map[string]string, error) {
-	values, err := cmd.Flags().GetStringArray("set-attr")
-	if err != nil {
-		return nil, fmt.Errorf("could not get flag: set-attr: %w", err)
-	}
-	return parseSetAttrValues(values)
 }
 
 func parseSetAttrValues(values []string) (map[string]string, error) {

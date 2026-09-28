@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func SSLMateAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "sslmate-api-key.1",
+		ID:          "sslmate-api-key.1",
 		Confidence:  "high",
 		Description: "SSLMate API key.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -28,7 +28,7 @@ func SSLMateAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Bad credentials"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

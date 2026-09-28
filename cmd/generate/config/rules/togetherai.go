@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func TogetherAI() *config.Rule {
 	r := config.Rule{
-		RuleID:      "togetherai-api-key",
+		ID:          "togetherai-api-key",
 		Confidence:  "high",
 		Description: "Detected a Together.ai API Key, which may expose access to open-source AI models and inference services.",
 		Regex:       utils.GenerateUniqueTokenRegex(`tgp_v1_[A-Za-z0-9_-]{43}`, true),
@@ -22,7 +22,7 @@ func TogetherAI() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("togetherai", "tgp_v1_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{43}`, 3.0))

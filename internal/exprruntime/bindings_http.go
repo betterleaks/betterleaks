@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/betterleaks/betterleaks/logging"
 )
 
 func httpNamespace(rt *runtimeBindings) map[string]any {
@@ -129,7 +127,6 @@ func mapToStringAny(v any) map[string]any {
 func buildResponseMap(statusCode int, body []byte, header http.Header) map[string]any {
 	var jsonBody any
 	if err := json.Unmarshal(body, &jsonBody); err != nil {
-		logging.Debug().Err(err).Int("status", statusCode).Msg("http response body is not valid JSON, falling back to empty object")
 		jsonBody = map[string]any{}
 	}
 	headerMap := make(map[string]any)

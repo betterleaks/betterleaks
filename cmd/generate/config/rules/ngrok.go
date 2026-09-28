@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func NgrokAPIKey() *config.Rule {
@@ -11,7 +11,7 @@ func NgrokAPIKey() *config.Rule {
 	// agent token to the API returns ERR_NGROK_206, which proves the credential
 	// is live without opening a tunnel or mutating account state.
 	r := config.Rule{
-		RuleID:      "ngrok-api-key.1",
+		ID:          "ngrok-api-key.1",
 		Confidence:  "high",
 		Description: "ngrok API key or agent authtoken, which may allow tunnel access or account administration.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -33,7 +33,7 @@ func NgrokAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Authentication failed"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := "2" +

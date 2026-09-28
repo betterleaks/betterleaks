@@ -1,21 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ArtifactoryApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "artifactory-api-key",
+		ID:          "artifactory-api-key",
 		Confidence:  "high",
 		Description: "Detected an Artifactory api key, posing a risk unauthorized access to the central repository.",
-		Regex:       regexp.MustCompile(`\bAKCp[A-Za-z0-9]{68,70}\b`),
+		Regex:       `\bAKCp[A-Za-z0-9]{68,70}\b`,
 		Keywords:    []string{"AKCp"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "artifactory-jfrog-url"},
 		},
 		ValidateExpr: `let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/repositories", {
@@ -26,7 +25,7 @@ func ArtifactoryApiKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
@@ -47,12 +46,12 @@ func ArtifactoryApiKey() *config.Rule {
 func ArtifactoryReferenceToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "artifactory-reference-token",
+		ID:          "artifactory-reference-token",
 		Confidence:  "high",
 		Description: "Detected an Artifactory reference token, posing a risk of impersonation and unauthorized access to the central repository.",
-		Regex:       regexp.MustCompile(`\bcmVmd[A-Za-z0-9]{59}\b`),
+		Regex:       `\bcmVmd[A-Za-z0-9]{59}\b`,
 		Keywords:    []string{"cmVmd"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "artifactory-jfrog-url"},
 		},
 		ValidateExpr: `let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/repositories", {
@@ -63,7 +62,7 @@ func ArtifactoryReferenceToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	// validate
@@ -83,13 +82,13 @@ func ArtifactoryReferenceToken() *config.Rule {
 
 func ArtifactoryJFrogURL() *config.Rule {
 	r := config.Rule{
-		RuleID:      "artifactory-jfrog-url",
+		ID:          "artifactory-jfrog-url",
 		Confidence:  "high",
 		Description: "Detected a JFrog Artifactory host, used as a component of Artifactory token validation.",
-		Regex:       regexp.MustCompile(`(?i)(?:^|[^a-z0-9-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.jfrog\.io)(?:$|[^a-z0-9-])`),
+		Regex:       `(?i)(?:^|[^a-z0-9-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.jfrog\.io)(?:$|[^a-z0-9-])`,
 		Keywords:    []string{"jfrog.io"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 2.5`,
 	}
 
 	tps := []string{

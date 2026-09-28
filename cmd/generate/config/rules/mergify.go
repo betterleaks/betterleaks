@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func MergifyApplicationKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "mergify-application-key",
+		ID:          "mergify-application-key",
 		Confidence:  "high",
 		Description: "Mergify application API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mergify_application_key_[A-Za-z0-9_-]{40,200}`, false),
@@ -23,7 +23,7 @@ func MergifyApplicationKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.2),
+		FilterExpr: utils.MinEntropy(3.2),
 	}
 
 	// validate

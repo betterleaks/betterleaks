@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func JumpCloudAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "jumpcloud-api-key",
+		ID:          "jumpcloud-api-key",
 		Confidence:  "high",
 		Description: "Detected a JumpCloud API key, which may expose JumpCloud directory data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"jumpcloud"}, utils.AlphaNumeric("40"), true),
@@ -21,7 +21,7 @@ func JumpCloudAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

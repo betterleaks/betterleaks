@@ -263,7 +263,7 @@ func (rt *runtimeBindings) azureValidateServiceBusSAS(connectionString string) m
 
 func parseAzureConnectionString(s string) map[string]string {
 	out := map[string]string{}
-	for _, part := range strings.Split(s, ";") {
+	for part := range strings.SplitSeq(s, ";") {
 		k, v, ok := strings.Cut(part, "=")
 		if !ok {
 			continue

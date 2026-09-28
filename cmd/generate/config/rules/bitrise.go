@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func BitriseAccessToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "bitrise-access-token",
+		ID:          "bitrise-access-token",
 		Confidence:  "high",
 		Description: "Detected a Bitrise personal or workspace access token, which may expose CI/CD applications and builds.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -25,7 +25,7 @@ func BitriseAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	return utils.Validate(r,

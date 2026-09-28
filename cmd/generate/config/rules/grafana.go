@@ -1,20 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func GrafanaApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "grafana-api-key",
+		ID:          "grafana-api-key",
 		Confidence:  "high",
 		Description: "Identified a Grafana API key, which could compromise monitoring dashboards and sensitive data analytics.",
 		Regex:       utils.GenerateUniqueTokenRegex(`eyJrIjoi[A-Za-z0-9+/]{40,380}={0,2}`, false),
 		Keywords:    []string{"eyJrIjoi"},
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -26,13 +26,13 @@ func GrafanaApiKey() *config.Rule {
 func GrafanaCloudApiToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "grafana-cloud-api-token",
+		ID:           "grafana-cloud-api-token",
 		Confidence:   "high",
 		Description:  "Found a Grafana cloud API token, risking unauthorized access to cloud-based monitoring services and data exposure.",
 		Regex:        utils.GenerateUniqueTokenRegex(`glc_[A-Za-z0-9+/]{40,150}={0,2}`, false),
 		Keywords:     []string{"glc_"},
 		ValidateExpr: utils.BearerGetValidationExpr("https://grafana.com/api/stack-regions", "true"),
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -65,12 +65,12 @@ void GLC_StateBeginUnderwaterAliasModelCaustics(texture_ref base_texture, textur
 func GrafanaServiceAccountToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "grafana-service-account-token",
+		ID:          "grafana-service-account-token",
 		Confidence:  "high",
 		Description: "Discovered a Grafana service account token, posing a risk of compromised monitoring services and data integrity.",
 		Regex:       utils.GenerateUniqueTokenRegex(`glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}`, false),
 		Keywords:    []string{"glsa_"},
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	// validate

@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ApolloAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "apollo-api-key.1",
+		ID:          "apollo-api-key.1",
 		Confidence:  "medium",
 		Description: "Apollo.io API key, which may allow access to sales intelligence and engagement data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"apollo"}, `[A-Za-z0-9_-]{22}`, false),
@@ -26,7 +26,7 @@ func ApolloAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	key := secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{22}`, 3.0)

@@ -1,16 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func MessageBirdAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a MessageBird API token, risking unauthorized access to communication platforms and message data.",
-		RuleID:      "messagebird-api-token",
+		ID:          "messagebird-api-token",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"message[_-]?bird"}, utils.AlphaNumeric("25"), true),
 
@@ -19,7 +19,7 @@ func MessageBirdAPIToken() *config.Rule {
 			"message-bird",
 			"message_bird",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -33,7 +33,7 @@ func MessageBirdClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Discovered a MessageBird client ID, potentially compromising API integrations and sensitive communication data.",
-		RuleID:      "messagebird-client-id",
+		ID:          "messagebird-client-id",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"message[_-]?bird"}, utils.Hex8_4_4_4_12(), true),
 
@@ -42,13 +42,13 @@ func MessageBirdClientID() *config.Rule {
 			"message-bird",
 			"message_bird",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("MessageBird", "12345678-ABCD-ABCD-ABCD-1234567890AB") // gitleaks:allow
+	tps := utils.GenerateSampleSecrets("MessageBird", "12345678-ABCD-ABCD-ABCD-1234567890AB") // betterleaks:allow
 	tps = append(tps,
-		`const MessageBirdClientID = "12345678-ABCD-ABCD-ABCD-1234567890AB"`, // gitleaks:allow
+		`const MessageBirdClientID = "12345678-ABCD-ABCD-ABCD-1234567890AB"`, // betterleaks:allow
 	)
 	return utils.Validate(r, tps, nil)
 }

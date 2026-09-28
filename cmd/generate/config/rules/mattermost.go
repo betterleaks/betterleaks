@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func MattermostAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "mattermost-access-token",
+		ID:          "mattermost-access-token",
 		Confidence:  "medium",
 		Description: "Identified a Mattermost Access Token, which may compromise team communication channels and data privacy.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mattermost"}, utils.AlphaNumeric("26"), true),
@@ -17,7 +17,7 @@ func MattermostAccessToken() *config.Rule {
 		Keywords: []string{
 			"mattermost",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

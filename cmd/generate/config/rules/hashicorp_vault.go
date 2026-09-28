@@ -1,23 +1,23 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func VaultServiceToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "vault-service-token",
+		ID:          "vault-service-token",
 		Confidence:  "high",
 		Description: "Identified a Vault Service Token, potentially compromising infrastructure security and access to sensitive credentials.",
 		Regex:       utils.GenerateUniqueTokenRegex(`(?:hvs\.[\w-]{90,120}|s\.(?i:[a-z0-9]{24}))`, false),
 		// `s.` (legacy tokens) appears in over half of all fragments, so gate
 		// the rule on `vault` context instead to avoid running the regex
 		// everywhere. `hvs.` is precise enough to keep as-is.
-		Keywords: []string{"hvs.", "vault"},
-		Filter:   "entropy(finding[\"secret\"]) <= 3.5\n|| matchesAny(finding[\"secret\"], [`s\\.[A-Za-z]{24}`])",
+		Keywords:   []string{"hvs.", "vault"},
+		FilterExpr: "entropy(finding[\"secret\"]) <= 3.5\n|| matchesAny(finding[\"secret\"], [`s\\.[A-Za-z]{24}`])",
 	}
 
 	// validate
@@ -48,16 +48,16 @@ func VaultServiceToken() *config.Rule {
 func VaultBatchToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "vault-batch-token",
+		ID:          "vault-batch-token",
 		Confidence:  "high",
 		Description: "Detected a Vault Batch Token, risking unauthorized access to secret management services and sensitive data.",
 		Regex:       utils.GenerateUniqueTokenRegex(`hvb\.[\w-]{138,300}`, false),
 		Keywords:    []string{"hvb."},
-		Filter:      `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate
 	tps := utils.GenerateSampleSecrets("vault", "hvb."+secrets.NewSecretWithEntropy(utils.AlphaNumericExtendedShort("138"), 4))
-	tps = append(tps, `hvb.AAAAAQJgxDgqsGNorpoOR7hPZ5SU-ynBvCl764jyRP_fnX7WvkdkDzGjbLNGdPdtlY33Als2P36yDZueqzfdGw9RsaTeaYXSH7E4RYSWuRoQ9YRKIw8o7mDDY2ZcT3KOB7RwtW1w1FN2eDqcy_sbCjXPaM1iBVH-mqMSYRmRd2nb5D1SJPeBzIYRqSglLc31wUGN7xEzyrKUczqOKsIcybQA`) // gitleaks:allow
+	tps = append(tps, `hvb.AAAAAQJgxDgqsGNorpoOR7hPZ5SU-ynBvCl764jyRP_fnX7WvkdkDzGjbLNGdPdtlY33Als2P36yDZueqzfdGw9RsaTeaYXSH7E4RYSWuRoQ9YRKIw8o7mDDY2ZcT3KOB7RwtW1w1FN2eDqcy_sbCjXPaM1iBVH-mqMSYRmRd2nb5D1SJPeBzIYRqSglLc31wUGN7xEzyrKUczqOKsIcybQA`) // betterleaks:allow
 	return utils.Validate(r, tps, nil)
 }

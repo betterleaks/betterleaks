@@ -1,22 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PulumiAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "pulumi-api-token",
+		ID:          "pulumi-api-token",
 		Confidence:  "high",
 		Description: "Found a Pulumi API token, posing a risk to infrastructure as code services and cloud resource management.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pul-[a-f0-9]{40}`, false),
 		Keywords: []string{
 			"pul-",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

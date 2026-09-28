@@ -1,22 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func SettlemintPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a Settlemint Personal Access Token.",
-		RuleID:      "settlemint-personal-access-token",
+		ID:          "settlemint-personal-access-token",
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`sm_pat_[a-zA-Z0-9]{16}`, false),
 		Keywords: []string{
 			"sm_pat",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -32,13 +32,13 @@ func SettlemintApplicationAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a Settlemint Application Access Token.",
-		RuleID:      "settlemint-application-access-token",
+		ID:          "settlemint-application-access-token",
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`sm_aat_[a-zA-Z0-9]{16}`, false),
 		Keywords: []string{
 			"sm_aat",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -54,13 +54,13 @@ func SettlemintServiceAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a Settlemint Service Access Token.",
-		RuleID:      "settlemint-service-access-token",
+		ID:          "settlemint-service-access-token",
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`sm_sat_[a-zA-Z0-9]{16}`, false),
 		Keywords: []string{
 			"sm_sat",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

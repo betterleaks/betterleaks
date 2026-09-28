@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func WorkatoDeveloperAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "workato-developer-api-token.1",
+		ID:          "workato-developer-api-token.1",
 		Confidence:  "high",
 		Description: "Workato Developer API token.",
 		Regex: utils.GenerateUniqueTokenRegex(
@@ -17,13 +17,13 @@ func WorkatoDeveloperAPIToken() *config.Rule {
 		),
 		Keywords: []string{"wrka"},
 		ValidateExpr: `let token = finding["secret"];
-let host = filter.matchesAny(token, ["^wrkaeu-"]) ? "https://app.eu.workato.com" :
-  filter.matchesAny(token, ["^wrkajp-"]) ? "https://app.jp.workato.com" :
-  filter.matchesAny(token, ["^wrkasg-"]) ? "https://app.sg.workato.com" :
-  filter.matchesAny(token, ["^wrkaau-"]) ? "https://app.au.workato.com" :
-  filter.matchesAny(token, ["^wrkail-"]) ? "https://app.il.workato.com" :
-  filter.matchesAny(token, ["^wrkacn-"]) ? "https://app.workatoapp.cn" :
-  filter.matchesAny(token, ["^wrkakr-"]) ? "https://app.kr.workato.com" :
+let host = matchesAny(token, ["^wrkaeu-"]) ? "https://app.eu.workato.com" :
+  matchesAny(token, ["^wrkajp-"]) ? "https://app.jp.workato.com" :
+  matchesAny(token, ["^wrkasg-"]) ? "https://app.sg.workato.com" :
+  matchesAny(token, ["^wrkaau-"]) ? "https://app.au.workato.com" :
+  matchesAny(token, ["^wrkail-"]) ? "https://app.il.workato.com" :
+  matchesAny(token, ["^wrkacn-"]) ? "https://app.workatoapp.cn" :
+  matchesAny(token, ["^wrkakr-"]) ? "https://app.kr.workato.com" :
   "https://www.workato.com";
 let r = http.get(host + "/api/users/me", {
     "Authorization": "Bearer " + token,
@@ -37,7 +37,7 @@ let r = http.get(host + "/api/users/me", {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(4.0),
+		FilterExpr: utils.MinEntropy(4.0),
 	}
 
 	// validate

@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DisqusAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "disqus-api-key",
+		ID:          "disqus-api-key",
 		Confidence:  "high",
 		Description: "Detected a Disqus API key, which may expose Disqus thread and account data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"disqus"}, utils.AlphaNumeric("64"), true),
@@ -20,7 +20,7 @@ func DisqusAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

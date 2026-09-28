@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func WeightsAndBiases() *config.Rule {
 	r := config.Rule{
-		RuleID:      "weights-and-biases-api-key",
+		ID:          "weights-and-biases-api-key",
 		Confidence:  "medium",
 		Description: "Detected a Weights & Biases API Key, which may expose ML experiment tracking and model registry access to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wandb", "weightsandbiases"}, utils.Hex("40"), true),
@@ -18,13 +18,12 @@ func WeightsAndBiases() *config.Rule {
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid",
-    "email": (r.json?.data?.viewer?.email ?? ""),
-    "username": (r.json?.data?.viewer?.username ?? "")
+    "metadata": {"email": (r.json?.data?.viewer?.email ?? ""), "username": (r.json?.data?.viewer?.username ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("wandb_api_key", secrets.NewSecretWithEntropy(utils.Hex("40"), 3.5))
@@ -39,7 +38,7 @@ func WeightsAndBiases() *config.Rule {
 
 func WeightsAndBiasesV1() *config.Rule {
 	r := config.Rule{
-		RuleID:      "weights-and-biases-api-key-v1",
+		ID:          "weights-and-biases-api-key-v1",
 		Confidence:  "high",
 		Description: "Detected a Weights & Biases v1 API Key (wandb_v1_), which may expose ML experiment tracking and artifact storage to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`wandb_v1_[A-Za-z0-9_]{77}`, true),
@@ -49,13 +48,12 @@ func WeightsAndBiasesV1() *config.Rule {
     "Content-Type": "application/json"
   }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
     "result": "valid",
-    "email": (r.json?.data?.viewer?.email ?? ""),
-    "username": (r.json?.data?.viewer?.username ?? "")
+    "metadata": {"email": (r.json?.data?.viewer?.email ?? ""), "username": (r.json?.data?.viewer?.username ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("wandb", "wandb_v1_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_]{77}`, 3.5))

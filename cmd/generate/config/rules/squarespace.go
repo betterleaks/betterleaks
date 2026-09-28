@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func SquareSpaceAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "squarespace-access-token",
+		ID:          "squarespace-access-token",
 		Confidence:  "medium",
 		Description: "Identified a Squarespace Access Token, which may compromise website management and content control on Squarespace.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"squarespace"}, utils.Hex8_4_4_4_12(), true),

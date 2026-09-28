@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func VirusTotalAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "virustotal-api-key.1",
+		ID:          "virustotal-api-key.1",
 		Confidence:  "high",
 		Description: "VirusTotal API key, which may expose private submissions, intelligence, or account API access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"virustotal"}, utils.Hex("64"), true),
@@ -29,7 +29,7 @@ r.status == 200 && (r.body contains "\"data\"") ? {
   "result": "invalid",
   "reason": "Wrong credentials"
 } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[a-f0-9]{64}`, 3.5)

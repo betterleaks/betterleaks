@@ -1,20 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Freemius() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "freemius-secret-key",
+		ID:          "freemius-secret-key",
 		Confidence:  "medium",
 		Description: "Detected a Freemius secret key, potentially exposing sensitive information.",
-		Regex:       regexp.MustCompile(`(?i)["']secret_key["']\s*=>\s*["'](sk_[\S]{29})["']`),
+		Regex:       `(?i)["']secret_key["']\s*=>\s*["'](sk_[\S]{29})["']`,
 		Keywords:    []string{"secret_key"},
-		Path:        regexp.MustCompile(`(?i)\.php$`),
+		Path:        `(?i)\.php$`,
 	}
 
 	// validate

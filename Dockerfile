@@ -2,7 +2,7 @@ FROM golang:1.24 AS build
 WORKDIR /go/src/github.com/betterleaks/betterleaks
 COPY . .
 RUN VERSION=$(git describe --tags --abbrev=0) && \
-CGO_ENABLED=0 go build -o bin/betterleaks -ldflags "-X=github.com/betterleaks/betterleaks/version.Version=${VERSION}"
+CGO_ENABLED=0 go build -o bin/betterleaks -ldflags "-X=github.com/betterleaks/betterleaks/v2/version.Version=${VERSION}"
 
 FROM alpine:3.22
 RUN apk add --no-cache bash git openssh-client
