@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"regexp/syntax"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/config"
@@ -34,7 +35,7 @@ type compiledComponent struct {
 // Shorter anchors can locate complete windows even when a keyword contains
 // punctuation separated by optional whitespace in the regex. Compile proves
 // their coverage; the original keywords still decide rule eligibility.
-func compilePrefixWindows(pattern string, keywords []string) (*regexspan.Plan, []string) {
+func compilePrefixWindows(re *syntax.Regexp, keywords []string) (*regexspan.Plan, []string) {
 	prefixes := make([]string, len(keywords))
 	changed := false
 	for i, keyword := range keywords {
@@ -46,7 +47,7 @@ func compilePrefixWindows(pattern string, keywords []string) (*regexspan.Plan, [
 	if !changed {
 		return nil, nil
 	}
-	plan := regexspan.Compile(pattern, prefixes)
+	plan := regexspan.Compile(re, prefixes)
 	if plan == nil {
 		return nil, nil
 	}

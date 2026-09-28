@@ -4143,3 +4143,15 @@ func BenchmarkIgnoredComponentFingerprints(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkNewDefaultConfig(b *testing.B) {
+	cfg, err := config.Default()
+	require.NoError(b, err)
+	b.ReportAllocs()
+	for b.Loop() {
+		_, err := New(cfg)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}

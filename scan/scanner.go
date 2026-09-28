@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp/syntax"
 	"runtime"
 	"slices"
 	"sort"
@@ -685,11 +686,15 @@ func snapshotRules(cfg *config.Config, engine blregexp.Engine) ([]compiledRule, 
 		rule.Tags = slices.Clone(source.Tags)
 		compiled := compiledRule{rule: rule, hash: hashes[rule.ID]}
 		if rule.Regex != "" {
-			var err error
-			compiled.guard = compileAssignmentGuard(rule.Regex, rule.Keywords)
-			compiled.span = regexspan.Compile(rule.Regex, rule.Keywords)
+			// Share one syntax tree across the internal analyses without retaining it.
+			parsed, err := syntax.Parse(rule.Regex, syntax.Perl)
+			if err != nil {
+				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.ID, err)
+			}
+			compiled.guard = inferAssignmentGuard(parsed, rule.Keywords)
+			compiled.span = regexspan.Compile(parsed, rule.Keywords)
 			if compiled.span == nil {
-				compiled.span, compiled.searchAnchors = compilePrefixWindows(rule.Regex, rule.Keywords)
+				compiled.span, compiled.searchAnchors = compilePrefixWindows(parsed, rule.Keywords)
 			}
 			compiled.regex, err = blregexp.CompileWithEngine(rule.Regex, engine)
 			if err != nil {

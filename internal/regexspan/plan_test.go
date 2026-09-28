@@ -3,6 +3,7 @@ package regexspan
 import (
 	"reflect"
 	"regexp"
+	"regexp/syntax"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestDefaultRuleWindows(t *testing.T) {
 	}
 	planned := 0
 	for _, rule := range cfg.Rules {
-		if Compile(rule.Regex, rule.Keywords) == nil {
+		if compilePattern(rule.Regex, rule.Keywords) == nil {
 			continue
 		}
 		planned++
@@ -40,7 +41,7 @@ func TestDefaultRuleWindows(t *testing.T) {
 
 func checkWindows(t testing.TB, pattern, text string, keywords []string) {
 	t.Helper()
-	plan := Compile(pattern, keywords)
+	plan := compilePattern(pattern, keywords)
 	if plan == nil {
 		return
 	}
@@ -90,7 +91,7 @@ func TestWindows(t *testing.T) {
 		{`(?i)key\s{0,3}=[a-z]+`, []string{"key"}, strings.Repeat("key=value ", 3000)},
 	} {
 		t.Run(tc.pattern, func(t *testing.T) {
-			if Compile(tc.pattern, tc.keys) == nil {
+			if compilePattern(tc.pattern, tc.keys) == nil {
 				t.Fatal("expected a plan")
 			}
 			checkWindows(t, tc.pattern, tc.text, tc.keys)
@@ -100,7 +101,7 @@ func TestWindows(t *testing.T) {
 
 func TestCompileFallsBack(t *testing.T) {
 	for _, pattern := range []string{`foo|bar`, `.*foo`, `(?s)foo.*`, `foo?`, `(?:foo)*`, `foo[\s\S]*`} {
-		if plan := Compile(pattern, []string{"foo"}); plan != nil {
+		if plan := compilePattern(pattern, []string{"foo"}); plan != nil {
 			t.Errorf("%q: unsafe plan %+v", pattern, plan)
 		}
 	}
@@ -108,7 +109,7 @@ func TestCompileFallsBack(t *testing.T) {
 
 func TestWindowsBoundScratch(t *testing.T) {
 	text := strings.Repeat("key:value"+strings.Repeat(".", 100), 1000)
-	plan := Compile(`key:(\w{1,8})`, []string{"key"})
+	plan := compilePattern(`key:(\w{1,8})`, []string{"key"})
 	var windows Windows
 	matcher := ahocorasick.Compile([]string{"key"}, true)
 	matcher.Visit(text, func(_ int, start, end int) bool {
@@ -145,7 +146,7 @@ func FuzzWindows(f *testing.F) {
 func TestKeywordsAcrossCaptures(t *testing.T) {
 	pattern := `(?i)\b(?P<uri>(?P<scheme>https?|postgres(?:ql)?)://(?P<user>[^:/@\s]{0,128}):(?P<password>[^/@\s]{1,256})@(?P<host>[^/\s]+))`
 	keys := []string{"http://", "https://", "postgres://", "postgresql://"}
-	if Compile(pattern, keys) == nil {
+	if compilePattern(pattern, keys) == nil {
 		t.Fatal("expected a plan across scheme capture and separator")
 	}
 	for _, value := range []string{"https://user:secret@host/path", "postgresql://:secret@host", "HTTP://user:secret@host", "http://user:secret@host https://user:other@host"} {
@@ -161,7 +162,7 @@ func TestRequiredPunctuationProof(t *testing.T) {
 	}{
 		{`key=[a-z]+@host`, '='}, {`key(?:=[a-z]+|:[a-z]+)`, 0}, {`key(?:@[a-z]+)?`, 0}, {`key[.@][a-z]+`, 0}, {`key(?:@[a-z]+|@.*)`, '@'},
 	} {
-		plan := Compile(tc.pattern, []string{"key"})
+		plan := compilePattern(tc.pattern, []string{"key"})
 		if plan == nil {
 			t.Fatal(tc.pattern)
 		}
@@ -169,4 +170,12 @@ func TestRequiredPunctuationProof(t *testing.T) {
 			t.Fatalf("%s: got %q want %q", tc.pattern, plan.RequiredByte, tc.want)
 		}
 	}
+}
+
+func compilePattern(pattern string, keywords []string) *Plan {
+	re, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return nil
+	}
+	return Compile(re, keywords)
 }
