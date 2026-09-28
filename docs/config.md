@@ -223,7 +223,7 @@ r.json?.login ?? ""
 
 | Name | Scope | Description |
 | :--- | :--- | :--- |
-| `attributes` | prefilter, filter | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, `fs.symlink`, and the read-only `fs.first_fragment` (`"true"` for a file's first chunk and `"false"` thereafter). |
+| `attributes` | prefilter, filter | Source metadata. Common keys include `path`, `git.sha`, `git.author_name`, `git.author_email`, `git.date`, `git.message`, `git.remote_url`, `git.platform`, `fs.symlink`, and the read-only `fs.first_fragment` (`"true"` for a file's first chunk and `"false"` thereafter; omitted from reports). |
 | `finding` | filter, validate, analyze, revoke | Primary match data. `finding.secret` is its selected value; `finding.captures` contains its named regex groups. Provider programs can read only `secret`, `captures`, and `rule_id`. Filters also receive `match`, `line`, `description`, `confidence`, context and fragment offsets. |
 | `components` | validate, analyze, revoke | One combination of component matches, keyed by referenced rule ID. Each has `secret` and `captures` fields. Absent optional components have no entry. |
 | `validation` | analyze | This combination's validation `status`, `reason`, public `metadata`, and private `analysis` handoff data. |

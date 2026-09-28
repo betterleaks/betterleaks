@@ -60,6 +60,9 @@ func TestJSONWriterContract(t *testing.T) {
 				assert.Equal(t, string(finished), batch.String())
 				if count == 0 {
 					assert.Equal(t, format.empty, string(finished))
+					batch.Reset()
+					require.NoError(t, format.write(&batch, []Finding{}))
+					assert.Equal(t, format.empty, batch.String())
 					return
 				}
 				var got []Finding

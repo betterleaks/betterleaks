@@ -17,9 +17,9 @@ title = "{{.Title}}"
 # Older versioned builds reject this configuration.
 minVersion = "v2.0.0-rc.1"
 
-{{ with .Prefilter }}
+{{ with .PrefilterExpr }}
 prefilter = {{ tomlExpr . }}
-{{ end }}{{ with .Filter }}
+{{ end }}{{ with .FilterExpr }}
 filter = {{ tomlExpr . }}
 {{ end }}
 {{- range $i, $rule := .Rules }}{{println}}# ──────────────────────────────────────────────────────────────────────────────
