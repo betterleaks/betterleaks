@@ -8132,6 +8132,12 @@ keywords = [
     "powerplatform.com",
     "azurewebsites.net",
 ]
+filter = '''
+let url = lower(finding["captures"]["url"]);
+url contains "/workflows/c4ed9335bc864140a11f4508d19acea3" ||
+url contains "aaaabbbb0000cccc1111dddd2222ee.ee.environment.api.powerplatform.com" ||
+url contains "aaaa0000bb11222233cc444444dddd.dd.environment.api.powerplatform.com"
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # midtrans-production-server-client-key
