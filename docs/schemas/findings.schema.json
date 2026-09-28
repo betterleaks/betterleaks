@@ -1,8 +1,302 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Betterleaks v2 JSON findings report",
-  "description": "The JSON array emitted by --output findings.json or --output -. For JSONL, validate each parsed line against finding.schema.json instead. Keep both schema files together so the relative reference can resolve.",
-  "type": "array",
-  "items": {"$ref": "finding.schema.json"},
-  "examples": [[]]
+  "title": "Betterleaks v2 JSON scan report",
+  "description": "The object emitted by CLI --output findings.json or --output -. Findings are streamed before scan metadata. For CLI JSONL, each finding envelope uses #/$defs/findingRecord and the final metadata record uses #/$defs/scanRecord. Low-level SDK WriteJSON still writes a finding array.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scan",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "scan": {
+      "$ref": "#/$defs/scan"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "finding.schema.json"
+      }
+    }
+  },
+  "$defs": {
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "source",
+        "started",
+        "finished",
+        "betterleaks_version",
+        "config_hash",
+        "bytes_scanned",
+        "num_findings",
+        "confidence_counts",
+        "severity_counts",
+        "status_counts"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "incomplete"
+          ],
+          "description": "Complete when scanning finishes normally, including findings and recoverable warned skips. Incomplete when cancellation or a fatal scan error prevents normal completion."
+        },
+        "started": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Invocation start time in UTC."
+        },
+        "finished": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Time report finalization begins, in UTC, including when the scan ends with an error."
+        },
+        "betterleaks_version": {
+          "type": "string"
+        },
+        "config_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Resolved configuration hash after rule selection, shared by all targets. Includes provider expressions; excludes runtime options."
+        },
+        "bytes_scanned": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total inspected fragment bytes across all targets, after exclusions and source archive expansion. Not the size of input files on disk. An interrupted scan reports work completed so far."
+        },
+        "num_findings": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of reported top-level findings after all output filters. Components are not counted separately. Incomplete scans count findings emitted so far."
+        },
+        "confidence_counts": {
+          "type": "object",
+          "description": "Counts by confidence. None means unset; other groups custom values. The buckets sum to num_findings.",
+          "additionalProperties": false,
+          "required": [
+            "high",
+            "medium",
+            "low",
+            "none",
+            "other"
+          ],
+          "properties": {
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "medium": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "none": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "severity_counts": {
+          "type": "object",
+          "description": "Counts by severity. None means unset, distinct from an unknown analysis result. The buckets sum to num_findings.",
+          "additionalProperties": false,
+          "required": [
+            "high",
+            "medium",
+            "unknown",
+            "none"
+          ],
+          "properties": {
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "medium": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "none": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "status_counts": {
+          "type": "object",
+          "description": "Counts by validation status. None means unset. Provider errors do not imply an incomplete scan. The buckets sum to num_findings.",
+          "additionalProperties": false,
+          "required": [
+            "valid",
+            "invalid",
+            "revoked",
+            "needs_validation",
+            "unknown",
+            "error",
+            "none"
+          ],
+          "properties": {
+            "valid": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "invalid": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "revoked": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "needs_validation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "error": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "none": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "filesystem",
+                "git",
+                "url",
+                "github",
+                "gitlab",
+                "huggingface",
+                "s3",
+                "stdin"
+              ]
+            },
+            "targets": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Resolved source type and selected targets, including targets not reached by an incomplete scan. Targets are omitted for stdin. Local paths retain their spelling; remote URLs omit credentials, queries, and fragments."
+        }
+      }
+    },
+    "scanRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "scan"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "scan": {
+          "$ref": "#/$defs/scan"
+        }
+      }
+    },
+    "jsonlRecord": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/findingRecord"
+        },
+        {
+          "$ref": "#/$defs/scanRecord"
+        }
+      ]
+    },
+    "findingRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "finding"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "finding": {
+          "$ref": "finding.schema.json"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "1",
+      "scan": {
+        "state": "complete",
+        "betterleaks_version": "v2.0.0-rc.1",
+        "started": "2026-09-23T17:00:00Z",
+        "finished": "2026-09-23T17:00:01Z",
+        "config_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes_scanned": 0,
+        "confidence_counts": {
+          "high": 0,
+          "medium": 0,
+          "low": 0,
+          "none": 0,
+          "other": 0
+        },
+        "severity_counts": {
+          "high": 0,
+          "medium": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "status_counts": {
+          "valid": 0,
+          "invalid": 0,
+          "revoked": 0,
+          "needs_validation": 0,
+          "unknown": 0,
+          "error": 0,
+          "none": 0
+        },
+        "num_findings": 0,
+        "source": {
+          "type": "stdin"
+        }
+      },
+      "findings": []
+    }
+  ]
 }

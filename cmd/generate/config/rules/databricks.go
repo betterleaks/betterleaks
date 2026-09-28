@@ -14,7 +14,7 @@ func Databricks() *config.Rule {
 		Description: "Uncovered a Databricks API token, which may compromise big data analytics platforms and sensitive data processing.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dapi[a-f0-9]{32}(?:-\d)?`, false),
 		Keywords:    []string{"dapi"},
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	// validate

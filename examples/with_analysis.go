@@ -78,12 +78,11 @@ func run() error {
 
 	scanner, err := scan.New(cfg,
 		scan.WithLogger(logger),
-		scan.WithWorkers(1), // Detection workers; 0 uses GOMAXPROCS.
+		scan.WithWorkers(1), // Detection workers; 0 uses 4 * GOMAXPROCS.
 		scan.WithMatchContext("10L"),
 		scan.WithMaxDecodeDepth(3), // Also find credentials inside encoded text.
 		scan.WithMinimumConfidence(scan.ConfidenceHigh),
-		scan.WithPrecompile(),               // Report regex/expression compilation errors now.
-		scan.WithIgnoreAllowComments(false), // Honor betterleaks:allow comments.
+		scan.WithPrecompile(), // Report regex/expression compilation errors now.
 		// Ignore this exact primary secret across all rules and locations,
 		// before spending any work on validation or analysis.
 		scan.WithIgnoredFingerprints(fingerprint.Sum([]byte(fixtureToken))),
@@ -147,7 +146,7 @@ func run() error {
 				sources.AttrPath:     path,
 				sources.AttrResource: sources.ResourceFileContent,
 			},
-			ShouldSkip: skip,
+			Prefilter: skip,
 		}
 		summary, err := p.Scan(ctx, source, func(finding report.Finding) error {
 			// Finding.Analysis contains status, identity, account, capabilities,

@@ -15,7 +15,7 @@ func ExampleAnalyzer_AnalyzeCredential() {
 	cfg := &config.Config{Rules: []config.Rule{{
 		ID:           "demo-token",
 		Regex:        `demo_(?P<tenant>[a-z]+)_(?P<key>[a-z]+)`,
-		SecretGroup:  2,
+		ValueGroup:   2,
 		ValidateExpr: `finding.captures.tenant == "acme" ? {"result": "valid", "analysis": {"owner": "demo-user"}} : {"result": "invalid"}`,
 		AnalyzeExpr:  `{"identity": {"username": validation["analysis"]["owner"]}, "capabilities": ["read"]}`,
 	}}}

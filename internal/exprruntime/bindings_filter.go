@@ -3,6 +3,7 @@ package exprruntime
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -17,7 +18,6 @@ import (
 )
 
 var (
-	regexCache  sync.Map // string -> *blregexp.Regexp
 	acTrieCache sync.Map // string -> *ahocorasick.Matcher
 )
 
@@ -38,23 +38,26 @@ func sortedKey(ss []string) string {
 	return strings.Join(cp, "\x00")
 }
 
-func getOrCompileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
+func (e *Runtime) getOrCompileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
 	if len(patterns) == 0 {
 		return nil, nil
 	}
 	key := orderedKey(patterns)
-	if v, ok := regexCache.Load(key); ok {
-		return v.(*blregexp.Regexp), nil
+	if v, ok := e.regexCache.Load(key); ok {
+		re := v.(*blregexp.Regexp)
+		return re, re.Compile()
 	}
-	re, err := compileJoinedRegex(patterns)
+	re, err := e.compileJoinedRegex(patterns)
 	if err != nil {
 		return nil, err
 	}
-	regexCache.Store(key, re)
-	return re, nil
+	// Share lazy compilation, including failures, across concurrent evaluations.
+	cached, _ := e.regexCache.LoadOrStore(key, re)
+	re = cached.(*blregexp.Regexp)
+	return re, re.Compile()
 }
 
-func compileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
+func (e *Runtime) compileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
 	if len(patterns) == 0 {
 		return nil, nil
 	}
@@ -62,10 +65,10 @@ func compileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
 	for i, p := range patterns {
 		parts[i] = "(?:" + p + ")"
 	}
-	re, err := blregexp.Compile(strings.Join(parts, "|"))
+	re, err := blregexp.CompileWithEngine(strings.Join(parts, "|"), e.regexEngine)
 	if err != nil {
 		for _, pattern := range patterns {
-			if _, patternErr := blregexp.Compile(pattern); patternErr != nil {
+			if _, patternErr := blregexp.CompileWithEngine(pattern, e.regexEngine); patternErr != nil {
 				return nil, fmt.Errorf("invalid regex pattern %q: %w", pattern, patternErr)
 			}
 		}
@@ -77,7 +80,7 @@ func compileJoinedRegex(patterns []string) (*blregexp.Regexp, error) {
 // The common source prefilter is one matchesAny(attributes[key], literalList).
 // Compile that operation once, without per-path VM bindings or cache keys.
 // All other expressions, including invalid regexes, retain normal evaluation.
-func compileAttributeMatch(node ast.Node) func(map[string]string) bool {
+func (e *Runtime) compileAttributeMatch(node ast.Node) func(map[string]string) (bool, error) {
 	call, ok := node.(*ast.CallNode)
 	if !ok || len(call.Arguments) != 2 {
 		return nil
@@ -107,13 +110,19 @@ func compileAttributeMatch(node ast.Node) func(map[string]string) bool {
 	default:
 		return nil
 	}
-	re, err := compileJoinedRegex(toStringSlice(list.Value))
+	re, err := e.compileJoinedRegex(toStringSlice(list.Value))
 	if err != nil {
 		return nil
 	}
 	attribute := key.Value
-	return func(attributes map[string]string) bool {
-		return re != nil && re.MatchString(attributes[attribute])
+	return func(attributes map[string]string) (bool, error) {
+		if re == nil {
+			return false, nil
+		}
+		if err := re.Compile(); err != nil {
+			return false, err
+		}
+		return re.MatchString(attributes[attribute]), nil
 	}
 }
 
@@ -134,16 +143,16 @@ func getOrBuildTrie(terms []string) *ahocorasick.Matcher {
 	return trie
 }
 
-func matchesAny(values, patterns any) (bool, error) {
-	re, err := getOrCompileJoinedRegex(toStringSlice(patterns))
+func (e *Runtime) matchesAny(values, patterns any) (bool, error) {
+	re, err := e.getOrCompileJoinedRegex(toStringSlice(patterns))
 	if err != nil || re == nil {
 		return false, err
 	}
 	return anyString(values, re.MatchString), nil
 }
 
-func findMatch(s, pattern string) (string, error) {
-	re, err := getOrCompileJoinedRegex([]string{pattern})
+func (e *Runtime) findMatch(s, pattern string) (string, error) {
+	re, err := e.getOrCompileJoinedRegex([]string{pattern})
 	if err != nil || re == nil {
 		return "", err
 	}
@@ -172,12 +181,7 @@ func startsWithAny(values, prefixes any) bool {
 func intersects(values, candidates any) bool {
 	candidateList := toStringSlice(candidates)
 	return len(candidateList) > 0 && anyString(values, func(value string) bool {
-		for _, candidate := range candidateList {
-			if value == candidate {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(candidateList, value)
 	})
 }
 
@@ -188,10 +192,8 @@ func anyString(value any, match func(string) bool) bool {
 	case string:
 		return match(value)
 	case []string:
-		for _, item := range value {
-			if match(item) {
-				return true
-			}
+		if slices.ContainsFunc(value, match) {
+			return true
 		}
 	case []any:
 		for _, item := range value {

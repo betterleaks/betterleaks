@@ -23,7 +23,7 @@ func ThunderstoreAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Invalid Service Account token"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.5
+		FilterExpr: `entropy(finding["secret"]) < 3.5
 || !matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){2}"])`,
 	}
 

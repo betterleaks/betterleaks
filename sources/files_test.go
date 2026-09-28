@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -19,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func TestFilesDoesNotRepeatPrefilterForAcceptedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file.txt")
 	require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("content\n\n", 100_000)), 0o600))
 	var checks, fragments atomic.Int32
-	source := &Files{Path: path, ShouldSkip: func(map[string]string) bool {
+	source := &Files{Path: path, Prefilter: func(map[string]string) bool {
 		checks.Add(1)
 		return false
 	}}
@@ -45,6 +46,8 @@ func TestFilesDoesNotRepeatPrefilterForAcceptedFile(t *testing.T) {
 }
 
 func TestFilesFragmentsOwnContents(t *testing.T) {
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	root := t.TempDir()
 	contents := make(map[string]string)
 	for i := range 6 {
@@ -53,7 +56,7 @@ func TestFilesFragmentsOwnContents(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(contents[path]), 0o600))
 	}
 	// One reader forces buffer reuse before retained fragments are inspected.
-	source := &Files{Path: root, Workers: 1}
+	source := &Files{Path: root}
 	var fragments []Fragment
 	require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
 		fragments = append(fragments, fragment)
@@ -66,64 +69,80 @@ func TestFilesFragmentsOwnContents(t *testing.T) {
 	}
 }
 
-func TestFilesCancellationJoinsReaders(t *testing.T) {
+func TestFilesConcurrencyAndCancellation(t *testing.T) {
 	root := t.TempDir()
 	for i := range 32 {
 		require.NoError(t, os.WriteFile(filepath.Join(root, fmt.Sprintf("%d.txt", i)), []byte("content"), 0o600))
 	}
-	for _, cancelScan := range []bool{false, true} {
-		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-		defer cancel()
-		source := &Files{Path: root, Workers: 2}
-		started := make(chan struct{}, 32)
-		release := make(chan struct{})
-		done := make(chan error, 1)
-		callbackErr := errors.New("stop callback")
-		go func() {
-			done <- source.Fragments(ctx, func(_ Fragment, err error) error {
-				if err != nil {
-					return err
+	for _, test := range []struct {
+		name string
+		cpus int
+		want int
+	}{
+		{name: "automatic single CPU", cpus: 1, want: 1},
+		{name: "automatic two CPUs", cpus: 2, want: 2},
+		{name: "automatic ten CPUs", cpus: 10, want: 10},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			previous := runtime.GOMAXPROCS(test.cpus)
+			t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+			for _, cancelScan := range []bool{false, true} {
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+				source := &Files{Path: root}
+				started := make(chan struct{}, 32)
+				release := make(chan struct{})
+				done := make(chan error, 1)
+				callbackErr := errors.New("stop callback")
+				go func() {
+					done <- source.Fragments(ctx, func(_ Fragment, err error) error {
+						if err != nil {
+							return err
+						}
+						started <- struct{}{}
+						select {
+						case <-release:
+							return callbackErr
+						case <-ctx.Done():
+							return nil
+						}
+					})
+				}()
+				for range test.want {
+					select {
+					case <-started:
+					case <-ctx.Done():
+						t.Fatal("workers failed to start")
+					}
 				}
-				started <- struct{}{}
 				select {
-				case <-release:
-					return callbackErr
-				case <-ctx.Done():
-					return nil
+				case <-started:
+					t.Fatal("exceeded the file worker limit")
+				case <-time.After(20 * time.Millisecond):
 				}
-			})
-		}()
-		for range source.Workers {
-			select {
-			case <-started:
-			case <-ctx.Done():
-				t.Fatal("workers failed to start")
+				want := callbackErr
+				if cancelScan {
+					want = context.Canceled
+					cancel()
+				} else {
+					close(release)
+				}
+				select {
+				case err := <-done:
+					require.ErrorIs(t, err, want)
+				case <-time.After(5 * time.Second):
+					t.Fatal("source did not join its workers")
+				}
+				cancel()
 			}
-		}
-		select {
-		case <-started:
-			t.Fatal("exceeded the file worker limit")
-		case <-time.After(20 * time.Millisecond):
-		}
-		want := callbackErr
-		if cancelScan {
-			want = context.Canceled
-			cancel()
-		} else {
-			close(release)
-		}
-		select {
-		case err := <-done:
-			require.ErrorIs(t, err, want)
-		case <-time.After(5 * time.Second):
-			t.Fatal("source did not join its workers")
-		}
-		cancel()
+		})
 	}
 }
 
 func TestFilesMissingRootReturnsError(t *testing.T) {
-	source := &Files{Path: filepath.Join(t.TempDir(), "missing"), Workers: 1}
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+	source := &Files{Path: filepath.Join(t.TempDir(), "missing")}
 	yield := func(Fragment, error) error {
 		t.Error("missing root should fail before yielding")
 		return nil
@@ -144,7 +163,7 @@ func TestFilesPrefilterPrecedesSizeChecks(t *testing.T) {
 			Path:        path,
 			MaxFileSize: 10,
 			Logger:      slog.New(slog.NewJSONHandler(&output, nil)),
-			ShouldSkip: func(attrs map[string]string) bool {
+			Prefilter: func(attrs map[string]string) bool {
 				require.Equal(t, path, attrs[AttrPath])
 				checks++
 				return true
@@ -167,7 +186,7 @@ func TestFilesDirectoryPrefilterPrunesTraversal(t *testing.T) {
 	accepted := filepath.Join(root, "keep.txt")
 	require.NoError(t, os.WriteFile(accepted, []byte("keep"), 0o600))
 	for _, follow := range []bool{false, true} {
-		source := &Files{Path: root, FollowSymlinks: follow, ShouldSkip: func(attrs map[string]string) bool {
+		source := &Files{Path: root, FollowSymlinks: follow, Prefilter: func(attrs map[string]string) bool {
 			path := filepath.FromSlash(attrs[AttrPath])
 			if strings.HasPrefix(path, skipped+string(filepath.Separator)) {
 				t.Errorf("visited child of skipped directory: %s", path)
@@ -195,7 +214,7 @@ func TestFilesPrefilterStillAppliesToArchiveEntries(t *testing.T) {
 	require.NoError(t, writer.Close())
 	path := filepath.Join(t.TempDir(), "bundle.zip")
 	require.NoError(t, os.WriteFile(path, archive.Bytes(), 0o600))
-	source := &Files{Path: path, MaxArchiveDepth: 1, ShouldSkip: func(attrs map[string]string) bool {
+	source := &Files{Path: path, MaxArchiveDepth: 1, Prefilter: func(attrs map[string]string) bool {
 		return strings.HasSuffix(attrs[AttrPath], "!skip.txt")
 	}}
 	var paths []string
@@ -243,7 +262,7 @@ func TestFilesWalkFilesPathsMatchFilepathWalkDir(t *testing.T) {
 	)
 	source := &Files{
 		Path: scanRoot,
-		ShouldSkip: func(attrs map[string]string) bool {
+		Prefilter: func(attrs map[string]string) bool {
 			visitedMu.Lock()
 			visited = append(visited, attrs[AttrPath])
 			visitedMu.Unlock()
@@ -251,7 +270,9 @@ func TestFilesWalkFilesPathsMatchFilepathWalkDir(t *testing.T) {
 		},
 	}
 	require.NoError(t, source.walkFiles(t.Context(), func(name filePath) error {
+		visitedMu.Lock()
 		targets = append(targets, name.path)
+		visitedMu.Unlock()
 		return nil
 	}))
 
@@ -263,7 +284,9 @@ func TestFilesWalkFilesPathsMatchFilepathWalkDir(t *testing.T) {
 	require.Equal(t, wantTargets, targets)
 }
 
-func TestFilesJobsLimitConcurrency(t *testing.T) {
+func TestFilesReadersBoundReadAhead(t *testing.T) {
+	previous := runtime.GOMAXPROCS(2)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	const fileCount = 6
 
 	root := t.TempDir()
@@ -272,7 +295,7 @@ func TestFilesJobsLimitConcurrency(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("content"), 0o600))
 	}
 
-	source := &Files{Path: root, Workers: 2}
+	source := &Files{Path: root}
 	started := make(chan struct{}, fileCount)
 	release := make(chan struct{})
 	done := make(chan error, 1)
@@ -303,7 +326,7 @@ func TestFilesJobsLimitConcurrency(t *testing.T) {
 		})
 	}()
 
-	for range source.Workers {
+	for range 2 {
 		select {
 		case <-started:
 		case err := <-done:
@@ -328,11 +351,13 @@ func TestFilesJobsLimitConcurrency(t *testing.T) {
 		t.Fatal("timed out waiting for scan completion")
 	}
 
-	require.Equal(t, int64(source.Workers), peak.Load())
+	require.Equal(t, int64(2), peak.Load())
 	require.Equal(t, int64(fileCount), yielded.Load())
 }
 
 func TestFilesFollowDirectorySymlinks(t *testing.T) {
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	disk := t.TempDir()
 	volumes := filepath.Join(disk, "Volumes")
 	require.NoError(t, os.Mkdir(volumes, 0o755))
@@ -345,7 +370,7 @@ func TestFilesFollowDirectorySymlinks(t *testing.T) {
 	require.NoError(t, os.Symlink("..", filepath.Join(disk, "nested", "back")))
 	for _, root := range []string{volumes, link} {
 		for _, follow := range []bool{false, true} {
-			source := &Files{Path: root, FollowSymlinks: follow, Workers: 1}
+			source := &Files{Path: root, FollowSymlinks: follow}
 			for range 2 { // Directory deduplication must be scoped to each scan.
 				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				var contents []string
@@ -378,7 +403,7 @@ func TestFilesDirectorySymlinkPrefilter(t *testing.T) {
 	require.NoError(t, os.Symlink(target, link))
 	for _, scanRoot := range []string{root, link} {
 		for _, skipped := range []string{link, target} {
-			source := &Files{Path: scanRoot, FollowSymlinks: true, ShouldSkip: func(attrs map[string]string) bool {
+			source := &Files{Path: scanRoot, FollowSymlinks: true, Prefilter: func(attrs map[string]string) bool {
 				return attrs[AttrPath] == skipped
 			}}
 			require.NoError(t, source.walkFiles(t.Context(), func(filePath) error {
@@ -411,6 +436,8 @@ func TestFilesSymlinksUseTargetSizeAndHandleBrokenLinks(t *testing.T) {
 }
 
 func TestFilesUnreadableDirectoriesDoNotAbortScan(t *testing.T) {
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	root := t.TempDir()
 	denied := filepath.Join(root, "denied")
 	require.NoError(t, os.Mkdir(denied, 0o700))
@@ -428,7 +455,7 @@ func TestFilesUnreadableDirectoriesDoNotAbortScan(t *testing.T) {
 	}
 	for _, follow := range []bool{false, true} {
 		for _, path := range []string{root, denied, link} {
-			source := &Files{Path: path, FollowSymlinks: follow, Workers: 1}
+			source := &Files{Path: path, FollowSymlinks: follow}
 			var contents []string
 			err := source.Fragments(t.Context(), func(f Fragment, err error) error {
 				if err != nil {
@@ -454,7 +481,7 @@ func TestFilesDisappearingDirectoryDoesNotAbortScan(t *testing.T) {
 		require.NoError(t, os.Mkdir(vanishing, 0o700))
 		readable := filepath.Join(root, "readable.txt")
 		require.NoError(t, os.WriteFile(readable, []byte("readable"), 0o600))
-		source := &Files{Path: root, FollowSymlinks: follow, ShouldSkip: func(attrs map[string]string) bool {
+		source := &Files{Path: root, FollowSymlinks: follow, Prefilter: func(attrs map[string]string) bool {
 			if attrs[AttrPath] == vanishing {
 				// Remove it after inspection but before fastwalk reads it.
 				if err := os.Remove(vanishing); err != nil {

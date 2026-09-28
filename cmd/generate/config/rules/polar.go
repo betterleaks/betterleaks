@@ -39,7 +39,7 @@ func PolarOrganizationAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Invalid token"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate
@@ -59,7 +59,7 @@ func PolarPersonalAccessToken() *config.Rule {
 		Regex:        utils.GenerateUniqueTokenRegex(`polar_pat_[A-Za-z0-9_-]{20,100}`, false),
 		Keywords:     []string{"polar_pat_"},
 		ValidateExpr: polarUserTokenValidateExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	// validate
@@ -79,7 +79,7 @@ func PolarOAuthAccessToken() *config.Rule {
 		Regex:        utils.GenerateUniqueTokenRegex(`polar_at_[A-Za-z0-9_-]{20,100}`, false),
 		Keywords:     []string{"polar_at_"},
 		ValidateExpr: polarUserTokenValidateExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	// validate

@@ -22,7 +22,7 @@ func TogetherAI() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("togetherai", "tgp_v1_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{43}`, 3.0))

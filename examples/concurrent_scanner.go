@@ -76,7 +76,7 @@ func run() error {
 					sources.AttrPath:     input.path,
 					sources.AttrResource: sources.ResourceFileContent,
 				},
-				ShouldSkip: skip,
+				Prefilter: skip,
 			}
 			summary, err := scanner.Scan(ctx, source, func(finding report.Finding) error {
 				redacted := finding.RedactedCopy(100)

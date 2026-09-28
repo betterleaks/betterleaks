@@ -22,7 +22,7 @@ func GenericCredentialURI() *config.Rule {
 		Confidence:  "medium",
 		Description: "Detected a password embedded in a service connection URI, which may expose direct access to the referenced service.",
 		Regex:       `(?i)\b(?P<uri>(?P<scheme>https?|postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|ldaps?|smtps?|ftps?|ssh)://(?P<username>[^:/@\s'"\x60]{0,128}):(?P<password>[^/@\s'"\x60]{1,256})@(?P<host>(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252}))(?::[0-9]{1,5})?(?:,(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252})(?::[0-9]{1,5})?)*(?:[/?][a-z0-9._~!$&(*+,;=:@%/?-]*)?)(?:[\s'"\x60#<>{}\[\],;)]|\\[nr]|$)`,
-		SecretGroup: 4,
+		ValueGroup:  4,
 		Keywords: []string{
 			"http://",
 			"https://",
@@ -46,8 +46,8 @@ func GenericCredentialURI() *config.Rule {
 		},
 		// Prefer this structural URI match over the generic username/password
 		// rules while leaving provider-specific rules at the default 100 ahead.
-		Specificity: 30,
-		Filter: `let isExampleValue = matchesAny(finding["secret"], [
+		Specificity: -70,
+		FilterExpr: `let isExampleValue = matchesAny(finding["secret"], [
   ` + "`(?i)^(?:(?:(?:an?|my)(?:[ _.-]|%(?:20|2d|5f))*)?example(?:(?:[ _.-]|%(?:20|2d|5f))*(?:password|passwd|pwd))?|(?:password|passwd|pwd)(?:[ _.-]|%(?:20|2d|5f))*example)(?:(?:[ _.-]|%(?:20|2d|5f))*[0-9]{1,4})?[!?.]*$`" + `
 ]);
 let isInstructionalPlaceholder = matchesAny(finding["secret"], [

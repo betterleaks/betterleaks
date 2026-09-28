@@ -14,7 +14,7 @@ func GrafanaApiKey() *config.Rule {
 		Description: "Identified a Grafana API key, which could compromise monitoring dashboards and sensitive data analytics.",
 		Regex:       utils.GenerateUniqueTokenRegex(`eyJrIjoi[A-Za-z0-9+/]{40,380}={0,2}`, false),
 		Keywords:    []string{"eyJrIjoi"},
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -32,7 +32,7 @@ func GrafanaCloudApiToken() *config.Rule {
 		Regex:        utils.GenerateUniqueTokenRegex(`glc_[A-Za-z0-9+/]{40,150}={0,2}`, false),
 		Keywords:     []string{"glc_"},
 		ValidateExpr: utils.BearerGetValidationExpr("https://grafana.com/api/stack-regions", "true"),
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -70,7 +70,7 @@ func GrafanaServiceAccountToken() *config.Rule {
 		Description: "Discovered a Grafana service account token, posing a risk of compromised monitoring services and data integrity.",
 		Regex:       utils.GenerateUniqueTokenRegex(`glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}`, false),
 		Keywords:    []string{"glsa_"},
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	// validate

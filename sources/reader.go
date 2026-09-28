@@ -36,12 +36,14 @@ var (
 // infer a resource type or other provenance; callers can supply that context
 // through Attributes.
 type Reader struct {
-	// Content is the stream to scan.
+	// Content is the stream to scan. Reader does not close it. The caller must
+	// cancel or close the underlying reader to interrupt a blocked Read;
+	// context cancellation alone cannot interrupt an arbitrary io.Reader.
 	Content io.Reader
 	// Attributes are copied onto every fragment yielded from Content.
 	Attributes map[string]string
-	// ShouldSkip decides whether to discard a fragment from Content.
-	ShouldSkip SkipFunc
+	// Prefilter decides whether to discard a fragment from Content.
+	Prefilter PrefilterFunc
 }
 
 func (s *Reader) Fragments(ctx context.Context, yield FragmentsFunc) error {
@@ -52,8 +54,7 @@ func (s *Reader) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	buffer := getBuffer()
 	defer putBuffer(buffer)
 
-	return readerFragments(ctx, s.Content, buffer, func(chunk readerChunk, err error) error {
-		fragment := chunk.fragment
+	return readerFragments(ctx, s.Content, buffer, func(fragment Fragment, err error) error {
 		if len(s.Attributes) > 0 {
 			fragment.Attributes = make(map[string]string, len(s.Attributes))
 			maps.Copy(fragment.Attributes, s.Attributes)
@@ -62,24 +63,17 @@ func (s *Reader) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		if err != nil {
 			return yield(fragment, fmt.Errorf("could not read reader: %w", err))
 		}
-		if s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+		if s.Prefilter != nil && s.Prefilter(fragment.Attributes) {
 			return nil
 		}
 		return yield(fragment, nil)
 	})
 }
 
-type readerChunk struct {
-	fragment Fragment
-	// initial aliases the caller-provided read buffer and is valid only for the
-	// duration of the callback. File uses it for allocation-free MIME sniffing.
-	initial []byte
-}
-
 // readerFragments contains the source-neutral mechanics shared by Reader and
 // File: buffered reads, safe chunk boundaries, and stream-relative line
 // tracking. The caller owns attributes and source-specific policy.
-func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yield func(readerChunk, error) error) error {
+func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yield FragmentsFunc) error {
 	if len(buffer) == 0 {
 		return errors.New("reader buffer is empty")
 	}
@@ -96,13 +90,12 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 		n, readErr := reader.Read(buffer)
 		if n == 0 {
 			if readErr != nil && !errors.Is(readErr, io.EOF) {
-				return yield(readerChunk{fragment: Fragment{StartLine: nextLine}}, readErr)
+				return yield(Fragment{StartLine: nextLine}, readErr)
 			}
 			return nil
 		}
 
-		initial := buffer[:n]
-		chunk := initial
+		chunk := buffer[:n]
 
 		var boundaryErr error
 		if readErr == nil {
@@ -113,7 +106,7 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 			Raw:       string(chunk),
 			StartLine: nextLine,
 		}
-		if err := yield(readerChunk{fragment: fragment, initial: initial}, nil); err != nil {
+		if err := yield(fragment, nil); err != nil {
 			return err
 		}
 
@@ -122,10 +115,10 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 		}
 		nextLine += strings.Count(fragment.Raw, "\n")
 		if boundaryErr != nil {
-			return yield(readerChunk{fragment: Fragment{StartLine: nextLine}}, fmt.Errorf("could not read until safe boundary: %w", boundaryErr))
+			return yield(Fragment{StartLine: nextLine}, fmt.Errorf("could not read until safe boundary: %w", boundaryErr))
 		}
 		if readErr != nil {
-			return yield(readerChunk{fragment: Fragment{StartLine: nextLine}}, readErr)
+			return yield(Fragment{StartLine: nextLine}, readErr)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/internal/provider"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 type options struct {
@@ -19,6 +20,18 @@ type options struct {
 
 // Option configures provider execution. Output filtering belongs to the caller.
 type Option struct{ apply func(*options) error }
+
+// WithRegexEngine selects the engine for provider expression regex helpers.
+// The default is regexp.Stdlib. Engine is retained and must support concurrent use.
+func WithRegexEngine(engine regexp.Engine) Option {
+	return Option{apply: func(o *options) error {
+		if engine == nil {
+			return errors.New("regex engine is required")
+		}
+		o.RegexEngine = engine
+		return nil
+	}}
+}
 
 // WithWorkers bounds concurrent provider evaluations per streaming operation.
 // Zero uses ten workers.

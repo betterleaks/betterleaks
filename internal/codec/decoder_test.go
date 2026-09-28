@@ -1,7 +1,9 @@
 package codec
 
 import (
+	"encoding/base64"
 	"encoding/hex"
+	"math/rand/v2"
 	"net/url"
 	"testing"
 
@@ -118,26 +120,20 @@ func TestDecode(t *testing.T) {
 		}
 	}
 
-	// Test value decoding
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, fullDecode(tt.chunk))
-		})
-	}
-
-	// Percent encode the values to test percent decoding
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			encodedChunk := url.PathEscape(tt.chunk)
-			assert.Equal(t, tt.expected, fullDecode(encodedChunk))
-		})
-	}
-
-	// Hex encode the values to test hex decoding
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			encodedChunk := hex.EncodeToString([]byte(tt.chunk))
-			assert.Equal(t, tt.expected, fullDecode(encodedChunk))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, encoding := range []struct {
+				name   string
+				encode func(string) string
+			}{
+				{"plain", func(s string) string { return s }},
+				{"percent", url.PathEscape},
+				{"hex", func(s string) string { return hex.EncodeToString([]byte(s)) }},
+			} {
+				t.Run(encoding.name, func(t *testing.T) {
+					assert.Equal(t, tc.expected, fullDecode(encoding.encode(tc.chunk)))
+				})
+			}
 		})
 	}
 }
@@ -190,5 +186,78 @@ func TestEncodingMatchBoundaries(t *testing.T) {
 				assert.Equal(t, want.encoding.kind, got[i].encoding.kind)
 			}
 		})
+	}
+}
+
+func TestBase64PrefixAcceptsPrintableInput(t *testing.T) {
+	for b := range byte(127) {
+		if !printableASCII[b] {
+			continue
+		}
+		for position := range 12 {
+			data := []byte("printable123")
+			data[position] = b
+			for _, encoding := range []*base64.Encoding{base64.StdEncoding, base64.RawURLEncoding} {
+				value := encoding.EncodeToString(data)
+				if !possibleBase64Prefix(value) {
+					t.Fatalf("rejected accepted byte %d at position %d", b, position)
+				}
+			}
+		}
+	}
+}
+
+func FuzzBase64Prefix(f *testing.F) {
+	for _, value := range []string{"abcdefghijklmnop", "YWJjZGVmZ2hpamts", "YWJj\r\nZGVmZ2hpamts", "YWJjZGVmZ2hpamts=", "cXJzdHV2d3h5ekFC", "_______-", "____++__", ""} {
+		f.Add(value)
+	}
+	f.Fuzz(func(t *testing.T, value string) {
+		if !possibleBase64Prefix(value) && decodeBase64(value) != "" {
+			t.Fatal("prefix rejected decodable printable input")
+		}
+	})
+}
+
+func TestBase64PrefixKeepsEncodingPrecedence(t *testing.T) {
+	// A failed higher-precedence candidate still suppresses adjacent Base64.
+	for _, value := range []string{"%00YWJjZGVmZ2hpamts", "YWJjZGVmZ2hpamts%00"} {
+		decoded, segments := Decode(value, nil)
+		if decoded != value || len(segments) != 0 {
+			t.Fatal("changed failed-candidate precedence")
+		}
+	}
+}
+
+func TestBase64ScratchParity(t *testing.T) {
+	// Compare against the previous allocating implementation, including the
+	// transition from stack to heap storage and partially decoded failures.
+	reference := func(value string) string {
+		if !hasByte(value, likelyBase64Chars) {
+			return ""
+		}
+		for _, encoding := range []*base64.Encoding{base64.StdEncoding, base64.RawURLEncoding} {
+			decoded, err := encoding.DecodeString(value)
+			if err == nil && isPrintableASCII(decoded) {
+				return string(decoded)
+			}
+		}
+		return ""
+	}
+	random := rand.New(rand.NewPCG(1, 2))
+	for _, length := range []int{0, 1, 2, 3, 16, 255, 256, 257, 1024} {
+		for range 100 {
+			data := make([]byte, length)
+			for i := range data {
+				data[i] = byte(32 + random.IntN(95))
+			}
+			for _, encoding := range []*base64.Encoding{base64.StdEncoding, base64.RawURLEncoding} {
+				value := encoding.EncodeToString(data)
+				for _, input := range []string{value, value + "-", value + "=", string(data)} {
+					if got, want := decodeBase64(input), reference(input); got != want {
+						t.Fatalf("length %d: got %q, want %q", length, got, want)
+					}
+				}
+			}
+		}
 	}
 }

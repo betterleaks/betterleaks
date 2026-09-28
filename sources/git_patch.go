@@ -235,21 +235,3 @@ func readGitHunk(ctx context.Context, r *bufio.Reader, oldLines, newLines int, k
 	}
 	return nil
 }
-
-// addedGitLines avoids geometric string growth for the compatibility API.
-func addedGitLines(fragment *gitdiff.TextFragment) string {
-	var size int
-	for _, line := range fragment.Lines {
-		if line.Op == gitdiff.OpAdd {
-			size += len(line.Line)
-		}
-	}
-	var raw strings.Builder
-	raw.Grow(size)
-	for _, line := range fragment.Lines {
-		if line.Op == gitdiff.OpAdd {
-			raw.WriteString(line.Line)
-		}
-	}
-	return raw.String()
-}

@@ -20,8 +20,6 @@
       "git.author_email": "johndoe@gmail.com",
       "git.date": "10-19-2003",
       "git.message": "opps"
-    },
-    "tags": [],
-    "schema_version": 2
+    }
   }
 ]

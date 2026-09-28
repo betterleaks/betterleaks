@@ -1,6 +1,7 @@
-package internal
+package regexp
 
-// CompiledRegexp is an interface satisfied by both *stdlib.Regexp and *github.com/betterleaks/go-re2.Regexp.
+// CompiledRegexp is the result of Engine.Compile. Its methods follow the
+// standard library regexp.Regexp semantics and must support concurrent calls.
 type CompiledRegexp interface {
 	MatchString(s string) bool
 	FindString(s string) string

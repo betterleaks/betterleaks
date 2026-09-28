@@ -17,18 +17,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
-	"github.com/betterleaks/betterleaks/v2/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
-	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
@@ -68,11 +66,9 @@ type Source struct {
 	IncludeSubgroups bool
 
 	// Scan config (passed through to sources.Git per project)
-	ShouldSkip      sources.SkipFunc
+	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
-	Workers         int // 0 is automatic
 	LogOpts         string
-	budget          *sourceworkers.Budget
 
 	// Date-range filtering for API-backed resources
 	DateRangeOpts DateRangeOptions
@@ -223,53 +219,56 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 		return err
 	}
 	logging.OrDiscard(s.Logger).Info("starting GitLab scan", "target", urlredact.PublicString(s.URL), "base", urlredact.PublicString(s.BaseURL), "resources", s.Resources)
-
 	start := time.Now()
-	workers, budget := sourceworkers.EnsureBudget(s.Workers, sourceworkers.AutomaticProvider(), s.budget)
-	s.Workers = workers
-	s.budget = budget
 	if err := s.ensureClient(); err != nil {
 		return err
 	}
-
 	target, direct, err := s.dispatchURL(ctx, s.URL)
 	if err != nil {
 		return err
 	}
-
-	if direct {
-		return s.scanDirect(ctx, target, yield)
-	}
-	targetWorkers := sourceworkers.ProviderTargets(workers, target.Kind == "project")
-
-	scanCtx, cancelScans := context.WithCancel(ctx)
-	defer cancelScans()
-
-	var scanGroup errgroup.Group
-	scanGroup.SetLimit(targetWorkers)
-
-	projCh, enumErrCh := s.enumerateProjects(ctx, target)
-	var projCount atomic.Int64
-	for proj := range projCh {
-		projCount.Add(1)
-		scanGroup.Go(func() error {
-			return s.scanProjectWithWorkers(scanCtx, proj, workers, yield)
-		})
-	}
-	enumErr := <-enumErrCh
-	if enumErr != nil {
-		cancelScans()
-		scanErr := scanGroup.Wait()
-		combined := fmt.Errorf("enumerate projects: %w", enumErr)
-		if scanErr != nil && !errors.Is(scanErr, context.Canceled) {
-			combined = errors.Join(combined, scanErr)
+	ctx, cancelScans := context.WithCancelCause(ctx)
+	defer cancelScans(nil)
+	// A rejected yield must stop enumeration even when resource errors are skippable.
+	onFragment := yield
+	yield = func(fragment sources.Fragment, err error) error {
+		err = onFragment(fragment, err)
+		if err != nil {
+			cancelScans(err)
 		}
-		return combined
+		return err
 	}
-	logging.OrDiscard(s.Logger).Info("enumeration complete, waiting for scans", "projects", projCount.Load(), "duration", time.Since(start))
-
-	scanErr := scanGroup.Wait()
-	logging.OrDiscard(s.Logger).Info("scan complete", "projects", projCount.Load(), "duration", time.Since(start))
+	if direct {
+		err := s.scanDirect(ctx, target, yield)
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
+		return err
+	}
+	projCh, enumErrCh := s.enumerateProjects(ctx, target)
+	var scans errgroup.Group
+	projCount := 0
+	scans.Go(func() error {
+		var firstErr error
+		for proj := range projCh {
+			if err := context.Cause(ctx); err != nil {
+				return err
+			}
+			projCount++
+			if err := s.scanProject(ctx, proj, yield); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return firstErr
+	})
+	if err := <-enumErrCh; err != nil {
+		cancelScans(fmt.Errorf("enumerate projects: %w", err))
+	}
+	scanErr := scans.Wait()
+	logging.OrDiscard(s.Logger).Info("scan complete", "projects", projCount, "duration", time.Since(start))
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
 	return scanErr
 }
 
@@ -325,7 +324,7 @@ func (s *Source) ensureClient() error {
 		s.httpClient = httpclient.NewAuthenticatedClient(s.Token, s.restRetry, s.apiBaseURL.Host)
 	}
 	if s.apiSem == nil {
-		s.apiSem = make(chan struct{}, min(sourceworkers.Count(s.Workers, sourceworkers.AutomaticProvider()), gitlabAPIConcurrency))
+		s.apiSem = make(chan struct{}, gitlabAPIConcurrency)
 	}
 	return nil
 }
@@ -663,7 +662,7 @@ func (s *Source) fetchUserByUsername(ctx context.Context, username string) (*git
 }
 
 func (s *Source) enumerateProjects(ctx context.Context, target *gitlabTarget) (<-chan *gitlabProject, <-chan error) {
-	ch := make(chan *gitlabProject, 100)
+	ch := make(chan *gitlabProject, 1)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -703,16 +702,15 @@ func (s *Source) enumerateProjects(ctx context.Context, target *gitlabTarget) (<
 				return
 			}
 		case "all-groups":
-			groups, err := s.listAllGroups(ctx)
+			err := s.streamAllGroups(ctx, func(group gitlabGroup) error {
+				if err := s.streamGroupProjects(ctx, group.ID, send); err != nil {
+					return fmt.Errorf("list group %d projects: %w", group.ID, err)
+				}
+				return nil
+			})
 			if err != nil {
 				errCh <- fmt.Errorf("list all groups: %w", err)
 				return
-			}
-			for _, g := range groups {
-				if err := s.streamGroupProjects(ctx, g.ID, send); err != nil {
-					errCh <- fmt.Errorf("list group %d projects: %w", g.ID, err)
-					return
-				}
 			}
 		default:
 			errCh <- fmt.Errorf("unsupported enumeration target %q", target.Kind)
@@ -759,22 +757,24 @@ func (s *Source) streamUserProjects(ctx context.Context, userID int, send func(*
 	})
 }
 
-func (s *Source) listAllGroups(ctx context.Context) ([]gitlabGroup, error) {
+func (s *Source) streamAllGroups(ctx context.Context, yield func(gitlabGroup) error) error {
 	u, err := s.apiURL("groups")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	u = withQuery(u, "all_available", "true")
-	var all []gitlabGroup
-	err = s.paginateJSON(ctx, u, func(body []byte) (bool, error) {
+	return s.paginateJSON(ctx, u, func(body []byte) (bool, error) {
 		var page []gitlabGroup
 		if err := json.Unmarshal(body, &page); err != nil {
 			return false, fmt.Errorf("decode groups: %w", err)
 		}
-		all = append(all, page...)
+		for _, group := range page {
+			if err := yield(group); err != nil {
+				return false, err
+			}
+		}
 		return len(page) == gitlabPerPage, nil
 	})
-	return all, err
 }
 
 // isExcluded matches a project's full path against the user-configured glob
@@ -807,9 +807,9 @@ func (s *Source) projectAttributes(proj *gitlabProject, resource string) map[str
 }
 
 // wrapGitLabYield stamps project-level attributes onto every fragment and
-// applies ShouldSkip as a final per-fragment filter (L3). Callers must use
+// applies Prefilter as a final per-fragment filter (L3). Callers must use
 // the returned yield in place of the original.
-func wrapGitLabYield(skip sources.SkipFunc, attrs map[string]string, yield sources.FragmentsFunc) sources.FragmentsFunc {
+func wrapGitLabYield(skip sources.PrefilterFunc, attrs map[string]string, yield sources.FragmentsFunc) sources.FragmentsFunc {
 	var mu sync.Mutex
 	return func(fragment sources.Fragment, err error) error {
 		if err == nil {
@@ -846,21 +846,17 @@ func (s *Source) inDateRange(t time.Time) (ok bool, terminate bool) {
 // L3 skip layers and delegates to per-resource scanners which add their own
 // L2 skips.
 func (s *Source) scanProject(ctx context.Context, proj *gitlabProject, yield sources.FragmentsFunc) error {
-	return s.scanProjectWithWorkers(ctx, proj, s.Workers, yield)
-}
-
-func (s *Source) scanProjectWithWorkers(ctx context.Context, proj *gitlabProject, workers int, yield sources.FragmentsFunc) error {
 	logger := logging.OrDiscard(s.Logger).With("project", proj.PathWithNamespace)
 	projectAttrs := s.projectAttributes(proj, "")
 
 	// L1 — drop the whole project early.
-	if s.ShouldSkip != nil && s.ShouldSkip(s.projectAttributes(proj, ResourceProject)) {
+	if s.Prefilter != nil && s.Prefilter(s.projectAttributes(proj, ResourceProject)) {
 		logger.Debug("skipping project based on prefilter")
 		return nil
 	}
 
 	// L3 — every fragment from this project gets project attrs + per-fragment skip.
-	glYield := wrapGitLabYield(s.ShouldSkip, projectAttrs, yield)
+	glYield := wrapGitLabYield(s.Prefilter, projectAttrs, yield)
 
 	run := func(label string, fn func() error) error {
 		logger.Info("scanning", "resource", label)
@@ -877,7 +873,7 @@ func (s *Source) scanProjectWithWorkers(ctx context.Context, proj *gitlabProject
 	}
 
 	if s.Resources.Has(ResourceTypeRepos) {
-		if err := run("repos", func() error { return s.scanProjectGit(ctx, proj, workers, glYield) }); err != nil {
+		if err := run("repos", func() error { return s.scanProjectGit(ctx, proj, glYield) }); err != nil {
 			return err
 		}
 	}
@@ -905,19 +901,19 @@ func (s *Source) scanProjectWithWorkers(ctx context.Context, proj *gitlabProject
 }
 
 // scanProjectGit clones the project and scans its git history.
-func (s *Source) scanProjectGit(ctx context.Context, proj *gitlabProject, workers int, yield sources.FragmentsFunc) error {
+func (s *Source) scanProjectGit(ctx context.Context, proj *gitlabProject, yield sources.FragmentsFunc) error {
 	if proj.HTTPURLToRepo == "" {
 		return nil
 	}
 	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
 		src := &sources.Git{
 			Logger:   s.Logger,
-			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
+			RepoPath: repoPath, Prefilter: s.Prefilter,
 			Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
 			MaxArchiveDepth: s.MaxArchiveDepth,
-			LogOpts:         s.LogOpts, Workers: workers,
+			LogOpts:         s.LogOpts,
 		}
-		return src.Fragments(sourceworkers.WithBudget(ctx, s.budget), yield)
+		return src.Fragments(ctx, yield)
 	})
 }
 
@@ -960,7 +956,7 @@ func (s *Source) scanIssues(ctx context.Context, proj *gitlabProject, yield sour
 				sources.AttrURL:      issue.WebURL,
 			}
 			// L2 skip: drop this whole issue (body + comments) without fetching notes.
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			if s.Resources.Has(ResourceTypeIssues) {
@@ -1003,7 +999,7 @@ func (s *Source) scanMRs(ctx context.Context, proj *gitlabProject, yield sources
 				AttrMRIID:            strconv.Itoa(mr.IID),
 				sources.AttrURL:      mr.WebURL,
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			if s.Resources.Has(ResourceTypeMRs) {
@@ -1046,7 +1042,7 @@ func (s *Source) scanItemNotes(ctx context.Context, projectID int, itemKind stri
 				sources.AttrURL:      gitlabNoteURL(parentURL, note.ID),
 				parentAttrKey:        parentAttrVal,
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			frag := sources.Fragment{Raw: note.Body, Attributes: cloneAttrs(attrs)}
@@ -1076,7 +1072,7 @@ func (s *Source) scanSnippets(ctx context.Context, proj *gitlabProject, yield so
 				sources.AttrURL:      snip.WebURL,
 				sources.AttrPath:     snip.FileName,
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			raw, err := s.apiURL(fmt.Sprintf("projects/%d/snippets/%d/raw", proj.ID, snip.ID))
@@ -1111,7 +1107,7 @@ func (s *Source) scanReleases(ctx context.Context, proj *gitlabProject, yield so
 				sources.AttrResource: ResourceRelease,
 				AttrReleaseTag:       rel.TagName,
 			}
-			if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
 			if rel.Description != "" {
@@ -1188,7 +1184,7 @@ func (s *Source) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 		AttrCIPipelineID:     strconv.FormatInt(job.Pipeline.ID, 10),
 		sources.AttrURL:      job.WebURL,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	traceURL, err := s.apiURL(fmt.Sprintf("projects/%d/jobs/%d/trace", proj.ID, job.ID))
@@ -1209,7 +1205,7 @@ func (s *Source) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 		AttrCIPipelineID:     strconv.FormatInt(job.Pipeline.ID, 10),
 		sources.AttrURL:      job.WebURL,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(artifactAttrs) {
+	if s.Prefilter != nil && s.Prefilter(artifactAttrs) {
 		return nil
 	}
 	artURL, err := s.apiURL(fmt.Sprintf("projects/%d/jobs/%d/artifacts", proj.ID, job.ID))
@@ -1228,10 +1224,10 @@ func (s *Source) scanDirect(ctx context.Context, target *gitlabTarget, yield sou
 		return fmt.Errorf("direct scan requires a resolved project")
 	}
 	projectAttrs := s.projectAttributes(target.Project, "")
-	if s.ShouldSkip != nil && s.ShouldSkip(s.projectAttributes(target.Project, ResourceProject)) {
+	if s.Prefilter != nil && s.Prefilter(s.projectAttributes(target.Project, ResourceProject)) {
 		return nil
 	}
-	glYield := wrapGitLabYield(s.ShouldSkip, projectAttrs, yield)
+	glYield := wrapGitLabYield(s.Prefilter, projectAttrs, yield)
 
 	switch target.Kind {
 	case "issue":
@@ -1285,7 +1281,7 @@ func (s *Source) scanSingleIssue(ctx context.Context, proj *gitlabProject, iid i
 		AttrIssueIID:         strconv.Itoa(issue.IID),
 		sources.AttrURL:      issue.WebURL,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	if s.Resources.Has(ResourceTypeIssues) {
@@ -1314,7 +1310,7 @@ func (s *Source) scanSingleMR(ctx context.Context, proj *gitlabProject, iid int,
 		AttrMRIID:            strconv.Itoa(mr.IID),
 		sources.AttrURL:      mr.WebURL,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	if s.Resources.Has(ResourceTypeMRs) {
@@ -1345,7 +1341,7 @@ func (s *Source) scanSingleSnippet(ctx context.Context, proj *gitlabProject, sni
 		sources.AttrURL:      snip.WebURL,
 		sources.AttrPath:     snip.FileName,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	raw, err := s.apiURL(fmt.Sprintf("projects/%d/snippets/%d/raw", proj.ID, snip.ID))
@@ -1368,7 +1364,7 @@ func (s *Source) scanSingleRelease(ctx context.Context, proj *gitlabProject, tag
 		sources.AttrResource: ResourceRelease,
 		AttrReleaseTag:       rel.TagName,
 	}
-	if s.ShouldSkip != nil && s.ShouldSkip(attrs) {
+	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
 	if rel.Description != "" && s.Resources.Has(ResourceTypeReleases) {
@@ -1397,7 +1393,7 @@ func (s *Source) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield
 			AttrReleaseTag:       rel.TagName,
 			AttrReleaseAssetName: name,
 		}
-		if s.ShouldSkip != nil && s.ShouldSkip(assetAttrs) {
+		if s.Prefilter != nil && s.Prefilter(assetAttrs) {
 			continue
 		}
 		if err := s.downloadAndScan(ctx, src.URL, "release/"+rel.TagName+"/"+name, assetAttrs, yield); err != nil {
@@ -1413,7 +1409,7 @@ func (s *Source) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield
 			AttrReleaseTag:       rel.TagName,
 			AttrReleaseAssetName: link.Name,
 		}
-		if s.ShouldSkip != nil && s.ShouldSkip(assetAttrs) {
+		if s.Prefilter != nil && s.Prefilter(assetAttrs) {
 			continue
 		}
 		if err := s.downloadAndScan(ctx, link.URL, "release/"+rel.TagName+"/"+link.Name, assetAttrs, yield); err != nil {
@@ -1442,7 +1438,7 @@ func (s *Source) downloadAndScan(ctx context.Context, rawURL, path string, attrs
 	}, func(content *os.File) error {
 		file := &sources.File{
 			Content: content, Path: path, Attributes: attrs,
-			Logger: s.Logger, ShouldSkip: s.ShouldSkip,
+			Logger: s.Logger, Prefilter: s.Prefilter,
 			MaxArchiveDepth: max(1, s.MaxArchiveDepth), DetectArchive: true,
 		}
 		return file.Fragments(ctx, yield)

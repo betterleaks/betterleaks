@@ -14,17 +14,21 @@ Development is supported by
 
 | Feature | Description |
 | :--- | :--- |
-| **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. |
+| **Simple Prioritization** | Rank by confidence, validation status, and analyzed severity scores to make triage as simple as 123. |
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using Expr. |
 | **Secrets Analysis** | Enrich valid credentials with provider-neutral identity, account, capability, and severity information. |
+| **Secrets Revocation** | Optionally revoke secrets. |
+| **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. |
 | **BPE filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
-| **Secrets Fingerprints** | Suppress reviewed secret values globally with exact SHA-256 entries in `.betterleaksignore`. |
 
 
 ### Installation
+
+Upgrading from v1? See the [v2 migration guide](docs/v2_migration.md) for CLI, config, report, and SDK changes.
+
 ```
 # Package managers
 brew install betterleaks
@@ -56,8 +60,8 @@ betterleaks fs /path/to/target
 # Flags may also precede the command
 betterleaks --offline --no-banner fs /path/to/target
 
-# Scan Git
-betterleaks git /path/to/repo -v -j 4
+# Scan a git repo
+betterleaks git /path/to/repo
 
 # Automatically detect a remote repository and scan its history
 betterleaks https://github.com/betterleaks/betterleaks
@@ -91,7 +95,7 @@ betterleaks s3 https://commoncrawl.s3.us-east-1.amazonaws.com/crawl-data/CC-MAIN
 betterleaks s3 'https://<account-id>.r2.cloudflarestorage.com/*'
 
 # Scan stdin
-cat some_file.txt | betterleaks stdin -v
+cat some_file.txt | betterleaks stdin
 
 # Revalidate a known credential without running detection
 printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat
@@ -106,7 +110,14 @@ printf '%s\n' "$GITHUB_TOKEN" | betterleaks analyze --rule github-pat
 printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat --simple
 ```
 
-For more advanced scanning examples check out the [scanning doc](docs/scanning.md).
+Use `--hmac-key` or `BETTERLEAKS_FINGERPRINT_HMAC_KEY` for keyed match fingerprints;
+see [fingerprint privacy and key setup](docs/scanning.md#ignore-exact-secret-values).
+
+`-j` / `--jobs` controls detection concurrency only, defaulting to `4 * GOMAXPROCS`.
+Sources manage their own
+bounded reads and downloads; Git uses one history stream when `--log-opts` is
+provided. See [parallel jobs](docs/scanning.md#parallel-jobs)
+and the [scanning guide](docs/scanning.md) for details and more examples.
 
 Rules may also define an optional `revoke` Expr for explicit credential revocation.
 Use `betterleaks config show ids --revocation` to find configured support and
@@ -149,129 +160,7 @@ func main() {
 }
 ```
 
-`scan.Scanner` finds credentials locally. `analyze.Analyzer` determines whether
-they work, who owns them, and what permissions they have. Detection confidence,
-`Analysis.Status`, and permission-derived `Analysis.Severity` remain distinct
-concepts. A finding groups matched text in `Match` and its optional path and
-coordinates in `Location`.
-
-`Match.Line` retains the original source line(s) for pretty output and is omitted
-from JSON. `Match.Context` contains the context explicitly requested with
-`scan.WithMatchContext` and is serialized as `match.context`. It stays empty
-when no context was requested. Local Expr filters still use `finding.line` and
-`finding.context`.
-
-Use `config.LoadFile` for custom rules and `scan.WithLogger` for diagnostics.
-`Scanner.Scan` streams findings from a source; `Scanner.ScanString` handles small
-inputs. Neither executes provider programs.
-
-For an already-extracted secret, use `credential.Input` from
-`github.com/betterleaks/betterleaks/v2/credential`:
-
-```go
-analyzer, err := analyze.New(cfg, analyze.WithTimeout(5*time.Second))
-if err != nil {
-    return err
-}
-result, err := analyzer.AnalyzeCredential(ctx, credential.Input{
-    RuleID: "github-pat",
-    Secret: token,
-})
-if err != nil {
-    return err
-}
-// result.Analysis.Status describes liveness. The same Analysis also contains
-// identity, capabilities, and derived severity when enrichment is available.
-```
-
-Call `analyzer.ValidateCredential` for liveness alone. Supply named `Captures`
-and `Components` (`map[string]credential.Component`) when required by the rule.
-The `credential` package owns the shared inputs, capture requirements, and input preparation;
-`analyzer.Requirements` and `analyzer.ValidationRequirements` return
-`credential.Requirements`. Direct credential operations bypass
-scan filters and sanitize supplied secret material in their reports.
-`analyzer.Validate` and `analyzer.Analyze` accept existing `report.Finding` values
-and return enriched findings without modifying the input.
-
-Compose discovery and provider work with the pipeline:
-
-```go
-p, err := pipeline.New(scanner, analyzer,
-    pipeline.WithValidationStatuses(report.ValidationStatusValid),
-)
-if err != nil {
-    return err
-}
-summary, err := p.Scan(ctx, source, handler)
-```
-
-Detection and provider workers have independent concurrency limits and bounded
-queues. `scan.WithWorkers(n)` limits active detection across all concurrent
-`Scan`, `Run`, and `ScanString` calls on the same scanner: `WithWorkers(5)` allows
-five detection workers total, even with 100 concurrent scans. Separate scanners
-have independent limits. `analyze.WithWorkers(n)` and source `Workers` fields
-limit provider and input concurrency per operation.
-
-Handlers run serially within each operation and do not occupy detection worker
-slots, so a handler may start another scan on the same scanner. Returning an
-error cancels that operation and waits for its workers. Status filters affect
-output, while the summary counts all validation outcomes. A nil analyzer selects
-local discovery only. Remote sources can still make requests to acquire their
-content.
-
-Engines may be reused concurrently with independent sources. Each provider
-operation owns its result caches and request limits; compiled programs are
-reused. `scan.WithPrecompile` checks detection regexes and filters;
-`analyze.WithPrecompile` checks validation and analysis programs. See the
-[scan-only example](examples/without_analysis.go),
-[concurrent scanner example](examples/concurrent_scanner.go),
-and [analysis example](examples/with_analysis.go)
-
-Local inputs use `sources.Reader`, `sources.File`, `sources.Files`, and
-`sources.Git`. `sources.Git{URL: repoURL}` scans a temporary HTTP(S) clone;
-`sources.URL{URL: contentURL}` downloads one response, with optional archive
-handling. `sources.Auto(ctx, target)` returns a source kind without
-constructing a source. Ambiguous HTTP(S) targets may require a bounded Git
-probe; local Git checkouts remain filesystem targets. See
-[automatic source selection](docs/scanning.md#automatic-source-selection).
-
-Custom sources supply a fragment's optional path through
-`Fragment.Attributes[sources.AttrPath]` (or `fragment.SetAttr(sources.AttrPath, path)`).
-Detection uses that attribute for path rules and exposes it as `Finding.Location.Path`.
-The unused `Fragment.Path` field has been removed; migrate callers to the attribute.
-
-Provider integrations have their own packages:
-
-```go
-import (
-    "github.com/betterleaks/betterleaks/v2/sources/github"
-    "github.com/betterleaks/betterleaks/v2/sources/prefilter"
-)
-
-skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{})
-if err != nil {
-    return err
-}
-
-src := &github.Source{
-    URL: "https://github.com/example/project",
-    Token: token,
-    ShouldSkip: skip,
-}
-summary, err := scanner.Scan(ctx, src, handler)
-```
-
-Compile source prefilters once and pass the callback to each source's
-`ShouldSkip` field. The callback can be shared across concurrent sources and
-retains no scanner or pipeline. `prefilter.Options.ExcludedPaths` adds exact
-path exclusions; `Logger` receives evaluation errors, which keep the input.
-An empty expression with no exclusions returns nil. Direct `ScanString` calls
-apply finding filters only.
-
-GitLab, Hugging Face, and S3 use `sources/gitlab`, `sources/huggingface`, and
-`sources/s3`, each with a `Source` type. Provider-specific constants live there
-as well: `github.AttrOwner` and `github.ResourceIssue`, for example. Attribute
-strings such as `"github.owner"` and `"github.issue"` are unchanged.
+See the [examples directory](examples/) for runnable SDK examples covering custom configuration, analysis, regex engines, and concurrent scanning.
 
 See the [`scan` package documentation](https://pkg.go.dev/github.com/betterleaks/betterleaks/v2/scan)
 for complete default-config and custom-config examples.

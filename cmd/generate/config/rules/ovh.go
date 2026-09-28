@@ -14,7 +14,7 @@ func OVHApplicationKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}key"}, `[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"ovh"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	tps := []string{
@@ -38,7 +38,7 @@ func OVHConsumerKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"consumer[_.-]{0,1}key"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	tps := []string{
@@ -82,7 +82,7 @@ func OVHApplicationSecret() *config.Rule {
 				Within: "20L",
 			},
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := []string{

@@ -173,14 +173,14 @@ func TestGitLab_ResolveResources(t *testing.T) {
 	}
 }
 
-// TestGitLab_scanProject_L1Skip: when ShouldSkip returns true for a
+// TestGitLab_scanProject_L1Skip: when Prefilter returns true for a
 // project's L1 attrs, no fragments are yielded — even for resource types
 // that are enabled, because the per-resource scanners are never reached.
 func TestGitLab_scanProject_L1Skip(t *testing.T) {
 	skipped := 0
 	s := &Source{
 		Resources: ResourceSet{ResourceTypeIssues: true},
-		ShouldSkip: func(attrs map[string]string) bool {
+		Prefilter: func(attrs map[string]string) bool {
 			if attrs[sources.AttrResource] == ResourceProject {
 				skipped++
 				return true
@@ -220,7 +220,7 @@ func TestGitLab_scanProject_PropagatesRepoScanError(t *testing.T) {
 	}
 }
 
-// TestGitLab_scanIssues_L2Skip: an item-level ShouldSkip drops a specific
+// TestGitLab_scanIssues_L2Skip: an item-level Prefilter drops a specific
 // issue (and crucially does NOT fetch its notes), but lets other issues through.
 func TestGitLab_scanIssues_L2Skip(t *testing.T) {
 	var notesFetchedFor []string
@@ -244,11 +244,11 @@ func TestGitLab_scanIssues_L2Skip(t *testing.T) {
 	defer server.Close()
 
 	s := &Source{
-		URL:        server.URL + "/g/p/-/issues/0",
-		BaseURL:    server.URL + "/",
-		Token:      "t",
-		Resources:  ResourceSet{ResourceTypeIssues: true, ResourceTypeIssueComments: true},
-		ShouldSkip: func(attrs map[string]string) bool { return attrs[AttrIssueIID] == "2" },
+		URL:       server.URL + "/g/p/-/issues/0",
+		BaseURL:   server.URL + "/",
+		Token:     "t",
+		Resources: ResourceSet{ResourceTypeIssues: true, ResourceTypeIssueComments: true},
+		Prefilter: func(attrs map[string]string) bool { return attrs[AttrIssueIID] == "2" },
 	}
 	if err := s.resolveResources(); err != nil {
 		t.Fatalf("resolveResources: %v", err)

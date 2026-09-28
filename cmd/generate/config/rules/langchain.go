@@ -22,7 +22,7 @@ func LangSmithPersonalAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(4.0),
+		FilterExpr: utils.MinEntropy(4.0),
 	}
 
 	// validate
@@ -52,7 +52,7 @@ func LangSmithServiceKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(4.0),
+		FilterExpr: utils.MinEntropy(4.0),
 	}
 
 	// validate

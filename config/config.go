@@ -1,7 +1,10 @@
 package config
 
 import (
+	"bytes"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -22,70 +25,31 @@ var (
 )
 
 const maxExtendDepth = 2
-const DefaultRuleSpecificity = 100
 
+// rawConfig keeps loading instructions separate from the resolved configuration.
 type rawConfig struct {
-	Title       string       `toml:"title"`
-	Description string       `toml:"description"`
-	Extend      extendConfig `toml:"extend"`
-	Rules       []rawRule    `toml:"rules"`
-
-	MinVersion string `toml:"minVersion"`
-
-	// Global filter expressions.
-	Prefilter string `toml:"prefilter"`
-	Filter    string `toml:"filter"`
-
-	path   string
+	Config
+	Extend extendConfig `toml:"extend"`
 	logger *slog.Logger
-}
-
-type rawRule struct {
-	ID          string   `toml:"id"`
-	Description string   `toml:"description"`
-	Path        string   `toml:"path"`
-	Regex       string   `toml:"regex"`
-	SecretGroup int      `toml:"secretGroup"`
-	Keywords    []string `toml:"keywords"`
-	Tags        []string `toml:"tags"`
-	Specificity *int     `toml:"specificity"`
-	Confidence  string   `toml:"confidence"`
-
-	Components []rawComponent `toml:"components"`
-
-	// Required exists only to reject the removed [[rules.required]] syntax.
-	Required []struct{} `toml:"required"`
-
-	Validate   string `toml:"validate"`
-	Analyze    string `toml:"analyze"`
-	Revoke     string `toml:"revoke"`
-	SkipReport bool   `toml:"skipReport"`
-	Filter     string `toml:"filter"`
-}
-
-type rawComponent struct {
-	ID       string `toml:"id"`
-	Optional bool   `toml:"optional"`
-	Within   string `toml:"within"`
 }
 
 // Config is a configuration struct that contains detection rules and filters.
 type Config struct {
-	Title       string
-	Path        string
-	Description string
+	Title       string `toml:"title"`
+	Path        string `toml:"-"`
+	Description string `toml:"description"`
 	// Rules is the resolved rule set in deterministic configuration order.
 	// Scanner construction derives all lookup and dispatch indexes from it.
-	Rules []Rule
+	Rules []Rule `toml:"rules"`
 
-	MinVersion string
+	MinVersion string `toml:"minVersion"`
 
 	// Prefilter is a global expression (attributes only) evaluated before any
 	// per-match work. Returns true = skip this fragment entirely; false = keep.
-	Prefilter string
+	Prefilter string `toml:"prefilter"`
 	// Filter is a global expression (attributes + finding) evaluated per match.
 	// Returns true = skip (discard) this finding; false = keep.
-	Filter string
+	Filter string `toml:"filter"`
 }
 
 // LoadOption configures a config loading operation.
@@ -119,27 +83,56 @@ func resolveLoadOptions(options []LoadOption) loadOptions {
 // extendConfig describes the unresolved config extension requested by TOML.
 type extendConfig struct {
 	Path          string   `toml:"path"`
-	URL           string   `toml:"url"`
 	UseDefault    bool     `toml:"useDefault"`
 	DisabledRules []string `toml:"disabledRules"`
 }
 
 func ParseTOML(data []byte, path string, options ...LoadOption) (*Config, error) {
 	loadOptions := resolveLoadOptions(options)
-	var rc rawConfig
-	if err := toml.Unmarshal(data, &rc); err != nil {
+	rc := rawConfig{Config: Config{Path: path}, logger: loadOptions.logger}
+	if err := rc.decode(data); err != nil {
 		return nil, err
 	}
-	rc.path = path
-	rc.logger = loadOptions.logger
 	if err := rc.resolve(0); err != nil {
 		return nil, err
 	}
-	cfg := rc.translate()
+	cfg := rc.Config
+	if cfg.Rules == nil {
+		cfg.Rules = []Rule{}
+	}
+	for i := range cfg.Rules {
+		rule := &cfg.Rules[i]
+		if rule.Keywords == nil {
+			rule.Keywords = []string{}
+		}
+		for i, keyword := range rule.Keywords {
+			rule.Keywords[i] = strings.ToLower(keyword)
+		}
+		if rule.Tags == nil {
+			rule.Tags = []string{}
+		}
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return cfg, nil
+	return &cfg, nil
+}
+
+func (rc *rawConfig) decode(data []byte) error {
+	err := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(rc)
+	var unknown *toml.StrictMissingError
+	if errors.As(err, &unknown) {
+		fields := make([]string, 0, len(unknown.Errors))
+		for _, field := range unknown.Errors {
+			line, column := field.Position()
+			fields = append(fields, fmt.Sprintf("%s (line %d, column %d)", strings.Join(field.Key(), "."), line, column))
+		}
+		err = fmt.Errorf("unknown configuration fields: %s: %w", strings.Join(fields, ", "), err)
+	}
+	if err != nil && rc.Path != "" {
+		return fmt.Errorf("config %q: %w", rc.Path, err)
+	}
+	return err
 }
 
 func ParseTOMLString(content, path string, options ...LoadOption) (*Config, error) {
@@ -156,57 +149,6 @@ func LoadFile(path string, options ...LoadOption) (*Config, error) {
 
 func Default(options ...LoadOption) (*Config, error) {
 	return ParseTOMLString(defaultConfig, "", options...)
-}
-
-func (rc *rawConfig) translate() *Config {
-	c := &Config{
-		Title:       rc.Title,
-		Path:        rc.path,
-		Description: rc.Description,
-		Rules:       make([]Rule, 0, len(rc.Rules)),
-		MinVersion:  rc.MinVersion,
-		Prefilter:   rc.Prefilter,
-		Filter:      rc.Filter,
-	}
-	for _, raw := range rc.Rules {
-		rule := Rule{
-			ID:           raw.ID,
-			Description:  raw.Description,
-			Regex:        raw.Regex,
-			Path:         raw.Path,
-			SecretGroup:  raw.SecretGroup,
-			Specificity:  DefaultRuleSpecificity,
-			Confidence:   raw.Confidence,
-			SkipReport:   raw.SkipReport,
-			ValidateExpr: raw.Validate,
-			AnalyzeExpr:  raw.Analyze,
-			RevokeExpr:   raw.Revoke,
-			Filter:       raw.Filter,
-			Keywords:     raw.Keywords,
-			Tags:         raw.Tags,
-		}
-		if raw.Specificity != nil {
-			rule.Specificity = *raw.Specificity
-		}
-		if rule.Keywords == nil {
-			rule.Keywords = []string{}
-		}
-		for i, keyword := range rule.Keywords {
-			rule.Keywords[i] = strings.ToLower(keyword)
-		}
-		if rule.Tags == nil {
-			rule.Tags = []string{}
-		}
-		for _, component := range raw.Components {
-			rule.Components = append(rule.Components, Component{
-				RuleID:   component.ID,
-				Optional: component.Optional,
-				Within:   component.Within,
-			})
-		}
-		c.Rules = append(c.Rules, rule)
-	}
-	return c
 }
 
 func validateMinVersion(logger *slog.Logger, minVersion, configPath string) error {
@@ -231,11 +173,7 @@ func validateMinVersion(logger *slog.Logger, minVersion, configPath string) erro
 		return fmt.Errorf("unable to parse current betterleaks version: %w", err)
 	}
 	if current.LessThan(minimum) {
-		logger.Warn("config requires a newer betterleaks version",
-			"required", minVersion,
-			"current", version.Version,
-			"config_path", configPath,
-		)
+		return fmt.Errorf("config %q requires Betterleaks %s or newer; running %s", configPath, minVersion, version.Version)
 	}
 	return nil
 }
@@ -251,6 +189,123 @@ func (c *Config) Rule(id string) (Rule, bool) {
 		}
 	}
 	return Rule{}, false
+}
+
+// Hash identifies the resolved configuration, including rule order, finding
+// metadata, global filters, and validate, analyze, and revoke expressions. Config
+// title, description, path, and minimum version are excluded.
+//
+// The hash describes the current configuration; it is not cached or validated.
+// Compute it after customization, from the same state used to construct the
+// scanner and source filters. A nil Config returns an empty string.
+//
+// This is one cache-key input, not an identity for scan results: callers must
+// also account for input, source and scanner options, implementation versions,
+// and output policy. The result is a lowercase SHA-256 hex string.
+func (c *Config) Hash() string {
+	if c == nil {
+		return ""
+	}
+	data := appendHashString(nil, c.Prefilter)
+	data = appendHashString(data, c.Filter)
+	data = binary.AppendUvarint(data, uint64(len(c.Rules)))
+	for _, rule := range c.Rules {
+		// Every component definition is already present in the resolved rules.
+		data = appendHashRule(data, rule)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+// RuleHash identifies a rule and its required and optional component definitions,
+// including finding metadata and validate, analyze, and revoke expressions.
+// Global filters are excluded. The resolved configuration must
+// pass Validate, and ruleID must exist. No provider expressions are compiled.
+//
+// An unchanged hash does not guarantee unchanged final findings: global filters
+// and competing rules can still affect them. Use Hash for the complete
+// configuration. Like Hash, this describes current config data rather
+// than an existing scanner's snapshot. The result is a lowercase SHA-256 hex string.
+func (c *Config) RuleHash(ruleID string) (string, error) {
+	if err := c.Validate(); err != nil {
+		return "", err
+	}
+	rule, ok := c.Rule(ruleID)
+	if !ok {
+		return "", fmt.Errorf("rule %q not found in config", ruleID)
+	}
+	return c.ruleHash(rule), nil
+}
+
+// RuleHashes returns the component-aware hash of every rule,
+// keyed by rule ID. It validates the configuration once. The returned map belongs
+// to the caller and does not change when Config is modified.
+func (c *Config) RuleHashes() (map[string]string, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	hashes := make(map[string]string, len(c.Rules))
+	for _, rule := range c.Rules {
+		hashes[rule.ID] = c.ruleHash(rule)
+	}
+	return hashes, nil
+}
+
+func (c *Config) ruleHash(rule Rule) string {
+	data := appendHashRule(nil, rule)
+	for _, component := range rule.Components {
+		// Validate ensures references exist and components have no components.
+		componentRule, _ := c.Rule(component.RuleID)
+		data = appendHashRule(data, componentRule)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+// Length prefixes preserve field boundaries and arbitrary string bytes. Keep
+// this explicit field order stable to avoid invalidating unchanged configs.
+// Nil and empty slices intentionally share an encoding.
+func appendHashRule(data []byte, rule Rule) []byte {
+	data = appendHashString(data, rule.ID)
+	data = appendHashString(data, rule.Description)
+	data = appendHashString(data, rule.Regex)
+	data = appendHashString(data, rule.Path)
+	data = binary.AppendVarint(data, int64(rule.ValueGroup))
+	data = appendHashStrings(data, rule.Keywords)
+	data = appendHashStrings(data, rule.Tags)
+	data = binary.AppendVarint(data, int64(rule.Specificity))
+	data = appendHashString(data, rule.Confidence)
+	data = appendHashString(data, rule.FilterExpr)
+	if rule.SkipReport {
+		data = append(data, 1)
+	} else {
+		data = append(data, 0)
+	}
+	data = binary.AppendUvarint(data, uint64(len(rule.Components)))
+	for _, component := range rule.Components {
+		data = appendHashString(data, component.RuleID)
+		data = appendHashString(data, component.Within)
+		if component.Optional {
+			data = append(data, 1)
+		} else {
+			data = append(data, 0)
+		}
+	}
+	data = appendHashString(data, rule.ValidateExpr)
+	data = appendHashString(data, rule.AnalyzeExpr)
+	data = appendHashString(data, rule.RevokeExpr)
+	return data
+}
+
+func appendHashString(data []byte, value string) []byte {
+	data = binary.AppendUvarint(data, uint64(len(value)))
+	return append(data, value...)
+}
+
+func appendHashStrings(data []byte, values []string) []byte {
+	data = binary.AppendUvarint(data, uint64(len(values)))
+	for _, value := range values {
+		data = appendHashString(data, value)
+	}
+	return data
 }
 
 // Validate checks the resolved declarative configuration without mutating it.
@@ -287,44 +342,42 @@ func (c *Config) Validate() error {
 }
 
 func (rc *rawConfig) resolve(depth int) error {
-	if err := validateMinVersion(rc.logger, rc.MinVersion, rc.path); err != nil {
+	if err := validateMinVersion(rc.logger, rc.MinVersion, rc.Path); err != nil {
 		return err
 	}
-	// Duplicate IDs and removed syntax are errors even in overridden rules.
+	// Duplicate IDs are errors even in overridden rules.
 	ids := make(map[string]struct{}, len(rc.Rules))
 	for _, rule := range rc.Rules {
 		if _, exists := ids[rule.ID]; exists {
 			return fmt.Errorf("duplicate rule ID %q", rule.ID)
 		}
 		ids[rule.ID] = struct{}{}
-		if rule.Required != nil {
-			return fmt.Errorf("%s: [[rules.required]] is not supported; use rules.components", rule.ID)
-		}
-	}
-	if depth == maxExtendDepth {
-		return nil
 	}
 	if rc.Extend.Path != "" && rc.Extend.UseDefault {
 		return errors.New("unable to load config due to extend.path and extend.useDefault being set")
 	}
 
+	if rc.Extend.Path == "" && !rc.Extend.UseDefault {
+		return nil
+	}
+	if depth >= maxExtendDepth {
+		return fmt.Errorf("config extension exceeds maximum depth of %d", maxExtendDepth)
+	}
+
 	var data []byte
 	name := rc.Extend.Path
-	switch {
-	case rc.Extend.UseDefault:
+	if rc.Extend.UseDefault {
 		name = "default"
 		data = []byte(defaultConfig)
-	case rc.Extend.Path != "":
+	} else {
 		var err error
 		data, err = os.ReadFile(rc.Extend.Path)
 		if err != nil {
 			return fmt.Errorf("load extended config %q: %w", name, err)
 		}
-	default:
-		return nil
 	}
-	base := rawConfig{path: rc.Extend.Path, logger: rc.logger}
-	if err := toml.Unmarshal(data, &base); err != nil {
+	base := rawConfig{Config: Config{Path: rc.Extend.Path}, logger: rc.logger}
+	if err := base.decode(data); err != nil {
 		return fmt.Errorf("load extended config %q: %w", name, err)
 	}
 	rc.logger.Debug("extending config", "path", name)
@@ -377,7 +430,7 @@ func (rc *rawConfig) merge(base *rawConfig) {
 	rc.Prefilter = extendGlobalExpr(base.Prefilter, rc.Prefilter)
 	rc.Filter = extendGlobalExpr(base.Filter, rc.Filter)
 
-	// Extended configs retain their existing ID order.
+	// Sort after merging so the resolved order does not depend on extension order.
 	sort.Slice(rc.Rules, func(i, j int) bool {
 		return rc.Rules[i].ID < rc.Rules[j].ID
 	})

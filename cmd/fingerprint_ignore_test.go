@@ -218,7 +218,8 @@ func TestSourceAndFindingFilters(t *testing.T) {
 	cfg := ignoreTestConfig()
 	cfg.Path = filepath.Join(dir, "rules.toml")
 	cfg.Prefilter = `startsWithAny(attributes.path, ["archived/"])`
-	filters := loadScanFilters(&commandRuntime{stderr: io.Discard}, cfg, "", dir)
+	filters, err := loadScanFilters(&commandRuntime{stderr: io.Discard}, cfg, "", dir)
+	require.NoError(t, err)
 
 	for _, excluded := range []string{path, ".betterleaksignore", cfg.Path, "archived/test.env"} {
 		assert.True(t, filters.shouldSkip(map[string]string{sources.AttrPath: excluded}), excluded)
@@ -228,7 +229,8 @@ func TestSourceAndFindingFilters(t *testing.T) {
 	assert.Empty(t, scanner.ScanString("secret-value"))
 	assert.Len(t, scanner.ScanString("secret-visible"), 1)
 
-	remote := loadScanFilters(&commandRuntime{stderr: io.Discard}, ignoreTestConfig(), path, "")
+	remote, err := loadScanFilters(&commandRuntime{stderr: io.Discard}, ignoreTestConfig(), path, "")
+	require.NoError(t, err)
 	assert.Nil(t, remote.shouldSkip)
 	assert.Equal(t, filters.fingerprints, remote.fingerprints)
 }
@@ -242,4 +244,118 @@ func TestActiveIgnoreFileIsExcluded(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, skip(map[string]string{sources.AttrPath: path}))
 	assert.True(t, skip(map[string]string{sources.AttrPath: ".betterleaksignore"}))
+}
+
+func TestHMACFingerprintAndIgnoreCLI(t *testing.T) {
+	const keyEnv = fingerprintHMACKeyEnv
+	const key = "private fingerprint test key"
+	t.Setenv(keyEnv, key)
+	root, output := newTestCLI(t)
+	root.SetArgs([]string{"fingerprint"})
+	root.SetIn(strings.NewReader("secret-ignored"))
+	require.NoError(t, root.Execute())
+	keyedIgnore := output.String()
+	require.Equal(t, blfingerprint.Format(blfingerprint.SumWithKey([]byte("secret-ignored"), []byte(key)))+"\n", keyedIgnore)
+	plainIgnore := blfingerprint.Format(blfingerprint.Sum([]byte("secret-ignored"))) + "\n"
+
+	flagKey, emptyKey := key, ""
+	for _, tc := range []struct {
+		name, key, ignore, err string
+		flag                   *string
+		useKey                 bool
+		count                  int
+	}{
+		{name: "plain default", ignore: plainIgnore, count: 1},
+		{name: "keyed ignore", key: key, useKey: true, ignore: keyedIgnore, count: 1},
+		{name: "different key", key: "other private key", useKey: true, ignore: keyedIgnore, count: 2},
+		{name: "no key", ignore: keyedIgnore, err: "require a fingerprint key"},
+		{name: "empty key", useKey: true, ignore: keyedIgnore, err: "must not be empty when set"},
+		{name: "plain entry with key", key: key, useKey: true, ignore: plainIgnore, err: "cannot be used with a fingerprint key"},
+		{name: "mixed entries", key: key, useKey: true, ignore: plainIgnore + keyedIgnore, err: "cannot be used with a fingerprint key"},
+		{name: "flag only", flag: &flagKey, ignore: keyedIgnore, count: 1},
+		{name: "flag overrides environment", key: "different environment key", useKey: true, flag: &flagKey, ignore: keyedIgnore, count: 1},
+		{name: "flag overrides empty environment", useKey: true, flag: &flagKey, ignore: keyedIgnore, count: 1},
+		{name: "empty flag rejects environment fallback", key: key, useKey: true, flag: &emptyKey, ignore: keyedIgnore, err: "--hmac-key must not be empty"},
+		{name: "empty flag without environment", flag: &emptyKey, ignore: keyedIgnore, err: "--hmac-key must not be empty"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(keyEnv, tc.key)
+			if !tc.useKey {
+				require.NoError(t, os.Unsetenv(keyEnv))
+			}
+			resolvedKey := tc.key
+			var keyArgs []string
+			if tc.flag != nil {
+				resolvedKey = *tc.flag
+				keyArgs = []string{"--hmac-key=" + *tc.flag}
+			}
+			generator, generated := newTestCLI(t)
+			generator.SetArgs(append([]string{"fingerprint"}, keyArgs...))
+			generator.SetIn(strings.NewReader("secret-ignored"))
+			genErr := generator.Execute()
+			if resolvedKey == "" && (tc.flag != nil || tc.useKey) {
+				require.ErrorContains(t, genErr, tc.err)
+				require.Empty(t, generated.String())
+			} else {
+				require.NoError(t, genErr)
+				require.Equal(t, blfingerprint.Format(blfingerprint.SumWithKey([]byte("secret-ignored"), []byte(resolvedKey)))+"\n", generated.String())
+			}
+			dir := t.TempDir()
+			cfg := filepath.Join(dir, "rules.toml")
+			ignore := filepath.Join(dir, ".betterleaksignore")
+			reportPath := filepath.Join(dir, "report.json")
+			require.NoError(t, os.WriteFile(cfg, []byte("[[rules]]\nid='test'\nregex='secret-[a-z]+'\n"), 0600))
+			require.NoError(t, os.WriteFile(ignore, []byte(tc.ignore), 0600))
+			root, stdout := newTestCLI(t)
+			stderr := new(bytes.Buffer)
+			root.runtime.stderr = stderr
+			exitCode := 0
+			root.runtime.exit = func(code int) { exitCode = code }
+			args := []string{"stdin", "--offline", "-s", "--config", cfg, "--ignore-file", ignore, "-o", reportPath, "--redact=100"}
+			root.SetArgs(append(args, keyArgs...))
+			root.SetIn(strings.NewReader("secret-ignored secret-visible"))
+			err := root.Execute()
+			if tc.err != "" {
+				require.NoError(t, err)
+				require.Equal(t, 1, exitCode)
+				require.Contains(t, stderr.String(), tc.err)
+				require.NoFileExists(t, reportPath)
+				return
+			}
+			require.NoError(t, err)
+			data, err := os.ReadFile(reportPath)
+			require.NoError(t, err)
+			_, findings := decodeScanJSON(t, data)
+			require.Len(t, findings, tc.count)
+			for _, f := range findings {
+				require.Equal(t, "REDACTED", f.Match.Value)
+				h, err := blfingerprint.Parse(f.Match.Fingerprint)
+				require.NoError(t, err)
+				require.Equal(t, resolvedKey != "", h.IsHMAC())
+			}
+			expected := blfingerprint.Format(blfingerprint.SumWithKey([]byte("secret-visible"), []byte(resolvedKey)))
+			require.Contains(t, string(data), expected)
+			for _, text := range []string{string(data), stdout.String(), stderr.String()} {
+				require.NotContains(t, text, "secret-visible")
+				require.NotContains(t, text, key)
+				if resolvedKey != "" {
+					require.NotContains(t, text, blfingerprint.Format(blfingerprint.Sum([]byte("secret-visible"))))
+				}
+			}
+		})
+	}
+	t.Setenv(keyEnv, "")
+	root, output = newTestCLI(t)
+	root.SetArgs([]string{"fingerprint"})
+	root.SetIn(strings.NewReader("secret-visible"))
+	require.ErrorContains(t, root.Execute(), "must not be empty when set")
+	require.Empty(t, output.String())
+	require.NoError(t, os.Unsetenv(keyEnv))
+	root, output = newTestCLI(t)
+	root.SetArgs([]string{"fingerprint"})
+	root.SetIn(strings.NewReader("secret-ignored"))
+	require.NoError(t, root.Execute())
+	require.Equal(t, plainIgnore, output.String())
+	_, err := parseCLIForTest(t, "fingerprint", "--hmac-key-env", keyEnv)
+	require.Error(t, err, "the removed flag must not be accepted")
 }

@@ -20,7 +20,7 @@ func SupabaseManagementToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: "entropy(finding[\"secret\"]) <= 3.5\n|| !matchesAny(finding[\"secret\"], [`^sbp_[a-z0-9_-]*[0-9][a-z0-9_-]*[0-9][a-z0-9_-]*$`])",
+		FilterExpr: "entropy(finding[\"secret\"]) <= 3.5\n|| !matchesAny(finding[\"secret\"], [`^sbp_[a-z0-9_-]*[0-9][a-z0-9_-]*[0-9][a-z0-9_-]*$`])",
 	}
 
 	tps := []string{
@@ -53,7 +53,7 @@ func SupabaseProjectAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	tps := []string{
@@ -75,7 +75,7 @@ func SupabaseProjectURL() *config.Rule {
 		Regex:       `\b(https://[a-z0-9]{16,32}\.supabase\.co)\b`,
 		Keywords:    []string{"supabase.co"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := []string{

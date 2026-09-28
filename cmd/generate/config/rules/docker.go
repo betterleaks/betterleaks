@@ -14,7 +14,7 @@ func DockerSwarmJoinToken() *config.Rule {
 		Description: "Docker Swarm join token.",
 		Regex:       `\b(SWMTKN-1-[a-z0-9]{50,60}-[a-z0-9]{24,30})`,
 		Keywords:    []string{"SWMTKN-1-"},
-		Filter:      utils.MinEntropy(3.5),
+		FilterExpr:  utils.MinEntropy(3.5),
 	}
 
 	// validate
@@ -35,7 +35,7 @@ func DockerSwarmUnlockKey() *config.Rule {
 		Description: "Docker Swarm unlock key.",
 		Regex:       `\b(SWMKEY-1-[A-Za-z0-9+/]{40,50})`,
 		Keywords:    []string{"SWMKEY-1-"},
-		Filter:      utils.MinEntropy(3.5),
+		FilterExpr:  utils.MinEntropy(3.5),
 	}
 
 	// validate

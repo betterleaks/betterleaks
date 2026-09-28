@@ -27,9 +27,9 @@ type GitCmd struct {
 	ScanFlags `embed:""`
 	Token     string   `group:"source" help:"Token for an HTTP(S) clone (or the known host's GITHUB_TOKEN, GITLAB_TOKEN, HUGGINGFACE_TOKEN/HF_TOKEN)."`
 	Platform  string   `group:"source" help:"Target platform used to generate links: github or gitlab."`
-	Staged    bool     `group:"source" help:"Scan staged commits (for pre-commit)."`
-	PreCommit bool     `group:"source" name:"pre-commit" help:"Scan using git diff."`
-	LogOpts   string   `group:"source" name:"log-opts" help:"Git log options."`
+	Staged    bool     `group:"source" help:"Scan added lines in staged changes."`
+	Unstaged  bool     `group:"source" help:"Scan added lines in unstaged changes to tracked files."`
+	LogOpts   string   `group:"source" name:"log-opts" help:"Git log options (uses one history stream to preserve option semantics)."`
 	Include   []string `group:"source" help:"Additional Git resources to scan: commit-messages, tag-messages, reflogs."`
 	Repo      string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
 }
@@ -38,11 +38,14 @@ func (cmd GitCmd) Validate() error {
 	if err := cmd.ScanFlags.Validate(); err != nil {
 		return err
 	}
-	if remoteGitURL(cmd.Repo) && (cmd.Staged || cmd.PreCommit) {
-		return errors.New("--staged and --pre-commit require a local Git repository")
+	if cmd.Staged && cmd.Unstaged {
+		return errors.New("--staged and --unstaged are mutually exclusive")
 	}
-	if len(cmd.Include) > 0 && (cmd.Staged || cmd.PreCommit) {
-		return errors.New("--include requires a Git history scan; it cannot be combined with --staged or --pre-commit")
+	if remoteGitURL(cmd.Repo) && (cmd.Staged || cmd.Unstaged) {
+		return errors.New("--staged and --unstaged require a local Git repository")
+	}
+	if len(cmd.Include) > 0 && (cmd.Staged || cmd.Unstaged) {
+		return errors.New("--include requires a Git history scan; it cannot be combined with --staged or --unstaged")
 	}
 	return (&sources.Git{Include: cmd.Include}).Validate()
 }
@@ -66,40 +69,41 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	}
 
 	// setup config (aka, the thing that defines rules)
-	configSource, ignoreSource := source, source
+	ignoreSource := source
 	remote := remoteGitURL(source)
 	if remote {
-		configSource, ignoreSource = ".", ""
+		ignoreSource = ""
 	}
-	initConfig(runtime, globals, &options.ScanFlags, configSource)
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
 	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config(runtime)
-
 	// create runner
-	filters := loadScanFilters(runtime, cfg, options.IgnoreFile, ignoreSource)
-	runner := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, ignoreSource)
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
+	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
 
-	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor)
+	var src sources.Source
 
-	var (
-		err error
-		src sources.Source
-	)
-
-	if options.PreCommit || options.Staged {
-		gitCmd, cmdErr := sources.NewGitDiffCmdContext(runtime.Context, source, options.Staged, sources.WithGitCmdLogger(runtime.Logger()))
-		if cmdErr != nil {
-			runtime.fatal("could not create Git diff cmd", "error", cmdErr)
+	if options.Unstaged || options.Staged {
+		mode := sources.GitWorkingTree
+		if options.Staged {
+			mode = sources.GitStaged
 		}
-		// Remote info + links are irrelevant for staged changes.
+		// Local diffs have no committed revision to link to.
 		src = &sources.Git{
 			Logger:          runtime.Logger(),
-			Cmd:             gitCmd,
-			ShouldSkip:      filters.shouldSkip,
+			RepoPath:        source,
+			Mode:            mode,
+			Prefilter:       filters.shouldSkip,
 			Platform:        scm.NoPlatform,
 			MaxArchiveDepth: options.MaxArchiveDepth,
-			Workers:         resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		}
 	} else {
 		scmPlatform, platformErr := scm.PlatformFromString(options.Platform)
@@ -114,13 +118,12 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		gitSource := &sources.Git{
 			Logger:          runtime.Logger(),
 			RepoPath:        source,
-			ShouldSkip:      filters.shouldSkip,
+			Prefilter:       filters.shouldSkip,
 			Platform:        resolvedPlatform,
 			RemoteURL:       remoteURL,
 			MaxArchiveDepth: options.MaxArchiveDepth,
 			LogOpts:         options.LogOpts,
 			Include:         options.Include,
-			Workers:         resolveSourceWorkers(options.Jobs, defaultSourceWorkers),
 		}
 		if remote {
 			gitSource.RepoPath = ""
@@ -133,6 +136,8 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		src = gitSource
 	}
 
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "git", source)
+	findings.startScan(runtime)
 	summary, err := runner.Scan(runtime.Context, src, findings.Add)
 	if err != nil {
 		runtime.Logger().Error("failed to scan Git repository", "error", err)

@@ -32,7 +32,7 @@ func OpsgenieAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(eu))`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	key := secrets.NewSecretWithEntropy(utils.Hex8_4_4_4_12(), 3.0)

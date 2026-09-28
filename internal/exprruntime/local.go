@@ -1,6 +1,9 @@
 package exprruntime
 
-import "github.com/betterleaks/betterleaks/v2/internal/tokenizer"
+import (
+	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
+	"github.com/betterleaks/betterleaks/v2/regexp"
+)
 
 // LocalRuntime exposes only deterministic finding and source filters. It has no
 // HTTP client, provider environment, or request budget.
@@ -8,8 +11,9 @@ type LocalRuntime struct {
 	runtime Runtime
 }
 
-func NewLocal() *LocalRuntime {
-	return &LocalRuntime{runtime: Runtime{cache: make(map[string]Program)}}
+// NewLocal creates a filter runtime. A nil engine selects the standard library.
+func NewLocal(engine regexp.Engine) *LocalRuntime {
+	return &LocalRuntime{runtime: Runtime{cache: make(map[string]Program), regexEngine: engine}}
 }
 
 func (r *LocalRuntime) SetTokenCounterProvider(provider func() *tokenizer.Counter) {

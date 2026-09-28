@@ -7,14 +7,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sync"
+	"runtime"
 
 	"github.com/charlievieth/fastwalk"
 	"golang.org/x/sync/errgroup"
 
-	sourceworkers "github.com/betterleaks/betterleaks/v2/sources/internal/workers"
-
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
 
 type filePath struct {
@@ -33,16 +31,15 @@ func (e *walkCallbackError) Unwrap() error { return e.err }
 type Files struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger          *slog.Logger
-	ShouldSkip      SkipFunc
+	Prefilter       PrefilterFunc
 	FollowSymlinks  bool // Follow file and directory links; visit each directory once.
 	MaxFileSize     int
 	Path            string
 	MaxArchiveDepth int
-	Workers         int // 0 is automatic
-	budget          *sourceworkers.Budget
 }
 
-// walkFiles serializes callbacks while fastwalk inspects paths concurrently.
+// walkFiles calls yield concurrently from directory walkers; yield must be safe
+// for concurrent use.
 func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -52,7 +49,6 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 		return err
 	}
 	logger := logging.OrDiscard(s.Logger)
-	var yieldMu sync.Mutex
 	visit := func(path string, entry fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -91,7 +87,7 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 			name = filePath{path: realPath, symlink: path}
 		}
 
-		if shouldSkipPath(s.ShouldSkip, path) || (name.symlink != "" && shouldSkipPath(s.ShouldSkip, name.path)) {
+		if shouldSkipPath(s.Prefilter, path) || (name.symlink != "" && shouldSkipPath(s.Prefilter, name.path)) {
 			if mode.IsDir() {
 				return filepath.SkipDir
 			}
@@ -122,8 +118,6 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 			}
 		}
 
-		yieldMu.Lock()
-		defer yieldMu.Unlock()
 		if err := yield(name); err != nil {
 			return &walkCallbackError{err: err}
 		}
@@ -160,7 +154,8 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 // Fragments yields fragments from files discovered under the path
 func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	g, groupCtx := errgroup.WithContext(ctx)
-	workers := sourceworkers.WithinBudget(s.Workers, sourceworkers.AutomaticFiles(), s.budget)
+	// Extra readers retain buffers and decompressor workspaces while detection catches up.
+	workers := max(runtime.GOMAXPROCS(0), 1)
 	paths := make(chan filePath, workers)
 	for range workers {
 		g.Go(func() error {
@@ -168,9 +163,7 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 				if err := groupCtx.Err(); err != nil {
 					return err
 				}
-				if err := s.budget.Run(groupCtx, func() error {
-					return s.readFile(groupCtx, name, yield)
-				}); err != nil {
+				if err := s.readFile(groupCtx, name, yield); err != nil {
 					return err
 				}
 			}
@@ -205,7 +198,7 @@ func (s *Files) readFile(ctx context.Context, name filePath, yield FragmentsFunc
 		Content:         f,
 		Path:            name.path,
 		Symlink:         name.symlink,
-		ShouldSkip:      s.ShouldSkip,
+		Prefilter:       s.Prefilter,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		prefiltered:     true,
 	}

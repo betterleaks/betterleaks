@@ -2,6 +2,7 @@ package scan
 
 import (
 	"maps"
+	"slices"
 
 	"github.com/betterleaks/betterleaks/v2/internal/limits"
 	"github.com/betterleaks/betterleaks/v2/report"
@@ -66,8 +67,9 @@ func cartesianFindings(ruleOrder []string, byRule map[string][]report.ComponentF
 		for i, id := range ruleOrder {
 			row[i] = byRule[id][indexes[i]]
 			// A candidate can appear in several sets or findings. Each returned
-			// occurrence must own its mutable captures.
+			// occurrence must own its mutable captures and encoding names.
 			row[i].Match.Captures = maps.Clone(row[i].Match.Captures)
+			row[i].Encodings = slices.Clone(row[i].Encodings)
 		}
 		result = append(result, row)
 		position := len(indexes) - 1

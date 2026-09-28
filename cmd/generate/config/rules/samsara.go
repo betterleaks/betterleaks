@@ -26,7 +26,7 @@ func SamsaraAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Invalid token"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	// validate

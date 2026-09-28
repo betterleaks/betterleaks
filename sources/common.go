@@ -34,7 +34,7 @@ func isArchive(ctx context.Context, path string) bool {
 
 // shouldSkipPath checks a path against the skip callback.
 // Also handles the Windows forward-slash path normalization workaround.
-func shouldSkipPath(skip SkipFunc, path string) bool {
+func shouldSkipPath(skip PrefilterFunc, path string) bool {
 	if skip == nil {
 		return false
 	}
@@ -92,35 +92,42 @@ func readUntilSafeBoundary(r *bufio.Reader, data []byte, initialSize int, maxPee
 		copy(grown, data)
 		data = grown
 	}
+	// Seed lookahead from only the final byte to preserve existing chunk boundaries.
 	newlineCount = 0
+	if data[len(data)-1] == '\n' {
+		newlineCount = 1
+	}
 	for {
-		// Check if the last character is a newline.
-		lastChar = data[len(data)-1]
-		if lastChar == '\n' {
-			newlineCount++
-
-			// Stop if two consecutive newlines are found
-			if newlineCount >= 2 {
-				break
+		budget := maxPeekSize - (len(data) - initialSize)
+		if budget <= 0 {
+			return data, nil
+		}
+		// Inspect available bytes without waiting for a full buffer from a
+		// streaming reader. Request one byte to refill an empty buffer.
+		peek, err := r.Peek(min(budget, max(1, r.Buffered())))
+		consumed := 0
+		found := false
+		for _, b := range peek {
+			consumed++
+			if b == '\n' {
+				newlineCount++
+				if newlineCount >= 2 {
+					found = true
+					break
+				}
+			} else if !isWhitespace[b] {
+				newlineCount = 0
 			}
-		} else if isWhitespace[lastChar] {
-			// The presence of other whitespace characters (`\r`, ` `, `\t`) shouldn't reset the count.
-			// (Intentionally do nothing.)
-		} else {
-			newlineCount = 0 // Reset if a non-newline character is found
 		}
-
-		// Stop growing the buffer if it reaches maxSize
-		if (len(data) - initialSize) >= maxPeekSize {
-			break
+		data = append(data, peek[:consumed]...)
+		if _, discardErr := r.Discard(consumed); discardErr != nil {
+			return data, discardErr
 		}
-
-		// Read additional data into a temporary buffer
-		b, err := r.ReadByte()
+		if found {
+			return data, nil
+		}
 		if err != nil {
 			return data, err
 		}
-		data = append(data, b)
 	}
-	return data, nil
 }

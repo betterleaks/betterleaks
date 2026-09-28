@@ -33,7 +33,7 @@ func NgrokAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Authentication failed"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := "2" +

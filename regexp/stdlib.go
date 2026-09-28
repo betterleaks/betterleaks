@@ -1,15 +1,11 @@
 package regexp
 
-import (
-	"regexp"
-
-	"github.com/betterleaks/betterleaks/v2/regexp/internal"
-)
+import "regexp"
 
 // Stdlib is an Engine that uses the standard regexp package.
 type Stdlib struct{}
 
-func (Stdlib) Compile(str string) (internal.CompiledRegexp, error) {
+func (Stdlib) Compile(str string) (CompiledRegexp, error) {
 	return regexp.Compile(str)
 }
 

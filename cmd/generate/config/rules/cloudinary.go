@@ -34,7 +34,7 @@ func CloudinaryAPIKey() *config.Rule {
 		Regex:       `(?i)\bcloudinary(?:.|[\n\r]){0,32}?(?:API[_\s]?KEY|KEY)(?:.|[\n\r]){0,16}?\b([0-9]{15})\b`,
 		Keywords:    []string{"cloudinary"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) < 2.75`,
+		FilterExpr:  `entropy(finding["secret"]) < 2.75`,
 	}
 
 	tps := []string{
@@ -67,7 +67,7 @@ func CloudinaryAPISecret() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

@@ -72,7 +72,7 @@ func New(cfg *config.Config, opts ...Option) (*Analyzer, error) {
 		rule.Keywords = slices.Clone(source.Keywords)
 		rule.Components = slices.Clone(source.Components)
 		a.rules[rule.ID] = rule
-		a.primaryCaptures[rule.ID] = credential.PrimaryCapture(rule)
+		a.primaryCaptures[rule.ID] = provider.PrimaryCapture(rule)
 		a.hasValidation = a.hasValidation || rule.ValidateExpr != ""
 		a.hasAnalysis = a.hasAnalysis || (rule.ValidateExpr != "" && rule.AnalyzeExpr != "")
 	}
@@ -180,7 +180,7 @@ func (a *Analyzer) resolveCredential(ctx context.Context, input credential.Input
 	if strings.TrimSpace(rule.ValidateExpr) == "" {
 		return report.CredentialReport{}, fmt.Errorf("rule %q does not define validation", input.RuleID)
 	}
-	finding := input.Finding(rule)
+	finding := provider.FindingFromCredential(input, rule)
 	secrets := finding.CredentialValues()
 	result, err := a.resolve(ctx, finding, analysis)
 	if err != nil {
@@ -269,7 +269,7 @@ func (a *Analyzer) stream(ctx context.Context, produce Producer, handler func(re
 			if programs.validation == nil {
 				return emit(f)
 			}
-			if err := credential.ValidateFinding(&f, rule, programs.requirements, a.rules, a.primaryCaptures); err != nil {
+			if err := provider.ValidateFinding(&f, rule, programs.requirements, a.rules, a.primaryCaptures); err != nil {
 				return fmt.Errorf("rule %q: %w", rule.ID, err)
 			}
 
@@ -329,7 +329,7 @@ func (a *Analyzer) requirementsFor(rule config.Rule, analysis bool) credential.R
 	if analysis {
 		expressions = append(expressions, rule.AnalyzeExpr)
 	}
-	return credential.RequirementsFor(rule, a.primaryCaptures, expressions...)
+	return provider.RequirementsFor(rule, a.primaryCaptures, expressions...)
 }
 
 // Keep the Analyzer's public handoff bounded as well as Scanner discovery.

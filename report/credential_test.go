@@ -263,7 +263,7 @@ func TestCredentialReporterWritesJSONL(t *testing.T) {
 	if err := reporter.Write(&output, result); err != nil {
 		t.Fatalf("write JSONL: %v", err)
 	}
-	want := `{"schema_version":2,"rule_id":"test-rule","analysis":{"status":"valid"}}` + "\n"
+	want := `{"schema_version":"1","rule_id":"test-rule","analysis":{"status":"valid"}}` + "\n"
 	if output.String() != want {
 		t.Fatalf("JSONL output = %q, want %q", output.String(), want)
 	}

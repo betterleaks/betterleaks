@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // RuntimeOptions configures provider execution for scans and direct checks.
 type RuntimeOptions struct {
+	RegexEngine             regexp.Engine
 	Debug                   bool
 	Timeout                 time.Duration
 	MaxRequestsPerTarget    int
@@ -22,7 +24,7 @@ type RuntimeOptions struct {
 
 // NewRuntime validates options and creates an independent request budget.
 func NewRuntime(options RuntimeOptions) (*exprruntime.Runtime, error) {
-	runtime, err := exprruntime.New(nil)
+	runtime, err := exprruntime.NewWithRegexEngine(nil, options.RegexEngine)
 	if err != nil {
 		return nil, fmt.Errorf("create provider runtime: %w", err)
 	}

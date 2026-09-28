@@ -12,7 +12,7 @@ func DockerHubPersonalAccessToken() *config.Rule {
 		Description: "Detected a Docker Hub personal access token, which may expose Docker Hub account access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dckr_pat_[A-Za-z0-9_-]{27}`, false),
 		Keywords:    []string{"dckr_pat_"},
-		Filter:      utils.MinEntropy(3.5),
+		FilterExpr:  utils.MinEntropy(3.5),
 	}
 
 	tps := []string{
@@ -29,7 +29,7 @@ func DockerHubOrganizationAccessToken() *config.Rule {
 		Description: "Detected a Docker Hub organization access token, which may expose organization repositories.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dckr_oat_[A-Za-z0-9_-]{32}`, false),
 		Keywords:    []string{"dckr_oat_"},
-		Filter:      utils.MinEntropy(3.5),
+		FilterExpr:  utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

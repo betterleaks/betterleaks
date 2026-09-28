@@ -20,7 +20,8 @@ type Plan struct {
 
 // Compile returns nil when narrowing could omit a match. Keywords remain an
 // independent eligibility filter; they need not be literal regex prefixes.
-func Compile(pattern string, keywords []string) *Plan {
+// re must be parsed with syntax.Perl flags and is never modified.
+func Compile(re *syntax.Regexp, keywords []string) *Plan {
 	if len(keywords) == 0 {
 		return nil
 	}
@@ -33,10 +34,6 @@ func Compile(pattern string, keywords []string) *Plan {
 				return nil
 			}
 		}
-	}
-	re, err := syntax.Parse(pattern, syntax.Perl)
-	if err != nil {
-		return nil
 	}
 	plan := analyze(re, keywords)
 	if plan != nil {

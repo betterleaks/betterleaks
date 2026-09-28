@@ -65,7 +65,7 @@ finding.secret != "" ? {
 		t.Fatalf("decode report: %v\n%s", err, stdout.String())
 	}
 	if got.SchemaVersion != report.CredentialReportSchemaVersion {
-		t.Fatalf("schema version = %d, want %d", got.SchemaVersion, report.CredentialReportSchemaVersion)
+		t.Fatalf("schema version = %s, want %s", got.SchemaVersion, report.CredentialReportSchemaVersion)
 	}
 	if got.RuleID != "test-token" {
 		t.Fatalf("rule ID = %q", got.RuleID)
@@ -174,63 +174,47 @@ let response = http.get(%q, {});
 	}
 }
 
-func TestValidateCommandReadsSecretFromStdin(t *testing.T) {
-	configPath := writeTestConfig(t, `
+func TestValidateCommandInputAndOutput(t *testing.T) {
+	for _, tc := range []struct {
+		name, secret  string
+		stdin, simple bool
+	}{
+		{"stdin JSONL", "from-stdin", true, false},
+		{"argument simple", "simple-secret", false, true},
+		{"JSON stdin is a secret", `{"type":"authorized_user","client_id":"fake.apps.googleusercontent.com","client_secret":"fake-secret","refresh_token":"fake-refresh"}`, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTestConfig(t, fmt.Sprintf(`
 [[rules]]
-id = "stdin-token"
-regex = '''(stdin-token)'''
+id = "test-token"
+regex = 'unused'
 validate = '''
-finding["secret"] == "from-stdin" ? {"result": "valid"} : {"result": "invalid"}
+finding.secret == %q ? {"result":"valid", "reason":"Authenticated", "metadata":{"owner":"alice"}} : {"result":"invalid"}
 '''
-`)
-
-	root, stdout := newTestCLI(t)
-	root.SetIn(strings.NewReader("from-stdin\n"))
-	root.SetArgs([]string{
-		"validate",
-		"--config", configPath,
-		"--rule", "stdin-token",
-		"--jsonl",
-	})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("validate command: %v", err)
-	}
-
-	var got report.CredentialReport
-	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatalf("decode report: %v", err)
-	}
-	if got.Analysis.Status != report.ValidationStatusValid {
-		t.Fatalf("status = %q", got.Analysis.Status)
-	}
-	if strings.Contains(stdout.String(), "from-stdin") {
-		t.Fatalf("report contains supplied secret: %s", stdout.String())
-	}
-}
-
-func TestValidateCommandSimple(t *testing.T) {
-	configPath := writeTestConfig(t, `
-[[rules]]
-id = "simple-token"
-regex = '''(simple-token)'''
-validate = '''{"result": "valid", "reason": "Authenticated", "metadata": {"owner": "alice"}}'''
-`)
-
-	root, stdout := newTestCLI(t)
-	root.SetArgs([]string{
-		"validate",
-		"--config", configPath,
-		"--rule", "simple-token",
-		"--simple",
-		"--no-color",
-		"simple-secret",
-	})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("validate command: %v", err)
-	}
-
-	if got, want := stdout.String(), "VALID\n"; got != want {
-		t.Fatalf("simple output = %q, want %q", got, want)
+`, tc.secret))
+			root, output := newTestCLI(t)
+			args := []string{"validate", "--config", path, "--rule", "test-token", "--no-color"}
+			if tc.stdin {
+				root.SetIn(strings.NewReader(tc.secret + "\n"))
+			} else {
+				args = append(args, tc.secret)
+			}
+			if tc.simple {
+				args = append(args, "--simple")
+			} else {
+				args = append(args, "--jsonl")
+			}
+			root.SetArgs(args)
+			require.NoError(t, root.Execute())
+			require.NotContains(t, output.String(), tc.secret)
+			if tc.simple {
+				require.Equal(t, "VALID\n", output.String())
+			} else {
+				var result report.CredentialReport
+				require.NoError(t, json.Unmarshal(output.Bytes(), &result))
+				require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
+			}
+		})
 	}
 }
 
@@ -461,40 +445,12 @@ components = [{ id = "client-id" }]
 	}
 }
 
-func TestValidateCommandTreatsJSONStdinAsPrimarySecret(t *testing.T) {
-	const credential = `{"type":"authorized_user","client_id":"fake.apps.googleusercontent.com","client_secret":"fake-secret","refresh_token":"fake-refresh"}`
-	configPath := writeTestConfig(t, fmt.Sprintf(`
-[[rules]]
-id = "json-credential"
-regex = '''(json-credential)'''
-validate = '''
-finding["secret"] == %q ? {"result": "valid"} : {"result": "invalid"}
-'''
-`, credential))
-
-	root, stdout := newTestCLI(t)
-	root.SetIn(strings.NewReader(credential + "\n"))
-	root.SetArgs([]string{
-		"validate",
-		"--config", configPath,
-		"--rule", "json-credential",
-		"--simple",
-		"--no-color",
-	})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("validate command: %v", err)
-	}
-	if got, want := stdout.String(), "VALID\n"; got != want {
-		t.Fatalf("simple output = %q, want %q", got, want)
-	}
-}
-
 func TestValidateCommandRequiresReferencedNamedCaptures(t *testing.T) {
 	configPath := writeTestConfig(t, `
 [[rules]]
 id = "capture-dependent"
 regex = '''(?P<tenant>[a-z]+)-(?P<id>[a-z]+)-(?P<credential>secret-[a-z]+)'''
-secretGroup = 3
+valueGroup = 3
 validate = '''
 finding.captures.tenant == "acme" ? {"result": "valid"} : {"result": "invalid"}
 '''

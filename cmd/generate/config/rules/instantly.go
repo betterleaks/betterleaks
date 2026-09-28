@@ -25,7 +25,7 @@ func InstantlyAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.3),
+		FilterExpr: utils.MinEntropy(3.3),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[A-Za-z0-9+/]{66}`, 3.3) + "=="

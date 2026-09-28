@@ -21,7 +21,7 @@ func BraveSearchAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.2`,
+		FilterExpr: `entropy(finding["secret"]) < 3.2`,
 	}
 
 	tps := []string{

@@ -110,7 +110,7 @@ func (p *parser) Next() error {
 
 	if p.lineno == 0 {
 		// on first call to next, need to shift in all lines
-		for i := 0; i < len(p.lines)-1; i++ {
+		for range len(p.lines) - 1 {
 			if err := p.shiftLines(); err != nil && err != io.EOF {
 				return err
 			}
@@ -131,7 +131,7 @@ func (p *parser) Next() error {
 }
 
 func (p *parser) shiftLines() (err error) {
-	for i := 0; i < len(p.lines)-1; i++ {
+	for i := range len(p.lines) - 1 {
 		p.lines[i] = p.lines[i+1]
 	}
 	p.lines[len(p.lines)-1], err = p.r.ReadString('\n')
@@ -148,6 +148,6 @@ func (p *parser) Line(delta uint) string {
 }
 
 // Errorf generates an error and appends the current line information.
-func (p *parser) Errorf(delta int64, msg string, args ...interface{}) error {
+func (p *parser) Errorf(delta int64, msg string, args ...any) error {
 	return fmt.Errorf("gitdiff: line %d: %s", p.lineno+delta, fmt.Sprintf(msg, args...))
 }

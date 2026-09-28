@@ -14,7 +14,7 @@ func ScalingoAPIToken() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateUniqueTokenRegex(`tk-us-[\w-]{48}`, false),
 		Keywords:    []string{"tk-us-"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

@@ -109,7 +109,7 @@ func HuggingFaceAccessToken() *config.Rule {
 		ValidateExpr: huggingFaceValidateExpr,
 		AnalyzeExpr:  huggingFaceAnalyzeExpr,
 		RevokeExpr:   huggingFaceRevokeExpr,
-		Filter:       `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -168,7 +168,7 @@ func HuggingFaceOrganizationApiToken() *config.Rule {
 		ValidateExpr: huggingFaceValidateExpr,
 		AnalyzeExpr:  huggingFaceAnalyzeExpr,
 		RevokeExpr:   huggingFaceRevokeExpr,
-		Filter:       `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

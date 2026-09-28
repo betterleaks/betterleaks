@@ -1,9 +1,12 @@
 package scan
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -47,22 +50,9 @@ type cancelOnSecondCheck struct {
 	closed chan struct{}
 }
 
-type repeatedFragmentSource struct {
-	count int
-}
-
 type fragmentSource struct {
 	fragments []sources.Fragment
 	err       error
-}
-
-func (s repeatedFragmentSource) Fragments(_ context.Context, yield sources.FragmentsFunc) error {
-	for range s.count {
-		if err := yield(sources.Fragment{Raw: "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"}, nil); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (s fragmentSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
@@ -77,19 +67,6 @@ func (s fragmentSource) Fragments(ctx context.Context, yield sources.FragmentsFu
 	return s.err
 }
 
-type cancelAwareSource struct {
-	stopped chan struct{}
-}
-
-func (s cancelAwareSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
-	defer close(s.stopped)
-	if err := yield(sources.Fragment{Raw: "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"}, nil); err != nil {
-		return err
-	}
-	<-ctx.Done()
-	return ctx.Err()
-}
-
 func newCancelOnSecondCheck() *cancelOnSecondCheck {
 	closed := make(chan struct{})
 	close(closed)
@@ -99,7 +76,7 @@ func newCancelOnSecondCheck() *cancelOnSecondCheck {
 func normalizeFindings(fs []report.Finding) {
 	// TODO: Temporary mitigation.
 	// https://github.com/gitleaks/gitleaks/issues/1641
-	for i := 0; i < len(fs); i++ {
+	for i := range fs {
 		f := &fs[i]
 		f.Match.Line = strings.ReplaceAll(f.Match.Line, "\r", "")
 		before := len(f.Match.Full)
@@ -150,59 +127,148 @@ func testConfig() *config.Config {
 
 func TestIgnoredFingerprintsUseExtractedSecret(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{{
-		ID: "token", Regex: `token=(secret-[a-z]+)`, SecretGroup: 1,
+		ID: "token", Regex: `token=(secret-[a-z]+)`, ValueGroup: 1,
 	}}}
-	ignored := fingerprint.Sum([]byte("secret-ignored"))
-	for _, input := range []string{
-		"token=secret-ignored token=secret-visible",
-		base64.StdEncoding.EncodeToString([]byte("token=secret-ignored token=secret-visible")),
-	} {
-		baseline := mustNew(t, cfg, WithMaxDecodeDepth(2))
-		require.Len(t, baseline.ScanString(input), 2)
-		scanner := mustNew(t, cfg, WithMaxDecodeDepth(2), WithIgnoredFingerprints(ignored))
-		findings := scanner.ScanString(input)
-		require.Len(t, findings, 1)
-		assert.Equal(t, "secret-visible", findings[0].Match.Value)
+	for _, key := range [][]byte{nil, []byte("primary test key")} {
+		options := []Option{WithMaxDecodeDepth(2)}
+		if len(key) > 0 {
+			options = append(options, WithFingerprintKey(key))
+		}
+		ignored := fingerprint.SumWithKey([]byte("secret-ignored"), key)
+		for _, input := range []string{
+			"token=secret-ignored token=secret-visible",
+			base64.StdEncoding.EncodeToString([]byte("token=secret-ignored token=secret-visible")),
+		} {
+			baseline := mustNew(t, cfg, WithMaxDecodeDepth(2))
+			require.Len(t, baseline.ScanString(input), 2)
+			scanner := mustNew(t, cfg, append(options, WithIgnoredFingerprints(ignored))...)
+			findings := scanner.ScanString(input)
+			require.Len(t, findings, 1)
+			assert.Equal(t, "secret-visible", findings[0].Match.Value)
+			assert.Equal(t, fingerprint.Format(fingerprint.SumWithKey([]byte("secret-visible"), key)), findings[0].Match.Fingerprint)
+		}
 	}
 	// A fingerprint of the entire regex match must not suppress its capture.
 	scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("token=secret-ignored"))))
 	require.Len(t, scanner.ScanString("token=secret-ignored"), 1)
 }
 
-func TestIgnoredFingerprintsPreserveComponents(t *testing.T) {
-	for _, optional := range []bool{false, true} {
-		for _, skipReport := range []bool{false, true} {
-			cfg := &config.Config{Rules: []config.Rule{
-				{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "2L", Optional: optional}}},
-				{ID: "component", Regex: `companion-token`, SkipReport: skipReport},
-			}}
-			scanner := mustNew(t, cfg, WithIgnoredFingerprints(fingerprint.Sum([]byte("companion-token"))))
-			findings := scanner.ScanString("primary-token companion-token")
-			require.Len(t, findings, 1)
-			assert.Equal(t, "primary", findings[0].RuleID)
-			require.Len(t, findings[0].ComponentSets, 1)
-			require.Len(t, findings[0].ComponentSets[0].Components, 1)
-			assert.Equal(t, "companion-token", findings[0].ComponentSets[0].Components[0].Match.Value)
-			assert.Empty(t, scanner.ScanString("companion-token"))
-			// An ignored primary suppresses the assembled finding itself.
-			scanner = mustNew(t, cfg, WithIgnoredFingerprints(
-				fingerprint.Sum([]byte("primary-token")), fingerprint.Sum([]byte("companion-token")),
-			))
-			assert.Empty(t, scanner.ScanString("primary-token companion-token"))
+func TestIgnoredFingerprintsFilterComponents(t *testing.T) {
+	for _, key := range [][]byte{nil, []byte("component test key")} {
+		for _, optional := range []bool{false, true} {
+			for _, skipReport := range []bool{false, true} {
+				cfg := &config.Config{Rules: []config.Rule{
+					{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "1L", Optional: optional}}},
+					{ID: "component", Regex: `companion=(?P<secret>ignored|visible)`, SkipReport: skipReport},
+				}}
+				options := []Option{WithIgnoredFingerprints(fingerprint.SumWithKey([]byte("ignored"), key))}
+				if len(key) > 0 {
+					options = append(options, WithFingerprintKey(key))
+				}
+				scanner := mustNew(t, cfg, options...)
+				for _, tc := range []struct {
+					name, raw                  string
+					requiredSets, optionalSets []int
+				}{
+					{"all ignored", "primary-token companion=ignored", nil, []int{0}},
+					{"alternative survives", "primary-token companion=ignored companion=visible", []int{1}, []int{1}},
+					{"absent", "primary-token", nil, []int{0}},
+					{"outside proximity", "primary-token\ncompanion=ignored", nil, []int{0}},
+					{"different occurrence", "primary-token companion=ignored\nprimary-token companion=visible", []int{1}, []int{0, 1}},
+				} {
+					t.Run(fmt.Sprintf("%s/optional=%t/skipReport=%t/keyed=%t", tc.name, optional, skipReport, len(key) > 0), func(t *testing.T) {
+						want := tc.requiredSets
+						if optional {
+							want = tc.optionalSets
+						}
+						for range 2 {
+							findings := scanner.ScanString(tc.raw)
+							var componentSetCounts []int
+							for _, f := range findings {
+								assert.NotEqual(t, "ignored", f.Match.Value)
+								if f.RuleID != "primary" {
+									continue
+								}
+								componentSetCounts = append(componentSetCounts, len(f.ComponentSets))
+								for _, set := range f.ComponentSets {
+									require.Len(t, set.Components, 1)
+									assert.Equal(t, "visible", set.Components[0].Match.Value)
+								}
+							}
+							assert.ElementsMatch(t, want, componentSetCounts)
+						}
+					})
+				}
+			}
 		}
 	}
-	// Explicit global filters retain their original component filtering semantics.
-	cfg := &config.Config{
-		Filter: `finding["secret"] == "companion-token"`,
-		Rules: []config.Rule{
-			{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "component", Within: "2L"}}},
-			{ID: "component", Regex: `companion-token`, SkipReport: true},
-		},
-	}
-	assert.Empty(t, mustNew(t, cfg).ScanString("primary-token companion-token"))
+	t.Run("ignored candidates do not consume the combination limit", func(t *testing.T) {
+		cfg := &config.Config{Rules: []config.Rule{
+			{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "account"}}},
+			{ID: "account", Regex: `account-[0-9]{3}`, SkipReport: true},
+		}}
+		var input strings.Builder
+		input.WriteString("primary-token\n")
+		var hashes []fingerprint.Hash
+		for i := 0; i <= maxComponentSets; i++ {
+			value := fmt.Sprintf("account-%03d", i)
+			fmt.Fprintln(&input, value)
+			if i < maxComponentSets {
+				hashes = append(hashes, fingerprint.Sum([]byte(value)))
+			}
+		}
+		scanner := mustNew(t, cfg, WithIgnoredFingerprints(hashes...))
+		findings := scanner.ScanString(input.String())
+		require.Len(t, findings, 1)
+		require.Len(t, findings[0].ComponentSets, 1)
+		assert.Equal(t, "account-100", findings[0].ComponentSets[0].Components[0].Match.Value)
+		assert.False(t, findings[0].ComponentSetsTruncated)
+	})
 }
 
 func TestIgnoredFingerprintsSnapshotAndReuse(t *testing.T) {
+	// CLI environment settings must not change SDK fingerprint behavior.
+	t.Setenv("BETTERLEAKS_FINGERPRINT_HMAC_KEY", "environment-only key")
+	plain := mustNew(t, testConfig())
+	for _, value := range []string{"short-token", strings.Repeat("fixture", 100)} {
+		var hash fingerprint.Hash
+		baseline := testing.AllocsPerRun(100, func() { hash = fingerprint.Sum([]byte(value)) })
+		actual := testing.AllocsPerRun(100, func() { hash = plain.valueFingerprint(value) })
+		require.LessOrEqual(t, actual, baseline, "unkeyed scanning must not pay HMAC conversion costs")
+		require.Equal(t, fingerprint.Sum([]byte(value)), hash)
+	}
+
+	t.Run("key ownership and mode validation", func(t *testing.T) {
+		key := []byte("private key")
+		want := fingerprint.SumWithKey([]byte("secret-alpha"), key)
+		option := WithFingerprintKey(key)
+		clear(key)
+		for range 2 {
+			scanner := mustNew(t, testConfig(), option)
+			var wg sync.WaitGroup
+			for range 4 {
+				wg.Go(func() {
+					findings := scanner.ScanString("secret-alpha")
+					if len(findings) != 1 || findings[0].Match.Fingerprint != fingerprint.Format(want) {
+						t.Error("fingerprint key was not retained across scans")
+					}
+				})
+			}
+			wg.Wait()
+		}
+		for _, tc := range []struct {
+			options []Option
+			message string
+		}{
+			{[]Option{WithFingerprintKey(nil)}, "must not be empty"},
+			{[]Option{WithIgnoredFingerprints(want)}, "require a fingerprint key"},
+			{[]Option{option, WithIgnoredFingerprints(fingerprint.Sum([]byte("secret-alpha")))}, "cannot be used with a fingerprint key"},
+			{[]Option{option, WithIgnoredFingerprints(want, fingerprint.Sum([]byte("secret-alpha")))}, "cannot be used with a fingerprint key"},
+		} {
+			_, err := New(testConfig(), tc.options...)
+			require.ErrorContains(t, err, tc.message)
+		}
+	})
 	hashes := []fingerprint.Hash{fingerprint.Sum([]byte("secret-alpha"))}
 	option := WithIgnoredFingerprints(hashes...)
 	hashes[0] = fingerprint.Sum([]byte("secret-beta"))
@@ -220,7 +286,7 @@ func TestIgnoredFingerprintsSnapshotAndReuse(t *testing.T) {
 
 func TestScannerLoggerIsOptIn(t *testing.T) {
 	cfg := &config.Config{
-		Filter: `missingFunction()`,
+		Filter: `int(finding.secret) > 0`,
 		Rules: []config.Rule{{
 			ID:    "test-secret",
 			Regex: `secret-[a-z]+`,
@@ -234,7 +300,7 @@ func TestScannerLoggerIsOptIn(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	scanner := mustNew(t, cfg, WithLogger(logger))
 	require.Len(t, scanner.ScanString("secret-alpha"), 1)
-	assert.Contains(t, output.String(), "global filter compile error")
+	assert.Contains(t, output.String(), "global filter eval error")
 }
 
 func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
@@ -243,10 +309,12 @@ func TestDiscardLoggerDoesNotAllocatePerRule(t *testing.T) {
 	rule := &compiledRule{rule: config.Rule{ID: "test-secret", SkipReport: true}}
 
 	var findings []report.Finding
+	var scanErr error
 	allocations := testing.AllocsPerRun(1_000, func() {
-		findings = scanner.detectFragmentWithRule(nil, fragment, fragment.Raw, rule, nil, nil, &detectionState{})
+		findings, scanErr = scanner.detectFragmentWithRule(nil, fragment, fragment.Raw, rule, nil, nil, &detectionState{})
 	})
 	runtime.KeepAlive(findings)
+	require.NoError(t, scanErr)
 	assert.Zero(t, allocations)
 }
 
@@ -262,6 +330,39 @@ func TestSourcePrefilter(t *testing.T) {
 	require.NotNil(t, skip)
 	assert.True(t, skip(map[string]string{sources.AttrPath: "ignored.txt"}))
 	assert.False(t, skip(map[string]string{sources.AttrPath: "kept.txt"}))
+}
+
+func TestScannerRequiresConstruction(t *testing.T) {
+	var output bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	for _, tc := range []struct {
+		name    string
+		scanner *Scanner
+	}{
+		{name: "nil"},
+		{name: "zero value", scanner: &Scanner{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Bound the test if an uninitialized scanner waits for a worker slot.
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			summary, err := tc.scanner.Scan(ctx, fragmentSource{fragments: []sources.Fragment{{Raw: "secret-alpha"}}}, func(report.Finding) error {
+				t.Error("uninitialized scanner invoked handler")
+				return nil
+			})
+			require.EqualError(t, err, "scanner must be constructed with New")
+			assert.Equal(t, ScanSummary{}, summary)
+			for _, content := range []string{"", "secret-alpha"} {
+				output.Reset()
+				assert.Empty(t, tc.scanner.ScanString(content))
+				assert.Contains(t, output.String(), `"level":"WARN"`)
+				assert.Contains(t, output.String(), "scanner must be constructed with New")
+			}
+		})
+	}
 }
 
 func TestScannerScanReturnsHandlerAndSourceErrors(t *testing.T) {
@@ -280,23 +381,140 @@ func TestScannerScanReturnsHandlerAndSourceErrors(t *testing.T) {
 	assert.ErrorIs(t, scanErr, sourceErr)
 }
 
-func TestWithPrecompileIsTheEagerCompilationPath(t *testing.T) {
+func TestNewRejectsInvalidFindingFilters(t *testing.T) {
+	for _, expression := range []string{`missingFunction()`, `finding.secret ==`, `42`} {
+		for _, scope := range []string{"global", "rule", "path", "component"} {
+			t.Run(scope+"/"+expression, func(t *testing.T) {
+				cfg := testConfig()
+				want := "compiling global filter"
+				switch scope {
+				case "global":
+					cfg.Filter = expression
+				case "rule":
+					cfg.Rules[0].FilterExpr = expression
+					want = "compiling rule " + cfg.Rules[0].ID + " filter"
+				case "path":
+					cfg.Rules = append(cfg.Rules, config.Rule{ID: "path-only", Path: `\.env$`, FilterExpr: expression})
+					want = "compiling rule path-only filter"
+				case "component":
+					cfg.Rules[0].Components = []config.Component{{RuleID: "part"}}
+					cfg.Rules = append(cfg.Rules, config.Rule{ID: "part", Regex: "COMPONENT", SkipReport: true, FilterExpr: expression})
+					want = "compiling rule part filter"
+				}
+				for _, options := range [][]Option{nil, {WithPrecompile()}} {
+					scanner, err := New(cfg, options...)
+					require.ErrorContains(t, err, want)
+					require.Nil(t, scanner)
+				}
+			})
+		}
+	}
+}
+
+func TestFilterCompilationDoesNotInitializeTokenizer(t *testing.T) {
 	cfg := testConfig()
-	cfg.Filter = `missingFunction()`
+	cfg.Filter = `tokenRatio(finding.secret) > 0`
+	scanner, err := New(cfg)
+	require.NoError(t, err)
+	require.Nil(t, scanner.tokenCounter, "construction must compile filters without evaluating them")
+}
 
-	_, err := New(cfg)
-	require.NoError(t, err, "expressions remain lazy by default")
-
-	_, err = New(cfg, WithPrecompile())
-	require.ErrorContains(t, err, "compiling global filter")
-
-	cfg = testConfig()
+func TestScannerDoesNotCompileProviderExpressions(t *testing.T) {
+	cfg := testConfig()
 	cfg.Rules[0].ValidateExpr = `missingFunction()`
-	_, err = New(cfg, WithPrecompile())
-	require.NoError(t, err, "scanner never compiles provider expressions")
+	for _, options := range [][]Option{nil, {WithPrecompile()}} {
+		_, err := New(cfg, options...)
+		require.NoError(t, err, "scanner never compiles provider expressions")
+	}
+}
+
+func TestScannerHashes(t *testing.T) {
+	for _, key := range [][]byte{nil, []byte("private test key")} {
+		t.Run(fmt.Sprintf("keyed=%t", len(key) > 0), func(t *testing.T) {
+			var options []Option
+			if len(key) > 0 {
+				options = append(options, WithFingerprintKey(key))
+			}
+
+			cfg := &config.Config{Rules: []config.Rule{
+				{ID: "primary", Regex: "PRIMARY", Components: []config.Component{{RuleID: "part"}}},
+				{ID: "part", Regex: "COMPONENT", SkipReport: true},
+				{ID: "path", Path: `\.env$`},
+			}}
+			wantHashes, err := cfg.RuleHashes()
+			require.NoError(t, err)
+			scanner := mustNew(t, cfg, options...)
+			// Existing scanners retain both matching behavior and hashes after mutation.
+			cfg.Rules[1].Regex = "CHANGED"
+			changedHash, err := cfg.RuleHash("primary")
+			require.NoError(t, err)
+			require.NotEqual(t, wantHashes["primary"], changedHash)
+			findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{
+				Content:    strings.NewReader("PRIMARY COMPONENT\n"),
+				Attributes: map[string]string{sources.AttrPath: "secrets.env"},
+			})
+			require.NoError(t, err)
+			require.Len(t, findings, 2)
+			for _, finding := range findings {
+				require.Equal(t, wantHashes[finding.RuleID], finding.RuleHash)
+				if finding.RuleID == "primary" {
+					require.Equal(t, fingerprint.Format(fingerprint.SumWithKey([]byte("PRIMARY"), key)), finding.Match.Fingerprint)
+					require.Len(t, finding.ComponentSets, 1)
+					require.Len(t, finding.ComponentSets[0].Components, 1)
+					require.Equal(t, wantHashes["part"], finding.ComponentSets[0].Components[0].RuleHash)
+					require.Equal(t, fingerprint.Format(fingerprint.SumWithKey([]byte("COMPONENT"), key)), finding.ComponentSets[0].Components[0].Match.Fingerprint)
+				} else {
+					require.Empty(t, finding.Match.Fingerprint)
+				}
+				var decoded report.Finding
+				data, err := json.Marshal(finding.RedactedCopy(100))
+				require.NoError(t, err)
+				require.NoError(t, json.Unmarshal(data, &decoded))
+				assert.Equal(t, finding.RuleHash, decoded.RuleHash)
+				assert.Equal(t, finding.Match.Fingerprint, decoded.Match.Fingerprint)
+				if finding.RuleID == "primary" {
+					assert.Equal(t, wantHashes["part"], decoded.ComponentSets[0].Components[0].RuleHash)
+					assert.Equal(t, finding.ComponentSets[0].Components[0].Match.Fingerprint, decoded.ComponentSets[0].Components[0].Match.Fingerprint)
+					assert.Equal(t, "REDACTED", decoded.Match.Value)
+					parsed, err := fingerprint.Parse(decoded.ComponentSets[0].Components[0].Match.Fingerprint)
+					require.NoError(t, err)
+					// An entry copied from a redacted component suppresses its parent.
+					originalCfg := &config.Config{Rules: []config.Rule{
+						{ID: "primary", Regex: "PRIMARY", Components: []config.Component{{RuleID: "part"}}},
+						{ID: "part", Regex: "COMPONENT", SkipReport: true},
+					}}
+					assert.Empty(t, mustNew(t, originalCfg, append(options, WithIgnoredFingerprints(parsed))...).ScanString("PRIMARY COMPONENT"))
+				} else {
+					assert.NotContains(t, string(data), `"fingerprint"`)
+				}
+				var pretty bytes.Buffer
+				require.NoError(t, report.WritePretty(&pretty, finding, report.PrettyOptions{NoColor: true}))
+				assert.NotContains(t, pretty.String(), finding.RuleHash)
+				if finding.Match.Fingerprint != "" {
+					assert.NotContains(t, pretty.String(), finding.Match.Fingerprint)
+				}
+			}
+		})
+	}
 }
 
 func TestNewValidatesOptions(t *testing.T) {
+	for _, cpus := range []int{1, 2, 10, 64} {
+		t.Run(fmt.Sprintf("GOMAXPROCS=%d", cpus), func(t *testing.T) {
+			previous := runtime.GOMAXPROCS(cpus)
+			t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+			cfg := &config.Config{}
+			require.Equal(t, 4*cpus, mustNew(t, cfg).workers)
+			for _, configured := range []int{0, 1, cpus, 4*cpus + 3} {
+				want := configured
+				if want == 0 {
+					want = 4 * cpus
+				}
+				require.Equal(t, want, mustNew(t, cfg, WithWorkers(configured)).workers)
+			}
+		})
+	}
+
 	_, err := New(nil)
 	assert.Error(t, err)
 
@@ -312,88 +530,12 @@ func TestNewValidatesOptions(t *testing.T) {
 }
 
 func collectSourceFindings(ctx context.Context, scanner *Scanner, source sources.Source) ([]report.Finding, error) {
-	var (
-		findings []report.Finding
-		scanErr  error
-	)
-	for result := range scanner.Run(ctx, source) {
-		if result.Err != nil {
-			scanErr = errors.Join(scanErr, result.Err)
-			continue
-		}
-		findings = append(findings, result.Finding)
-	}
-	return findings, scanErr
-}
-
-func TestRunStreamsFindings(t *testing.T) {
-	scanner := mustNew(t, loadTestConfig(t, "simple"))
-	const content = "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	source := &sources.Reader{
-		Content: strings.NewReader(content),
-	}
-
 	var findings []report.Finding
-	for result := range scanner.Run(t.Context(), source) {
-		require.NoError(t, result.Err)
-		findings = append(findings, result.Finding)
-	}
-
-	require.Len(t, findings, 1)
-	assert.Empty(t, findings[0].Attr(sources.AttrResource))
-	assert.Empty(t, findings[0].Attr(sources.AttrPath))
-	assert.Equal(t, report.Location{
-		StartLine:   1,
-		EndLine:     1,
-		StartColumn: 1,
-		EndColumn:   len(content),
-	}, findings[0].Location)
-}
-
-func TestRunWithMultipleWorkers(t *testing.T) {
-	const fragmentCount = 100
-
-	scanner := mustNew(t, loadTestConfig(t, "simple"), WithWorkers(4))
-
-	findings, err := collectSourceFindings(t.Context(), scanner, repeatedFragmentSource{count: fragmentCount})
-	require.NoError(t, err)
-	require.Len(t, findings, fragmentCount)
-}
-
-func TestRunStopsSourceWhenConsumerStops(t *testing.T) {
-	scanner := mustNew(t, loadTestConfig(t, "simple"), WithWorkers(2))
-	source := cancelAwareSource{stopped: make(chan struct{})}
-
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-
-	for result := range scanner.Run(ctx, source) {
-		require.NoError(t, result.Err)
-		break
-	}
-
-	select {
-	case <-source.stopped:
-	default:
-		t.Fatal("source was still running after scanner iteration stopped")
-	}
-}
-
-func TestRunCancellationDoesNotEmitErrors(t *testing.T) {
-	scanner := mustNew(t, loadTestConfig(t, "simple"), WithWorkers(4))
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	found := false
-	for result := range scanner.Run(ctx, repeatedFragmentSource{count: 1000}) {
-		require.NoError(t, result.Err)
-		if !found {
-			found = true
-			cancel()
-		}
-	}
-	require.True(t, found)
+	_, err := scanner.Scan(ctx, source, func(finding report.Finding) error {
+		findings = append(findings, finding)
+		return nil
+	})
+	return findings, err
 }
 
 func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
@@ -412,11 +554,8 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 		Buffer:  make([]byte, 4),
 	}
 
-	var findings []report.Finding
-	for result := range scanner.Run(ruletiming.WithCollector(t.Context(), timingCollector), source) {
-		require.NoError(t, result.Err)
-		findings = append(findings, result.Finding)
-	}
+	findings, err := collectSourceFindings(ruletiming.WithCollector(t.Context(), timingCollector), scanner, source)
+	require.NoError(t, err)
 
 	require.Len(t, findings, 1)
 	timings := timingCollector.Snapshot()
@@ -439,7 +578,9 @@ func TestCandidateBitmap(t *testing.T) {
 	require.Empty(t, d.ScanString("stale HIGHSECRET"))
 
 	// Cancellation after candidates are marked must not leak them into the next scan.
-	require.Empty(t, d.detectFragmentWithState(newCancelOnSecondCheck(), sources.Fragment{Raw: "cancel ALWAYSSECRET"}, nil))
+	findings, err := d.detectFragmentWithState(newCancelOnSecondCheck(), sources.Fragment{Raw: "cancel ALWAYSSECRET"}, nil)
+	require.NoError(t, err)
+	require.Empty(t, findings)
 	require.Equal(t, []string{"always"}, findingRuleIDs(d.ScanString("ALWAYSSECRET")))
 
 	// One keyword selects multiple rules, multiple keywords select one rule,
@@ -543,8 +684,8 @@ username = "admin"
 
 func compare(t *testing.T, got, want []report.Finding) {
 	t.Helper()
-	got = stripFindingAttributes(append([]report.Finding(nil), got...))
-	want = stripFindingAttributes(append([]report.Finding(nil), want...))
+	got = stripFindingMetadata(append([]report.Finding(nil), got...))
+	want = stripFindingMetadata(append([]report.Finding(nil), want...))
 	if diff := cmp.Diff(want, got,
 		cmpopts.SortSlices(func(a, b report.Finding) bool {
 			if a.Attr(sources.AttrPath) != b.Attr(sources.AttrPath) {
@@ -585,15 +726,18 @@ func compare(t *testing.T, got, want []report.Finding) {
 	}
 }
 
-// stripFindingAttributes clears source metadata for match-only assertions.
+// stripFindingMetadata clears rule and source metadata for match-only assertions.
 // Location paths are checked separately in source handoff tests.
-func stripFindingAttributes(findings []report.Finding) []report.Finding {
+func stripFindingMetadata(findings []report.Finding) []report.Finding {
 	for i := range findings {
 		findings[i].Attributes = nil
+		findings[i].RuleHash = ""
+		findings[i].Match.Fingerprint = ""
 		findings[i].Location.Path = ""
 		for si := range findings[i].ComponentSets {
 			for ci := range findings[i].ComponentSets[si].Components {
 				findings[i].ComponentSets[si].Components[ci].Location.Path = ""
+				findings[i].ComponentSets[si].Components[ci].Match.Fingerprint = ""
 			}
 		}
 	}
@@ -1512,9 +1656,9 @@ skipReport = true
 
 func TestDetectFilterMatchesContextWindow(t *testing.T) {
 	rule := config.Rule{
-		ID:     "near-match",
-		Regex:  `[A-Z0-9]{20}`,
-		Filter: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; matchesAny(matchContext, ["red-herring"])`,
+		ID:         "near-match",
+		Regex:      `[A-Z0-9]{20}`,
+		FilterExpr: `let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - 50, 0):finding["match_end_idx"]]; matchesAny(matchContext, ["red-herring"])`,
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
@@ -1529,7 +1673,7 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 
 func TestConfidenceAttributeAndFilter(t *testing.T) {
 	low := config.Rule{ID: "specific-low", Regex: `[A-Z0-9]{20}`, Specificity: 1, Confidence: "low"}
-	promoted := config.Rule{ID: "promoted", Regex: `[A-Z0-9]{20}`, Confidence: "medium", Filter: `let _ = setConfidence("high"); false`}
+	promoted := config.Rule{ID: "promoted", Regex: `[A-Z0-9]{20}`, Confidence: "medium", FilterExpr: `let _ = setConfidence("high"); false`}
 	cfg := &config.Config{
 		Rules: []config.Rule{low, promoted},
 	}
@@ -1555,9 +1699,9 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rule := config.Rule{
-				ID:     "decoded-near-match",
-				Regex:  `decoded-secret-[A-Z]{20}`,
-				Filter: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; containsAny(matchContext, ["provider"])`, tc.before),
+				ID:         "decoded-near-match",
+				Regex:      `decoded-secret-[A-Z]{20}`,
+				FilterExpr: fmt.Sprintf(`let matchContext = finding["fragment_raw"][max(finding["match_start_idx"] - %d, 0):finding["match_end_idx"]]; containsAny(matchContext, ["provider"])`, tc.before),
 			}
 			cfg := &config.Config{
 				Rules: []config.Rule{rule},
@@ -1571,9 +1715,9 @@ func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
 
 func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 	rule := config.Rule{
-		ID:     "original-match-bounds",
-		Regex:  "\nSECRET",
-		Filter: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; matchesAny(matchContext, [`\\nSECRET$`])",
+		ID:         "original-match-bounds",
+		Regex:      "\nSECRET",
+		FilterExpr: "let matchContext = finding[\"fragment_raw\"][finding[\"match_start_idx\"]:finding[\"match_end_idx\"]]; matchesAny(matchContext, [`\\nSECRET$`])",
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
@@ -1584,15 +1728,62 @@ func TestFilterUsesOriginalRegexMatchBounds(t *testing.T) {
 
 func TestFilterContextCanStayOnMatchLine(t *testing.T) {
 	rule := config.Rule{
-		ID:     "line-context",
-		Regex:  `SECRET`,
-		Filter: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; containsAny(matchContext, ["other-line"])`,
+		ID:         "line-context",
+		Regex:      `SECRET`,
+		FilterExpr: `let matchContext = finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_line_end_idx"]]; containsAny(matchContext, ["other-line"])`,
 	}
 	cfg := &config.Config{
 		Rules: []config.Rule{rule},
 	}
 
 	require.Len(t, mustNew(t, cfg).detectFragment(context.Background(), sources.Fragment{Raw: "other-line\nSECRET\nother-line"}), 1)
+}
+
+func TestAllowSignatures(t *testing.T) {
+	for _, test := range []struct {
+		name, input string
+		options     []Option
+		want        int
+		wantError   bool
+	}{
+		{name: "default betterleaks", input: "secret-alpha # betterleaks:allow"},
+		{name: "default gitleaks", input: "secret-alpha # gitleaks:allow"},
+		{name: "custom is opt in", input: "secret-alpha #nosec", want: 1},
+		{name: "custom", input: "secret-alpha #nosec", options: []Option{WithAllowSignatures("#nosec")}},
+		{name: "replace defaults", input: "secret-alpha # betterleaks:allow", options: []Option{WithAllowSignatures("#nosec")}, want: 1},
+		{name: "disable", input: "secret-alpha betterleaks:allow gitleaks:allow", options: []Option{WithAllowSignatures()}, want: 1},
+		{name: "case sensitive", input: "secret-alpha #NOSEC", options: []Option{WithAllowSignatures("#nosec")}, want: 1},
+		{name: "literal substring", input: "secret-alpha prefix[x],y_suffix", options: []Option{WithAllowSignatures("unused", "[x],y")}},
+		{name: "different line", input: "secret-alpha\n#nosec", options: []Option{WithAllowSignatures("#nosec")}, want: 1},
+		{name: "last option replaces", input: "secret-alpha first", options: []Option{WithAllowSignatures("first"), WithAllowSignatures("second")}, want: 1},
+		{name: "empty marker", options: []Option{WithAllowSignatures("#nosec", "")}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scanner, err := New(testConfig(), test.options...)
+			if test.wantError {
+				require.ErrorContains(t, err, "allow signatures must not be empty")
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, scanner.ScanString(test.input), test.want)
+			findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{Content: strings.NewReader(test.input)})
+			require.NoError(t, err)
+			require.Len(t, findings, test.want)
+		})
+	}
+
+	t.Run("option snapshots caller slice and can be reused", func(t *testing.T) {
+		signatures := []string{"#nosec"}
+		option := WithAllowSignatures(signatures...)
+		signatures[0] = "changed-before-construction"
+		first := mustNew(t, testConfig(), option)
+		signatures[0] = "changed-after-construction"
+		second := mustNew(t, testConfig(), option, WithAllowSignatures("other"))
+		third := mustNew(t, testConfig(), option)
+		require.Empty(t, first.ScanString("secret-alpha #nosec"))
+		require.Len(t, second.ScanString("secret-alpha #nosec"), 1)
+		require.Empty(t, third.ScanString("secret-alpha #nosec"))
+	})
 }
 
 func TestDetect(t *testing.T) {
@@ -1917,7 +2108,9 @@ func TestDetect(t *testing.T) {
 					Description: "Private Key",
 					Match:       report.Match{Value: "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Full: "-----BEGIN PRIVATE KEY-----\n435f/bRUBHrbHqLY/xS3I7Oth+8rgG+0tBwfMcbk05Sgxq6QUzSYIQAop+WvsTwk2sR+C38g0Mnb\nu+QDkg0spw==\n-----END PRIVATE KEY-----", Line: "private_key: 'LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCjQzNWYvYlJVQkhyYkhxTFkveFMzSTdPdGgrOHJnRyswdEJ3Zk1jYmswNVNneHE2UVV6U1lJUUFvcCtXdnNUd2syc1IrQzM4ZzBNbmIKdStRRGtnMHNwdz09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K'\n"},
 					RuleID:      "private-key",
-					Tags:        []string{"key", "private", "decoded:base64", "decode-depth:1"},
+					Tags:        []string{"key", "private"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   9,
 						EndLine:     9,
@@ -1929,7 +2122,9 @@ func TestDetect(t *testing.T) {
 					Description: "Small Secret",
 					Match:       report.Match{Value: "small-secret", Full: "small-secret", Line: "c21hbGwtc2VjcmV0\n"},
 					RuleID:      "small-secret",
-					Tags:        []string{"small", "secret", "decoded:base64", "decode-depth:1"},
+					Tags:        []string{"small", "secret"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   16,
 						EndLine:     16,
@@ -1941,7 +2136,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value00", Full: "secret=decoded-secret-value00", Line: "secret=ZGVjb2RlZC1zZWNyZXQtdmFsdWUwMA==\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:1"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   19,
 						EndLine:     19,
@@ -1953,7 +2150,9 @@ func TestDetect(t *testing.T) {
 					Description: "Make sure this would be detected without a filter",
 					Match:       report.Match{Value: "lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw", Full: "password=\"lRqBK-z5kf4-please-ignore-me-X-XIJM2Pddw\"", Line: "password=\"bFJxQkstejVrZjQtcGxlYXNlLWlnbm9yZS1tZS1YLVhJSk0yUGRkdw==\"\n"},
 					RuleID:      "decoded-password-dont-ignore",
-					Tags:        []string{"decode-ignore", "decoded:base64", "decode-depth:1"},
+					Tags:        []string{"decode-ignore"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   24,
 						EndLine:     24,
@@ -1965,7 +2164,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuevHEX", Full: "secret=decoded-secret-valuevHEX", Line: "secret=6465636F6465642D7365637265742D76616C756576484558\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:hex", "decode-depth:1"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"hex"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   27,
 						EndLine:     27,
@@ -1977,7 +2178,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuev2", Full: "secret=decoded-secret-valuev2", Line: "secret=decoded-%73%65%63%72%65%74-valuev2\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   31,
 						EndLine:     31,
@@ -1989,7 +2192,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuev3", Full: "secret=decoded-secret-valuev3", Line: "secret=%64%65coded-%73%65%63%72%65%74-valuev3\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decode-depth:1"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent"},
+					DecodeDepth: 1,
 					Location: report.Location{
 						StartLine:   33,
 						EndLine:     33,
@@ -2001,7 +2206,9 @@ func TestDetect(t *testing.T) {
 					Description: "AWS IAM Unique Identifier",
 					Match:       report.Match{Value: "ASIAIOSFODNN7LXM10JI", Full: " ASIAIOSFODNN7LXM10JI", Line: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n"},
 					RuleID:      "aws-iam-unique-identifier",
-					Tags:        []string{"aws", "identifier", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"aws", "identifier"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   12,
 						EndLine:     12,
@@ -2013,7 +2220,9 @@ func TestDetect(t *testing.T) {
 					Description: "AWS Secret Access Key",
 					Match:       report.Match{Value: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A", Full: "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEFUCDlEX1A", Line: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiY29uZmlnIjoiVzJSbFptRjFiSFJkQ25KbFoybHZiaUE5SUhWekxXVmhjM1F0TWdwaGQzTmZZV05qWlhOelgydGxlVjlwWkNBOUlFRlRTVUZKVDFOR1QwUk9UamRNV0UweE1FcEpDbUYzYzE5elpXTnlaWFJmWVdOalpYTnpYMnRsZVNBOUlIZEtZV3h5V0ZWMGJrWkZUVWt2U3pkTlJFVk9SeTlpVUhoU1ptbERXVVZHVlVORWJFVllNVUVLIiwiaWF0IjoxNTE2MjM5MDIyfQ.8gxviXEOuIBQk2LvTYHSf-wXVhnEKC3h4yM5nlOF4zA\n"},
 					RuleID:      "aws-secret-access-key",
-					Tags:        []string{"aws", "secret", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"aws", "secret"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   12,
 						EndLine:     12,
@@ -2025,7 +2234,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "c2VjcmV0PVpHVmpiMlJsWkMxelpXTnlaWFF0ZG1Gc2RXVT0=\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   21,
 						EndLine:     21,
@@ -2037,7 +2248,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuev5", Full: "secret=decoded-secret-valuev5", Line: "secret%3d6465636F6465642D7365637265742D76616C75657635\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decode-depth:2"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "hex"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   41,
 						EndLine:     41,
@@ -2049,7 +2262,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuev4", Full: "secret=decoded-secret-valuev4", Line: "c2VjcmV0PVpHVmpiMl%4AsWkMxelpXTnlaWFF0ZG1Gc2RXVjJOQT09\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:3"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 3,
 					Location: report.Location{
 						StartLine:   39,
 						EndLine:     39,
@@ -2061,7 +2276,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-valuex86", Full: "secret=decoded-secret-valuex86", Line: "secret=ZGVjb2%52lZC1zZWNyZXQtdm%46sdWV4ODY=  # ends in x86\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   43,
 						EndLine:     43,
@@ -2073,7 +2290,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret=ZGVjb2RlZC0lNzMlNjUlNjMlNzIlNjUlNzQtdmFsdWU=\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:2"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 2,
 					Location: report.Location{
 						StartLine:   45,
 						EndLine:     45,
@@ -2085,7 +2304,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "Look at this value: %4EjMzMjU2NkE2MzZENTYzMDUwNTY3MDQ4%4eTY2RDcwNjk0RDY5NTUzMTRENkQ3ODYx%25%34%65TE3QTQ2MzY1NzZDNjQ0RjY1NTY3MDU5NTU1ODUyNkI2MjUzNTUzMDRFNkU0RTZCNTYzMTU1MzkwQQ== # isn't it crazy?\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:hex", "decoded:base64", "decode-depth:7"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "hex", "base64"},
+					DecodeDepth: 7,
 					Location: report.Location{
 						StartLine:   48,
 						EndLine:     48,
@@ -2097,7 +2318,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret=ZG%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%36%25%33%31%25%32%35%25%33%32%25%33%35%25%32%35%25%33%33%25%33%36%25%32%35%25%33%33%25%33%322RlZC1zZWNyZXQtd%25%36%64%25%34%36%25%37%33dWU=\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:5"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 5,
 					Location: report.Location{
 						StartLine:   51,
 						EndLine:     51,
@@ -2109,7 +2332,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret=%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 4,
 					Location: report.Location{
 						StartLine:   53,
 						EndLine:     53,
@@ -2121,7 +2346,9 @@ func TestDetect(t *testing.T) {
 					Description: "Overlapping",
 					Match:       report.Match{Value: "decoded-secret-value", Full: "secret=decoded-secret-value", Line: "secret%3D%25%35%61%25%34%37%25%35%36jb2RlZC1zZWNyZXQtdmFsdWU%25%32%35%25%33%33%25%36%34\n"},
 					RuleID:      "overlapping",
-					Tags:        []string{"overlapping", "decoded:percent", "decoded:base64", "decode-depth:4"},
+					Tags:        []string{"overlapping"},
+					Encodings:   []string{"percent", "base64"},
+					DecodeDepth: 4,
 					Location: report.Location{
 						StartLine:   55,
 						EndLine:     55,
@@ -2178,6 +2405,8 @@ func expectedAWSFinding(line string, location report.Location) report.Finding {
 
 // TestFromGit tests the FromGit function
 func TestFromGit(t *testing.T) {
+	previous := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	// TODO: Fix this test on windows.
 	if runtime.GOOS == "windows" {
 		t.Skipf("TODO: this fails on Windows: [git] fatal: bad object refs/remotes/origin/main?")
@@ -2459,15 +2688,14 @@ func TestFromGit(t *testing.T) {
 			cfg := loadTestConfig(t, "simple")
 			scanner := mustNew(t, cfg)
 
-			gitCmd, err := sources.NewGitLogCmd(tt.source, tt.logOpts)
-			require.NoError(t, err)
 			platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
 			findings, err := collectSourceFindings(
 				t.Context(), scanner,
 
 				&sources.Git{
-					Cmd:             gitCmd,
-					ShouldSkip:      mustPrefilter(t, cfg.Prefilter),
+					RepoPath:        tt.source,
+					LogOpts:         tt.logOpts,
+					Prefilter:       mustPrefilter(t, cfg.Prefilter),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
 					MaxArchiveDepth: 8,
@@ -2478,7 +2706,7 @@ func TestFromGit(t *testing.T) {
 			for _, f := range findings {
 				f.Match.Full = "" // remove lines cause copying and pasting them has some wack formatting
 			}
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+			assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
 		})
 	}
 }
@@ -2522,17 +2750,16 @@ func TestFromGitStaged(t *testing.T) {
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
 		scanner := mustNew(t, cfg)
-		gitCmd, err := sources.NewGitDiffCmd(tt.source, true)
-		require.NoError(t, err)
 		platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
 		findings, err := collectSourceFindings(
 			t.Context(), scanner,
 
 			&sources.Git{
-				Cmd:        gitCmd,
-				ShouldSkip: mustPrefilter(t, cfg.Prefilter),
-				Platform:   platform,
-				RemoteURL:  remoteURL,
+				RepoPath:  tt.source,
+				Mode:      sources.GitStaged,
+				Prefilter: mustPrefilter(t, cfg.Prefilter),
+				Platform:  platform,
+				RemoteURL: remoteURL,
 			})
 
 		require.NoError(t, err)
@@ -2540,7 +2767,163 @@ func TestFromGitStaged(t *testing.T) {
 		for _, f := range findings {
 			f.Match.Full = "" // remove lines cause copying and pasting them has some wack formatting
 		}
-		assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+		assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
+	}
+}
+
+func TestScanBinaryFiles(t *testing.T) {
+	cfg, err := config.Default()
+	require.NoError(t, err)
+	dir := t.TempDir()
+	const token = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5" // betterleaks:allow
+	files := map[string]string{
+		"program":     "\x7fELF\x02\x01\x01\x00",
+		"program.exe": "MZ\x90\x00",
+		"report.pdf":  "%PDF-1.4\n",
+		"image.png":   "\x89PNG\r\n\x1a\n",
+		"font.woff":   "wOFF\x00\x01\x00\x00",
+		"data.bin":    "\x00\xff\xfe\x80",
+	}
+	for name, header := range files {
+		content := header + strings.Repeat("\x00", 256) + "\nGITHUB_TOKEN=" + token + "\n\xff\x00"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+	}
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		t.Run(engine.Version(), func(t *testing.T) {
+			for _, usePrefilter := range []bool{true, false} {
+				t.Run(fmt.Sprintf("prefilter=%t", usePrefilter), func(t *testing.T) {
+					source := &sources.Files{Path: dir}
+					want := []string{"program", "program.exe", "report.pdf", "data.bin"}
+					if usePrefilter {
+						source.Prefilter = mustPrefilter(t, cfg.Prefilter)
+					} else {
+						want = []string{"program", "program.exe", "report.pdf", "image.png", "font.woff", "data.bin"}
+					}
+					scanner := mustNew(t, cfg, WithRegexEngine(engine))
+					findings, err := collectSourceFindings(t.Context(), scanner, source)
+					require.NoError(t, err)
+					var seen []string
+					for _, finding := range findings {
+						assert.Equal(t, "github-pat", finding.RuleID)
+						assert.Equal(t, token, finding.Match.Value)
+						seen = append(seen, filepath.Base(finding.Location.Path))
+					}
+					assert.ElementsMatch(t, want, seen)
+				})
+			}
+		})
+	}
+}
+
+func TestScanTGZArchives(t *testing.T) {
+	const secret = "secret-token-EXAMPLE"
+	archive := func(name string, content []byte) []byte {
+		var output bytes.Buffer
+		gz := gzip.NewWriter(&output)
+		tw := tar.NewWriter(gz)
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(content))}))
+		_, err := tw.Write(content)
+		require.NoError(t, err)
+		require.NoError(t, tw.Close())
+		require.NoError(t, gz.Close())
+		return output.Bytes()
+	}
+	payload := archive("secret.txt", []byte(secret+"\n"))
+	scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: `secret-token-[A-Z]+`}}})
+	for _, tc := range []struct {
+		name  string
+		data  []byte
+		inner string
+		depth int
+	}{
+		{"fixture.tar.gz", payload, "secret.txt", 1},
+		{"fixture.tgz", payload, "secret.txt", 1},
+		{"fixture.TGZ", payload, "secret.txt", 1},
+		{"outer.tar.gz", archive("nested.tgz", payload), "nested.tgz!secret.txt", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), tc.name)
+			require.NoError(t, os.WriteFile(path, tc.data, 0o600))
+			for depth := 0; depth <= tc.depth; depth++ {
+				findings, err := collectSourceFindings(t.Context(), scanner, &sources.Files{Path: path, MaxArchiveDepth: depth})
+				require.NoError(t, err)
+				if depth < tc.depth {
+					require.Empty(t, findings, "archive depth %d", depth)
+					continue
+				}
+				require.Len(t, findings, 1)
+				assert.Equal(t, secret, findings[0].Match.Value)
+				assert.Equal(t, filepath.ToSlash(path)+"!"+tc.inner, findings[0].Location.Path)
+				assert.Equal(t, 1, findings[0].Location.StartLine)
+			}
+		})
+	}
+}
+
+func TestBinaryFindingReports(t *testing.T) {
+	const token = "token-abc123XYZ"
+	cfg := &config.Config{Rules: []config.Rule{{ID: "token", Regex: `token-[a-zA-Z0-9]+`}}}
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		for _, decoded := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/decoded=%t", engine.Version(), decoded), func(t *testing.T) {
+				payload := token
+				if decoded {
+					payload = base64.StdEncoding.EncodeToString([]byte(token))
+				}
+				prefix := "SQLite format 3\x00\xff\x1b[2J" + strings.Repeat("\x00", 256)
+				raw := prefix + `"` + payload + `"` + "\x00\xfe"
+				path := filepath.Join(t.TempDir(), "data.db")
+				require.NoError(t, os.WriteFile(path, []byte(raw), 0o600))
+				scanner := mustNew(t, cfg, WithRegexEngine(engine), WithMaxDecodeDepth(1))
+				findings, err := collectSourceFindings(t.Context(), scanner, &sources.Files{Path: path})
+				require.NoError(t, err)
+				require.Len(t, findings, 1)
+				f := findings[0]
+				assert.Empty(t, f.Tags, "decoding metadata must not become rule tags")
+				if decoded {
+					assert.Equal(t, []string{"base64"}, f.Encodings)
+					assert.Equal(t, 1, f.DecodeDepth)
+				} else {
+					assert.Empty(t, f.Encodings)
+					assert.Zero(t, f.DecodeDepth)
+				}
+				require.Equal(t, token, f.Match.Value)
+				require.Equal(t, fingerprint.Format(fingerprint.Sum([]byte(token))), f.Match.Fingerprint)
+				require.Equal(t, token, f.Match.Full)
+				assert.Equal(t, payload, raw[f.Location.StartColumn-1:f.Location.EndColumn])
+				var pretty bytes.Buffer
+				require.NoError(t, report.WritePretty(&pretty, f, report.PrettyOptions{NoColor: true}))
+				assert.Contains(t, pretty.String(), token)
+				assert.Contains(t, pretty.String(), strings.Repeat("^", len(token)))
+				assert.NotContains(t, pretty.String(), "decoded value:")
+				for _, jsonl := range []bool{false, true} {
+					var output bytes.Buffer
+					var got []report.Finding
+					if jsonl {
+						require.NoError(t, report.WriteJSONL(&output, findings))
+						var record struct {
+							SchemaVersion string         `json:"schema_version"`
+							Finding       report.Finding `json:"finding"`
+						}
+						require.NoError(t, json.Unmarshal(output.Bytes(), &record))
+						assert.Equal(t, report.SchemaVersion, record.SchemaVersion)
+						got = []report.Finding{record.Finding}
+					} else {
+						require.NoError(t, report.WriteJSON(&output, findings))
+						require.NoError(t, json.Unmarshal(output.Bytes(), &got))
+					}
+					require.Len(t, got, 1)
+					assert.Equal(t, f.Match.Value, got[0].Match.Value)
+					assert.Equal(t, f.Match.Fingerprint, got[0].Match.Fingerprint)
+					assert.Equal(t, f.Match.Full, got[0].Match.Full)
+					assert.Equal(t, f.Location, got[0].Location)
+					assert.Empty(t, got[0].Tags)
+					assert.NotContains(t, output.String(), `"tags"`)
+					assert.Equal(t, f.Encodings, got[0].Encodings)
+					assert.Equal(t, f.DecodeDepth, got[0].DecodeDepth)
+				}
+			})
+		}
 	}
 }
 
@@ -2628,7 +3011,7 @@ func TestFromFiles(t *testing.T) {
 				t.Context(), scanner,
 
 				&sources.Files{
-					ShouldSkip:     mustPrefilter(t, cfg.Prefilter),
+					Prefilter:      mustPrefilter(t, cfg.Prefilter),
 					FollowSymlinks: true,
 					Path:           tt.source,
 				})
@@ -2636,7 +3019,7 @@ func TestFromFiles(t *testing.T) {
 			require.NoError(t, err)
 
 			normalizeFindings(findings)
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+			assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
 		})
 	}
 }
@@ -3061,6 +3444,7 @@ func TestDetectWithArchives(t *testing.T) {
 			source:           filepath.Join(archivesBasePath, "nested.tar.gz"),
 			cfgName:          "archives",
 			expireContext:    true,
+			expectedError:    context.Canceled,
 			expectedFindings: []report.Finding{},
 		},
 	}
@@ -3079,7 +3463,7 @@ func TestDetectWithArchives(t *testing.T) {
 				ctx, scanner,
 				&sources.Files{
 					Path:            tt.source,
-					ShouldSkip:      mustPrefilter(t, cfg.Prefilter),
+					Prefilter:       mustPrefilter(t, cfg.Prefilter),
 					MaxArchiveDepth: 8,
 				})
 
@@ -3090,7 +3474,7 @@ func TestDetectWithArchives(t *testing.T) {
 			}
 
 			normalizeFindings(findings)
-			assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+			assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
 		})
 	}
 
@@ -3135,13 +3519,13 @@ func TestDetectWithSymlinks(t *testing.T) {
 			t.Context(), scanner,
 
 			&sources.Files{
-				ShouldSkip:     mustPrefilter(t, cfg.Prefilter),
+				Prefilter:      mustPrefilter(t, cfg.Prefilter),
 				FollowSymlinks: true,
 				Path:           tt.source,
 			})
 
 		require.NoError(t, err)
-		assert.ElementsMatch(t, stripFindingAttributes(tt.expectedFindings), stripFindingAttributes(findings))
+		assert.ElementsMatch(t, stripFindingMetadata(tt.expectedFindings), stripFindingMetadata(findings))
 	}
 }
 
@@ -3282,9 +3666,10 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 	d := newDefaultTestScanner(t)
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			rules, _, err := snapshotRules(&config.Config{Rules: []config.Rule{test.rule}})
+			rules, _, err := snapshotRules(&config.Config{Rules: []config.Rule{test.rule}}, nil)
 			require.NoError(t, err)
-			actual := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, &rules[0], []*codec.EncodedSegment{}, nil, &detectionState{})
+			actual, err := d.detectFragmentWithRule(nil, test.fragment, test.fragment.Raw, &rules[0], []*codec.EncodedSegment{}, nil, &detectionState{})
+			require.NoError(t, err)
 			compare(t, actual, test.expected)
 		})
 	}
@@ -3293,25 +3678,26 @@ func TestWindowsFileSeparator_RulePath(t *testing.T) {
 func TestCapturesUseOriginalMatch(t *testing.T) {
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		t.Run(engine.Version(), func(t *testing.T) {
-			regexp.SetEngine(engine)
-			t.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
+			t.Parallel()
 			for _, tc := range []struct {
 				name, pattern, input, full, value string
-				secretGroup                       int
+				valueGroup                        int
 				captures                          map[string]string
 			}{
 				{name: "start anchor", pattern: `^(?P<start>secret)|(?P<later>secret)`, input: "xsecret", full: "secret", value: "secret", captures: map[string]string{"later": "secret"}},
 				{name: "end anchor", pattern: `(?P<end>secret)$|(?P<before>secret)`, input: "secretx", full: "secret", value: "secret", captures: map[string]string{"before": "secret"}},
 				{name: "word boundary", pattern: `\b(?P<word>secret)|(?P<inside>secret)`, input: "xsecret", full: "secret", value: "secret", captures: map[string]string{"inside": "secret"}},
-				{name: "explicit group", pattern: `^(?P<start>a)b|a(?P<later>b)`, input: "xab", secretGroup: 2, full: "ab", value: "b", captures: map[string]string{"later": "b"}},
-				{name: "unmatched group", pattern: `(?P<optional>missing)?(?P<token>secret)`, input: "secret", secretGroup: 1, full: "secret", value: "", captures: map[string]string{"token": "secret"}},
+				{name: "explicit group", pattern: `^(?P<start>a)b|a(?P<later>b)`, input: "xab", valueGroup: 2, full: "ab", value: "b", captures: map[string]string{"later": "b"}},
+				{name: "unmatched group", pattern: `(?P<optional>missing)?(?P<token>secret)`, input: "secret", valueGroup: 1, full: "secret", value: "", captures: map[string]string{"token": "secret"}},
 				{name: "first participating group", pattern: `(missing)?(?P<token>secret)`, input: "secret", full: "secret", value: "secret", captures: map[string]string{"token": "secret"}},
 				{name: "empty group", pattern: `(?P<empty>)(?P<token>secret)`, input: "secret", full: "secret", value: "secret", captures: map[string]string{"token": "secret"}},
+				{name: "no capture groups", pattern: `secret`, input: "secret", full: "secret", value: "secret"},
+				{name: "no nonempty capture", pattern: `(missing)?()secret`, input: "secret", full: "secret", value: "secret"},
 				{name: "trimmed newline", pattern: `(?P<token>secret)\n`, input: "secret\n", full: "secret", value: "secret", captures: map[string]string{"token": "secret"}},
 				{name: "newline in capture", pattern: `(?P<token>secret\n)`, input: "secret\n", full: "secret", value: "secret\n", captures: map[string]string{"token": "secret\n"}},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern, SecretGroup: tc.secretGroup}}})
+					scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern, ValueGroup: tc.valueGroup}}}, WithRegexEngine(engine))
 					findings := scanner.ScanString(tc.input)
 					require.Len(t, findings, 1)
 					assert.Equal(t, tc.full, findings[0].Match.Full)
@@ -3323,7 +3709,7 @@ func TestCapturesUseOriginalMatch(t *testing.T) {
 			t.Run("decoded offsets and filter bindings", func(t *testing.T) {
 				scanner := mustNew(t, &config.Config{Rules: []config.Rule{{
 					ID: "token", Regex: `^(?P<start>secret)|(?P<later>secret)`,
-					Filter: `finding.captures.later != "secret" || finding.match_start_idx != 1 || finding.match_end_idx != 7`,
+					FilterExpr: `finding.captures.later != "secret" || finding.match_start_idx != 1 || finding.match_end_idx != 7`,
 				}}}, WithMaxDecodeDepth(2))
 				encoded := base64.StdEncoding.EncodeToString([]byte("xsecret padding-1234567890"))
 				encoded = base64.StdEncoding.EncodeToString([]byte(encoded))
@@ -3340,13 +3726,13 @@ func TestFiltersReceiveNamedCaptures(t *testing.T) {
 	for _, scope := range []string{"global", "rule"} {
 		t.Run(scope, func(t *testing.T) {
 			cfg := &config.Config{Rules: []config.Rule{{
-				ID: "connection", Regex: `(?P<username>[a-z]+):(?P<password>key-[a-z]+)`, SecretGroup: 2,
+				ID: "connection", Regex: `(?P<username>[a-z]+):(?P<password>key-[a-z]+)`, ValueGroup: 2,
 			}}}
 			filter := `finding.captures["username"] == "example" && finding.secret == "key-fixture"`
 			if scope == "global" {
 				cfg.Filter = filter
 			} else {
-				cfg.Rules[0].Filter = filter
+				cfg.Rules[0].FilterExpr = filter
 			}
 			d := mustNew(t, cfg, WithPrecompile())
 			findings := d.ScanString("example:key-fixture alice:key-live")
@@ -3358,7 +3744,7 @@ func TestFiltersReceiveNamedCaptures(t *testing.T) {
 
 	for _, pattern := range []string{`key`, `(?P<optional>prefix)?key`} {
 		cfg := &config.Config{Rules: []config.Rule{{ID: "empty", Regex: pattern,
-			Filter: `len(finding.captures) == 0 && (finding.captures?.missing ?? "fallback") == "fallback"`,
+			FilterExpr: `len(finding.captures) == 0 && (finding.captures?.missing ?? "fallback") == "fallback"`,
 		}}}
 		require.Empty(t, mustNew(t, cfg, WithPrecompile()).ScanString("key"))
 	}
@@ -3428,14 +3814,14 @@ func TestFindingMatchAndLocationHandoff(t *testing.T) {
 	cfg := testConfig()
 	cfg.Rules[0].Regex = `token=(?P<token>[a-z]+)`
 	cfg.Rules[0].Keywords = nil
-	cfg.Rules[0].Filter = `let _ = setConfidence("high"); attributes.path != "archive.zip!service.env"`
+	cfg.Rules[0].FilterExpr = `let _ = setConfidence("high"); attributes.path != "archive.zip!service.env"`
 	scanner := mustNew(t, cfg, WithPrecompile())
 	attrs := map[string]string{sources.AttrPath: "archive.zip!service.env", sources.AttrResource: sources.ResourceFileContent}
 	var finding report.Finding
 	summary, err := scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("token=alpha"), Attributes: attrs}, func(f report.Finding) error { finding = f; return nil })
 	require.NoError(t, err)
 	require.Equal(t, 1, summary.Findings)
-	require.Equal(t, report.Match{Full: "token=alpha", Value: "alpha", Captures: map[string]string{"token": "alpha"}, Line: "token=alpha"}, finding.Match)
+	require.Equal(t, report.Match{Full: "token=alpha", Value: "alpha", Fingerprint: fingerprint.Format(fingerprint.Sum([]byte("alpha"))), Captures: map[string]string{"token": "alpha"}, Line: "token=alpha"}, finding.Match)
 	require.Equal(t, "archive.zip!service.env", finding.Location.Path)
 	require.Equal(t, 1, finding.Location.StartLine)
 	require.Equal(t, "high", finding.Confidence)
@@ -3457,7 +3843,7 @@ func TestContextRetentionIsExplicit(t *testing.T) {
 			cfg.Rules[0].AnalyzeExpr = `{"reason":finding.context}`
 			// Local context extraction needs no retained copy. The optional context
 			// binding must reflect exactly the window the caller requested.
-			cfg.Rules[0].Filter = fmt.Sprintf(`finding.line != "secret-alpha\n" || finding.context != %q || !(finding.fragment_raw[max(finding.match_start_idx - 20, 0):finding.match_start_idx] contains "tenant=acme")`, tc.want)
+			cfg.Rules[0].FilterExpr = fmt.Sprintf(`finding.line != "secret-alpha\n" || finding.context != %q || !(finding.fragment_raw[max(finding.match_start_idx - 20, 0):finding.match_start_idx] contains "tenant=acme")`, tc.want)
 			options := []Option{WithPrecompile()}
 			if tc.window != "" {
 				options = append(options, WithMatchContext(tc.window))
@@ -3495,7 +3881,7 @@ func TestComponentMatchesRetainSourceText(t *testing.T) {
 func TestConfigPathDoesNotControlSDKScanning(t *testing.T) {
 	cfg := &config.Config{Path: "rules.toml", Rules: []config.Rule{{ID: "token", Regex: `TOKEN`}}}
 	for _, exclude := range []bool{false, true} {
-		var skip sources.SkipFunc
+		var skip sources.PrefilterFunc
 		if exclude {
 			var err error
 			skip, err = prefilter.Compile("", prefilter.Options{ExcludedPaths: []string{"rules.toml"}})
@@ -3504,7 +3890,7 @@ func TestConfigPathDoesNotControlSDKScanning(t *testing.T) {
 		scanner, err := New(cfg)
 		require.NoError(t, err)
 		count := 0
-		_, err = scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("TOKEN"), Attributes: map[string]string{sources.AttrPath: "rules.toml"}, ShouldSkip: skip}, func(f report.Finding) error { count++; return nil })
+		_, err = scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("TOKEN"), Attributes: map[string]string{sources.AttrPath: "rules.toml"}, Prefilter: skip}, func(f report.Finding) error { count++; return nil })
 		require.NoError(t, err)
 		if exclude {
 			require.Zero(t, count)
@@ -3521,14 +3907,14 @@ func TestPathOnlyFindingsHonorFilters(t *testing.T) {
 		if global {
 			cfg.Filter = expression
 		} else {
-			cfg.Rules[0].Filter = expression
+			cfg.Rules[0].FilterExpr = expression
 		}
 		scanner, err := New(cfg, WithPrecompile())
 		require.NoError(t, err)
 		for _, path := range []string{"skip.env", "keep.env"} {
 			attrs := map[string]string{sources.AttrPath: path}
 			for _, source := range []sources.Source{
-				&sources.Reader{Content: strings.NewReader("content"), Attributes: attrs, ShouldSkip: nil},
+				&sources.Reader{Content: strings.NewReader("content"), Attributes: attrs, Prefilter: nil},
 				fragmentSource{fragments: []sources.Fragment{{Raw: "", StartLine: 0, Attributes: attrs}}, err: nil},
 			} {
 				count := 0
@@ -3553,10 +3939,10 @@ func TestPathOnlyFindingsHonorFilters(t *testing.T) {
 
 func TestScannerOwnsRegexesFromPatternStrings(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{{
-		ID:          "token",
-		Regex:       `token=(?P<secret>[a-z]+)`,
-		Path:        `\.env$`,
-		SecretGroup: 1,
+		ID:         "token",
+		Regex:      `token=(?P<secret>[a-z]+)`,
+		Path:       `\.env$`,
+		ValueGroup: 1,
 	}}}
 	lazy := mustNew(t, cfg)
 	eager := mustNew(t, cfg, WithPrecompile())
@@ -3585,8 +3971,6 @@ func BenchmarkScanCaptureExtraction(b *testing.B) {
 	raw := input.String()
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		b.Run(engine.Version(), func(b *testing.B) {
-			regexp.SetEngine(engine)
-			b.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
 			for _, tc := range []struct{ name, pattern string }{
 				{"no_captures", `secret-[0-9]{6}`},
 				{"numbered", `token=(secret-[0-9]{6})`},
@@ -3594,7 +3978,7 @@ func BenchmarkScanCaptureExtraction(b *testing.B) {
 				{"many_captures", `(?P<kind>token)=(?P<secret>secret)-(?P<id>[0-9]{6}) (?P<field>account)=(?P<user>user)-(?P<user_id>[0-9]{6})`},
 			} {
 				b.Run(tc.name, func(b *testing.B) {
-					scanner, err := New(&config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern}}}, WithPrecompile(), WithWorkers(1))
+					scanner, err := New(&config.Config{Rules: []config.Rule{{ID: "token", Regex: tc.pattern}}}, WithRegexEngine(engine), WithPrecompile(), WithWorkers(1))
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -3643,7 +4027,7 @@ func BenchmarkComponentProximity(b *testing.B) {
 	}
 }
 
-func mustPrefilter(t *testing.T, expression string) sources.SkipFunc {
+func mustPrefilter(t *testing.T, expression string) sources.PrefilterFunc {
 	t.Helper()
 	skip, err := prefilter.Compile(expression, prefilter.Options{})
 	require.NoError(t, err)
@@ -3717,7 +4101,7 @@ func TestScannerDoesNotOwnSourcePrefilter(t *testing.T) {
 	findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{
 		Content:    strings.NewReader("secret-alpha"),
 		Attributes: map[string]string{sources.AttrPath: "kept.env"},
-		ShouldSkip: func(attrs map[string]string) bool {
+		Prefilter: func(attrs map[string]string) bool {
 			checks++
 			return skip(attrs)
 		},
@@ -3764,8 +4148,6 @@ func TestFindingTextDoesNotRetainFragment(t *testing.T) {
 func BenchmarkFindingText(b *testing.B) {
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		b.Run(engine.Version(), func(b *testing.B) {
-			regexp.SetEngine(engine)
-			b.Cleanup(func() { regexp.SetEngine(regexp.Stdlib{}) })
 			for _, multiline := range []bool{false, true} {
 				var input strings.Builder
 				for i := range 1_000 {
@@ -3781,14 +4163,14 @@ func BenchmarkFindingText(b *testing.B) {
 						want := 1_000
 						switch mode {
 						case "filtered":
-							cfg.Rules[0].Filter = "true"
+							cfg.Rules[0].FilterExpr = "true"
 							want = 0
 						case "missing_component":
 							cfg.Rules[0].Components = []config.Component{{RuleID: "missing"}}
 							cfg.Rules = append(cfg.Rules, config.Rule{ID: "missing", Regex: "MISSING", SkipReport: true})
 							want = 0
 						}
-						scanner, err := New(cfg, WithPrecompile(), WithWorkers(1))
+						scanner, err := New(cfg, WithRegexEngine(engine), WithPrecompile(), WithWorkers(1))
 						if err != nil {
 							b.Fatal(err)
 						}
@@ -3803,5 +4185,52 @@ func BenchmarkFindingText(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func BenchmarkIgnoredComponentFingerprints(b *testing.B) {
+	for _, count := range []int{1, 100} {
+		var input strings.Builder
+		input.WriteString("primary-token\n")
+		for i := range count {
+			fmt.Fprintf(&input, "account-%03d\n", i)
+		}
+		raw := input.String()
+		cfg := &config.Config{Rules: []config.Rule{
+			{ID: "primary", Regex: `primary-token`, Components: []config.Component{{RuleID: "account"}}},
+			{ID: "account", Regex: `account-[0-9]{3}`, SkipReport: true},
+		}}
+		for _, entries := range []int{0, 10000} {
+			b.Run(fmt.Sprintf("components=%d/ignores=%d", count, entries), func(b *testing.B) {
+				hashes := make([]fingerprint.Hash, entries)
+				for i := range hashes {
+					hashes[i] = fingerprint.Sum([]byte(fmt.Sprintf("unmatched-%d", i)))
+				}
+				scanner, err := New(cfg, WithIgnoredFingerprints(hashes...), WithPrecompile())
+				if err != nil {
+					b.Fatal(err)
+				}
+				b.ReportAllocs()
+				b.SetBytes(int64(len(raw)))
+				for b.Loop() {
+					findings := scanner.ScanString(raw)
+					if len(findings) != 1 || len(findings[0].ComponentSets) != count {
+						b.Fatal("unexpected findings")
+					}
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkNewDefaultConfig(b *testing.B) {
+	cfg, err := config.Default()
+	require.NoError(b, err)
+	b.ReportAllocs()
+	for b.Loop() {
+		_, err := New(cfg)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }

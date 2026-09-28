@@ -4,20 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/betterleaks/betterleaks/v2/internal/color"
-)
-
-// terminalControlRe matches ANSI escape sequences and zero-width / disruptive
-// control characters (CR, BS, BEL, VT, FF, NUL, …). These have byte length but
-// zero or destructive display effects, so they must be removed before any
-// caret math runs. Tab (\t) and newline (\n) are intentionally preserved.
-var terminalControlRe = regexp.MustCompile(
-	`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]|[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]`,
 )
 
 const (
@@ -157,11 +151,26 @@ func lineNumWidth(startLine, lineCount int) int {
 	return w
 }
 
-// normalizeSnippet trims trailing EOL on Line/Match/Secret, strips a leading
-// \n/\r run from Line (detect/location often prepends one), and removes ANSI
-// escape sequences so byte positions in Line equal display columns when
-// rendered. StartColumn is reset because escape stripping shifts byte offsets;
-// secretByteBounds will relocate the secret by searching.
+// escapeSnippet makes binary bytes and terminal controls visible without
+// letting them alter the terminal. Tabs and newlines keep their layout meaning.
+func escapeSnippet(s string) string {
+	var b strings.Builder
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		part := s[:size]
+		s = s[size:]
+		if (r == utf8.RuneError && size == 1) || (r != '\t' && r != '\n' && !unicode.IsPrint(r)) {
+			quoted := strconv.Quote(part)
+			b.WriteString(quoted[1 : len(quoted)-1])
+		} else {
+			b.WriteString(part)
+		}
+	}
+	return b.String()
+}
+
+// normalizeSnippet changes presentation only. Preserve the column hint through
+// escaping so repeated secrets still highlight the correct occurrence.
 func normalizeSnippet(f Finding) Finding {
 	out := f
 	out.Match.Line = strings.TrimRight(f.Match.Line, "\r\n")
@@ -179,12 +188,13 @@ func normalizeSnippet(f Finding) Finding {
 			out.Location.StartColumn = 0
 		}
 	}
-	if terminalControlRe.MatchString(out.Match.Line) {
-		out.Match.Line = terminalControlRe.ReplaceAllString(out.Match.Line, "")
-		out.Match.Full = terminalControlRe.ReplaceAllString(out.Match.Full, "")
-		out.Match.Value = terminalControlRe.ReplaceAllString(out.Match.Value, "")
-		out.Location.StartColumn = 0
+	if out.Location.StartColumn > 0 {
+		prefix := out.Match.Line[:min(out.Location.StartColumn-1, len(out.Match.Line))]
+		out.Location.StartColumn = len(escapeSnippet(prefix)) + 1
 	}
+	out.Match.Line = escapeSnippet(out.Match.Line)
+	out.Match.Full = escapeSnippet(out.Match.Full)
+	out.Match.Value = escapeSnippet(out.Match.Value)
 	return out
 }
 
@@ -497,7 +507,25 @@ func (p *prettyRenderer) finding(f Finding, noColor bool, redact uint) {
 		return
 	}
 
-	work := normalizeSnippet(f)
+	work := f
+	decoded := len(f.Encodings) > 0
+	if decoded {
+		// Source coordinates refer to the encoded bytes. Use the decoded match
+		// for the preview so the usual caret can point to the extracted secret.
+		work.Match.Line = work.Match.Full
+		if work.Match.Line == "" {
+			work.Match.Line = work.Match.Value
+		}
+		work.Location.StartColumn = 1
+	}
+	if work.Match.Value != "" && (decoded || hasBinaryBytes(work.Match.Line)) {
+		p.writeHeader(f)
+		p.binarySnippet(work, noColor)
+		p.meta(f, noColor, redact)
+		p.writeFooter()
+		return
+	}
+	work = normalizeSnippet(work)
 	p.writeHeader(work)
 
 	rawLines := splitLines(work.Match.Line)
@@ -521,7 +549,12 @@ func (p *prettyRenderer) finding(f Finding, noColor bool, redact uint) {
 
 	startByte, lenByte, ok := secretByteBounds(work.Match.Line, work.Match.Full, work.Match.Value, work.Location.StartColumn)
 	if !ok {
-		p.renderLinesOnly(lines, work.Location.StartLine, pad, budget)
+		if f.Match.Value == "" {
+			p.renderLinesOnly(lines, work.Location.StartLine, pad, budget)
+		} else {
+			p.printf("│ value: %s\n", fitToBudget(strconv.QuoteToGraphic(f.Match.Value), p.width-9))
+			p.printf("│ source: line %d, column %d\n", f.Location.StartLine, f.Location.StartColumn)
+		}
 		p.meta(work, noColor, redact)
 		p.writeFooter()
 		return
@@ -554,6 +587,58 @@ func (p *prettyRenderer) renderLineWithCaret(secretLine string, lineNum, secretB
 		label = fmt.Sprintf(" (%d bytes)", fullSecretLen)
 	}
 	p.writeCaretRow(pad, secretStartCol, secretLenCol, ptrTrunc, label, noColor)
+}
+
+func hasBinaryBytes(s string) bool {
+	return !utf8.ValidString(s) || strings.ContainsFunc(s, func(r rune) bool {
+		return r != '\n' && r != '\r' && r != '\t' && !unicode.IsPrint(r)
+	})
+}
+
+// readableContext keeps binary runs from joining otherwise unrelated strings.
+// Whitespace is flattened because this preview has no source-line gutter.
+func readableContext(s string) string {
+	var b strings.Builder
+	inBinary := false
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		part := s[:size]
+		s = s[size:]
+		if r == '\n' || r == '\r' || r == '\t' {
+			b.WriteByte(' ')
+			inBinary = false
+		} else if (r == utf8.RuneError && size == 1) || !unicode.IsPrint(r) {
+			if !inBinary {
+				b.WriteString(" ⟨binary⟩ ")
+			}
+			inBinary = true
+		} else {
+			b.WriteString(part)
+			inBinary = false
+		}
+	}
+	return b.String()
+}
+
+func (p *prettyRenderer) binarySnippet(f Finding, noColor bool) {
+	line := f.Match.Line
+	start, length, ok := secretByteBounds(line, f.Match.Full, f.Match.Value, f.Location.StartColumn)
+	if !ok {
+		line = f.Match.Full
+		start, length, ok = secretByteBounds(line, f.Match.Full, f.Match.Value, 1)
+		if !ok {
+			line, start, length = f.Match.Value, 0, len(f.Match.Value)
+		}
+	}
+	prefix := readableContext(line[:start])
+	// Never collapse bytes inside the secret itself: escaped bytes must remain
+	// visible and covered by the caret, even when surrounding bytes are omitted.
+	quoted := strconv.QuoteToGraphic(line[start : start+length])
+	secret := quoted[1 : len(quoted)-1]
+	text := prefix + secret + readableContext(line[start+length:])
+	pad := lineNumWidth(f.Location.StartLine, 1)
+	budget := max(p.width-pad-5, minTermCols-10)
+	p.renderLineWithCaret(text, f.Location.StartLine, len(prefix), len(secret), length, budget, pad, noColor)
 }
 
 func (p *prettyRenderer) renderLinesOnly(lines []string, startLine, pad, budget int) {
@@ -634,8 +719,12 @@ func (p *prettyRenderer) dotLeader(key, value string, maxKey int) {
 }
 
 func (p *prettyRenderer) meta(f Finding, noColor bool, redact uint) {
-	if f.Location.Path != "" || f.Confidence != "" {
+	encodings := f.Encodings
+	if f.Location.Path != "" || f.Confidence != "" || len(encodings) > 0 {
 		maxKey := len("path")
+		if len(encodings) > 0 {
+			maxKey = len("encoding")
+		}
 		if f.Confidence != "" {
 			maxKey = len("confidence")
 		}
@@ -646,10 +735,13 @@ func (p *prettyRenderer) meta(f Finding, noColor bool, redact uint) {
 		if f.Confidence != "" {
 			p.dotLeader("confidence", strings.ToUpper(f.Confidence), maxKey)
 		}
+		if len(encodings) > 0 {
+			p.dotLeader("encoding", strings.Join(encodings, ", "), maxKey)
+		}
 	}
 	attributes := reportAttributes(f.Attributes)
 	if len(attributes) > 0 {
-		if f.Location.Path == "" && f.Confidence == "" {
+		if f.Location.Path == "" && f.Confidence == "" && len(encodings) == 0 {
 			p.println("│")
 		}
 		p.printf("│ attributes:\n")

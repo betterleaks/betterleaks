@@ -1,9 +1,5 @@
 package codec
 
-import (
-	"fmt"
-)
-
 // EncodedSegment represents a portion of text that is encoded in some way.
 type EncodedSegment struct {
 	// predecessors are all of the segments from the previous decoding pass
@@ -31,11 +27,11 @@ type EncodedSegment struct {
 	depth int
 }
 
-// Tags returns additional meta data tags related to the types of segments
-func Tags(segments []*EncodedSegment) []string {
-	// Return an empty list if we don't have any segments
+// Decoding returns distinct encoding names and the number of decoding passes.
+// Names have a stable order, but do not describe the decoding sequence.
+func Decoding(segments []*EncodedSegment) ([]string, int) {
 	if len(segments) == 0 {
-		return []string{}
+		return nil, 0
 	}
 
 	// Since decoding is done in passes, the depth of all the segments
@@ -49,14 +45,12 @@ func Tags(segments []*EncodedSegment) []string {
 	}
 
 	kinds := encodings.kinds()
-	tags := make([]string, len(kinds)+1)
-
-	tags[len(tags)-1] = fmt.Sprintf("decode-depth:%d", depth)
+	names := make([]string, len(kinds))
 	for i, kind := range kinds {
-		tags[i] = fmt.Sprintf("decoded:%s", kind)
+		names[i] = kind.String()
 	}
 
-	return tags
+	return names, depth
 }
 
 // CurrentLine returns from the start of the line containing the segments

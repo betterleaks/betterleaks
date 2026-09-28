@@ -23,7 +23,7 @@ func MergifyApplicationKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.2),
+		FilterExpr: utils.MinEntropy(3.2),
 	}
 
 	// validate

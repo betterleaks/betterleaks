@@ -15,7 +15,7 @@ func CurlBasicAuth() *config.Rule {
 		Description: "Discovered a potential basic authorization token provided in a curl command, which could compromise the curl accessed resource.",
 		Regex:       `\bcurl\b(?:.*|.*(?:[\r\n]{1,2}.*){1,5})[ \t\n\r](?:-u|--user)(?:=|[ \t]{0,5})("(:[^"]{3,}|[^:"]{3,}:|[^:"]{3,}:[^"]{3,})"|'([^:']{3,}:[^']{3,})'|((?:"[^"]{3,}"|'[^']{3,}'|[\w$@.-]+):(?:"[^"]{3,}"|'[^']{3,}'|[\w${}@.-]+)))(?:\s|\z)`,
 		Keywords:    []string{"curl"},
-		Filter:      "entropy(finding[\"secret\"]) <= 2.0\n|| matchesAny(finding[\"secret\"], [\n  `[^:]+:(?:change(?:it|me)|pass(?:word)?|pwd|test|token|\\*+|x+)`,\n  `['\"]?<[^>]+>['\"]?:['\"]?<[^>]+>|<[^:]+:[^>]+>['\"]?`,\n  `[^:]+:\\[[^]]+]`,\n  `['\"]?[^:]+['\"]?:['\"]?\\$(?:\\d|\\w+|\\{(?:\\d|\\w+)})['\"]?`,\n  `['\"]?\\$\\{(?:[^{}]|\\{[^}]*\\})*\\}['\"]?:['\"]?\\$\\{(?:[^{}]|\\{[^}]*\\})*\\}['\"]?`,\n  `\\$\\([^)]+\\):\\$\\([^)]+\\)`,\n  `['\"]?\\$?{{[^}]+}}['\"]?:['\"]?\\$?{{[^}]+}}['\"]?`\n])",
+		FilterExpr:  "entropy(finding[\"secret\"]) <= 2.0\n|| matchesAny(finding[\"secret\"], [\n  `[^:]+:(?:change(?:it|me)|pass(?:word)?|pwd|test|token|\\*+|x+)`,\n  `['\"]?<[^>]+>['\"]?:['\"]?<[^>]+>|<[^:]+:[^>]+>['\"]?`,\n  `[^:]+:\\[[^]]+]`,\n  `['\"]?[^:]+['\"]?:['\"]?\\$(?:\\d|\\w+|\\{(?:\\d|\\w+)})['\"]?`,\n  `['\"]?\\$\\{(?:[^{}]|\\{[^}]*\\})*\\}['\"]?:['\"]?\\$\\{(?:[^{}]|\\{[^}]*\\})*\\}['\"]?`,\n  `\\$\\([^)]+\\):\\$\\([^)]+\\)`,\n  `['\"]?\\$?{{[^}]+}}['\"]?:['\"]?\\$?{{[^}]+}}['\"]?`\n])",
 	}
 
 	// validate
@@ -96,7 +96,7 @@ func CurlHeaderAuth() *config.Rule {
 		Description: "Discovered a potential authorization token provided in a curl command header, which could compromise the curl accessed resource.",
 		Regex:       fmt.Sprintf(`\bcurl\b(?:.*?|.*?(?:[\r\n]{1,2}.*?){1,5})[ \t\n\r](?:-H|--header)(?:=|[ \t]{0,5})(?:"%s"|'%s')(?:\B|\s|\z)`, authPat, authPat),
 		Keywords:    []string{"curl"},
-		Filter:      `entropy(finding["secret"]) <= 2.75`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.75`,
 	}
 
 	tps := []string{

@@ -23,7 +23,7 @@ func SegmentPublicAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Not authorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.3),
+		FilterExpr: utils.MinEntropy(3.3),
 	}
 
 	// validate

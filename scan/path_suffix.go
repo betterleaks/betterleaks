@@ -2,6 +2,7 @@ package scan
 
 import (
 	"regexp/syntax"
+	"slices"
 	"unicode/utf8"
 )
 
@@ -19,10 +20,8 @@ func compilePathSuffixes(pattern string) []string {
 		if !ok {
 			break
 		}
-		for _, word := range words {
-			if word == "" {
-				return nil
-			}
+		if slices.Contains(words, "") {
+			return nil
 		}
 		suffixes = words
 	}

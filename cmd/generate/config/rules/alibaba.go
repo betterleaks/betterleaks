@@ -14,7 +14,7 @@ func AlibabaAccessKey() *config.Rule {
 		Regex:       `\b(LTAI[A-Za-z0-9]{17,21})\b`,
 		Keywords:    []string{"LTAI"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) < 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	}
 
 	// validate
@@ -41,7 +41,7 @@ func AlibabaSecretKey() *config.Rule {
 			},
 		},
 		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-access-key-id", "", ""),
-		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -59,7 +59,7 @@ func AlibabaSTSAccessKeyID() *config.Rule {
 		Regex:       `\b(STS\.[A-Za-z0-9]{16,64})\b`,
 		Keywords:    []string{"sts."},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) < 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	}
 
 	tps := []string{
@@ -81,7 +81,7 @@ func AlibabaSTSSecurityToken() *config.Rule {
 		Regex:      utils.GenerateSemiGenericRegex([]string{"alibaba", "aliyun", "secret", "key"}, `CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24}`, true),
 		Keywords:   []string{"alibaba", "aliyun", "cais"},
 		SkipReport: true,
-		Filter:     `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{
@@ -112,7 +112,7 @@ func AlibabaSTSAccessKeySecret() *config.Rule {
 			},
 		},
 		ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-sts-access-key-id", "alibaba-sts-security-token", "SecurityToken"),
-		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

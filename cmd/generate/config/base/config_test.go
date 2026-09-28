@@ -155,6 +155,20 @@ var globalPrefilterTests = map[string]struct {
 	invalid []string
 	valid   []string
 }{
+	"binary extension exclusions": {
+		invalid: []string{
+			"assets/logo.png", "assets/icon.SVG", "fonts/site.woff2",
+		},
+		valid: []string{
+			"docs/report.pdf", "docs/report.docx", "docs/data.xlsx",
+			"build/program.exe", "build/library.dll", "build/program.pdb",
+			"data/blob.bin", "models/scene.gltf",
+			"data/export.sqlite", "build/program",
+		},
+	},
+	"git directories": {
+		valid: []string{".git", "project/.git", "project/.git/config"},
+	},
 	"javascript - common static assets": {
 		invalid: []string{
 			`tests/e2e/nuget/wwwroot/lib/bootstrap/dist/js/bootstrap.esm.min.js`,

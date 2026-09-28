@@ -3,15 +3,13 @@ package regexp
 import (
 	"errors"
 	"testing"
-
-	"github.com/betterleaks/betterleaks/v2/regexp/internal"
 )
 
 type countingEngine struct {
 	compiles int
 }
 
-func (e *countingEngine) Compile(str string) (internal.CompiledRegexp, error) {
+func (e *countingEngine) Compile(str string) (CompiledRegexp, error) {
 	e.compiles++
 	return Stdlib{}.Compile(str)
 }
@@ -20,20 +18,16 @@ func (e *countingEngine) Version() string { return "counting" }
 
 type failingEngine struct{}
 
-func (e failingEngine) Compile(string) (internal.CompiledRegexp, error) {
+func (e failingEngine) Compile(string) (CompiledRegexp, error) {
 	return nil, errors.New("compile failed")
 }
 
 func (e failingEngine) Version() string { return "failing" }
 
 func TestCompileIsLazy(t *testing.T) {
-	previous := currentEngine
-	defer SetEngine(previous)
-
 	engine := &countingEngine{}
-	SetEngine(engine)
 
-	re, err := Compile(`(foo)(bar)?`)
+	re, err := CompileWithEngine(`(foo)(bar)?`, engine)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,12 +57,7 @@ func TestCompileIsLazy(t *testing.T) {
 }
 
 func TestLazyCompileFailureDoesNotPanic(t *testing.T) {
-	previous := currentEngine
-	defer SetEngine(previous)
-
-	SetEngine(failingEngine{})
-
-	re, err := Compile(`foo`)
+	re, err := CompileWithEngine(`foo`, failingEngine{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,12 +85,7 @@ func TestLazyCompileFailureDoesNotPanic(t *testing.T) {
 }
 
 func TestCompileReturnsLazyCompileError(t *testing.T) {
-	previous := currentEngine
-	defer SetEngine(previous)
-
-	SetEngine(failingEngine{})
-
-	re, err := Compile(`foo`)
+	re, err := CompileWithEngine(`foo`, failingEngine{})
 	if err != nil {
 		t.Fatal(err)
 	}

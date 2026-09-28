@@ -24,7 +24,7 @@ func EtsyAccessToken() *config.Rule {
       "result": "invalid",
       "reason": "Unauthorized"
     } : validate.unknown(r))`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	tps := []string{

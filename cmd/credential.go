@@ -85,6 +85,7 @@ func runCredential(runtime *commandRuntime, globals *GlobalFlags, options *Crede
 	}
 	if operation == credentialRevocation {
 		result, err := revoke.Run(runtime.Context, resolved.cfg, value, provider.RuntimeOptions{
+			RegexEngine:             runtime.regexEngine(),
 			Debug:                   options.ProviderDebug,
 			Timeout:                 options.ProviderTimeout,
 			MaxRequestsPerTarget:    options.ProviderMaxRequests,
@@ -98,6 +99,7 @@ func runCredential(runtime *commandRuntime, globals *GlobalFlags, options *Crede
 		return writeCredentialReport(runtime, globals, options, result)
 	}
 	analyzer, err := analyze.New(resolved.cfg,
+		analyze.WithRegexEngine(runtime.regexEngine()),
 		analyze.WithDebug(options.ProviderDebug),
 		analyze.WithTimeout(options.ProviderTimeout),
 		analyze.WithMaxRequestsPerTarget(options.ProviderMaxRequests),

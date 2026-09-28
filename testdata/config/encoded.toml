@@ -30,7 +30,7 @@
   regex = '''(?:^|[^!$-&\(-9<>-~])((?:A3T[A-Z0-9]|ACCA|ABIA|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16})\b'''
   tags = ['aws', 'identifier']
   filter = '''entropy(finding["secret"]) <= 3.2'''
-  secretGroup = 1
+  valueGroup = 1
   keywords = [
     'a3t',
     'abia',
@@ -51,7 +51,7 @@
   regex = '''(?i)aws[\w\-]{0,32}[\'\"]?\s*?[:=\(]\s*?[\'\"]?([a-z0-9\/+]{40})\b'''
   tags = ['aws', 'secret']
   filter = '''entropy(finding["secret"]) <= 4.0'''
-  secretGroup = 1
+  valueGroup = 1
   keywords = [
     'aws',
   ]
@@ -72,7 +72,7 @@
   description = 'Overlapping'
   regex = '''secret=(decoded-secret-value\w*)'''
   tags = ['overlapping']
-  secretGroup = 1
+  valueGroup = 1
 
 # -----BEGIN REGEX TARGET DECODED MATCH PATTERNS-----
 [[rules]]
@@ -80,14 +80,14 @@
   description = 'Make sure this would be detected without a filter'
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
-  secretGroup = 1
+  valueGroup = 1
 
 [[rules]]
   id = 'decoded-password-ignore-secret'
   description = 'Test ignore on decoded secrets: regexTarget = "secret"'
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
-  secretGroup = 1
+  valueGroup = 1
   filter = '''matchesAny(finding["secret"], [`please-ignore-me`])'''
 
 [[rules]]
@@ -95,7 +95,7 @@
   description = 'Test ignore on decoded secrets: regexTarget = "match"'
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
-  secretGroup = 1
+  valueGroup = 1
   filter = '''matchesAny(finding["match"], [`please-ignore-me`])'''
 
 [[rules]]
@@ -103,6 +103,6 @@
   description = 'Test ignore on decoded secrets: regexTarget = "line"'
   regex = '''password\s*=\s*\"([^\"]+please-ignore-me[^\"]+)\"'''
   tags = ['decode-ignore']
-  secretGroup = 1
+  valueGroup = 1
   filter = '''matchesAny(finding["line"], [`please-ignore-me`])'''
 # -----END REGEX TARGET DECODED MATCH PATTERNS-----

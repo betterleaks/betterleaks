@@ -30,8 +30,8 @@ func KubernetesSecret() *config.Rule {
 			"secret",
 		},
 		// Kubernetes secrets are usually yaml files.
-		Path:   `(?i)\.ya?ml$`,
-		Filter: "matchesAny(finding[\"secret\"], [`[\\w.-]+:(?:[ \\t]*(?:\\||>[-+]?)\\s+)?[ \\t]*(?:\\{\\{[ \\t\\w\"|$:=,.-]+}}|\"\"|'')`])\n|| matchesAny(finding[\"match\"], [`(kind:(?s:.)+\\n---\\n(?s:.)+\\bdata:|data:(?s:.)+\\n---\\n(?s:.)+\\bkind:)`])",
+		Path:       `(?i)\.ya?ml$`,
+		FilterExpr: "matchesAny(finding[\"secret\"], [`[\\w.-]+:(?:[ \\t]*(?:\\||>[-+]?)\\s+)?[ \\t]*(?:\\{\\{[ \\t\\w\"|$:=,.-]+}}|\"\"|'')`])\n|| matchesAny(finding[\"match\"], [`(kind:(?s:.)+\\n---\\n(?s:.)+\\bdata:|data:(?s:.)+\\n---\\n(?s:.)+\\bkind:)`])",
 	}
 
 	// validate

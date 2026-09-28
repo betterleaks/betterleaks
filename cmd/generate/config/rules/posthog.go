@@ -15,9 +15,9 @@ func PostHogProjectAPIKey() *config.Rule {
 		// length varies across keys still in the wild:
 		//   - base62(32 bytes)          → 41-43 chars (2021 .. early 2026)
 		//   - base57(32 bytes), top-bit → exactly 44 chars (current, since #52495)
-		Regex:    utils.GenerateUniqueTokenRegex(`phc_[a-zA-Z0-9_\-]{41,44}`, true),
-		Keywords: []string{"phc_"},
-		Filter:   `entropy(finding["secret"]) <= 3.0`,
+		Regex:      utils.GenerateUniqueTokenRegex(`phc_[a-zA-Z0-9_\-]{41,44}`, true),
+		Keywords:   []string{"phc_"},
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// Positives are generated at scan time (never committed) so no realistic-looking
@@ -48,9 +48,9 @@ func PostHogPersonalAPIKey() *config.Rule {
 		//   - base62(32 bytes)          → 41-43 chars (2021 .. 2024, before #22362)
 		//   - base62(35 bytes)          → 45-48 chars (2024 .. early 2026, mostly 47)
 		//   - base57(35 bytes), top-bit → 48-49 chars (current, since #52495)
-		Regex:    utils.GenerateUniqueTokenRegex(`phx_[a-zA-Z0-9_\-]{41,49}`, true),
-		Keywords: []string{"phx_"},
-		Filter:   `entropy(finding["secret"]) <= 3.0`,
+		Regex:      utils.GenerateUniqueTokenRegex(`phx_[a-zA-Z0-9_\-]{41,49}`, true),
+		Keywords:   []string{"phx_"},
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 		// A valid key hits us/eu.posthog.com and returns 200 (has user:read) or
 		// 403 (authenticated but missing the user:read scope); a revoked/unknown
 		// key returns 401. Keys are region-bound, so any non-valid US response

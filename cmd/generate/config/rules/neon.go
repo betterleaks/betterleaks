@@ -24,7 +24,7 @@ func NeonAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate
@@ -46,7 +46,7 @@ func NeonConnectionURI() *config.Rule {
 		Description: "Password embedded in a Neon PostgreSQL connection URI.",
 		Regex:       `\bpostgres(?:ql)?://[^:@\s]{1,64}:([^@\s]{6,128})@[^\s/"']{4,200}\.neon\.tech\b`,
 		Keywords:    []string{".neon.tech"},
-		Filter:      utils.MinEntropy(2.5),
+		FilterExpr:  utils.MinEntropy(2.5),
 	}
 
 	// validate

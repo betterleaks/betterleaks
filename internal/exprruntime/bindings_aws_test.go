@@ -1,170 +1,61 @@
 package exprruntime
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestCallSTS_Valid(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if auth == "" {
-			t.Error("missing Authorization header")
-		}
-		if r.Method != "POST" {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
-
-		w.WriteHeader(200)
-		fmt.Fprint(w, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
-  <GetCallerIdentityResult>
-    <Arn>arn:aws:iam::123456789012:user/testuser</Arn>
-    <Account>123456789012</Account>
-    <UserId>AIDACKCEVSQ6C2EXAMPLE</UserId>
-  </GetCallerIdentityResult>
-</GetCallerIdentityResponse>`)
-	}))
-	defer ts.Close()
-
-	e := &Runtime{client: ts.Client()}
-	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY")
-
-	if result["status"] != int64(200) {
-		t.Fatalf("expected status 200, got %v", result["status"])
-	}
-	if result["arn"] != "arn:aws:iam::123456789012:user/testuser" {
-		t.Errorf("unexpected arn: %v", result["arn"])
-	}
-	if result["account"] != "123456789012" {
-		t.Errorf("unexpected account: %v", result["account"])
-	}
-	if result["userid"] != "AIDACKCEVSQ6C2EXAMPLE" {
-		t.Errorf("unexpected userid: %v", result["userid"])
-	}
-}
-
-func TestCallSTS_Invalid(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(403)
-		fmt.Fprint(w, `<ErrorResponse><Error><Code>InvalidClientTokenId</Code></Error></ErrorResponse>`)
-	}))
-	defer ts.Close()
-
-	e := &Runtime{client: ts.Client()}
-	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "badkey")
-
-	if result["status"] != int64(403) {
-		t.Fatalf("expected status 403, got %v", result["status"])
-	}
-	if _, ok := result["arn"]; ok {
-		t.Error("expected no arn for 403 response")
-	}
-}
-
-func TestCallSTS_ServerError(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(500)
-	}))
-	defer ts.Close()
-
-	e := &Runtime{client: ts.Client()}
-	result := callSTS(context.Background(), e, ts.URL, "AKIAIOSFODNN7EXAMPLE", "anykey")
-
-	if result["status"] != int64(500) {
-		t.Fatalf("expected status 500, got %v", result["status"])
-	}
-}
-
-func TestAWSValidateExprBinding_Valid(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		fmt.Fprint(w, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
-  <GetCallerIdentityResult>
-    <Arn>arn:aws:iam::111111111111:user/dev</Arn>
-    <Account>111111111111</Account>
-    <UserId>AIDAEXAMPLE</UserId>
-  </GetCallerIdentityResult>
-</GetCallerIdentityResponse>`)
-	}))
-	defer ts.Close()
-
-	env, err := New(ts.Client())
-	if err != nil {
-		t.Fatalf("exprruntime.New: %v", err)
-	}
-	env.STSEndpoint = ts.URL
-
-	expr := `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
-  "result": "valid",
-  "analysis": {"arn": r.arn, "account": r.account, "userid": r.userid}
-} : r.status == 403 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`
-	prg, err := env.CompileValidation(expr)
-	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
-
-	finding := map[string]string{
-		"secret": "AKIAIOSFODNN7EXAMPLE",
-	}
-	components := map[string]any{
-		"aws-secret-access-key": map[string]any{"secret": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"},
-	}
-	got, err := env.EvalWithComponents(prg, finding, nil, components)
-	if err != nil {
-		t.Fatalf("eval: %v", err)
-	}
-
-	result := got.(map[string]any)
-	if result["result"] != "valid" {
-		t.Errorf("expected valid, got %v", result["result"])
-	}
-	if result["analysis"].(map[string]any)["account"] != "111111111111" {
-		t.Errorf("expected account 111111111111, got %v", result["analysis"].(map[string]any)["account"])
-	}
-}
-
-func TestAWSValidateExprBinding_Invalid(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(403)
-	}))
-	defer ts.Close()
-
-	env, err := New(ts.Client())
-	if err != nil {
-		t.Fatalf("exprruntime.New: %v", err)
-	}
-	env.STSEndpoint = ts.URL
-
-	expr := `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
-    "result": "valid"
-  } : r.status == 403 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`
-	prg, err := env.CompileValidation(expr)
-	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
-
-	finding := map[string]string{
-		"secret": "AKIAIOSFODNN7EXAMPLE",
-	}
-	components := map[string]any{
-		"aws-secret-access-key": map[string]any{"secret": "badkey"},
-	}
-	got, err := env.EvalWithComponents(prg, finding, nil, components)
-	if err != nil {
-		t.Fatalf("eval: %v", err)
-	}
-
-	result := got.(map[string]any)
-	if result["result"] != "invalid" {
-		t.Errorf("expected invalid, got %v", result["result"])
+func TestAWSValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		status             int
+		body, secret, want string
+	}{
+		{"valid", http.StatusOK, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
+<GetCallerIdentityResult>
+<Arn>arn:aws:iam::111111111111:user/dev</Arn>
+<Account>111111111111</Account>
+<UserId>AIDAEXAMPLE</UserId>
+</GetCallerIdentityResult>
+</GetCallerIdentityResponse>`, "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "valid"},
+		{"invalid", http.StatusForbidden, `<ErrorResponse><Error><Code>InvalidClientTokenId</Code></Error></ErrorResponse>`, "badkey", "invalid"},
+		{"server error", http.StatusInternalServerError, "", "anykey", "unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.NotEmpty(t, r.Header.Get("Authorization"))
+				assert.Equal(t, http.MethodPost, r.Method)
+				w.WriteHeader(tc.status)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+			env, err := New(server.Client())
+			require.NoError(t, err)
+			env.STSEndpoint = server.URL
+			program, err := env.CompileValidation(`
+let response = aws.validate(finding.secret, components["aws-secret-access-key"]?.secret ?? "");
+{"response": response, "result": response.status == 200 ? "valid" : response.status == 403 ? "invalid" : validate.unknown(response).result}`)
+			require.NoError(t, err)
+			got, err := env.EvalWithComponents(program,
+				map[string]string{"secret": "AKIAIOSFODNN7EXAMPLE"}, nil,
+				map[string]any{"aws-secret-access-key": map[string]any{"secret": tc.secret}})
+			require.NoError(t, err)
+			result := got.(map[string]any)
+			assert.Equal(t, tc.want, result["result"])
+			response := result["response"].(map[string]any)
+			assert.Equal(t, int64(tc.status), response["status"])
+			if tc.status == http.StatusOK {
+				assert.Equal(t, "arn:aws:iam::111111111111:user/dev", response["arn"])
+				assert.Equal(t, "111111111111", response["account"])
+				assert.Equal(t, "AIDAEXAMPLE", response["userid"])
+			} else {
+				assert.NotContains(t, response, "arn")
+			}
+		})
 	}
 }

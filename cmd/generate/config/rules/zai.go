@@ -29,7 +29,7 @@ func ZAIAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("zai", "cbe5985d07804065b46efaf1daa82834.ZLV4IOHGbEEHPDt5")

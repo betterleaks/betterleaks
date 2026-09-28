@@ -3,6 +3,21 @@
 The `betterleaks.toml` file controls detection, filtering, validation, analysis,
 and optional explicit credential revocation.
 It is TOML because rules are mostly flat data plus Expr expressions.
+Unknown keys are errors at every level, including inherited configurations.
+Errors identify the field and its line and column; a misspelled key is never
+silently ignored.
+
+Configuration selection follows this order:
+
+1. `--config` / `-c`.
+2. `BETTERLEAKS_CONFIG`, containing a file path.
+3. `BETTERLEAKS_CONFIG_TOML`, containing inline TOML.
+4. The embedded default configuration.
+
+Files named `.betterleaks.toml` in scan targets or the current directory are not
+loaded automatically. Use `--config .betterleaks.toml` to select one. A scan
+invocation resolves configuration once and uses it for every target. Explicit
+config paths passed to `config show`, `config check`, or `config hash` override these defaults.
 
 ## Inspect a config
 
@@ -25,15 +40,108 @@ requests. It uses the same config resolution as `config show`, including
 precedence over `--config`. Use the listed IDs with `validate --rule` or
 `analyze --rule`, or `revoke --rule`.
 
+## Inspect configuration hashes
+
+```sh
+# Hash the whole resolved configuration
+betterleaks config hash --config custom.toml
+
+# Compare with a finding's rule_hash
+betterleaks config hash --config custom.toml --rule github-pat
+
+# Use embedded defaults or configuration selected through environment variables
+betterleaks config hash --rule github-pat
+
+# A positional config path is also supported
+betterleaks config hash custom.toml --rule github-pat
+```
+
+The command prints one bare SHA-256 hash and a newline. Invalid configurations
+and unknown rule IDs fail with a nonzero exit status. It makes no provider
+requests and does not compile filter or provider expressions; use `config check`
+to check expressions. `--rule` selects the hash to print, preserving the rule's
+required and optional component definitions.
+
+The whole-config hash describes the configuration as loaded. A scan using
+`--isolate-rule` or `--disable-rule` hashes its reduced configuration instead.
+A matching rule hash means its rule and component definitions are unchanged, not that a
+rescan or provider validation will produce the same result. The included and
+excluded fields are described below.
+
+## Configuration hashes for SDK caches
+
+After loading and customizing a configuration, use `cfg.Hash()` to
+identify its resolved configuration. Use `cfg.RuleHash(ruleID)` to
+identify one rule together with its required and optional component definitions;
+this method returns an error for an invalid configuration or unknown rule ID.
+`cfg.RuleHashes()` returns all rule hashes in a caller-owned map and
+validates the configuration once. Scanner computes this map during construction
+and includes the corresponding `rule_hash` in each finding and component.
+
+```go
+configHash := cfg.Hash()
+ruleHash, err := cfg.RuleHash("github-pat")
+if err != nil {
+    return err
+}
+```
+
+Both hashes include matching fields, filters, component references and proximity,
+specificity, confidence, `skipReport`, rule descriptions, tags, and provider
+`validate`, `analyze`, and `revoke` expressions, including those on components.
+Changing a component definition also changes its parent's rule hash. Provider
+expressions participate even in offline scans; runtime flags do not change what
+the hash identifies.
+Only the overall hash includes the global `filter` and `prefilter` and the order
+of rules. Config title, description, file path, and minimum version are excluded.
+
+Hashes describe current configuration data, not an existing scanner's snapshot.
+Compute them from the same state used to construct your scanner and source
+filters; they are not cached inside Config. Do not mutate Config concurrently
+with hashing. `Hash` does not validate the configuration; a nil Config
+returns an empty string. Neither method compiles provider expressions or forces
+scanner regex compilation.
+
+Both hashes are 64-character lowercase SHA-256 hex strings with no prefix.
+Compare them as opaque identities. TOML comments and formatting outside string values do not
+affect the hashes. Expression and regex text is hashed exactly; equivalent
+expressions with different spelling can produce different hashes. Slice order
+is preserved; nil and empty slices are equivalent.
+
+A rule hash is useful for identifying changed rule definitions, but is not enough
+to reuse final findings: global filters and competing rules can change which
+findings survive. Use the overall hash as one part of a scan-result cache key,
+alongside input content and attributes, source and scanner settings, Betterleaks
+and regex backend versions, and redaction/output policy. Provider results need
+their own freshness policy because credentials can change state independently
+of configuration.
+
 ## Top-level shape
 
 Every config can use these fields:
 
+- `title`, `description`: optional descriptive text.
+
 - `prefilter`: global Expr expression that skips entire files, commits, or other source fragments before regex matching.
 - `filter`: global Expr expression that discards specific findings after regex matching.
-- `minVersion`: minimum Betterleaks binary version required.
+- `minVersion`: minimum Betterleaks binary version required. Loading fails when
+  a versioned build is older, using semantic version ordering (including
+  prereleases). Builds reporting `dev` skip the comparison; malformed minimum
+  versions are still rejected. Each inherited configuration is checked too.
 - `[extend]`: inherit rules/settings from another config or from built-in defaults.
 - `[[rules]]`: secret detection rules.
+
+The `[extend]` table accepts:
+
+- `path`: a local TOML file, resolved relative to the working directory.
+- `useDefault`: inherit the built-in configuration (`false` by default).
+- `disabledRules`: IDs to remove from the inherited rule set (empty by default).
+
+`path` and `useDefault = true` are mutually exclusive. Remote `extend.url`
+loading is unsupported and rejected. Extension chains may contain at most two
+inheritance steps, including `useDefault`: a child can extend a base which
+extends another base. A deeper chain or cycle returns an error instead of
+silently omitting rules.
 
 When a config extends another config, their global `prefilter` and `filter`
 expressions are additive. Betterleaks evaluates the extended expression first
@@ -63,6 +171,18 @@ Each `[[rules]]` entry can use:
 - `description`: human-readable description.
 - `keywords`: strings used for fast pre-regex filtering.
 - `regex`: regular expression used to detect the secret.
+- `path`: regular expression restricting matching to paths; can be used without
+  `regex` for a path-only rule.
+- `valueGroup`: capture group used for `match.value`, which may be a secret or
+  a non-secret component. Positive values are 1-based capture group indexes.
+  Zero (the default) selects the first non-empty capture group, falling back to
+  `match.full` if none exists. An explicitly selected group that does not
+  participate produces an empty value.
+- `specificity`: precedence among overlapping findings; higher values win
+  (default `0`). Negative values lower precedence; positive values raise it.
+- `tags`: optional metadata labels.
+- `skipReport`: suppress standalone reporting of this rule, commonly used for
+  credential components (`false` by default).
 - `filter`: rule-specific Expr expression to discard false positives.
 - `confidence`: optional `low`, `medium`, or `high` likelihood classification.
 - `validate`: Expr expression to actively verify whether a secret is live.
@@ -121,7 +241,7 @@ components["account-id"].captures["region"]
 credential or its only sensitive field. Captures belong to that same match;
 components come from other rules' matches. A capture can be required for
 authentication without being a component. Named groups include the selected
-secret group if it has a name; unmatched or empty groups are omitted during
+value group if it has a name; unmatched or empty groups are omitted during
 scanning. Use `?.` and `??` for values that may be absent.
 
 For example, a URI rule can select the password from
@@ -200,7 +320,7 @@ filter expression evaluates to `true`, the item is skipped.
 | `containsAny(string-or-list, terms)` | Returns `true` if the string, or any string in the list, contains a term. Uses an efficient Aho-Corasick substring match. |
 | `startsWithAny(string-or-list, prefixes)` | Returns `true` if the string, or any string in the list, starts with a prefix. |
 | `intersects(string-or-list, candidates)` | Returns `true` if at least one input string exactly equals a candidate. Matching is case-sensitive. |
-| `crypto.sha256(string)` | Returns the canonical `sha256:` fingerprint of the exact string bytes as lowercase hexadecimal. Available in finding filters, validation, and analysis. |
+| `crypto.sha256(string)` | Returns the SHA-256 fingerprint of the exact string bytes as 64 lowercase hexadecimal characters. Available in finding filters, validation, and analysis. |
 | `entropy(string)` | Returns Shannon entropy as a float. Useful for filtering non-random placeholders. |
 | `tokenRatio(string)` | Returns the string's byte length divided by its token count. Higher values are more tokenizer-compressible and therefore more likely to be readable text. |
 | `failsTokenEfficiency(string)` | Returns `true` when the generic-secret heuristic identifies readable text using token ratio, wordlist matches, and a length-sensitive threshold. |
@@ -268,16 +388,18 @@ Exact secret values can be filtered without storing the plaintext:
 ```toml
 filter = '''
 crypto.sha256(finding["secret"]) in [
-    "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
 ]
 '''
 ```
 
 The constant list on the right side of `in` is compiled into a lookup map.
 This explicit global filter also applies to internal component matches.
-`.betterleaksignore` entries are handled separately by the scanner after
-component assembly, so ignoring a component secret does not prevent other
-credentials from using it. Ignore files do not modify the configured filter.
+`.betterleaksignore` entries suppress primary secrets and exclude ignored component
+matches before provider work. If a required component has no remaining matches,
+the primary is suppressed; ignored optional components are treated as absent.
+See [ignore semantics](scanning.md#ignore-exact-secret-values).
+Ignore files do not modify the configured filter.
 
 Example:
 
@@ -459,7 +581,7 @@ because it mutates finding output.
 | `strings.urlQueryEscape(value)` | URL-query escapes a string. Useful when building signed validation request URLs. |
 | `crypto.md5(bytes)` | Returns the MD5 hash as bytes. |
 | `crypto.sha1(bytes)` | Returns the SHA-1 hash as bytes. |
-| `crypto.sha256(string)` | Returns a canonical `sha256:<hex>` fingerprint string, not raw digest bytes. |
+| `crypto.sha256(string)` | Returns the SHA-256 digest as 64 lowercase hexadecimal characters, without a prefix. |
 | `crypto.hmacSha1(key, msg)` | Returns the HMAC-SHA1 signature as bytes. |
 | `crypto.hmacSha256(key, msg)` | Returns the HMAC-SHA256 signature as bytes. |
 | `hex.encode(bytes)` | Returns lowercase hex encoding. |
@@ -493,10 +615,12 @@ let r = http.get("https://api.github.com/app", {
   });
 r.status == 200 && (r.json?.slug ?? "") != "" ? {
     "result": "valid",
-    "slug": r.json?.slug ?? "",
-    "name": r.json?.name ?? "",
-    "html_url": r.json?.html_url ?? "",
-    "external_url": r.json?.external_url ?? ""
+    "metadata": {
+      "slug": r.json?.slug ?? "",
+      "name": r.json?.name ?? "",
+      "html_url": r.json?.html_url ?? "",
+      "external_url": r.json?.external_url ?? ""
+    }
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
@@ -766,5 +890,5 @@ combination establishes validity; otherwise a truncated search yields
 
 `Analyzer.Requirements` describes primary and component captures required by both
 provider stages. Optional access and `??` fallbacks do not require a capture;
-dynamic keys cannot be inferred. An explicitly selected named secret group is
+dynamic keys cannot be inferred. An explicitly selected named value group is
 populated from the value, and contradictory supplied values are rejected.

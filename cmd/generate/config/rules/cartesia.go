@@ -23,7 +23,7 @@ func CartesiaAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := "sk_car_" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_]{20}`, 3.5)

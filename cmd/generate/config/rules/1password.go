@@ -24,7 +24,7 @@ func OnePasswordServiceAccountToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate
@@ -70,7 +70,7 @@ func OnePasswordSecretKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       `\bA3-[A-Z0-9]{6}-(?:(?:[A-Z0-9]{11})|(?:[A-Z0-9]{6}-[A-Z0-9]{5}))-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}\b`,
 		Keywords:    []string{"A3-"},
-		Filter:      `entropy(finding["secret"]) <= 3.8`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.8`,
 	}
 
 	// validate

@@ -115,7 +115,7 @@ func TestURLArchiveContentDetectionAndFiltering(t *testing.T) {
 				for _, skip := range []bool{false, true} {
 					wantPath := strings.Replace(tc.path, "download", strings.TrimPrefix(path, "/"), 1)
 					src := &URL{URL: srv.URL + path, MaxArchiveDepth: 2}
-					src.ShouldSkip = func(attrs map[string]string) bool {
+					src.Prefilter = func(attrs map[string]string) bool {
 						return skip && attrs[AttrResource] == ResourceURLContent &&
 							attrs[AttrURL] == src.URL && attrs[AttrPath] == wantPath
 					}
@@ -198,6 +198,6 @@ func TestURLSkipBeforeDownloadAndErrorRedaction(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.NotContains(t, err.Error(), "password")
 	require.NotContains(t, err.Error(), "private")
-	src.ShouldSkip = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceURLContent }
+	src.Prefilter = func(attrs map[string]string) bool { return attrs[AttrResource] == ResourceURLContent }
 	require.NoError(t, src.Fragments(t.Context(), func(Fragment, error) error { t.Fatal("skipped URL scanned"); return nil }))
 }

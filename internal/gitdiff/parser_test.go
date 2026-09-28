@@ -603,7 +603,7 @@ index ebe9fa54..fe103e1d 100644
 +new line 6
 `, i)
 		}
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			_, err := builder.WriteString(fileDiff(i))
 			if err != nil {
 				panic(err)

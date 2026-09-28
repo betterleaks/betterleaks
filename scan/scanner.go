@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"iter"
 	"log/slog"
+	"regexp/syntax"
 	"runtime"
 	"slices"
 	"sort"
@@ -25,18 +25,16 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/v2/internal/limits"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/regexspan"
 	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
-	"github.com/betterleaks/betterleaks/v2/logging"
 	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
-var allowSignatures = [...]string{"betterleaks:allow", "gitleaks:allow"}
-
-var errStopIteration = errors.New("scanner: stop iteration")
+var errStopScan = errors.New("scanner: stop scan")
 
 const (
 	levelTrace = slog.LevelDebug - 4
@@ -57,28 +55,29 @@ type ruleCandidates struct {
 	windows []regexspan.Windows
 }
 
-// Scanner is an immutable rule engine with thread-safe lazy compilation. A
+// Scanner is an immutable rule engine with thread-safe lazy regex compilation. A
 // Scanner may be reused concurrently with independent sources. Each scan
 // owns its execution state and shares the Scanner's detection worker limit.
+// A Scanner must be constructed with New; its zero value is not usable.
 type Scanner struct {
 	ignoredFingerprints map[fingerprint.Hash]struct{}
+	fingerprintKey      []byte
 	maxDecodeDepth      int
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
-	ignoreAllowComments bool
+	allowSignatures     []string
 	workers             int
 	workerSlots         *semaphore.Weighted
 	logger              *slog.Logger
 
-	keywordMatcher   *ahocorasick.Matcher
-	globalFilterExpr string
+	keywordMatcher *ahocorasick.Matcher
 
 	tokenCounter     *tokenizer.Counter
 	tokenCounterOnce sync.Once
 
 	exprRuntime *exprruntime.LocalRuntime
 
-	globalFilter lazyFilter
+	globalFilter exprruntime.Program
 
 	// rulesBySpecificity contains an immutable snapshot of every configured rule in descending
 	// specificity order. Its positions are the shared index space used by the
@@ -103,14 +102,15 @@ type Scanner struct {
 	candidatePool sync.Pool
 }
 
-// New creates a Scanner from cfg. Rule regexes and finding filters compile
-// lazily unless [WithPrecompile] is supplied. Sources own prefilter evaluation;
-// cfg.Prefilter is not used by the Scanner.
+// New creates a Scanner from cfg and compiles all finding filters, returning an
+// error for invalid expressions. Rule regexes compile lazily unless
+// [WithPrecompile] is supplied. Sources own prefilter evaluation; cfg.Prefilter
+// is not used by the Scanner.
 func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required to create scanner")
 	}
-	var settings scannerOptions
+	settings := scannerOptions{allowSignatures: []string{"betterleaks:allow", "gitleaks:allow"}}
 	for _, option := range options {
 		if option.apply == nil {
 			return nil, errors.New("scanner option is invalid")
@@ -119,15 +119,24 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 			return nil, err
 		}
 	}
-	if settings.workers == 0 {
-		settings.workers = max(runtime.GOMAXPROCS(0), 1)
+	for _, hash := range settings.ignoredFingerprints {
+		if hash.IsHMAC() && len(settings.fingerprintKey) == 0 {
+			return nil, errors.New("HMAC ignore fingerprints require a fingerprint key")
+		}
+		if !hash.IsHMAC() && len(settings.fingerprintKey) > 0 {
+			return nil, errors.New("SHA-256 ignore fingerprints cannot be used with a fingerprint key; regenerate them using the key")
+		}
 	}
-	rulesBySpecificity, ruleIndexByID, snapshotErr := snapshotRules(cfg)
+	if settings.workers == 0 {
+		// Allow detection and result handoffs to overlap without increasing source read-ahead.
+		settings.workers = 4 * max(runtime.GOMAXPROCS(0), 1)
+	}
+	rulesBySpecificity, ruleIndexByID, snapshotErr := snapshotRules(cfg, settings.regexEngine)
 	if snapshotErr != nil {
 		return nil, fmt.Errorf("invalid config: %w", snapshotErr)
 	}
 
-	exprRuntime := exprruntime.NewLocal()
+	exprRuntime := exprruntime.NewLocal(settings.regexEngine)
 
 	keywordToRuleIndexes := make(map[string][]int)
 	anchorToRuleIndexes := make(map[string][]int)
@@ -168,21 +177,21 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		anchorRuleIndexes[patternID] = anchorToRuleIndexes[keyword]
 	}
 	s := &Scanner{
-		maxDecodeDepth:      settings.maxDecodeDepth,
-		matchContext:        settings.matchContext,
-		minimumConfidence:   settings.minimumConfidence,
-		ignoreAllowComments: settings.ignoreAllowComments,
-		workers:             settings.workers,
-		workerSlots:         semaphore.NewWeighted(int64(settings.workers)),
-		logger:              logging.OrDiscard(settings.logger),
-		globalFilterExpr:    cfg.Filter,
-		keywordMatcher:      ahocorasick.Compile(keywords, true),
-		exprRuntime:         exprRuntime,
-		rulesBySpecificity:  rulesBySpecificity,
-		ruleIndexByID:       ruleIndexByID,
-		keywordRuleIndexes:  keywordRuleIndexes,
-		anchorRuleIndexes:   anchorRuleIndexes,
-		noKeywordIndexes:    noKeywordIndexes,
+		maxDecodeDepth:     settings.maxDecodeDepth,
+		fingerprintKey:     settings.fingerprintKey,
+		matchContext:       settings.matchContext,
+		minimumConfidence:  settings.minimumConfidence,
+		allowSignatures:    settings.allowSignatures,
+		workers:            settings.workers,
+		workerSlots:        semaphore.NewWeighted(int64(settings.workers)),
+		logger:             logging.OrDiscard(settings.logger),
+		keywordMatcher:     ahocorasick.Compile(keywords, true),
+		exprRuntime:        exprRuntime,
+		rulesBySpecificity: rulesBySpecificity,
+		ruleIndexByID:      ruleIndexByID,
+		keywordRuleIndexes: keywordRuleIndexes,
+		anchorRuleIndexes:  anchorRuleIndexes,
+		noKeywordIndexes:   noKeywordIndexes,
 	}
 	if len(settings.ignoredFingerprints) > 0 {
 		s.ignoredFingerprints = make(map[fingerprint.Hash]struct{}, len(settings.ignoredFingerprints))
@@ -197,9 +206,12 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		}
 	}
 	exprRuntime.SetTokenCounterProvider(s.tokenCounterInstance)
+	if err := s.compileFilters(cfg.Filter); err != nil {
+		return nil, err
+	}
 
 	if settings.precompile {
-		if err := s.compileAll(); err != nil {
+		if err := s.compileRegexes(); err != nil {
 			return nil, err
 		}
 	}
@@ -207,10 +219,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	return s, nil
 }
 
-func (s *Scanner) compileAll() error {
-	if _, _, err := s.globalFilterProgram(); err != nil {
-		return err
-	}
+func (s *Scanner) compileRegexes() error {
 	for i := range s.rulesBySpecificity {
 		rule := &s.rulesBySpecificity[i]
 		if rule.regex != nil {
@@ -222,9 +231,6 @@ func (s *Scanner) compileAll() error {
 			if err := rule.path.Compile(); err != nil {
 				return fmt.Errorf("compile rule %q path regex: %w", rule.rule.ID, err)
 			}
-		}
-		if _, _, err := s.ruleFilterProgram(rule); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -242,36 +248,6 @@ func (s *Scanner) tokenCounterInstance() *tokenizer.Counter {
 	return s.tokenCounter
 }
 
-func (s *Scanner) globalFilterProgram() (exprruntime.Program, bool, error) {
-	if s.globalFilterExpr == "" {
-		return nil, false, nil
-	}
-	program, err := s.globalFilter.compile(s.exprRuntime, s.globalFilterExpr)
-	if err != nil {
-		return nil, false, fmt.Errorf("compiling global filter: %w", err)
-	}
-	return program, true, nil
-}
-
-func (s *Scanner) ruleFilterProgram(r *compiledRule) (exprruntime.Program, bool, error) {
-	if r.rule.Filter == "" {
-		return nil, false, nil
-	}
-	program, err := r.filter.compile(s.exprRuntime, r.rule.Filter)
-	if err != nil {
-		return nil, false, fmt.Errorf("compiling rule %s filter: %w", r.rule.ID, err)
-	}
-	return program, true, nil
-}
-
-// Result is one finding or recoverable error emitted by [Scanner.Run].
-type Result struct {
-	// Finding is populated when Err is nil.
-	Finding report.Finding
-	// Err is a recoverable source or scan error.
-	Err error
-}
-
 // ScanSummary describes the work completed by one scan.
 type ScanSummary struct {
 	// BytesInspected counts fragment bytes after source and path exclusions.
@@ -285,37 +261,27 @@ type ScanSummary struct {
 // scan with an independent source.
 type Handler func(report.Finding) error
 
-// Run scans the source and yields findings and recoverable source errors.
-// Findings are not retained. Result order is not guaranteed. Concurrent calls
-// on the same Scanner are safe with independent sources.
-func (s *Scanner) Run(ctx context.Context, source sources.Source) iter.Seq[Result] {
-	return func(yield func(Result) bool) {
-		if s == nil {
-			_ = yield(Result{Err: errors.New("scanner is nil")})
-			return
-		}
-		_ = s.run(ctx, source, yield)
-	}
-}
-
 // Scan scans the source, passes each finding to handler, and returns a
 // per-call summary. Recoverable source errors are joined. Returning an error
-// from handler stops the scan. A nil handler discards findings.
+// from handler stops the scan. A nil handler discards findings. Finding order
+// is not guaranteed. Concurrent calls are safe with independent sources.
+// Detection regex compilation failures stop the scan and are returned as errors.
+// A nil or zero-value Scanner returns an error.
 func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handler) (ScanSummary, error) {
-	if s == nil {
-		return ScanSummary{}, errors.New("scanner is nil")
+	if s == nil || s.workerSlots == nil {
+		return ScanSummary{}, errors.New("scanner must be constructed with New")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	var scanErr error
-	summary := s.run(ctx, source, func(result Result) bool {
-		if result.Err != nil {
-			scanErr = errors.Join(scanErr, result.Err)
+	summary := s.run(ctx, source, func(result scanResult) bool {
+		if result.err != nil {
+			scanErr = errors.Join(scanErr, result.err)
 			return true
 		}
 		if handler != nil {
-			if err := handler(result.Finding); err != nil {
+			if err := handler(result.finding); err != nil {
 				scanErr = errors.Join(scanErr, fmt.Errorf("handle finding: %w", err))
 				return false
 			}
@@ -328,6 +294,11 @@ func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handl
 	return summary, scanErr
 }
 
+type scanResult struct {
+	finding report.Finding
+	err     error
+}
+
 type scanState struct {
 	bytes       atomic.Uint64
 	summary     ScanSummary
@@ -337,12 +308,15 @@ type scanState struct {
 type fragmentResult struct {
 	findings []report.Finding
 	err      error
+	// Detection failures stop the scan; yielded source errors can be accumulated.
+	fatal bool
 }
 
-func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Result) bool) (summary ScanSummary) {
+//nolint:nonamedreturns // Deferred cleanup joins workers before collecting the final byte count.
+func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(scanResult) bool) (summary ScanSummary) {
 	state := scanState{}
 	if source == nil {
-		_ = yield(Result{Err: errors.New("scanner: nil source")})
+		_ = yield(scanResult{err: errors.New("scanner: nil source")})
 		return state.summary
 	}
 	if ctx == nil {
@@ -369,7 +343,7 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 	reserveResult := func() error {
 		select {
 		case <-runCtx.Done():
-			return errStopIteration
+			return errStopScan
 		case resultSlots <- struct{}{}:
 			return nil
 		}
@@ -388,7 +362,7 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 		sourceErr := source.Fragments(runCtx, func(fragment sources.Fragment, fragmentErr error) error {
 			if fragmentErr != nil {
 				if isPipelineStop(fragmentErr) {
-					return errStopIteration
+					return errStopScan
 				}
 				return emitError(fragmentErr)
 			}
@@ -405,9 +379,9 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 				return err
 			}
 			workers.Go(func() {
-				findings := s.detectFragmentWithState(runCtx, fragment, &state)
+				findings, err := s.detectFragmentWithState(runCtx, fragment, &state)
 				s.workerSlots.Release(1)
-				resultsCh <- fragmentResult{findings: findings}
+				resultsCh <- fragmentResult{findings: findings, err: err, fatal: err != nil}
 			})
 			return nil
 		})
@@ -420,13 +394,7 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 
 	for result := range resultsCh {
 		<-resultSlots
-		if isPipelineStop(result.err) {
-			continue
-		}
-		if result.err != nil {
-			if !yield(Result{Err: result.err}) {
-				return state.summary
-			}
+		if !result.fatal && isPipelineStop(result.err) {
 			continue
 		}
 		for _, finding := range result.findings {
@@ -434,7 +402,12 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 				return state.summary
 			}
 			state.summary.Findings++
-			if !yield(Result{Finding: finding}) {
+			if !yield(scanResult{finding: finding}) {
+				return state.summary
+			}
+		}
+		if result.err != nil {
+			if !yield(scanResult{err: result.err}) || result.fatal {
 				return state.summary
 			}
 		}
@@ -443,18 +416,25 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(Res
 }
 
 func isPipelineStop(err error) bool {
-	return errors.Is(err, errStopIteration) || errors.Is(err, context.Canceled)
+	return errors.Is(err, errStopScan) || errors.Is(err, context.Canceled)
 }
 
-func rulePathMatchesFragment(rule *compiledRule, fragment sources.Fragment) bool {
+func rulePathMatchesFragment(rule *compiledRule, fragment sources.Fragment) (bool, error) {
 	path := fragment.Attr(sources.AttrPath)
-	return path != "" && rule.path != nil && pathSuffixPossible(path, rule.pathSuffixes) && rule.path.MatchString(path)
+	if path == "" || rule.path == nil || !pathSuffixPossible(path, rule.pathSuffixes) {
+		return false, nil
+	}
+	if err := rule.path.Compile(); err != nil {
+		return false, fmt.Errorf("compile rule %q path regex: %w", rule.rule.ID, err)
+	}
+	return rule.path.MatchString(path), nil
 }
 
 func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Finding {
 	path := fragment.Attr(sources.AttrPath)
 	finding := report.Finding{
 		RuleID:      r.rule.ID,
+		RuleHash:    r.hash,
 		Description: r.rule.Description,
 		Match:       report.Match{Full: "file detected: " + path},
 		Tags:        append([]string{}, r.rule.Tags...),
@@ -480,8 +460,13 @@ func promoteConfidence(finding *report.Finding, findingMap map[string]any, attri
 
 // ScanString scans content and returns its findings. It is a convenience for
 // callers that do not need source errors or a scan summary.
+// Backend compilation failures are logged through the configured logger;
+// findings collected before the failure are returned. Use Scan to receive errors.
+// If the Scanner is nil or was not constructed with New, it logs a warning
+// through slog's default logger and returns no findings.
 func (s *Scanner) ScanString(content string) []report.Finding {
-	if s == nil {
+	if s == nil || s.workerSlots == nil {
+		slog.Warn("scanner must be constructed with New")
 		return nil
 	}
 	return s.detectFragment(context.Background(), sources.Fragment{
@@ -494,10 +479,14 @@ func (s *Scanner) detectFragment(ctx context.Context, fragment sources.Fragment)
 		return nil
 	}
 	defer s.workerSlots.Release(1)
-	return s.detectFragmentWithState(ctx, fragment, nil)
+	findings, err := s.detectFragmentWithState(ctx, fragment, nil)
+	if err != nil {
+		s.logger.Error("could not scan fragment", "error", err)
+	}
+	return findings
 }
 
-func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.Fragment, state *scanState) []report.Finding {
+func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.Fragment, state *scanState) ([]report.Finding, error) {
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
@@ -515,6 +504,7 @@ func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.
 	encodedSegments := []*codec.EncodedSegment{}
 	currentDecodeDepth := 0
 	detection := detectionState{}
+	var detectionErr error
 
 ScanLoop:
 	for {
@@ -547,6 +537,7 @@ ScanLoop:
 				candidates.marked[ruleIndex] = true
 			}
 
+		RulesLoop:
 			for ruleIndex := range s.rulesBySpecificity {
 				if !candidates.marked[ruleIndex] {
 					continue
@@ -571,19 +562,27 @@ ScanLoop:
 						continue
 					}
 					detection.spans = candidates.windows[ruleIndex].Spans
-					for _, finding := range s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, &detection) {
-						// These findings have their components assembled. Recursive
-						// component matching never applies fingerprint suppression.
-						if len(s.ignoredFingerprints) > 0 {
-							if _, ignored := s.ignoredFingerprints[fingerprint.Sum([]byte(finding.Match.Value))]; ignored {
-								continue
-							}
+					ruleFindings, err := s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, priorFindings, &detection)
+					if err != nil {
+						detectionErr = err
+						break RulesLoop
+					}
+					for _, finding := range ruleFindings {
+						if !confidence.Meets(finding.Confidence, s.minimumConfidence) {
+							continue
 						}
-						if confidence.Meets(finding.Confidence, s.minimumConfidence) {
-							findings = append(findings, finding)
-							priorFindings.findings = findings
-							priorFindings.add(len(findings) - 1)
+						// Components are checked during assembly; an ignored primary
+						// suppresses every combination that remains.
+						hash := s.valueFingerprint(finding.Match.Value)
+						if _, ignored := s.ignoredFingerprints[hash]; ignored {
+							continue
 						}
+						if finding.Match.Value != "" {
+							finding.Match.Fingerprint = fingerprint.Format(hash)
+						}
+						findings = append(findings, finding)
+						priorFindings.findings = findings
+						priorFindings.add(len(findings) - 1)
 					}
 				}
 			}
@@ -593,6 +592,9 @@ ScanLoop:
 				candidates.windows[i].Reset()
 			}
 			s.candidatePool.Put(candidates)
+			if detectionErr != nil {
+				break ScanLoop
+			}
 
 			// increment the depth by 1 as we start our decoding pass
 			currentDecodeDepth++
@@ -613,7 +615,7 @@ ScanLoop:
 	}
 	findings = s.filterIndexed(findings, priorFindings)
 	detachFindingText(findings)
-	return findings
+	return findings, detectionErr
 }
 
 // Copy text after filtering so returned findings don't keep entire source or
@@ -672,19 +674,20 @@ func (s *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
 	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings *findingIndex,
-	state *detectionState) []report.Finding {
+	state *detectionState) ([]report.Finding, error) {
 	if ruleTimings == nil {
 		return s.detectFragmentWithRule(nil, fragment, currentRaw, r, encodedSegments, priorFindings, state)
 	}
 
 	start := time.Now()
-	findings := s.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings, state)
+	findings, err := s.detectFragmentWithRule(ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings, state)
 	ruleTimings.Record(r.rule.ID, time.Since(start))
-	return findings
+	return findings, err
 }
 
-func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
-	if err := cfg.Validate(); err != nil {
+func snapshotRules(cfg *config.Config, engine blregexp.Engine) ([]compiledRule, map[string]int, error) {
+	hashes, err := cfg.RuleHashes()
+	if err != nil {
 		return nil, nil, err
 	}
 	rules := make([]compiledRule, len(cfg.Rules))
@@ -692,15 +695,19 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 		rule := source
 		rule.Keywords = slices.Clone(source.Keywords)
 		rule.Tags = slices.Clone(source.Tags)
-		compiled := compiledRule{rule: rule, filter: &lazyFilter{}}
+		compiled := compiledRule{rule: rule, hash: hashes[rule.ID]}
 		if rule.Regex != "" {
-			var err error
-			compiled.guard = compileAssignmentGuard(rule.Regex, rule.Keywords)
-			compiled.span = regexspan.Compile(rule.Regex, rule.Keywords)
-			if compiled.span == nil {
-				compiled.span, compiled.searchAnchors = compilePrefixWindows(rule.Regex, rule.Keywords)
+			// Share one syntax tree across the internal analyses without retaining it.
+			parsed, err := syntax.Parse(rule.Regex, syntax.Perl)
+			if err != nil {
+				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.ID, err)
 			}
-			compiled.regex, err = blregexp.Compile(rule.Regex)
+			compiled.guard = inferAssignmentGuard(parsed, rule.Keywords)
+			compiled.span = regexspan.Compile(parsed, rule.Keywords)
+			if compiled.span == nil {
+				compiled.span, compiled.searchAnchors = compilePrefixWindows(parsed, rule.Keywords)
+			}
+			compiled.regex, err = blregexp.CompileWithEngine(rule.Regex, engine)
 			if err != nil {
 				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.ID, err)
 			}
@@ -708,7 +715,7 @@ func snapshotRules(cfg *config.Config) ([]compiledRule, map[string]int, error) {
 		if rule.Path != "" {
 			var err error
 			compiled.pathSuffixes = compilePathSuffixes(rule.Path)
-			compiled.path, err = blregexp.Compile(rule.Path)
+			compiled.path, err = blregexp.CompileWithEngine(rule.Path, engine)
 			if err != nil {
 				return nil, nil, fmt.Errorf("compile rule %q path regex: %w", rule.ID, err)
 			}
@@ -745,14 +752,14 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	r *compiledRule,
 	encodedSegments []*codec.EncodedSegment,
 	priorFindings *findingIndex,
-	state *detectionState) []report.Finding {
+	state *detectionState) ([]report.Finding, error) {
 	var (
 		findings []report.Finding
 		logger   = s.logger
 	)
 
 	if r.rule.SkipReport && !state.component {
-		return findings
+		return findings, nil
 	}
 
 	// Ensure default fields are properly set
@@ -761,38 +768,55 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	if r.regex == nil {
 		// Decoding content cannot change a path-only result.
 		if len(encodedSegments) > 0 {
-			return findings
+			return findings, nil
 		}
-		if rulePathMatchesFragment(r, fragment) {
+		matched, err := rulePathMatchesFragment(r, fragment)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
 			finding := newPathOnlyFinding(r, fragment)
 			if !s.filterPathFinding(r, &finding) {
-				return append(findings, finding)
+				return append(findings, finding), nil
 			}
 		}
-		return findings
+		return findings, nil
 	}
 
-	if r.path != nil && !rulePathMatchesFragment(r, fragment) {
+	if r.path != nil {
 		// If a rule defines both `path` and `regex`, the normalized fragment path
 		// must match before we spend time checking the content regex.
-		return findings
+		matched, err := rulePathMatchesFragment(r, fragment)
+		if err != nil || !matched {
+			return nil, err
+		}
 	}
 
 	var matches [][]int
-	find := func(raw string) [][]int {
+	find := func(raw string) ([][]int, error) {
 		if r.span != nil && r.span.RequiredByte != 0 && strings.IndexByte(raw, r.span.RequiredByte) < 0 {
-			return nil
+			return nil, nil
+		}
+		if err := r.regex.Compile(); err != nil {
+			return nil, fmt.Errorf("compile rule %q regex: %w", r.rule.ID, err)
 		}
 		if r.regex.NumSubexp() > 0 {
-			return r.regex.FindAllStringSubmatchIndex(raw, -1)
+			return r.regex.FindAllStringSubmatchIndex(raw, -1), nil
 		}
-		return r.regex.FindAllStringIndex(raw, -1)
+		return r.regex.FindAllStringIndex(raw, -1), nil
 	}
 	if len(state.spans) == 0 {
-		matches = find(currentRaw)
+		var err error
+		matches, err = find(currentRaw)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		for _, span := range state.spans {
-			part := find(currentRaw[span.Start:span.End])
+			part, err := find(currentRaw[span.Start:span.End])
+			if err != nil {
+				return nil, err
+			}
 			// Translate every participating capture, keeping currentRaw intact
 			// for decoded mappings, filter context, and finding construction.
 			for _, indexes := range part {
@@ -806,7 +830,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 	}
 	if len(matches) == 0 {
-		return findings
+		return findings, nil
 	}
 	var names []string
 	if r.regex.NumSubexp() > 0 {
@@ -818,8 +842,8 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
 		filterMatchStartIdx, filterMatchEndIdx := matchIndex[0], matchIndex[1]
 
-		// For any meta data from decoding
-		var metaTags []string
+		var encodings []string
+		var decodeDepth int
 		currentLine := ""
 
 		// Check if the decoded portions of the segment overlap with the match
@@ -832,7 +856,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 
 			matchIndex = codec.AdjustMatchIndex(segments, matchIndex)
-			metaTags = append(metaTags, codec.Tags(segments)...)
+			encodings, decodeDepth = codec.Decoding(segments)
 			currentLine = codec.CurrentLine(segments, currentRaw)
 		} else {
 			// Fixes: https://github.com/gitleaks/gitleaks/issues/1352
@@ -840,10 +864,8 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			matchIndex[1] = matchIndex[0] + len(secret)
 		}
 
-		// determine location of match. Note that the location
-		// in the finding will be the line/column numbers of the _match_
-		// not the _secret_, which will be different if the secretGroup
-		// value is set for this rule
+		// Locations describe the full match even when ValueGroup extracts
+		// a smaller value from it.
 		if state.lineOffsets == nil {
 			state.lineOffsets = computeLineOffsets(fragment.Raw)
 		}
@@ -851,14 +873,14 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		loc := location(state.lineOffsets, fragment.Raw, matchIndex)
 
 		tags := append([]string{}, r.rule.Tags...)
-		if len(metaTags) > 0 {
-			tags = append(tags, metaTags...)
-		}
 
 		prevFragmentEndLine := fragment.StartLine - 1
 		finding := report.Finding{
 			RuleID:      r.rule.ID,
+			RuleHash:    r.hash,
 			Description: r.rule.Description,
+			Encodings:   encodings,
+			DecodeDepth: decodeDepth,
 			Match: report.Match{
 				Full:  secret,
 				Value: secret,
@@ -887,8 +909,8 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 
 		// move to filter?
-		if !s.ignoreAllowComments && containsAllowSignature(finding.Match.Line) {
-			logTrace(logger, "skipping finding: allow signature found", "finding", finding.Match.Value)
+		if s.containsAllowSignature(finding.Match.Line) {
+			logTrace(logger, "skipping finding: allow signature found", "rule_id", finding.RuleID)
 			continue
 		}
 		if currentLine == "" {
@@ -899,8 +921,8 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		// is trimmed or mapped back to encoded source bytes. Rematching the
 		// extracted text would change anchor and boundary semantics.
 		if len(indexes) > 2 {
-			if r.rule.SecretGroup > 0 {
-				group := 2 * r.rule.SecretGroup
+			if r.rule.ValueGroup > 0 {
+				group := 2 * r.rule.ValueGroup
 				if group+1 >= len(indexes) {
 					// Config validation should prevent this
 					continue
@@ -938,8 +960,8 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 		entropy := shannonEntropy(finding.Match.Value)
 
-		hasGlobalFilter := s.globalFilterExpr != ""
-		hasRuleFilter := r.rule.Filter != ""
+		hasGlobalFilter := s.globalFilter != nil
+		hasRuleFilter := r.filter != nil
 		// Context is opt-in. Filters can slice fragment_raw using match offsets
 		// without retaining an additional context window on every finding.
 		if !s.matchContext.IsZero() {
@@ -976,29 +998,25 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 		}
 		// Global filter: Expr path (attributes + finding).
-		if prg, ok, err := s.globalFilterProgram(); err != nil {
-			logger.Warn("global filter compile error", "error", err)
-		} else if ok {
+		if prg := s.globalFilter; prg != nil {
 			skip, err := s.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
 			promoteConfidence(&finding, findingMap, filterAttributes)
 			if err != nil {
 				logger.Warn("global filter eval error", "error", err)
 			} else if skip {
-				logTrace(logger, "skipping finding: global filter", "finding", finding.Match.Value)
+				logTrace(logger, "skipping finding: global filter", "rule_id", finding.RuleID)
 				continue
 			}
 		}
 
 		// Rule filter: Expr path (includes entropy and token-efficiency checks).
-		if prg, ok, err := s.ruleFilterProgram(r); err != nil {
-			logger.Warn("rule filter compile error", "error", err)
-		} else if ok {
+		if prg := r.filter; prg != nil {
 			skip, err := s.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
 			promoteConfidence(&finding, findingMap, filterAttributes)
 			if err != nil {
 				logger.Warn("rule filter eval error", "error", err)
 			} else if skip {
-				logTrace(logger, "skipping finding: rule filter", "finding", finding.Match.Value)
+				logTrace(logger, "skipping finding: rule filter", "rule_id", finding.RuleID)
 				continue
 			}
 		}
@@ -1008,23 +1026,36 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 
 	// Handle component rules (multi-part rules).
 	if state.component || len(r.components) == 0 {
-		return findings
+		return findings, nil
 	}
 
 	return s.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state)
 }
 
+// Keep the unkeyed conversion separate: passing it through HMAC would make
+// the value bytes escape to the heap even when no key is configured.
+func (s *Scanner) valueFingerprint(value string) fingerprint.Hash {
+	if len(s.fingerprintKey) == 0 {
+		return fingerprint.Sum([]byte(value))
+	}
+	return fingerprint.SumWithKey([]byte(value), s.fingerprintKey)
+}
+
 // processComponents attaches nearby component matches and enforces required components.
-func (s *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState) []report.Finding {
+func (s *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, r *compiledRule, encodedSegments []*codec.EncodedSegment, primaryFindings []report.Finding, state *detectionState) ([]report.Finding, error) {
 	if len(primaryFindings) == 0 {
-		return primaryFindings
+		return primaryFindings, nil
 	}
 
 	allComponentFindings := make([][]report.Finding, len(r.components))
 	componentState := detectionState{component: true, lineOffsets: state.lineOffsets}
 	for i, component := range r.components {
 		rule := &s.rulesBySpecificity[component.ruleIndex]
-		allComponentFindings[i] = s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, &componentState)
+		var err error
+		allComponentFindings[i], err = s.detectFragmentWithRuleTimed(ruleTimings, fragment, currentRaw, rule, encodedSegments, nil, &componentState)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var finalFindings []report.Finding
@@ -1035,11 +1066,21 @@ nextPrimary:
 			before := len(componentFindings)
 			for _, found := range allComponentFindings[i] {
 				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, component.window) {
+					hash := s.valueFingerprint(found.Match.Value)
+					if _, ignored := s.ignoredFingerprints[hash]; ignored {
+						continue
+					}
+					if found.Match.Value != "" {
+						found.Match.Fingerprint = fingerprint.Format(hash)
+					}
 					componentFindings = append(componentFindings, report.ComponentFinding{
-						RuleID:   found.RuleID,
-						Optional: component.optional,
-						Match:    found.Match,
-						Location: found.Location,
+						RuleID:      found.RuleID,
+						RuleHash:    found.RuleHash,
+						Optional:    component.optional,
+						Match:       found.Match,
+						Location:    found.Location,
+						Encodings:   found.Encodings,
+						DecodeDepth: found.DecodeDepth,
 					})
 				}
 			}
@@ -1051,7 +1092,7 @@ nextPrimary:
 		primaryFinding.ComponentSets, primaryFinding.ComponentSetsTruncated = buildComponentSets(componentFindings, maxComponentSets)
 		finalFindings = append(finalFindings, primaryFinding)
 	}
-	return finalFindings
+	return finalFindings, nil
 }
 
 func withinProximity(raw string, lineOffsets []int, fragmentStartLine int, primary, component report.Finding, window contextwindow.Spec) bool {
@@ -1113,7 +1154,7 @@ func findingEndOffset(lineOffsets []int, fragmentStartLine int, finding report.F
 // Path findings have metadata but no content match. They still obey local
 // filters; content offsets and fragment text are explicitly empty.
 func (s *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bool {
-	if s.globalFilterExpr == "" && r.rule.Filter == "" {
+	if s.globalFilter == nil && r.filter == nil {
 		return false
 	}
 	attrs := exprAttributes(*finding)
@@ -1127,13 +1168,8 @@ func (s *Scanner) filterPathFinding(r *compiledRule, finding *report.Finding) bo
 	for _, key := range []string{"match_start_idx", "match_end_idx", "match_line_start_idx", "match_line_end_idx"} {
 		values[key] = 0
 	}
-	for _, compile := range []func() (exprruntime.Program, bool, error){s.globalFilterProgram, func() (exprruntime.Program, bool, error) { return s.ruleFilterProgram(r) }} {
-		prg, ok, err := compile()
-		if err != nil {
-			s.logger.Warn("path filter compile error", "error", err)
-			continue
-		}
-		if !ok {
+	for _, prg := range []exprruntime.Program{s.globalFilter, r.filter} {
+		if prg == nil {
 			continue
 		}
 		skip, err := s.exprRuntime.EvalFilter(prg, values, attrs)
@@ -1172,8 +1208,7 @@ func (s *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) 
 		// composite finding in this batch.
 		_, isComponent := componentSet[fmt.Sprintf("%s:%d:%d:%d:%d:%s", f.RuleID, f.Location.StartLine, f.Location.StartColumn, f.Location.EndLine, f.Location.EndColumn, f.Match.Value)]
 		if isComponent {
-			redactedMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-			logTrace(s.logger, "skipping finding already used as a component", "rule_id", f.RuleID, "finding", redactedMatch)
+			logTrace(s.logger, "skipping finding already used as a component", "rule_id", f.RuleID)
 			include = false
 		} else if s.isSuppressedByHigherSpecificityFinding(f, index) {
 			include = false
@@ -1197,13 +1232,9 @@ func (s *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 			f.RuleID != fPrime.RuleID &&
 			strings.Contains(fPrime.Match.Value, f.Match.Value) &&
 			s.ruleSpecificity(fPrime.RuleID) > s.ruleSpecificity(f.RuleID) {
-			genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-			betterMatch := strings.ReplaceAll(fPrime.Match.Full, fPrime.Match.Value, "REDACTED")
 			s.logger.Debug("skipping finding because a more specific rule takes precedence",
 				"rule_id", f.RuleID,
-				"finding", genericMatch,
 				"precedence_rule_id", fPrime.RuleID,
-				"precedence_finding", betterMatch,
 			)
 			return true
 		}
@@ -1214,13 +1245,9 @@ func (s *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 					f.RuleID != comp.RuleID &&
 					strings.Contains(comp.Match.Value, f.Match.Value) &&
 					s.ruleSpecificity(comp.RuleID) > s.ruleSpecificity(f.RuleID) {
-					genericMatch := strings.ReplaceAll(f.Match.Full, f.Match.Value, "REDACTED")
-					betterMatch := strings.ReplaceAll(comp.Match.Full, comp.Match.Value, "REDACTED")
 					logTrace(s.logger, "skipping finding because a more specific component takes precedence",
 						"rule_id", f.RuleID,
-						"finding", genericMatch,
 						"precedence_rule_id", comp.RuleID,
-						"precedence_finding", betterMatch,
 					)
 					return true
 				}

@@ -16,7 +16,7 @@ func ConfluentSecretKey() *config.Rule {
 		Keywords: []string{
 			"confluent",
 		},
-		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -31,7 +31,7 @@ func ConfluentAccessToken() *config.Rule {
 		Confidence:  "high",
 		Description: "Identified a Confluent Access Token, which could compromise access to streaming data platforms and sensitive data flow.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"confluent"}, utils.AlphaNumeric("16"), true),
-		Filter:      utils.MinEntropyAndTokenEfficiency,
+		FilterExpr:  utils.MinEntropyAndTokenEfficiency,
 
 		Keywords: []string{
 			"confluent",

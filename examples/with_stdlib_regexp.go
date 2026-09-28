@@ -17,10 +17,8 @@ import (
 )
 
 func main() {
-	// Stdlib is already the SDK default; select it explicitly here to show how
-	// to choose an engine. Engine selection is global, so do it at startup,
-	// before loading rules, constructing scanners, or starting concurrent work.
-	regexp.SetEngine(regexp.Stdlib{})
+	// Stdlib is the SDK default. Select it explicitly for this scanner.
+	engine := regexp.Stdlib{}
 
 	cfg, err := config.Default()
 	if err != nil {
@@ -28,12 +26,12 @@ func main() {
 	}
 
 	// Eagerly compile scanning rules with the selected engine.
-	scanner, err := scan.New(cfg, scan.WithPrecompile())
+	scanner, err := scan.New(cfg, scan.WithRegexEngine(engine), scan.WithPrecompile())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("regexp engine: %s\n", regexp.Version())
+	fmt.Printf("regexp engine: %s\n", engine.Version())
 	const token = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5" // betterleaks:allow
 	for _, finding := range scanner.ScanString("GITHUB_TOKEN=" + token) {
 		fmt.Printf("%s: line %d\n", finding.RuleID, finding.Location.StartLine)

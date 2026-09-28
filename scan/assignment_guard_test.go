@@ -153,3 +153,11 @@ func FuzzAssignmentGuard(f *testing.F) {
 		}
 	})
 }
+
+func compileAssignmentGuard(pattern string, keywords []string) *assignmentGuard {
+	re, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return nil
+	}
+	return inferAssignmentGuard(re, keywords)
+}

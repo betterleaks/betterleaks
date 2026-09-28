@@ -13,7 +13,7 @@ func Sonar() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"sonar[_.-]?(login|token)"}, "(?:squ_|sqp_|sqa_)?"+utils.AlphaNumericExtended("40"), true),
 		Keywords:    []string{"sonar"},
-		SecretGroup: 2,
+		ValueGroup:  2,
 	}
 
 	// validate

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"reflect"
+	"slices"
 
 	"github.com/alecthomas/kong"
 )
@@ -95,10 +96,5 @@ func commandMatches(node *kong.Node, arg string) bool {
 	if node.Name == arg {
 		return true
 	}
-	for _, alias := range node.Aliases {
-		if alias == arg {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(node.Aliases, arg)
 }

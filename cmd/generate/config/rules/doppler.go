@@ -14,7 +14,7 @@ func Doppler() *config.Rule {
 		Description: "Discovered a Doppler API token, posing a risk to environment and secrets management security.",
 		Regex:       `dp\.pt\.(?i)[a-z0-9]{43}`,
 		Keywords:    []string{`dp.pt.`},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

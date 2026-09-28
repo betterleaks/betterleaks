@@ -21,6 +21,30 @@ type ConfigCmd struct {
 	Check ConfigCheckCmd `cmd:"" help:"Validate a betterleaks config."`
 	Show  ConfigShowCmd  `cmd:"" help:"Print the resolved betterleaks config."`
 	Path  ConfigPathCmd  `cmd:"" help:"Print the selected config source."`
+	Hash  ConfigHashCmd  `cmd:"" help:"Print the hash of the resolved config or one rule."`
+}
+
+type ConfigHashCmd struct {
+	Rule string `help:"Hash this rule and its component definitions instead of the whole config."`
+	Path string `arg:"" optional:"" name:"config-path" help:"Config file to hash."`
+}
+
+func (cmd *ConfigHashCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	resolved, err := resolveConfig(runtime, cli.Config, cmd.Path)
+	if err != nil {
+		return err
+	}
+	var hash string
+	if cmd.Rule == "" {
+		hash = resolved.cfg.Hash()
+	} else {
+		hash, err = resolved.cfg.RuleHash(cmd.Rule)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintln(runtime.stdout, hash)
+	return err
 }
 
 type ConfigCheckCmd struct {
@@ -32,7 +56,7 @@ func (cmd *ConfigCheckCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	if err != nil {
 		return err
 	}
-	if err := validateConfig(resolved.cfg); err != nil {
+	if err := validateConfig(resolved.cfg, runtime.regexEngine()); err != nil {
 		return err
 	}
 	withValidation, withoutValidation := countValidationRules(resolved.cfg)
@@ -55,7 +79,7 @@ func (cmd *ConfigShowTOMLCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	if err != nil {
 		return err
 	}
-	if err := validateConfig(resolved.cfg); err != nil {
+	if err := validateConfig(resolved.cfg, runtime.regexEngine()); err != nil {
 		return err
 	}
 	_, _ = runtime.stdout.Write([]byte(renderConfigTOML(renderConfig(resolved.cfg))))
@@ -97,9 +121,6 @@ func resolveConfig(runtime *commandRuntime, configPath, argumentPath string) (*r
 		}
 		return &resolvedConfig{cfg: cfg, source: "env:BETTERLEAKS_CONFIG_TOML"}, nil
 	}
-	if path := findConfigFile("."); path != "" {
-		return loadConfigFile(path, loadOption)
-	}
 	cfg, err := configpkg.Default(loadOption)
 	if err != nil {
 		return nil, err
@@ -115,15 +136,15 @@ func loadConfigFile(path string, options ...configpkg.LoadOption) (*resolvedConf
 	return &resolvedConfig{cfg: cfg, source: path}, nil
 }
 
-func validateConfig(cfg *configpkg.Config) error {
+func validateConfig(cfg *configpkg.Config, engine regexp.Engine) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
 	compileKeywordTrie(cfg)
-	if err := compileRuleRegexps(cfg); err != nil {
+	if err := compileRuleRegexps(cfg, engine); err != nil {
 		return err
 	}
-	rt, err := exprruntime.New(nil)
+	rt, err := exprruntime.NewWithRegexEngine(nil, engine)
 	if err != nil {
 		return err
 	}
@@ -147,8 +168,8 @@ func validateConfig(cfg *configpkg.Config) error {
 	}
 	for _, rule := range cfg.Rules {
 		id := rule.ID
-		if rule.Filter != "" {
-			prg, err := rt.CompileFilter(rule.Filter, nil)
+		if rule.FilterExpr != "" {
+			prg, err := rt.CompileFilter(rule.FilterExpr, nil)
 			if err != nil {
 				return fmt.Errorf("compiling rule %s filter: %w", id, err)
 			}
@@ -227,13 +248,13 @@ func compileKeywordTrie(cfg *configpkg.Config) {
 	_ = ahocorasick.CompileStrings(keywords)
 }
 
-func compileRuleRegexps(cfg *configpkg.Config) error {
+func compileRuleRegexps(cfg *configpkg.Config, engine regexp.Engine) error {
 	for _, rule := range cfg.Rules {
 		for _, entry := range []struct{ kind, pattern string }{{"regex", rule.Regex}, {"path regex", rule.Path}} {
 			if entry.pattern == "" {
 				continue
 			}
-			re, err := regexp.Compile(entry.pattern)
+			re, err := regexp.CompileWithEngine(entry.pattern, engine)
 			if err == nil {
 				err = re.Compile()
 			}
@@ -259,7 +280,7 @@ type ruleView struct {
 	Description string          `toml:"description,omitempty"`
 	Path        string          `toml:"path,omitempty"`
 	Regex       string          `toml:"regex,omitempty"`
-	SecretGroup int             `toml:"secretGroup,omitempty"`
+	ValueGroup  int             `toml:"valueGroup,omitempty"`
 	Keywords    []string        `toml:"keywords,omitempty"`
 	Tags        []string        `toml:"tags,omitempty"`
 	Specificity int             `toml:"specificity,omitempty"`
@@ -292,16 +313,16 @@ func renderConfig(cfg *configpkg.Config) configView {
 			Description: rule.Description,
 			Path:        rule.Path,
 			Regex:       rule.Regex,
-			SecretGroup: rule.SecretGroup,
+			ValueGroup:  rule.ValueGroup,
 			Keywords:    rule.Keywords,
 			Tags:        rule.Tags,
-			Specificity: renderedSpecificity(rule.Specificity),
+			Specificity: rule.Specificity,
 			Confidence:  rule.Confidence,
 			Validate:    rule.ValidateExpr,
 			Analyze:     rule.AnalyzeExpr,
 			Revoke:      rule.RevokeExpr,
 			SkipReport:  rule.SkipReport,
-			Filter:      rule.Filter,
+			Filter:      rule.FilterExpr,
 		}
 		for _, component := range rule.Components {
 			rv.Components = append(rv.Components, componentView{
@@ -333,7 +354,7 @@ func renderConfigTOML(view configView) string {
 		writeString(&b, "description", rule.Description)
 		writeString(&b, "path", rule.Path)
 		writeString(&b, "regex", rule.Regex)
-		writeInt(&b, "secretGroup", rule.SecretGroup)
+		writeInt(&b, "valueGroup", rule.ValueGroup)
 		writeStrings(&b, "keywords", rule.Keywords)
 		writeStrings(&b, "tags", rule.Tags)
 		writeInt(&b, "specificity", rule.Specificity)
@@ -459,11 +480,4 @@ func hasControlChar(s string) bool {
 		}
 	}
 	return false
-}
-
-func renderedSpecificity(specificity int) int {
-	if specificity == configpkg.DefaultRuleSpecificity {
-		return 0
-	}
-	return specificity
 }

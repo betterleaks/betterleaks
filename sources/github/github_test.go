@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +34,7 @@ func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes["resource"] == "github.repository" && attributes["github.repo"] == "repo"`)
 
-	src := &Source{ShouldSkip: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
+	src := &Source{Prefilter: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []sources.Fragment
@@ -52,7 +53,7 @@ func TestGitHub_scanRepo_prefilterUsesMergedRepoAttrsOnFragments(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `attributes["github.repo"] == "repo" && attributes["path"] != ""`)
 
-	src := &Source{ShouldSkip: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
+	src := &Source{Prefilter: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []sources.Fragment
@@ -71,7 +72,7 @@ func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	repoPath := createGitHubTestRepo(t)
 	skip := compileGitHubPrefilter(t, `containsAny(attributes["path"], ["does-not-match"])`)
 
-	src := &Source{ShouldSkip: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
+	src := &Source{Prefilter: skip, Resources: ResourceSet{ResourceTypeRepos: true}}
 	repo := newTestGitHubRepo(repoPath)
 
 	var fragments []sources.Fragment
@@ -377,8 +378,8 @@ func TestGitHub_emitRelease_prefilterSkipsReleaseByTag(t *testing.T) {
 	}
 
 	src := &Source{
-		Resources:  ResourceSet{ResourceTypeReleases: true},
-		ShouldSkip: compileGitHubPrefilter(t, `attributes["resource"] == "github.release" && attributes["github.release.tag"] == "v1.0.0"`),
+		Resources: ResourceSet{ResourceTypeReleases: true},
+		Prefilter: compileGitHubPrefilter(t, `attributes["resource"] == "github.release" && attributes["github.release.tag"] == "v1.0.0"`),
 	}
 
 	called := false
@@ -688,7 +689,7 @@ func TestGitHub_streamWorkflowRuns_usesCombinedCreatedRange(t *testing.T) {
 	require.Equal(t, []int64{12}, got)
 }
 
-func compileGitHubPrefilter(t *testing.T, expression string) sources.SkipFunc {
+func compileGitHubPrefilter(t *testing.T, expression string) sources.PrefilterFunc {
 	t.Helper()
 
 	env, err := exprruntime.New(nil)
@@ -777,14 +778,17 @@ func buildGitHubTestZip(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-// TestFragments_A2_schedulesAllReposAboveConcurrencyLimit verifies that when
-// more than 8 repos are present, every repo is eventually scanned.
-// Before the fix (TryGo→Go), repos beyond the worker limit were silently
-// dropped.
-func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
+func TestFragmentsScansTargetsSequentially(t *testing.T) {
 	t.Parallel()
 
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	const numRepos = 12
+	started := make(chan string, numRepos)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseAll()
 
 	var mu sync.Mutex
 	scannedReleases := make(map[string]bool)
@@ -824,11 +828,17 @@ func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 		}
 		// GET /api/v3/repos/owner/{repo}/releases
 		if len(parts) == 6 && parts[5] == "releases" {
+			started <- parts[4]
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
 			mu.Lock()
 			scannedReleases[parts[4]] = true
 			mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, "[]")
+			fmt.Fprint(w, `[{"id":1,"body":"release content"}]`)
 			return
 		}
 		// GraphQL — return empty to avoid panics when gqlClient is initialised.
@@ -847,13 +857,34 @@ func TestFragments_A2_schedulesAllReposAboveConcurrencyLimit(t *testing.T) {
 		Token:     "tok",
 		Resources: ResourceSet{ResourceTypeReleases: true},
 	}
-	err := src.Fragments(t.Context(), func(_ sources.Fragment, _ error) error { return nil })
-	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() {
+		done <- src.Fragments(ctx, func(_ sources.Fragment, err error) error { return err })
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("first repository did not start")
+	}
+	select {
+	case repo := <-started:
+		t.Fatalf("started %s while the first repository was blocked", repo)
+	case <-time.After(30 * time.Millisecond):
+	}
+	releaseAll()
+	require.NoError(t, <-done)
 
 	mu.Lock()
 	got := len(scannedReleases)
 	mu.Unlock()
 	require.Equal(t, numRepos, got, "expected all %d repos to be scanned for releases, got %d", numRepos, got)
+	for len(started) > 0 {
+		<-started
+	}
+	stop := errors.New("consumer stopped")
+	err := src.Fragments(ctx, func(sources.Fragment, error) error { return stop })
+	require.ErrorIs(t, err, stop)
+	require.Len(t, started, 1, "callback failure must stop before the next target")
 }
 
 // TestFragments_A3_enumErrWaitsForScans verifies that when enumeration fails,
@@ -1097,110 +1128,85 @@ func Test_ParseGitHubURL(t *testing.T) {
 	}
 }
 
-func TestGitHub_ResolveResources_fromIncludeExclude(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:     "https://github.com/owner/repo",
-		Token:   "tok",
-		Include: []string{"repos", "issues", "releases"},
-		Exclude: []string{"repos"},
+func TestGitHubResolveResources(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		source  *Source
+		want    ResourceSet
+		wantErr string
+	}{
+		{
+			name:    "include and exclude",
+			source:  &Source{URL: "https://github.com/owner/repo", Token: "tok", Include: []string{"repos", "issues", "releases"}, Exclude: []string{"repos"}},
+			want:    ResourceSet{ResourceTypeIssues: true, ResourceTypeReleases: true, ResourceTypeReleaseAssets: true},
+			wantErr: "",
+		},
+		{
+			name:    "explicit resources",
+			source:  &Source{URL: "https://github.com/owner/repo", Token: "tok", Include: []string{"issues"}, Resources: ResourceSet{ResourceTypePRs: true}},
+			want:    ResourceSet{ResourceTypePRs: true},
+			wantErr: "",
+		},
+		{
+			name:    "owner defaults",
+			source:  &Source{URL: "https://github.com/myorg", Token: "tok"},
+			want:    ResourceSet{ResourceTypeRepos: true},
+			wantErr: "",
+		},
+		{
+			name:    "unknown resource",
+			source:  &Source{URL: "https://github.com/owner/repo", Token: "tok", Include: []string{"bogus"}},
+			want:    nil,
+			wantErr: "unknown resource type",
+		},
+		{
+			name:    "missing target",
+			source:  &Source{Token: "tok"},
+			want:    nil,
+			wantErr: "target URL is required",
+		},
+		{
+			name:    "resource requires token",
+			source:  &Source{URL: "https://github.com/owner/repo/issues/1"},
+			want:    nil,
+			wantErr: "token is required",
+		},
+		{
+			name:    "owner requires token",
+			source:  &Source{URL: "https://github.com/myorg"},
+			want:    nil,
+			wantErr: "token is required",
+		},
+		{
+			name:    "public repository",
+			source:  &Source{URL: "https://github.com/owner/repo"},
+			want:    ResourceSet{ResourceTypeRepos: true},
+			wantErr: "",
+		},
+		{
+			name:    "API requires token",
+			source:  &Source{URL: "https://github.com/owner/repo", Include: []string{"issues"}},
+			want:    nil,
+			wantErr: "token is required",
+		},
+		{
+			name:    "repository with API access",
+			source:  &Source{URL: "https://github.com/owner/repo", Token: "tok", Include: []string{"issues"}},
+			want:    ResourceSet{ResourceTypeRepos: true, ResourceTypeIssues: true},
+			wantErr: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.source.resolveResources()
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, tc.source.Resources)
+		})
 	}
-	require.NoError(t, src.resolveResources())
-
-	require.False(t, src.Resources.Has(ResourceTypeRepos))
-	require.True(t, src.Resources.Has(ResourceTypeIssues))
-	require.True(t, src.Resources.Has(ResourceTypeReleases))
-	require.True(t, src.Resources.Has(ResourceTypeReleaseAssets), "release-assets auto-included")
-}
-
-func TestGitHub_ResolveResources_skipsWhenResourcesAlreadySet(t *testing.T) {
-	t.Parallel()
-
-	existing := ResourceSet{ResourceTypePRs: true}
-	src := &Source{
-		URL:       "https://github.com/owner/repo",
-		Token:     "tok",
-		Include:   []string{"issues"},
-		Resources: existing,
-	}
-	require.NoError(t, src.resolveResources())
-	require.True(t, src.Resources.Has(ResourceTypePRs), "programmatic set preserved")
-	require.False(t, src.Resources.Has(ResourceTypeIssues), "Include ignored when Resources pre-set")
-}
-
-func TestGitHub_ResolveResources_ownerDefaultsToRepos(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:   "https://github.com/myorg",
-		Token: "tok",
-	}
-	require.NoError(t, src.resolveResources())
-	require.True(t, src.Resources.Has(ResourceTypeRepos))
-}
-
-func TestGitHub_ResolveResources_unknownTypeErrors(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:     "https://github.com/owner/repo",
-		Token:   "tok",
-		Include: []string{"bogus"},
-	}
-	require.Error(t, src.resolveResources())
-}
-
-func TestGitHub_ResolveResources_noTargetErrors(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{Token: "tok"}
-	require.ErrorContains(t, src.resolveResources(), "target URL is required")
-}
-
-func TestGitHub_ResolveResources_resourceURLNeedsToken(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{URL: "https://github.com/owner/repo/issues/1"}
-	require.ErrorContains(t, src.resolveResources(), "token is required")
-}
-
-func TestGitHub_ResolveResources_ownerURLNeedsToken(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{URL: "https://github.com/myorg"}
-	require.ErrorContains(t, src.resolveResources(), "token is required")
-}
-
-func TestGitHub_ResolveResources_repoWithOnlyReposNoTokenOK(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{URL: "https://github.com/owner/repo"}
-	require.NoError(t, src.resolveResources())
-	require.True(t, src.Resources.Has(ResourceTypeRepos))
-}
-
-func TestGitHub_ResolveResources_repoWithAPIResourceNeedsToken(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:     "https://github.com/owner/repo",
-		Include: []string{"issues"},
-	}
-	require.ErrorContains(t, src.resolveResources(), "token is required")
-}
-
-func TestGitHub_ResolveResources_repoWithTokenAndAPIResourceOK(t *testing.T) {
-	t.Parallel()
-
-	src := &Source{
-		URL:     "https://github.com/owner/repo",
-		Token:   "tok",
-		Include: []string{"issues"},
-	}
-	require.NoError(t, src.resolveResources())
-	require.True(t, src.Resources.Has(ResourceTypeIssues))
-	require.True(t, src.Resources.Has(ResourceTypeRepos), "repos included by default for repo URL")
 }
 
 var _ sources.Source = (*Source)(nil)

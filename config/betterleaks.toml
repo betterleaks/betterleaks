@@ -14,8 +14,8 @@
 title = "betterleaks config"
 
 # minVersion indicates the minimum betterleaks version required.
-# If the running version is older, a warning will be logged.
-minVersion = "v1.8.0"
+# Older versioned builds reject this configuration.
+minVersion = "v2.0.0-rc.1"
 
 
 prefilter = '''
@@ -23,7 +23,6 @@ matchesAny(attributes["path"], [
   `gitleaks\.toml`,
   `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$`,
   `(?i)\.(?:eot|[ot]tf|woff2?)$`,
-  `(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|dll|pdb|exe|gltf)$`,
   `go\.(?:mod|sum|work(?:\.sum)?)$`,
   `(?:^|/)vendor/modules\.txt$`,
   `(?:^|/)vendor/(?:github\.com|golang\.org/x|google\.golang\.org|gopkg\.in|istio\.io|k8s\.io|sigs\.k8s\.io)(?:/.*)?$`,
@@ -44,7 +43,6 @@ matchesAny(attributes["path"], [
   `\.gem$`,
   `verification-metadata\.xml`,
   `Database.refactorlog`,
-  `(?:^|/)\.git$`
 ])
 
 '''
@@ -1065,7 +1063,7 @@ components = [
 id = "azure-app-configuration-connection-string"
 description = "Detected an Azure App Configuration connection string."
 regex = '''(?i)Endpoint=(?P<azure_appconfig_endpoint>https://[a-z0-9-]+\.azconfig\.io);Id=(?P<azure_appconfig_id>[^;\s'"]{4,80});Secret=([A-Za-z0-9+/]{36,100}={0,2})'''
-secretGroup = 3
+valueGroup = 3
 confidence = "high"
 keywords = [
     "azconfig.io",
@@ -3892,7 +3890,7 @@ containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.g
 id = "generic-api-key"
 description = "Detected a Generic API Key, potentially exposing access to various services and sensitive operations."
 regex = '''(?i)(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-specificity = 0
+specificity = -100
 confidence = "low"
 keywords = [
     "access",
@@ -5475,8 +5473,8 @@ matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
 id = "generic-credential-uri"
 description = "Detected a password embedded in a service connection URI, which may expose direct access to the referenced service."
 regex = '''(?i)\b(?P<uri>(?P<scheme>https?|postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|ldaps?|smtps?|ftps?|ssh)://(?P<username>[^:/@\s'"\x60]{0,128}):(?P<password>[^/@\s'"\x60]{1,256})@(?P<host>(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252}))(?::[0-9]{1,5})?(?:,(?:\[[0-9a-f:.%]+\]|[a-z0-9][a-z0-9._-]{0,252})(?::[0-9]{1,5})?)*(?:[/?][a-z0-9._~!$&(*+,;=:@%/?-]*)?)(?:[\s'"\x60#<>{}\[\],;)]|\\[nr]|$)'''
-secretGroup = 4
-specificity = 30
+valueGroup = 4
+specificity = -70
 confidence = "medium"
 keywords = [
     "http://",
@@ -5566,7 +5564,7 @@ isInstructionalPlaceholder
 id = "generic-password"
 description = "Detected a potential hardcoded password literal, which may expose account credentials."
 regex = '''(?i)(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])|\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\))'''
-specificity = 20
+specificity = -80
 confidence = "low"
 keywords = [
     "passw",
@@ -5851,10 +5849,17 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
       "analysis": {
-        "id": string(r.json?.id ?? ""),
+        "id": r.json?.id != nil ? string(int(r.json.id)) : "",
         "username": (r.json?.login ?? ""),
         "name": (r.json?.name ?? ""),
         "email": (r.json?.email ?? ""),
+        "url": (r.json?.html_url ?? ""),
+        "account_type": (r.json?.type ?? ""),
+        "site_admin": r.json?.site_admin,
+        "company": (r.json?.company ?? ""),
+        "location": (r.json?.location ?? ""),
+        "ldap_dn": (r.json?.ldap_dn ?? ""),
+        "expires_at": (r.headers["github-authentication-token-expiration"] ?? ""),
         "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
         "sso": (r.headers["x-github-sso"] ?? "")
       }
@@ -5870,7 +5875,14 @@ let scopes = input["scopes"] ?? [];
   "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
-    "sso": input["sso"] ?? ""
+    "sso": input["sso"] ?? "",
+    "url": input["url"] ?? "",
+    "account_type": input["account_type"] ?? "",
+    "site_admin": input["site_admin"],
+    "company": input["company"] ?? "",
+    "location": input["location"] ?? "",
+    "ldap_dn": input["ldap_dn"] ?? "",
+    "expires_at": input["expires_at"] ?? ""
   },
   "identity": {
     "id": input["id"] ?? "",
@@ -5925,10 +5937,17 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
       "analysis": {
-        "id": string(r.json?.id ?? ""),
+        "id": r.json?.id != nil ? string(int(r.json.id)) : "",
         "username": (r.json?.login ?? ""),
         "name": (r.json?.name ?? ""),
         "email": (r.json?.email ?? ""),
+        "url": (r.json?.html_url ?? ""),
+        "account_type": (r.json?.type ?? ""),
+        "site_admin": r.json?.site_admin,
+        "company": (r.json?.company ?? ""),
+        "location": (r.json?.location ?? ""),
+        "ldap_dn": (r.json?.ldap_dn ?? ""),
+        "expires_at": (r.headers["github-authentication-token-expiration"] ?? ""),
         "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
         "sso": (r.headers["x-github-sso"] ?? "")
       }
@@ -5944,7 +5963,14 @@ let scopes = input["scopes"] ?? [];
   "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
-    "sso": input["sso"] ?? ""
+    "sso": input["sso"] ?? "",
+    "url": input["url"] ?? "",
+    "account_type": input["account_type"] ?? "",
+    "site_admin": input["site_admin"],
+    "company": input["company"] ?? "",
+    "location": input["location"] ?? "",
+    "ldap_dn": input["ldap_dn"] ?? "",
+    "expires_at": input["expires_at"] ?? ""
   },
   "identity": {
     "id": input["id"] ?? "",
@@ -5999,10 +6025,17 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
       "analysis": {
-        "id": string(r.json?.id ?? ""),
+        "id": r.json?.id != nil ? string(int(r.json.id)) : "",
         "username": (r.json?.login ?? ""),
         "name": (r.json?.name ?? ""),
         "email": (r.json?.email ?? ""),
+        "url": (r.json?.html_url ?? ""),
+        "account_type": (r.json?.type ?? ""),
+        "site_admin": r.json?.site_admin,
+        "company": (r.json?.company ?? ""),
+        "location": (r.json?.location ?? ""),
+        "ldap_dn": (r.json?.ldap_dn ?? ""),
+        "expires_at": (r.headers["github-authentication-token-expiration"] ?? ""),
         "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
         "sso": (r.headers["x-github-sso"] ?? "")
       }
@@ -6018,7 +6051,14 @@ let scopes = input["scopes"] ?? [];
   "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
-    "sso": input["sso"] ?? ""
+    "sso": input["sso"] ?? "",
+    "url": input["url"] ?? "",
+    "account_type": input["account_type"] ?? "",
+    "site_admin": input["site_admin"],
+    "company": input["company"] ?? "",
+    "location": input["location"] ?? "",
+    "ldap_dn": input["ldap_dn"] ?? "",
+    "expires_at": input["expires_at"] ?? ""
   },
   "identity": {
     "id": input["id"] ?? "",
@@ -6074,10 +6114,17 @@ let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (l
     }); r.status == 200 && (r.json?.login ?? "") != "" ? {
       "result": "valid",
       "analysis": {
-        "id": string(r.json?.id ?? ""),
+        "id": r.json?.id != nil ? string(int(r.json.id)) : "",
         "username": (r.json?.login ?? ""),
         "name": (r.json?.name ?? ""),
         "email": (r.json?.email ?? ""),
+        "url": (r.json?.html_url ?? ""),
+        "account_type": (r.json?.type ?? ""),
+        "site_admin": r.json?.site_admin,
+        "company": (r.json?.company ?? ""),
+        "location": (r.json?.location ?? ""),
+        "ldap_dn": (r.json?.ldap_dn ?? ""),
+        "expires_at": (r.headers["github-authentication-token-expiration"] ?? ""),
         "scopes": strings.splitTrim((r.headers["x-oauth-scopes"] ?? ""), ","),
         "sso": (r.headers["x-github-sso"] ?? "")
       }
@@ -6182,7 +6229,7 @@ entropy(finding["secret"]) <= 3.0
 id = "gitlab-incoming-mail-address-token"
 description = "Identified a GitLab incoming mail token embedded in an email address, risking manipulation of data sent by mail."
 regex = '''incoming\+(?:[A-Za-z0-9._-]+-)?\d+-([A-Za-z0-9_-]+)-(?:issue(?:-\d+)?|merge-request)@'''
-specificity = 50
+specificity = -50
 confidence = "high"
 keywords = ["incoming+"]
 filter = '''
@@ -8273,7 +8320,7 @@ entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 id = "monday-api-token.1"
 description = "monday.com API token, which may grant the same workspace access as its associated user or application."
 regex = '''(?i:(?:monday)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(eyJ[A-Za-z0-9_-]{10,200}\.eyJ[A-Za-z0-9_-]{50,1000}\.[A-Za-z0-9_-]{20,500})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-specificity = 110
+specificity = 10
 confidence = "high"
 keywords = ["monday"]
 validate = '''
@@ -10869,7 +10916,7 @@ keywords = ["snyk"]
 id = "sonar-api-token"
 description = "Uncovered a Sonar API token, potentially compromising software vulnerability scanning and code security."
 regex = '''(?i)(?:sonar[_.-]?(login|token))(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:squ_|sqp_|sqa_)?[a-z0-9=_\-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
-secretGroup = 2
+valueGroup = 2
 confidence = "high"
 keywords = ["sonar"]
 
@@ -11102,7 +11149,7 @@ skipReport = true
 [[rules]]
 id = "tableau-personal-access-token.1"
 description = "Tableau personal access token."
-regex = '''\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b'''
+regex = '''(?:^|[^A-Za-z0-9+/])([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b'''
 confidence = "high"
 keywords = ["tableau"]
 validate = '''

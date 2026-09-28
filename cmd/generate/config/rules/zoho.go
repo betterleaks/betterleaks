@@ -23,7 +23,7 @@ func ZohoOAuthToken() *config.Rule {
   }); r.status == 200 && (r.body contains "\"users\"") ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	token := "1000." +
@@ -51,7 +51,7 @@ func ZohoClientID() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"zoho"}, `1000\.`+utils.AlphaNumeric("30"), true),
 		Keywords:    []string{"zoho"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	clientID := "1000." + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{30}`, 3.0)
@@ -94,7 +94,7 @@ func ZohoClientSecret() *config.Rule {
   r.status == 200 && (r.json?.error ?? "") == "invalid_code" ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	clientSecret := secrets.NewSecretWithEntropy(`[a-f0-9]{42}`, 3.5)
@@ -123,8 +123,8 @@ func ZohoZAPIKey() *config.Rule {
 			`(?:1001\.`+utils.Hex("32")+`\.`+utils.Hex("32")+`(?:-d)?|1003\.`+utils.Hex("32,64")+`)`,
 			true,
 		),
-		Keywords: []string{"zoho"},
-		Filter:   utils.MinEntropy(3.5),
+		Keywords:   []string{"zoho"},
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	keyV1 := "1001." +

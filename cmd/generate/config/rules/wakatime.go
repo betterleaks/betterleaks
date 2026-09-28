@@ -39,7 +39,7 @@ func WakaTimeAPIKeyV1() *config.Rule {
 		Keywords:     []string{"wakatime", "waka_time", "waka-time", "waka time", "waka.time"},
 		ValidateExpr: wakaTimeAPIKeyValidateExpr,
 		AnalyzeExpr:  wakaTimeAPIKeyAnalyzeExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -64,7 +64,7 @@ func WakaTimeAPIKeyV2() *config.Rule {
 		Keywords:     []string{"waka_"},
 		ValidateExpr: wakaTimeAPIKeyValidateExpr,
 		AnalyzeExpr:  wakaTimeAPIKeyAnalyzeExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate

@@ -9,6 +9,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/internal/contextwindow"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 // Confidence is the minimum confidence classification accepted by a scanner.
@@ -22,12 +23,14 @@ const (
 )
 
 type scannerOptions struct {
+	regexEngine         regexp.Engine
 	workers             int
 	maxDecodeDepth      int
 	matchContext        contextwindow.Spec
 	minimumConfidence   string
-	ignoreAllowComments bool
+	allowSignatures     []string
 	ignoredFingerprints []fingerprint.Hash
+	fingerprintKey      []byte
 	precompile          bool
 	logger              *slog.Logger
 }
@@ -38,11 +41,42 @@ type Option struct {
 	apply func(*scannerOptions) error
 }
 
-// WithIgnoredFingerprints suppresses completed findings whose primary secret
-// matches a hash, independent of rule, source, or location. Component matches
-// remain available to assemble other findings. Suppression precedes validation
-// and analysis and applies to Run, Scan, and ScanString.
-// The hashes are copied; repeated options add to the ignored set.
+// WithRegexEngine selects the engine for detection regexes, path regexes, and
+// finding filter helpers. The default is regexp.Stdlib. Engine is retained and
+// must support concurrent use. Source prefilters are configured separately.
+func WithRegexEngine(engine regexp.Engine) Option {
+	return Option{apply: func(options *scannerOptions) error {
+		if engine == nil {
+			return errors.New("regex engine is required")
+		}
+		options.regexEngine = engine
+		return nil
+	}}
+}
+
+// WithFingerprintKey selects HMAC-SHA-256 for match fingerprints and ignore matching.
+// The key must be non-empty and is copied when this option is created. Omit this
+// option to use ordinary SHA-256. Rule and config hashes are unaffected.
+// Changing the key invalidates existing keyed fingerprints and ignore entries.
+func WithFingerprintKey(key []byte) Option {
+	key = slices.Clone(key)
+	return Option{apply: func(options *scannerOptions) error {
+		if len(key) == 0 {
+			return errors.New("fingerprint key must not be empty")
+		}
+		options.fingerprintKey = key
+		return nil
+	}}
+}
+
+// WithIgnoredFingerprints suppresses findings with an ignored primary secret
+// and excludes ignored component matches, independent of rule, source, or location.
+// Hashes identify exact Match.Value bytes, including non-secret component values.
+// A primary is suppressed if a required component has no remaining matches.
+// Ignored optional components are treated as absent. Filtering precedes validation
+// and analysis and applies to Scan and ScanString.
+// The hashes are copied; repeated options add to the ignored set. Their mode must
+// match the scanner: HMAC requires WithFingerprintKey; plain SHA-256 requires no key.
 func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {
 	hashes = slices.Clone(hashes)
 	return Option{apply: func(options *scannerOptions) error {
@@ -51,9 +85,9 @@ func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {
 	}}
 }
 
-// WithWorkers limits concurrent detection across all Run, Scan, and ScanString
+// WithWorkers limits concurrent detection across all Scan and ScanString
 // calls on the same Scanner. Workers start as needed; source I/O and result
-// handlers do not occupy worker slots. Zero uses GOMAXPROCS at construction.
+// handlers do not occupy worker slots. Zero uses 4 * GOMAXPROCS at construction.
 func WithWorkers(workers int) Option {
 	return Option{apply: func(options *scannerOptions) error {
 		if workers < 0 {
@@ -102,11 +136,20 @@ func WithMinimumConfidence(value Confidence) Option {
 	}}
 }
 
-// WithIgnoreAllowComments controls whether allow comments are ignored instead
-// of suppressing findings.
-func WithIgnoreAllowComments(ignore bool) Option {
+// WithAllowSignatures replaces the default betterleaks:allow and gitleaks:allow
+// markers. Matching is a case-sensitive literal substring check on finding lines;
+// markers need not appear inside comments. No signatures disables suppression.
+// Empty strings are rejected by New. The slice is copied when the option is
+// created; repeated options replace the list, with the last option taking effect.
+func WithAllowSignatures(signatures ...string) Option {
+	signatures = slices.Clone(signatures)
 	return Option{apply: func(options *scannerOptions) error {
-		options.ignoreAllowComments = ignore
+		for _, signature := range signatures {
+			if signature == "" {
+				return errors.New("allow signatures must not be empty")
+			}
+		}
+		options.allowSignatures = signatures
 		return nil
 	}}
 }
@@ -120,8 +163,9 @@ func WithLogger(logger *slog.Logger) Option {
 	}}
 }
 
-// WithPrecompile compiles detection regexes and local filter expressions during
-// construction. Provider expressions are never compiled. Lazy compilation remains the default.
+// WithPrecompile compiles detection and path regexes during construction instead
+// of on first use. Finding filters always compile during construction. Provider
+// expressions are never compiled by the scanner.
 func WithPrecompile() Option {
 	return Option{apply: func(options *scannerOptions) error {
 		options.precompile = true

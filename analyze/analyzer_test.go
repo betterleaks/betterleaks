@@ -155,7 +155,7 @@ func TestValidateCredentialPipeline(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &config.Config{Prefilter: "invalid scan syntax ???", Filter: "invalid scan syntax ???", Rules: []config.Rule{{
-				ID: "credential", Regex: `never-matches-this-input`, Filter: "invalid scan syntax ???", Confidence: "low", SkipReport: true,
+				ID: "credential", Regex: `never-matches-this-input`, FilterExpr: "invalid scan syntax ???", Confidence: "low", SkipReport: true,
 				ValidateExpr: tc.validation, AnalyzeExpr: tc.analysis,
 			}}}
 			d := mustNew(t, cfg)
@@ -180,7 +180,7 @@ func TestValidateCredentialPipeline(t *testing.T) {
 
 func TestValidateCredentialInputs(t *testing.T) {
 	cfg := &config.Config{Rules: []config.Rule{
-		{ID: "primary", Regex: `(?P<tenant>tenant)-(?P<secret>key)`, SecretGroup: 2, ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{"identity":{"id":finding.captures["tenant"]}}`, Components: []config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}}},
+		{ID: "primary", Regex: `(?P<tenant>tenant)-(?P<secret>key)`, ValueGroup: 2, ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{"identity":{"id":finding.captures["tenant"]}}`, Components: []config.Component{{RuleID: "part"}, {RuleID: "optional", Optional: true}}},
 		{ID: "part", Regex: `part`}, {ID: "optional", Regex: `optional`},
 	}}
 	d := mustNew(t, cfg)
@@ -470,7 +470,7 @@ func TestMalformedFindingsNeverReachProvider(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.WriteHeader(200) }))
 	defer server.Close()
 	cfg := &config.Config{Rules: []config.Rule{
-		{ID: "key", Regex: `(?P<tenant>tenant):(?P<token>token)`, SecretGroup: 2,
+		{ID: "key", Regex: `(?P<tenant>tenant):(?P<token>token)`, ValueGroup: 2,
 			ValidateExpr: fmt.Sprintf(`let r=http.get(%q, {}); {"result": finding.captures.tenant != "" && components.part.captures.region != "" ? "valid" : "invalid"}`, server.URL),
 			Components:   []config.Component{{RuleID: "part"}}},
 		{ID: "part", Regex: `part`},
@@ -577,7 +577,7 @@ func TestCredentialDedupIgnoresOccurrence(t *testing.T) {
 	require.NoError(t, err)
 	count := 0
 	err = a.AnalyzeStream(t.Context(), func(ctx context.Context, yield func(report.Finding) error) error {
-		for i := 0; i < 30; i++ {
+		for i := range 30 {
 			f := report.Finding{RuleID: "key", Match: report.Match{Full: fmt.Sprintf("match%d TOKEN", i), Value: "TOKEN", Line: fmt.Sprint(i), Context: fmt.Sprint(i)}, Location: report.Location{Path: fmt.Sprintf("file%d.env", i)}, Attributes: map[string]string{"git.message": fmt.Sprint(i)}}
 			if err := yield(f); err != nil {
 				return err

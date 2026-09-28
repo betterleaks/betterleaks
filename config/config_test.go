@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
+	"github.com/betterleaks/betterleaks/v2/version"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,7 +33,191 @@ title = "logger test"
 
 const configPath = "../testdata/config/"
 
-type translateCase struct {
+func TestHashes(t *testing.T) {
+	newConfig := func() *Config {
+		return &Config{
+			Filter: "false", Prefilter: "false",
+			Rules: []Rule{
+				{ID: "primary", Regex: `(TOKEN)(OTHER)?`, ValueGroup: 1, Specificity: 100,
+					Components:   []Component{{RuleID: "required", Within: "5L"}, {RuleID: "optional", Optional: true}},
+					ValidateExpr: `{"result":"valid"}`, AnalyzeExpr: `{}`},
+				{ID: "required", Regex: `REQUIRED`, SkipReport: true},
+				{ID: "optional", Regex: `OPTIONAL`, SkipReport: true},
+				{ID: "other", Regex: `OTHER`},
+			},
+		}
+	}
+	original := newConfig()
+	wantConfig := original.Hash()
+	wantRule, err := original.RuleHash("primary")
+	require.NoError(t, err)
+	assert.Equal(t, "7eea25c39bea00e213445c60c29ac2fe5872e078d95695d5a55df155baae1fd9", wantConfig)
+	assert.Equal(t, "036fb0e0df4b98ce6847d8ca567f32b60e5366734f1ab8149c4d29a1e03dea0d", wantRule)
+	for _, tc := range []struct {
+		name       string
+		change     func(*Config)
+		configSame bool
+		ruleSame   bool
+	}{
+		{"description", func(c *Config) { c.Rules[0].Description = "updated" }, false, false},
+		{"regex", func(c *Config) { c.Rules[0].Regex = `(CHANGED)(OTHER)?` }, false, false},
+		{"path", func(c *Config) { c.Rules[0].Path = `\.env$` }, false, false},
+		{"value group", func(c *Config) { c.Rules[0].ValueGroup = 2 }, false, false},
+		{"keywords", func(c *Config) { c.Rules[0].Keywords = []string{"TOKEN"} }, false, false},
+		{"tags", func(c *Config) { c.Rules[0].Tags = []string{"credential"} }, false, false},
+		{"specificity", func(c *Config) { c.Rules[0].Specificity++ }, false, false},
+		{"confidence", func(c *Config) { c.Rules[0].Confidence = "high" }, false, false},
+		{"rule filter", func(c *Config) { c.Rules[0].FilterExpr = "true" }, false, false},
+		{"skip report", func(c *Config) { c.Rules[0].SkipReport = true }, false, false},
+		{"component reference", func(c *Config) { c.Rules[0].Components[0].RuleID = "other" }, false, false},
+		{"component optionality", func(c *Config) { c.Rules[0].Components[0].Optional = true }, false, false},
+		{"component proximity", func(c *Config) { c.Rules[0].Components[0].Within = "10L" }, false, false},
+		{"component order", func(c *Config) { slices.Reverse(c.Rules[0].Components) }, false, false},
+		{"required component regex", func(c *Config) { c.Rules[1].Regex = "NEW" }, false, false},
+		{"optional component regex", func(c *Config) { c.Rules[2].Regex = "NEW" }, false, false},
+		{"component filter", func(c *Config) { c.Rules[1].FilterExpr = "true" }, false, false},
+		{"global filter", func(c *Config) { c.Filter = "true" }, false, true},
+		{"global prefilter", func(c *Config) { c.Prefilter = "true" }, false, true},
+		{"other rule", func(c *Config) { c.Rules[3].Regex = "NEW" }, false, true},
+		{"other specificity", func(c *Config) { c.Rules[3].Specificity = 200 }, false, true},
+		{"rule order", func(c *Config) { slices.Reverse(c.Rules) }, false, true},
+		{"validation", func(c *Config) { c.Rules[0].ValidateExpr = "not a valid expression" }, false, false},
+		{"analysis", func(c *Config) { c.Rules[0].AnalyzeExpr = "not a valid expression" }, false, false},
+		{"revocation", func(c *Config) { c.Rules[0].RevokeExpr = "not a valid expression" }, false, false},
+		{"component validation", func(c *Config) { c.Rules[1].ValidateExpr = "changed" }, false, false},
+		{"component analysis", func(c *Config) {
+			c.Rules[1].ValidateExpr, c.Rules[1].AnalyzeExpr = "changed", "changed"
+		}, false, false},
+		{"component revocation", func(c *Config) { c.Rules[1].RevokeExpr = "changed" }, false, false},
+		{"optional component validation", func(c *Config) { c.Rules[2].ValidateExpr = "changed" }, false, false},
+		{"other rule validation", func(c *Config) { c.Rules[3].ValidateExpr = "changed" }, false, true},
+		{"config metadata", func(c *Config) {
+			c.Title, c.Description, c.Path, c.MinVersion = "new", "new", "/elsewhere/config.toml", "v99.0.0"
+		}, true, true},
+		{"nil and empty slices", func(c *Config) {
+			c.Rules[0].Keywords, c.Rules[0].Tags, c.Rules[1].Components = []string{}, []string{}, []Component{}
+		}, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := newConfig()
+			tc.change(cfg)
+			gotRule, err := cfg.RuleHash("primary")
+			require.NoError(t, err)
+			hashes, err := cfg.RuleHashes()
+			require.NoError(t, err)
+			assert.Equal(t, gotRule, hashes["primary"])
+			assert.Equal(t, tc.configSame, wantConfig == cfg.Hash(), "config hash equality")
+			assert.Equal(t, tc.ruleSame, wantRule == gotRule, "rule hash equality")
+		})
+	}
+	t.Run("rule ID", func(t *testing.T) {
+		cfg := newConfig()
+		cfg.Rules[0].ID = "renamed"
+		gotRule, err := cfg.RuleHash("renamed")
+		require.NoError(t, err)
+		assert.NotEqual(t, wantRule, gotRule)
+		assert.NotEqual(t, wantConfig, cfg.Hash())
+	})
+	// Hashing reads current values without mutating or memoizing the config.
+	assert.Equal(t, newConfig(), original)
+	assert.Equal(t, wantConfig, original.Hash())
+	gotRule, err := original.RuleHash("primary")
+	require.NoError(t, err)
+	assert.Equal(t, wantRule, gotRule)
+	original.Rules[1].Regex = "CHANGED"
+	assert.NotEqual(t, wantConfig, original.Hash())
+	gotRule, err = original.RuleHash("primary")
+	require.NoError(t, err)
+	assert.NotEqual(t, wantRule, gotRule)
+}
+
+func TestHashEncoding(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		a, b []string
+	}{
+		{"field boundaries", []string{"ab", "c"}, []string{"a", "bc"}},
+		{"embedded separator", []string{"a\x00b", "c"}, []string{"a", "b\x00c"}},
+		{"invalid UTF-8", []string{"\xff"}, []string{"\xfe"}},
+		{"slice length", nil, []string{""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &Config{Rules: []Rule{{ID: "test", Regex: "TOKEN", Tags: tc.a}}}
+			b := &Config{Rules: []Rule{{ID: "test", Regex: "TOKEN", Tags: tc.b}}}
+			assert.NotEqual(t, a.Hash(), b.Hash())
+			ah, err := a.RuleHash("test")
+			require.NoError(t, err)
+			bh, err := b.RuleHash("test")
+			require.NoError(t, err)
+			assert.NotEqual(t, ah, bh)
+		})
+	}
+}
+
+func TestRuleHashErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  *Config
+		id   string
+		want string
+	}{
+		{"nil", nil, "test", "config is required"},
+		{"unknown", &Config{}, "test", `rule "test" not found`},
+		{"missing component", &Config{Rules: []Rule{{ID: "test", Regex: "TOKEN", Components: []Component{{RuleID: "missing"}}}}}, "test", "does not exist"},
+		{"duplicate", &Config{Rules: []Rule{{ID: "test", Regex: "A"}, {ID: "test", Regex: "B"}}}, "test", "duplicate rule ID"},
+		{"nested components", &Config{Rules: []Rule{
+			{ID: "test", Regex: "A", Components: []Component{{RuleID: "nested"}}},
+			{ID: "nested", Regex: "B", Components: []Component{{RuleID: "leaf"}}},
+			{ID: "leaf", Regex: "C"},
+		}}, "test", "must not itself have components"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hash, err := tc.cfg.RuleHash(tc.id)
+			require.ErrorContains(t, err, tc.want)
+			assert.Empty(t, hash)
+		})
+	}
+	assert.Empty(t, (*Config)(nil).Hash())
+}
+
+func TestHashesResolvedConfig(t *testing.T) {
+	const plain = `filter = 'false'
+[[rules]]
+id = 'test'
+regex = '(TOKEN)'
+valueGroup = 1
+`
+	const formatted = `# Formatting and source location do not identify the ruleset.
+filter='false'
+
+[[rules]] # rule comment
+id="test"
+regex="(TOKEN)"
+valueGroup=1
+`
+	a, err := ParseTOMLString(plain, "first.toml")
+	require.NoError(t, err)
+	b, err := ParseTOMLString(formatted, "second.toml")
+	require.NoError(t, err)
+	assert.Equal(t, a.Hash(), b.Hash())
+	ah, err := a.RuleHash("test")
+	require.NoError(t, err)
+	bh, err := b.RuleHash("test")
+	require.NoError(t, err)
+	assert.Equal(t, ah, bh)
+	assert.Equal(t, "197ca9603a9ead967aacc97abf38c6cb52d9fa577ed8e872f402a43137c44847", a.Hash())
+	assert.Equal(t, "b569afe0d69937ac5a4b4f2080faa01ff96c63a8bb60518795b4595f51cac4fd", ah)
+	basePath := filepath.Join(t.TempDir(), "base.toml")
+	require.NoError(t, os.WriteFile(basePath, []byte(plain), 0o600))
+	extended, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = '%s'\n", filepath.ToSlash(basePath)), "extended.toml")
+	require.NoError(t, err)
+	assert.Equal(t, a.Hash(), extended.Hash())
+	extendedHash, err := extended.RuleHash("test")
+	require.NoError(t, err)
+	assert.Equal(t, ah, extendedHash)
+}
+
+type configFixtureCase struct {
 	// Configuration file basename to load, from `../testdata/config/`.
 	cfgName string
 	// Expected result.
@@ -42,8 +228,8 @@ type translateCase struct {
 	wantError error
 }
 
-func TestTranslate(t *testing.T) {
-	tests := []translateCase{
+func TestLoadConfigFixtures(t *testing.T) {
+	tests := []configFixtureCase{
 		// Valid
 		{
 			cfgName: "generic",
@@ -55,7 +241,7 @@ func TestTranslate(t *testing.T) {
 					Regex:       `(?i)(?:key|api|token|secret|client|passwd|password|auth|access)(?:[0-9a-z\-_\t .]{0,20})(?:[\s|']|[\s|"]){0,3}(?:=|>|:{1,3}=|\|\|:|<=|=>|:|\?=)(?:'|\"|\s|=|\x60){0,5}([0-9a-z\-_.=]{10,150})(?:['|\"|\n|\r|\s|\x60|;]|$)`,
 					Keywords:    []string{"key", "api", "token", "secret", "client", "passwd", "password", "auth", "access"},
 					Tags:        []string{},
-					Filter:      `entropy(finding["secret"]) <= 3.5`,
+					FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 				}},
 			},
 		},
@@ -84,16 +270,16 @@ func TestTranslate(t *testing.T) {
 			},
 		},
 		{
-			cfgName: "valid/rule_secret_group",
+			cfgName: "valid/rule_value_group",
 			cfg: &Config{
 				Rules: []Rule{{
 					ID:          "discord-api-key",
 					Description: "Discord API key",
 					Regex:       `(?i)(discord[a-z0-9_ .\-,]{0,25})(=|>|:=|\|\|:|<=|=>|:).{0,5}['\"]([a-h0-9]{64})['\"]`,
-					SecretGroup: 3,
+					ValueGroup:  3,
 					Keywords:    []string{},
 					Tags:        []string{},
-					Filter:      `entropy(finding["secret"]) <= 3.5`,
+					FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 				}},
 			},
 		},
@@ -110,14 +296,14 @@ func TestTranslate(t *testing.T) {
 			wantError: errors.New("discord-api-key: both |regex| and |path| are empty, this rule will have no effect"),
 		},
 		{
-			cfgName:   "invalid/rule_bad_secret_group",
+			cfgName:   "invalid/rule_bad_value_group",
 			cfg:       &Config{},
-			wantError: errors.New("discord-api-key: invalid regex secret group 5, max regex secret group 3"),
+			wantError: errors.New("discord-api-key: invalid regex value group 5, max regex value group 3"),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.cfgName, func(t *testing.T) {
-			testTranslate(t, tt)
+			checkConfigFixture(t, tt)
 		})
 	}
 }
@@ -138,8 +324,8 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 	}
 
 	for _, rule := range cfg.Rules {
-		if rule.Filter != "" {
-			_, err = filterRuntime.CompileFilter(rule.Filter, nil)
+		if rule.FilterExpr != "" {
+			_, err = filterRuntime.CompileFilter(rule.FilterExpr, nil)
 			require.NoErrorf(t, err, "rule %q filter", rule.ID)
 		}
 		if rule.ValidateExpr != "" {
@@ -191,8 +377,8 @@ func TestGenericRuleConfidence(t *testing.T) {
 	require.Equal(t, "low", requireRule(t, cfg, "generic-api-key").Confidence)
 	require.Equal(t, "medium", requireRule(t, cfg, "box-api-access-token").Confidence)
 	require.Equal(t, "high", requireRule(t, cfg, "openai-api-key").Confidence)
-	require.Contains(t, requireRule(t, cfg, "generic-api-key").Filter, `\b[a-z0-9]+[_.-]+token\b`)
-	require.Contains(t, requireRule(t, cfg, "generic-api-key").Filter, `]) ? "medium" : "low";`)
+	require.Contains(t, requireRule(t, cfg, "generic-api-key").FilterExpr, `\b[a-z0-9]+[_.-]+token\b`)
+	require.Contains(t, requireRule(t, cfg, "generic-api-key").FilterExpr, `]) ? "medium" : "low";`)
 }
 
 func TestRuleConfidence(t *testing.T) {
@@ -236,8 +422,8 @@ regex = "secret"
 
 }
 
-func TestTranslateExtend(t *testing.T) {
-	tests := []translateCase{
+func TestLoadExtendedConfigFixtures(t *testing.T) {
+	tests := []configFixtureCase{
 		// Valid
 		{
 			cfgName: "valid/extend",
@@ -296,7 +482,7 @@ func TestTranslateExtend(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.cfgName, func(t *testing.T) {
-			testTranslate(t, tt)
+			checkConfigFixture(t, tt)
 		})
 	}
 }
@@ -309,7 +495,7 @@ func TestExtendGlobalExpressions(t *testing.T) {
 		currentFilter    = `let current = finding["secret"] == "current"; current`
 	)
 	basePath := filepath.Join(t.TempDir(), "base.toml")
-	require.NoError(t, os.WriteFile(basePath, []byte(fmt.Sprintf("prefilter = %q\nfilter = %q\n", basePrefilter, baseFilter)), 0o600))
+	require.NoError(t, os.WriteFile(basePath, fmt.Appendf(nil, "prefilter = %q\nfilter = %q\n", basePrefilter, baseFilter), 0o600))
 	current, err := ParseTOMLString(fmt.Sprintf("prefilter = %q\nfilter = %q\n[extend]\npath = %q\n", currentPrefilter, currentFilter, basePath), "")
 	require.NoError(t, err)
 
@@ -383,7 +569,7 @@ func TestExtendGlobalExpressionsWithEmptySide(t *testing.T) {
 	}
 }
 
-func testTranslate(t *testing.T, test translateCase) {
+func checkConfigFixture(t *testing.T, test configFixtureCase) {
 	t.Helper()
 	cfg, err := loadTestConfig(test.cfgName)
 	if err != nil {
@@ -407,32 +593,32 @@ func testTranslate(t *testing.T, test translateCase) {
 		cfg.Rules = rules
 	}
 
-	opts := cmp.Options{
-		cmpopts.IgnoreFields(Rule{}, "Specificity"),
-		cmpopts.IgnoreUnexported(Rule{}),
-	}
 	if diff := cmp.Diff(test.cfg.Title, cfg.Title); diff != "" {
 		t.Errorf("%s diff: (-want +got)\n%s", test.cfgName, diff)
 	}
-	if diff := cmp.Diff(test.cfg.Rules, cfg.Rules, opts); diff != "" {
+	if diff := cmp.Diff(test.cfg.Rules, cfg.Rules); diff != "" {
 		t.Errorf("%s diff: (-want +got)\n%s", test.cfgName, diff)
 	}
 }
 
 func TestRuleSpecificity(t *testing.T) {
-	cfg, err := ParseTOMLString(`
-[[rules]]
-id = "default"
-regex = "default"
-
-[[rules]]
-id = "fallback"
-regex = "fallback"
-specificity = 0
-`, "")
-	require.NoError(t, err)
-	assert.Equal(t, DefaultRuleSpecificity, requireRule(t, cfg, "default").Specificity)
-	assert.Equal(t, 0, requireRule(t, cfg, "fallback").Specificity)
+	for _, test := range []struct {
+		name, field string
+		want        int
+	}{
+		{name: "omitted"},
+		{name: "zero", field: "specificity = 0"},
+		{name: "lower", field: "specificity = -100", want: -100},
+		{name: "higher", field: "specificity = 10", want: 10},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := ParseTOMLString("[[rules]]\nid = 'token'\nregex = 'TOKEN'\n"+test.field, "")
+			require.NoError(t, err)
+			require.Equal(t, test.want, requireRule(t, cfg, "token").Specificity)
+			sdk := &Config{Rules: []Rule{{ID: "token", Regex: "TOKEN", Specificity: test.want}}}
+			require.Equal(t, sdk.Hash(), cfg.Hash(), "TOML and SDK construction have identical defaults")
+		})
+	}
 }
 
 func TestExtendedRuleReplacesBase(t *testing.T) {
@@ -443,7 +629,7 @@ id = "token"
 description = "base description"
 regex = '(TOKEN)'
 path = 'base.env'
-secretGroup = 1
+valueGroup = 1
 specificity = 17
 skipReport = true
 confidence = "high"
@@ -461,7 +647,7 @@ regex = 'PART'
 	for _, fields := range []string{
 		"regex = 'CHILD'",
 		"path = 'child.env'",
-		"regex = '(CHILD)'\nsecretGroup = 1\nspecificity = 0\nskipReport = true\nkeywords = ['CHILD']\ntags = ['child']",
+		"regex = '(CHILD)'\nvalueGroup = 1\nspecificity = 0\nskipReport = true\nkeywords = ['CHILD']\ntags = ['child']",
 	} {
 		t.Run(fields, func(t *testing.T) {
 			child := "[[rules]]\nid = 'token'\n" + fields
@@ -483,7 +669,7 @@ func TestNestedRuleReplacement(t *testing.T) {
 [[rules]]
 id = "token"
 regex = '(TOKEN)'
-secretGroup = 1
+valueGroup = 1
 specificity = 17
 skipReport = true
 keywords = ["BASE"]
@@ -494,17 +680,17 @@ components = [{ id = "part", within = "2L" }]
 id = "disabled"
 regex = 'DISABLED'
 `), 0o600))
-	require.NoError(t, os.WriteFile(middlePath, []byte(fmt.Sprintf(`[extend]
+	require.NoError(t, os.WriteFile(middlePath, fmt.Appendf(nil, `[extend]
 path = %q
 [[rules]]
 id = "token"
 regex = 'MIDDLE'
-secretGroup = 0
+valueGroup = 0
 specificity = 0
 skipReport = false
 keywords = ["MIDDLE"]
 tags = ["middle"]
-`, basePath)), 0o600))
+`, basePath), 0o600))
 	cfg, err := ParseTOMLString(fmt.Sprintf(`[extend]
 path = %q
 disabledRules = ["disabled"]
@@ -520,10 +706,10 @@ regex = 'PART'
 	require.NoError(t, err)
 	require.Len(t, cfg.Rules, 2)
 	require.Equal(t, "part", cfg.Rules[0].ID)
-	require.Equal(t, DefaultRuleSpecificity, cfg.Rules[0].Specificity)
+	require.Equal(t, 0, cfg.Rules[0].Specificity)
 	rule := requireRule(t, cfg, "token")
-	assert.Zero(t, rule.SecretGroup)
-	assert.Equal(t, DefaultRuleSpecificity, rule.Specificity)
+	assert.Zero(t, rule.ValueGroup)
+	assert.Equal(t, 0, rule.Specificity)
 	assert.Equal(t, "CHILD", rule.Regex)
 	assert.False(t, rule.SkipReport)
 	assert.Equal(t, []string{"child"}, rule.Keywords)
@@ -553,16 +739,16 @@ func TestInheritanceValidatesResolvedRules(t *testing.T) {
 	for _, test := range []struct {
 		name, baseRegex, override, wantError string
 	}{
-		{name: "replace regex and reset group", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nsecretGroup = 0"},
+		{name: "replace regex and reset group", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nvalueGroup = 0"},
 		{name: "omitted group defaults to zero", baseRegex: "(TOKEN)", override: "regex = 'VALUE'"},
 		{name: "replace invalid inherited regex", baseRegex: "(", override: "regex = '(VALUE)'"},
 		{name: "partial override is invalid", baseRegex: "(TOKEN)", override: "description = 'partial'", wantError: "both |regex| and |path| are empty"},
-		{name: "own group must fit", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nsecretGroup = 1", wantError: "max regex secret group 0"},
-		{name: "cannot clear both patterns", baseRegex: "(TOKEN)", override: "regex = ''\nsecretGroup = 0", wantError: "both |regex| and |path| are empty"},
+		{name: "own group must fit", baseRegex: "(TOKEN)", override: "regex = 'VALUE'\nvalueGroup = 1", wantError: "max regex value group 0"},
+		{name: "cannot clear both patterns", baseRegex: "(TOKEN)", override: "regex = ''\nvalueGroup = 0", wantError: "both |regex| and |path| are empty"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			basePath := filepath.Join(t.TempDir(), "base.toml")
-			require.NoError(t, os.WriteFile(basePath, []byte(fmt.Sprintf("[[rules]]\nid = 'token'\nregex = %q\nsecretGroup = 1\n", test.baseRegex)), 0o600))
+			require.NoError(t, os.WriteFile(basePath, fmt.Appendf(nil, "[[rules]]\nid = 'token'\nregex = %q\nvalueGroup = 1\n", test.baseRegex), 0o600))
 			_, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q\n[[rules]]\nid = 'token'\n%s\n", basePath, test.override), "")
 			if test.wantError != "" {
 				require.ErrorContains(t, err, test.wantError)
@@ -609,7 +795,7 @@ regex = "primary"
 [[rules.required]]
 id = "component"
 `, "")
-		require.ErrorContains(t, err, "[[rules.required]] is not supported; use rules.components")
+		require.ErrorContains(t, err, "rules.required")
 	})
 }
 
@@ -698,16 +884,14 @@ func loadTestConfig(cfgName string) (*Config, error) {
 	return LoadFile(filepath.Join(configPath, cfgName+".toml"))
 }
 
-func TestParseTOMLPermissiveUnknownKeysAndPath(t *testing.T) {
+func TestParseTOMLPreservesPath(t *testing.T) {
 	cfg, err := ParseTOMLString(`
 title = "custom"
-unknownTopLevel = "ignored"
 
 [[rules]]
 id = "test-rule"
 description = "test rule"
 regex = '''test-(secret)'''
-unknownRuleKey = "ignored"
 `, "/tmp/custom.toml")
 	require.NoError(t, err)
 
@@ -737,11 +921,8 @@ func TestExtendedRuleKeywordsAreDowncase(t *testing.T) {
 
 			found := false
 			for _, rule := range cfg.Rules {
-				for _, keyword := range rule.Keywords {
-					if keyword == tt.expectedKeywords {
-						found = true
-						break
-					}
+				if slices.Contains(rule.Keywords, tt.expectedKeywords) {
+					found = true
 				}
 			}
 			require.Truef(t, found, "The expected keyword %s did not exist in any rule", tt.expectedKeywords)
@@ -770,4 +951,103 @@ func BenchmarkParseConfig(b *testing.B) {
 			}
 		})
 	}
+}
+
+func TestParseTOMLRejectsUnknownFields(t *testing.T) {
+	for _, test := range []struct{ name, content, field string }{
+		{"top level", "minVerison = 'v2.0.0'", "minVerison"},
+		{"source path is metadata", "path = 'other.toml'", "path"},
+		{"Go expression field is not a TOML key", "[[rules]]\nid = 'token'\nregex = 'TOKEN'\nFilterExpr = 'true'", "rules.FilterExpr"},
+		{"rule", "[[rules]]\nid = 'token'\nregex = 'TOKEN'\nvalidte = 'true'", "rules.validte"},
+		{"removed secretGroup", "[[rules]]\nid = 'token'\nregex = '(TOKEN)'\nsecretGroup = 1", "rules.secretGroup"},
+		{"component", "[[rules]]\nid = 'token'\nregex = 'TOKEN'\ncomponents = [{id = 'part', optonal = true}]", "rules.components.optonal"},
+		{"extension", "[extend]\nuseDefaut = true", "extend.useDefaut"},
+		{"unsupported URL", "[extend]\nurl = 'https://example.invalid/rules.toml'", "extend.url"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := ParseTOMLString(test.content, "custom.toml")
+			require.Nil(t, cfg)
+			require.ErrorContains(t, err, test.field)
+			require.ErrorContains(t, err, "custom.toml")
+			require.ErrorContains(t, err, "line ")
+			var strict *toml.StrictMissingError
+			require.ErrorAs(t, err, &strict)
+
+			basePath := filepath.Join(t.TempDir(), "base.toml")
+			require.NoError(t, os.WriteFile(basePath, []byte(test.content), 0o600))
+			_, err = ParseTOMLString(fmt.Sprintf("[extend]\npath = %q\n[[rules]]\nid = 'token'\nregex = 'REPLACEMENT'", basePath), "child.toml")
+			require.ErrorContains(t, err, test.field)
+			require.ErrorContains(t, err, fmt.Sprintf("%q", basePath))
+		})
+	}
+}
+
+func TestExtensionDepth(t *testing.T) {
+	for _, extensions := range []int{2, 3} {
+		dir := t.TempDir()
+		base := filepath.Join(dir, "base.toml")
+		require.NoError(t, os.WriteFile(base, []byte("[[rules]]\nid = 'base'\nregex = 'TOKEN'"), 0o600))
+		for i := range extensions {
+			path := filepath.Join(dir, fmt.Sprintf("level%d.toml", i))
+			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, "[extend]\npath = %q", base), 0o600))
+			base = path
+		}
+		cfg, err := LoadFile(base)
+		if extensions == 2 {
+			require.NoError(t, err)
+			require.Len(t, cfg.Rules, 1)
+			require.Equal(t, "base", cfg.Rules[0].ID)
+		} else {
+			require.Nil(t, cfg)
+			require.ErrorContains(t, err, "maximum depth of 2")
+		}
+	}
+	t.Run("cycle", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "cycle.toml")
+		require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, "[extend]\npath = %q", path), 0o600))
+		_, err := LoadFile(path)
+		require.ErrorContains(t, err, "maximum depth of 2")
+	})
+	t.Run("default extension counts toward limit", func(t *testing.T) {
+		dir := t.TempDir()
+		base, middle := filepath.Join(dir, "base.toml"), filepath.Join(dir, "middle.toml")
+		require.NoError(t, os.WriteFile(base, []byte("[extend]\nuseDefault = true"), 0o600))
+		require.NoError(t, os.WriteFile(middle, fmt.Appendf(nil, "[extend]\npath = %q", base), 0o600))
+		_, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q", middle), "")
+		require.ErrorContains(t, err, "maximum depth of 2")
+	})
+}
+
+func TestMinVersionEnforcement(t *testing.T) {
+	original := version.Version
+	t.Cleanup(func() { version.Version = original })
+	for _, test := range []struct{ name, current, minimum, wantError string }{
+		{"older stable", "v1.9.0", "v2.0.0-rc.1", "requires Betterleaks"},
+		{"older prerelease", "v2.0.0-beta.1", "v2.0.0-rc.1", "requires Betterleaks"},
+		{"first RC", "v2.0.0-rc.1", "v2.0.0-rc.1", ""},
+		{"later RC", "v2.0.0-rc.2", "v2.0.0-rc.1", ""},
+		{"stable", "v2.0.0", "v2.0.0-rc.1", ""},
+		{"RC below stable", "v2.0.0-rc.1", "v2.0.0", "requires Betterleaks"},
+		{"development build", "dev", "v9.0.0", ""},
+		{"invalid minimum on dev", "dev", "invalid", "invalid minVersion"},
+		{"invalid current", "invalid", "v2.0.0", "unable to parse current"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			version.Version = test.current
+			_, err := ParseTOMLString(fmt.Sprintf("minVersion = %q", test.minimum), "versioned.toml")
+			if test.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, test.wantError)
+			}
+		})
+	}
+	t.Run("extended minimum is enforced", func(t *testing.T) {
+		version.Version = "v2.0.0-rc.1"
+		path := filepath.Join(t.TempDir(), "base.toml")
+		require.NoError(t, os.WriteFile(path, []byte("minVersion = 'v9.0.0'"), 0o600))
+		_, err := ParseTOMLString(fmt.Sprintf("[extend]\npath = %q", path), "")
+		require.ErrorContains(t, err, "requires Betterleaks v9.0.0")
+		require.ErrorContains(t, err, fmt.Sprintf("%q", path))
+	})
 }

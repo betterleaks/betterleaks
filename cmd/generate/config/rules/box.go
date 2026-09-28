@@ -37,7 +37,7 @@ func BoxAPIAccessToken() *config.Rule {
 		AnalyzeExpr:  boxAnalyzeExpr,
 		// Include any identifier prefix before the regex's "box" match, but
 		// exclude values and neighboring assignments from the client check.
-		Filter: `let prefix = findMatch(finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_start_idx"]], "[\\w.-]*$");
+		FilterExpr: `let prefix = findMatch(finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_start_idx"]], "[\\w.-]*$");
 let identifier = prefix + findMatch(finding["match"], "^[\\w .-]+");
 lower(identifier) contains "client" || entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

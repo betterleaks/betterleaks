@@ -13,7 +13,7 @@ func CfxreServerKey() *config.Rule {
 		Description: "Cfx.re FiveM server key.",
 		Regex:       `\b(cfxk_[a-zA-Z0-9_-]{20,100})`,
 		Keywords:    []string{"cfxk_"},
-		Filter:      `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate

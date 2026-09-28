@@ -16,7 +16,7 @@ func RubyGemsAPIToken() *config.Rule {
 		Keywords: []string{
 			"rubygems_",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

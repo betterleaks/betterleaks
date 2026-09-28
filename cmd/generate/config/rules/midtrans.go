@@ -29,7 +29,7 @@ func MidtransProductionServerClientKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(2.8),
+		FilterExpr: utils.MinEntropy(2.8),
 	}
 
 	// validate

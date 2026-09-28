@@ -14,9 +14,18 @@ import (
 // Finding describes what a rule matched, where it was found, and optional provider
 // enrichment. Scanner owns discovery fields; Analyzer owns Analysis.
 type Finding struct {
-	RuleID      string `json:"rule_id"`
+	RuleID string `json:"rule_id"`
+	// RuleHash identifies the rule and its component definitions, including provider expressions.
+	// Scanner supplies it; externally constructed findings may omit it.
+	RuleHash    string `json:"rule_hash,omitempty"`
 	Description string `json:"description"`
 	Confidence  string `json:"confidence"`
+
+	// Encodings lists distinct encodings encountered, not an ordered decoding
+	// sequence. Empty means the finding was detected without decoding.
+	Encodings []string `json:"encodings,omitempty"`
+	// DecodeDepth is the number of decoding passes; zero means no decoding.
+	DecodeDepth int `json:"decode_depth,omitempty"`
 
 	Match Match `json:"match"`
 
@@ -36,7 +45,7 @@ type Finding struct {
 	// A successful tested set establishes validity; failed tests cannot exhaust the search.
 	ComponentSetsTruncated bool `json:"component_sets_truncated,omitempty"`
 
-	Tags []string `json:"tags"`
+	Tags []string `json:"tags,omitempty"`
 }
 
 // MarshalJSON omits internal attributes and limits Git message metadata to its
@@ -47,10 +56,7 @@ func (f Finding) MarshalJSON() ([]byte, error) {
 
 	wire := wireFinding(f)
 	wire.Attributes = reportAttributes(f.Attributes)
-	return json.Marshal(struct {
-		SchemaVersion int `json:"schema_version"`
-		wireFinding
-	}{SchemaVersion: SchemaVersion, wireFinding: wire})
+	return json.Marshal(wire)
 }
 
 func reportAttributes(attributes map[string]string) map[string]string {
@@ -80,9 +86,16 @@ func reportAttributes(attributes map[string]string) map[string]string {
 // Match groups matched text, the extracted value, and retained source text.
 // A component or path rule need not identify a secret.
 type Match struct {
-	Full     string            `json:"full"`
-	Value    string            `json:"value"`
-	Captures map[string]string `json:"captures,omitempty"`
+	Full  string `json:"full"`
+	Value string `json:"value"`
+	// Fingerprint identifies the original Value bytes independently of rule or location.
+	// It is a 64-character lowercase SHA-256 digest, or hmac-sha256: followed by
+	// the HMAC-SHA-256 digest when the scanner has a fingerprint key.
+	// Value may be a secret or a non-secret component. Scanner supplies the hash
+	// for non-empty values; redaction and analysis preserve it. Externally
+	// constructed matches may omit it.
+	Fingerprint string            `json:"fingerprint,omitempty"`
+	Captures    map[string]string `json:"captures,omitempty"`
 
 	// Line contains the original source line(s) covering the match, retained for
 	// pretty-output snippets and local filtering. It is not serialized or exposed
@@ -125,10 +138,15 @@ func (s ComponentSet) MarshalJSON() ([]byte, error) {
 
 // ComponentFinding is the discovery information for one component match.
 type ComponentFinding struct {
+	RuleHash string   `json:"rule_hash,omitempty"`
 	RuleID   string   `json:"rule_id"`
 	Optional bool     `json:"optional,omitempty"`
 	Match    Match    `json:"match"`
 	Location Location `json:"location"`
+	// Encodings and DecodeDepth describe this component's decoding, independently
+	// of the primary finding, with the same semantics as Finding.
+	Encodings   []string `json:"encodings,omitempty"`
+	DecodeDepth int      `json:"decode_depth,omitempty"`
 }
 
 // Redact removes sensitive information from a finding.
@@ -200,6 +218,7 @@ func (f Finding) RedactedCopy(percent uint) Finding {
 func (f Finding) Clone() Finding {
 	f.Attributes = maps.Clone(f.Attributes)
 	f.Tags = slices.Clone(f.Tags)
+	f.Encodings = slices.Clone(f.Encodings)
 	f.Analysis = cloneAnalysis(f.Analysis)
 	f.Match.Captures = maps.Clone(f.Match.Captures)
 
@@ -210,6 +229,7 @@ func (f Finding) Clone() Finding {
 		set.Components = slices.Clone(set.Components)
 		for j := range set.Components {
 			set.Components[j].Match.Captures = maps.Clone(set.Components[j].Match.Captures)
+			set.Components[j].Encodings = slices.Clone(set.Components[j].Encodings)
 		}
 	}
 	return f

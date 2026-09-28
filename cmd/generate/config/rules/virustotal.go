@@ -29,7 +29,7 @@ r.status == 200 && (r.body contains "\"data\"") ? {
   "result": "invalid",
   "reason": "Wrong credentials"
 } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[a-f0-9]{64}`, 3.5)

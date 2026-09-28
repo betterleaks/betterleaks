@@ -22,7 +22,7 @@ func VultrAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API token"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.4),
+		FilterExpr: utils.MinEntropy(3.4),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[a-f0-9]{36}`, 3.4)

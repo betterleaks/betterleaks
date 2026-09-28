@@ -1,7 +1,7 @@
 package re2
 
 import (
-	"github.com/betterleaks/betterleaks/v2/regexp/internal"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 
 	gore2 "github.com/betterleaks/go-re2"
 )
@@ -9,7 +9,7 @@ import (
 // RE2 is an Engine that uses github.com/betterleaks/go-re2.
 type RE2 struct{}
 
-func (RE2) Compile(str string) (internal.CompiledRegexp, error) {
+func (RE2) Compile(str string) (regexp.CompiledRegexp, error) {
 	return gore2.Compile(str)
 }
 

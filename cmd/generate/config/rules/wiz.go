@@ -14,7 +14,7 @@ func WizClientID() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wiz"}, `[A-Za-z0-9]{53,56}`, false),
 		Keywords:    []string{"wiz"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(4.0),
+		FilterExpr:  utils.MinEntropy(4.0),
 	}
 
 	clientID := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{56}`, 4.0)
@@ -52,7 +52,7 @@ func WizClientSecret() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(4.0),
+		FilterExpr: utils.MinEntropy(4.0),
 	}
 
 	clientSecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{64}`, 4.0)

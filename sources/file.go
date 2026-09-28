@@ -11,10 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/h2non/filetype"
 	"github.com/mholt/archives"
 
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
 
 const InnerPathSeparator = "!"
@@ -39,9 +38,9 @@ type File struct {
 	Symlink string
 	// Buffer is used for reading the content in chunks
 	Buffer []byte
-	// ShouldSkip is a callback that decides whether to skip a file based on its
+	// Prefilter is a callback that decides whether to skip a file based on its
 	// attributes (e.g. path). If nil, no skipping is performed.
-	ShouldSkip SkipFunc
+	Prefilter PrefilterFunc
 	// MaxArchiveDepth limits how deep the sources will explore nested archives
 	MaxArchiveDepth int
 	// DetectArchive also identifies archives by content, for downloads whose
@@ -62,7 +61,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !s.prefiltered && s.ShouldSkip != nil && s.ShouldSkip(s.attributes(s.FullPath())) {
+	if !s.prefiltered && s.Prefilter != nil && s.Prefilter(s.attributes(s.FullPath())) {
 		return nil
 	}
 	// Archive walkers may log errors. Preserve callback errors for every caller.
@@ -72,7 +71,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 		if yieldErr != nil {
 			return yieldErr
 		}
-		if err == nil && !s.prefiltered && s.ShouldSkip != nil && s.ShouldSkip(fragment.Attributes) {
+		if err == nil && !s.prefiltered && s.Prefilter != nil && s.Prefilter(fragment.Attributes) {
 			return nil
 		}
 		yieldErr = emit(fragment, err)
@@ -88,18 +87,24 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	}()
 	var format archives.Format
 	stream := s.Content
+	archiveName := s.Path
+	if ext := filepath.Ext(archiveName); strings.EqualFold(ext, ".tgz") {
+		// The archive library's filename matching requires .tar.gz. Keep the
+		// original path for prefilters and finding attribution.
+		archiveName = strings.TrimSuffix(archiveName, ext) + ".tar.gz"
+	}
 
 	// Downloads may have opaque names. Local .tar files also need content
 	// inspection because their compression is not always reflected in the name.
 	if s.DetectArchive {
 		format, stream, err = archives.Identify(ctx, "", stream)
 		if errors.Is(err, archives.NoMatch) {
-			format, _, err = archives.Identify(ctx, s.Path, nil)
+			format, _, err = archives.Identify(ctx, archiveName, nil)
 		}
 	} else if filepath.Ext(s.Path) == ".tar" {
 		format, stream, err = archives.Identify(ctx, s.Path, stream)
 	} else {
-		format, _, err = archives.Identify(ctx, s.Path, nil)
+		format, _, err = archives.Identify(ctx, archiveName, nil)
 	}
 
 	// Process the file as an archive if there's no error && Identify returns
@@ -188,8 +193,8 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		}
 		defer innerReader.Close()
 
-		if s.ShouldSkip != nil && shouldSkipPath(func(attrs map[string]string) bool {
-			return s.ShouldSkip(s.attributes(attrs[AttrPath]))
+		if s.Prefilter != nil && shouldSkipPath(func(attrs map[string]string) bool {
+			return s.Prefilter(s.attributes(attrs[AttrPath]))
 		}, path) {
 			logging.OrDiscard(s.Logger).Debug("skipping file: global prefilter", "path", s.FullPath())
 			return nil
@@ -201,7 +206,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			Path:            path,
 			Attributes:      s.Attributes,
 			Symlink:         s.Symlink,
-			ShouldSkip:      s.ShouldSkip,
+			Prefilter:       s.Prefilter,
 			outerPaths:      append(s.outerPaths, filepath.ToSlash(s.Path)),
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			DetectArchive:   s.DetectArchive,
@@ -240,8 +245,6 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 	}
 }
 
-var errStopFileFragments = errors.New("stop file fragments")
-
 // fileFragments adds filesystem policy and metadata to source-neutral reader
 // fragments.
 func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveContent bool, yield FragmentsFunc) error {
@@ -261,8 +264,7 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 	}
 	firstFragment := true
 
-	err := readerFragments(ctx, content, s.Buffer, func(chunk readerChunk, readErr error) error {
-		fragment := chunk.fragment
+	return readerFragments(ctx, content, s.Buffer, func(fragment Fragment, readErr error) error {
 		first := "false"
 		if firstFragment {
 			first = "true"
@@ -278,26 +280,6 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 			return yield(fragment, fmt.Errorf("could not read file: %w", readErr))
 		}
 
-		// MIME detection is filesystem policy. Reader intentionally scans the
-		// text it is given without trying to classify the underlying resource.
-		if firstFragment {
-			mimetype, matchErr := filetype.Match(chunk.initial)
-			if matchErr != nil {
-				if isArchiveContent {
-					logging.OrDiscard(s.Logger).Warn("could not determine archive content type", "error", matchErr, "path", fullPath)
-					return errStopFileFragments
-				}
-				if err := yield(fragment, fmt.Errorf("could not read file: could not determine type: %w", matchErr)); err != nil {
-					return err
-				}
-				return errStopFileFragments
-			}
-			if mimetype.MIME.Type == "application" {
-				logging.OrDiscard(s.Logger).Debug("skipping binary file", "mime_type", mimetype.MIME.Value, "path", fullPath)
-				return errStopFileFragments
-			}
-		}
-
 		if s.Symlink != "" {
 			symlink := s.Symlink
 			if isWindows {
@@ -309,10 +291,6 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 		firstFragment = false
 		return yield(fragment, nil)
 	})
-	if errors.Is(err, errStopFileFragments) {
-		return nil
-	}
-	return err
 }
 
 // Copy source metadata so fragment-specific changes don't affect other fragments.

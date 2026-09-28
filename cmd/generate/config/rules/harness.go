@@ -23,7 +23,7 @@ func HarnessApiKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.4`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.4`,
 	}
 
 	// Generate a sample secret for validation

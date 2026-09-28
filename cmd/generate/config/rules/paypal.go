@@ -18,7 +18,7 @@ func PayPalClientID() *config.Rule {
 		),
 		Keywords:   []string{"paypal"},
 		SkipReport: true,
-		Filter:     utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	clientID := "A" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{86}`, 3.5)
@@ -57,7 +57,7 @@ func PayPalClientSecret() *config.Rule {
   }, "grant_type=client_credentials"); r.status == 200 && (r.json?.access_token ?? "") != "" ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	clientSecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9_.-]{90}`, 3.5)

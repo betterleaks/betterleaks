@@ -15,7 +15,7 @@ func LarkAppID() *config.Rule {
 		Regex:       `\b(cli_[A-Za-z0-9]{16})`,
 		Keywords:    []string{"cli_"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -54,7 +54,7 @@ r.status == 200 && code == 0 ? {
     "result": "invalid",
     "reason": (r.json?.msg ?? "Invalid application credentials")
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

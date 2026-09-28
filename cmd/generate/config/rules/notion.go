@@ -20,7 +20,7 @@ func Notion() *config.Rule {
 		Confidence:  "high",
 		Regex:       regex,
 		Keywords:    identifiers,
-		Filter:      `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

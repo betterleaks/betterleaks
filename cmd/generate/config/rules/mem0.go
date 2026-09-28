@@ -23,7 +23,7 @@ func Mem0APIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	key := "m0-" + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{32}`, 3.0)

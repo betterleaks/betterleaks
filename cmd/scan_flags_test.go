@@ -1,12 +1,9 @@
 package cmd
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +24,9 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"max-target-megabytes",
 		"jobs",
 		"ignore-file",
-		"no-allow-comments",
+		"hmac-key",
+		"allow-signature",
+		"no-allow-signatures",
 		"redact",
 		"no-banner",
 		"disable-rule",
@@ -170,6 +169,43 @@ func commandNode(t *testing.T, parent *kong.Node, name string) *kong.Node {
 	return nil
 }
 
+func TestAllowSignatureFlags(t *testing.T) {
+	configPath := writeTestConfig(t, "[[rules]]\nid = 'token'\nregex = 'secret-[a-z]+'\n")
+	for _, test := range []struct {
+		name, input string
+		flags       []string
+		want        int
+		wantError   string
+	}{
+		{name: "defaults", input: "secret-alpha betterleaks:allow\nsecret-beta gitleaks:allow"},
+		{name: "custom", input: "secret-alpha #nosec", flags: []string{"--allow-signature", "#nosec"}},
+		{name: "repeated", input: "secret-alpha first\nsecret-beta second", flags: []string{"--allow-signature", "first", "--allow-signature", "second"}},
+		{name: "replaces defaults", input: "secret-alpha betterleaks:allow", flags: []string{"--allow-signature", "#nosec"}, want: 1},
+		{name: "disabled", input: "secret-alpha betterleaks:allow\nsecret-beta gitleaks:allow", flags: []string{"--no-allow-signatures"}, want: 2},
+		{name: "literal comma", input: "secret-alpha first", flags: []string{"--allow-signature", "first,second"}, want: 1},
+		{name: "comma match", input: "secret-alpha first,second", flags: []string{"--allow-signature", "first,second"}},
+		{name: "conflict", flags: []string{"--allow-signature", "#nosec", "--no-allow-signatures"}, wantError: "cannot be combined"},
+		{name: "empty", flags: []string{"--allow-signature="}, wantError: "must not be empty"},
+		{name: "removed flag", flags: []string{"--no-allow-comments"}, wantError: "unknown flag"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"stdin", "--config", configPath, "--offline", "--jsonl", "--no-banner", "--exit-code=0"}, test.flags...)
+			_, err := parseCLIForTest(t, args...)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+			root, output := newTestCLI(t)
+			root.SetIn(strings.NewReader(test.input))
+			root.SetArgs(args)
+			require.NoError(t, root.Execute())
+			_, findings := decodeScanJSONL(t, output.Bytes())
+			require.Len(t, findings, test.want)
+		})
+	}
+}
+
 func TestScanProviderModes(t *testing.T) {
 	configPath := writeTestConfig(t, `
 [[rules]]
@@ -212,8 +248,9 @@ analyze = '''
 			root.SetArgs(args)
 			require.NoError(t, root.Execute())
 
-			var finding report.Finding
-			require.NoError(t, json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &finding))
+			_, findings := decodeScanJSONL(t, stdout.Bytes())
+			require.Len(t, findings, 1)
+			finding := findings[0]
 			if !test.wantValidation {
 				assert.Empty(t, finding.Analysis.Status)
 				assert.True(t, finding.Analysis.IsZero())
@@ -232,6 +269,56 @@ analyze = '''
 			require.NotNil(t, finding.Analysis.Identity)
 			assert.Equal(t, "user-1", finding.Analysis.Identity.ID)
 		})
+	}
+}
+
+func TestScanReportCountsAfterStatusFilter(t *testing.T) {
+	configPath := writeTestConfig(t, `
+[[rules]]
+id = "test-token"
+regex = '''secret-[a-z]+'''
+confidence = "high"
+validate = '''
+{"result": finding.secret == "secret-live" ? "valid" : finding.secret == "secret-dead" ? "invalid" : "error"}
+'''
+`)
+	for _, jsonl := range []bool{false, true} {
+		for _, status := range []string{"", "valid", "revoked"} {
+			t.Run(fmt.Sprintf("jsonl=%t/status=%s", jsonl, status), func(t *testing.T) {
+				root, stdout := newTestCLI(t)
+				root.SetIn(strings.NewReader("secret-live\nsecret-dead\nsecret-error\n"))
+				args := []string{"stdin", "--config", configPath, "--no-banner", "--no-analysis", "--exit-code=0", "--output=-"}
+				if jsonl {
+					args = append(args, "--jsonl")
+				}
+				if status != "" {
+					args = append(args, "--status", status)
+				}
+				root.SetArgs(args)
+				require.NoError(t, root.Execute())
+				var metadata report.ScanMetadata
+				if jsonl {
+					metadata, _ = decodeScanJSONL(t, stdout.Bytes())
+				} else {
+					metadata, _ = decodeScanJSON(t, stdout.Bytes())
+				}
+				assert.Equal(t, report.ScanStateComplete, metadata.State)
+				wantCount := 0
+				var wantStatuses report.StatusCounts
+				switch status {
+				case "":
+					wantCount = 3
+					wantStatuses = report.StatusCounts{Valid: 1, Invalid: 1, Error: 1}
+				case "valid":
+					wantCount = 1
+					wantStatuses = report.StatusCounts{Valid: 1}
+				}
+				assert.Equal(t, wantCount, metadata.NumFindings)
+				assert.Equal(t, wantStatuses, metadata.StatusCounts)
+				assert.Equal(t, report.ConfidenceCounts{High: wantCount}, metadata.ConfidenceCounts)
+				assert.Equal(t, report.SeverityCounts{None: wantCount}, metadata.SeverityCounts)
+			})
+		}
 	}
 }
 
@@ -342,28 +429,9 @@ func TestJobsFlag(t *testing.T) {
 }
 
 func TestWorkerLimits(t *testing.T) {
-	for _, cpus := range []int{1, 2, 10, 64} {
-		t.Run(fmt.Sprintf("GOMAXPROCS=%d", cpus), func(t *testing.T) {
-			previous := runtime.GOMAXPROCS(cpus)
-			t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
-
-			// Source and analyze defaults are independent of available CPUs.
-			require.Equal(t, 4, resolveSourceWorkers(0, defaultSourceWorkers))
-			require.Equal(t, 120, resolveSourceWorkers(0, defaultFilesystemWorkers))
-			require.Equal(t, cpus, resolveScanWorkers(0))
-			require.Equal(t, 10, resolveAnalyzeWorkers(0))
-
-			// Explicit jobs can raise I/O concurrency without oversubscribing detection.
-			require.Equal(t, cpus+3, resolveSourceWorkers(cpus+3, defaultSourceWorkers))
-			require.Equal(t, cpus, resolveScanWorkers(cpus+3))
-			require.Equal(t, 1, resolveSourceWorkers(1, defaultSourceWorkers))
-			require.Equal(t, 1, resolveSourceWorkers(1, defaultFilesystemWorkers))
-			require.Equal(t, 8, resolveSourceWorkers(8, defaultSourceWorkers))
-			require.Equal(t, 8, resolveSourceWorkers(8, defaultFilesystemWorkers))
-			require.Equal(t, 1, resolveScanWorkers(1))
-			require.Equal(t, 25, resolveAnalyzeWorkers(25))
-		})
-	}
+	require.Equal(t, 10, resolveAnalyzeWorkers(0))
+	require.Equal(t, 1, resolveAnalyzeWorkers(1))
+	require.Equal(t, 25, resolveAnalyzeWorkers(25))
 }
 
 func TestJobsRejectsNegativeValues(t *testing.T) {

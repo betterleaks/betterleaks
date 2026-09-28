@@ -30,7 +30,7 @@ func HighnoteSecretLiveKey() *config.Rule {
 		),
 		Keywords:     []string{"highnote"},
 		ValidateExpr: highnoteLiveValidationExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	// validate

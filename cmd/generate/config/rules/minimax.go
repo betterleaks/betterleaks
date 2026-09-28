@@ -22,7 +22,7 @@ func MiniMaxAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("minimax", "sk-api-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{119}`, 3.5))

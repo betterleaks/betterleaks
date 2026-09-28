@@ -38,7 +38,7 @@ func Replicate() *config.Rule {
 		Keywords:     []string{"r8_"},
 		ValidateExpr: replicateValidateExpr,
 		AnalyzeExpr:  replicateAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("replicate", "r8_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{37}`, 3.0))

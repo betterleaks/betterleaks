@@ -52,7 +52,7 @@ let r = http.get(endpoint + "/ping", {
   "result": "invalid",
   "reason": "Unauthorized"
 } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	token := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{40}`, 3.5)

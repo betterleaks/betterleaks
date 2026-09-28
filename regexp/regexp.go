@@ -3,12 +3,12 @@ package regexp
 import (
 	"regexp/syntax"
 	"sync"
-
-	"github.com/betterleaks/betterleaks/v2/regexp/internal"
 )
 
+// Engine compiles regular expressions. Implementations must support concurrent
+// calls and must not change behavior while a scanner or runtime uses them.
 type Engine interface {
-	Compile(str string) (internal.CompiledRegexp, error)
+	Compile(str string) (CompiledRegexp, error)
 	Version() string
 }
 
@@ -19,7 +19,7 @@ type Regexp struct {
 	numSubexp int
 
 	once sync.Once
-	e    internal.CompiledRegexp
+	e    CompiledRegexp
 	err  error
 }
 
@@ -74,38 +74,37 @@ func (r *Regexp) Compile() error {
 	return r.err
 }
 
-func (r *Regexp) compiled() (internal.CompiledRegexp, bool) {
+func (r *Regexp) compiled() (CompiledRegexp, bool) {
 	r.once.Do(func() {
 		r.e, r.err = r.engine.Compile(r.pattern)
 	})
 	return r.e, r.err == nil && r.e != nil
 }
 
-var currentEngine Engine = Stdlib{}
-
-// Version returns the name of the active regex engine.
-func Version() string { return currentEngine.Version() }
-
-// SetEngine selects the regex engine used by subsequent MustCompile calls.
-func SetEngine(engine Engine) {
-	currentEngine = engine
+// Compile parses a regular expression using the standard-library engine.
+// Backend compilation is deferred until first use.
+func Compile(str string) (*Regexp, error) {
+	return CompileWithEngine(str, Stdlib{})
 }
 
-// Compile parses a regular expression using the currently selected engine.
-// If successful, returns a [Regexp] object that can be used to match against text.
-func Compile(str string) (*Regexp, error) {
+// CompileWithEngine parses a regular expression and retains engine for deferred
+// compilation. A nil engine selects the standard-library engine.
+func CompileWithEngine(str string, engine Engine) (*Regexp, error) {
+	if engine == nil {
+		engine = Stdlib{}
+	}
 	parsed, err := syntax.Parse(str, syntax.Perl)
 	if err != nil {
 		return nil, err
 	}
 	return &Regexp{
 		pattern:   str,
-		engine:    currentEngine,
+		engine:    engine,
 		numSubexp: parsed.MaxCap(),
 	}, nil
 }
 
-// MustCompile compiles a regular expression using the currently selected engine.
+// MustCompile is like Compile but panics on invalid syntax.
 func MustCompile(str string) *Regexp {
 	r, err := Compile(str)
 	if err != nil {

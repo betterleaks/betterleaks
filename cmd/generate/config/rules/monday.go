@@ -10,7 +10,7 @@ func MondayAPIToken() *config.Rule {
 	r := config.Rule{
 		ID:          "monday-api-token.1",
 		Confidence:  "high",
-		Specificity: 110,
+		Specificity: 10,
 		Description: "monday.com API token, which may grant the same workspace access as its associated user or application.",
 		Regex: utils.GenerateSemiGenericRegex(
 			[]string{"monday"},
@@ -30,7 +30,7 @@ func MondayAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	token := "eyJ" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{40}`, 3.5) +

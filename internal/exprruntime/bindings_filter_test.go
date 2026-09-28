@@ -1,7 +1,9 @@
 package exprruntime
 
 import (
+	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
@@ -9,6 +11,47 @@ import (
 	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/stretchr/testify/require"
 )
+
+type failingRegexEngine struct {
+	err      error
+	compiles atomic.Int32
+}
+
+func (e *failingRegexEngine) Version() string { return "failing" }
+
+func (e *failingRegexEngine) Compile(string) (blregexp.CompiledRegexp, error) {
+	e.compiles.Add(1)
+	return nil, e.err
+}
+
+func TestPrefilterBackendErrorsAreLazyAndCached(t *testing.T) {
+	for _, expression := range []string{
+		`matchesAny(attributes.path, ["TOKEN"])`,
+		`matchesAny(attributes.path, [attributes.pattern])`,
+	} {
+		t.Run(expression, func(t *testing.T) {
+			backendErr := errors.New("backend compilation failed")
+			engine := &failingRegexEngine{err: backendErr}
+			runtime := NewLocal(engine)
+			program, err := runtime.CompilePrefilter(expression)
+			require.NoError(t, err)
+			require.Zero(t, engine.compiles.Load())
+			var workers sync.WaitGroup
+			for range 8 {
+				workers.Go(func() {
+					for range 2 {
+						got, err := runtime.EvalPrefilter(program, map[string]string{"path": "TOKEN", "pattern": "TOKEN"})
+						if got || !errors.Is(err, backendErr) {
+							t.Errorf("result=%t error=%v; want false and backend error", got, err)
+						}
+					}
+				})
+			}
+			workers.Wait()
+			require.EqualValues(t, 1, engine.compiles.Load())
+		})
+	}
+}
 
 func TestCompiledAttributeMatchPreservesPrefilterSemantics(t *testing.T) {
 	for _, test := range []struct {
@@ -27,7 +70,7 @@ func TestCompiledAttributeMatchPreservesPrefilterSemantics(t *testing.T) {
 		{`let path = attributes.path; matchesAny(path, ["secret"])`, false},
 	} {
 		t.Run(test.expression, func(t *testing.T) {
-			runtime := NewLocal()
+			runtime := NewLocal(nil)
 			program, err := runtime.CompilePrefilter(test.expression)
 			require.NoError(t, err)
 			require.Equal(t, test.compiled, program.attributeMatch != nil)
@@ -52,7 +95,7 @@ func TestCompiledAttributeMatchPreservesPrefilterSemantics(t *testing.T) {
 }
 
 func TestCompiledAttributeMatchIsConcurrent(t *testing.T) {
-	runtime := NewLocal()
+	runtime := NewLocal(nil)
 	program, err := runtime.CompilePrefilter(`matchesAny(attributes.path, ["^skip$"])`)
 	require.NoError(t, err)
 	var workers sync.WaitGroup
@@ -72,15 +115,9 @@ func TestCompiledAttributeMatchIsConcurrent(t *testing.T) {
 }
 
 func BenchmarkPrefilterAttributeMatch(b *testing.B) {
-	b.Cleanup(func() {
-		blregexp.SetEngine(blregexp.Stdlib{})
-		regexCache.Clear()
-	})
 	for _, engine := range []blregexp.Engine{blregexp.Stdlib{}, re2.RE2{}} {
 		b.Run(engine.Version(), func(b *testing.B) {
-			blregexp.SetEngine(engine)
-			regexCache.Clear()
-			runtime := NewLocal()
+			runtime := NewLocal(engine)
 			program, err := runtime.CompilePrefilter(`matchesAny(attributes.path, ["(?i)\\.png$", "(?:^|/)vendor/", "(?:^|/)node_modules/"])`)
 			require.NoError(b, err)
 			attrs := map[string]string{"path": "project/src/main.go"}
@@ -176,7 +213,7 @@ func TestMatchesAnyStringOrList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := matchesAny(tt.input, tt.patterns)
+			got, err := new(Runtime).matchesAny(tt.input, tt.patterns)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +225,7 @@ func TestMatchesAnyStringOrList(t *testing.T) {
 }
 
 func TestMatchesAnyRejectsInvalidPattern(t *testing.T) {
-	_, err := matchesAny("read_repository", []string{"*read"})
+	_, err := new(Runtime).matchesAny("read_repository", []string{"*read"})
 	if err == nil {
 		t.Fatal("matchesAny accepted an invalid regular expression")
 	}

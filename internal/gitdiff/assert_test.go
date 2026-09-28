@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func assertError(t *testing.T, expected interface{}, actual error, action string) {
+func assertError(t *testing.T, expected any, actual error, action string) {
 	if actual == nil {
 		t.Fatalf("expected error %s, but got nil", action)
 	}

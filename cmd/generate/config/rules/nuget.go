@@ -13,7 +13,7 @@ func NugetConfigPassword() *config.Rule {
 		Regex:       `(?i)<add key=\"(?:(?:ClearText)?Password)\"\s*value=\"(.{8,})\"\s*/>`,
 		Path:        `(?i)nuget\.config$`,
 		Keywords:    []string{"<add key="},
-		Filter:      "entropy(finding[\"secret\"]) <= 1.0\n|| matchesAny(finding[\"secret\"], [\n  `33f!!lloppa`,\n  `hal\\+9ooo_da!sY`,\n  `^\\%\\S.*\\%$`\n])",
+		FilterExpr:  "entropy(finding[\"secret\"]) <= 1.0\n|| matchesAny(finding[\"secret\"], [\n  `33f!!lloppa`,\n  `hal\\+9ooo_da!sY`,\n  `^\\%\\S.*\\%$`\n])",
 	}
 
 	tps := map[string]string{

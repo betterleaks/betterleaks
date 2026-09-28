@@ -235,14 +235,6 @@ func foldedLiterals(re *syntax.Regexp) ([]string, bool) {
 	return nil, false
 }
 
-func compileAssignmentGuard(pattern string, keywords []string) *assignmentGuard {
-	re, err := syntax.Parse(pattern, syntax.Perl)
-	if err != nil {
-		return nil
-	}
-	return inferAssignmentGuard(re, keywords)
-}
-
 // The keyword matcher folds these two Unicode runes to ASCII as well.
 func guardFoldASCII(r rune) (byte, bool) {
 	if r == '\u017f' {

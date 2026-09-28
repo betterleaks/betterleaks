@@ -14,7 +14,7 @@ func RenderAPIKey() *config.Rule {
 		Regex:        utils.GenerateUniqueTokenRegex(`rnd_[A-Za-z0-9]{28}`, false),
 		Keywords:     []string{"rnd_"},
 		ValidateExpr: utils.BearerGetValidationExpr("https://api.render.com/v1/services?limit=1", "true"),
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	tps := utils.GenerateSampleSecrets("render", "rnd_"+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{28}`, 3.5))

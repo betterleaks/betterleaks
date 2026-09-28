@@ -43,7 +43,7 @@ func AirtableApiKey() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, utils.AlphaNumeric("17"), true),
 		Keywords:    []string{"airtable"},
-		Filter:      `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -61,7 +61,7 @@ func AirtablePersonalAccessToken() *config.Rule {
 		Keywords:     []string{"airtable"},
 		ValidateExpr: airtableValidateExpr,
 		AnalyzeExpr:  airtableAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -78,7 +78,7 @@ func AirtableOAuthToken() *config.Rule {
 		Keywords:     []string{"airtable"},
 		ValidateExpr: airtableValidateExpr,
 		AnalyzeExpr:  airtableAnalyzeExpr,
-		Filter:       `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

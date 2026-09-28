@@ -14,8 +14,8 @@
 title = "{{.Title}}"
 
 # minVersion indicates the minimum betterleaks version required.
-# If the running version is older, a warning will be logged.
-minVersion = "v1.8.0"
+# Older versioned builds reject this configuration.
+minVersion = "v2.0.0-rc.1"
 
 {{ with .Prefilter }}
 prefilter = {{ tomlExpr . }}
@@ -32,11 +32,9 @@ description = "{{$rule.Description}}"
 regex = '''{{ . }}'''{{ end -}}
 {{- with $rule.Path }}
 path = '''{{ . }}'''{{ end -}}
-{{- with $rule.SecretGroup }}
-secretGroup = {{ . }}{{ end -}}
-{{- if eq $rule.ID "generic-api-key" }}
-specificity = 0
-{{- else if $rule.Specificity }}
+{{- with $rule.ValueGroup }}
+valueGroup = {{ . }}{{ end -}}
+{{- if $rule.Specificity }}
 specificity = {{ $rule.Specificity }}
 {{- end -}}
 {{- with $rule.Confidence }}
@@ -59,7 +57,7 @@ validate = {{ tomlExpr . }}{{ end }}
 analyze = {{ tomlExpr . }}{{ end }}
 {{- with $rule.RevokeExpr }}
 revoke = {{ tomlExpr . }}{{ end }}
-{{- with $rule.Filter }}
+{{- with $rule.FilterExpr }}
 filter = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Components }}
 components = [{{ range . }}

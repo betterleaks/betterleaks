@@ -14,7 +14,7 @@ func SquareAccessToken() *config.Rule {
 		Description: "Detected a Square Access Token, risking unauthorized payment processing and financial transaction exposure.",
 		Regex:       utils.GenerateUniqueTokenRegex(`(?:EAAA|sq0atp-)[\w-]{22,60}`, false),
 		Keywords:    []string{"sq0atp-", "EAAA"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -37,7 +37,7 @@ func SquareSecret() *config.Rule {
 		Description: "Square Secret",
 		Regex:       utils.GenerateUniqueTokenRegex(`sq0csp-[\w-]{43}`, false),
 		Keywords:    []string{"sq0csp-"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

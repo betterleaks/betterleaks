@@ -12,7 +12,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
-	"github.com/betterleaks/betterleaks/v2/logging"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
@@ -141,14 +141,8 @@ func createSingleRuleScanner(r *config.Rule) *scan.Scanner {
 }
 
 func countFindings(d *scan.Scanner, fragment sources.Fragment) (int, error) {
-	count := 0
-	for result := range d.Run(context.Background(), fragmentSource{fragment: fragment}) {
-		if result.Err != nil {
-			return 0, result.Err
-		}
-		count++
-	}
-	return count, nil
+	summary, err := d.Scan(context.Background(), fragmentSource{fragment: fragment}, nil)
+	return summary.Findings, err
 }
 
 type fragmentSource struct {
