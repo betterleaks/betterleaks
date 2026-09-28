@@ -8132,24 +8132,6 @@ keywords = [
     "powerplatform.com",
     "paths/invoke",
 ]
-validate = '''
-let r = http.get(finding["captures"]["url"], {"User-Agent": "betterleaks"});
-let code = r.json?.error?.code ?? "";
-r.status == 200 ? {
-    "result": "valid"
-  } : code == "TriggerRequestMethodNotValid" ? {
-    "result": "valid"
-  } : code == "WorkflowTriggerIsNotEnabled" && (r.body contains "state 'Deleted'") ? {
-    "result": "invalid",
-    "reason": "Workflow deleted"
-  } : code == "WorkflowTriggerIsNotEnabled" ? {
-    "result": "invalid",
-    "reason": "Workflow disabled; can be re-enabled without changing the signature"
-  } : r.status in [401, 404] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # midtrans-production-server-client-key

@@ -24,27 +24,12 @@ func PowerAutomateWorkflowURL() *config.Rule {
 			"powerplatform.com",
 			"paths/invoke",
 		},
-		// A GET request never triggers the flow: Power Automate and Logic Apps
-		// invoke triggers require POST and reject GET with 400 before running.
-		// A disabled trigger reuses the same error code as a deleted one, so
-		// the reason is split on the state name: disabling is reversible and
-		// the URL stays a live risk, unlike a deleted workflow.
-		ValidateExpr: `let r = http.get(finding["captures"]["url"], {"User-Agent": "betterleaks"});
-let code = r.json?.error?.code ?? "";
-r.status == 200 ? {
-    "result": "valid"
-  } : code == "TriggerRequestMethodNotValid" ? {
-    "result": "valid"
-  } : code == "WorkflowTriggerIsNotEnabled" && (r.body contains "state 'Deleted'") ? {
-    "result": "invalid",
-    "reason": "Workflow deleted"
-  } : code == "WorkflowTriggerIsNotEnabled" ? {
-    "result": "invalid",
-    "reason": "Workflow disabled; can be re-enabled without changing the signature"
-  } : r.status in [401, 404] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+		// No ValidateExpr: Although Power Automate webhooks created for
+		// sending messages to Teams are POST-only and have no GET
+		// side-effects, other visually-identical Power Automate and Logic Apps
+		// webhooks can belong to a trigger that accepts GET, and can return
+		// application data or cause side-effects - i.e. unauthorized access we
+		// shouldn't do just to validate a finding.
 	}
 
 	tps := []string{
