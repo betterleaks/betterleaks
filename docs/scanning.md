@@ -23,8 +23,9 @@ The v1 provider-control aliases are no longer accepted:
 
 ## Parallel jobs
 
-Use `-j` or `--jobs` to set detection concurrency. Zero uses `GOMAXPROCS`;
-positive values are capped at `GOMAXPROCS`.
+Use `-j` or `--jobs` to set detection concurrency. Zero (the default) uses
+`4 * GOMAXPROCS`; positive values are used as supplied. More detection workers
+also allow more fragment results to be buffered and can increase memory use.
 
 ```sh
 # use up to eight concurrent detections
@@ -65,8 +66,8 @@ independent of these settings.
 The Go API configures detection with `scan.WithWorkers(n)` and credential
 evaluation with `analyze.WithWorkers(n)`. Sources have no worker setting. The
 detection limit is shared across concurrent `Scan` and `ScanString` calls on the
-same scanner. Unlike the CLI, an explicit SDK detection count is not capped at
-`GOMAXPROCS`.
+same scanner. As with the CLI, zero uses `4 * GOMAXPROCS` and explicit positive
+counts are not capped at `GOMAXPROCS`.
 
 Custom sources keep `Fragments(ctx, yield)`: bound readers and queues, allow
 blocking yields to stop upstream work, and honor cancellation. No scanner worker

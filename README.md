@@ -110,7 +110,8 @@ printf '%s\n' "$GITHUB_TOKEN" | betterleaks analyze --rule github-pat
 printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat --simple
 ```
 
-`-j` / `--jobs` controls detection concurrency only. Sources manage their own
+`-j` / `--jobs` controls detection concurrency only, defaulting to `4 * GOMAXPROCS`.
+Sources manage their own
 bounded reads and downloads; Git uses one history stream when `--log-opts` is
 provided. See [parallel jobs](docs/scanning.md#parallel-jobs)
 and the [scanning guide](docs/scanning.md) for details and more examples.

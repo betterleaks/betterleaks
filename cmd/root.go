@@ -342,7 +342,7 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 	}
 	scannerOptions := []scan.Option{
 		scan.WithRegexEngine(runtime.regexEngine()),
-		scan.WithWorkers(resolveScanWorkers(flags.Jobs)),
+		scan.WithWorkers(flags.Jobs),
 		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
 		scan.WithMinimumConfidence(scan.Confidence(flags.Confidence)),
 	}

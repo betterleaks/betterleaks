@@ -436,6 +436,22 @@ func TestScannerHashes(t *testing.T) {
 }
 
 func TestNewValidatesOptions(t *testing.T) {
+	for _, cpus := range []int{1, 2, 10, 64} {
+		t.Run(fmt.Sprintf("GOMAXPROCS=%d", cpus), func(t *testing.T) {
+			previous := runtime.GOMAXPROCS(cpus)
+			t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+			cfg := &config.Config{}
+			require.Equal(t, 4*cpus, mustNew(t, cfg).workers)
+			for _, configured := range []int{0, 1, cpus, 4*cpus + 3} {
+				want := configured
+				if want == 0 {
+					want = 4 * cpus
+				}
+				require.Equal(t, want, mustNew(t, cfg, WithWorkers(configured)).workers)
+			}
+		})
+	}
+
 	_, err := New(nil)
 	assert.Error(t, err)
 

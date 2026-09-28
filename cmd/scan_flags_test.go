@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -429,21 +428,9 @@ func TestJobsFlag(t *testing.T) {
 }
 
 func TestWorkerLimits(t *testing.T) {
-	for _, cpus := range []int{1, 2, 10, 64} {
-		t.Run(fmt.Sprintf("GOMAXPROCS=%d", cpus), func(t *testing.T) {
-			previous := runtime.GOMAXPROCS(cpus)
-			t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
-
-			// Detection follows CPU capacity; credential evaluation has its own default.
-			require.Equal(t, cpus, resolveScanWorkers(0))
-			require.Equal(t, 10, resolveAnalyzeWorkers(0))
-
-			// Explicit jobs do not oversubscribe detection.
-			require.Equal(t, cpus, resolveScanWorkers(cpus+3))
-			require.Equal(t, 1, resolveScanWorkers(1))
-			require.Equal(t, 25, resolveAnalyzeWorkers(25))
-		})
-	}
+	require.Equal(t, 10, resolveAnalyzeWorkers(0))
+	require.Equal(t, 1, resolveAnalyzeWorkers(1))
+	require.Equal(t, 25, resolveAnalyzeWorkers(25))
 }
 
 func TestJobsRejectsNegativeValues(t *testing.T) {

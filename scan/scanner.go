@@ -119,7 +119,8 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		}
 	}
 	if settings.workers == 0 {
-		settings.workers = max(runtime.GOMAXPROCS(0), 1)
+		// Allow detection and result handoffs to overlap without increasing source read-ahead.
+		settings.workers = 4 * max(runtime.GOMAXPROCS(0), 1)
 	}
 	rulesBySpecificity, ruleIndexByID, snapshotErr := snapshotRules(cfg, settings.regexEngine)
 	if snapshotErr != nil {

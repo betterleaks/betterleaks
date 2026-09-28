@@ -70,7 +70,7 @@ func WithIgnoredFingerprints(hashes ...fingerprint.Hash) Option {
 
 // WithWorkers limits concurrent detection across all Scan and ScanString
 // calls on the same Scanner. Workers start as needed; source I/O and result
-// handlers do not occupy worker slots. Zero uses GOMAXPROCS at construction.
+// handlers do not occupy worker slots. Zero uses 4 * GOMAXPROCS at construction.
 func WithWorkers(workers int) Option {
 	return Option{apply: func(options *scannerOptions) error {
 		if workers < 0 {
