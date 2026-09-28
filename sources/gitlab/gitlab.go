@@ -39,6 +39,7 @@ const (
 
 // Source enumerates projects via the GitLab REST API and delegates scanning
 // to the sources.Git source for each cloned repo.
+// Configure a fresh Source for each scan; instances must not be shared concurrently.
 type Source struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger *slog.Logger
@@ -57,9 +58,9 @@ type Source struct {
 
 	// Filtering
 	ExcludeRepos []string // glob patterns matched against "group/sub/project"
-	Include      []string
-	Exclude      []string
-	Resources    ResourceSet
+	// Include adds resource types to the URL defaults; Exclude removes them.
+	Include []string
+	Exclude []string
 
 	// Group enumeration knobs
 	AllGroups        bool
@@ -74,6 +75,7 @@ type Source struct {
 	DateRangeOpts DateRangeOptions
 
 	// Internal: lazily initialized in Fragments.
+	resources  resourceSet
 	httpClient *http.Client
 	restRetry  *httpclient.RetryTransport
 	apiBaseURL *url.URL // normalized site base ending in `/api/v4/`
@@ -97,8 +99,8 @@ const (
 	ResourceTypeCIArtifacts   ResourceType = "ci-artifacts"
 )
 
-// AllResourceTypes is the canonical list of valid GitLab resource types.
-var AllResourceTypes = []ResourceType{
+// allResourceTypes is the canonical list of valid GitLab resource types.
+var allResourceTypes = []ResourceType{
 	ResourceTypeRepos,
 	ResourceTypeForks,
 	ResourceTypeMRs,
@@ -112,18 +114,18 @@ var AllResourceTypes = []ResourceType{
 	ResourceTypeCIArtifacts,
 }
 
-// ResourceSet tracks which resource types are enabled for scanning.
-type ResourceSet map[ResourceType]bool
+// resourceSet tracks which resource types are enabled for scanning.
+type resourceSet map[ResourceType]bool
 
-func (rs ResourceSet) Has(r ResourceType) bool { return rs[r] }
+func (rs resourceSet) Has(r ResourceType) bool { return rs[r] }
 
 // HasAnyIssueOrMR reports whether any issue, MR, or comment resource is enabled.
-func (rs ResourceSet) HasAnyIssueOrMR() bool {
+func (rs resourceSet) HasAnyIssueOrMR() bool {
 	return rs[ResourceTypeIssues] || rs[ResourceTypeMRs] ||
 		rs[ResourceTypeIssueComments] || rs[ResourceTypeMRComments]
 }
 
-func (rs ResourceSet) String() string {
+func (rs resourceSet) String() string {
 	var out []string
 	for rt := range rs {
 		out = append(out, string(rt))
@@ -146,7 +148,7 @@ var defaultGitLabScanResources = map[string][]ResourceType{
 }
 
 // resolveResources checks the target and token, normalizes BaseURL, and
-// populates Resources if needed.
+// populates resources if needed.
 func (s *Source) resolveResources() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
@@ -164,45 +166,43 @@ func (s *Source) resolveResources() error {
 		s.BaseURL += "/"
 	}
 
-	if len(s.Resources) == 0 {
-		valid := make(map[ResourceType]bool, len(AllResourceTypes))
-		for _, rt := range AllResourceTypes {
-			valid[rt] = true
-		}
-		rs := make(ResourceSet)
-		for _, rt := range defaultGitLabScanResources[parsed.Kind] {
-			rs[rt] = true
-		}
-		for _, name := range s.Include {
-			rt := ResourceType(name)
-			if !valid[rt] {
-				return fmt.Errorf("unknown resource type %q", name)
-			}
-			rs[rt] = true
-		}
-		excluded := make(map[ResourceType]bool)
-		for _, name := range s.Exclude {
-			rt := ResourceType(name)
-			if !valid[rt] {
-				return fmt.Errorf("unknown resource type %q", name)
-			}
-			excluded[rt] = true
-			delete(rs, rt)
-		}
-		if rs[ResourceTypeReleases] && !excluded[ResourceTypeReleaseAssets] {
-			rs[ResourceTypeReleaseAssets] = true
-		}
-		if rs[ResourceTypeCIJobs] && !excluded[ResourceTypeCIArtifacts] {
-			rs[ResourceTypeCIArtifacts] = true
-		}
-		s.Resources = rs
+	valid := make(map[ResourceType]bool, len(allResourceTypes))
+	for _, rt := range allResourceTypes {
+		valid[rt] = true
 	}
+	rs := make(resourceSet)
+	for _, rt := range defaultGitLabScanResources[parsed.Kind] {
+		rs[rt] = true
+	}
+	for _, name := range s.Include {
+		rt := ResourceType(name)
+		if !valid[rt] {
+			return fmt.Errorf("unknown resource type %q", name)
+		}
+		rs[rt] = true
+	}
+	excluded := make(map[ResourceType]bool)
+	for _, name := range s.Exclude {
+		rt := ResourceType(name)
+		if !valid[rt] {
+			return fmt.Errorf("unknown resource type %q", name)
+		}
+		excluded[rt] = true
+		delete(rs, rt)
+	}
+	if rs[ResourceTypeReleases] && !excluded[ResourceTypeReleaseAssets] {
+		rs[ResourceTypeReleaseAssets] = true
+	}
+	if rs[ResourceTypeCIJobs] && !excluded[ResourceTypeCIArtifacts] {
+		rs[ResourceTypeCIArtifacts] = true
+	}
+	s.resources = rs
 
 	if s.Token == "" {
 		if parsed.Kind == "namespace" || parsed.Kind == "group" || parsed.Kind == "user" {
 			return errors.New("a token is required to enumerate group or user projects")
 		}
-		for rt := range s.Resources {
+		for rt := range s.resources {
 			if rt == ResourceTypeRepos || rt == ResourceTypeForks {
 				continue
 			}
@@ -218,7 +218,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if err := s.resolveResources(); err != nil {
 		return err
 	}
-	logging.OrDiscard(s.Logger).Info("starting GitLab scan", "target", urlredact.PublicString(s.URL), "base", urlredact.PublicString(s.BaseURL), "resources", s.Resources)
+	logging.OrDiscard(s.Logger).Info("starting GitLab scan", "target", urlredact.PublicString(s.URL), "base", urlredact.PublicString(s.BaseURL), "resources", s.resources)
 	start := time.Now()
 	if err := s.ensureClient(); err != nil {
 		return err
@@ -674,7 +674,7 @@ func (s *Source) enumerateProjects(ctx context.Context, target *gitlabTarget) (<
 			if p == nil || seen[p.ID] {
 				return
 			}
-			if !s.Resources.Has(ResourceTypeForks) && p.IsFork() {
+			if !s.resources.Has(ResourceTypeForks) && p.IsFork() {
 				return
 			}
 			if s.isExcluded(p.PathWithNamespace) {
@@ -872,27 +872,27 @@ func (s *Source) scanProject(ctx context.Context, proj *gitlabProject, yield sou
 		return nil
 	}
 
-	if s.Resources.Has(ResourceTypeRepos) {
+	if s.resources.Has(ResourceTypeRepos) {
 		if err := run("repos", func() error { return s.scanProjectGit(ctx, proj, glYield) }); err != nil {
 			return err
 		}
 	}
-	if s.Resources.HasAnyIssueOrMR() {
+	if s.resources.HasAnyIssueOrMR() {
 		if err := run("issues_mrs", func() error { return s.scanIssuesAndMRs(ctx, proj, glYield) }); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeSnippets) {
+	if s.resources.Has(ResourceTypeSnippets) {
 		if err := run("snippets", func() error { return s.scanSnippets(ctx, proj, glYield) }); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeReleases) {
+	if s.resources.Has(ResourceTypeReleases) {
 		if err := run("releases", func() error { return s.scanReleases(ctx, proj, glYield) }); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeCIJobs) {
+	if s.resources.Has(ResourceTypeCIJobs) {
 		if err := run("ci_jobs", func() error { return s.scanCIJobs(ctx, proj, glYield) }); err != nil {
 			return err
 		}
@@ -918,12 +918,12 @@ func (s *Source) scanProjectGit(ctx context.Context, proj *gitlabProject, yield 
 }
 
 func (s *Source) scanIssuesAndMRs(ctx context.Context, proj *gitlabProject, yield sources.FragmentsFunc) error {
-	if s.Resources.Has(ResourceTypeIssues) || s.Resources.Has(ResourceTypeIssueComments) {
+	if s.resources.Has(ResourceTypeIssues) || s.resources.Has(ResourceTypeIssueComments) {
 		if err := s.scanIssues(ctx, proj, yield); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeMRs) || s.Resources.Has(ResourceTypeMRComments) {
+	if s.resources.Has(ResourceTypeMRs) || s.resources.Has(ResourceTypeMRComments) {
 		if err := s.scanMRs(ctx, proj, yield); err != nil {
 			return err
 		}
@@ -959,13 +959,13 @@ func (s *Source) scanIssues(ctx context.Context, proj *gitlabProject, yield sour
 			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
-			if s.Resources.Has(ResourceTypeIssues) {
+			if s.resources.Has(ResourceTypeIssues) {
 				frag := sources.Fragment{Raw: strings.TrimSpace(issue.Title + "\n" + issue.Description), Attributes: cloneAttrs(attrs)}
 				if err := yield(frag, nil); err != nil {
 					return false, err
 				}
 			}
-			if s.Resources.Has(ResourceTypeIssueComments) {
+			if s.resources.Has(ResourceTypeIssueComments) {
 				if err := s.scanItemNotes(ctx, proj.ID, "issues", issue.IID, issue.WebURL, AttrIssueIID, strconv.Itoa(issue.IID), yield); err != nil {
 					return false, err
 				}
@@ -1002,13 +1002,13 @@ func (s *Source) scanMRs(ctx context.Context, proj *gitlabProject, yield sources
 			if s.Prefilter != nil && s.Prefilter(attrs) {
 				continue
 			}
-			if s.Resources.Has(ResourceTypeMRs) {
+			if s.resources.Has(ResourceTypeMRs) {
 				frag := sources.Fragment{Raw: strings.TrimSpace(mr.Title + "\n" + mr.Description), Attributes: cloneAttrs(attrs)}
 				if err := yield(frag, nil); err != nil {
 					return false, err
 				}
 			}
-			if s.Resources.Has(ResourceTypeMRComments) {
+			if s.resources.Has(ResourceTypeMRComments) {
 				if err := s.scanItemNotes(ctx, proj.ID, "merge_requests", mr.IID, mr.WebURL, AttrMRIID, strconv.Itoa(mr.IID), yield); err != nil {
 					return false, err
 				}
@@ -1195,7 +1195,7 @@ func (s *Source) scanCIJob(ctx context.Context, proj *gitlabProject, job gitlabJ
 	if err := s.downloadAndScan(ctx, traceURL.String(), logPath, attrs, yield); err != nil {
 		logging.OrDiscard(s.Logger).Debug("could not scan job trace", "error", err, "job", job.ID)
 	}
-	if !s.Resources.Has(ResourceTypeCIArtifacts) || len(job.Artifacts) == 0 {
+	if !s.resources.Has(ResourceTypeCIArtifacts) || len(job.Artifacts) == 0 {
 		return nil
 	}
 	artifactAttrs := map[string]string{
@@ -1284,13 +1284,13 @@ func (s *Source) scanSingleIssue(ctx context.Context, proj *gitlabProject, iid i
 	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
-	if s.Resources.Has(ResourceTypeIssues) {
+	if s.resources.Has(ResourceTypeIssues) {
 		frag := sources.Fragment{Raw: strings.TrimSpace(issue.Title + "\n" + issue.Description), Attributes: cloneAttrs(attrs)}
 		if err := yield(frag, nil); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeIssueComments) {
+	if s.resources.Has(ResourceTypeIssueComments) {
 		return s.scanItemNotes(ctx, proj.ID, "issues", issue.IID, issue.WebURL, AttrIssueIID, strconv.Itoa(issue.IID), yield)
 	}
 	return nil
@@ -1313,13 +1313,13 @@ func (s *Source) scanSingleMR(ctx context.Context, proj *gitlabProject, iid int,
 	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
-	if s.Resources.Has(ResourceTypeMRs) {
+	if s.resources.Has(ResourceTypeMRs) {
 		frag := sources.Fragment{Raw: strings.TrimSpace(mr.Title + "\n" + mr.Description), Attributes: cloneAttrs(attrs)}
 		if err := yield(frag, nil); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeMRComments) {
+	if s.resources.Has(ResourceTypeMRComments) {
 		return s.scanItemNotes(ctx, proj.ID, "merge_requests", mr.IID, mr.WebURL, AttrMRIID, strconv.Itoa(mr.IID), yield)
 	}
 	return nil
@@ -1367,20 +1367,20 @@ func (s *Source) scanSingleRelease(ctx context.Context, proj *gitlabProject, tag
 	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
 	}
-	if rel.Description != "" && s.Resources.Has(ResourceTypeReleases) {
+	if rel.Description != "" && s.resources.Has(ResourceTypeReleases) {
 		frag := sources.Fragment{Raw: rel.Description, Attributes: cloneAttrs(attrs)}
 		if err := yield(frag, nil); err != nil {
 			return err
 		}
 	}
-	if !s.Resources.Has(ResourceTypeReleaseAssets) {
+	if !s.resources.Has(ResourceTypeReleaseAssets) {
 		return nil
 	}
 	return s.scanReleaseAssets(ctx, rel, yield)
 }
 
 func (s *Source) scanReleaseAssets(ctx context.Context, rel gitlabRelease, yield sources.FragmentsFunc) error {
-	if !s.Resources.Has(ResourceTypeReleaseAssets) {
+	if !s.resources.Has(ResourceTypeReleaseAssets) {
 		return nil
 	}
 	for _, src := range rel.Assets.Sources {

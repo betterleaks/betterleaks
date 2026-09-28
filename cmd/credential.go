@@ -40,7 +40,7 @@ func (operation credentialOperation) supported(rule configpkg.Rule) bool {
 // CredentialFlags is shared by the direct validate, analyze, and revoke commands.
 type CredentialFlags struct {
 	ProviderRuntimeFlags `embed:""`
-	RuleID               string   `name:"rule" help:"Rule to use for this credential."`
+	RuleID               string   `name:"rule" required:"" help:"Rule to use for this credential."`
 	Component            []string `sep:"none" help:"Credential component as rule-id=secret (repeatable)."`
 	Capture              []string `sep:"none" help:"Credential capture as name=value; use rule-id:name=value for a component (repeatable)."`
 	Simple               bool     `group:"output" help:"Print only the credential status."`

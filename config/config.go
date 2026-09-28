@@ -44,12 +44,12 @@ type Config struct {
 
 	MinVersion string `toml:"minVersion"`
 
-	// Prefilter is a global expression (attributes only) evaluated before any
+	// PrefilterExpr is a global expression (attributes only) evaluated before any
 	// per-match work. Returns true = skip this fragment entirely; false = keep.
-	Prefilter string `toml:"prefilter"`
-	// Filter is a global expression (attributes + finding) evaluated per match.
+	PrefilterExpr string `toml:"prefilter"`
+	// FilterExpr is a global expression (attributes + finding) evaluated per match.
 	// Returns true = skip (discard) this finding; false = keep.
-	Filter string `toml:"filter"`
+	FilterExpr string `toml:"filter"`
 }
 
 // LoadOption configures a config loading operation.
@@ -206,8 +206,8 @@ func (c *Config) Hash() string {
 	if c == nil {
 		return ""
 	}
-	data := appendHashString(nil, c.Prefilter)
-	data = appendHashString(data, c.Filter)
+	data := appendHashString(nil, c.PrefilterExpr)
+	data = appendHashString(data, c.FilterExpr)
 	data = binary.AppendUvarint(data, uint64(len(c.Rules)))
 	for _, rule := range c.Rules {
 		// Every component definition is already present in the resolved rules.
@@ -427,8 +427,8 @@ func (rc *rawConfig) merge(base *rawConfig) {
 	// Global filters are skip predicates, so extension is additive: either
 	// config may suppress the input. Keep each Expr program intact and compose
 	// them only at their boolean boundary.
-	rc.Prefilter = extendGlobalExpr(base.Prefilter, rc.Prefilter)
-	rc.Filter = extendGlobalExpr(base.Filter, rc.Filter)
+	rc.PrefilterExpr = extendGlobalExpr(base.PrefilterExpr, rc.PrefilterExpr)
+	rc.FilterExpr = extendGlobalExpr(base.FilterExpr, rc.FilterExpr)
 
 	// Sort after merging so the resolved order does not depend on extension order.
 	sort.Slice(rc.Rules, func(i, j int) bool {

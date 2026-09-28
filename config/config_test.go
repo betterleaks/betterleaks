@@ -36,7 +36,7 @@ const configPath = "../testdata/config/"
 func TestHashes(t *testing.T) {
 	newConfig := func() *Config {
 		return &Config{
-			Filter: "false", Prefilter: "false",
+			FilterExpr: "false", PrefilterExpr: "false",
 			Rules: []Rule{
 				{ID: "primary", Regex: `(TOKEN)(OTHER)?`, ValueGroup: 1, Specificity: 100,
 					Components:   []Component{{RuleID: "required", Within: "5L"}, {RuleID: "optional", Optional: true}},
@@ -76,8 +76,8 @@ func TestHashes(t *testing.T) {
 		{"required component regex", func(c *Config) { c.Rules[1].Regex = "NEW" }, false, false},
 		{"optional component regex", func(c *Config) { c.Rules[2].Regex = "NEW" }, false, false},
 		{"component filter", func(c *Config) { c.Rules[1].FilterExpr = "true" }, false, false},
-		{"global filter", func(c *Config) { c.Filter = "true" }, false, true},
-		{"global prefilter", func(c *Config) { c.Prefilter = "true" }, false, true},
+		{"global filter", func(c *Config) { c.FilterExpr = "true" }, false, true},
+		{"global prefilter", func(c *Config) { c.PrefilterExpr = "true" }, false, true},
 		{"other rule", func(c *Config) { c.Rules[3].Regex = "NEW" }, false, true},
 		{"other specificity", func(c *Config) { c.Rules[3].Specificity = 200 }, false, true},
 		{"rule order", func(c *Config) { slices.Reverse(c.Rules) }, false, true},
@@ -314,12 +314,12 @@ func TestDefaultConfigExpressionsCompileWithExpr(t *testing.T) {
 
 	filterRuntime, err := exprruntime.New(nil)
 	require.NoError(t, err)
-	if cfg.Prefilter != "" {
-		_, err = filterRuntime.CompilePrefilter(cfg.Prefilter)
+	if cfg.PrefilterExpr != "" {
+		_, err = filterRuntime.CompilePrefilter(cfg.PrefilterExpr)
 		require.NoError(t, err, "global prefilter")
 	}
-	if cfg.Filter != "" {
-		_, err = filterRuntime.CompileFilter(cfg.Filter, nil)
+	if cfg.FilterExpr != "" {
+		_, err = filterRuntime.CompileFilter(cfg.FilterExpr, nil)
 		require.NoError(t, err, "global filter")
 	}
 
@@ -499,13 +499,13 @@ func TestExtendGlobalExpressions(t *testing.T) {
 	current, err := ParseTOMLString(fmt.Sprintf("prefilter = %q\nfilter = %q\n[extend]\npath = %q\n", currentPrefilter, currentFilter, basePath), "")
 	require.NoError(t, err)
 
-	require.Equal(t, "(\n"+basePrefilter+"\n) || (\n"+currentPrefilter+"\n)", current.Prefilter)
-	require.Equal(t, "(\n"+baseFilter+"\n) || (\n"+currentFilter+"\n)", current.Filter)
+	require.Equal(t, "(\n"+basePrefilter+"\n) || (\n"+currentPrefilter+"\n)", current.PrefilterExpr)
+	require.Equal(t, "(\n"+baseFilter+"\n) || (\n"+currentFilter+"\n)", current.FilterExpr)
 
 	env, err := exprruntime.New(nil)
 	require.NoError(t, err)
 
-	prefilter, err := env.CompilePrefilter(current.Prefilter)
+	prefilter, err := env.CompilePrefilter(current.PrefilterExpr)
 	require.NoError(t, err)
 	for _, path := range []string{"base", "current"} {
 		skip, err := env.EvalPrefilter(prefilter, map[string]string{"path": path})
@@ -516,7 +516,7 @@ func TestExtendGlobalExpressions(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, skip)
 
-	filter, err := env.CompileFilter(current.Filter, nil)
+	filter, err := env.CompileFilter(current.FilterExpr, nil)
 	require.NoError(t, err)
 	for _, secret := range []string{"base", "current"} {
 		skip, err := env.EvalFilter(filter, map[string]any{"secret": secret}, nil)
@@ -539,7 +539,7 @@ useDefault = true
 
 	env, err := exprruntime.New(nil)
 	require.NoError(t, err)
-	prefilter, err := env.CompilePrefilter(cfg.Prefilter)
+	prefilter, err := env.CompilePrefilter(cfg.PrefilterExpr)
 	require.NoError(t, err)
 
 	for _, path := range []string{"go.sum", "local.ignore"} {

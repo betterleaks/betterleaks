@@ -148,8 +148,8 @@ func validateConfig(cfg *configpkg.Config, engine regexp.Engine) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Prefilter != "" {
-		prg, err := rt.CompilePrefilter(cfg.Prefilter)
+	if cfg.PrefilterExpr != "" {
+		prg, err := rt.CompilePrefilter(cfg.PrefilterExpr)
 		if err != nil {
 			return fmt.Errorf("compiling global prefilter: %w", err)
 		}
@@ -157,8 +157,8 @@ func validateConfig(cfg *configpkg.Config, engine regexp.Engine) error {
 			return fmt.Errorf("evaluating global prefilter: %w", err)
 		}
 	}
-	if cfg.Filter != "" {
-		prg, err := rt.CompileFilter(cfg.Filter, nil)
+	if cfg.FilterExpr != "" {
+		prg, err := rt.CompileFilter(cfg.FilterExpr, nil)
 		if err != nil {
 			return fmt.Errorf("compiling global filter: %w", err)
 		}
@@ -304,8 +304,8 @@ func renderConfig(cfg *configpkg.Config) configView {
 		Title:       cfg.Title,
 		Description: cfg.Description,
 		MinVersion:  cfg.MinVersion,
-		Prefilter:   cfg.Prefilter,
-		Filter:      cfg.Filter,
+		Prefilter:   cfg.PrefilterExpr,
+		Filter:      cfg.FilterExpr,
 	}
 	for _, rule := range cfg.Rules {
 		rv := ruleView{

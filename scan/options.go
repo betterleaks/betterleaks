@@ -12,14 +12,12 @@ import (
 	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
-// Confidence is the minimum confidence classification accepted by a scanner.
-type Confidence string
-
+// Minimum confidence classifications accepted by a scanner.
 const (
-	ConfidenceAny    Confidence = ""
-	ConfidenceLow    Confidence = "low"
-	ConfidenceMedium Confidence = "medium"
-	ConfidenceHigh   Confidence = "high"
+	ConfidenceAny    = ""
+	ConfidenceLow    = "low"
+	ConfidenceMedium = "medium"
+	ConfidenceHigh   = "high"
 )
 
 type scannerOptions struct {
@@ -125,9 +123,9 @@ func WithMatchContext(spec string) Option {
 }
 
 // WithMinimumConfidence suppresses classified findings below confidence.
-func WithMinimumConfidence(value Confidence) Option {
+func WithMinimumConfidence(value string) Option {
 	return Option{apply: func(options *scannerOptions) error {
-		parsed, err := confidence.Parse(string(value))
+		parsed, err := confidence.Parse(value)
 		if err != nil {
 			return err
 		}

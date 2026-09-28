@@ -32,7 +32,7 @@ func main() {
 
 func run() error {
 	cfg := &config.Config{
-		Prefilter: `startsWithAny(attributes["path"], ["archived/"])`,
+		PrefilterExpr: `startsWithAny(attributes["path"], ["archived/"])`,
 		Rules: []config.Rule{{
 			ID:          "example-api-key",
 			Description: "Example API key",
@@ -61,7 +61,7 @@ func run() error {
 	encoder := json.NewEncoder(os.Stdout)
 	var outputMu sync.Mutex
 	summaries := make([]scan.ScanSummary, len(inputs))
-	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{})
+	skip, err := prefilter.Compile(cfg.PrefilterExpr, prefilter.Options{})
 	if err != nil {
 		return err
 	}

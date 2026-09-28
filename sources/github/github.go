@@ -45,6 +45,7 @@ const (
 
 // Source enumerates repositories via the GitHub API and delegates scanning
 // to the sources.Git source for each cloned repo.
+// Configure a fresh Source for each scan; instances must not be shared concurrently.
 type Source struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger *slog.Logger
@@ -54,15 +55,9 @@ type Source struct {
 	// Filtering
 	ExcludeRepos []string // glob patterns matched against "owner/repo"
 
-	// Include and Exclude specify resource types by name (e.g. "repos", "prs").
-	// Fragments applies these when Resources is empty.
+	// Include adds resource types to the URL defaults; Exclude removes them.
 	Include []string
 	Exclude []string
-
-	// Resources controls which resource types to scan.
-	// Populated automatically by Fragments from Include/Exclude when empty,
-	// or set directly by callers who want programmatic control.
-	Resources ResourceSet
 
 	// Scan config (passed through to sources.Git per repo)
 	Prefilter       sources.PrefilterFunc
@@ -76,6 +71,8 @@ type Source struct {
 
 	// Target URL (required).
 	URL string
+
+	resources resourceSet
 
 	// Internal REST client and retry transport (initialized in Fragments).
 	restRetry *httpclient.RetryTransport
@@ -117,8 +114,8 @@ const (
 	ResourceTypeGists           ResourceType = "gists"
 )
 
-// AllResourceTypes is the canonical list of valid GitHub resource types.
-var AllResourceTypes = []ResourceType{
+// allResourceTypes is the canonical list of valid GitHub resource types.
+var allResourceTypes = []ResourceType{
 	ResourceTypeRepos,
 	ResourceTypeForks,
 	ResourceTypePRs,
@@ -133,19 +130,19 @@ var AllResourceTypes = []ResourceType{
 	ResourceTypeGists,
 }
 
-// ResourceSet tracks which resource types are enabled for scanning.
-type ResourceSet map[ResourceType]bool
+// resourceSet tracks which resource types are enabled for scanning.
+type resourceSet map[ResourceType]bool
 
 // Has reports whether the set contains the given resource type.
-func (rs ResourceSet) Has(r ResourceType) bool { return rs[r] }
+func (rs resourceSet) Has(r ResourceType) bool { return rs[r] }
 
 // HasAnyIssueOrPR reports whether any issue, PR, or comment resource is enabled (C4).
-func (rs ResourceSet) HasAnyIssueOrPR() bool {
+func (rs resourceSet) HasAnyIssueOrPR() bool {
 	return rs[ResourceTypeIssues] || rs[ResourceTypePRs] ||
 		rs[ResourceTypeIssueComments] || rs[ResourceTypePRComments]
 }
 
-func (rs ResourceSet) String() string {
+func (rs resourceSet) String() string {
 	var out []string
 	for rt := range rs {
 		out = append(out, string(rt))
@@ -166,10 +163,10 @@ var defaultScanResources = map[string][]ResourceType{
 }
 
 func (s *Source) logScanStart() {
-	logging.OrDiscard(s.Logger).Info("starting GitHub scan", "target", urlredact.PublicString(s.URL), "resources", s.Resources)
+	logging.OrDiscard(s.Logger).Info("starting GitHub scan", "target", urlredact.PublicString(s.URL), "resources", s.resources)
 }
 
-// resolveResources checks the GitHub source configuration and populates Resources if needed.
+// resolveResources derives the resource selection from the URL and include/exclude lists.
 func (s *Source) resolveResources() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
@@ -180,37 +177,35 @@ func (s *Source) resolveResources() error {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
 
-	// Resolve Resources unless the caller pre-populated them.
-	if len(s.Resources) == 0 {
-		valid := make(map[ResourceType]bool, len(AllResourceTypes))
-		for _, rt := range AllResourceTypes {
-			valid[rt] = true
-		}
-		rs := make(ResourceSet)
-		for _, rt := range defaultScanResources[parsed.Resource] {
-			rs[rt] = true
-		}
-		for _, name := range s.Include {
-			rt := ResourceType(name)
-			if !valid[rt] {
-				return fmt.Errorf("unknown resource type %q", name)
-			}
-			rs[rt] = true
-		}
-		excluded := make(map[ResourceType]bool)
-		for _, name := range s.Exclude {
-			rt := ResourceType(name)
-			if !valid[rt] {
-				return fmt.Errorf("unknown resource type %q", name)
-			}
-			excluded[rt] = true
-			delete(rs, rt)
-		}
-		if rs[ResourceTypeReleases] && !excluded[ResourceTypeReleaseAssets] {
-			rs[ResourceTypeReleaseAssets] = true
-		}
-		s.Resources = rs
+	// Resolve the selection from public inputs for this scan.
+	valid := make(map[ResourceType]bool, len(allResourceTypes))
+	for _, rt := range allResourceTypes {
+		valid[rt] = true
 	}
+	rs := make(resourceSet)
+	for _, rt := range defaultScanResources[parsed.Resource] {
+		rs[rt] = true
+	}
+	for _, name := range s.Include {
+		rt := ResourceType(name)
+		if !valid[rt] {
+			return fmt.Errorf("unknown resource type %q", name)
+		}
+		rs[rt] = true
+	}
+	excluded := make(map[ResourceType]bool)
+	for _, name := range s.Exclude {
+		rt := ResourceType(name)
+		if !valid[rt] {
+			return fmt.Errorf("unknown resource type %q", name)
+		}
+		excluded[rt] = true
+		delete(rs, rt)
+	}
+	if rs[ResourceTypeReleases] && !excluded[ResourceTypeReleaseAssets] {
+		rs[ResourceTypeReleaseAssets] = true
+	}
+	s.resources = rs
 
 	// Token rules (URL-targeted only).
 	if s.Token != "" {
@@ -220,7 +215,7 @@ func (s *Source) resolveResources() error {
 	case "owner":
 		return errors.New("a token is required to scan an organization or user")
 	case "repo":
-		for rt := range s.Resources {
+		for rt := range s.resources {
 			if rt != ResourceTypeRepos && rt != ResourceTypeForks {
 				return fmt.Errorf("a token is required for API-based resources; only repos and forks can be scanned without a token")
 			}
@@ -267,12 +262,12 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 		return err
 	}
 	var gistErr error
-	if target.Resource == "user" && s.Resources.Has(ResourceTypeGists) {
+	if target.Resource == "user" && s.resources.Has(ResourceTypeGists) {
 		gistErr = s.scanUserGists(ctx, client, target.Owner, yield)
 		if cause := context.Cause(ctx); cause != nil {
 			return cause
 		}
-		if !s.Resources.Has(ResourceTypeRepos) {
+		if !s.resources.Has(ResourceTypeRepos) {
 			return gistErr
 		}
 	}
@@ -350,7 +345,7 @@ func (s *Source) enumerateRepos(ctx context.Context, client *github.Client, targ
 			if seen[name] {
 				return
 			}
-			if !s.Resources.Has(ResourceTypeForks) && r.GetFork() {
+			if !s.resources.Has(ResourceTypeForks) && r.GetFork() {
 				return
 			}
 			if s.isExcluded(name) {
@@ -446,25 +441,25 @@ func (s *Source) scanRepo(ctx context.Context, client *github.Client, repo *gith
 		return nil
 	}
 
-	if s.Resources.Has(ResourceTypeRepos) {
+	if s.resources.Has(ResourceTypeRepos) {
 		_ = run(string(ResourceTypeRepos), func() error { return s.scanRepoGit(ctx, repo, ghYield) })
 	}
-	if s.Resources.Has(ResourceTypeActions) {
+	if s.resources.Has(ResourceTypeActions) {
 		if err := run("actions", func() error { return s.scanActions(ctx, client, repo, ghYield) }); err != nil {
 			return err
 		}
 	}
-	if s.Resources.HasAnyIssueOrPR() { // C4
+	if s.resources.HasAnyIssueOrPR() { // C4
 		if err := run("issues_prs", func() error { return s.scanIssuesAndPRsGraphQL(ctx, repo, ghYield) }); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeDiscussions) {
+	if s.resources.Has(ResourceTypeDiscussions) {
 		if err := run("discussions", func() error { return s.scanDiscussions(ctx, repo, ghYield) }); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeReleases) {
+	if s.resources.Has(ResourceTypeReleases) {
 		if err := run("releases", func() error { return s.scanReleases(ctx, client, repo, ghYield) }); err != nil {
 			return err
 		}
@@ -670,7 +665,7 @@ func (s *Source) scanActions(ctx context.Context, client *github.Client, repo *g
 							return fmt.Errorf("scan run %d logs: %w", run.GetID(), err)
 						}
 					}
-					if s.Resources.Has(ResourceTypeActionArtifacts) {
+					if s.resources.Has(ResourceTypeActionArtifacts) {
 						if err := s.scanRunArtifacts(gctx, client, owner, repoName, run, yield); err != nil {
 							if !isGitHubGone(err) {
 								logging.OrDiscard(s.Logger).Error("could not scan run artifacts", "error", err, "run_id", run.GetID())
@@ -1074,8 +1069,8 @@ func (s *Source) scanIssuesAndPRsGraphQL(ctx context.Context, repo *github.Repos
 	var (
 		issuesAfter  *githubv4.String
 		prsAfter     *githubv4.String
-		issuesDone   = !s.Resources.Has(ResourceTypeIssues) && !s.Resources.Has(ResourceTypeIssueComments)
-		prsDone      = !s.Resources.Has(ResourceTypePRs) && !s.Resources.Has(ResourceTypePRComments)
+		issuesDone   = !s.resources.Has(ResourceTypeIssues) && !s.resources.Has(ResourceTypeIssueComments)
+		prsDone      = !s.resources.Has(ResourceTypePRs) && !s.resources.Has(ResourceTypePRComments)
 		commentCount int
 	)
 	for !issuesDone || !prsDone {
@@ -1158,7 +1153,7 @@ type itemEmit struct {
 // count tracks comments emitted (caller adds to totalComments).
 // Returns true if comments were processed (commentsRes enabled).
 func (s *Source) emitItemAndComments(it itemEmit, count *int, yield sources.FragmentsFunc) (bool, error) {
-	if s.Resources.Has(it.bodyRes) && (it.title != "" || it.body != "") {
+	if s.resources.Has(it.bodyRes) && (it.title != "" || it.body != "") {
 		frag := sources.Fragment{Raw: strings.TrimSpace(it.title + "\n" + it.body)}
 		frag.SetAttr(sources.AttrURL, it.url)
 		frag.SetAttr(sources.AttrResource, it.resource)
@@ -1167,7 +1162,7 @@ func (s *Source) emitItemAndComments(it itemEmit, count *int, yield sources.Frag
 			return false, err
 		}
 	}
-	if !s.Resources.Has(it.commentsRes) {
+	if !s.resources.Has(it.commentsRes) {
 		return false, nil
 	}
 	prNum, issueNum := "", ""
@@ -1369,7 +1364,7 @@ func (s *Source) emitRelease(ctx context.Context, client *github.Client, httpCli
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeReleaseAssets) {
+	if s.resources.Has(ResourceTypeReleaseAssets) {
 		if err := s.scanReleaseAssets(ctx, client, httpClient, owner, repo, rel, yield); err != nil {
 			logging.OrDiscard(s.Logger).Warn("could not scan release assets", "error", err, "tag", tag)
 		}
@@ -1865,7 +1860,7 @@ func (s *Source) scanSingleActionRun(ctx context.Context, client *github.Client,
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeActionArtifacts) {
+	if s.resources.Has(ResourceTypeActionArtifacts) {
 		return s.scanRunArtifacts(ctx, client, owner, repo, run, yield)
 	}
 	return nil

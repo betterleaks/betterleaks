@@ -54,6 +54,7 @@ func TestAutoShorthand(t *testing.T) {
 		{name: "file", args: []string{"config.toml"}},
 		{name: "multiple paths", args: []string{"src", "config.toml"}},
 		{name: "command name as path", args: []string{"./git"}},
+		{name: "source limits", args: []string{".", "--max-target-megabytes=20", "--max-archive-depth=2"}},
 		{name: "flags after path", args: []string{".", "--offline", "--follow-symlinks", "-j", "2"}},
 		{name: "flags before path", args: []string{"--offline", "-j", "2", "."}},
 		{name: "global flag value matches command", args: []string{"--config", "git", "."}},
@@ -72,6 +73,8 @@ func TestAutoShorthand(t *testing.T) {
 			require.Equal(t, explicit.Directory.ScanFlags, cli.Auto.ScanFlags)
 			require.Equal(t, explicit.Directory.Paths, cli.Auto.Targets)
 			require.Equal(t, explicit.Directory.FollowSymlinks, cli.Auto.FollowSymlinks)
+			require.Equal(t, explicit.Directory.MaxTargetMegabytes, cli.Auto.MaxTargetMegabytes)
+			require.Equal(t, explicit.Directory.MaxArchiveDepth, cli.Auto.MaxArchiveDepth)
 			require.Equal(t, explicit.GlobalFlags, cli.GlobalFlags)
 		})
 	}
@@ -86,9 +89,9 @@ func TestAutoShorthandPreservesCommands(t *testing.T) {
 		{args: []string{"fs", "."}, command: "filesystem <path>"},
 		{args: []string{"git", "."}, command: "git <repo>"},
 		{args: []string{"stdin"}, command: "stdin"},
-		{args: []string{"validate"}, command: "validate"},
-		{args: []string{"analyze"}, command: "analyze"},
-		{args: []string{"revoke"}, command: "revoke"},
+		{args: []string{"validate", "--rule", "token"}, command: "validate"},
+		{args: []string{"analyze", "--rule", "token"}, command: "analyze"},
+		{args: []string{"revoke", "--rule", "token"}, command: "revoke"},
 		{args: []string{"version"}, command: "version"},
 		{args: []string{"--config", "config.toml", "git", "."}, command: "git <repo>"},
 	} {
@@ -571,6 +574,15 @@ func TestLeadingFlagsRejectInvalidScopeAndValues(t *testing.T) {
 		{[]string{"git", "--unstaged", "--include=commit-messages"}, "requires a Git history scan"},
 		{[]string{"--rule", "token", "fs", "."}, "unknown flag --rule"},
 		{[]string{"--bad-opt", "fs", "."}, "unknown flag --bad-opt"},
+		{[]string{"--max-target-megabytes=1", "git", "."}, "unknown flag --max-target-megabytes"},
+		{[]string{"s3", "s3://example", "--max-target-megabytes=1"}, "unknown flag --max-target-megabytes"},
+		{[]string{"stdin", "--max-target-megabytes=1"}, "unknown flag --max-target-megabytes"},
+		{[]string{"--max-archive-depth=2", "stdin"}, "unknown flag --max-archive-depth"},
+		{[]string{"fs", ".", "--offline", "--status=valid"}, "--status cannot be combined with --offline"},
+		{[]string{"stdin", "--offline", "--status=not-a-status"}, "--status cannot be combined with --offline"},
+		{[]string{"validate"}, "--rule"},
+		{[]string{"analyze"}, "--rule"},
+		{[]string{"revoke"}, "--rule"},
 		{[]string{"--jobs=bad", "fs", "."}, "--jobs"},
 		{[]string{"--jobs=-1", "fs", "."}, "--jobs must be non-negative"},
 		{[]string{"--redact=bad", "fs", "."}, "invalid redaction percentage"},

@@ -21,7 +21,6 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"silent",
 		"output",
 		"confidence",
-		"max-target-megabytes",
 		"jobs",
 		"ignore-file",
 		"hmac-key",
@@ -33,7 +32,6 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"isolate-rule",
 		"match-context",
 		"max-decode-depth",
-		"max-archive-depth",
 		"offline",
 		"no-analysis",
 		"status",
@@ -67,6 +65,12 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		for _, node := range scanNodes {
 			require.True(t, nodeHasFlag(node, name), "%s: %s", node.Name, name)
 		}
+	}
+
+	for _, node := range scanNodes {
+		wantSize := node.Name == "auto" || node.Name == "filesystem" || node.Name == "url"
+		require.Equal(t, wantSize, nodeHasFlag(node, "max-target-megabytes"), node.Name)
+		require.Equal(t, node.Name != "stdin", nodeHasFlag(node, "max-archive-depth"), node.Name)
 	}
 
 	sharedWithCredentials := []string{

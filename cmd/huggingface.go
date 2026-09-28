@@ -10,6 +10,7 @@ import (
 
 type HuggingFaceCmd struct {
 	ScanFlags           `embed:""`
+	MaxArchiveDepth     int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
 	Token               string   `group:"source" help:"Hugging Face access token (or set HUGGINGFACE_TOKEN/HF_TOKEN)."`
 	Include             []string `group:"source" help:"Resource types to scan: repos, discussions, prs, buckets."`
 	Exclude             []string `group:"source" help:"Resource types to skip."`

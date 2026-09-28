@@ -165,8 +165,8 @@ func TestGitLab_ResolveResources(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			for _, rt := range tc.wantResrc {
-				if !src.Resources.Has(rt) {
-					t.Errorf("expected Resources to have %q; got %v", rt, src.Resources)
+				if !src.resources.Has(rt) {
+					t.Errorf("expected resources to have %q; got %v", rt, src.resources)
 				}
 			}
 		})
@@ -179,7 +179,7 @@ func TestGitLab_ResolveResources(t *testing.T) {
 func TestGitLab_scanProject_L1Skip(t *testing.T) {
 	skipped := 0
 	s := &Source{
-		Resources: ResourceSet{ResourceTypeIssues: true},
+		resources: resourceSet{ResourceTypeIssues: true},
 		Prefilter: func(attrs map[string]string) bool {
 			if attrs[sources.AttrResource] == ResourceProject {
 				skipped++
@@ -205,7 +205,7 @@ func TestGitLab_scanProject_L1Skip(t *testing.T) {
 
 func TestGitLab_scanProject_PropagatesRepoScanError(t *testing.T) {
 	s := &Source{
-		Resources: ResourceSet{ResourceTypeRepos: true},
+		resources: resourceSet{ResourceTypeRepos: true},
 	}
 	proj := &gitlabProject{
 		ID:                1,
@@ -247,7 +247,7 @@ func TestGitLab_scanIssues_L2Skip(t *testing.T) {
 		URL:       server.URL + "/g/p/-/issues/0",
 		BaseURL:   server.URL + "/",
 		Token:     "t",
-		Resources: ResourceSet{ResourceTypeIssues: true, ResourceTypeIssueComments: true},
+		resources: resourceSet{ResourceTypeIssues: true, ResourceTypeIssueComments: true},
 		Prefilter: func(attrs map[string]string) bool { return attrs[AttrIssueIID] == "2" },
 	}
 	if err := s.resolveResources(); err != nil {
@@ -350,7 +350,7 @@ func TestGitLab_scanSingleRelease_ScansSourceArchives(t *testing.T) {
 		URL:       server.URL + "/g/p/-/releases/v1.0",
 		BaseURL:   server.URL + "/",
 		Token:     "t",
-		Resources: ResourceSet{ResourceTypeReleases: true, ResourceTypeReleaseAssets: true},
+		resources: resourceSet{ResourceTypeReleases: true, ResourceTypeReleaseAssets: true},
 	}
 	err := s.scanSingleRelease(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, "v1.0", func(sources.Fragment, error) error { return nil })
 	if err != nil {
@@ -588,7 +588,7 @@ func TestGitLab_scanDirectJob_ScansOnlyRequestedJob(t *testing.T) {
 		URL:       server.URL + "/g/p/-/jobs/9001",
 		BaseURL:   server.URL + "/",
 		Token:     "t",
-		Resources: ResourceSet{ResourceTypeCIJobs: true, ResourceTypeCIArtifacts: true},
+		resources: resourceSet{ResourceTypeCIJobs: true, ResourceTypeCIArtifacts: true},
 	}
 	target := &gitlabTarget{Kind: "job", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedURL{ID: "9001"}}
 	if err := s.scanDirect(context.Background(), target, func(sources.Fragment, error) error { return nil }); err != nil {
@@ -625,7 +625,7 @@ func TestGitLab_scanDirectPipeline_UsesPipelineJobsEndpoint(t *testing.T) {
 		URL:       server.URL + "/g/p/-/pipelines/8001",
 		BaseURL:   server.URL + "/",
 		Token:     "t",
-		Resources: ResourceSet{ResourceTypeCIJobs: true},
+		resources: resourceSet{ResourceTypeCIJobs: true},
 	}
 	target := &gitlabTarget{Kind: "pipeline", Project: &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, Resource: ParsedURL{ID: "8001"}}
 	if err := s.scanDirect(context.Background(), target, func(sources.Fragment, error) error { return nil }); err != nil {
@@ -659,7 +659,7 @@ func TestGitLab_scanCIJobs_StopsAtSinceBoundary(t *testing.T) {
 		URL:           server.URL + "/g/p",
 		BaseURL:       server.URL + "/",
 		Token:         "t",
-		Resources:     ResourceSet{ResourceTypeCIJobs: true},
+		resources:     resourceSet{ResourceTypeCIJobs: true},
 		DateRangeOpts: DateRangeOptions{Since: since},
 	}
 	if err := s.scanCIJobs(context.Background(), &gitlabProject{ID: 1, PathWithNamespace: "g/p"}, func(sources.Fragment, error) error { return nil }); err != nil {

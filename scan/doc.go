@@ -23,7 +23,8 @@
 // Findings carry detection confidence, captures, complete component combinations,
 // and Match.Fingerprint for each non-empty primary and component value. These
 // fingerprints hash exact Match.Value bytes, including non-secret components,
-// using SHA-256 in the ignore-file format, and survive redaction. Findings retain
+// using SHA-256, or HMAC-SHA-256 with WithFingerprintKey, and survive redaction.
+// Findings retain
 // optional Match.Context requested with WithMatchContext. Analysis remains
 // empty; filters extract other context directly from their source fragment. Use
 // analyze.Analyzer to resolve credential state and permissions, or pipeline to

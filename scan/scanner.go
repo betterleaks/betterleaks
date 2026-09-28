@@ -104,7 +104,7 @@ type Scanner struct {
 
 // New creates a Scanner from cfg and compiles all finding filters, returning an
 // error for invalid expressions. Rule regexes compile lazily unless
-// [WithPrecompile] is supplied. Sources own prefilter evaluation; cfg.Prefilter
+// [WithPrecompile] is supplied. Sources own prefilter evaluation; cfg.PrefilterExpr
 // is not used by the Scanner.
 func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	if cfg == nil {
@@ -206,7 +206,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		}
 	}
 	exprRuntime.SetTokenCounterProvider(s.tokenCounterInstance)
-	if err := s.compileFilters(cfg.Filter); err != nil {
+	if err := s.compileFilters(cfg.FilterExpr); err != nil {
 		return nil, err
 	}
 

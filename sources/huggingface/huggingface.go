@@ -39,16 +39,17 @@ const (
 
 // Source enumerates Hugging Face model, dataset, and Space repositories
 // via the Hub API and delegates git history scanning to the sources.Git source.
+// Configure a fresh Source for each scan; instances must not be shared concurrently.
 type Source struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger *slog.Logger
 	Token  string
 	URL    string
 
+	// Include adds resource types to the URL defaults; Exclude removes them.
 	Include      []string
 	Exclude      []string
 	ExcludeRepos []string // glob patterns matched against "owner/name"
-	Resources    ResourceSet
 
 	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
@@ -56,6 +57,7 @@ type Source struct {
 
 	MaxBucketObjectSize int64
 
+	resources  resourceSet
 	httpClient *http.Client
 	restRetry  *httpclient.RetryTransport
 	baseURL    *url.URL
@@ -71,18 +73,18 @@ const (
 	ResourceTypeBuckets     ResourceType = "buckets"
 )
 
-var AllResourceTypes = []ResourceType{
+var allResourceTypes = []ResourceType{
 	ResourceTypeRepos,
 	ResourceTypeDiscussions,
 	ResourceTypePRs,
 	ResourceTypeBuckets,
 }
 
-type ResourceSet map[ResourceType]bool
+type resourceSet map[ResourceType]bool
 
-func (rs ResourceSet) Has(r ResourceType) bool { return rs[r] }
+func (rs resourceSet) Has(r ResourceType) bool { return rs[r] }
 
-func (rs ResourceSet) String() string {
+func (rs resourceSet) String() string {
 	var out []string
 	for rt := range rs {
 		out = append(out, string(rt))
@@ -96,38 +98,33 @@ func (s *Source) resolveResources() error {
 	if s.URL == "" {
 		return errors.New("target URL is required")
 	}
-	if _, err := ParseURL(s.URL); err != nil {
+	valid := make(map[ResourceType]bool, len(allResourceTypes))
+	for _, rt := range allResourceTypes {
+		valid[rt] = true
+	}
+	target, err := ParseURL(s.URL)
+	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
-	if len(s.Resources) == 0 {
-		valid := make(map[ResourceType]bool, len(AllResourceTypes))
-		for _, rt := range AllResourceTypes {
-			valid[rt] = true
-		}
-		target, err := ParseURL(s.URL)
-		if err != nil {
-			return fmt.Errorf("invalid target URL: %w", err)
-		}
-		rs := ResourceSet{ResourceTypeRepos: true}
-		if target.Kind == "bucket" {
-			rs = ResourceSet{ResourceTypeBuckets: true}
-		}
-		for _, name := range s.Include {
-			rt := ResourceType(name)
-			if !valid[rt] {
-				return fmt.Errorf("unknown resource type %q", name)
-			}
-			rs[rt] = true
-		}
-		for _, name := range s.Exclude {
-			rt := ResourceType(name)
-			if !valid[rt] {
-				return fmt.Errorf("unknown resource type %q", name)
-			}
-			delete(rs, rt)
-		}
-		s.Resources = rs
+	rs := resourceSet{ResourceTypeRepos: true}
+	if target.Kind == "bucket" {
+		rs = resourceSet{ResourceTypeBuckets: true}
 	}
+	for _, name := range s.Include {
+		rt := ResourceType(name)
+		if !valid[rt] {
+			return fmt.Errorf("unknown resource type %q", name)
+		}
+		rs[rt] = true
+	}
+	for _, name := range s.Exclude {
+		rt := ResourceType(name)
+		if !valid[rt] {
+			return fmt.Errorf("unknown resource type %q", name)
+		}
+		delete(rs, rt)
+	}
+	s.resources = rs
 	return nil
 }
 
@@ -138,7 +135,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if err := s.ensureClient(); err != nil {
 		return err
 	}
-	logging.OrDiscard(s.Logger).Info("starting Hugging Face scan", "target", urlredact.PublicString(s.URL), "resources", s.Resources)
+	logging.OrDiscard(s.Logger).Info("starting Hugging Face scan", "target", urlredact.PublicString(s.URL), "resources", s.resources)
 	start := time.Now()
 	target, err := ParseURL(s.URL)
 	if err != nil {
@@ -157,9 +154,9 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	}
 	var scanErr error
 	wantsRepoScan := target.Kind != "bucket" &&
-		(s.Resources.Has(ResourceTypeRepos) ||
-			s.Resources.Has(ResourceTypeDiscussions) ||
-			s.Resources.Has(ResourceTypePRs))
+		(s.resources.Has(ResourceTypeRepos) ||
+			s.resources.Has(ResourceTypeDiscussions) ||
+			s.resources.Has(ResourceTypePRs))
 	if wantsRepoScan {
 		repoCh, enumErrCh := s.enumerateRepos(ctx, target)
 		var scans errgroup.Group
@@ -188,7 +185,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 		}
 		logging.OrDiscard(s.Logger).Info("scan complete", "repos", repoCount, "duration", time.Since(start))
 	}
-	if s.Resources.Has(ResourceTypeBuckets) {
+	if s.resources.Has(ResourceTypeBuckets) {
 		bucketCh, enumErrCh := s.enumerateBuckets(ctx, target)
 		var scans errgroup.Group
 		bucketCount := 0
@@ -548,14 +545,14 @@ func (s *Source) scanRepo(ctx context.Context, repo huggingFaceRepo, yield sourc
 		return nil
 	}
 
-	if s.Resources.Has(ResourceTypeRepos) {
+	if s.resources.Has(ResourceTypeRepos) {
 		if err := run(string(ResourceTypeRepos), func() error {
 			return s.scanRepoGit(ctx, repo, hfYield)
 		}); err != nil {
 			return err
 		}
 	}
-	if s.Resources.Has(ResourceTypeDiscussions) || s.Resources.Has(ResourceTypePRs) {
+	if s.resources.Has(ResourceTypeDiscussions) || s.resources.Has(ResourceTypePRs) {
 		if err := run("community", func() error { return s.scanCommunity(ctx, repo, hfYield) }); err != nil {
 			return err
 		}
@@ -803,10 +800,10 @@ type huggingFaceDiscussionEvent struct {
 
 func (s *Source) scanCommunity(ctx context.Context, repo huggingFaceRepo, yield sources.FragmentsFunc) error {
 	return s.streamDiscussions(ctx, repo, func(discussion huggingFaceDiscussion) error {
-		if discussion.IsPullRequest && !s.Resources.Has(ResourceTypePRs) {
+		if discussion.IsPullRequest && !s.resources.Has(ResourceTypePRs) {
 			return nil
 		}
-		if !discussion.IsPullRequest && !s.Resources.Has(ResourceTypeDiscussions) {
+		if !discussion.IsPullRequest && !s.resources.Has(ResourceTypeDiscussions) {
 			return nil
 		}
 		detail, err := s.getDiscussionDetails(ctx, repo, discussion.Num)

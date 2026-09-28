@@ -12,9 +12,11 @@ import (
 )
 
 type DirectoryCmd struct {
-	ScanFlags      `embed:""`
-	FollowSymlinks bool     `group:"scanning" name:"follow-symlinks" help:"Follow symlinks to files and directories."`
-	Paths          []string `arg:"" optional:"" name:"path" help:"Directories or files to scan."`
+	ScanFlags          `embed:""`
+	MaxArchiveDepth    int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
+	MaxTargetMegabytes int      `group:"scanning" name:"max-target-megabytes" help:"Files larger than this will be skipped."`
+	FollowSymlinks     bool     `group:"scanning" name:"follow-symlinks" help:"Follow symlinks to files and directories."`
+	Paths              []string `arg:"" optional:"" name:"path" help:"Directories or files to scan."`
 }
 
 func (cmd *DirectoryCmd) Run(cli *CLI, runtime *commandRuntime) error {

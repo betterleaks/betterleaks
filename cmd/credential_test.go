@@ -64,8 +64,8 @@ finding.secret != "" ? {
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v\n%s", err, stdout.String())
 	}
-	if got.SchemaVersion != report.CredentialReportSchemaVersion {
-		t.Fatalf("schema version = %s, want %s", got.SchemaVersion, report.CredentialReportSchemaVersion)
+	if got.SchemaVersion != report.SchemaVersion {
+		t.Fatalf("schema version = %s, want %s", got.SchemaVersion, report.SchemaVersion)
 	}
 	if got.RuleID != "test-token" {
 		t.Fatalf("rule ID = %q", got.RuleID)
@@ -584,7 +584,7 @@ revoke = '''{"result": "revoked"}'''
 		{
 			name: "missing rule",
 			args: []string{"validate", "--config", configPath, "secret"},
-			want: "--rule is required",
+			want: "missing flags: --rule",
 		},
 		{
 			name: "missing secret",
@@ -739,7 +739,7 @@ func TestCredentialCommandsCaptureRequirements(t *testing.T) {
 			require.NoError(t, err)
 			var result report.CredentialReport
 			require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
-			require.Equal(t, report.CredentialReportSchemaVersion, result.SchemaVersion)
+			require.Equal(t, report.SchemaVersion, result.SchemaVersion)
 			require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
 			require.Len(t, result.ComponentSets, 1)
 			require.Equal(t, report.ValidationStatusValid, result.ComponentSets[0].Analysis.Status)

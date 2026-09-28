@@ -51,8 +51,8 @@ const GlobalFilter = `(matchesAny(finding["secret"], [
 
 func CreateGlobalConfig() *config.Config {
 	return &config.Config{
-		Title:     "betterleaks config",
-		Prefilter: GlobalPrefilter,
-		Filter:    GlobalFilter,
+		Title:         "betterleaks config",
+		PrefilterExpr: GlobalPrefilter,
+		FilterExpr:    GlobalFilter,
 	}
 }

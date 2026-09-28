@@ -77,11 +77,11 @@ func TestHuggingFaceResolveResources_DefaultsToRepos(t *testing.T) {
 	if err := src.resolveResources(); err != nil {
 		t.Fatalf("resolveResources: %v", err)
 	}
-	if !src.Resources.Has(ResourceTypeRepos) {
+	if !src.resources.Has(ResourceTypeRepos) {
 		t.Fatalf("expected repos to be enabled by default")
 	}
-	if src.Resources.Has(ResourceTypeDiscussions) || src.Resources.Has(ResourceTypePRs) {
-		t.Fatalf("community resources should be opt-in, got %v", src.Resources)
+	if src.resources.Has(ResourceTypeDiscussions) || src.resources.Has(ResourceTypePRs) {
+		t.Fatalf("community resources should be opt-in, got %v", src.resources)
 	}
 }
 
@@ -90,11 +90,11 @@ func TestHuggingFaceResolveResources_BucketTargetDefaultsToBuckets(t *testing.T)
 	if err := src.resolveResources(); err != nil {
 		t.Fatalf("resolveResources: %v", err)
 	}
-	if !src.Resources.Has(ResourceTypeBuckets) {
+	if !src.resources.Has(ResourceTypeBuckets) {
 		t.Fatalf("expected buckets to be enabled for bucket target")
 	}
-	if src.Resources.Has(ResourceTypeRepos) {
-		t.Fatalf("bucket target should not default to repos, got %v", src.Resources)
+	if src.resources.Has(ResourceTypeRepos) {
+		t.Fatalf("bucket target should not default to repos, got %v", src.resources)
 	}
 }
 
@@ -215,7 +215,7 @@ func TestHuggingFacePaginateAllowsRelativeNextLink(t *testing.T) {
 
 func TestHuggingFaceScanRepoPropagatesGitError(t *testing.T) {
 	src := &Source{
-		Resources: ResourceSet{ResourceTypeRepos: true},
+		resources: resourceSet{ResourceTypeRepos: true},
 		baseURL:   mustParseURL(t, "bad://huggingface.invalid/"),
 	}
 	err := src.scanRepo(context.Background(), huggingFaceRepo{Kind: RepoKindModel, Owner: "acme", Name: "model"}, func(sources.Fragment, error) error {

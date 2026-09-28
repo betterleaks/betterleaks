@@ -10,6 +10,7 @@ import (
 
 type GitHubCmd struct {
 	ScanFlags       `embed:""`
+	MaxArchiveDepth int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
 	Token           string   `group:"source" help:"GitHub personal access token (or set GITHUB_TOKEN)."`
 	Include         []string `group:"source" help:"Resource types to scan: repos, forks, prs, pr-comments, issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists."`
 	Exclude         []string `group:"source" help:"Resource types to skip."`

@@ -8,8 +8,7 @@ import (
 
 func ExampleSource() {
 	src := &github.Source{
-		URL:       "https://github.com/example/project",
-		Resources: github.ResourceSet{github.ResourceTypeRepos: true},
+		URL: "https://github.com/example/project",
 	}
 	// Pass src to scanner.Scan(ctx, src, handler) to scan the repository.
 	fmt.Println(src.URL)

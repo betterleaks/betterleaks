@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -40,7 +39,7 @@ func run() error {
 		return err
 	}
 
-	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{})
+	skip, err := prefilter.Compile(cfg.PrefilterExpr, prefilter.Options{})
 	if err != nil {
 		return err
 	}
@@ -60,11 +59,15 @@ func run() error {
 	// sources.Git{URL: target} for remote history, or sources.URL{URL: target}
 	// for one HTTP response. Detection and remote sources may use the network.
 	// For local staged changes, use sources.Git{RepoPath: ".", Mode: sources.GitStaged}.
-	encoder := json.NewEncoder(os.Stdout)
+	writer, err := report.NewJSONLWriter(os.Stdout)
+	if err != nil {
+		return err
+	}
+	defer writer.Close()
 	summary, err := scanner.Scan(context.Background(), source, func(finding report.Finding) error {
 		// Findings contain detection details without provider results.
 		// Redact a copy before exporting. Returning an error stops the scan.
-		return encoder.Encode(finding.RedactedCopy(100))
+		return writer.WriteFinding(finding.RedactedCopy(100))
 	})
 	if err != nil {
 		return err

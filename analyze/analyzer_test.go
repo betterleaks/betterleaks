@@ -154,7 +154,7 @@ func TestValidateCredentialPipeline(t *testing.T) {
 		{"analysis failure preserves validation", `{"result":"valid"}`, `{"capabilities":123}`, true, report.ValidationStatusValid, report.SeverityUnknown, "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &config.Config{Prefilter: "invalid scan syntax ???", Filter: "invalid scan syntax ???", Rules: []config.Rule{{
+			cfg := &config.Config{PrefilterExpr: "invalid scan syntax ???", FilterExpr: "invalid scan syntax ???", Rules: []config.Rule{{
 				ID: "credential", Regex: `never-matches-this-input`, FilterExpr: "invalid scan syntax ???", Confidence: "low", SkipReport: true,
 				ValidateExpr: tc.validation, AnalyzeExpr: tc.analysis,
 			}}}

@@ -27,7 +27,8 @@ type seekReaderAt interface {
 type File struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger *slog.Logger
-	// Content provides a reader to the file's content
+	// Content is the stream to scan. File does not close it. The caller owns
+	// the reader and must interrupt any blocked Read when canceling.
 	Content io.Reader
 	// Path is the resolved real path of the file
 	Path string
@@ -36,8 +37,6 @@ type File struct {
 	Attributes map[string]string
 	// Symlink represents a symlink to the file if that's how it was discovered
 	Symlink string
-	// Buffer is used for reading the content in chunks
-	Buffer []byte
 	// Prefilter is a callback that decides whether to skip a file based on its
 	// attributes (e.g. path). If nil, no skipping is performed.
 	Prefilter PrefilterFunc
@@ -248,14 +247,8 @@ func (s *File) decompressorFragments(ctx context.Context, decompressor archives.
 // fileFragments adds filesystem policy and metadata to source-neutral reader
 // fragments.
 func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveContent bool, yield FragmentsFunc) error {
-	// Use a pooled buffer if the caller hasn't provided one.
-	if s.Buffer == nil {
-		s.Buffer = getBuffer()
-		defer func() {
-			putBuffer(s.Buffer)
-			s.Buffer = nil
-		}()
-	}
+	buffer := getBuffer()
+	defer putBuffer(buffer)
 
 	fullPath := s.FullPath()
 	fragmentPath := fullPath
@@ -264,7 +257,7 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 	}
 	firstFragment := true
 
-	return readerFragments(ctx, content, s.Buffer, func(fragment Fragment, readErr error) error {
+	return readerFragments(ctx, content, buffer, func(fragment Fragment, readErr error) error {
 		first := "false"
 		if firstFragment {
 			first = "true"

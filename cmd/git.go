@@ -24,14 +24,15 @@ func (e *multipleErrors) Error() string   { return e.msg }
 func (e *multipleErrors) Unwrap() []error { return e.errs }
 
 type GitCmd struct {
-	ScanFlags `embed:""`
-	Token     string   `group:"source" help:"Token for an HTTP(S) clone (or the known host's GITHUB_TOKEN, GITLAB_TOKEN, HUGGINGFACE_TOKEN/HF_TOKEN)."`
-	Platform  string   `group:"source" help:"Target platform used to generate links: github or gitlab."`
-	Staged    bool     `group:"source" help:"Scan added lines in staged changes."`
-	Unstaged  bool     `group:"source" help:"Scan added lines in unstaged changes to tracked files."`
-	LogOpts   string   `group:"source" name:"log-opts" help:"Git log options (uses one history stream to preserve option semantics)."`
-	Include   []string `group:"source" help:"Additional Git resources to scan: commit-messages, tag-messages, reflogs."`
-	Repo      string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
+	ScanFlags       `embed:""`
+	MaxArchiveDepth int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
+	Token           string   `group:"source" help:"Token for an HTTP(S) clone (or the known host's GITHUB_TOKEN, GITLAB_TOKEN, HUGGINGFACE_TOKEN/HF_TOKEN)."`
+	Platform        string   `group:"source" help:"Target platform used to generate links: github or gitlab."`
+	Staged          bool     `group:"source" help:"Scan added lines in staged changes."`
+	Unstaged        bool     `group:"source" help:"Scan added lines in unstaged changes to tracked files."`
+	LogOpts         string   `group:"source" name:"log-opts" help:"Git log options (uses one history stream to preserve option semantics)."`
+	Include         []string `group:"source" help:"Additional Git resources to scan: commit-messages, tag-messages, reflogs."`
+	Repo            string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
 }
 
 func (cmd GitCmd) Validate() error {

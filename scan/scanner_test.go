@@ -286,7 +286,7 @@ func TestIgnoredFingerprintsSnapshotAndReuse(t *testing.T) {
 
 func TestScannerLoggerIsOptIn(t *testing.T) {
 	cfg := &config.Config{
-		Filter: `int(finding.secret) > 0`,
+		FilterExpr: `int(finding.secret) > 0`,
 		Rules: []config.Rule{{
 			ID:    "test-secret",
 			Regex: `secret-[a-z]+`,
@@ -325,8 +325,8 @@ func TestGitleaksAllowCommentSuppressesFinding(t *testing.T) {
 
 func TestSourcePrefilter(t *testing.T) {
 	cfg := testConfig()
-	cfg.Prefilter = `attributes["path"] == "ignored.txt"`
-	skip := mustPrefilter(t, cfg.Prefilter)
+	cfg.PrefilterExpr = `attributes["path"] == "ignored.txt"`
+	skip := mustPrefilter(t, cfg.PrefilterExpr)
 	require.NotNil(t, skip)
 	assert.True(t, skip(map[string]string{sources.AttrPath: "ignored.txt"}))
 	assert.False(t, skip(map[string]string{sources.AttrPath: "kept.txt"}))
@@ -389,7 +389,7 @@ func TestNewRejectsInvalidFindingFilters(t *testing.T) {
 				want := "compiling global filter"
 				switch scope {
 				case "global":
-					cfg.Filter = expression
+					cfg.FilterExpr = expression
 				case "rule":
 					cfg.Rules[0].FilterExpr = expression
 					want = "compiling rule " + cfg.Rules[0].ID + " filter"
@@ -413,7 +413,7 @@ func TestNewRejectsInvalidFindingFilters(t *testing.T) {
 
 func TestFilterCompilationDoesNotInitializeTokenizer(t *testing.T) {
 	cfg := testConfig()
-	cfg.Filter = `tokenRatio(finding.secret) > 0`
+	cfg.FilterExpr = `tokenRatio(finding.secret) > 0`
 	scanner, err := New(cfg)
 	require.NoError(t, err)
 	require.Nil(t, scanner.tokenCounter, "construction must compile filters without evaluating them")
@@ -549,9 +549,8 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	timingCollector := ruletiming.NewCollector()
 	scanner := mustNew(t, cfg)
 	source := &sources.File{
-		Content: strings.NewReader("aa\n\nbb\n\n"),
+		Content: strings.NewReader(strings.Repeat("aa\n\n", 100_000)),
 		Path:    "bundle.p12",
-		Buffer:  make([]byte, 4),
 	}
 
 	findings, err := collectSourceFindings(ruletiming.WithCollector(t.Context(), timingCollector), scanner, source)
@@ -604,7 +603,7 @@ func TestNewSnapshotsConfigWithoutMutatingIt(t *testing.T) {
 	cfg.Rules[0].Keywords[0] = "changed"
 	cfg.Rules[0].Regex = `CHANGED`
 	cfg.Rules[1] = config.Rule{ID: "replacement", Keywords: []string{"changed"}, Regex: `CHANGED`}
-	cfg.Filter = "true"
+	cfg.FilterExpr = "true"
 
 	require.Equal(t, []string{"high", "low"}, findingRuleIDs(d.ScanString("mixed HIGHSECRET LOWSECRET")))
 }
@@ -1672,8 +1671,8 @@ func TestDetectFilterMatchesContextWindow(t *testing.T) {
 }
 
 func TestConfidenceAttributeAndFilter(t *testing.T) {
-	low := config.Rule{ID: "specific-low", Regex: `[A-Z0-9]{20}`, Specificity: 1, Confidence: "low"}
-	promoted := config.Rule{ID: "promoted", Regex: `[A-Z0-9]{20}`, Confidence: "medium", FilterExpr: `let _ = setConfidence("high"); false`}
+	low := config.Rule{ID: "specific-low", Regex: `[A-Z0-9]{20}`, Specificity: 1, Confidence: ConfidenceLow}
+	promoted := config.Rule{ID: "promoted", Regex: `[A-Z0-9]{20}`, Confidence: ConfidenceMedium, FilterExpr: `let _ = setConfidence("high"); false`}
 	cfg := &config.Config{
 		Rules: []config.Rule{low, promoted},
 	}
@@ -1682,7 +1681,7 @@ func TestConfidenceAttributeAndFilter(t *testing.T) {
 	findings := scanner.ScanString("ABCDEFGHIJKLMNOPQRST")
 	require.Len(t, findings, 1)
 	require.Equal(t, "promoted", findings[0].RuleID)
-	require.Equal(t, "high", findings[0].Confidence)
+	require.True(t, findings[0].Confidence == ConfidenceHigh)
 }
 
 func TestDecodedFilterUsesDecodedMatchContext(t *testing.T) {
@@ -2695,7 +2694,7 @@ func TestFromGit(t *testing.T) {
 				&sources.Git{
 					RepoPath:        tt.source,
 					LogOpts:         tt.logOpts,
-					Prefilter:       mustPrefilter(t, cfg.Prefilter),
+					Prefilter:       mustPrefilter(t, cfg.PrefilterExpr),
 					Platform:        platform,
 					RemoteURL:       remoteURL,
 					MaxArchiveDepth: 8,
@@ -2757,7 +2756,7 @@ func TestFromGitStaged(t *testing.T) {
 			&sources.Git{
 				RepoPath:  tt.source,
 				Mode:      sources.GitStaged,
-				Prefilter: mustPrefilter(t, cfg.Prefilter),
+				Prefilter: mustPrefilter(t, cfg.PrefilterExpr),
 				Platform:  platform,
 				RemoteURL: remoteURL,
 			})
@@ -2795,7 +2794,7 @@ func TestScanBinaryFiles(t *testing.T) {
 					source := &sources.Files{Path: dir}
 					want := []string{"program", "program.exe", "report.pdf", "data.bin"}
 					if usePrefilter {
-						source.Prefilter = mustPrefilter(t, cfg.Prefilter)
+						source.Prefilter = mustPrefilter(t, cfg.PrefilterExpr)
 					} else {
 						want = []string{"program", "program.exe", "report.pdf", "image.png", "font.woff", "data.bin"}
 					}
@@ -3011,7 +3010,7 @@ func TestFromFiles(t *testing.T) {
 				t.Context(), scanner,
 
 				&sources.Files{
-					Prefilter:      mustPrefilter(t, cfg.Prefilter),
+					Prefilter:      mustPrefilter(t, cfg.PrefilterExpr),
 					FollowSymlinks: true,
 					Path:           tt.source,
 				})
@@ -3463,7 +3462,7 @@ func TestDetectWithArchives(t *testing.T) {
 				ctx, scanner,
 				&sources.Files{
 					Path:            tt.source,
-					Prefilter:       mustPrefilter(t, cfg.Prefilter),
+					Prefilter:       mustPrefilter(t, cfg.PrefilterExpr),
 					MaxArchiveDepth: 8,
 				})
 
@@ -3519,7 +3518,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 			t.Context(), scanner,
 
 			&sources.Files{
-				Prefilter:      mustPrefilter(t, cfg.Prefilter),
+				Prefilter:      mustPrefilter(t, cfg.PrefilterExpr),
 				FollowSymlinks: true,
 				Path:           tt.source,
 			})
@@ -3730,7 +3729,7 @@ func TestFiltersReceiveNamedCaptures(t *testing.T) {
 			}}}
 			filter := `finding.captures["username"] == "example" && finding.secret == "key-fixture"`
 			if scope == "global" {
-				cfg.Filter = filter
+				cfg.FilterExpr = filter
 			} else {
 				cfg.Rules[0].FilterExpr = filter
 			}
@@ -3769,7 +3768,7 @@ func TestScannerNeverExecutesProviderPrograms(t *testing.T) {
 	require.Zero(t, requests.Load())
 	// Local filter bindings cannot use provider HTTP or environment access.
 	for _, filter := range []string{`http.get("https://example.invalid", {}).status == 200`, `env.get("TOKEN") == "skip"`} {
-		cfg.Filter = filter
+		cfg.FilterExpr = filter
 		_, err := New(cfg, WithPrecompile())
 		require.Error(t, err)
 	}
@@ -3777,7 +3776,7 @@ func TestScannerNeverExecutesProviderPrograms(t *testing.T) {
 
 func TestScannerConcurrentReuse(t *testing.T) {
 	cfg := testConfig()
-	cfg.Filter = `finding.secret == "secret-ignored"`
+	cfg.FilterExpr = `finding.secret == "secret-ignored"`
 	scanner := mustNew(t, cfg, WithWorkers(2))
 	var wg sync.WaitGroup
 	for range 16 {
@@ -3905,7 +3904,7 @@ func TestPathOnlyFindingsHonorFilters(t *testing.T) {
 		cfg := &config.Config{Rules: []config.Rule{{ID: "path", Path: `\.env$`}}}
 		expression := `attributes.path == "skip.env" && finding.fragment_raw == "" && finding.match_start_idx == 0`
 		if global {
-			cfg.Filter = expression
+			cfg.FilterExpr = expression
 		} else {
 			cfg.Rules[0].FilterExpr = expression
 		}
@@ -4090,13 +4089,13 @@ func TestPrefilterConcurrentReuse(t *testing.T) {
 
 func TestScannerDoesNotOwnSourcePrefilter(t *testing.T) {
 	cfg := testConfig()
-	cfg.Prefilter = `invalid expression [`
+	cfg.PrefilterExpr = `invalid expression [`
 	scanner := mustNew(t, cfg, WithPrecompile())
 	require.Len(t, scanner.ScanString("secret-alpha"), 1)
 
-	cfg.Prefilter = `attributes.path == "ignored.env"`
-	skip := mustPrefilter(t, cfg.Prefilter)
-	cfg.Prefilter = "true"
+	cfg.PrefilterExpr = `attributes.path == "ignored.env"`
+	skip := mustPrefilter(t, cfg.PrefilterExpr)
+	cfg.PrefilterExpr = "true"
 	checks := 0
 	findings, err := collectSourceFindings(t.Context(), scanner, &sources.Reader{
 		Content:    strings.NewReader("secret-alpha"),

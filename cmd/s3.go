@@ -8,14 +8,15 @@ import (
 )
 
 type S3Cmd struct {
-	ScanFlags     `embed:""`
-	Region        string   `group:"source" help:"AWS region (required for some non-AWS endpoints; auto-probed for AWS)."`
-	Anonymous     bool     `group:"source" help:"Do not sign requests; ignore AWS credential environment variables and flags."`
-	AccessKey     string   `group:"source" name:"access-key" help:"AWS access key (overrides AWS_ACCESS_KEY_ID)."`
-	SecretKey     string   `group:"source" name:"secret-key" help:"AWS secret key (overrides AWS_SECRET_ACCESS_KEY)."`
-	SessionToken  string   `group:"source" name:"session-token" help:"AWS session token (overrides AWS_SESSION_TOKEN)."`
-	MaxObjectSize sizeFlag `group:"source" name:"max-object-size" placeholder:"SIZE" help:"Skip objects larger than this size (e.g. 250MiB, 1GB; 0 = 250 MiB default)."`
-	URL           string   `arg:"" help:"S3 or S3-compatible bucket URL."`
+	ScanFlags       `embed:""`
+	MaxArchiveDepth int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
+	Region          string   `group:"source" help:"AWS region (required for some non-AWS endpoints; auto-probed for AWS)."`
+	Anonymous       bool     `group:"source" help:"Do not sign requests; ignore AWS credential environment variables and flags."`
+	AccessKey       string   `group:"source" name:"access-key" help:"AWS access key (overrides AWS_ACCESS_KEY_ID)."`
+	SecretKey       string   `group:"source" name:"secret-key" help:"AWS secret key (overrides AWS_SECRET_ACCESS_KEY)."`
+	SessionToken    string   `group:"source" name:"session-token" help:"AWS session token (overrides AWS_SESSION_TOKEN)."`
+	MaxObjectSize   sizeFlag `group:"source" name:"max-object-size" placeholder:"SIZE" help:"Skip objects larger than this size (e.g. 250MiB, 1GB; 0 = 250 MiB default)."`
+	URL             string   `arg:"" help:"S3 or S3-compatible bucket URL."`
 }
 
 func (cmd *S3Cmd) Run(cli *CLI, runtime *commandRuntime) error {

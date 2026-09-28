@@ -80,7 +80,7 @@ func Example_customConfig() {
 		panic(err)
 	}
 
-	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{Logger: logger})
+	skip, err := prefilter.Compile(cfg.PrefilterExpr, prefilter.Options{Logger: logger})
 	if err != nil {
 		panic(err)
 	}

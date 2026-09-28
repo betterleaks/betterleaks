@@ -344,7 +344,7 @@ func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanF
 		scan.WithRegexEngine(runtime.regexEngine()),
 		scan.WithWorkers(flags.Jobs),
 		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
-		scan.WithMinimumConfidence(scan.Confidence(flags.Confidence)),
+		scan.WithMinimumConfidence(flags.Confidence),
 	}
 	key, err := fingerprintKey(flags.HMACKey)
 	if err != nil {
@@ -446,7 +446,7 @@ func loadScanFilters(runtime *commandRuntime, cfg *config.Config, ignorePath, so
 	if cfg.Path != "" {
 		excluded = append(excluded, cfg.Path)
 	}
-	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{
+	skip, err := prefilter.Compile(cfg.PrefilterExpr, prefilter.Options{
 		ExcludedPaths: excluded,
 		RegexEngine:   runtime.regexEngine(),
 		Logger:        runtime.Logger(),

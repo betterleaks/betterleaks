@@ -182,9 +182,8 @@ func TestFile_Fragments_malformedGzipDoesNotPanic(t *testing.T) {
 
 func TestFile_Fragments_marksFirstFragment(t *testing.T) {
 	s := &File{
-		Content: strings.NewReader("aa\n\nbb\n\n"),
+		Content: strings.NewReader(strings.Repeat("a", defaultBufferSize-2) + "\n\nbb\n\n"),
 		Path:    "example.txt",
-		Buffer:  make([]byte, 4),
 	}
 
 	var fragments []Fragment
@@ -195,7 +194,7 @@ func TestFile_Fragments_marksFirstFragment(t *testing.T) {
 	}))
 
 	require.Len(t, fragments, 2)
-	require.Equal(t, "aa\n\n", fragments[0].Raw)
+	require.Equal(t, strings.Repeat("a", defaultBufferSize-2)+"\n\n", fragments[0].Raw)
 	require.Equal(t, "bb\n\n", fragments[1].Raw)
 	require.Equal(t, "true", fragments[0].Attr(AttrFSFirstFragment))
 	require.Equal(t, "false", fragments[1].Attr(AttrFSFirstFragment))

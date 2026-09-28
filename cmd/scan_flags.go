@@ -12,23 +12,21 @@ import (
 
 // ScanFlags are shared by commands that detect findings from a source.
 type ScanFlags struct {
-	HMACKey            *string  `group:"scanning" name:"hmac-key" placeholder:"KEY" help:"HMAC fingerprint key; overrides BETTERLEAKS_FINGERPRINT_HMAC_KEY."`
-	Jobs               int      `group:"scanning" name:"jobs" short:"j" help:"Detection concurrency (0 = 4 * GOMAXPROCS)."`
-	MaxTargetMegabytes int      `group:"scanning" name:"max-target-megabytes" help:"Files larger than this will be skipped."`
-	MaxDecodeDepth     int      `group:"scanning" name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
-	MaxArchiveDepth    int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
-	DisableRule        []string `group:"scanning" name:"disable-rule" help:"Disable specific rules by id (repeatable; shorthand: -dr)."`
-	IsolateRule        []string `group:"scanning" name:"isolate-rule" help:"Only enable specific rules by id (repeatable; shorthand: -ir)."`
-	IgnoreFile         string   `group:"scanning" name:"ignore-file" placeholder:"PATH" help:"Read value fingerprints from PATH."`
-	AllowSignatures    []string `group:"scanning" name:"allow-signature" sep:"none" help:"Allow marker matched literally on finding lines (repeatable; replaces default markers)."`
-	NoAllowSignatures  bool     `group:"scanning" name:"no-allow-signatures" help:"Disable all allow markers."`
+	HMACKey           *string  `group:"scanning" name:"hmac-key" placeholder:"KEY" help:"HMAC fingerprint key; overrides BETTERLEAKS_FINGERPRINT_HMAC_KEY."`
+	Jobs              int      `group:"scanning" name:"jobs" short:"j" help:"Detection concurrency (0 = 4 * GOMAXPROCS)."`
+	MaxDecodeDepth    int      `group:"scanning" name:"max-decode-depth" default:"5" help:"Allow recursive decoding up to this depth."`
+	DisableRule       []string `group:"scanning" name:"disable-rule" help:"Disable specific rules by id (repeatable; shorthand: -dr)."`
+	IsolateRule       []string `group:"scanning" name:"isolate-rule" help:"Only enable specific rules by id (repeatable; shorthand: -ir)."`
+	IgnoreFile        string   `group:"scanning" name:"ignore-file" placeholder:"PATH" help:"Read value fingerprints from PATH."`
+	AllowSignatures   []string `group:"scanning" name:"allow-signature" sep:"none" help:"Allow marker matched literally on finding lines (repeatable; replaces default markers)."`
+	NoAllowSignatures bool     `group:"scanning" name:"no-allow-signatures" help:"Disable all allow markers."`
 
 	Output       string     `group:"output" name:"output" short:"o" placeholder:"PATH" help:"Write findings to PATH (.json or .jsonl; use '-' for stdout)."`
 	JSONL        bool       `group:"output" name:"jsonl" help:"Print findings as JSONL."`
 	Silent       bool       `group:"output" short:"s" help:"Suppress findings and banner."`
 	NoBanner     bool       `group:"output" name:"no-banner" help:"Suppress banner."`
 	Confidence   string     `group:"output" help:"Minimum confidence to include (low, medium, high)."`
-	Redact       redactFlag `group:"output" placeholder:"PERCENT" help:"Redact secrets from logs and stdout. With no value, redact 100%; otherwise specify 0..100."`
+	Redact       redactFlag `group:"output" placeholder:"PERCENT" help:"Redact secrets in findings, including report files. With no value, redact 100%; otherwise specify 0..100."`
 	MatchContext string     `group:"output" name:"match-context" help:"Context around match: L (lines), C (columns/characters), e.g. 10L, 100C, -2C,+4C."`
 	ExitCode     int        `group:"output" name:"exit-code" default:"1" help:"Exit code when leaks have been encountered."`
 
@@ -43,6 +41,9 @@ type ScanFlags struct {
 }
 
 func (f ScanFlags) Validate() error {
+	if f.Offline && f.ValidationStatus != "" {
+		return fmt.Errorf("--status cannot be combined with --offline")
+	}
 	if f.NoAllowSignatures && len(f.AllowSignatures) > 0 {
 		return fmt.Errorf("--allow-signature and --no-allow-signatures cannot be combined")
 	}

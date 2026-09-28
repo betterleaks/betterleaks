@@ -117,7 +117,7 @@ func run() error {
 		return err
 	}
 
-	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{})
+	skip, err := prefilter.Compile(cfg.PrefilterExpr, prefilter.Options{})
 	if err != nil {
 		return err
 	}

@@ -129,7 +129,7 @@ func TestIgnoreFileDiscovery(t *testing.T) {
 		hashes, _, err := readIgnoreFile(&commandRuntime{stderr: io.Discard}, "", dir)
 		require.NoError(t, err)
 		assert.Empty(t, hashes)
-		assert.Empty(t, cfg.Filter)
+		assert.Empty(t, cfg.FilterExpr)
 	})
 }
 
@@ -155,7 +155,7 @@ func TestIgnoreFileComposesWithGlobalFilter(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "secret-fingerprint")
 	cfg := ignoreTestConfig()
-	cfg.Filter = "finding[\"secret\"] == \"secret-config\""
+	cfg.FilterExpr = "finding[\"secret\"] == \"secret-config\""
 
 	hashes, _, err := readIgnoreFile(&commandRuntime{stderr: io.Discard}, "", dir)
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestIgnoreFileComposesWithGlobalFilter(t *testing.T) {
 
 	assert.Empty(t, scanner.ScanString("secret-config secret-fingerprint"))
 	assert.NotEmpty(t, scanner.ScanString("secret-visible"))
-	assert.Equal(t, "finding[\"secret\"] == \"secret-config\"", cfg.Filter)
+	assert.Equal(t, "finding[\"secret\"] == \"secret-config\"", cfg.FilterExpr)
 }
 
 func TestIgnorePoliciesDoNotLeakBetweenDetectors(t *testing.T) {
@@ -180,7 +180,7 @@ func TestIgnorePoliciesDoNotLeakBetweenDetectors(t *testing.T) {
 		scanner := scannerWithIgnoredFingerprints(t, cfg, hashes)
 		assert.Empty(t, scanner.ScanString(target.ignored))
 		assert.Len(t, scanner.ScanString(target.visible), 1)
-		assert.Empty(t, cfg.Filter)
+		assert.Empty(t, cfg.FilterExpr)
 	}
 }
 
@@ -217,7 +217,7 @@ func TestSourceAndFindingFilters(t *testing.T) {
 	path := writeIgnore(t, dir, "secret-value")
 	cfg := ignoreTestConfig()
 	cfg.Path = filepath.Join(dir, "rules.toml")
-	cfg.Prefilter = `startsWithAny(attributes.path, ["archived/"])`
+	cfg.PrefilterExpr = `startsWithAny(attributes.path, ["archived/"])`
 	filters, err := loadScanFilters(&commandRuntime{stderr: io.Discard}, cfg, "", dir)
 	require.NoError(t, err)
 

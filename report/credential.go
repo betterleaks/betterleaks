@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
@@ -16,8 +15,6 @@ import (
 // SchemaVersion identifies the JSON report contract, independently of the
 // Betterleaks application version.
 const SchemaVersion = "1"
-
-const CredentialReportSchemaVersion = SchemaVersion
 
 // CredentialReport is a sanitized direct credential result. Match material and
 // source locations are omitted because no source discovery was performed.
@@ -51,25 +48,11 @@ type CredentialComponentReport struct {
 	Captures []string `json:"captures,omitempty"`
 }
 
-// CredentialRuleList is a versioned list of credential rules and input requirements.
-type CredentialRuleList struct {
-	SchemaVersion string                  `json:"schema_version"`
-	Rules         []CredentialRuleSummary `json:"rules"`
-}
-
-// CredentialRuleSummary describes a rule that supports a direct credential command.
-type CredentialRuleSummary struct {
-	RuleID      string                      `json:"rule_id"`
-	Description string                      `json:"description,omitempty"`
-	Components  []CredentialComponentReport `json:"components,omitempty"`
-	Captures    []string                    `json:"captures,omitempty"`
-}
-
 // NewCredentialReport builds a redacted report from a validated or analyzed finding.
 func NewCredentialReport(finding Finding, secrets []string) CredentialReport {
 	secrets = credentialSecretsForRedaction(secrets)
 	result := CredentialReport{
-		SchemaVersion: CredentialReportSchemaVersion,
+		SchemaVersion: SchemaVersion,
 		RuleID:        sanitizeCredentialString(finding.RuleID, secrets),
 		Attributes:    sanitizeCredentialAttributes(finding.Attributes, secrets),
 		Analysis:      SanitizeAnalysis(finding.Analysis, secrets),
@@ -221,20 +204,7 @@ const (
 	CredentialReportFormatJSONL  CredentialReportFormat = "jsonl"
 )
 
-// ResolveCredentialReportFormat validates an explicit format. Pretty output is
-// the default; JSONL emits one compact credential record per line.
-func ResolveCredentialReportFormat(format string) (CredentialReportFormat, error) {
-	format = strings.ToLower(strings.TrimSpace(format))
-	if format == "" {
-		return CredentialReportFormatPretty, nil
-	}
-	if format != "pretty" && format != "jsonl" {
-		return "", fmt.Errorf("credential output format must be pretty or jsonl, got %q", format)
-	}
-	return CredentialReportFormat(format), nil
-}
-
-// CredentialReporter renders direct credential results and rule lists.
+// CredentialReporter renders direct credential results.
 type CredentialReporter struct {
 	Format  CredentialReportFormat
 	NoColor bool
@@ -249,18 +219,6 @@ func (r CredentialReporter) Write(w io.Writer, result CredentialReport) error {
 			return writeCredentialStatus(w, result.Analysis.Status, r.NoColor)
 		}
 		return writeCredentialText(w, result, r.NoColor)
-	case CredentialReportFormatJSONL:
-		return writeCredentialJSONL(w, result)
-	default:
-		return fmt.Errorf("unsupported credential output format %q", r.Format)
-	}
-}
-
-// WriteRuleList renders the rules that support a direct credential command.
-func (r CredentialReporter) WriteRuleList(w io.Writer, result CredentialRuleList) error {
-	switch r.Format {
-	case CredentialReportFormatPretty:
-		return writeCredentialRuleListText(w, result)
 	case CredentialReportFormatJSONL:
 		return writeCredentialJSONL(w, result)
 	default:
@@ -362,25 +320,6 @@ func formatCredentialStatusIcon(status ValidationStatus, noColor bool) string {
 		icon = "-"
 	}
 	return validationStyle(string(status), noColor).Render(icon)
-}
-
-func writeCredentialRuleListText(w io.Writer, result CredentialRuleList) error {
-	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "RULE ID\tCOMPONENTS\tCAPTURES"); err != nil {
-		return err
-	}
-	for _, rule := range result.Rules {
-		captures := append([]string(nil), rule.Captures...)
-		for _, component := range rule.Components {
-			for _, name := range component.Captures {
-				captures = append(captures, component.RuleID+":"+name)
-			}
-		}
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\n", rule.RuleID, formatCredentialComponents(rule.Components), strings.Join(captures, ", ")); err != nil {
-			return err
-		}
-	}
-	return tw.Flush()
 }
 
 func formatCredentialComponents(components []CredentialComponentReport) string {

@@ -384,7 +384,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	skip, err := prefilter.Compile(cfg.Prefilter, prefilter.Options{})
+	skip, err := prefilter.Compile(cfg.PrefilterExpr, prefilter.Options{})
 	if err != nil {
 		return err
 	}
@@ -406,11 +406,15 @@ func run() error {
 }
 ```
 
-Source prefilters are explicit: compile `cfg.Prefilter` and set the source's
+Source prefilters are explicit: compile `cfg.PrefilterExpr` and set the source's
 `Prefilter`. The scanner does not apply it for you. Archive depth, file-size
 limits, and symlink handling belong to sources; detection options belong to
 `scan.New`. Use `sources.Git{RepoPath: ".", Mode: sources.GitStaged}` for staged
 changes instead of constructing Git commands or sharing a detector semaphore.
+
+GitHub, GitLab, and Hugging Face resource selection uses `Include`/`Exclude`;
+the derived resource map is private. Configure a fresh source for each scan.
+`File` manages its own read buffer; callers no longer supply `File.Buffer`.
 
 Callbacks are serialized within a scan; returning an error stops it. Finding
 order is not guaranteed. Reuse scanners across concurrent calls with independent
@@ -424,8 +428,8 @@ scan errors; use `Scan` when failures must be observable. Callers own
 `Rule.Regex` and `Rule.Path` are pattern strings, not compiled regex objects.
 `Rule.SecretGroup` becomes `Rule.ValueGroup`, selecting `Finding.Match.Value`
 for both secrets and non-secret components. The TOML key is `valueGroup`.
-The rule's finding filter expression is `Rule.FilterExpr` in Go; its TOML key
-remains `filter`.
+Go expression fields are `Rule.FilterExpr`, `Config.FilterExpr`, and
+`Config.PrefilterExpr`; TOML retains `filter` and `prefilter`.
 Components are `[]config.Component`. Keyword indexes and compiled expression
 programs are no longer public config state. Use `config.Default`, `LoadFile`,
 `ParseTOML`, or `ParseTOMLString`, or construct the data directly.

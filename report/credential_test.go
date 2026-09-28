@@ -156,7 +156,7 @@ func TestCredentialReportOmitsEmptyValidationMetadata(t *testing.T) {
 
 func TestCredentialReporterWritesText(t *testing.T) {
 	result := CredentialReport{
-		SchemaVersion: CredentialReportSchemaVersion,
+		SchemaVersion: SchemaVersion,
 		RuleID:        "test-rule",
 		Analysis: Analysis{
 			Status: ValidationStatusValid,
@@ -224,34 +224,9 @@ func TestCredentialReportUsesComponentSchema(t *testing.T) {
 	}
 }
 
-func TestCredentialReporterWritesComponentList(t *testing.T) {
-	result := CredentialRuleList{
-		SchemaVersion: CredentialReportSchemaVersion,
-		Rules: []CredentialRuleSummary{{
-			RuleID:   "multipart-rule",
-			Captures: []string{"account", "tenant"},
-			Components: []CredentialComponentReport{
-				{RuleID: "account-id"},
-				{RuleID: "region", Optional: true},
-			},
-		}},
-	}
-
-	var output bytes.Buffer
-	reporter := CredentialReporter{Format: CredentialReportFormatPretty, NoColor: true}
-	if err := reporter.WriteRuleList(&output, result); err != nil {
-		t.Fatalf("write rule list: %v", err)
-	}
-	want := "RULE ID         COMPONENTS                     CAPTURES\n" +
-		"multipart-rule  account-id, region (optional)  account, tenant\n"
-	if output.String() != want {
-		t.Fatalf("rule list output = %q, want %q", output.String(), want)
-	}
-}
-
 func TestCredentialReporterWritesJSONL(t *testing.T) {
 	result := CredentialReport{
-		SchemaVersion: CredentialReportSchemaVersion,
+		SchemaVersion: SchemaVersion,
 		RuleID:        "test-rule",
 		Analysis: Analysis{
 			Status: ValidationStatusValid,
@@ -266,29 +241,5 @@ func TestCredentialReporterWritesJSONL(t *testing.T) {
 	want := `{"schema_version":"1","rule_id":"test-rule","analysis":{"status":"valid"}}` + "\n"
 	if output.String() != want {
 		t.Fatalf("JSONL output = %q, want %q", output.String(), want)
-	}
-}
-
-func TestResolveCredentialReportFormat(t *testing.T) {
-	tests := []struct {
-		input string
-		want  CredentialReportFormat
-	}{
-		{input: "", want: CredentialReportFormatPretty},
-		{input: "pretty", want: CredentialReportFormatPretty},
-		{input: " JSONL ", want: CredentialReportFormatJSONL},
-	}
-	for _, test := range tests {
-		got, err := ResolveCredentialReportFormat(test.input)
-		if err != nil {
-			t.Fatalf("ResolveCredentialReportFormat(%q): %v", test.input, err)
-		}
-		if got != test.want {
-			t.Fatalf("ResolveCredentialReportFormat(%q) = %q, want %q", test.input, got, test.want)
-		}
-	}
-
-	if _, err := ResolveCredentialReportFormat("json"); err == nil {
-		t.Fatal("legacy json format was accepted")
 	}
 }

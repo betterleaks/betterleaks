@@ -10,6 +10,7 @@ import (
 
 type GitLabCmd struct {
 	ScanFlags        `embed:""`
+	MaxArchiveDepth  int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
 	Token            string   `group:"source" help:"GitLab personal access token (or set GITLAB_TOKEN)."`
 	BaseURL          string   `group:"source" name:"base-url" help:"Site base URL for self-hosted instances."`
 	Include          []string `group:"source" help:"Resource types to scan: repos, forks, mrs, mr-comments, issues, issue-comments, snippets, releases, release-assets, ci-jobs, ci-artifacts."`

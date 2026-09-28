@@ -7,7 +7,8 @@ Use `--help` for full flag descriptions. This page is for patterns.
 Scan commands validate and analyze supported credentials by default.
 `--no-analysis` retains validation only. `--offline` disables both provider stages;
 fetching a remote source can still use the network. `--no-validation` has been
-removed in favor of `--offline`.
+removed in favor of `--offline`. `--status` requires provider evaluation and
+cannot be combined with `--offline`.
 
 The v1 provider-control aliases are no longer accepted:
 
@@ -467,6 +468,8 @@ the same review as an ordinary allowlist exception.
 ## Filesystem scanning
 
 Use `filesystem` (or `fs`) to scan files and directories in their current state.
+`--max-target-megabytes` applies to filesystem and URL scans; object-store
+sources have their own size-limit flags.
 
 Files are not skipped by MIME type. The default source `prefilter` still excludes
 common image and font extensions. Binary files that pass
@@ -1348,7 +1351,9 @@ for a lookup-then-delete example and the result contract.
 
 ## `stdin`
 
-Use `stdin` for generated or piped content.
+Use `stdin` for generated or piped content. It reads a plain byte stream;
+unpack archives before piping them in. `--max-archive-depth` and
+`--max-target-megabytes` do not apply to this command.
 
 ```sh
 # file through a pipe

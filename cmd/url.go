@@ -8,8 +8,10 @@ import (
 )
 
 type URLCmd struct {
-	ScanFlags `embed:""`
-	URL       string `arg:"" help:"HTTP(S) URL to download and scan (no crawling)."`
+	ScanFlags          `embed:""`
+	MaxArchiveDepth    int    `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
+	MaxTargetMegabytes int    `group:"scanning" name:"max-target-megabytes" help:"Files larger than this will be skipped."`
+	URL                string `arg:"" help:"HTTP(S) URL to download and scan (no crawling)."`
 }
 
 func (cmd *URLCmd) Run(cli *CLI, runtime *commandRuntime) error {
