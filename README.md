@@ -27,6 +27,8 @@ Development is supported by
 
 ### Installation
 
+The `main` branch is for v2 development. V1 maintenance and documentation live on the [`v1.x` branch](https://github.com/betterleaks/betterleaks/tree/v1.x).
+
 Upgrading from v1? See the [v2 migration guide](docs/v2_migration.md) for CLI, config, report, and SDK changes.
 
 ```
