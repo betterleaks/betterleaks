@@ -12,6 +12,10 @@ import (
 	"github.com/betterleaks/betterleaks/v2/report"
 )
 
+// Keep findings queued so provider workers can start their next job while
+// the scanner detects more findings.
+const queuedJobsPerWorker = 10
+
 // validationJob is the internal unit of work for the pool.
 type validationJob struct {
 	finding         report.Finding
@@ -59,7 +63,7 @@ func NewPoolContext(ctx context.Context, workers int, runtime *exprruntime.Runti
 		}),
 		analysisCache: internalcache.New[report.Analysis](),
 		ctx:           ctx,
-		jobs:          make(chan validationJob, workers*10),
+		jobs:          make(chan validationJob, workers*queuedJobsPerWorker),
 	}
 
 	for i := 0; i < workers; i++ {
