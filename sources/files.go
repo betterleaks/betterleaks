@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sync"
 
 	"github.com/charlievieth/fastwalk"
 	"golang.org/x/sync/errgroup"
@@ -39,7 +38,8 @@ type Files struct {
 	MaxArchiveDepth int
 }
 
-// walkFiles serializes callbacks while fastwalk inspects paths concurrently.
+// walkFiles calls yield concurrently from directory walkers; yield must be safe
+// for concurrent use.
 func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -49,7 +49,6 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 		return err
 	}
 	logger := logging.OrDiscard(s.Logger)
-	var yieldMu sync.Mutex
 	visit := func(path string, entry fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -119,8 +118,6 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 			}
 		}
 
-		yieldMu.Lock()
-		defer yieldMu.Unlock()
 		if err := yield(name); err != nil {
 			return &walkCallbackError{err: err}
 		}

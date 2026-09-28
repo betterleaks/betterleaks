@@ -2,7 +2,9 @@ package sources
 
 import (
 	"bufio"
+	"bytes"
 	"io"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -67,4 +69,104 @@ func Test_readUntilSafeBoundary(t *testing.T) {
 			require.Equal(t, c.expected, string(peekBuf))
 		})
 	}
+}
+
+// readUntilSafeBoundaryByteWise is the previous one-ReadByte-at-a-time
+// implementation, kept as the oracle for the buffered version.
+func readUntilSafeBoundaryByteWise(r *bufio.Reader, data []byte, initialSize int, maxPeekSize int) ([]byte, error) {
+	if len(data) == 0 {
+		return data, nil
+	}
+	lastChar := data[len(data)-1]
+	newlineCount := 0
+	if isWhitespace[lastChar] {
+		for i := len(data) - 1; i >= 0; i-- {
+			lastChar = data[i]
+			if lastChar == '\n' {
+				newlineCount++
+				if newlineCount >= 2 {
+					return data, nil
+				}
+			} else if !isWhitespace[lastChar] {
+				break
+			}
+		}
+	}
+	if maxPeekSize > 0 && cap(data)-len(data) < maxPeekSize {
+		grown := make([]byte, len(data), len(data)+maxPeekSize)
+		copy(grown, data)
+		data = grown
+	}
+	newlineCount = 0
+	for {
+		lastChar = data[len(data)-1]
+		if lastChar == '\n' {
+			newlineCount++
+			if newlineCount >= 2 {
+				break
+			}
+		} else if !isWhitespace[lastChar] {
+			newlineCount = 0
+		}
+		if (len(data) - initialSize) >= maxPeekSize {
+			break
+		}
+		b, err := r.ReadByte()
+		if err != nil {
+			return data, err
+		}
+		data = append(data, b)
+	}
+	return data, nil
+}
+
+func Test_readUntilSafeBoundaryMatchesByteWise(t *testing.T) {
+	rng := rand.New(rand.NewSource(3))
+	alphabet := []byte("ab \t\r\n\n\n")
+	for round := 0; round < 3000; round++ {
+		n := rng.Intn(600)
+		stream := make([]byte, n)
+		for i := range stream {
+			stream[i] = alphabet[rng.Intn(len(alphabet))]
+		}
+		initial := min(1+rng.Intn(64), n)
+		if initial == 0 {
+			continue
+		}
+		peek := rng.Intn(300)
+		bufSize := 16 + rng.Intn(64)
+
+		run := func(f func(*bufio.Reader, []byte, int, int) ([]byte, error)) (string, error, string) {
+			r := bufio.NewReaderSize(bytes.NewReader(stream), bufSize)
+			data := make([]byte, initial, initial+rng.Intn(2)*peek)
+			_, _ = io.ReadFull(r, data)
+			got, err := f(r, data, initial, peek)
+			rest, _ := io.ReadAll(r)
+			return string(got), err, string(rest)
+		}
+		want, wantErr, wantRest := run(readUntilSafeBoundaryByteWise)
+		got, gotErr, gotRest := run(readUntilSafeBoundary)
+		require.Equal(t, want, got, "stream=%q initial=%d peek=%d", stream, initial, peek)
+		require.Equal(t, wantErr, gotErr, "error differs")
+		require.Equal(t, wantRest, gotRest, "remaining stream differs")
+	}
+}
+
+func TestReadUntilSafeBoundaryDoesNotRefillPastBoundary(t *testing.T) {
+	reads := 0
+	reader := bufio.NewReader(readerFunc(func(p []byte) (int, error) {
+		reads++
+		if reads > 1 {
+			t.Error("read past an available boundary; a streaming reader could block here")
+			return 0, io.ErrUnexpectedEOF
+		}
+		return copy(p, "next\n\nremaining"), nil
+	}))
+	got, err := readUntilSafeBoundary(reader, []byte("initial"), len("initial"), maxPeekSize)
+	require.NoError(t, err)
+	require.Equal(t, "initialnext\n\n", string(got))
+	require.Equal(t, 1, reads)
+	rest, err := reader.Peek(len("remaining"))
+	require.NoError(t, err)
+	require.Equal(t, "remaining", string(rest))
 }

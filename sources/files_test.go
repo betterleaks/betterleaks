@@ -270,7 +270,9 @@ func TestFilesWalkFilesPathsMatchFilepathWalkDir(t *testing.T) {
 		},
 	}
 	require.NoError(t, source.walkFiles(t.Context(), func(name filePath) error {
+		visitedMu.Lock()
 		targets = append(targets, name.path)
+		visitedMu.Unlock()
 		return nil
 	}))
 
