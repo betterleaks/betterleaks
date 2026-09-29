@@ -8,9 +8,24 @@ Scan commands detect secrets without credential validation or analysis by defaul
 `-v` / `--validate` enables credential validation. `-a` / `--analyze` enables
 identity and permissions analysis and implies validation.
 Fetching a remote source can still use the network in any mode.
-`--status` requires `--validate` or `--analyze`; it does not enable either stage.
+`--status` requires validation or analysis to be enabled; it does not enable
+either stage.
 `--offline`, `--no-analysis`, and `--no-validation` are no longer accepted.
 Use `-V` / `--version` to print the version; lowercase `-v` enables validation.
+
+`BETTERLEAKS_VALIDATE` and `BETTERLEAKS_ANALYZE` accept `true` or `false` and
+default to `false` when unset. Precedence is explicit flag, then the corresponding
+environment variable, then the default. Analysis implies validation after these
+values are resolved, so disabling validation alone does not disable analysis.
+These variables apply to scan commands; the explicit `validate`, `analyze`, and
+`revoke` commands keep their own behavior.
+
+```sh
+BETTERLEAKS_VALIDATE=true betterleaks fs .
+BETTERLEAKS_ANALYZE=true betterleaks fs .
+# Override both environment settings for this scan
+betterleaks fs . --analyze=false --validate=false
+```
 
 The v1 provider-control aliases are no longer accepted:
 
@@ -62,8 +77,9 @@ have independent limits.
 
 `-j 1` serializes detection; sources can still read ahead. Credential evaluation
 has a separate pool: `--provider-workers` defaults to 10, and zero selects that
-default. Credential evaluation is disabled unless `--validate` or `--analyze`
-is supplied. `--validate` runs validation only; `--analyze` runs both stages.
+default. Credential evaluation is disabled unless enabled by `--validate`,
+`--analyze`, or their environment variables. `--validate` enables validation;
+`--analyze` enables both stages.
 Source API request ceilings and provider rate limits remain independent of these
 settings.
 

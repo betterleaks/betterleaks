@@ -57,9 +57,14 @@ In v1, scanning required `--validation` to contact credential providers. In v2:
 | `-v`, `--validate` | Validate supported credentials. |
 | `-a`, `--analyze` | Validate, then analyze valid credentials when the rule supports it. |
 
-Analysis implies validation. `--status` requires `--validate` or `--analyze`.
-The earlier v2 flags `--offline` and `--no-analysis` have been removed: omit both
-new flags for detection only, or use `--validate` for validation only.
+Analysis implies validation. `BETTERLEAKS_VALIDATE=true` and
+`BETTERLEAKS_ANALYZE=true` enable the corresponding stages through the environment.
+Explicit flags override the corresponding variable; both default to `false`
+when unset. Use `--analyze=false --validate=false` to force detection only.
+`--status` requires validation or analysis to be enabled.
+The earlier v2 flags `--offline` and `--no-analysis` have been removed. With both
+environment variables unset, omit both new flags for detection only, or use
+`--validate` for validation only.
 Source downloads can still use the network. Use a local filesystem, local Git
 repository, or stdin when no source network access is wanted.
 Revocation is separate: only an explicit `revoke` command runs a rule's `revoke`

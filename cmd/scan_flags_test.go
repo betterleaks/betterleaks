@@ -138,6 +138,8 @@ func TestRootHelpKeepsScanFlagsCommandLocal(t *testing.T) {
 	require.Contains(t, output.String(), "-v, --validate")
 	require.Contains(t, output.String(), "-a, --analyze")
 	require.Contains(t, output.String(), "-V, --version")
+	require.Contains(t, output.String(), "BETTERLEAKS_VALIDATE")
+	require.Contains(t, output.String(), "BETTERLEAKS_ANALYZE")
 	require.NotContains(t, output.String(), "--offline")
 	require.NotContains(t, output.String(), "--no-analysis")
 	require.Contains(t, output.String(), "--analyze")
@@ -235,6 +237,8 @@ analyze = '''
 	tests := []struct {
 		name           string
 		flags          []string
+		validationEnv  string
+		analysisEnv    string
 		wantValidation bool
 		wantAnalysis   bool
 	}{
@@ -251,10 +255,29 @@ analyze = '''
 		{name: "analysis still implies validation", flags: []string{"--analyze", "--validate=false"}, wantValidation: true, wantAnalysis: true},
 		{name: "analysis disabled", flags: []string{"-av", "--analyze=false"}, wantValidation: true},
 		{name: "validation disabled", flags: []string{"-v", "--validate=false"}},
+		{name: "validation from environment", validationEnv: "true", wantValidation: true},
+		{name: "analysis from environment implies validation", analysisEnv: "true", wantValidation: true, wantAnalysis: true},
+		{name: "both from environment", validationEnv: "true", analysisEnv: "true", wantValidation: true, wantAnalysis: true},
+		{name: "false environment", validationEnv: "false", analysisEnv: "false"},
+		{name: "flag disables environment validation", validationEnv: "true", flags: []string{"--validate=false"}},
+		{name: "flag disables environment analysis", analysisEnv: "true", flags: []string{"--analyze=false"}},
+		{name: "validation only override", validationEnv: "true", analysisEnv: "true", flags: []string{"--analyze=false"}, wantValidation: true},
+		{name: "detection only override", validationEnv: "true", analysisEnv: "true", flags: []string{"--analyze=false", "--validate=false"}},
+		{name: "validate flag overrides false environment", validationEnv: "false", flags: []string{"-v"}, wantValidation: true},
+		{name: "analyze flag overrides false environment", analysisEnv: "false", flags: []string{"-a"}, wantValidation: true, wantAnalysis: true},
+		{name: "environment analysis still implies validation", analysisEnv: "true", flags: []string{"--validate=false"}, wantValidation: true, wantAnalysis: true},
+		{name: "environment validation with status filter", validationEnv: "true", flags: []string{"--status=valid"}, wantValidation: true},
+		{name: "environment analysis with status filter", analysisEnv: "true", flags: []string{"--status=valid"}, wantValidation: true, wantAnalysis: true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			if test.validationEnv != "" {
+				t.Setenv("BETTERLEAKS_VALIDATE", test.validationEnv)
+			}
+			if test.analysisEnv != "" {
+				t.Setenv("BETTERLEAKS_ANALYZE", test.analysisEnv)
+			}
 			root, stdout := newTestCLI(t)
 			root.SetIn(strings.NewReader("token = secret-alpha\n"))
 			args := []string{
@@ -288,6 +311,26 @@ analyze = '''
 			assert.Equal(t, []report.Capability{report.CapabilityRead, report.CapabilityWrite}, finding.Analysis.Capabilities)
 			require.NotNil(t, finding.Analysis.Identity)
 			assert.Equal(t, "user-1", finding.Analysis.Identity.ID)
+		})
+	}
+}
+
+func TestScanProviderEnvironmentScopeAndErrors(t *testing.T) {
+	for _, variable := range []string{"BETTERLEAKS_VALIDATE", "BETTERLEAKS_ANALYZE"} {
+		t.Run(variable, func(t *testing.T) {
+			t.Setenv(variable, "invalid-bool")
+			for _, args := range [][]string{{"fs", "."}, {"stdin"}, {"."}} {
+				_, err := parseCLIForTest(t, args...)
+				require.ErrorContains(t, err, variable)
+			}
+			for _, args := range [][]string{
+				{"config", "check"}, {"fingerprint"}, {"version"},
+				{"validate", "--rule", "token"}, {"analyze", "--rule", "token"},
+				{"revoke", "--rule", "token"},
+			} {
+				_, err := parseCLIForTest(t, args...)
+				require.NoError(t, err, "%v", args)
+			}
 		})
 	}
 }

@@ -55,8 +55,7 @@ make build
 
 Scans detect secrets without credential provider requests by default. Use
 `-v` / `--validate` to check credentials, or `-a` / `--analyze` to also resolve
-identity and permissions. Analysis implies validation.
-Source downloads may still use the network. Use `-V` / `--version` for the version.
+identity and permissions. Analysis implies validation. Set `BETTERLEAKS_VALIDATE=true` or `BETTERLEAKS_ANALYZE=true` to enable these stages through the environment. Explicit flags override the corresponding variable.
 
 ```
 # Scan the filesystem

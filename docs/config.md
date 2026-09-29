@@ -447,21 +447,23 @@ without a recognized confidence attribute remain included.
 
 Validation verifies whether a detected secret is live by evaluating the rule's
 `validate` Expr expression. CLI scans leave validation disabled by default.
-Enable it with `-v` / `--validate`.
+Enable it with `-v` / `--validate` or `BETTERLEAKS_VALIDATE=true`.
 
 Credential analysis evaluates a rule's `analyze` expression after validation
-returns `valid`. Enable it with `-a` / `--analyze`, which implies validation.
-Use only `--validate` for validation without analysis, or neither flag for
-detection only. Analysis returns a
-small identity and positive-only capability model; severity is derived by
+returns `valid`. Enable it with `-a` / `--analyze` or `BETTERLEAKS_ANALYZE=true`,
+which implies validation. Both environment variables default to `false` when
+unset; explicit flags override the corresponding variable. Use
+`--validate --analyze=false` for validation only, or
+`--analyze=false --validate=false` to force detection only.
+Analysis returns a small identity and positive-only capability model; severity is derived by
 Betterleaks rather than assigned by the rule. Analysis without positive capability
 evidence has `unknown` severity, including an empty analysis result. See the
 [finding schema](schemas/finding.schema.json) for the normalized result shape.
 
 Validation and analysis expressions can make outbound requests and should be
 loaded only from trusted configuration. CLI scans make no credential provider
-requests unless `--validate` or `--analyze` is supplied; commands that fetch a
-remote scan source may still use the network.
+requests unless validation or analysis is enabled through flags or environment
+variables; commands that fetch a remote scan source may still use the network.
 
 Analysis results may also include a `metadata` object for provider-specific
 evidence discovered during analysis, such as permission names.

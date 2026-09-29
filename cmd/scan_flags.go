@@ -30,8 +30,8 @@ type ScanFlags struct {
 	MatchContext string     `group:"output" name:"match-context" help:"Context around match: L (lines), C (columns/characters), e.g. 10L, 100C, -2C,+4C."`
 	ExitCode     int        `group:"output" name:"exit-code" default:"1" help:"Exit code when leaks have been encountered."`
 
-	Validation           bool   `group:"validation" name:"validate" short:"v" help:"Validate detected credentials against provider APIs."`
-	Analysis             bool   `group:"validation" name:"analyze" short:"a" help:"Analyze credential identity and permissions; implies --validate."`
+	Validation           bool   `group:"validation" name:"validate" short:"v" env:"BETTERLEAKS_VALIDATE" help:"Validate detected credentials against provider APIs."`
+	Analysis             bool   `group:"validation" name:"analyze" short:"a" env:"BETTERLEAKS_ANALYZE" help:"Analyze credential identity and permissions; implies --validate."`
 	ValidationStatus     string `group:"validation" name:"status" help:"Comma-separated validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none (requires --validate or --analyze)."`
 	ProviderWorkers      int    `group:"validation" name:"provider-workers" default:"${analyze_workers}" help:"Concurrent credential validation/analysis workers, independent of --jobs (0 = default)."`
 	ProviderRuntimeFlags `embed:""`
