@@ -90,8 +90,8 @@ Both hashes include matching fields, filters, component references and proximity
 specificity, confidence, `skipReport`, rule descriptions, tags, and provider
 `validate`, `analyze`, and `revoke` expressions, including those on components.
 Changing a component definition also changes its parent's rule hash. Provider
-expressions participate even in offline scans; runtime flags do not change what
-the hash identifies.
+expressions participate even in detection-only scans; runtime flags do not change
+what the hash identifies.
 Only the overall hash includes the global `filter` and `prefilter` and the order
 of rules. Config title, description, file path, and minimum version are excluded.
 
@@ -446,20 +446,22 @@ without a recognized confidence attribute remain included.
 ## Validation and credential analysis
 
 Validation verifies whether a detected secret is live by evaluating the rule's
-`validate` Expr expression. Validation is enabled by default. Disable it with
-`--offline`, which also disables credential analysis provider requests.
+`validate` Expr expression. CLI scans leave validation disabled by default.
+Enable it with `-v` / `--validate`.
 
 Credential analysis evaluates a rule's `analyze` expression after validation
-returns `valid` and is also enabled by default. Use `--no-analysis` to retain
-validation without analysis, or `--offline` to disable both. Analysis returns a
+returns `valid`. Enable it with `-a` / `--analyze`, which implies validation.
+Use only `--validate` for validation without analysis, or neither flag for
+detection only. Analysis returns a
 small identity and positive-only capability model; severity is derived by
 Betterleaks rather than assigned by the rule. Analysis without positive capability
 evidence has `unknown` severity, including an empty analysis result. See the
 [finding schema](schemas/finding.schema.json) for the normalized result shape.
 
 Validation and analysis expressions can make outbound requests and should be
-loaded only from trusted configuration. `--offline` disables these provider
-requests; commands that fetch a remote scan source may still use the network.
+loaded only from trusted configuration. CLI scans make no credential provider
+requests unless `--validate` or `--analyze` is supplied; commands that fetch a
+remote scan source may still use the network.
 
 Analysis results may also include a `metadata` object for provider-specific
 evidence discovered during analysis, such as permission names.
@@ -519,7 +521,7 @@ and maximum-request enforcement.
 For example:
 
 ```sh
-betterleaks filesystem . \
+betterleaks filesystem . -a \
   --provider-max-requests 1000 \
   --provider-rps 10 \
   --provider-rps-rule github-pat=2 \
@@ -780,7 +782,7 @@ the same rules validate against GitHub Enterprise Server:
 
 ```sh
 export GITHUB_BASE_URL=https://github.example.com/api/v3
-betterleaks github --provider-env-vars GITHUB_BASE_URL https://github.example.com/owner
+betterleaks github --validate --provider-env-vars GITHUB_BASE_URL https://github.example.com/owner
 ```
 
 Use `env.get` instead when the env var is required for the validator to be

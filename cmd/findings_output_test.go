@@ -220,7 +220,7 @@ func TestCLIReportOutput(t *testing.T) {
 			root.SetIn(strings.NewReader(input))
 			var exitCode int
 			root.runtime.exit = func(code int) { exitCode = code }
-			args := []string{"stdin", "--config", configPath, "--offline", "--no-banner", "--exit-code=7"}
+			args := []string{"stdin", "--config", configPath, "--no-banner", "--exit-code=7"}
 			outputPath := tc.output
 			if outputPath != "" && outputPath != "-" {
 				outputPath = filepath.Join(t.TempDir(), outputPath)

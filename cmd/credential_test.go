@@ -993,8 +993,8 @@ revoke = '''let response = http.delete(%q, {}); {"result": "revoked"}'''
 `, server.URL))
 	for _, args := range [][]string{
 		{"stdin", "--no-banner", "--exit-code", "0"},
-		{"stdin", "--no-banner", "--exit-code", "0", "--no-analysis"},
-		{"stdin", "--no-banner", "--exit-code", "0", "--offline"},
+		{"stdin", "--no-banner", "--exit-code", "0", "--validate"},
+		{"stdin", "--no-banner", "--exit-code", "0", "--analyze"},
 		{"validate", "--rule", "token"},
 		{"analyze", "--rule", "token"},
 		{"config", "check"},

@@ -7,8 +7,9 @@ expression contracts.
 
 The most important changes are:
 
-- **CLI scans validate and analyze credentials by default.** Add `--offline`
-  to preserve detection-only behavior. SDK scanners still make no provider requests.
+- **CLI scans detect secrets without provider requests by default.** Use
+  `-v` / `--validate` for validation, or `-a` / `--analyze` for validation and analysis.
+  SDK scanners still make no provider requests.
 - **Select custom configs explicitly.** Target-local `.betterleaks.toml` files
   are no longer discovered automatically.
 - **Update report consumers.** JSON has a new envelope and finding schema;
@@ -32,11 +33,11 @@ Release archives are also available on the
 [releases page](https://github.com/betterleaks/betterleaks/releases).
 The candidate does not update the Docker `latest` tag or Homebrew cask.
 
-Start with your existing configuration and a local, offline scan:
+Start with your existing configuration and a local, detection-only scan:
 
 ```sh
 betterleaks config check --config .betterleaks.toml
-betterleaks fs . --config .betterleaks.toml --offline --redact -o results.json
+betterleaks fs . --config .betterleaks.toml --redact -o results.json
 ```
 
 Omit `--config` when using the embedded defaults. `config check` compiles regexes
@@ -46,25 +47,28 @@ default; `--exit-code` changes that findings exit code.
 
 ## CLI changes
 
-### Provider requests are on by default
+### Provider requests are opt-in
 
 In v1, scanning required `--validation` to contact credential providers. In v2:
 
 | Scan mode | Behavior |
 | :--- | :--- |
-| Default | Validate supported credentials, then analyze valid credentials when the rule supports it. |
-| `--no-analysis` | Validate only. |
-| `--offline` | Detect and filter locally; disable both provider stages. |
+| Default | Detect and filter locally; do not validate or analyze credentials. |
+| `-v`, `--validate` | Validate supported credentials. |
+| `-a`, `--analyze` | Validate, then analyze valid credentials when the rule supports it. |
 
-`--offline` does not prevent downloading a remote scan target. Use a local
-filesystem, local Git repository, or stdin when no source network access is wanted.
+Analysis implies validation. `--status` requires `--validate` or `--analyze`.
+The earlier v2 flags `--offline` and `--no-analysis` have been removed: omit both
+new flags for detection only, or use `--validate` for validation only.
+Source downloads can still use the network. Use a local filesystem, local Git
+repository, or stdin when no source network access is wanted.
 Revocation is separate: only an explicit `revoke` command runs a rule's `revoke`
 expression. Scans never revoke credentials.
 
 Use this command in pre-commit hooks:
 
 ```sh
-betterleaks git --staged --offline --redact
+betterleaks git --staged --redact
 ```
 
 ### Commands and flags
@@ -77,7 +81,7 @@ betterleaks git --staged --offline --redact
 | `detect --pipe` | `stdin` |
 | `protect --source PATH`, `git --pre-commit PATH` | `git --unstaged PATH` |
 | `protect --staged --source PATH` | `git --staged PATH` |
-| `--validation` | Remove for validation and analysis; use `--no-analysis` for validation only. |
+| `--validation` | `--validate` / `-v`; use `--analyze` / `-a` to also analyze identity and permissions. |
 | `--validation-status` | `--status` |
 | `--validation-workers`, `--validation-timeout`, `--validation-debug` | `--provider-workers`, `--provider-timeout`, `--provider-debug` |
 | `--validation-max-requests`, `--validation-rps`, `--validation-rps-rule`, `--validation-env-vars` | Corresponding `--provider-*` flags. |
@@ -88,7 +92,7 @@ betterleaks git --staged --offline --redact
 | `--report-path` / `-r` | `--output` / `-o` |
 | `--report-format=json` | `--output report.json`, or `--output -` for stdout. |
 | `--report-format=jsonl` on `validate` | `--jsonl` |
-| `--verbose` / `-v` | Remove: findings print by default. `-v` now prints the version. |
+| `--verbose` / `-v` | Remove: findings print by default. `-v` now enables validation; `-V` / `--version` prints the version. |
 | `validate --rule-id ID` | `validate --rule ID` |
 | `validate --list` | `config show ids --validation` |
 
@@ -107,8 +111,8 @@ mutually exclusive. Neither scans untracked files; use `fs` for those.
 You can now omit the command for a path or supported remote URL:
 
 ```sh
-betterleaks ./project --offline
-betterleaks https://github.com/owner/repo --offline
+betterleaks ./project
+betterleaks https://github.com/owner/repo
 ```
 
 An existing local path selects filesystem scanning, even inside a Git checkout.

@@ -48,7 +48,7 @@ type GlobalFlags struct {
 	NoColor      bool        `name:"no-color" help:"Turn off color in terminal output."`
 	RegexEngine  string      `name:"regex-engine" default:"re2" help:"Regex engine: stdlib or re2."`
 	RegexpEngine string      `name:"regexp-engine" hidden:"" help:"Deprecated alias for --regex-engine."`
-	Version      versionFlag `short:"v" help:"Print version information and quit."`
+	Version      versionFlag `short:"V" help:"Print version information and quit."`
 }
 
 type CLI struct {

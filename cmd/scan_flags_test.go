@@ -32,8 +32,8 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		"isolate-rule",
 		"match-context",
 		"max-decode-depth",
-		"offline",
-		"no-analysis",
+		"validate",
+		"analyze",
 		"status",
 		"provider-workers",
 		"diagnostics",
@@ -109,6 +109,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 
 func TestRemovedProviderFlagsAreRejected(t *testing.T) {
 	for _, flag := range []string{
+		"--offline", "--offline=false", "--no-analysis", "--no-analysis=false",
 		"--validation", "--analysis", "--validation-extract-empty", "--no-validation",
 		"--validation-workers=4", "--validation-debug", "--validation-timeout=2s",
 		"--validation-max-requests=5", "--validation-rps=1", "--validation-rps-rule=github-pat=1",
@@ -134,12 +135,17 @@ func TestRootHelpKeepsScanFlagsCommandLocal(t *testing.T) {
 	})
 
 	require.Contains(t, output.String(), "Scanning Options:")
-	require.Contains(t, output.String(), "--offline")
-	require.False(t, nodeHasFlag(parser.Model.Node, "offline"))
+	require.Contains(t, output.String(), "-v, --validate")
+	require.Contains(t, output.String(), "-a, --analyze")
+	require.Contains(t, output.String(), "-V, --version")
+	require.NotContains(t, output.String(), "--offline")
+	require.NotContains(t, output.String(), "--no-analysis")
+	require.Contains(t, output.String(), "--analyze")
+	require.False(t, nodeHasFlag(parser.Model.Node, "analyze"))
 
-	_, err = parser.Parse([]string{"validate", "--offline"})
-	require.ErrorContains(t, err, "unknown flag --offline")
-	_, err = parser.Parse([]string{"auto", "--offline", "."})
+	_, err = parser.Parse([]string{"validate", "--analyze"})
+	require.ErrorContains(t, err, "unknown flag --analyze")
+	_, err = parser.Parse([]string{"auto", "--analyze", "."})
 	require.NoError(t, err)
 }
 
@@ -193,7 +199,7 @@ func TestAllowSignatureFlags(t *testing.T) {
 		{name: "removed flag", flags: []string{"--no-allow-comments"}, wantError: "unknown flag"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			args := append([]string{"stdin", "--config", configPath, "--offline", "--jsonl", "--no-banner", "--exit-code=0"}, test.flags...)
+			args := append([]string{"stdin", "--config", configPath, "--jsonl", "--no-banner", "--exit-code=0"}, test.flags...)
 			_, err := parseCLIForTest(t, args...)
 			if test.wantError != "" {
 				require.ErrorContains(t, err, test.wantError)
@@ -232,9 +238,19 @@ analyze = '''
 		wantValidation bool
 		wantAnalysis   bool
 	}{
-		{name: "enabled by default", wantValidation: true, wantAnalysis: true},
-		{name: "no analysis", flags: []string{"--no-analysis"}, wantValidation: true},
-		{name: "offline", flags: []string{"--offline"}},
+		{name: "detection only by default"},
+		{name: "provider options do not enable stages", flags: []string{"--provider-debug", "--provider-workers=2", "--provider-rps=10"}},
+		{name: "validate", flags: []string{"--validate"}, wantValidation: true},
+		{name: "short validate", flags: []string{"-v"}, wantValidation: true},
+		{name: "analyze implies validation", flags: []string{"--analyze"}, wantValidation: true, wantAnalysis: true},
+		{name: "short analyze", flags: []string{"-a"}, wantValidation: true, wantAnalysis: true},
+		{name: "both long flags", flags: []string{"--analyze", "--validate"}, wantValidation: true, wantAnalysis: true},
+		{name: "bundled av", flags: []string{"-av"}, wantValidation: true, wantAnalysis: true},
+		{name: "bundled va", flags: []string{"-va"}, wantValidation: true, wantAnalysis: true},
+		{name: "analysis with status filter", flags: []string{"-a", "--status=valid"}, wantValidation: true, wantAnalysis: true},
+		{name: "analysis still implies validation", flags: []string{"--analyze", "--validate=false"}, wantValidation: true, wantAnalysis: true},
+		{name: "analysis disabled", flags: []string{"-av", "--analyze=false"}, wantValidation: true},
+		{name: "validation disabled", flags: []string{"-v", "--validate=false"}},
 	}
 
 	for _, test := range tests {
@@ -291,7 +307,7 @@ validate = '''
 			t.Run(fmt.Sprintf("jsonl=%t/status=%s", jsonl, status), func(t *testing.T) {
 				root, stdout := newTestCLI(t)
 				root.SetIn(strings.NewReader("secret-live\nsecret-dead\nsecret-error\n"))
-				args := []string{"stdin", "--config", configPath, "--no-banner", "--no-analysis", "--exit-code=0", "--output=-"}
+				args := []string{"stdin", "--config", configPath, "--no-banner", "--validate", "--exit-code=0", "--output=-"}
 				if jsonl {
 					args = append(args, "--jsonl")
 				}

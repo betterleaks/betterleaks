@@ -311,7 +311,7 @@ func TestHMACFingerprintAndIgnoreCLI(t *testing.T) {
 			root.runtime.stderr = stderr
 			exitCode := 0
 			root.runtime.exit = func(code int) { exitCode = code }
-			args := []string{"stdin", "--offline", "-s", "--config", cfg, "--ignore-file", ignore, "-o", reportPath, "--redact=100"}
+			args := []string{"stdin", "-s", "--config", cfg, "--ignore-file", ignore, "-o", reportPath, "--redact=100"}
 			root.SetArgs(append(args, keyArgs...))
 			root.SetIn(strings.NewReader("secret-ignored secret-visible"))
 			err := root.Execute()

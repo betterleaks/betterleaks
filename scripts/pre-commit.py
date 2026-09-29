@@ -14,7 +14,7 @@ def betterleaksEnabled():
 
 if betterleaksEnabled():
     try:
-        result = subprocess.run(["betterleaks", "git", "--staged", "--offline", "--redact"])
+        result = subprocess.run(["betterleaks", "git", "--staged", "--redact"])
     except OSError as err:
         print(f"Could not run betterleaks: {err}", file=sys.stderr)
         sys.exit(1)

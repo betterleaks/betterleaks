@@ -50,7 +50,7 @@ func TestConfigHash(t *testing.T) {
 	// Compare the command with real scan output, including inherited components.
 	root, output := newTestCLI(t)
 	root.SetIn(strings.NewReader("PRIMARY COMPONENT\n"))
-	root.SetArgs([]string{"stdin", "--config", inherited, "--offline", "--no-banner", "--exit-code=0", "--output=-"})
+	root.SetArgs([]string{"stdin", "--config", inherited, "--no-banner", "--exit-code=0", "--output=-"})
 	require.NoError(t, root.Execute())
 	metadata, findings := decodeScanJSON(t, output.Bytes())
 	require.Len(t, findings, 1)
@@ -185,7 +185,7 @@ func TestCLIExplicitlyExcludesLoadedConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte("[[rules]]\nid = \"token\"\nregex = '''TOKEN'''\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.env"), []byte("TOKEN"), 0600))
 	root, stdout := newTestCLI(t)
-	root.SetArgs([]string{"fs", dir, "--config", configPath, "--offline", "--jsonl", "--no-color", "--exit-code=0"})
+	root.SetArgs([]string{"fs", dir, "--config", configPath, "--jsonl", "--no-color", "--exit-code=0"})
 	require.NoError(t, root.Execute())
 	_, findings := decodeScanJSONL(t, stdout.Bytes())
 	require.Len(t, findings, 1)
@@ -206,7 +206,7 @@ id = "token"
 regex = 'TOKEN'
 `)
 	root, stdout := newTestCLI(t)
-	root.SetArgs([]string{"url", server.URL, "--config", path, "--offline", "--no-color", "--no-banner", "--output=-"})
+	root.SetArgs([]string{"url", server.URL, "--config", path, "--no-color", "--no-banner", "--output=-"})
 	require.ErrorContains(t, root.Execute(), "unable to compile source prefilter")
 	require.Empty(t, stdout.String())
 	require.Zero(t, requests.Load())

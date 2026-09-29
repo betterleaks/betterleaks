@@ -4,11 +4,13 @@ Use `--help` for full flag descriptions. This page is for patterns.
 
 ## Provider modes and v1 flag migration
 
-Scan commands validate and analyze supported credentials by default.
-`--no-analysis` retains validation only. `--offline` disables both provider stages;
-fetching a remote source can still use the network. `--no-validation` has been
-removed in favor of `--offline`. `--status` requires provider evaluation and
-cannot be combined with `--offline`.
+Scan commands detect secrets without credential validation or analysis by default.
+`-v` / `--validate` enables credential validation. `-a` / `--analyze` enables
+identity and permissions analysis and implies validation.
+Fetching a remote source can still use the network in any mode.
+`--status` requires `--validate` or `--analyze`; it does not enable either stage.
+`--offline`, `--no-analysis`, and `--no-validation` are no longer accepted.
+Use `-V` / `--version` to print the version; lowercase `-v` enables validation.
 
 The v1 provider-control aliases are no longer accepted:
 
@@ -60,9 +62,10 @@ have independent limits.
 
 `-j 1` serializes detection; sources can still read ahead. Credential evaluation
 has a separate pool: `--provider-workers` defaults to 10, and zero selects that
-default. `--offline` disables credential evaluations; `--no-analysis` retains
-validation only. Source API request ceilings and provider rate limits remain
-independent of these settings.
+default. Credential evaluation is disabled unless `--validate` or `--analyze`
+is supplied. `--validate` runs validation only; `--analyze` runs both stages.
+Source API request ceilings and provider rate limits remain independent of these
+settings.
 
 The Go API configures detection with `scan.WithWorkers(n)` and credential
 evaluation with `analyze.WithWorkers(n)`. Sources have no worker setting. The
@@ -95,7 +98,7 @@ count or shared budget is passed to sources.
 
 For filesystem scanning, `filesystem` (or `fs`) is optional before one or more
 file or directory paths:
-`betterleaks . --offline` and `betterleaks filesystem . --offline` are equivalent.
+`betterleaks .` and `betterleaks filesystem .` are equivalent.
 Command names take precedence, so use `./git` or `filesystem git` to scan a directory
 named `git`. Running `betterleaks` without arguments shows help.
 
@@ -416,7 +419,7 @@ as exact bytes, without trimming or decoding.
 ```sh
 # Prefer the environment variable in CI; flag values can appear in process arguments or logs.
 printf '%s' "$SECRET" | betterleaks fingerprint --hmac-key "$KEY"
-betterleaks fs . --offline --hmac-key "$KEY" --redact=100 -o report.json
+betterleaks fs . --hmac-key "$KEY" --redact=100 -o report.json
 ```
 
 HMAC fingerprints use `hmac-sha256:<hex>`. Use the same private key for scans and
@@ -509,7 +512,7 @@ betterleaks filesystem . --output findings.jsonl
 Download and scan one HTTP(S) response, without following links in its content:
 
 ```sh
-betterleaks url https://example.com/config.txt --offline
+betterleaks url https://example.com/config.txt
 betterleaks url https://example.com/bundle.zip --max-archive-depth 2
 betterleaks url https://example.com/export.txt --max-target-megabytes 20
 ```
@@ -529,8 +532,8 @@ Archive entries retain the URL attributes, so prefilters can combine `url`,
 `resource`, and the full archive entry `path` (for example, `download!secret.txt`).
 
 Like other sources, this command uses the explicitly selected configuration or
-embedded defaults. It still fetches its source with `--offline`; that flag disables credential validation
-and analysis requests.
+embedded defaults. Source fetching uses the network even when credential
+validation and analysis are disabled, as they are by default.
 
 ---
 
@@ -573,8 +576,9 @@ read tracked additions relative to the index and exclude untracked files.
 cleans up its own Git processes, so a source can be reused without recreating
 commands or draining channels. Configuration must remain unchanged during a scan.
 
-The shipped pre-commit hooks scan staged changes with `--offline --redact`,
-so commits do not depend on network validation and findings are redacted.
+The shipped pre-commit hooks scan staged changes with `--redact` and the default
+detection-only mode, so commits do not depend on network validation and findings
+are redacted.
 
 ```sh
 # full repo history
@@ -1384,16 +1388,16 @@ betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-key
 betterleaks git . --disable-rule generic-api-key
 
 # retain only selected validation results
-betterleaks filesystem . --status valid,unknown
+betterleaks filesystem . -a --status valid,unknown
 
 # validate without credential analysis
-betterleaks filesystem . --no-analysis --status valid
+betterleaks filesystem . --validate --status valid
 
-# disable all validation and analysis provider requests
-betterleaks filesystem . --offline
+# detect without validation or analysis (the default)
+betterleaks filesystem .
 
 # cap and rate-limit outbound provider requests
-betterleaks filesystem . \
+betterleaks filesystem . -a \
 	--provider-max-requests 1000 \
 	--provider-rps 10 \
 	--provider-rps-rule github-pat=2

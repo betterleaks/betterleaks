@@ -23,6 +23,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,11 +56,13 @@ func TestAutoShorthand(t *testing.T) {
 		{name: "multiple paths", args: []string{"src", "config.toml"}},
 		{name: "command name as path", args: []string{"./git"}},
 		{name: "source limits", args: []string{".", "--max-target-megabytes=20", "--max-archive-depth=2"}},
-		{name: "flags after path", args: []string{".", "--offline", "--follow-symlinks", "-j", "2"}},
-		{name: "flags before path", args: []string{"--offline", "-j", "2", "."}},
+		{name: "flags after path", args: []string{".", "--analyze", "--follow-symlinks", "-j", "2"}},
+		{name: "flags before path", args: []string{"--analyze", "-j", "2", "."}},
+		{name: "bundled provider flags before path", args: []string{"-av", "."}},
+		{name: "bundled provider flags after path", args: []string{".", "-va"}},
 		{name: "global flag value matches command", args: []string{"--config", "git", "."}},
 		{name: "scan flag value matches command", args: []string{"--output", "git", "."}},
-		{name: "literal flag as path", args: []string{"--", "--offline"}},
+		{name: "literal flag as path", args: []string{"--", "--analyze"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -189,7 +192,8 @@ func TestPreCommitHookCommands(t *testing.T) {
 			// Exercise the CLI arguments shipped by every hook, including the
 			// Docker entry. Image execution belongs to the release smoke check.
 			args := strings.Fields(entry)[1:]
-			require.Contains(t, args, "--offline")
+			require.NotContains(t, args, "--validate")
+			require.NotContains(t, args, "--analyze")
 			for _, secret := range []bool{false, true} {
 				t.Run(fmt.Sprintf("secret=%t", secret), func(t *testing.T) {
 					content := "ordinary content\n"
@@ -243,7 +247,7 @@ func TestRedactedTraceOutput(t *testing.T) {
 			var logs bytes.Buffer
 			root.runtime.stderr = &logs
 			root.SetIn(strings.NewReader("OTHER_PRIVATE:SECRET_PRIVATE" + test.suffix))
-			root.SetArgs([]string{"stdin", "--config", path, "--offline", "--redact", "--log-level=trace", "--no-banner"})
+			root.SetArgs([]string{"stdin", "--config", path, "--redact", "--log-level=trace", "--no-banner"})
 			require.NoError(t, root.Execute())
 			require.Contains(t, logs.String(), test.message)
 			for _, secret := range []string{"SECRET_PRIVATE", "OTHER_PRIVATE"} {
@@ -300,7 +304,7 @@ keywords = ["fixture-secret-"]
 			if command != "" {
 				args = append(args, command)
 			}
-			args = append(args, strings.Replace(srv.URL, "http://", "http://user:password@", 1)+"/secret.txt?token=private#fragment", "--offline", "--jsonl", "--no-banner", "--exit-code", "0")
+			args = append(args, strings.Replace(srv.URL, "http://", "http://user:password@", 1)+"/secret.txt?token=private#fragment", "--jsonl", "--no-banner", "--exit-code", "0")
 			root.SetArgs(args)
 			require.NoError(t, root.Execute())
 			if command == "" || command == "auto" {
@@ -368,7 +372,7 @@ keywords = ["fixture-secret-"]
 				if command != "" {
 					args = append(args, command)
 				}
-				root.SetArgs(append(args, srv.URL+"/download", "--offline", "--jsonl", "--no-banner"))
+				root.SetArgs(append(args, srv.URL+"/download", "--jsonl", "--no-banner"))
 				require.NoError(t, root.Execute())
 				if exclude {
 					_, findings := decodeScanJSONL(t, output.Bytes())
@@ -439,7 +443,7 @@ func TestSourceHelpDoesNotFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
 	defer srv.Close()
 	for _, args := range [][]string{
-		nil, {"--help"}, {srv.URL, "--help"}, {srv.URL, "--version"}, {"auto", srv.URL, "--help"}, {"git", srv.URL, "--help"}, {"url", srv.URL, "--help"},
+		nil, {"--help"}, {srv.URL, "--help"}, {srv.URL, "--version"}, {srv.URL, "-V"}, {"auto", srv.URL, "--help"}, {"git", srv.URL, "--help"}, {"url", srv.URL, "--help"},
 	} {
 		root, _ := newTestCLI(t)
 		root.runtime.exit = func(code int) { require.Zero(t, code); panic("help exit") }
@@ -447,6 +451,18 @@ func TestSourceHelpDoesNotFetch(t *testing.T) {
 		require.PanicsWithValue(t, "help exit", func() { _ = root.Execute() })
 	}
 	require.Zero(t, requests.Load())
+}
+
+func TestVersionFlags(t *testing.T) {
+	for _, args := range [][]string{{"-V"}, {"--version"}, {"fs", ".", "-V"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			root, output := newTestCLI(t)
+			root.runtime.exit = func(code int) { require.Zero(t, code); panic("version exit") }
+			root.SetArgs(args)
+			require.PanicsWithValue(t, "version exit", func() { _ = root.Execute() })
+			require.Equal(t, version.Version+"\n", output.String())
+		})
+	}
 }
 
 func TestImplicitRemoteGitScansHistoryWithExplicitConfig(t *testing.T) {
@@ -488,7 +504,7 @@ keywords = ["fixture-secret-"]
 	for _, explicit := range []bool{false, true} {
 		cli, output := newTestCLI(t)
 		cli.runtime.exit = func(code int) { require.Zero(t, code) }
-		args := []string{srv.URL + "/repo", "--config", filepath.Join(local, ".betterleaks.toml"), "--offline", "--jsonl", "--no-banner", "--exit-code", "0", "-j", "1"}
+		args := []string{srv.URL + "/repo", "--config", filepath.Join(local, ".betterleaks.toml"), "--jsonl", "--no-banner", "--exit-code", "0", "-j", "1"}
 		if explicit {
 			args = append([]string{"git"}, args...)
 		}
@@ -511,21 +527,23 @@ func TestLeadingFlagsMatchCommandLocalFlags(t *testing.T) {
 		{"boolean override", []string{"--no-banner", "fs", "--no-banner=false", "."}, []string{"fs", "--no-banner", "--no-banner=false", "."}},
 		{"repeated flags", []string{"-ir", "first", "fs", "--isolate-rule", "second", "."}, []string{"fs", "--isolate-rule", "first", "--isolate-rule", "second", "."}},
 		{"short flags", []string{"-sj2", "-oout.json", "fs", "."}, []string{"fs", "-sj2", "-oout.json", "."}},
+		{"bundled provider flags", []string{"-av", "fs", "."}, []string{"fs", "--analyze", "--validate", "."}},
+		{"reversed bundled provider flags", []string{"-va", "git", "."}, []string{"git", "--validate", "--analyze", "."}},
 		{"implicit redaction", []string{"--redact", "fs", "."}, []string{"fs", "--redact", "."}},
 		{"partial redaction", []string{"--redact=20", "fs", "."}, []string{"fs", "--redact=20", "."}},
 		{"command as output", []string{"--output", "git", "fs", "."}, []string{"fs", "--output", "git", "."}},
-		{"command as config", []string{"--config", "git", "--offline", "fs", "."}, []string{"fs", "--config", "git", "--offline", "."}},
-		{"source flag", []string{"--staged", "--offline", "git", "."}, []string{"git", "--staged", "--offline", "."}},
-		{"unstaged flag", []string{"--unstaged", "--offline", "git", "."}, []string{"git", "--unstaged", "--offline", "."}},
+		{"command as config", []string{"--config", "git", "--analyze", "fs", "."}, []string{"fs", "--config", "git", "--analyze", "."}},
+		{"source flag", []string{"--staged", "--analyze", "git", "."}, []string{"git", "--staged", "--analyze", "."}},
+		{"unstaged flag", []string{"--unstaged", "--analyze", "git", "."}, []string{"git", "--unstaged", "--analyze", "."}},
 		{"credential flag", []string{"--rule", "token", "--jsonl", "analyze", "secret"}, []string{"analyze", "--rule", "token", "--jsonl", "secret"}},
 		{"nested command", []string{"--analysis", "config", "show", "ids"}, []string{"config", "show", "ids", "--analysis"}},
 		{"between nested commands", []string{"config", "--analysis", "show", "--validation", "ids"}, []string{"config", "show", "ids", "--analysis", "--validation"}},
-		{"auto", []string{"--offline", "--output=out.json", "target"}, []string{"auto", "--offline", "--output=out.json", "target"}},
-		{"explicit auto", []string{"--offline", "auto", "target"}, []string{"auto", "--offline", "target"}},
-		{"command after path", []string{"--offline", "target", "fs"}, []string{"auto", "--offline", "target", "fs"}},
-		{"literal command path", []string{"--offline", "--", "fs"}, []string{"auto", "--offline", "--", "fs"}},
-		{"literal flag path", []string{"--", "--offline", "fs"}, []string{"auto", "--", "--offline", "fs"}},
-		{"explicit literal paths", []string{"--offline", "fs", "--", "--no-banner", "git"}, []string{"fs", "--offline", "--", "--no-banner", "git"}},
+		{"auto", []string{"--analyze", "--output=out.json", "target"}, []string{"auto", "--analyze", "--output=out.json", "target"}},
+		{"explicit auto", []string{"--analyze", "auto", "target"}, []string{"auto", "--analyze", "target"}},
+		{"command after path", []string{"--analyze", "target", "fs"}, []string{"auto", "--analyze", "target", "fs"}},
+		{"literal command path", []string{"--analyze", "--", "fs"}, []string{"auto", "--analyze", "--", "fs"}},
+		{"literal flag path", []string{"--", "--analyze", "fs"}, []string{"auto", "--", "--analyze", "fs"}},
+		{"explicit literal paths", []string{"--analyze", "fs", "--", "--no-banner", "git"}, []string{"fs", "--analyze", "--", "--no-banner", "git"}},
 		{"nested literal path", []string{"config", "show", "--", "ids"}, []string{"config", "show", "toml", "--", "ids"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -546,7 +564,7 @@ func TestLeadingFlagsAcrossCommands(t *testing.T) {
 		{"hf", "https://huggingface.co/example/repo"}, {"s3", "s3://example"},
 	} {
 		t.Run(args[0], func(t *testing.T) {
-			prefix := []string{"--offline", "--no-banner", "--redact", "--output=out.json"}
+			prefix := []string{"-av", "--no-banner", "--redact", "--output=out.json"}
 			actual, err := parseCLIForTest(t, append(prefix, args...)...)
 			require.NoError(t, err)
 			local := append([]string{args[0]}, prefix...)
@@ -563,7 +581,7 @@ func TestLeadingFlagsRejectInvalidScopeAndValues(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"--offline", "validate"}, "unknown flag --offline"},
+		{[]string{"--analyze", "validate"}, "unknown flag --analyze"},
 		{[]string{"--no-banner", "config", "show", "ids"}, "unknown flag --no-banner"},
 		{[]string{"--staged", "fs", "."}, "unknown flag --staged"},
 		{[]string{"--unstaged", "fs", "."}, "unknown flag --unstaged"},
@@ -578,8 +596,8 @@ func TestLeadingFlagsRejectInvalidScopeAndValues(t *testing.T) {
 		{[]string{"s3", "s3://example", "--max-target-megabytes=1"}, "unknown flag --max-target-megabytes"},
 		{[]string{"stdin", "--max-target-megabytes=1"}, "unknown flag --max-target-megabytes"},
 		{[]string{"--max-archive-depth=2", "stdin"}, "unknown flag --max-archive-depth"},
-		{[]string{"fs", ".", "--offline", "--status=valid"}, "--status cannot be combined with --offline"},
-		{[]string{"stdin", "--offline", "--status=not-a-status"}, "--status cannot be combined with --offline"},
+		{[]string{"fs", ".", "--status=valid"}, "--status requires --validate or --analyze"},
+		{[]string{"stdin", "--status=not-a-status"}, "--status requires --validate or --analyze"},
 		{[]string{"validate"}, "--rule"},
 		{[]string{"analyze"}, "--rule"},
 		{[]string{"revoke"}, "--rule"},
@@ -619,7 +637,7 @@ validate = '''let r = http.get(%q); {"result": "valid"}'''
 			var stderr bytes.Buffer
 			root.runtime.stderr = &stderr
 			outputPath := filepath.Join(t.TempDir(), "report.json")
-			flags := []string{"--config", configPath, "--no-banner", "--offline", "--redact", "--output", outputPath, "--exit-code=0"}
+			flags := []string{"--config", configPath, "--no-banner", "--redact", "--output", outputPath, "--exit-code=0"}
 			var args []string
 			switch mode {
 			case "before":
@@ -633,7 +651,7 @@ validate = '''let r = http.get(%q); {"result": "valid"}'''
 			require.NoError(t, root.Execute())
 			assert.False(t, bannerPrinted)
 			assert.NotContains(t, stderr.String(), banner)
-			assert.Zero(t, requests.Load(), "offline must prevent provider requests")
+			assert.Zero(t, requests.Load(), "default scans must not make provider requests")
 			raw, err := os.ReadFile(outputPath)
 			require.NoError(t, err)
 			assert.NotContains(t, string(raw), "fixture-secret-alpha")
@@ -673,7 +691,7 @@ func TestGitFlagsSelectHistoryStagedOrUnstaged(t *testing.T) {
 		t.Run(tc.want, func(t *testing.T) {
 			root, _ := newTestCLI(t)
 			outputPath := filepath.Join(t.TempDir(), "report.json")
-			args := []string{"git", repo, "--config", configPath, "--offline", "--no-banner", "--exit-code=0", "--output", outputPath}
+			args := []string{"git", repo, "--config", configPath, "--no-banner", "--exit-code=0", "--output", outputPath}
 			if tc.flag != "" {
 				args = append(args, tc.flag)
 			}
@@ -712,7 +730,7 @@ func TestScanReportMultipleTargets(t *testing.T) {
 			var logs bytes.Buffer
 			root.runtime.stderr = &logs
 			args := append([]string{"fs"}, targets...)
-			args = append(args, "--config", configPath, "--offline", "--no-banner", "--exit-code=0", "--disable-rule=unused", "--output=-")
+			args = append(args, "--config", configPath, "--no-banner", "--exit-code=0", "--disable-rule=unused", "--output=-")
 			if jsonl {
 				args = append(args, "--jsonl")
 			}
@@ -764,7 +782,7 @@ func TestScanIgnoresImplicitConfigFiles(t *testing.T) {
 	}
 	root, stdout := newTestCLI(t)
 	args := append([]string{"fs"}, targets...)
-	root.SetArgs(append(args, "--offline", "--no-banner", "--exit-code=0", "--isolate-rule=github-pat", "--output=-"))
+	root.SetArgs(append(args, "--no-banner", "--exit-code=0", "--isolate-rule=github-pat", "--output=-"))
 	require.NoError(t, root.Execute())
 	metadata, findings := decodeScanJSON(t, stdout.Bytes())
 	require.Len(t, findings, 2)
@@ -801,7 +819,7 @@ func TestFilesystemSetupFailureFinalizesIncompleteReport(t *testing.T) {
 					wantCount, wantBytes = 1, uint64(len(content))
 				}
 				wantSource := report.ScanSource{Type: "filesystem", Targets: args[1:]}
-				args = append(args, "--config", configPath, "--offline", "--no-banner", "--exit-code=0", "--output=-")
+				args = append(args, "--config", configPath, "--no-banner", "--exit-code=0", "--output=-")
 				if jsonl {
 					args = append(args, "--jsonl")
 				}
@@ -838,7 +856,7 @@ func TestStdinReadFailureFinalizesIncompleteReport(t *testing.T) {
 	root.SetIn(iotest.ErrReader(fmt.Errorf("input failed")))
 	var exitCode int
 	root.runtime.exit = func(code int) { exitCode = code }
-	root.SetArgs([]string{"stdin", "--config", configPath, "--offline", "--no-banner", "--output=-"})
+	root.SetArgs([]string{"stdin", "--config", configPath, "--no-banner", "--output=-"})
 	require.NoError(t, root.Execute())
 	metadata, findings := decodeScanJSON(t, stdout.Bytes())
 	assert.Equal(t, report.ScanStateIncomplete, metadata.State)
@@ -857,7 +875,7 @@ func TestCorruptArchiveWarningKeepsScanComplete(t *testing.T) {
 	root.runtime.stderr = &logs
 	var exitCode int
 	root.runtime.exit = func(code int) { exitCode = code }
-	root.SetArgs([]string{"fs", dir, "--config", configPath, "--offline", "--no-banner", "--no-color", "--exit-code=0", "--output=-"})
+	root.SetArgs([]string{"fs", dir, "--config", configPath, "--no-banner", "--no-color", "--exit-code=0", "--output=-"})
 	require.NoError(t, root.Execute())
 	metadata, findings := decodeScanJSON(t, stdout.Bytes())
 	assert.Equal(t, report.ScanStateComplete, metadata.State)

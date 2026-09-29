@@ -52,6 +52,12 @@ make build
 ```
 
 ### Usage
+
+Scans detect secrets without credential provider requests by default. Use
+`-v` / `--validate` to check credentials, or `-a` / `--analyze` to also resolve
+identity and permissions. Analysis implies validation.
+Source downloads may still use the network. Use `-V` / `--version` for the version.
+
 ```
 # Scan the filesystem
 betterleaks /path/to/target
@@ -60,7 +66,12 @@ betterleaks filesystem /path/to/target
 # Short command alias
 betterleaks fs /path/to/target
 # Flags may also precede the command
-betterleaks --offline --no-banner fs /path/to/target
+betterleaks --no-banner fs /path/to/target
+
+# Validate detected credentials
+betterleaks fs /path/to/target -v
+# Validate and analyze identity and permissions
+betterleaks fs /path/to/target -a
 
 # Scan a git repo
 betterleaks git /path/to/repo
@@ -70,7 +81,7 @@ betterleaks https://github.com/betterleaks/betterleaks
 # The default command can also be named explicitly
 betterleaks auto https://github.com/betterleaks/betterleaks
 # Explicitly download and scan a web response (without crawling)
-betterleaks url https://example.com/config.txt --offline
+betterleaks url https://example.com/config.txt
 
 # Scan GitHub org
 betterleaks github https://github.com/betterleaks

@@ -5,7 +5,7 @@ package cmd
 const (
 	// Up to 10 credential evaluations per scan. Each slot runs validation then
 	// optional analysis; those stages share this pool. --provider-workers
-	// overrides it independently of --jobs; --offline disables this stage.
+	// overrides it independently of --jobs; --validate or --analyze enables it.
 	defaultAnalyzeWorkers = 10
 )
 
