@@ -314,12 +314,12 @@ func TestFindingCollectorSkipsReportBeforeFilesOpenIt(t *testing.T) {
 	collector, err := newFindingCollector(flags, true, output)
 	require.NoError(t, err)
 
-	configuredSkip := func(attributes map[string]string) bool {
+	configuredPrefilter := func(attributes map[string]string) bool {
 		return filepath.Clean(filepath.FromSlash(attributes[sources.AttrPath])) == blockedPath
 	}
 	files := &sources.Files{
 		Path:      directory,
-		Prefilter: collector.FileSkipFunc(configuredSkip),
+		Prefilter: collector.FilePrefilterFunc(configuredPrefilter),
 	}
 	var visited []string
 	err = files.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {
