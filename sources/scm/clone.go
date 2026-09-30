@@ -172,6 +172,11 @@ func gitCloneEnv(configs []GitConfig) []string {
 		"GIT_CONFIG_SYSTEM":      nullDevice,
 		"GIT_NO_REPLACE_OBJECTS": "1",
 		"GIT_TERMINAL_PROMPT":    "0",
+		// An inherited askpass helper (e.g. an IDE's) takes priority over
+		// GIT_TERMINAL_PROMPT=0 and can block until the user enters credentials
+		// or cancels the prompt. Force git to fail fast instead.
+		"GIT_ASKPASS": "",
+		"SSH_ASKPASS": "",
 	}
 
 	if len(configs) > 0 {

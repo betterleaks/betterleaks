@@ -95,6 +95,8 @@ func TestGitCloneEnv(t *testing.T) {
 		"GIT_CONFIG_VALUE_0=Authorization: basic abc",
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_ASKPASS=",
+		"SSH_ASKPASS=",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("gitCloneEnv() missing %q in %q", want, joined)
