@@ -49,13 +49,13 @@ func PowerAutomateWorkflowURL() *config.Rule {
 		ID:          "microsoft-power-automate-workflow-url",
 		Confidence:  "high",
 		Description: "Identified a Power Automate or Logic Apps workflow invoke URL. The sig query parameter is a SAS signature, so the URL alone can trigger the flow.",
-		// sig is base64 (standard or urlsafe alphabet) and may have its +, /,
-		// and = percent-encoded. Standard Logic Apps omit the "paths/"
-		// segment that Consumption Logic Apps and Power Automate use.
+		// sig is base64 (standard or urlsafe alphabet); its +, /, and = may
+		// appear literally or percent-encoded. Standard Logic Apps omit the
+		// "paths/" segment that Consumption Logic Apps and Power Automate use.
 		Regex: `(?P<url>https://[a-z0-9.\-]+\.` +
 			`(?:logic\.azure\.com|environment\.api\.powerplatform\.com|azurewebsites\.net)` +
 			`(?::443)?/[^\s"'<>]*?/triggers/[A-Za-z0-9_\-]+/(?:paths/)?invoke\?` +
-			`[^\s"'<>]*sig=(?P<sig>(?:[A-Za-z0-9_\-]|%(?:2[BbFf]|3[Dd])){32,}))`,
+			`[^\s"'<>]*sig=(?P<sig>(?:[A-Za-z0-9_+/=\-]|%(?:2[BbFf]|3[Dd])){32,}))`,
 		ValueGroup: 2,
 		Keywords: []string{
 			"logic.azure.com",
@@ -73,7 +73,7 @@ func PowerAutomateWorkflowURL() *config.Rule {
 		// c4ed9335bc864140a11f4508d19acea3, and environment ids
 		// aaaabbbb-0000-cccc-1111-dddd2222eeee and aaaa0000-bb11-2222-33cc-444444dddddd
 		// (dashes are omitted, and split into truncated+last-2-chars, in the URL).
-		FilterExpr: `let url = lower(finding["captures"]["url"]);
+		FilterExpr: `let url = lower(finding["captures"]?.url ?? "");
 url contains "/workflows/c4ed9335bc864140a11f4508d19acea3" ||
 url contains "aaaabbbb0000cccc1111dddd2222ee.ee.environment.api.powerplatform.com" ||
 url contains "aaaa0000bb11222233cc444444dddd.dd.environment.api.powerplatform.com"`,
@@ -95,6 +95,11 @@ url contains "aaaa0000bb11222233cc444444dddd.dd.environment.api.powerplatform.co
 			secrets.NewSecret(utils.Hex("32")) +
 			"/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=" +
 			secrets.NewSecret(`[A-Za-z0-9]{20}`) + "%2B" + secrets.NewSecret(`[A-Za-z0-9]{10}`) + "%2F" + secrets.NewSecret(`[A-Za-z0-9]{10}`) + "%3D", // betterleaks:allow
+		// Logic App (Consumption) with literal, unescaped +, /, and = characters
+		"https://prod-19.eastus.logic.azure.com:443/workflows/" +
+			secrets.NewSecret(utils.Hex("32")) +
+			"/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=" +
+			secrets.NewSecret(`[A-Za-z0-9]{20}`) + "+" + secrets.NewSecret(`[A-Za-z0-9]{10}`) + "/" + secrets.NewSecret(`[A-Za-z0-9]{10}`) + "=", // betterleaks:allow
 		// Logic App (Standard): single-tenant, no "paths/" segment before invoke
 		"https://contoso-integration-app.azurewebsites.net:443/api/ProcessOrderWorkflow/triggers/manual/invoke?api-version=2022-05-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=" +
 			secrets.NewSecret(`[A-Za-z0-9_\-]{43}`), // betterleaks:allow
