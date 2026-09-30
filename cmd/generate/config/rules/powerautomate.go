@@ -52,8 +52,8 @@ func PowerAutomateWorkflowURL() *config.Rule {
 		// sig is base64 (standard or urlsafe alphabet); its +, /, and = may
 		// appear literally or percent-encoded. Standard Logic Apps omit the
 		// "paths/" segment that Consumption Logic Apps and Power Automate use.
-		Regex: `(?P<url>https://[a-z0-9.\-]+\.` +
-			`(?:logic\.azure\.com|environment\.api\.powerplatform\.com|azurewebsites\.net)` +
+		Regex: `(?P<url>https://(?i:[a-z0-9.\-]+\.` +
+			`(?:logic\.azure\.com|environment\.api\.powerplatform\.com|azurewebsites\.net))` +
 			`(?::443)?/[^\s"'<>]*?/triggers/[A-Za-z0-9_\-]+/(?:paths/)?invoke\?` +
 			`[^\s"'<>]*sig=(?P<sig>(?:[A-Za-z0-9_+/=\-]|%(?:2[BbFf]|3[Dd])){32,}))`,
 		ValueGroup: 2,
@@ -102,6 +102,11 @@ url contains "aaaa0000bb11222233cc444444dddd.dd.environment.api.powerplatform.co
 			secrets.NewSecret(`[A-Za-z0-9]{20}`) + "+" + secrets.NewSecret(`[A-Za-z0-9]{10}`) + "/" + secrets.NewSecret(`[A-Za-z0-9]{10}`) + "=", // betterleaks:allow
 		// Logic App (Standard): single-tenant, no "paths/" segment before invoke
 		"https://contoso-integration-app.azurewebsites.net:443/api/ProcessOrderWorkflow/triggers/manual/invoke?api-version=2022-05-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=" +
+			secrets.NewSecret(`[A-Za-z0-9_\-]{43}`), // betterleaks:allow
+		// Mixed-case hostname: DNS is case-insensitive, so this must still match.
+		"https://Prod-19.EastUS.Logic.Azure.Com:443/workflows/" +
+			secrets.NewSecret(utils.Hex("32")) +
+			"/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=" +
 			secrets.NewSecret(`[A-Za-z0-9_\-]{43}`), // betterleaks:allow
 	}
 	fps := []string{

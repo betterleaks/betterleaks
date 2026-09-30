@@ -8137,7 +8137,7 @@ entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 [[rules]]
 id = "microsoft-power-automate-workflow-url"
 description = "Identified a Power Automate or Logic Apps workflow invoke URL. The sig query parameter is a SAS signature, so the URL alone can trigger the flow."
-regex = '''(?P<url>https://[a-z0-9.\-]+\.(?:logic\.azure\.com|environment\.api\.powerplatform\.com|azurewebsites\.net)(?::443)?/[^\s"'<>]*?/triggers/[A-Za-z0-9_\-]+/(?:paths/)?invoke\?[^\s"'<>]*sig=(?P<sig>(?:[A-Za-z0-9_+/=\-]|%(?:2[BbFf]|3[Dd])){32,}))'''
+regex = '''(?P<url>https://(?i:[a-z0-9.\-]+\.(?:logic\.azure\.com|environment\.api\.powerplatform\.com|azurewebsites\.net))(?::443)?/[^\s"'<>]*?/triggers/[A-Za-z0-9_\-]+/(?:paths/)?invoke\?[^\s"'<>]*sig=(?P<sig>(?:[A-Za-z0-9_+/=\-]|%(?:2[BbFf]|3[Dd])){32,}))'''
 valueGroup = 2
 confidence = "high"
 keywords = [
