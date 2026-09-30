@@ -102,6 +102,7 @@ count or shared budget is passed to sources.
 | One HTTP(S) response or archive | `betterleaks url <url>` |
 | Staged changes | `betterleaks git --staged` |
 | Unstaged changes to tracked files | `betterleaks git --unstaged` |
+| Commits pushed to a server (pre-receive hook) | `betterleaks git --pre-receive` |
 | GitHub repos, Issues, PRs, Actions, Releases, Discussions, Gists | `betterleaks github <url>` |
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
@@ -689,6 +690,38 @@ for scanning and filtering.
 
 These additional resources apply to repository history scans; they cannot be
 combined with `--unstaged` or `--staged`.
+
+### Pre-receive hook
+
+Use `--pre-receive` to run betterleaks as a server-side [Git `pre-receive`
+hook](https://git-scm.com/docs/githooks#pre-receive). The hook reads the ref
+updates Git supplies on stdin (`<old-value> <new-value> <ref-name>` per line),
+scans only the newly pushed commits, and exits non-zero when leaks are found,
+which makes Git reject the push.
+
+- Updated refs are scanned as the `<old>..<new>` range.
+- Newly created refs are scanned excluding history already in the repository
+  (so a new branch or tag is not re-scanned back to the root commit).
+- Annotated tags are peeled to the commit they target; refs that do not point
+  at a commit (for example a tag on a blob or tree) are skipped.
+- Deleted refs contribute nothing; a push that only deletes refs is allowed.
+
+`--pre-receive` cannot be combined with `--staged`, `--unstaged`, `--log-opts`,
+or `--include`, and requires a local repository.
+
+Install it by placing an executable `hooks/pre-receive` in the (bare) server
+repository:
+
+```sh
+#!/bin/sh
+exec betterleaks git --pre-receive --no-banner \
+	--pre-receive-error-message "Push rejected on ${CI_PROJECT}: secrets detected. Contact ${SECURITY_TEAM}."
+```
+
+`--pre-receive-error-message` is printed to stderr (visible to the pushing
+client as `remote:` output) only when leaks are found. `$VAR` and `${VAR}`
+references in the message are expanded from the hook process environment, so you
+can surface repository, project, or contact details configured for the server.
 
 ---
 
