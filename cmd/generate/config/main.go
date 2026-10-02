@@ -87,6 +87,7 @@ func main() {
 		rules.AikidoClientID(),
 		rules.AikidoClientSecret(),
 		rules.AikidoCIToken(),
+		rules.AirscaleAPIKey(),
 		rules.AirtableApiKey(),
 		rules.AirtablePersonalAccessToken(),
 		rules.AirtableOAuthToken(),
