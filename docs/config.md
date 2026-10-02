@@ -126,8 +126,9 @@ Every config can use these fields:
 - `filter`: global Expr expression that discards specific findings after regex matching.
 - `minVersion`: minimum Betterleaks binary version required. Loading fails when
   a versioned build is older, using semantic version ordering (including
-  prereleases). Builds reporting `dev` skip the comparison; malformed minimum
-  versions are still rejected. Each inherited configuration is checked too.
+  prereleases). Builds reporting `dev` or an untagged Git commit hash (with an
+  optional `-dirty` suffix) skip the comparison; malformed minimum versions are
+  still rejected. Each inherited configuration is checked too.
 - `[extend]`: inherit rules/settings from another config or from built-in defaults.
 - `[[rules]]`: secret detection rules.
 

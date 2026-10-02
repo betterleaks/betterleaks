@@ -63,6 +63,7 @@ type CLI struct {
 	HuggingFace HuggingFaceCmd `cmd:"" name:"huggingface" aliases:"hf" help:"Scan Hugging Face repositories and community resources for secrets."`
 	S3          S3Cmd          `cmd:"" name:"s3" help:"Scan an S3 or S3-compatible bucket for secrets."`
 	Container   ContainerCmd   `cmd:"" name:"container" aliases:"docker" help:"Scan container images, every platform, historical layers, and metadata."`
+	OCI         OCICmd         `cmd:"" name:"oci" help:"Scan local OCI image layers and configuration for secrets."`
 	Stdin       StdinCmd       `cmd:"" help:"Detect secrets from stdin."`
 	Fingerprint FingerprintCmd `cmd:"" help:"Generate a value fingerprint from stdin (SHA-256, or HMAC-SHA-256 with a key)."`
 	Validate    ValidateCmd    `cmd:"" help:"Validate a known secret without running detection."`

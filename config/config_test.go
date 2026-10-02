@@ -1029,7 +1029,14 @@ func TestMinVersionEnforcement(t *testing.T) {
 		{"stable", "v2.0.0", "v2.0.0-rc.1", ""},
 		{"RC below stable", "v2.0.0-rc.1", "v2.0.0", "requires Betterleaks"},
 		{"development build", "dev", "v9.0.0", ""},
+		{"Git revision", "79c64b0", "v9.0.0", ""},
+		{"dirty Git revision", "79c64b0-dirty", "v9.0.0", ""},
+		{"numeric Git revision", "1234567", "v9999999.0.0", ""},
+		{"full Git revision", "79c64b0123456789abcdef0123456789abcdef01234", "v9.0.0", ""},
 		{"invalid minimum on dev", "dev", "invalid", "invalid minVersion"},
+		{"invalid minimum on Git revision", "79c64b0", "invalid", "invalid minVersion"},
+		{"tagged Git build below minimum", "v2.0.0-1-g79c64b0", "v9.0.0", "requires Betterleaks"},
+		{"invalid Git revision", "79c64bz", "v2.0.0", "unable to parse current"},
 		{"invalid current", "invalid", "v2.0.0", "unable to parse current"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

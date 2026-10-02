@@ -60,6 +60,7 @@ Sources choose their own bounded I/O concurrency, independently of detection:
 | S3 and Hugging Face object reads | 4 |
 | GitHub Actions runs | 4 |
 | Provider repositories or buckets | One target at a time |
+| OCI layer/config readers | Up to `min(GOMAXPROCS, 4)` |
 | URL and stdin | Serial |
 | Container images and layers | Serial input; detection uses the normal worker pool |
 
@@ -99,6 +100,7 @@ count or shared budget is passed to sources.
 | Want to scan | Use |
 | :--- | :--- |
 | Filesystem | `betterleaks <path>` or `betterleaks filesystem <path>` |
+| Local OCI image layout | `betterleaks oci <layout-directory>` |
 | Git history | `betterleaks git [path-or-http-url]` |
 | One HTTP(S) response or archive | `betterleaks url <url>` |
 | Staged changes | Pipe `git diff --cached` into `betterleaks stdin --git-diff` |
@@ -2111,3 +2113,57 @@ permission enrichment uses `reason`, `metadata`, identity and capabilities.
 possible credentials. Such a search cannot establish invalidity unless every
 possible combination was actually tested; a tested successful combination can
 still establish validity.
+
+## OCI image layouts
+
+Scan the OCI directory produced by BuildKit directly, without a Docker daemon,
+registry access, root filesystem extraction, or conversion to a Docker archive:
+
+```sh
+betterleaks oci ./image.oci
+betterleaks oci ./image.oci --ref scp-builder --platform linux/amd64
+betterleaks oci ./image.oci --max-archive-depth 0 --output findings.json
+betterleaks oci ./image.oci --max-layer-size 8GiB
+```
+
+The input must be a directory containing `oci-layout`, `index.json`, and
+`blobs/`. Registry references, Docker-save archives and OCI tar archives are
+not accepted by this command. It follows image descriptors rather than scanning
+unreferenced blobs. All referenced image platforms are scanned by default;
+`--ref` selects a top-level `org.opencontainers.image.ref.name`, and `--platform`
+selects `os/architecture[/variant]`. BuildKit attestation manifests marked with
+`vnd.docker.reference.type=attestation-manifest` are excluded.
+
+Every regular file in every selected layer is scanned, including files later
+deleted or overwritten. Whiteout markers, symlinks, hard links and special-file
+entries have no content to scan and are not followed. The image configuration
+JSON is also scanned, including environment variables, labels and build history.
+Shared blobs are scanned once per invocation, even across multiple images.
+
+Plain tar, gzip and zstd layers are supported. Compressed layers are streamed;
+no image files are written to disk. Nested archives use the existing file
+source, which may use temporary storage for seekable archive formats. Up to
+four layer/config readers run concurrently, bounded by `GOMAXPROCS`.
+
+`--max-archive-depth` counts archives **inside layer files**. The OCI layout,
+layer compression and layer tar do not consume this budget: `0` still scans
+ordinary image files. Nested-archive warnings and skips follow the filesystem
+source's behavior. Image-level failures (missing blobs, digest/size mismatch,
+corrupt layer tar/compression, unsupported media types or no matching images)
+produce an incomplete report and exit code 1, independently of `--exit-code`.
+Metadata documents are limited to 16 MiB; index nesting is limited to 32;
+decompressed layer streams and individual layer files default to a 4 GiB limit.
+Use `--max-layer-size` to change this limit with a byte count or a human-readable
+size such as `8GiB` or `500MB`; `0` uses the default. The limit applies per layer,
+including tar overhead, rather than to the total image size. Exceeding it produces
+an incomplete report and exit code 1. Zstd decoder memory is limited to 256 MiB
+per reader independently of the layer size limit. SHA-256 and SHA-512
+blob digests are verified while reading. Findings may be emitted before a
+blob's integrity check finishes, so consumers must honor the final scan state.
+
+Findings carry `oci.layout`, `oci.digest`, and resource `oci.layer_content` or
+`oci.config`. Layer files also carry `oci.file_path` (the path within the layer).
+The normal `path` attribute is `<digest>!<image-file-path>` for files, or
+`<digest>/config.json` for metadata; nested archive paths append `!<entry>`.
+Prefilters and finding filters can use these attributes. Layer digest attribution
+is shared across images; findings do not claim a single originating platform.
