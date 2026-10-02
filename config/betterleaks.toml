@@ -8132,18 +8132,25 @@ entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
-# microsoft-teams-webhook
+# microsoft-power-automate-workflow-url
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
-id = "microsoft-teams-webhook"
-description = "Uncovered a Microsoft Teams Webhook, which could lead to unauthorized access to team collaboration tools and data leaks."
-regex = '''https://[a-z0-9]+\.webhook\.office\.com/webhookb2/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}@[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}/IncomingWebhook/[a-z0-9]{32}/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}'''
+id = "microsoft-power-automate-workflow-url"
+description = "Identified a Power Automate or Logic Apps workflow invoke URL. The sig query parameter is a SAS signature, so the URL alone can trigger the flow."
+regex = '''(?P<url>https://(?i:[a-z0-9.\-]+\.(?:logic\.azure\.com|environment\.api\.powerplatform\.com|azurewebsites\.net))(?::443)?/[^\s"'<>]*?/triggers/[A-Za-z0-9_\-]+/(?:paths/)?invoke\?[^\s"'<>]*sig=(?P<sig>(?:[A-Za-z0-9_+/=\-]|%(?:2[BbFf]|3[Dd])){32,}))'''
+valueGroup = 2
 confidence = "high"
 keywords = [
-    "webhook.office.com",
-    "webhookb2",
-    "incomingwebhook",
+    "logic.azure.com",
+    "powerplatform.com",
+    "azurewebsites.net",
 ]
+filter = '''
+let url = lower(finding["captures"]?.url ?? "");
+url contains "/workflows/c4ed9335bc864140a11f4508d19acea3" ||
+url contains "aaaabbbb0000cccc1111dddd2222ee.ee.environment.api.powerplatform.com" ||
+url contains "aaaa0000bb11222233cc444444dddd.dd.environment.api.powerplatform.com"
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # midtrans-production-server-client-key
