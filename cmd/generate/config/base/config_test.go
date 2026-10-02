@@ -182,6 +182,14 @@ var globalPrefilterTests = map[string]struct {
 			`swagger/swaggerui/swagger-ui.js`,
 		},
 	},
+	"javascript - lockfiles": {
+		invalid: []string{
+			`bun.lock`, `bun.lockb`, `deno.lock`, `npm-shrinkwrap.json`,
+			`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`,
+			`packages/web/bun.lock`,
+		},
+		valid: []string{`src/bun.lock.ts`, `docs/bun.lockfile.md`},
+	},
 	"python": {
 		invalid: []string{
 			`Pipfile.lock`, `poetry.lock`,

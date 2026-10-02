@@ -14,7 +14,7 @@ const GlobalPrefilter = `matchesAny(attributes["path"], [
   ` + "`(?:^|/)mvnw(?:\\.cmd)?$`" + `,
   ` + "`(?:^|/)\\.mvn/wrapper/MavenWrapperDownloader\\.java$`" + `,
   ` + "`(?:^|/)node_modules(?:/.*)?$`" + `,
-  ` + "`(?:^|/)(?:deno\\.lock|npm-shrinkwrap\\.json|package-lock\\.json|pnpm-lock\\.yaml|yarn\\.lock)$`" + `,
+  ` + "`(?:^|/)(?:bun\\.lockb?|deno\\.lock|npm-shrinkwrap\\.json|package-lock\\.json|pnpm-lock\\.yaml|yarn\\.lock)$`" + `,
   ` + "`(?:^|/)bower_components(?:/.*)?$`" + `,
   ` + "`(?:^|/)(?:angular|bootstrap|jquery(?:-?ui)?|plotly|swagger-?ui)[a-zA-Z0-9.-]*(?:\\.min)?\\.js(?:\\.map)?$`" + `,
   ` + "`(?:^|/)javascript\\.json$`" + `,
