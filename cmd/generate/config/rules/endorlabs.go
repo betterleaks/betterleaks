@@ -11,7 +11,7 @@ func EndorLabsAPIKey() *config.Rule {
 		ID:          "endorlabs-api-key",
 		Confidence:  "high",
 		Description: "Detected an Endor Labs API Key, which may compromise supply chain security scanning and software composition analysis.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"endor(?:labs)?", "key"}, `endr\+[A-Za-z0-9-]{16}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"endor(?:labs)?", "key"}, `endr\+[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"endr+"},
 		FilterExpr:  utils.MinEntropy(3.0),
 	}
@@ -33,7 +33,7 @@ func EndorLabsAPISecret() *config.Rule {
 		ID:          "endorlabs-api-secret",
 		Confidence:  "high",
 		Description: "Detected an Endor Labs API Secret, which together with an API key grants full access to Endor Labs supply chain security services.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"endor(?:labs)?", "secret"}, `endr\+[A-Za-z0-9-]{16}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"endor(?:labs)?", "secret"}, `endr\+[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"endr+"},
 		FilterExpr:  utils.MinEntropy(3.5),
 	}

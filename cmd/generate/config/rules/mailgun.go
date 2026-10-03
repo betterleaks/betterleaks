@@ -12,7 +12,7 @@ func MailGunPrivateAPIToken() *config.Rule {
 		ID:          "mailgun-private-api-token",
 		Confidence:  "high",
 		Description: "Found a Mailgun private API token, risking unauthorized email service operations and data breaches.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"mailgun"}, `key-[a-f0-9]{32}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"mailgun"}, `key-[a-f0-9]{32}`, true),
 
 		Keywords: []string{
 			"mailgun",
@@ -39,7 +39,7 @@ func MailGunPubAPIToken() *config.Rule {
 		ID:          "mailgun-pub-key",
 		Confidence:  "high",
 		Description: "Discovered a Mailgun public validation key, which could expose email verification processes and associated data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"mailgun"}, `pubkey-[a-f0-9]{32}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"mailgun"}, `pubkey-[a-f0-9]{32}`, true),
 
 		Keywords: []string{
 			"mailgun",
@@ -57,7 +57,7 @@ func MailGunSigningKey() *config.Rule {
 		ID:          "mailgun-signing-key",
 		Confidence:  "high",
 		Description: "Uncovered a Mailgun webhook signing key, potentially compromising email automation and data integrity.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"mailgun"}, `[a-h0-9]{32}-[a-h0-9]{8}-[a-h0-9]{8}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"mailgun"}, `[a-h0-9]{32}-[a-h0-9]{8}-[a-h0-9]{8}`, true),
 
 		Keywords: []string{
 			"mailgun",

@@ -11,7 +11,7 @@ func MuxAccessTokenID() *config.Rule {
 		ID:          "mux-access-token-id.1",
 		Confidence:  "medium",
 		Description: "Mux access-token ID, used as a component of the Mux access-token-secret composite rule.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`mux[_.-]?(?:access[_.-]?)?token[_.-]?(?:id|identifier)`},
 			utils.Hex8_4_4_4_12(),
 			true,
@@ -39,7 +39,7 @@ func MuxAccessTokenSecret() *config.Rule {
 		ID:          "mux-access-token-secret.1",
 		Confidence:  "high",
 		Description: "Mux access-token secret, which may grant access to video, data, or system APIs when paired with its token ID.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`mux[_.-]?(?:access[_.-]?)?token[_.-]?(?:secret|private|key)`},
 			`[A-Za-z0-9+/]{75}`,
 			false,

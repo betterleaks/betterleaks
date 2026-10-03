@@ -11,7 +11,7 @@ func Infomaniak() *config.Rule {
 		ID:          "infomaniak-api-token",
 		Confidence:  "high",
 		Description: "Detected an Infomaniak API token, which may expose hosting, mail, and cloud services to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"infomaniak"}, `[A-Za-z0-9_\-]{60,100}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"infomaniak"}, `[A-Za-z0-9_\-]{60,100}`, true),
 		Keywords:    []string{"infomaniak"},
 		FilterExpr:  `entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://api.infomaniak.com/1/profile", {

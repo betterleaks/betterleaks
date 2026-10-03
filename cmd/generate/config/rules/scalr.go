@@ -11,7 +11,7 @@ func ScalrAPIAccessToken() *config.Rule {
 		ID:          "scalr-api-access-token.1",
 		Confidence:  "high",
 		Description: "Scalr API access token.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`scalr(?:[_. -]*(?:api|access))?[_. -]*(?:secret|key|token)`},
 			`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJ1c2VyIiwianRpIjoiYXQt[A-Za-z0-9_-]{20,40}\.[A-Za-z0-9_-]{43}`,
 			false,

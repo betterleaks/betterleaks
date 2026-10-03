@@ -12,7 +12,7 @@ func LookerClientID() *config.Rule {
 		Description: "Found a Looker Client ID, risking unauthorized access to a Looker account and exposing sensitive data.",
 		ID:          "looker-client-id",
 		Confidence:  "medium",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"looker"}, utils.AlphaNumeric("20"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"looker"}, utils.AlphaNumeric("20"), true),
 		Keywords:    []string{"looker"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -28,7 +28,7 @@ func LookerClientSecret() *config.Rule {
 		Description: "Found a Looker Client Secret, risking unauthorized access to a Looker account and exposing sensitive data.",
 		ID:          "looker-client-secret",
 		Confidence:  "medium",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"looker"}, utils.AlphaNumeric("24"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"looker"}, utils.AlphaNumeric("24"), true),
 		Keywords:    []string{"looker"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

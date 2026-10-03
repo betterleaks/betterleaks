@@ -55,7 +55,7 @@ func CircleCIProjectToken() *config.Rule {
 		ID:          "circleci-project-token",
 		Confidence:  "high",
 		Description: "CircleCI project token.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"circleci"}, `[a-f0-9]{40}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"circleci"}, `[a-f0-9]{40}`, true),
 		Keywords:    []string{"circleci"},
 		ValidateExpr: `let r = http.get("https://circleci.com/api/v1.1/projects", {
     "Circle-Token": finding["secret"],

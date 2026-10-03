@@ -11,7 +11,7 @@ func WeightsAndBiases() *config.Rule {
 		ID:          "weights-and-biases-api-key",
 		Confidence:  "medium",
 		Description: "Detected a Weights & Biases API Key, which may expose ML experiment tracking and model registry access to unauthorized parties.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"wandb", "weightsandbiases"}, utils.Hex("40"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"wandb", "weightsandbiases"}, utils.Hex("40"), true),
 		Keywords:    []string{"wandb", "weightsandbiases"},
 		ValidateExpr: `let r = http.post("https://api.wandb.ai/graphql", {
     "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),

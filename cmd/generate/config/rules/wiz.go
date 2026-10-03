@@ -11,7 +11,7 @@ func WizClientID() *config.Rule {
 		ID:          "wiz-client-id.1",
 		Confidence:  "medium",
 		Description: "Wiz OAuth client ID, used as a component of the Wiz client-secret composite rule.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"wiz"}, `[A-Za-z0-9]{53,56}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"wiz"}, `[A-Za-z0-9]{53,56}`, false),
 		Keywords:    []string{"wiz"},
 		SkipReport:  true,
 		FilterExpr:  utils.MinEntropy(4.0),
@@ -34,7 +34,7 @@ func WizClientSecret() *config.Rule {
 		ID:          "wiz-client-secret.1",
 		Confidence:  "high",
 		Description: "Wiz OAuth client secret, which may allow access to the Wiz API when paired with its client ID.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"wiz"}, `[A-Za-z0-9]{64}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"wiz"}, `[A-Za-z0-9]{64}`, false),
 		Keywords:    []string{"wiz"},
 		Components: []config.Component{
 			{RuleID: "wiz-client-id.1", Within: "5L"},

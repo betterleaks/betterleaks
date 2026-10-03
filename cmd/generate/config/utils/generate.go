@@ -30,6 +30,17 @@ const (
 )
 
 func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseInsensitive bool) string {
+	return generateAssignmentRegex(identifiers, secretRegex, isCaseInsensitive, operator)
+}
+
+// GenerateProviderRegex also accepts spaces and tabs as separators for
+// provider credentials in configuration entries and command-line arguments.
+// Generic credential rules should use GenerateSemiGenericRegex instead.
+func GenerateProviderRegex(identifiers []string, secretRegex string, isCaseInsensitive bool) string {
+	return generateAssignmentRegex(identifiers, secretRegex, isCaseInsensitive, `(?:`+operator+`|[ \t])`)
+}
+
+func generateAssignmentRegex(identifiers []string, secretRegex string, isCaseInsensitive bool, assignmentOperator string) string {
 	var sb strings.Builder
 	// The identifiers should always be case-insensitive.
 	// This is inelegant but prevents an extraneous `(?i:)` from being added to the pattern; it could be removed.
@@ -41,7 +52,7 @@ func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseIn
 		writeIdentifiers(&sb, identifiers)
 		sb.WriteString(identifierCaseInsensitiveSuffix)
 	}
-	sb.WriteString(operator)
+	sb.WriteString(assignmentOperator)
 	sb.WriteString(secretPrefix)
 	sb.WriteString(secretRegex)
 	sb.WriteString(secretSuffix)

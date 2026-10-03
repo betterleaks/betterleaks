@@ -12,7 +12,7 @@ func TravisCIAccessToken() *config.Rule {
 		ID:          "travisci-access-token",
 		Confidence:  "medium",
 		Description: "Identified a Travis CI Access Token, potentially compromising continuous integration services and codebase security.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"travis"}, utils.AlphaNumeric("22"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"travis"}, utils.AlphaNumeric("22"), true),
 
 		Keywords: []string{
 			"travis",

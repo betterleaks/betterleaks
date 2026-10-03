@@ -12,7 +12,7 @@ func AdobeClientID() *config.Rule {
 		ID:          "adobe-client-id",
 		Confidence:  "high",
 		Description: "Detected a pattern that resembles an Adobe OAuth Web Client ID, posing a risk of compromised Adobe integrations and data breaches.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"adobe"}, utils.Hex("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"adobe"}, utils.Hex("32"), true),
 		Keywords:    []string{"adobe"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

@@ -12,7 +12,7 @@ func AsanaClientID() *config.Rule {
 		Description: "Discovered a potential Asana Client ID, risking unauthorized access to Asana projects and sensitive task information.",
 		ID:          "asana-client-id",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"asana"}, utils.Numeric("16"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"asana"}, utils.Numeric("16"), true),
 		Keywords:    []string{"asana"},
 		FilterExpr:  `entropy(finding["secret"]) < 2.75`,
 	}
@@ -28,7 +28,7 @@ func AsanaClientSecret() *config.Rule {
 		Description: "Identified an Asana Client Secret, which could lead to compromised project management integrity and unauthorized access.",
 		ID:          "asana-client-secret",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"asana"}, utils.AlphaNumeric("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"asana"}, utils.AlphaNumeric("32"), true),
 
 		Keywords:   []string{"asana"},
 		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,

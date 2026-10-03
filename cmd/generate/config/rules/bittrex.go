@@ -12,7 +12,7 @@ func BittrexAccessKey() *config.Rule {
 		Description: "Identified a Bittrex Access Key, which could lead to unauthorized access to cryptocurrency trading accounts and financial loss.",
 		ID:          "bittrex-access-key",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"bittrex"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -28,7 +28,7 @@ func BittrexSecretKey() *config.Rule {
 		Description: "Detected a Bittrex Secret Key, potentially compromising cryptocurrency transactions and financial security.",
 		ID:          "bittrex-secret-key",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"bittrex"}, utils.AlphaNumeric("32"), true),
 
 		Keywords:   []string{"bittrex"},
 		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,

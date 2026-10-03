@@ -13,7 +13,7 @@ func SidekiqSecret() *config.Rule {
 		ID:          "sidekiq-secret",
 		Confidence:  "high",
 
-		Regex: utils.GenerateSemiGenericRegex([]string{"BUNDLE_ENTERPRISE__CONTRIBSYS__COM", "BUNDLE_GEMS__CONTRIBSYS__COM"},
+		Regex: utils.GenerateProviderRegex([]string{"BUNDLE_ENTERPRISE__CONTRIBSYS__COM", "BUNDLE_GEMS__CONTRIBSYS__COM"},
 			`[a-f0-9]{8}:[a-f0-9]{8}`, true),
 		Keywords: []string{"BUNDLE_ENTERPRISE__CONTRIBSYS__COM", "BUNDLE_GEMS__CONTRIBSYS__COM"},
 	}

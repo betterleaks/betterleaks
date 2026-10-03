@@ -12,7 +12,7 @@ func WeatherstackAPIKey() *config.Rule {
 		ID:          "weatherstack-api-key.1",
 		Confidence:  "medium",
 		Description: "Weatherstack API key.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`weatherstack(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
 			`[0-9a-z]{32}`,
 			false,

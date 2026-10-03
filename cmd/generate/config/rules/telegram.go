@@ -13,7 +13,7 @@ func TelegramBotToken() *config.Rule {
 		ID:          "telegram-bot-api-token",
 		Confidence:  "high",
 
-		Regex: utils.GenerateSemiGenericRegex([]string{"telegr"}, "[0-9]{5,16}:(?-i:A)[a-z0-9_\\-]{34}", true),
+		Regex: utils.GenerateProviderRegex([]string{"telegr"}, "[0-9]{5,16}:(?-i:A)[a-z0-9_\\-]{34}", true),
 		Keywords: []string{
 			"telegr",
 		},

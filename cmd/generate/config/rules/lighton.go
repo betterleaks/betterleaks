@@ -11,7 +11,7 @@ func LightOn() *config.Rule {
 		ID:          "lighton-paradigm-api-key",
 		Confidence:  "medium",
 		Description: "Detected a LightOn Paradigm API key, which may expose enterprise LLM services to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"lighton", "paradigm"}, `[A-Za-z0-9_\-]{40,80}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"lighton", "paradigm"}, `[A-Za-z0-9_\-]{40,80}`, true),
 		Keywords:    []string{"lighton", "paradigm"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://paradigm.lighton.ai/api/v2/models", {

@@ -11,7 +11,7 @@ func Mem0APIKey() *config.Rule {
 		ID:          "mem0-api-key.1",
 		Confidence:  "high",
 		Description: "Mem0 API key, which may allow access to stored application memories.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"mem0"}, `m0-[A-Za-z0-9]{24,44}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"mem0"}, `m0-[A-Za-z0-9]{24,44}`, false),
 		Keywords:    []string{"mem0"},
 		ValidateExpr: `let r = http.post("https://api.mem0.ai/v3/memories/?page=1&page_size=1", {
     "Authorization": "Token " + finding["secret"],

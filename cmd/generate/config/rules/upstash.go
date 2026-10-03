@@ -33,7 +33,7 @@ func UpstashRedisRESTToken() *config.Rule {
 		ID:          "upstash-redis-rest-token.1",
 		Confidence:  "high",
 		Description: "Upstash Redis REST token, which may grant read-only or full access to an Upstash database.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{"upstash"},
 			`(?:[A-Za-z0-9]{32,48}|AYNgAS[A-Za-z0-9+/_-]{26,90}={0,2})`,
 			false,

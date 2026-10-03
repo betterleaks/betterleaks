@@ -11,7 +11,7 @@ func Greptile() *config.Rule {
 		ID:          "greptile-api-key",
 		Confidence:  "high",
 		Description: "Detected a Greptile API Key, which may expose AI-powered code search and analysis services to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"greptile"}, `[a-zA-Z0-9+/]{48}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"greptile"}, `[a-zA-Z0-9+/]{48}`, true),
 		Keywords:    []string{"greptile"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

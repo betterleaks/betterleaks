@@ -34,7 +34,7 @@ func FullStoryAPIKey() *config.Rule {
 		ID:          "fullstory-api-key",
 		Confidence:  "medium",
 		Description: "FullStory API key.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`(?:fullstory|fs_api|fullstory_api)`},
 			`(?:na1|eu1)\.[A-Za-z0-9]{20,}`,
 			true,

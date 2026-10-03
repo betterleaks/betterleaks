@@ -12,7 +12,7 @@ func SquareSpaceAccessToken() *config.Rule {
 		ID:          "squarespace-access-token",
 		Confidence:  "medium",
 		Description: "Identified a Squarespace Access Token, which may compromise website management and content control on Squarespace.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"squarespace"}, utils.Hex8_4_4_4_12(), true),
+		Regex:       utils.GenerateProviderRegex([]string{"squarespace"}, utils.Hex8_4_4_4_12(), true),
 
 		Keywords: []string{
 			"squarespace",

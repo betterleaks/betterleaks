@@ -12,7 +12,7 @@ func LaunchDarklyAccessToken() *config.Rule {
 		ID:          "launchdarkly-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a Launchdarkly Access Token, potentially compromising feature flag management and application functionality.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"launchdarkly"}, utils.AlphaNumericExtended("40"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"launchdarkly"}, utils.AlphaNumericExtended("40"), true),
 
 		Keywords: []string{
 			"launchdarkly",

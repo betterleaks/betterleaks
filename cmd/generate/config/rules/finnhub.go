@@ -12,7 +12,7 @@ func FinnhubAccessToken() *config.Rule {
 		ID:          "finnhub-access-token",
 		Confidence:  "high",
 		Description: "Found a Finnhub Access Token, risking unauthorized access to financial market data and analytics.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"finnhub"}, utils.AlphaNumeric("20"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"finnhub"}, utils.AlphaNumeric("20"), true),
 
 		Keywords: []string{
 			"finnhub",

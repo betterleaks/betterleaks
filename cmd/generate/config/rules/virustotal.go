@@ -11,7 +11,7 @@ func VirusTotalAPIKey() *config.Rule {
 		ID:          "virustotal-api-key.1",
 		Confidence:  "high",
 		Description: "VirusTotal API key, which may expose private submissions, intelligence, or account API access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"virustotal"}, utils.Hex("64"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"virustotal"}, utils.Hex("64"), true),
 		Keywords:    []string{"virustotal"},
 		ValidateExpr: `let r = http.get("https://www.virustotal.com/api/v3/domains/google.com", {
     "x-apikey": finding["secret"],

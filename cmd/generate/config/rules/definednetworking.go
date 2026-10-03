@@ -17,7 +17,7 @@ func DefinedNetworkingAPIToken() *config.Rule {
 		Confidence: "high",
 
 		// Regex used for detecting secrets. See regex section below for more details
-		Regex: utils.GenerateSemiGenericRegex([]string{"dnkey"}, `dnkey-[a-z0-9=_\-]{26}-[a-z0-9=_\-]{52}`, true),
+		Regex: utils.GenerateProviderRegex([]string{"dnkey"}, `dnkey-[a-z0-9=_\-]{26}-[a-z0-9=_\-]{52}`, true),
 
 		// Keywords used for string matching on fragments (think of this as a prefilter)
 		Keywords: []string{"dnkey"},

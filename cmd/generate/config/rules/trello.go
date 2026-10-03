@@ -12,7 +12,7 @@ func TrelloAccessToken() *config.Rule {
 		ID:          "trello-access-token",
 		Confidence:  "high",
 		Description: "Trello Access Token",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"trello"}, `[a-zA-Z-0-9]{32}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"trello"}, `[a-zA-Z-0-9]{32}`, true),
 
 		Keywords: []string{
 			"trello",

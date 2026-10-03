@@ -14,7 +14,7 @@ func NgrokAPIKey() *config.Rule {
 		ID:          "ngrok-api-key.1",
 		Confidence:  "high",
 		Description: "ngrok API key or agent authtoken, which may allow tunnel access or account administration.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`ngrok[_. -]*(?:(?:api|agent)[_. -]*)?(?:secret|key|token|authtoken)`},
 			`2[A-Za-z0-9]{26}_[0-9][A-Za-z0-9]{20}`,
 			false,

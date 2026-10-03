@@ -11,7 +11,7 @@ func Civo() *config.Rule {
 		ID:          "civo-api-key",
 		Confidence:  "high",
 		Description: "Detected a Civo Cloud API key, which may expose Kubernetes clusters and compute resources to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"civo"}, utils.AlphaNumeric("50"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"civo"}, utils.AlphaNumeric("50"), true),
 		Keywords:    []string{"civo"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://api.civo.com/v2/instances", {

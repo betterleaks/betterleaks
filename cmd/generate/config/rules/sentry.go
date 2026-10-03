@@ -14,7 +14,7 @@ func SentryAccessToken() *config.Rule {
 		ID:          "sentry-access-token",
 		Confidence:  "medium",
 		Description: "Found a Sentry.io Access Token (old format), risking unauthorized access to error tracking services and sensitive application data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"sentry"}, utils.Hex("64"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"sentry"}, utils.Hex("64"), true),
 		Keywords: []string{
 			"sentry",
 		},

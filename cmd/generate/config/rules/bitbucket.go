@@ -12,7 +12,7 @@ func BitBucketClientID() *config.Rule {
 		Description: "Discovered a potential Bitbucket Client ID, risking unauthorized repository access and potential codebase exposure.",
 		ID:          "bitbucket-client-id",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"bitbucket"}, utils.AlphaNumeric("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"bitbucket"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"bitbucket"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -28,7 +28,7 @@ func BitBucketClientSecret() *config.Rule {
 		Description: "Discovered a potential Bitbucket Client Secret, posing a risk of compromised code repositories and unauthorized access.",
 		ID:          "bitbucket-client-secret",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"bitbucket"}, utils.AlphaNumericExtended("64"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"bitbucket"}, utils.AlphaNumericExtended("64"), true),
 
 		Keywords:   []string{"bitbucket"},
 		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,

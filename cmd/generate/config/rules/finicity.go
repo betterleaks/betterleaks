@@ -12,7 +12,7 @@ func FinicityClientSecret() *config.Rule {
 		Description: "Identified a Finicity Client Secret, which could lead to compromised financial service integrations and data breaches.",
 		ID:          "finicity-client-secret",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"finicity"}, utils.AlphaNumeric("20"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"finicity"}, utils.AlphaNumeric("20"), true),
 
 		Keywords:   []string{"finicity"},
 		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
@@ -29,7 +29,7 @@ func FinicityAPIToken() *config.Rule {
 		Description: "Detected a Finicity API token, potentially risking financial data access and unauthorized financial operations.",
 		ID:          "finicity-api-token",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"finicity"}, utils.Hex("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"finicity"}, utils.Hex("32"), true),
 
 		Keywords:   []string{"finicity"},
 		FilterExpr: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,

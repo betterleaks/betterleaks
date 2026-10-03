@@ -34,7 +34,7 @@ func LarkAppSecret() *config.Rule {
 		ID:          "lark-app-secret",
 		Confidence:  "high",
 		Description: "Lark application secret.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{"lark", "larksuite"},
 			`[A-Za-z0-9]{32}`,
 			true,

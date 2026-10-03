@@ -11,7 +11,7 @@ func PagerDutyAuthorizationToken() *config.Rule {
 		ID:          "pagerduty-authorization-token.1",
 		Confidence:  "high",
 		Description: "PagerDuty authorization token, which may allow access to PagerDuty account and incident data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"pagerduty"}, `u\+[A-Za-z0-9_+-]{18}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"pagerduty"}, `u\+[A-Za-z0-9_+-]{18}`, false),
 		Keywords:    []string{"pagerduty"},
 		ValidateExpr: `let r = http.get("https://api.pagerduty.com/users?limit=1", {
     "Authorization": "Token token=" + finding["secret"],

@@ -11,7 +11,7 @@ func InstantlyAPIKey() *config.Rule {
 		ID:          "instantly-api-key.1",
 		Confidence:  "medium",
 		Description: "Instantly API key, which may allow access to campaigns, accounts, leads, and analytics.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"instantly"}, `[A-Za-z0-9+/]{66}==`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"instantly"}, `[A-Za-z0-9+/]{66}==`, false),
 		Keywords:    []string{"instantly"},
 		ValidateExpr: `let r = http.get("https://api.instantly.ai/api/v2/accounts?limit=1", {
     "Authorization": "Bearer " + finding["secret"],

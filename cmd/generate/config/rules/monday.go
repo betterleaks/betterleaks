@@ -12,7 +12,7 @@ func MondayAPIToken() *config.Rule {
 		Confidence:  "high",
 		Specificity: 10,
 		Description: "monday.com API token, which may grant the same workspace access as its associated user or application.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{"monday"},
 			`eyJ[A-Za-z0-9_-]{10,200}\.eyJ[A-Za-z0-9_-]{50,1000}\.[A-Za-z0-9_-]{20,500}`,
 			false,

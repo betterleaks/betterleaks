@@ -11,7 +11,7 @@ func ApolloAPIKey() *config.Rule {
 		ID:          "apollo-api-key.1",
 		Confidence:  "medium",
 		Description: "Apollo.io API key, which may allow access to sales intelligence and engagement data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"apollo"}, `[A-Za-z0-9_-]{22}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"apollo"}, `[A-Za-z0-9_-]{22}`, false),
 		Keywords:    []string{"apollo"},
 		ValidateExpr: `let r = http.post("https://api.apollo.io/api/v1/mixed_people/api_search", {
     "X-Api-Key": finding["secret"],
