@@ -2222,6 +2222,31 @@ let r = http.get("https://api.cloudsmith.io/user/self/", {
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# cobol-value-credential
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cobol-value-credential"
+description = "Identified a COBOL data item named for a credential with a literal VALUE, embedding the credential in the program."
+regex = '''(?im)^(?:(?:[^*\n]{0,6}|[^*\n]{6}[^*/\n])\s*\b|[^*\n]{6}[Dd])(?:0?[1-9]|[1-4][0-9]|77)\s+[A-Z0-9-]*(?:PASSWORD|PASSWD|PASSWRD|PSWD|PWD|SECRET|APIKEY|API-KEY|ACCESS-KEY|(?:API|ACCESS|AUTH|BEARER|OAUTH|REFRESH)-?TOKEN)[A-Z0-9-]*\b[^.]*?\bVALUES?\s+(?:IS\s+|ARE\s+)?(?:NX|UX|[XNGZU])?(?:'([^'\n]{1,})(?:'|$)|"([^"\n]{1,})(?:"|$))'''
+path = '''(?i)\.(?:cbl|cob|cobol|cpy|copy|sqb|pco|ccp)$'''
+confidence = "medium"
+keywords = [
+    "password",
+    "passwd",
+    "passwrd",
+    "pswd",
+    "pwd",
+    "secret",
+    "apikey",
+    "api-key",
+    "access-key",
+    "token",
+]
+filter = '''
+matchesAny(finding["secret"], [`(?i)^(?:x+|\*+|\s+|y|n|yes|no|true|false|on|off|[01]|pass(?:word)?|secret|dummy|changeme|password:?|enter.*|invalid.*|wrong.*|.*\S\s+\S.*)$`]) || matchesAny(finding["match"], [`(?i)VALUES?\s+(?:IS\s+|ARE\s+)?(?:NX|UX|X)['"](?:[0-9A-F]{1,7}|0+|(?:40)+|(?:20)+|F+|(?:F0)+)['"]`])
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # cockroachlabs-cloud-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -3197,6 +3222,19 @@ confidence = "high"
 keywords = ["elevenlabs"]
 filter = '''
 entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# embedded-sql-connect-password
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "embedded-sql-connect-password"
+description = "Identified an embedded SQL CONNECT with a literal password, exposing the database user it signs on."
+regex = '''(?is)\bCONNECT\s+(?:TO\s+\S+\s+)?(?:USER\s+(?:'[^']*'|"[^"]*"|:?[A-Z0-9-]+)\s+USING|(?:(?:'[^']*'|"[^"]*"|:?[A-Z0-9-]+)\s+)?IDENTIFIED\s+BY)\s+(?:'([^'\n]{3,})'|"([^"\n]{3,})")'''
+confidence = "medium"
+keywords = ["connect"]
+filter = '''
+matchesAny(finding["secret"], [`(?i)^(?:x+|\*+|pass(?:word)?|pwd|secret|dummy|changeme|your[-_ ]?password|<[^>]*>)$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7350,6 +7388,32 @@ let r = http.post("https://api.ionic.io/graphql", {
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# jcl-racf-new-password
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "jcl-racf-new-password"
+description = "Identified a new RACF password or password phrase set in a JCL statement, exposing the z/OS user ID it signs on."
+regex = '''(?im)^//[^*\n][^\n]*?\bPASSWORD=\((?:[A-Z0-9@#$]{1,8}|'(?:[^'\n]|'')*'),(?:([A-Z0-9@#$]{1,8})\)|'((?:[^'\n]|'')+)'\))'''
+confidence = "medium"
+keywords = ["password="]
+filter = '''
+matchesAny(finding["secret"], [`(?i)^(?:x+|\*+|y+|n+|pass|passw(?:or)?d?|pwd|secret|dummy|changeme|password|newpass(?:word)?|oldpass(?:word)?|&[A-Z0-9@#$]{1,8}\.?|(?:your[-_ ]?)?pass(?:word)?[-_ ]?phrase)$`])
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# jcl-racf-password
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "jcl-racf-password"
+description = "Identified a RACF password or password phrase in a JCL statement, exposing the z/OS user ID it signs on."
+regex = '''(?im)^//[^*\n][^\n]*?\bPASSWORD=\(?(?:([A-Z0-9@#$]{1,8})(?:[,)'\s]|$)|'((?:[^'\n]|'')+)')'''
+confidence = "medium"
+keywords = ["password="]
+filter = '''
+matchesAny(finding["secret"], [`(?i)^(?:x+|\*+|y+|n+|pass|passw(?:or)?d?|pwd|secret|dummy|changeme|password|newpass(?:word)?|oldpass(?:word)?|&[A-Z0-9@#$]{1,8}\.?|(?:your[-_ ]?)?pass(?:word)?[-_ ]?phrase)$`])
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
