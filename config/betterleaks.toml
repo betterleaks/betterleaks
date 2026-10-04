@@ -3431,6 +3431,37 @@ entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# fastmail-api-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "fastmail-api-token"
+description = "Discovered a Fastmail API token, risking unauthorized access to email, contacts, and calendars."
+regex = '''\b(fmu1-[a-f0-9]{8}-[a-f0-9]{32}-\d-[a-f0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["fmu1-"]
+validate = '''
+let jmap = http.get("https://api.fastmail.com/jmap/session", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  });
+jmap.status == 200 ? {
+    "result": "valid"
+  } : jmap.status in [401, 403] ? (
+    let mcp = http.post("https://api.fastmail.com/mcp", {
+        "Authorization": "Bearer " + finding["secret"],
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream"
+      }, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"betterleaks\",\"version\":\"0\"}}}");
+    mcp.status == 200 ? {
+        "result": "valid"
+      } : mcp.status in [401, 403] ? {
+        "result": "invalid",
+        "reason": "Unauthorized"
+      } : validate.unknown(mcp)
+  ) : validate.unknown(jmap)
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # figma-personal-access-header-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
