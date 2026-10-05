@@ -650,6 +650,10 @@ selected commits also change other paths. This also applies with
 can be partitioned across the bounded Git processes described above.
 `-j` still controls detection concurrency in either case.
 
+Betterleaks fixes the internal Git log format to preserve commit metadata and
+keep commit-message text distinct from patch headers. Presentation options such
+as `--format`, `--pretty`, and `--oneline` in `--log-opts` do not change that format.
+
 `--include=commit-messages` adds message scanning to the default patch scan.
 Each selected commit's full message is scanned once, including empty commits
 and merge commits with no patch. `--log-opts` selects the history for both

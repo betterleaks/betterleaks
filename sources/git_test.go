@@ -169,6 +169,52 @@ func TestGitMergeSecrets(t *testing.T) {
 	}
 }
 
+func TestGitCommitMessageDiffHeaders(t *testing.T) {
+	repo := newGitTestRepo(t, 2)
+	message := "subject\n\ndiff --cc example.txt\ndiff --combined example.txt"
+	runGitTestCommand(t, repo, "commit", "--amend", "-m", message)
+	sha := runGitTestCommand(t, repo, "rev-parse", "HEAD")
+	// Local configuration can also select a format with unindented messages.
+	runGitTestCommand(t, repo, "config", "format.pretty", "%B")
+	for _, workers := range []int{1, 4} {
+		for _, opts := range []string{
+			"", "--all --format=%B", "--all --format=email",
+			"--all --pretty=format:%B", "--all --oneline",
+			"--format=%B HEAD^..HEAD -- file-1.txt",
+		} {
+			t.Run(fmt.Sprintf("workers=%d/opts=%s", workers, opts), func(t *testing.T) {
+				previous := runtime.GOMAXPROCS(workers)
+				defer runtime.GOMAXPROCS(previous)
+				var mu sync.Mutex
+				var fragments []Fragment
+				err := (&Git{RepoPath: repo, LogOpts: opts}).Fragments(t.Context(), func(f Fragment, err error) error {
+					mu.Lock()
+					defer mu.Unlock()
+					fragments = append(fragments, f)
+					return err
+				})
+				require.NoError(t, err)
+				wantCount := 2
+				if strings.Contains(opts, "HEAD^..HEAD") {
+					wantCount = 1
+				}
+				require.Len(t, fragments, wantCount)
+				var found bool
+				for _, f := range fragments {
+					if f.Attr(AttrPath) == "file-1.txt" {
+						found = true
+						require.Equal(t, "value-1\n", f.Raw)
+						require.Equal(t, sha, f.Attr(AttrGitSHA))
+						require.Equal(t, message, f.Attr(AttrGitMessage))
+						require.Equal(t, 1, f.StartLine)
+					}
+				}
+				require.True(t, found, "scan must reach the patch after the commit message")
+			})
+		}
+	}
+}
+
 func TestGitModesAndReuse(t *testing.T) {
 	previous := runtime.GOMAXPROCS(1)
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })

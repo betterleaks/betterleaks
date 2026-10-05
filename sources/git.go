@@ -752,22 +752,25 @@ func (br *blobReader) Close() error {
 
 func newGitLogCmd(ctx context.Context, source, logOpts string, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	var cmd *exec.Cmd
+	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
 	if logOpts != "" {
-		args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
-
 		userArgs, err := splitGitLogOpts(logOpts)
 		if err != nil {
 			return nil, fmt.Errorf("invalid --log-opts: %w", err)
 		}
 
 		args = append(args, userArgs...)
-		cmd = exec.CommandContext(ctx, "git", args...)
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
-			"--diff-merges=first-parent", "--full-history", "--all", "--diff-filter=tuxdb")
+		args = append(args, "--full-history", "--all", "--diff-filter=tuxdb")
 	}
-	return startGitCmd(cmd, logger)
+	// Own the preamble format so commit messages are indented and cannot be
+	// mistaken for patch headers. Override user formatting before pathspecs.
+	optionsEnd := slices.Index(args, "--")
+	if optionsEnd < 0 {
+		optionsEnd = len(args)
+	}
+	args = slices.Insert(args, optionsEnd, "--format=medium", "--no-abbrev-commit")
+	return startGitCmd(exec.CommandContext(ctx, "git", args...), logger)
 }
 
 // splitGitLogOpts parses user-provided --log-opts with a small shell-inspired
@@ -937,6 +940,9 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error, logger *slog.Logg
 func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
 	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+	// Match the preamble format used by the full-history scan, regardless of
+	// the repository's format.pretty configuration.
+	args = append(args, "--format=medium", "--no-abbrev-commit")
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	// Let os/exec own the input-copy goroutine so Wait joins it on every exit.
