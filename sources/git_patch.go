@@ -46,6 +46,8 @@ func readGitPatch(ctx context.Context, input io.Reader, header func(*gitdiff.Fil
 			}
 		}
 		switch {
+		case strings.HasPrefix(line, "diff --cc "), strings.HasPrefix(line, "diff --combined "):
+			return errors.New("unsupported Git combined diff; use --diff-merges=first-parent or --diff-merges=separate")
 		case strings.HasPrefix(line, "diff --git "):
 			if strings.Contains(preamble.String(), "commit") {
 				// Match gitdiff's handling of custom pretty formats: unrecognized

@@ -754,7 +754,7 @@ func newGitLogCmd(ctx context.Context, source, logOpts string, logger *slog.Logg
 	sourceClean := filepath.Clean(source)
 	var cmd *exec.Cmd
 	if logOpts != "" {
-		args := []string{"-C", sourceClean, "log", "-p", "-U0"}
+		args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
 
 		userArgs, err := splitGitLogOpts(logOpts)
 		if err != nil {
@@ -765,7 +765,7 @@ func newGitLogCmd(ctx context.Context, source, logOpts string, logger *slog.Logg
 		cmd = exec.CommandContext(ctx, "git", args...)
 	} else {
 		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
-			"--full-history", "--all", "--diff-filter=tuxdb")
+			"--diff-merges=first-parent", "--full-history", "--all", "--diff-filter=tuxdb")
 	}
 	return startGitCmd(cmd, logger)
 }
@@ -936,7 +936,7 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error, logger *slog.Logg
 // commits. --no-walk keeps worker partitions deterministic and non-overlapping.
 func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	// Let os/exec own the input-copy goroutine so Wait joins it on every exit.
@@ -949,7 +949,9 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, l
 // once even when multiple refs and reflog entries refer to it.
 func listCommits(ctx context.Context, source string, logOpts string, includeReflogs bool) ([]string, error) {
 	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "log"}
+	// Keep diff-based selection (such as -G) consistent with the patch scan,
+	// including changes introduced by merges. This does not limit traversal.
+	args := []string{"-C", sourceClean, "log", "--diff-merges=first-parent"}
 	if includeReflogs {
 		args = append(args, "--reflog")
 	}

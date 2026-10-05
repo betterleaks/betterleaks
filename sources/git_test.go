@@ -56,6 +56,119 @@ func TestGitRepoCPUCountsHaveSameCoverage(t *testing.T) {
 	require.Equal(t, scan(1), scan(2))
 }
 
+func TestGitMergeSecrets(t *testing.T) {
+	for _, conflict := range []bool{false, true} {
+		t.Run(fmt.Sprintf("conflict=%t", conflict), func(t *testing.T) {
+			repo := newGitTestRepo(t, 1)
+			runGitTestCommand(t, repo, "branch", "-M", "merge-main")
+			write := func(name, content string) {
+				t.Helper()
+				require.NoError(t, os.WriteFile(filepath.Join(repo, name), []byte(content), 0o600))
+			}
+			write("file-0.txt", "header\nbase\n")
+			runGitTestCommand(t, repo, "commit", "-qam", "base")
+			runGitTestCommand(t, repo, "checkout", "-qb", "merge-side")
+			write("file-0.txt", "header\nside\n")
+			write("side.txt", "SIDE_ONLY_SECRET\n")
+			runGitTestCommand(t, repo, "add", ".")
+			runGitTestCommand(t, repo, "commit", "-qm", "side secret")
+			sideSHA := runGitTestCommand(t, repo, "rev-parse", "HEAD")
+			runGitTestCommand(t, repo, "rm", "side.txt")
+			runGitTestCommand(t, repo, "commit", "-qm", "remove side secret")
+			runGitTestCommand(t, repo, "checkout", "-q", "merge-main")
+			if conflict {
+				write("file-0.txt", "header\nmain\n")
+			} else {
+				write("main.txt", "main\n")
+			}
+			runGitTestCommand(t, repo, "add", ".")
+			runGitTestCommand(t, repo, "commit", "-qm", "main change")
+			if conflict {
+				out, err := exec.Command("git", "-C", repo, "merge", "--no-ff", "merge-side", "-m", "merge").CombinedOutput()
+				require.Error(t, err)
+				require.Contains(t, string(out), "CONFLICT")
+			} else {
+				runGitTestCommand(t, repo, "merge", "--no-ff", "merge-side", "-m", "merge")
+			}
+			write("file-0.txt", "header\nMERGE_ONLY_SECRET\n")
+			runGitTestCommand(t, repo, "add", ".")
+			if conflict {
+				runGitTestCommand(t, repo, "commit", "-qm", "resolve merge")
+			} else {
+				runGitTestCommand(t, repo, "commit", "--amend", "--no-edit")
+			}
+			mergeSHA := runGitTestCommand(t, repo, "rev-parse", "HEAD")
+			// Neither secret survives at HEAD, and the side branch is deleted.
+			runGitTestCommand(t, repo, "rm", "file-0.txt")
+			runGitTestCommand(t, repo, "commit", "-qm", "remove merge secret")
+			runGitTestCommand(t, repo, "branch", "-D", "merge-side")
+
+			for _, workers := range []int{1, 4} {
+				for _, tc := range []struct {
+					name, opts string
+					messages   bool
+					wantSide   bool
+				}{
+					{name: "default", wantSide: true},
+					{name: "explicit history", opts: "--all --full-history", wantSide: true},
+					{name: "range and path", opts: mergeSHA + "^.." + mergeSHA + " -- file-0.txt"},
+					{name: "diff search and messages", opts: "-G MERGE_ONLY_SECRET " + mergeSHA + "^.." + mergeSHA, messages: true},
+				} {
+					t.Run(fmt.Sprintf("workers=%d/%s", workers, tc.name), func(t *testing.T) {
+						previous := runtime.GOMAXPROCS(workers)
+						defer runtime.GOMAXPROCS(previous)
+						source := &Git{RepoPath: repo, LogOpts: tc.opts}
+						if tc.messages {
+							source.Include = []string{GitResourceTypeCommitMessages}
+						}
+						var mu sync.Mutex
+						var fragments []Fragment
+						require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+							mu.Lock()
+							defer mu.Unlock()
+							fragments = append(fragments, f)
+							return err
+						}))
+						var merges, sides, messages int
+						for _, f := range fragments {
+							switch {
+							case f.Attr(AttrResource) == ResourceGitCommitMessage:
+								messages++
+								require.Equal(t, mergeSHA, f.Attr(AttrGitSHA))
+							case strings.Contains(f.Raw, "MERGE_ONLY_SECRET"):
+								merges++
+								require.Equal(t, mergeSHA, f.Attr(AttrGitSHA))
+								require.Equal(t, "file-0.txt", f.Attr(AttrPath))
+								require.Equal(t, 2, f.StartLine)
+							case strings.Contains(f.Raw, "SIDE_ONLY_SECRET"):
+								sides++
+								require.Equal(t, sideSHA, f.Attr(AttrGitSHA))
+							}
+						}
+						require.Equal(t, 1, merges)
+						if tc.wantSide {
+							require.Equal(t, 1, sides)
+						} else {
+							require.Zero(t, sides)
+						}
+						if tc.messages {
+							require.Equal(t, 1, messages)
+						} else {
+							require.Zero(t, messages)
+						}
+					})
+				}
+			}
+			for _, opts := range []string{"--cc", "-c"} {
+				t.Run(opts, func(t *testing.T) {
+					err := (&Git{RepoPath: repo, LogOpts: "--all " + opts}).Fragments(t.Context(), func(Fragment, error) error { return nil })
+					require.ErrorContains(t, err, "unsupported Git combined diff")
+				})
+			}
+		})
+	}
+}
+
 func TestGitModesAndReuse(t *testing.T) {
 	previous := runtime.GOMAXPROCS(1)
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
