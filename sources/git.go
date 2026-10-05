@@ -694,12 +694,8 @@ type gitCmd struct {
 // gitConfigIsolationEnv contains the standard Git configuration isolation environment variables.
 // These settings prevent Git from reading user or system configuration files.
 func gitConfigIsolationEnv() []string {
-	var nullDevice string
-	if runtime.GOOS == "windows" {
-		nullDevice = "NUL"
-	} else {
-		nullDevice = "/dev/null"
-	}
+	// Git recognizes /dev/null on Windows too; Git for Windows 2.56.0 rejects NUL.
+	const nullDevice = "/dev/null"
 	overrides := map[string]string{
 		"GIT_CONFIG_GLOBAL":      nullDevice,
 		"GIT_CONFIG_NOSYSTEM":    "1",
