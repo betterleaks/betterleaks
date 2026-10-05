@@ -77,6 +77,11 @@ betterleaks git . --platform github
 betterleaks git . --git-workers 8 --report-path findings.json --report-format json
 ```
 
+Merge commits are scanned against their first parent by default, while history
+traversal still includes all parents. This catches secrets introduced during a
+merge or conflict resolution, including secrets later deleted. A secret can be
+reported again when merged into another branch.
+
 ---
 
 ## `github`

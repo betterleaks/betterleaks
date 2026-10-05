@@ -108,7 +108,7 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 	sourceClean := filepath.Clean(source)
 	var cmd *exec.Cmd
 	if logOpts != "" {
-		args := []string{"-C", sourceClean, "log", "-p", "-U0"}
+		args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
 
 		userArgs, err := splitGitLogOpts(logOpts)
 		if err != nil {
@@ -119,7 +119,7 @@ func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*G
 		cmd = exec.CommandContext(ctx, "git", args...)
 	} else {
 		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
-			"--full-history", "--all", "--diff-filter=tuxdb")
+			"--diff-merges=first-parent", "--full-history", "--all", "--diff-filter=tuxdb")
 	}
 	cmd.Env = gitConfigIsolationEnv()
 

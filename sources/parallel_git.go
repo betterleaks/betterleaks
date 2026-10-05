@@ -124,7 +124,7 @@ func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield FragmentsFunc,
 // newGitLogCmd constructs a full git log -p command (no partitioning).
 func newGitLogCmd(ctx context.Context, source string, logOpts string) (*GitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "log", "-p", "-U0"}
+	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
 
 	if logOpts != "" {
 		userArgs, err := splitGitLogOpts(logOpts)
@@ -144,7 +144,7 @@ func newGitLogCmd(ctx context.Context, source string, logOpts string) (*GitCmd, 
 // issues with --skip/--max-count on repos with timestamp ties.
 func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (*GitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = gitConfigIsolationEnv()
