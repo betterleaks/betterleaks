@@ -1305,6 +1305,12 @@ such as `@config`, `@history/0`, `@manifest`, and `@index`. Escaped JSON strings
 also receive a decoded representation with a `#decoded` suffix; coordinates
 refer to the indicated representation.
 
+Findings also carry declared image authors, source repository, and revision
+when available. Config labels take precedence over manifest annotations;
+legacy maintainer/author values provide a fallback for authors. These are
+image-supplied declarations, not verified authorship. Oversized attribution
+values are scanned as metadata but omitted from repeated finding attributes.
+
 Findings indicate whether a file occurrence is `visible`, `overwritten`,
 `deleted`, or `unknown`, and identify the layer that first hid it when available.
 

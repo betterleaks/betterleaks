@@ -312,6 +312,7 @@ func (r *session) walk(ctx context.Context, store imageStore, raw []byte, desc v
 		}
 	}
 	r.images++
+	imageAttribution(attrs, cfg, manifest.Annotations)
 	if err := r.metadata(ctx, raw, "@manifest", ResourceManifest, attrs); err != nil {
 		return err
 	}
@@ -411,6 +412,33 @@ func (r *session) image(ctx context.Context, raw []byte, cfg v1.ConfigFile, laye
 		}
 	}
 	return ctx.Err()
+}
+
+// Image labels and annotations are declarations, not verified authorship.
+// Prefer config labels to manifest annotations; keep authors freeform as OCI
+// specifies instead of guessing a single person's name and email address.
+func imageAttribution(attrs map[string]string, cfg v1.ConfigFile, annotations map[string]string) {
+	for _, field := range []struct{ attr, key string }{
+		{AttrAuthors, "org.opencontainers.image.authors"},
+		{AttrSourceURL, "org.opencontainers.image.source"},
+		{AttrRevision, "org.opencontainers.image.revision"},
+	} {
+		value := strings.TrimSpace(cfg.Config.Labels[field.key])
+		if value == "" {
+			value = strings.TrimSpace(annotations[field.key])
+		}
+		if value == "" && field.attr == AttrAuthors {
+			value = strings.TrimSpace(cfg.Config.Labels["maintainer"])
+			if value == "" {
+				value = strings.TrimSpace(cfg.Author)
+			}
+		}
+		// Do not multiply an arbitrarily large label into every file finding.
+		// Its full content is still scanned in the original metadata.
+		if value != "" && len(value) <= 4096 {
+			attrs[field.attr] = value
+		}
+	}
 }
 
 func layerAttributes(a map[string]string, l layerInput, i int) {

@@ -345,6 +345,7 @@ func (r *session) dockerArchive(ctx context.Context, root *os.Root, target strin
 				}
 			}
 			r.images++
+			imageAttribution(attrs, cfg, nil)
 			return r.image(ctx, config, cfg, layers, attrs)
 		}
 		if err := load(); err != nil {

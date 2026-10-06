@@ -53,7 +53,7 @@ func containerCLIArchive(t *testing.T) string {
 func containerCLIArchiveWithLayer(t *testing.T, layer []byte) string {
 	t.Helper()
 	hash := sha256.Sum256(layer)
-	config := []byte(fmt.Sprintf(`{"os":"linux","architecture":"arm64","rootfs":{"type":"layers","diff_ids":["sha256:%x"]},"config":{"Env":["TOKEN=CONTAINER_CONFIG_SECRET"]}}`, hash))
+	config := []byte(fmt.Sprintf(`{"os":"linux","architecture":"arm64","rootfs":{"type":"layers","diff_ids":["sha256:%x"]},"config":{"Env":["TOKEN=CONTAINER_CONFIG_SECRET"],"Labels":{"org.opencontainers.image.authors":"Example Team","org.opencontainers.image.source":"https://example.test/app","org.opencontainers.image.revision":"revision-one"}}}`, hash))
 	archive := containerCLITar(t, map[string][]byte{"manifest.json": []byte(`[{"Config":"config.json","Layers":["layer.tar"],"RepoTags":["example/app:latest"]}]`), "config.json": config, "layer.tar": layer})
 	p := filepath.Join(t.TempDir(), "image.tar")
 	require.NoError(t, os.WriteFile(p, archive, 0600))
@@ -99,6 +99,9 @@ func TestContainerCLIReports(t *testing.T) {
 					require.Equal(t, "REDACTED", finding.Match.Value)
 					require.Equal(t, "linux/arm64", finding.Attributes[container.AttrPlatform])
 					require.NotEmpty(t, finding.Attributes[container.AttrConfigDigest])
+					require.Equal(t, "Example Team", finding.Attributes[container.AttrAuthors])
+					require.Equal(t, "https://example.test/app", finding.Attributes[container.AttrSourceURL])
+					require.Equal(t, "revision-one", finding.Attributes[container.AttrRevision])
 					require.NotEmpty(t, finding.Match.Fingerprint)
 				}
 				require.NotContains(t, out.String(), "CONTAINER_TEST_SECRET")
