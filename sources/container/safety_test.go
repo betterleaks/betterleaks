@@ -268,3 +268,151 @@ func TestDigestErrorSurvivesFinalDataRead(t *testing.T) {
 	_, err = io.Copy(io.Discard, reader)
 	require.ErrorContains(t, err, "digest mismatch")
 }
+
+func TestOuterArchiveExpandedStreamLimit(t *testing.T) {
+	f := newFixture(t)
+	f.setIndex(f.image("amd64", nil, "tar"))
+	archive := f.archive()
+	limit := int64(len(archive))
+	for _, encoded := range []bool{false, true} {
+		for _, tail := range []int{0, 1, 1 << 20} {
+			t.Run(fmt.Sprintf("compressed=%v/tail=%d", encoded, tail), func(t *testing.T) {
+				data := append(bytes.Clone(archive), make([]byte, tail)...)
+				if encoded {
+					data = gzipBytes(t, data)
+				}
+				file := filepath.Join(t.TempDir(), "image.tar")
+				require.NoError(t, os.WriteFile(file, data, 0600))
+				_, errs := collect(t, &Source{Archives: []string{file}, MaxArchiveSize: limit})
+				if tail == 0 {
+					require.Empty(t, errs)
+				} else {
+					require.NotEmpty(t, errs)
+					require.ErrorContains(t, errs[0], "max-archive-size")
+				}
+			})
+		}
+	}
+	// Header/padding bytes count even when all payloads fit below the limit.
+	file := filepath.Join(t.TempDir(), "image.tar")
+	require.NoError(t, os.WriteFile(file, archive, 0600))
+	_, errs := collect(t, &Source{Archives: []string{file}, MaxArchiveSize: limit - 1})
+	require.NotEmpty(t, errs)
+	require.ErrorContains(t, errs[0], "max-archive-size")
+}
+
+type zeroStream struct{ reads int64 }
+
+func (r *zeroStream) Read(p []byte) (int, error) {
+	clear(p)
+	r.reads += int64(len(p))
+	return len(p), nil
+}
+
+func TestLayerTailBoundAndValidation(t *testing.T) {
+	endless := &zeroStream{}
+	require.ErrorContains(t, drainLayerTail(t.Context(), endless), "padding exceeds")
+	require.Equal(t, int64(maxLayerPadding+1), endless.reads)
+	require.NoError(t, drainLayerTail(t.Context(), bytes.NewReader(make([]byte, maxLayerPadding))))
+	require.ErrorContains(t, drainLayerTail(t.Context(), strings.NewReader("trailing-data")), "nonzero data")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, drainLayerTail(ctx, endless), context.Canceled)
+}
+
+func TestLayerTailFailuresPreserveOtherLayers(t *testing.T) {
+	for _, tail := range [][]byte{[]byte("hidden trailing data"), make([]byte, maxLayerPadding+1)} {
+		f := newFixture(t)
+		lower := tarBytes(t, tarEntry{name: "lower", content: "lower-secret"})
+		upper := append(tarBytes(t, tarEntry{name: "upper", content: "upper-secret"}), tail...)
+		f.setIndex(f.image("amd64", [][]byte{lower, upper}, "gzip"))
+		fs, errs := collect(t, &Source{Layouts: []string{f.directory()}, MaxArchiveDepth: 8})
+		require.NotEmpty(t, errs)
+		find(t, fs, ResourceFile, "/upper", "upper-secret")
+		require.Equal(t, "unknown", find(t, fs, ResourceFile, "/lower", "lower-secret").Attr(AttrPathState))
+	}
+}
+
+func TestLayerTrackingBudgetSpansLayers(t *testing.T) {
+	r := &session{s: &Source{}, yield: func(sources.Fragment, error) error { return nil }}
+	run := func(state *overlay, entries ...tarEntry) error {
+		data := tarBytes(t, entries...)
+		return r.layer(t.Context(), layerInput{
+			descriptor: v1.Descriptor{MediaType: types.OCIUncompressedLayer},
+			diffID:     sum(data),
+			open:       func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil },
+		}, map[string]string{AttrLayerIndex: "0"}, state)
+	}
+	state := newOverlay()
+	state.budget.entries = maxImageLayerEntries - 2
+	require.NoError(t, run(state, tarEntry{name: "dir", kind: tar.TypeDir}, tarEntry{name: "empty"}))
+	require.ErrorContains(t, run(state, tarEntry{name: ".wh.deleted"}), "one million entries")
+	state = newOverlay()
+	state.budget.pathBytes = maxImagePathBytes - len("/a")
+	require.NoError(t, run(state, tarEntry{name: "a"}))
+	require.ErrorContains(t, run(state, tarEntry{name: "b"}), "paths exceed 64 MiB")
+	// Filtering must not bypass accounting for the names retained by the overlay.
+	state = newOverlay()
+	state.budget.entries = maxImageLayerEntries
+	r.s.Prefilter = func(map[string]string) bool { return true }
+	require.ErrorContains(t, run(state, tarEntry{name: "excluded"}), "one million entries")
+}
+
+func TestHistoricalOccurrenceUsesFirstHidingLayer(t *testing.T) {
+	f := newFixture(t)
+	layers := [][]byte{
+		tarBytes(t, tarEntry{name: "token", content: "old-secret"}, tarEntry{name: "dir/child", content: "child-old"}),
+		tarBytes(t, tarEntry{name: ".wh.token"}, tarEntry{name: "dir/child", content: "child-new"}),
+		tarBytes(t, tarEntry{name: "token", content: "new-secret"}, tarEntry{name: ".wh.dir"}),
+	}
+	f.setIndex(f.image("amd64", layers, "tar"))
+	fs, errs := collect(t, &Source{Layouts: []string{f.directory()}})
+	require.Empty(t, errs)
+	old := find(t, fs, ResourceFile, "/token", "old-secret")
+	require.Equal(t, "deleted", old.Attr(AttrPathState))
+	require.Equal(t, sum(layers[1]).String(), old.Attr(AttrHiddenByLayer))
+	require.Equal(t, "visible", find(t, fs, ResourceFile, "/token", "new-secret").Attr(AttrPathState))
+	child := find(t, fs, ResourceFile, "/dir/child", "child-old")
+	require.Equal(t, "overwritten", child.Attr(AttrPathState))
+	require.Equal(t, sum(layers[1]).String(), child.Attr(AttrHiddenByLayer))
+	child = find(t, fs, ResourceFile, "/dir/child", "child-new")
+	require.Equal(t, "deleted", child.Attr(AttrPathState))
+	require.Equal(t, sum(layers[2]).String(), child.Attr(AttrHiddenByLayer))
+}
+
+func TestWhiteoutBeforeSameLayerReplacement(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		f := newFixture(t)
+		entries := []tarEntry{{name: ".wh.token"}, {name: "token", content: "new-secret"}}
+		if reverse {
+			entries[0], entries[1] = entries[1], entries[0]
+		}
+		f.setIndex(f.image("amd64", [][]byte{tarBytes(t, tarEntry{name: "token", content: "old-secret"}), tarBytes(t, entries...)}, "tar"))
+		fs, errs := collect(t, &Source{Layouts: []string{f.directory()}})
+		require.Empty(t, errs)
+		require.Equal(t, "deleted", find(t, fs, ResourceFile, "/token", "old-secret").Attr(AttrPathState))
+		require.Equal(t, "visible", find(t, fs, ResourceFile, "/token", "new-secret").Attr(AttrPathState))
+	}
+}
+
+func TestDaemonReferenceIsOneLiteralArgument(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mock Docker executable")
+	}
+	f := newFixture(t)
+	f.setIndex(f.image("amd64", nil, "tar"))
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "image.tar")
+	require.NoError(t, os.WriteFile(archive, f.archive(), 0600))
+	marker := filepath.Join(dir, "must-not-exist")
+	ref := "app:local; touch " + marker + " # $(touch " + marker + ")"
+	script := "#!/bin/sh\n[ \"$#\" = 4 ] && [ \"$1\" = image ] && [ \"$2\" = save ] && [ \"$3\" = -- ] && [ \"$4\" = \"$CONTAINER_TEST_REF\" ] || exit 2\ncat \"$CONTAINER_TEST_ARCHIVE\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0700))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CONTAINER_TEST_REF", ref)
+	t.Setenv("CONTAINER_TEST_ARCHIVE", archive)
+	_, errs := collect(t, &Source{Images: []string{ref}, Daemon: true})
+	require.Empty(t, errs)
+	_, err := os.Stat(marker)
+	require.True(t, os.IsNotExist(err))
+}

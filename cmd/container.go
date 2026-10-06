@@ -17,7 +17,7 @@ type ContainerCmd struct {
 	Anonymous       bool     `group:"source" help:"Ignore Docker registry credentials and credential helpers."`
 	PlainHTTP       bool     `group:"source" name:"plain-http" help:"Use unencrypted HTTP for registry access."`
 	MaxFileSize     sizeFlag `group:"source" name:"max-file-size" help:"Maximum layer file size (e.g. 250MiB; 0 = unlimited). Exceeding it marks the scan incomplete."`
-	MaxArchiveSize  sizeFlag `group:"source" name:"max-archive-size" help:"Maximum expanded outer image archive size (0 = 20 GiB)."`
+	MaxArchiveSize  sizeFlag `group:"source" name:"max-archive-size" help:"Maximum expanded outer archive bytes, including headers and padding (0 = 20 GiB)."`
 	MaxArchiveDepth int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Scan nested archives inside layer files up to this depth."`
 }
 

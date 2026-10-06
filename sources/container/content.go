@@ -111,6 +111,9 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 		if err != nil {
 			return err
 		}
+		if err := state.budget.add(p); err != nil {
+			return err
+		}
 		if seen[p] {
 			return fmt.Errorf("duplicate layer entry %q", p)
 		}
@@ -132,13 +135,11 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 			pending.opaque[path.Dir(p)] = change{"deleted", id, order}
 		} else if strings.HasPrefix(base, ".wh.") {
 			target := path.Join(path.Dir(p), strings.TrimPrefix(base, ".wh."))
-			// Whiteouts apply before additions, regardless of tar entry order.
-			if pending.trees[target].state != "overwritten" {
-				pending.trees[target] = change{"deleted", id, order}
-			}
+			// Whiteouts remove lower occurrences before same-layer additions.
+			pending.trees[target] = change{"deleted", id, order}
 		} else if h.Typeflag == tar.TypeDir && p != "/" {
 			pending.exact[p] = change{"overwritten", id, order}
-		} else if h.Typeflag != tar.TypeDir {
+		} else if h.Typeflag != tar.TypeDir && pending.trees[p].state != "deleted" {
 			pending.trees[p] = change{"overwritten", id, order}
 		}
 		// Header values can carry secrets even on links and special files. Never
@@ -195,7 +196,7 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 	// tar EOF occurs before the end of the blob. Drain padding and compression
 	// trailers to check both content digests and detect truncated downloads.
 	progress.setPhase("verifying trailers")
-	if _, err := io.Copy(io.Discard, uncompressed); err != nil {
+	if err := drainLayerTail(ctx, uncompressed); err != nil {
 		return err
 	}
 	if _, err := io.Copy(io.Discard, compressed); err != nil {
@@ -225,6 +226,31 @@ type change struct {
 type overlay struct {
 	exact, trees, opaque map[string]change
 	unknown              bool
+	budget               layerEntryBudget
+}
+
+const (
+	maxImageLayerEntries = 1_000_000
+	maxImagePathBytes    = 64 << 20
+)
+
+// This budget spans every layer of one image, including excluded entries.
+// An entry-count limit alone does not bound memory when names are very long.
+type layerEntryBudget struct {
+	entries   int
+	pathBytes int
+}
+
+func (b *layerEntryBudget) add(p string) error {
+	if b.entries >= maxImageLayerEntries {
+		return errors.New("image layers exceed one million entries")
+	}
+	if len(p) > maxImagePathBytes-b.pathBytes {
+		return errors.New("image layer paths exceed 64 MiB")
+	}
+	b.entries++
+	b.pathBytes += len(p)
+	return nil
 }
 
 func newOverlay() *overlay {
@@ -234,10 +260,10 @@ func (o *overlay) lookup(p string) (string, string) {
 	if o.unknown {
 		return "unknown", ""
 	}
-	latest := change{state: "visible", order: -1}
+	first := change{state: "visible", order: -1}
 	consider := func(c change) {
-		if c.state != "" && c.order > latest.order {
-			latest = c
+		if c.state != "" && (first.order == -1 || c.order < first.order || (c.order == first.order && c.state == "deleted")) {
+			first = c
 		}
 	}
 	consider(o.exact[p])
@@ -250,22 +276,12 @@ func (o *overlay) lookup(p string) (string, string) {
 			break
 		}
 	}
-	return latest.state, latest.layer
+	return first.state, first.layer
 }
 func (o *overlay) merge(n *overlay) {
-	for p, c := range n.exact {
-		if _, ok := o.exact[p]; !ok {
-			o.exact[p] = c
-		}
-	}
-	for p, c := range n.trees {
-		if _, ok := o.trees[p]; !ok {
-			o.trees[p] = c
-		}
-	}
-	for p, c := range n.opaque {
-		if _, ok := o.opaque[p]; !ok {
-			o.opaque[p] = c
-		}
-	}
+	// Walking backwards, each newly visited change is closer to the remaining
+	// older occurrences. Retain their first hiding event, not the final occupant.
+	maps.Copy(o.exact, n.exact)
+	maps.Copy(o.trees, n.trees)
+	maps.Copy(o.opaque, n.opaque)
 }

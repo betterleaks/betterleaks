@@ -40,7 +40,8 @@ type Source struct {
 	// MaxFileSize limits individual layer files (zero is unlimited). Exceeding
 	// a configured limit is a source error, so reports cannot claim completeness.
 	MaxFileSize int64
-	// MaxArchiveSize bounds expanded outer image archives; zero uses 20 GiB.
+	// MaxArchiveSize bounds the expanded outer tar stream (including headers,
+	// padding and trailing data) and extracted file bytes; zero uses 20 GiB.
 	MaxArchiveSize int64
 }
 

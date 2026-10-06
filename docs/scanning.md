@@ -1275,12 +1275,55 @@ betterleaks container example/app:latest --log-level=debug
 Debug progress reports stored layer bytes read, usually compressed. The final
 scanned-byte total measures detector input after exclusions and archive
 expansion; these numbers need not match. Default prefilters still exclude paths
-such as Python libraries and `node_modules`. See the
-[container coverage guide](container.md#coverage) for an exhaustive configuration.
+such as Python libraries and `node_modules`. To include those paths, export a
+standalone configuration and replace its top-level `prefilter` expression with
+`false`:
+
+```sh
+betterleaks config show > exhaustive.toml
+# Edit the top-level prefilter in exhaustive.toml to: prefilter = 'false'
+betterleaks container example/app:latest --config exhaustive.toml
+```
+
+Extending the default configuration adds prefilters; it cannot remove the
+inherited exclusions. Detection rules and finding filters still apply.
+
+Filesystem layers support uncompressed tar, gzip, and zstd. Outer Docker/OCI
+archives also support bzip2 and xz compression. Nested archives use the normal
+file source's format detection. Missing blobs, unsupported encryption, and
+legacy Docker schema-1 manifests produce incomplete scans.
 
 An image scan does not inspect running containers' writable layers, mounted
 volumes, runtime-injected environment variables, or build stages absent from the
 image. Registry enumeration and OCI referrers discovery are outside its scope.
+
+### Container provenance
+
+`location.path` is the absolute container path, with `!` separating nested
+archive members, for example `/app/bundle.zip!.env`. Metadata uses virtual paths
+such as `@config`, `@history/0`, `@manifest`, and `@index`. Escaped JSON strings
+also receive a decoded representation with a `#decoded` suffix; coordinates
+refer to the indicated representation.
+
+Findings indicate whether a file occurrence is `visible`, `overwritten`,
+`deleted`, or `unknown`, and identify the layer that first hid it when available.
+
+Layers are read from newest to oldest, but provenance identifies the earliest
+subsequent change to each historical occurrence. If layer 0 creates `/token`,
+layer 1 deletes it, and layer 2 creates it again, the layer-0 finding is `deleted`
+by layer 1. Recreating the pathname does not rewrite that history. Within one
+layer, whiteouts remove older occurrences before additions; they never hide a
+file introduced in that same layer.
+
+Path state describes an occurrence at its original path, not whether the secret
+is absent from the final image. Copies and hardlinks may retain the value.
+Links are scanned as metadata and are never followed into the host filesystem.
+An unreadable upper layer makes lower-layer path states `unknown`; Windows
+images also use `unknown` because their filesystem visibility is not modeled.
+
+Docker save archives do not preserve the original registry manifest digest or
+necessarily the original compressed layer bytes. Those unavailable digests are
+omitted. Config digests, diff IDs, tags, and layer indexes still identify findings.
 
 ### Limits and incomplete scans
 
@@ -1288,10 +1331,20 @@ image. Registry enumeration and OCI referrers discovery are outside its scope.
 | :--- | :--- | :--- |
 | `--max-file-size` | Unlimited | Caps individual layer files and stored artifact blobs; sparse files use their expanded size |
 | `--max-archive-depth` | `8` | Bounds nesting within layer files; the outer image archive and filesystem layer do not consume this budget |
-| `--max-archive-size` | `20 GiB` | Caps expanded outer archives, including daemon exports; `0` selects this default |
+| `--max-archive-size` | `20 GiB` | Caps the full expanded outer tar stream, including headers, padding and trailing data, and extracted file bytes; applies to daemon exports; `0` selects this default |
 
 Sizes accept units such as `250MiB` or `30GiB`. These are not aggregate limits
 on expansion inside nested archives.
+
+Additional bounds apply per image: at most one million layer entries and 64 MiB
+of normalized entry-path text across all its layers, including filtered entries.
+These bound the names retained for duplicate detection and historical path
+tracking. After a layer's tar end marker, at most 16 MiB of zero padding is
+accepted while validating the compression trailer and digest. Nonzero trailing
+data is an error. This padding bound does not cap normal layer file contents.
+JSON metadata input and each decoded representation are limited to 16 MiB;
+image-index nesting is limited to 32, outer archives to one million entries,
+and zstd decoder memory to 256 MiB. Limit failures mark the scan incomplete.
 
 Container scans use strict archive verification: missing or corrupt blobs,
 unreadable nested archives, checksum failures, and exceeded limits mark JSON/JSONL
@@ -1300,8 +1353,30 @@ collected are preserved, and independent content continues where possible.
 Configured prefilter exclusions do not count as errors. Strict verification is
 automatic for containers; there is no `--strict-archives` flag.
 
-See [Container image scanning](container.md) for the complete provenance fields,
-format support, and SDK usage.
+### Container SDK
+
+Import `github.com/betterleaks/betterleaks/v2/sources/container` and pass the source
+to the standard scanner or pipeline:
+
+```go
+src := &container.Source{
+    Images:          []string{"ghcr.io/example/app:latest"},
+    MaxArchiveDepth: 8,
+    Prefilter:       compiledPrefilter,
+}
+summary, err := scanner.Scan(ctx, src, handleFinding)
+```
+
+`Archives` and `Layouts` select local inputs; `Daemon` exports `Images` through
+the Docker CLI. `Keychain` and `Transport` allow custom registry authentication
+and HTTP transport, while `Anonymous` disables credential lookup. The zero value
+of `MaxArchiveDepth` disables nested archive traversal; the CLI supplies its
+default explicitly.
+
+For direct `Fragments` callers, recoverable coverage failures arrive through the
+callback's error argument. A non-nil callback return stops traversal. A nil
+`Fragments` return does not mean full coverage if errors were yielded; the
+standard scanner accounts for both error channels automatically.
 
 ---
 

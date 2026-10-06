@@ -24,6 +24,64 @@ type contextReader struct {
 	io.Reader
 }
 
+// budgetReader bounds bytes actually consumed, including data outside tar
+// entries. It probes at most one extra byte to distinguish an exact fit from
+// an exceeded limit, and keeps the failure visible to subsequent reads.
+type budgetReader struct {
+	reader    io.Reader
+	remaining int64
+	limitErr  error
+	err       error
+}
+
+func (r *budgetReader) Read(p []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if r.remaining == 0 {
+		var probe [1]byte
+		n, err := r.reader.Read(probe[:])
+		if n > 0 {
+			err = r.limitErr
+		}
+		r.err = err
+		return 0, err
+	}
+	n, err := r.reader.Read(p[:min(int64(len(p)), r.remaining)])
+	r.remaining -= int64(n)
+	r.err = err
+	return n, err
+}
+
+const maxLayerPadding = 16 << 20
+
+// A tar may have record padding after its end marker. Validate that padding
+// while reaching the compression trailer and digest; never expand an arbitrary
+// tail indefinitely just to verify a checksum.
+func drainLayerTail(ctx context.Context, reader io.Reader) error {
+	limited := &budgetReader{
+		reader:    contextReader{ctx, reader},
+		remaining: maxLayerPadding,
+		limitErr:  errors.New("layer tar padding exceeds 16 MiB"),
+	}
+	_, err := io.Copy(zeroPaddingWriter{}, limited)
+	return err
+}
+
+type zeroPaddingWriter struct{}
+
+func (zeroPaddingWriter) Write(p []byte) (int, error) {
+	for _, b := range p {
+		if b != 0 {
+			return 0, errors.New("nonzero data after layer tar end marker")
+		}
+	}
+	return len(p), nil
+}
+
 func (r contextReader) Read(p []byte) (int, error) {
 	if err := r.ctx.Err(); err != nil {
 		return 0, err

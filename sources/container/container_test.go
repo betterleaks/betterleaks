@@ -439,7 +439,8 @@ func TestOverlayDirectoryReplacementAndWhiteouts(t *testing.T) {
 	fs, errs := collect(t, &Source{Layouts: []string{f.directory()}})
 	require.Empty(t, errs)
 	require.Equal(t, "overwritten", find(t, fs, ResourceFile, "/dir/old", "").Attr(AttrPathState))
-	require.Equal(t, "deleted", find(t, fs, ResourceFile, "/dir2/old", "old-secret-2").Attr(AttrPathState))
+	require.Equal(t, "overwritten", find(t, fs, ResourceFile, "/dir2/old", "old-secret-2").Attr(AttrPathState))
+	require.Equal(t, "deleted", find(t, fs, ResourceFile, "/dir2/old", "replacement-secret").Attr(AttrPathState))
 	require.Equal(t, "visible", find(t, fs, ResourceFile, "/same", "same-new").Attr(AttrPathState))
 	require.NotEqual(t, "visible", find(t, fs, ResourceFile, "/same", "same-old").Attr(AttrPathState))
 	require.Equal(t, "visible", find(t, fs, ResourceFile, "/other", "").Attr(AttrPathState))
@@ -539,6 +540,7 @@ func TestMissingConfigStillScansLayers(t *testing.T) {
 func TestMetadataPreservesJSONAndDecodedStrings(t *testing.T) {
 	var fs []sources.Fragment
 	r := &session{s: &Source{}, yield: func(f sources.Fragment, err error) error { require.NoError(t, err); fs = append(fs, f); return nil }}
+	// Deliberately invalid key material tests JSON shape and escape handling.
 	raw := []byte(`{"credential":{"type":"service_account","private_key":"-----BEGIN PRIVATE KEY-----\nkey-secret\n-----END PRIVATE KEY-----","auth_provider_x509_cert_url":"https://example.test/certs"},"env":["TOKEN=\u0073ecret"]}`)
 	require.NoError(t, r.metadata(t.Context(), raw, "@config", ResourceConfig, map[string]string{AttrImage: "example"}))
 	original := find(t, fs, ResourceConfig, "@config", `"type":"service_account"`)

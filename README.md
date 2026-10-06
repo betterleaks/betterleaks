@@ -22,7 +22,7 @@ Development is supported by
 | **BPE filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
-| **Container Images** | Scan all platforms, historical layers, configuration, and embedded attestations, with digest provenance and deleted/overwritten path reporting. See the [container guide](docs/container.md). |
+| **Container Images** | Scan all platforms, historical layers, configuration, and embedded attestations, with digest provenance and deleted/overwritten path reporting. See the [container guide](docs/scanning.md#container). |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
 
 

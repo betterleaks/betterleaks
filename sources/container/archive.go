@@ -116,7 +116,14 @@ func (r *session) unpackFiles(ctx context.Context, input io.Reader, root *os.Roo
 	if limit == 0 {
 		limit = 20 << 30
 	}
-	t := tar.NewReader(stream)
+	expanded := &budgetReader{
+		reader:    contextReader{ctx, stream},
+		remaining: limit,
+		limitErr:  errors.New("expanded image archive exceeds --max-archive-size"),
+	}
+	t := tar.NewReader(expanded)
+	// Also bound logical file sizes: sparse tar members can write more bytes
+	// than the decompressed tar stream contains.
 	var used int64
 	entries := 0
 	for {
@@ -166,7 +173,7 @@ func (r *session) unpackFiles(ctx context.Context, input io.Reader, root *os.Roo
 		}
 	}
 	// Consume compression trailers, rejecting truncated compressed archives.
-	if _, err := io.Copy(io.Discard, stream); err != nil {
+	if _, err := io.Copy(io.Discard, expanded); err != nil {
 		return err
 	}
 	return nil
